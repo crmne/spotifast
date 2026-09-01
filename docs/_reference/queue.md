@@ -14,6 +14,10 @@ playlist, album, artist, or podcast, which opens when clicked, Liked
 Songs, or a radio named after the song, playlist, album, or artist it is
 based on, which opens the radio's page. The line shows only while a song is
 playing from somewhere Spotify reports.
+With smart shuffle on, **Next up** also holds songs Spotify suggests,
+woven between the playlist's own. They carry a sparkle and are not part
+of the playlist; turning smart shuffle off leaves them out of the next
+thing you play.
 
 These are the rules the app follows. The queue tests in `src/app.rs`
 check every one of them.
@@ -65,7 +69,8 @@ manually queued copies. A paused session stays paused. The handoff itself does
 not consume a queue row or restore an older queue saved on this computer.
 
 1. **The list shows the play order.** The top row plays next, followed by the
-   rows below it.
+   rows below it. Under *Next up* that order is the playlist's, plus the
+   songs smart shuffle wove in when it is on.
 
 2. **Add to queue adds a song to your part of the queue.** It goes after
    the songs you queued earlier and before the playlist's songs. Queue
@@ -139,3 +144,8 @@ counts once, and the notification reports only the rows actually added.
     target: it plays from the current context, not from a list Spotifast
     can rewrite. While *Playing next* is empty, drop the song on the player
     bar's Queue button instead.
+
+12. **Smart shuffle marks what it added.** A song Spotify suggested carries a
+    sparkle wherever it is shown, so it is never mistaken for one of yours.
+    Smart shuffle needs playback on this computer; on another device the
+    shuffle button offers on and off alone.

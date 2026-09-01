@@ -1478,6 +1478,9 @@ fn track_row_contents(
         );
         match row.item {
             PlayableItem::Track(track) => {
+                if app.smart_rows.contains(&track.uri) {
+                    smart_badge(&mut child, &palette);
+                }
                 if track.explicit {
                     explicit_badge(&mut child, &palette);
                 }
@@ -1572,6 +1575,9 @@ fn track_row_contents(
             ui.set_max_width(title_rect.width());
             match row.item {
                 PlayableItem::Track(track) => {
+                    if app.smart_rows.contains(&track.uri) {
+                        smart_badge(ui, &palette);
+                    }
                     if track.explicit {
                         explicit_badge(ui, &palette);
                     }
@@ -1978,6 +1984,14 @@ pub fn drag_ghost(ctx: &egui::Context, palette: &Palette, locale: Locale) {
                     });
                 });
         });
+}
+
+/// Marks a song smart shuffle wove into the play order. Without it a
+/// suggestion is indistinguishable from a song the user put in the playlist
+/// themselves.
+pub fn smart_badge(ui: &mut Ui, palette: &Palette) {
+    theme::icon(ui, Icon::Sparkles, 12.0, palette.accent)
+        .on_hover_text("Suggested by smart shuffle");
 }
 
 pub fn explicit_badge(ui: &mut Ui, palette: &Palette) {

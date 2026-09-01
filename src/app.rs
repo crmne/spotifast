@@ -478,9 +478,24 @@ pub struct App {
     /// Track shown immediately after a play or skip, until playback reports.
     intent_track: Option<TrackIntent>,
     /// Requested shuffle mode, applied to every context until changed.
-    shuffle_wanted: bool,
+    pub(crate) shuffle_wanted: bool,
     /// Last local shuffle change, used to ignore its echo from the engine.
     shuffle_set_at: Option<Instant>,
+    /// Smart shuffle chosen: the shuffled context is woven with songs
+    /// Spotify recommends. Kept beside `shuffle_wanted` rather than folded
+    /// into it so an older settings file still reads as plain shuffle.
+    pub(crate) smart_wanted: bool,
+    /// Context whose recommendations are on their way, so a late answer for
+    /// an abandoned one can be dropped.
+    smart_pending: Option<String>,
+    /// The context's own songs, already shuffled, held while its
+    /// recommendations are fetched.
+    smart_tracks: Vec<String>,
+    /// True while starting the order smart shuffle just wove, so building
+    /// that order does not ask for another round of suggestions about it.
+    smart_playing: bool,
+    /// Rows woven in by smart shuffle, so the queue can mark them.
+    pub smart_rows: HashSet<String>,
     /// When tracks recently came up unavailable, to spot a key-service
     /// cascade and reconnect once instead of skipping through an album.
     unavailable_at: Vec<Instant>,
@@ -900,6 +915,11 @@ impl App {
             intent_track: None,
             shuffle_wanted: session.shuffle_on,
             shuffle_set_at: None,
+            smart_wanted: session.smart_shuffle,
+            smart_pending: None,
+            smart_tracks: Vec::new(),
+            smart_playing: false,
+            smart_rows: HashSet::new(),
             unavailable_at: Vec::new(),
             last_unavailable_reconnect: None,
             premium_notice_shown: false,
@@ -1911,6 +1931,10 @@ impl App {
                     }
                     Err(error) => log::warn!("rootlist unavailable: {error}"),
                 },
+                Event::SmartShuffle {
+                    context_uri,
+                    result,
+                } => self.on_smart_shuffle(context_uri, result),
                 Event::Lyrics { uri, result } => {
                     if self.lyrics_uri.as_deref() == Some(uri.as_str()) {
                         self.lyrics = match result {
@@ -6723,6 +6747,85 @@ impl App {
         }
     }
 
+    /// What the shuffle button is set to. Smart shuffle is only offered
+    /// while this computer plays, so it reads as plain shuffle elsewhere.
+    pub fn shuffle_mode(&self) -> ShuffleMode {
+        let mode = ShuffleMode::from_settings(self.shuffle_wanted, self.smart_wanted);
+        if matches!(self.target(), Target::Local) {
+            mode
+        } else if mode.shuffles() {
+            ShuffleMode::On
+        } else {
+            ShuffleMode::Off
+        }
+    }
+
+    /// The mode to draw on the shuffle button. Spotify reports shuffle as a
+    /// plain flag, so smart shuffle is only visible by asking this app what
+    /// it was told to do.
+    pub fn shuffle_mode_shown(&self, reported: Option<bool>) -> ShuffleMode {
+        match reported {
+            // Nothing is playing, so there is nothing to report: show what
+            // this app was told to do, and a press shows its result at once.
+            None => self.shuffle_mode(),
+            Some(false) => ShuffleMode::Off,
+            Some(true) if self.shuffle_mode().is_smart() => ShuffleMode::Smart,
+            Some(true) => ShuffleMode::On,
+        }
+    }
+
+    /// Applies a chosen mode. Smart shuffle weaves on the next context that
+    /// starts; the song playing now is not interrupted to re-weave it.
+    fn set_shuffle_mode(&mut self, mode: ShuffleMode) {
+        self.smart_wanted = mode.is_smart();
+        self.set_shuffle(mode.shuffles());
+    }
+
+    /// The recommendations for a smart-shuffled context arrived. Weaves them
+    /// into the context's own songs and starts that order. An answer for a
+    /// context the user has moved on from is dropped: nothing they did may be
+    /// undone by a late response. Spotify having nothing to add is not a
+    /// failure, so the context still plays, as plain shuffle, and says so.
+    fn on_smart_shuffle(&mut self, context_uri: String, result: Result<Vec<String>, String>) {
+        if self.smart_pending.as_deref() != Some(context_uri.as_str()) {
+            return;
+        }
+        self.smart_pending = None;
+        let tracks = std::mem::take(&mut self.smart_tracks);
+        if tracks.is_empty() {
+            return;
+        }
+        let picks = match result {
+            Ok(picks) if !picks.is_empty() => picks,
+            Ok(_) => {
+                self.toast("Smart shuffle: Spotify had nothing to add");
+                Vec::new()
+            }
+            Err(error) => {
+                log::warn!("smart shuffle recommendations unavailable: {error}");
+                self.toast("Smart shuffle: couldn't reach Spotify's suggestions");
+                Vec::new()
+            }
+        };
+        let own: HashSet<String> = tracks.iter().cloned().collect();
+        let order = weave_recommendations(tracks, picks, SMART_SHUFFLE_EVERY);
+        self.smart_rows = order
+            .iter()
+            .filter(|uri| !own.contains(*uri))
+            .cloned()
+            .collect();
+        log::info!(
+            "smart shuffle: wove {} suggestions into {} songs, asking about {context_uri}",
+            self.smart_rows.len(),
+            own.len()
+        );
+        self.local_list = Some(order.clone());
+        let (order, index) = cap_uris(&order, 0);
+        self.smart_playing = true;
+        self.play_request(PlayRequest::tracks(order).starting_at_index(index), false);
+        self.smart_playing = false;
+    }
+
     /// With `shuffle_first`, shuffle is turned on before playback starts,
     /// in one ordered exchange: two independent requests race, and shuffle
     /// sometimes lost.
@@ -6737,6 +6840,70 @@ impl App {
             self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
         }
         let shuffle = shuffle_first || self.shuffle_wanted;
+        if shuffle {
+            // Which shape a shuffled play arrives in decides whether smart
+            // shuffle can weave into it, and the shapes differ per view.
+            // Kept at debug: one line per play is too much for a normal run,
+            // and without it the difference is invisible from the outside.
+            log::debug!(
+                "shuffle play: mode={:?} target={:?} context={:?} offset_uri={} offset_pos={} uris={} known_tracks={:?}",
+                self.shuffle_mode(),
+                self.target(),
+                request.context_uri,
+                request.offset_uri.is_some(),
+                request.offset_position.is_some(),
+                request.uris.len(),
+                request
+                    .context_uri
+                    .as_ref()
+                    .and_then(|c| self.context_track_uris(c))
+                    .map(|u| u.len()),
+            );
+        }
+        // Smart shuffle plays a list this app builds, not the context itself:
+        // the woven order cannot be expressed as a context plus an offset.
+        // Liked Songs and other views already play as a plain list of songs,
+        // with no context URI at all, so weave into either shape. A chosen
+        // row is left alone, as it is for ordinary shuffle.
+        if shuffle
+            && !self.smart_playing
+            && self.shuffle_mode().is_smart()
+            && request.offset_uri.is_none()
+            && request.offset_position.unwrap_or(0) == 0
+        {
+            let mut uris = if request.uris.is_empty() {
+                request
+                    .context_uri
+                    .as_deref()
+                    .and_then(|context| self.context_track_uris(context))
+                    .unwrap_or_default()
+            } else {
+                request.uris.clone()
+            };
+            // Asking about the context gives the best suggestions. A list has
+            // no context, so seed from one of its own songs: a song always has
+            // a station even where its context has none.
+            let ask = request
+                .context_uri
+                .clone()
+                .or_else(|| smart_shuffle_seed(&uris));
+            if uris.len() > 1
+                && let Some(ask) = ask
+            {
+                for index in (1..uris.len()).rev() {
+                    uris.swap(index, rand::random_range(0..=index));
+                }
+                let seed = smart_shuffle_seed(&uris);
+                self.smart_tracks = uris;
+                self.smart_pending = Some(ask.clone());
+                self.smart_rows.clear();
+                self.backend.send(Command::SmartShuffle {
+                    context_uri: ask,
+                    seed_track: seed,
+                });
+                return;
+            }
+        }
         if request.offset_uri.is_none()
             && request.offset_position.is_none()
             && request.uris.is_empty()
@@ -8439,10 +8606,13 @@ impl App {
                 }
             }
             Action::ToggleShuffle => {
-                let shuffle = self
-                    .now_playing()
-                    .map_or(self.shuffle_wanted, |now| now.shuffle);
-                self.set_shuffle(!shuffle);
+                // Cycle through what this app was told to do. Deriving the
+                // current mode from Spotify's report cannot reach smart
+                // shuffle while nothing plays: there is no report, so every
+                // press would start again from off.
+                let local = matches!(self.target(), Target::Local);
+                let next = self.shuffle_mode().next(local);
+                self.set_shuffle_mode(next);
             }
             Action::SetShuffle(shuffle) => self.set_shuffle(shuffle),
             Action::CycleRepeat => {
@@ -9968,6 +10138,7 @@ impl App {
                     .map(|queue| queue.queue.iter().take(30).cloned().collect())
                     .unwrap_or_default(),
                 shuffle_on: self.shuffle_wanted,
+                smart_shuffle: self.smart_wanted,
                 sorts: self
                     .table_sorts
                     .iter()
@@ -10452,6 +10623,56 @@ fn cover_error(locale: Locale, error: &crate::api::client::ApiError) -> String {
 }
 
 mod radio;
+
+/// A song to seed suggestions from when the context itself has no
+/// continuation. Spotify answers for a track even where it answers nothing
+/// for the context: Liked Songs has no autoplay context of its own, but any
+/// song in it has a station.
+fn smart_shuffle_seed(tracks: &[String]) -> Option<String> {
+    let songs: Vec<&String> = tracks
+        .iter()
+        .filter(|uri| uri.contains(":track:"))
+        .collect();
+    songs
+        .get(rand::random_range(0..songs.len().max(1)))
+        .map(|uri| (*uri).clone())
+}
+
+/// One recommendation after every three songs of the context, which is about
+/// what Spotify's own smart shuffle does. Not a setting: the feature is one
+/// coherent behaviour rather than a dial.
+const SMART_SHUFFLE_EVERY: usize = 4;
+
+/// Weaves recommendations into a shuffled context for smart shuffle: after
+/// every `every - 1` songs of the context comes one recommendation. A
+/// recommendation already in the context is skipped, so smart shuffle never
+/// makes a song play twice. The context always plays in full; once the picks
+/// are spent the rest of it follows unwoven.
+fn weave_recommendations(
+    context: Vec<String>,
+    recommendations: Vec<String>,
+    every: usize,
+) -> Vec<String> {
+    if every < 2 {
+        return context;
+    }
+    let known: HashSet<&str> = context.iter().map(String::as_str).collect();
+    let mut picks = recommendations
+        .into_iter()
+        .filter(|uri| !known.contains(uri.as_str()))
+        .collect::<Vec<String>>()
+        .into_iter();
+    let mut woven = Vec::with_capacity(context.len());
+    for (index, uri) in context.into_iter().enumerate() {
+        woven.push(uri);
+        if (index + 1) % (every - 1) == 0
+            && let Some(pick) = picks.next()
+        {
+            woven.push(pick);
+        }
+    }
+    woven
+}
 
 #[cfg(test)]
 mod tests {
@@ -23094,5 +23315,301 @@ mod tests {
             app.library.liked.revision, before,
             "the shorter list must invalidate the table's cached row order"
         );
+    }
+    /// Smart shuffle puts one recommendation after every three playlist
+    /// songs, so the fourth row and the eighth come from Spotify rather
+    /// than from the playlist.
+    #[test]
+    fn smart_shuffle_weaves_one_recommendation_every_fourth_row() {
+        let context: Vec<String> = (1..=6).map(|n| format!("spotify:track:p{n}")).collect();
+        let picks: Vec<String> = (1..=2).map(|n| format!("spotify:track:r{n}")).collect();
+        let woven = weave_recommendations(context, picks, 4);
+        let expected: Vec<String> = [
+            "spotify:track:p1",
+            "spotify:track:p2",
+            "spotify:track:p3",
+            "spotify:track:r1",
+            "spotify:track:p4",
+            "spotify:track:p5",
+            "spotify:track:p6",
+            "spotify:track:r2",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+        assert_eq!(woven, expected);
+    }
+
+    /// A recommendation already in the playlist is dropped rather than
+    /// woven in: smart shuffle must not make a song play twice.
+    #[test]
+    fn smart_shuffle_skips_a_recommendation_already_in_the_playlist() {
+        let context: Vec<String> = (1..=3).map(|n| format!("spotify:track:p{n}")).collect();
+        let picks = vec!["spotify:track:p2".to_owned(), "spotify:track:r1".to_owned()];
+        let woven = weave_recommendations(context, picks, 4);
+        assert_eq!(
+            woven.last().map(String::as_str),
+            Some("spotify:track:r1"),
+            "the duplicate is skipped and the next recommendation takes the slot"
+        );
+        assert_eq!(
+            woven
+                .iter()
+                .filter(|uri| *uri == "spotify:track:p2")
+                .count(),
+            1,
+            "the playlist's own copy stays, the recommended duplicate does not"
+        );
+    }
+
+    /// With nothing recommended, smart shuffle plays the plain shuffled
+    /// list. The feature degrades to ordinary shuffle instead of failing.
+    #[test]
+    fn smart_shuffle_without_recommendations_is_the_plain_list() {
+        let context: Vec<String> = (1..=5).map(|n| format!("spotify:track:p{n}")).collect();
+        let woven = weave_recommendations(context.clone(), Vec::new(), 4);
+        assert_eq!(woven, context);
+    }
+
+    /// When the recommendations run out the rest of the playlist still
+    /// plays, unwoven, rather than the list ending early.
+    #[test]
+    fn smart_shuffle_keeps_the_playlist_when_recommendations_run_out() {
+        let context: Vec<String> = (1..=9).map(|n| format!("spotify:track:p{n}")).collect();
+        let picks = vec!["spotify:track:r1".to_owned()];
+        let woven = weave_recommendations(context, picks, 4);
+        assert_eq!(woven.len(), 10, "nine playlist songs plus the one pick");
+        assert_eq!(woven[3].as_str(), "spotify:track:r1");
+        assert_eq!(
+            woven.last().map(String::as_str),
+            Some("spotify:track:p9"),
+            "the playlist keeps going after the picks are spent"
+        );
+    }
+
+    /// The shuffle button has three states on this computer: off, shuffle,
+    /// then smart shuffle, and back to off.
+    #[test]
+    fn the_shuffle_button_cycles_off_shuffle_smart_on_this_computer() {
+        assert_eq!(ShuffleMode::Off.next(true), ShuffleMode::On);
+        assert_eq!(ShuffleMode::On.next(true), ShuffleMode::Smart);
+        assert_eq!(ShuffleMode::Smart.next(true), ShuffleMode::Off);
+    }
+
+    /// Smart shuffle needs local playback, so on a remote device the button
+    /// is the plain two-state toggle. The app does not offer what it cannot
+    /// deliver there.
+    #[test]
+    fn the_shuffle_button_skips_smart_on_a_remote_device() {
+        assert_eq!(ShuffleMode::Off.next(false), ShuffleMode::On);
+        assert_eq!(ShuffleMode::On.next(false), ShuffleMode::Off);
+    }
+
+    /// Smart shuffle left on, then playback moves to a remote device: the
+    /// mode reads as plain shuffle there rather than claiming to be smart.
+    #[test]
+    fn smart_shuffle_reads_as_plain_shuffle_on_a_remote_device() {
+        assert_eq!(ShuffleMode::Smart.next(false), ShuffleMode::Off);
+        assert!(
+            ShuffleMode::Smart.shuffles(),
+            "smart shuffle is still shuffle"
+        );
+    }
+
+    /// A settings file written before smart shuffle existed has no such
+    /// field. It must load as the mode the user last chose, never as smart.
+    #[test]
+    fn settings_from_before_smart_shuffle_load_as_plain_shuffle() {
+        assert_eq!(ShuffleMode::from_settings(true, false), ShuffleMode::On);
+        assert_eq!(ShuffleMode::from_settings(false, false), ShuffleMode::Off);
+        assert_eq!(ShuffleMode::from_settings(true, true), ShuffleMode::Smart);
+        assert_eq!(
+            ShuffleMode::from_settings(false, true),
+            ShuffleMode::Off,
+            "smart without shuffle is not a state the button can reach"
+        );
+    }
+
+    /// Recommendations arriving for a smart-shuffled playlist start it with
+    /// them woven in, and each woven row is remembered so the queue can mark
+    /// it.
+    #[test]
+    fn smart_shuffle_plays_the_woven_list_when_recommendations_arrive() {
+        let mut app = headless_app();
+        app.smart_pending = Some("spotify:playlist:pl1".into());
+        app.smart_tracks = (1..=6).map(|n| format!("spotify:track:p{n}")).collect();
+        app.on_smart_shuffle(
+            "spotify:playlist:pl1".into(),
+            Ok(vec!["spotify:track:r1".into()]),
+        );
+        let played = app.local_list.clone().expect("a list went to playback");
+        assert_eq!(
+            played[3].as_str(),
+            "spotify:track:r1",
+            "the fourth row is the recommendation"
+        );
+        assert!(
+            app.smart_rows.contains("spotify:track:r1"),
+            "the woven row is marked"
+        );
+        assert!(app.smart_pending.is_none(), "the request is settled");
+    }
+
+    /// Spotify having nothing to add is not a failure: the playlist plays as
+    /// plain shuffle, and the app says so rather than pretending it wove
+    /// anything in.
+    #[test]
+    fn smart_shuffle_falls_back_to_plain_shuffle_and_says_so() {
+        let mut app = headless_app();
+        app.smart_pending = Some("spotify:playlist:pl1".into());
+        app.smart_tracks = (1..=4).map(|n| format!("spotify:track:p{n}")).collect();
+        app.on_smart_shuffle("spotify:playlist:pl1".into(), Err("offline".into()));
+        let played = app.local_list.clone().expect("the playlist still plays");
+        assert_eq!(played.len(), 4, "only the playlist's own songs");
+        assert!(app.smart_rows.is_empty(), "nothing to mark");
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.to_lowercase().contains("smart shuffle")),
+            "the user is told smart shuffle could not add anything"
+        );
+    }
+
+    /// A late answer for a playlist the user has already moved on from is
+    /// dropped. Nothing the user did may be undone by a stale response.
+    #[test]
+    fn a_stale_smart_shuffle_answer_is_ignored() {
+        let mut app = headless_app();
+        app.smart_pending = Some("spotify:playlist:current".into());
+        app.smart_tracks = vec!["spotify:track:p1".into()];
+        app.on_smart_shuffle(
+            "spotify:playlist:abandoned".into(),
+            Ok(vec!["spotify:track:r1".into()]),
+        );
+        assert!(app.local_list.is_none(), "no playback was started");
+        assert_eq!(
+            app.smart_pending.as_deref(),
+            Some("spotify:playlist:current"),
+            "the request still stands"
+        );
+    }
+
+    /// The button draws the smart icon only where smart shuffle can run:
+    /// on this computer. Picking a remote device degrades the same settings
+    /// to plain shuffle, so the button never offers what it cannot deliver.
+    #[test]
+    fn the_button_shows_smart_only_where_smart_shuffle_runs() {
+        let mut app = headless_app();
+        app.shuffle_wanted = true;
+        app.smart_wanted = true;
+        assert!(matches!(app.target(), Target::Local));
+        assert_eq!(app.shuffle_mode_shown(Some(true)), ShuffleMode::Smart);
+        assert_eq!(
+            app.shuffle_mode_shown(None),
+            ShuffleMode::Smart,
+            "with nothing playing the button shows what was chosen"
+        );
+        assert_eq!(
+            app.shuffle_mode_shown(Some(false)),
+            ShuffleMode::Off,
+            "shuffle reported off is off, whatever was chosen"
+        );
+
+        app.local_device_id = Some("local-1".into());
+        app.selected_device = Some("kitchen-speaker".into());
+        assert!(matches!(app.target(), Target::Remote(_)));
+        assert_eq!(
+            app.shuffle_mode_shown(Some(true)),
+            ShuffleMode::On,
+            "smart degrades to plain shuffle away from this computer"
+        );
+    }
+
+    /// Some contexts have no continuation of their own — Liked Songs is one.
+    /// Smart shuffle then seeds from a song inside the context, so it still
+    /// has something to weave in instead of silently degrading.
+    #[test]
+    fn smart_shuffle_seeds_from_a_song_when_the_context_has_no_continuation() {
+        let mut app = headless_app();
+        app.shuffle_wanted = true;
+        app.smart_wanted = true;
+        app.library.liked.items = vec![];
+        let tracks: Vec<String> = (1..=5).map(|n| format!("spotify:track:p{n}")).collect();
+        let seed = smart_shuffle_seed(&tracks);
+        assert!(
+            tracks.contains(&seed.expect("a seed from the context's own songs")),
+            "the seed is one of the context's songs"
+        );
+        assert_eq!(
+            smart_shuffle_seed(&[]),
+            None,
+            "an empty context has nothing to seed from"
+        );
+    }
+
+    /// The button cycles through what this app was told to do, not through
+    /// what Spotify last reported. With nothing playing there is nothing to
+    /// report, and a button that read the report could never reach smart
+    /// shuffle: every press would start again from off.
+    #[test]
+    fn the_shuffle_button_reaches_smart_with_nothing_playing() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        assert!(app.now_playing().is_none(), "nothing is playing");
+        assert_eq!(app.shuffle_mode(), ShuffleMode::Off);
+        app.apply(Action::ToggleShuffle, &ctx);
+        assert_eq!(app.shuffle_mode(), ShuffleMode::On, "first press: shuffle");
+        app.apply(Action::ToggleShuffle, &ctx);
+        assert_eq!(
+            app.shuffle_mode(),
+            ShuffleMode::Smart,
+            "second press reaches smart shuffle even with nothing playing"
+        );
+        app.apply(Action::ToggleShuffle, &ctx);
+        assert_eq!(app.shuffle_mode(), ShuffleMode::Off, "third press: off");
+    }
+
+    /// Liked Songs plays as a list of songs, not as a context: its play
+    /// button sends the rows it shows. Smart shuffle has to weave into that
+    /// list too, or it never runs in the one place people shuffle most.
+    #[test]
+    fn smart_shuffle_weaves_a_list_play_not_only_a_context() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.apply(Action::ToggleShuffle, &ctx);
+        app.apply(Action::ToggleShuffle, &ctx);
+        assert_eq!(app.shuffle_mode(), ShuffleMode::Smart);
+        let uris: Vec<String> = (1..=8).map(|n| format!("spotify:track:p{n}")).collect();
+        app.apply(
+            Action::PlayUris {
+                uris: uris.clone(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(
+            app.smart_pending.is_some(),
+            "suggestions were asked for before the list started"
+        );
+        assert_eq!(app.smart_tracks.len(), 8, "the list is held for weaving");
+    }
+
+    /// Starting the woven order must not ask for suggestions about itself.
+    #[test]
+    fn playing_the_woven_order_does_not_weave_again() {
+        let mut app = headless_app();
+        app.shuffle_wanted = true;
+        app.smart_wanted = true;
+        app.smart_pending = Some("spotify:track:p1".into());
+        app.smart_tracks = (1..=8).map(|n| format!("spotify:track:p{n}")).collect();
+        app.on_smart_shuffle(
+            "spotify:track:p1".into(),
+            Ok(vec!["spotify:track:r1".into()]),
+        );
+        assert!(
+            app.smart_pending.is_none(),
+            "the woven order plays instead of asking for another round"
+        );
+        assert!(app.local_list.is_some(), "the woven order started");
     }
 }

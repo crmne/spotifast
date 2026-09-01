@@ -921,6 +921,24 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     ..Default::default()
                 }));
             }
+            // Smart shuffle, playing here: the button's third state and the
+            // sparkle on the rows it wove in.
+            "smart" => {
+                app.show_queue_panel = true;
+                app.local_ready = true;
+                app.local.connected = true;
+                app.local.playback = crate::player::Playback::Playing;
+                app.shuffle_wanted = true;
+                app.smart_wanted = true;
+                app.smart_rows = [
+                    "spotify:track:trk0",
+                    "spotify:track:trk4",
+                    "spotify:track:trk8",
+                ]
+                .iter()
+                .map(|uri| (*uri).to_owned())
+                .collect();
+            }
             "shortcuts" => app.dialog = Some(Dialog::Shortcuts),
             "premium" => app.dialog = Some(Dialog::PremiumNeeded),
             "edit" => {

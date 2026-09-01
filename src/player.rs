@@ -515,6 +515,29 @@ impl Engine {
         }
     }
 
+    /// The songs Spotify would carry this context on with: its autoplay
+    /// context, the same source the song radio plays. Smart shuffle weaves
+    /// these into the context's own songs. An empty answer is not an error;
+    /// Spotify simply has nothing to suggest for that context.
+    pub async fn autoplay_tracks(&self, context_uri: &str) -> Result<Vec<String>> {
+        let request = librespot_protocol::autoplay_context_request::AutoplayContextRequest {
+            context_uri: Some(context_uri.to_owned()),
+            ..Default::default()
+        };
+        let context = self
+            .session
+            .spclient()
+            .get_autoplay_context(&request)
+            .await
+            .map_err(|error| anyhow!("autoplay context: {error}"))?;
+        Ok(context
+            .pages
+            .into_iter()
+            .flat_map(|page| page.tracks)
+            .filter_map(|track| track.uri)
+            .collect())
+    }
+
     /// Account playlist tree in Spotify order, including folder markers,
     /// and which of its playlists the account may add songs to.
     pub async fn rootlist(&self) -> Result<Rootlist> {

@@ -48,6 +48,18 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings. |
 | **Winamp mini player** | Use classic skins with an equalizer, playlist, and animated sound displays. |
 | **MilkDrop** | Watch music-reactive visuals in a separate window or full screen. See platform availability below. |
+| **Smart shuffle** | Play a context in a random order with songs Spotify suggests woven in, about one after every three of your own. Needs playback on this computer. |
+
+## Smart shuffle
+
+The shuffle button has three settings: off, shuffle, and smart shuffle. Smart
+shuffle plays the context in a random order and weaves in songs Spotify
+suggests for it, about one after every three of your own. Woven songs carry a
+sparkle in the queue and in the player.
+
+The suggestions come from the same place the song radio does, through local
+playback, so smart shuffle needs playback set up on this computer. On a remote
+Spotify Connect device the button offers on and off alone.
 
 ## Install
 

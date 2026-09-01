@@ -452,6 +452,7 @@ fastframe_icons::icons! {
         Settings => lucide "settings",
         Shrink => "shrink",
         Shuffle => "shuffle",
+        SmartShuffle => "shuffle-sparkles",
         SkipBack => "skip-back",
         SkipBackFilled => "skip-back-filled",
         SkipForward => "skip-forward",
