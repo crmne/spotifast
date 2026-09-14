@@ -139,10 +139,11 @@ apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 # src/mac_touchbar_crash_guard.rs catch a specific AppKit Objective-C
 # exception instead of letting it abort the process.
 objc2 = { version = "0.6", features = ["exception"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow"] }
 # NSAppleEventManager and NSAppleEventDescriptor carry the Spotify links
-# macOS hands an app registered for the scheme (src/mac_links.rs).
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString"] }
+# macOS hands an app registered for the scheme (src/mac_links.rs), and
+# NSUserDefaults reads its title-bar double-click action.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSUserDefaults"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }

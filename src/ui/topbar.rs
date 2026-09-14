@@ -177,11 +177,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // its empty parts drag the window.
     let inset = theme::titlebar_inset(ui.ctx());
     let content_height = theme::TOP_BAR_HEIGHT + inset;
-    let height = content_height + window_controls.topbar_top;
-    super::titlebar_drag(
-        ui,
-        egui::Rect::from_min_size(ui.cursor().min, vec2(width, height)),
-    );
+    if cfg!(windows) {
+        super::titlebar_drag(
+            ui,
+            egui::Rect::from_min_size(
+                ui.cursor().min,
+                vec2(width, content_height + window_controls.topbar_top),
+            ),
+        );
+    }
     ui.add_space(window_controls.topbar_top);
     ui.allocate_ui_with_layout(
         vec2(width, content_height),
