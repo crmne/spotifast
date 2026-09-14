@@ -3395,6 +3395,7 @@ impl App {
         }
         self.library.playlists = Loadable::Loading;
         self.library.playlists_next = None;
+        self.library.playlists_asked = None;
         self.backend.api(ApiRequest::MyPlaylists { offset: 0 });
     }
 
@@ -3779,6 +3780,7 @@ impl App {
             }
             Page::Home => {
                 if let Some(offset) = self.library.playlists_next.take() {
+                    self.library.playlists_asked = Some(offset);
                     self.backend.api(ApiRequest::MyPlaylists { offset });
                 }
             }
@@ -4912,8 +4914,13 @@ impl App {
                     self.home.discover = std::mem::take(&mut self.home.discover_pending);
                 }
             }
+            // A reload reads the playlists from the top again, so a later
+            // page asked for before it no longer continues the list.
+            ApiResponse::MyPlaylists { offset, .. }
+                if offset > 0 && self.library.playlists_asked != Some(offset) => {}
             ApiResponse::MyPlaylists { offset, result } => match result {
                 Ok(page) => {
+                    self.library.playlists_asked = None;
                     let next_offset = page.next_offset();
                     match &mut self.library.playlists {
                         Loadable::Loaded(existing) if offset > 0 => existing.extend(page.items),
@@ -10646,6 +10653,82 @@ mod tests {
             app.playlist_pages["pl1"].playlist.get().unwrap().public,
             Some(false)
         );
+    }
+
+    /// Following, unfollowing or editing a playlist reads the library's
+    /// playlists again from the top. A later page asked for before that
+    /// belongs to the old list: taking it made that page the whole list,
+    /// and the pages it led on to ran beside the new ones and repeated them.
+    #[test]
+    fn a_playlist_page_asked_for_before_a_reload_is_not_taken() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let page = |ids: &[&str], offset: u32, total: u32| crate::api::models::Page {
+            items: ids
+                .iter()
+                .map(|id| Playlist {
+                    id: (*id).into(),
+                    uri: format!("spotify:playlist:{id}"),
+                    ..Playlist::default()
+                })
+                .collect(),
+            total,
+            limit: 2,
+            offset,
+            next: (offset + (ids.len() as u32) < total).then(|| "more".to_string()),
+        };
+        let listed = |app: &App| {
+            app.library.playlists.get().map(|playlists| {
+                playlists
+                    .iter()
+                    .map(|playlist| playlist.id.clone())
+                    .collect::<Vec<_>>()
+            })
+        };
+
+        app.load_playlists();
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            result: Ok(page(&["a", "b"], 0, 3)),
+        });
+        // The second page is on its way when following a playlist reloads.
+        app.handle_api(ApiResponse::PlaylistFollowChanged {
+            id: "new".into(),
+            followed: true,
+            result: Ok(()),
+        });
+        assert!(app.library.playlists.is_loading());
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 2,
+            result: Ok(page(&["c"], 2, 3)),
+        });
+        assert!(
+            app.library.playlists.is_loading(),
+            "the late page is not the reloaded list"
+        );
+        assert_eq!(app.library.playlists_next, None, "and asks for nothing");
+
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            result: Ok(page(&["new", "a"], 0, 4)),
+        });
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 2,
+            result: Ok(page(&["b", "c"], 2, 4)),
+        });
+        let whole = Some(vec![
+            "new".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+        ]);
+        assert_eq!(listed(&app), whole);
+        // Another answer for a page already taken adds nothing.
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 2,
+            result: Ok(page(&["b", "c"], 2, 4)),
+        });
+        assert_eq!(listed(&app), whole);
     }
 
     /// The streaming session does not always name a playlist's owner. The
