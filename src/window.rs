@@ -25,9 +25,9 @@ fn macos_double_click_action(preference: Option<&str>) -> MacosDoubleClickAction
 /// Handles a macOS title-bar double-click, or leaves a first click to drag.
 #[cfg(target_os = "macos")]
 pub fn macos_titlebar_should_drag() -> bool {
-    use objc2::MainThreadMarker;
+    use objc2::{MainThreadMarker, sel};
     use objc2_app_kit::{NSApplication, NSEventType};
-    use objc2_foundation::{NSUserDefaults, ns_string};
+    use objc2_foundation::{NSObjectNSDelayedPerforming, NSUserDefaults, ns_string};
 
     let Some(mtm) = MainThreadMarker::new() else {
         return true;
@@ -45,10 +45,20 @@ pub fn macos_titlebar_should_drag() -> bool {
     let action =
         macos_double_click_action(preference.as_deref().map(ToString::to_string).as_deref());
     if let Some(window) = event.window(mtm) {
-        match action {
-            MacosDoubleClickAction::Ignore => {}
-            MacosDoubleClickAction::Minimize => window.performMiniaturize(None),
-            MacosDoubleClickAction::Zoom => window.performZoom(None),
+        // Let egui finish this frame before AppKit starts resizing the window.
+        // SAFETY: Both NSWindow selectors take one optional sender argument.
+        unsafe {
+            match action {
+                MacosDoubleClickAction::Ignore => {}
+                MacosDoubleClickAction::Minimize => window.performSelector_withObject_afterDelay(
+                    sel!(performMiniaturize:),
+                    None,
+                    0.0,
+                ),
+                MacosDoubleClickAction::Zoom => {
+                    window.performSelector_withObject_afterDelay(sel!(performZoom:), None, 0.0)
+                }
+            }
         }
     }
     false
