@@ -1156,7 +1156,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let context_playing = app.believed_playing();
     let current_page = app.page().clone();
 
-    crate::autoscroll::show(
+    crate::ui::scroll::show(
         ui,
         egui::ScrollArea::vertical()
             .id_salt("sidebar-list")

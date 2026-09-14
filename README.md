@@ -425,6 +425,13 @@ keys for moving the caret while you type.
 Hold `Shift` while turning the mouse wheel to scroll horizontal shelves,
 including Made for you and Recently played on Home.
 
+A scroll that runs out of list on a page, the Library sidebar, the queue or the
+lyrics lets it follow a little further over empty background, then returns. A
+pull stays held for at most 120 ms before returning and moves the content by
+less than 64 points. It gives way less the further it goes, so the end of a list
+is still unmistakable. An end already resting where it stops does not move, so
+this only softens arriving at one.
+
 The main window exposes named playback controls, library and song rows,
 menus, sliders, and settings switches to screen readers. Use `Tab` and
 `Shift+Tab` to move focus, then `Enter` to activate a control or

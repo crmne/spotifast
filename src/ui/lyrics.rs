@@ -160,7 +160,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     // line is quiet, regular text, the same before and after it has been
     // sung. A line takes 220 ms to light up or fade, as in omarchy-lyrics.
     let quiet = palette.text.gamma_multiply(0.45);
-    let scroll = crate::autoscroll::show(
+    let scroll = crate::ui::scroll::show(
         ui,
         egui::ScrollArea::vertical()
             .id_salt("lyrics-scroll")
