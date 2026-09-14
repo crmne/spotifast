@@ -144,7 +144,9 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   stopped. Play resumes it, and the other playback controls work before it
   starts.
 - **Album-art colour.** Pages and the player bar take a tint from the cover
-  of what you are looking at or listening to. Turn it off in Settings.
+  of what you are looking at or listening to. The bar fades from one song's
+  colour to the next rather than switching in a single frame. Turn it off in
+  Settings.
 - **Light and dark**, or follow the system.
 - **Repeat stays selected.** On `main`, after 0.8.0, starting another song
   locally preserves Repeat, with Shuffle on or off.
