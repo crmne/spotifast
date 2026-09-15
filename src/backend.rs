@@ -34,6 +34,8 @@ pub type ApiResult<T> = Result<T, ApiError>;
 
 const PREMIUM_NEEDED: &str = "Local playback needs Spotify Premium.";
 const ALBUM_TYPE_TIMEOUT: Duration = Duration::from_secs(30);
+// Librespot can try six APs and retry each five-second connection once.
+const ENGINE_CONNECT_TIMEOUT: Duration = Duration::from_secs(75);
 // Keep at most one full Web API album page outstanding for a playback engine.
 const MAX_PENDING_ALBUM_TYPES: usize = 50;
 pub const PLAYLIST_PAGE_SIZE: u32 = 50;
@@ -2503,7 +2505,7 @@ impl Worker {
                 }
             };
             let attempt = tokio::time::timeout(
-                Duration::from_secs(45),
+                ENGINE_CONNECT_TIMEOUT,
                 Engine::connect(&config, proxy, credentials, cache, notify),
             )
             .await;
@@ -4073,6 +4075,11 @@ fn playback_credentials(account: Option<AccountId>, access_token: String) -> Opt
 #[cfg(test)]
 mod authorization_tests {
     use super::*;
+
+    #[test]
+    fn engine_timeout_outlasts_all_access_point_attempts() {
+        assert!(ENGINE_CONNECT_TIMEOUT > Duration::from_secs(6 * 2 * 5));
+    }
 
     #[test]
     fn proxy_changes_compare_with_the_running_engine() {
