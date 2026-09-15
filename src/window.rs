@@ -6,6 +6,7 @@
 pub const ON_TOP_UNAVAILABLE: &str =
     "On Wayland, use your desktop's Keep Above shortcut or window rule.";
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MacosDoubleClickAction {
     Ignore,
@@ -13,6 +14,7 @@ enum MacosDoubleClickAction {
     Zoom,
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn macos_double_click_action(preference: Option<&str>) -> MacosDoubleClickAction {
     match preference {
         Some("Minimize") => MacosDoubleClickAction::Minimize,
