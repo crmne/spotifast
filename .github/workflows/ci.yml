@@ -44,8 +44,6 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Formatting
         run: cargo fmt --all --check
-      - name: Issue assessment regression tests
-        run: node --test .github/scripts/issue-assessment.test.cjs
       - name: Flatpak release metadata regression tests
         run: python3 packaging/flatpak/test-metainfo.py
       - name: Linux launcher packaging regressions

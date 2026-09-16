@@ -1,0 +1,76 @@
+duplicates: close
+
+report_bots:
+  - honeybadger[bot]
+
+labels:
+  accessibility: A concrete barrier to accessing or operating the product.
+  bug: A reproducible defect in this project.
+  documentation: Incorrect or missing documentation for this project.
+  enhancement: A missing capability within the documented product scope.
+  invalid: The premise is directly disproved by repository evidence.
+  needs-info: One specific missing technical fact prevents investigation.
+  out-of-scope: The exact request conflicts with a documented product boundary.
+  question: One specific missing technical fact prevents investigation.
+  wontfix: The exact request is explicitly ruled out by repository documentation.
+sources:
+- README.md
+- docs/_guide/*.md
+- docs/_reference/*.md
+- src/*.rs
+documentation:
+  docs/_guide/*.md: https://spotifast.rocks/%{name}/
+  docs/_reference/*.md: https://spotifast.rocks/%{name}/
+replies:
+  version: Which version are you using?
+  reproduction: What are the shortest steps that reproduce this?
+  expected: What did you expect to happen instead?
+  error: What is the exact error message? Please remove secrets and personal data.
+  platform: Which operating system are you using?
+  artifact: What is the SHA-256 of the exact file flagged by your antivirus?
+instructions: |
+  Triage this project's issues and discussions using the supplied report and
+  latest comments. Add at most two justified labels to issues; no labels on
+  discussions. For a new issue, give a brief initial assessment: state what
+  the report establishes and one useful next check. Follow-up replies must add
+  something useful, not repeat the assessment. Error-monitoring reports are
+  written for the maintainer: use the supplied exception and backtrace,
+  distinguish facts from unverified causes, and do not request details already
+  present. Ask for one missing non-sensitive fact only when it prevents useful
+  investigation, never for information already supplied. Choose source files
+  for a useful technical answer and cite only what those files establish;
+  otherwise leave reply null. Leave uncertain diagnoses and product decisions to the maintainer.
+  Compare possible duplicate reports with the supplied open issues. Link
+  related reports; close only clear duplicates under the configured rules. Do not promise
+  implementation, releases, or tests. Never repeat secrets or private data.
+  Keep replies short, direct, and free of status chatter, implementation
+  plans, headings, and em dashes.
+
+  For Spotify capabilities, select docs/_reference/what-spotify-allows.md. For
+  Web API slowness or throttling, select docs/_guide/make-it-even-faster.md. A
+  personal Client ID provides a separate quota, not caching; it does not fix a
+  librespot session or audio-key refusal. Do not dismiss a valid caching
+  request or repeat setup advice already tried. Local playback needs Premium.
+  No alternate audio sources, DRM bypass, embedded browser, telemetry, or
+  hosted Spotifast service. Use wontfix only for an exactly documented
+  unavailable capability; out-of-scope only for a documented product boundary.
+  Never infer an antivirus false positive from a detection name, unsigned
+  binary, or source code. Ask for the flagged artifact's SHA-256 when missing.
+  Never recommend restoring quarantine, disabling protection, or exclusions;
+  paid signing neither guarantees a remedy nor is necessarily the only remedy.
+
+  For user bug reports, prefer a report-based observation and one concrete
+  diagnostic question the reporter can answer. Do not select source files just
+  to restate the report or suggest inspecting code. For technical questions,
+  prefer relevant guides over implementation files. If the supplied files do
+  not establish an answer, stay silent rather than posting that the docs do not
+  cover it. For feature requests, check relevant documentation for existing
+  support before leaving product decisions to the maintainer.
+
+  For opening Spotify links, login setup, and proxies, select
+  docs/_guide/getting-started.md. Distinguish released features from support
+  documented only on main; do not imply development features are in 0.8.0.
+
+  Address the latest human update and account for checks already tried. Do not
+  repeat an answered question or a completed diagnostic step. After a bot
+  reply, only a useful new related-issue link warrants another comment.

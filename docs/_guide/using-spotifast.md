@@ -1,7 +1,7 @@
 ---
 redirect_from: /using-fastpotify/
 title: Everyday Use
-description: Library ordering and local play history.
+description: Play music, arrange playlists, find lyrics, and make Spotifast your own.
 nav_order: 3
 ---
 
@@ -72,11 +72,9 @@ order when Shuffle is off. Shuffle chooses a random starting song unless you
 choose a specific row. To resume the current song at its paused position,
 use **Play** in the bottom player bar or press `Space`.
 
-Since 0.8.0, starting playback from a sorted playlist or Liked Songs
-view immediately shows the requested song from the loaded rows. The preview
-stays while local playback connects, even when that song was not previously
-in the track cache. The selected order and the playlist stored on Spotify stay
-the same.
+When you start a song from a sorted playlist or Liked Songs, it appears in
+the player bar straight away while playback connects. Sorting changes the
+order you hear without rearranging the playlist saved on Spotify.
 
 Sorted and filtered views omit unavailable songs and local files from playback.
 The rows stay visible, and selecting a repeated song starts that occurrence. Filtering a playlist or Liked Songs plays only the matching songs,
@@ -89,8 +87,9 @@ the filter restores the original view. Existing Shuffle behavior is unchanged.
 Since 0.8.0, choose **Refresh** in a playlist's **…** menu to reload
 its details and songs, including changes made in another Spotify client. The
 menu item reads **Refreshing…** and is disabled while loading. Current songs,
-filtering and sorting stay visible, and pending edits finish before replacement
-rows are requested. A failed refresh keeps the songs and offers **Retry**.
+filtering and sorting stay visible. Spotifast finishes saving your edits before
+loading changes from Spotify. If loading fails, your songs stay visible and
+you can choose **Retry**.
 
 ## Playing from the sidebar
 
@@ -101,8 +100,9 @@ sidebar is not in compact mode.
 
 ## Search from a launcher
 
-On `main`, after 0.8.0, a Spotify search link opens Search and fills the box
-without starting playback. Bind a launcher or keyboard shortcut to:
+**In development, not included in 0.8.0:** a Spotify search link opens Search
+and fills the box without starting playback. To try it in a development build,
+set a launcher or keyboard shortcut to run:
 
 ```sh
 spotifast 'https://open.spotify.com/search/here%20comes%20the%20sun'
@@ -113,8 +113,8 @@ the latest search link waits for sign-in. Use `https://open.spotify.com/search`
 without a query to open an empty, focused search box.
 
 On Linux, `playerctl --player=fastpotify open` accepts the same search link
-when the app is running. Existing playback URIs keep their playback behavior.
-Search uses the normal Spotify catalogue requests and account permissions.
+when the app is running. Links to songs, albums, and playlists still start
+playback as before.
 
 ## Finding a setting
 
@@ -161,12 +161,12 @@ dates. Spotify does not supply equivalent dates for followed playlists or
 artists, so those sections do not offer that choice. Entries with missing save
 dates come last.
 
-**Spotify custom order** follows the playlist sequence and folders supplied by
-the existing local playback session. Until that order arrives, available
-playlists stay visible. The last good tree is kept for the same signed-in
-account. Spotifast's local pins remain at the top, including pins from a closed
-folder. Changing an order or dragging a row here does not change Spotify's
-order or folders.
+**Spotify custom order** follows your playlist order and folders from Spotify.
+Set up playback on this computer to load that order. Your playlists stay
+visible while it loads, and Spotifast remembers the last order for your account.
+Items you pin in Spotifast remain at the top, including items from a closed
+folder. Sorting or dragging Library items changes their order only in
+Spotifast; it does not rearrange your Spotify library.
 
 Drag playlists to choose **Local custom order**. New playlists appear below the
 pinned group. Selecting **Name**, **Recently played** or **Spotify custom order**
@@ -176,9 +176,8 @@ The playlist context menu's **Sort by recently played** also preserves it.
 Upgrading keeps the previous default: a saved local playlist arrangement wins;
 otherwise available Spotify folders keep their order, and a flat playlist list
 uses recent plays. Other sections keep their supplied Library order until you
-select a sort. Explicit sorts load the remaining pages of the selected section
-in the background. A failed page stops that loading; choosing the order again
-retries it.
+select a sort. Choosing a sort loads the rest of that Library section in the
+background. If loading fails, choose the order again to retry.
 
 Liked Songs starts pinned at the top. Drag it between pins to choose its
 position, or below the pin block to unpin it and put it in **Local custom
@@ -211,7 +210,7 @@ it again.
 Closing to the tray removes the window and its preview. Reopening the main
 window or switching to the Winamp window creates its controls again. Media
 keys and the system's now-playing controls continue working while the window
-is closed. These buttons add no Spotify requests beyond their playback actions.
+is closed.
 
 For the Winamp mini player, turn off **Show in taskbar** under
 **Settings > Winamp skins**, or **Show in taskbar** in its options menu.
@@ -230,11 +229,12 @@ it is not needed to recover a position left on an unplugged display.
 ## Keeping the mini player above other windows
 
 **Always on top** works on Windows, macOS and X11. On Wayland the app's
-controls are unavailable, because the window backend cannot apply them.
+controls are unavailable, because your desktop manages which windows stay above
+others.
 Use your desktop's window rule or shortcut instead. In KDE Plasma, configure
 **Keep Window Above Others** under **Settings > Keyboard > Shortcuts >
 Window Management**. Your saved preference remains available when you use
-Spotifast on a supported backend again.
+Spotifast on Windows, macOS, or X11 again.
 
 Since 0.8.0, the top bar reserves room for the device and update
 badges beside Search. In narrow windows those badges show only their icons.
@@ -267,7 +267,7 @@ snap the window, and drag a window edge or corner to resize it.
 
 ## Playlist covers
 
-On `main`, after 0.8.0, open a playlist you own and choose
+**In development, not included in 0.8.0:** open a playlist you own and choose
 **Edit details → Change cover**. Select a
 JPEG or PNG, check the preview, then choose **Upload cover**. Cancelling the
 picker leaves your previous selection intact. An upload error keeps the
@@ -281,10 +281,12 @@ use a personal Spotify app, reconnect it in Settings as well.
 
 Choose the microphone button in the player bar, or press **L**, to open lyrics.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
-choose **Follow** to resume it, or choose a line to seek there. On `main`, after 0.8.0, the expand
-button opens the full-screen view; press **Esc** or choose the shrink button to
-return to the previous window mode. In full screen, the waveform button reduces or restores
-scroll and highlight motion. The side panel keeps its usual appearance.
+choose **Follow** to resume it, or choose a line to jump to that part of the song.
+
+**In development, not included in 0.8.0:** the expand button opens lyrics in
+full screen. Press **Esc** or choose the shrink button to return to your previous
+window size. In full screen, the waveform button reduces or restores movement
+in the scrolling and highlights.
 
 | Dark theme | Light theme |
 | --- | --- |

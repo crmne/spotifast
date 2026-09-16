@@ -1,24 +1,20 @@
 ---
 redirect_from: /what-is-fastpotify/
 title: What is Spotifast?
-description: Why this native Spotify client exists, what it supports, and its current limitations.
+description: What Spotifast offers, what you need to use it, and its current limits.
 nav_order: 0
 ---
 
 ## Why Spotifast
 
-**Spotify, native and fast.** Spotifast is a Spotify client written in
-Rust with [egui](https://github.com/emilk/egui). It plays music through
-[librespot](https://github.com/librespot-org/librespot). It typically uses
-100–250 MB of RAM, while Spotify's desktop app often uses 600 MB to over 1 GB.
-It runs on Linux, macOS, and Windows, starts in well under a second, and has no
-browser engine.
+**Spotify, native and fast.** Spotifast is a lightweight Spotify app for
+Linux, macOS, and Windows. It opens in well under a second and typically uses
+100–250 MB of memory, while Spotify's desktop app often uses 600 MB to over 1 GB.
 
-**How to say it:** “spot-ee-fast,” written as one word.
-
-Spotifast was previously called **Fastpotify**. Existing settings, sign-ins,
-playlists and upgrade paths carry over. Version 0.8.0 is the first release
-with the new name.
+Spotifast was previously called **Fastpotify**. Version 0.8.0 is the first
+release with the new name. Your settings and sign-ins carry over when updating,
+except for Flatpak, which needs a [separate switch](/renaming/#flatpak).
+Your Spotify playlists stay on your account.
 
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast on this computer or another device.
@@ -28,9 +24,10 @@ cannot play music through Spotifast on this computer or another device.
 ## What it does
 
 - **Plays music on this computer.** Spotifast appears as a Spotify Connect
-  device. Select it from your phone or play music in the app. Playback is
-  gapless and supports up to 320 kbps, with
-  optional volume normalisation and an on-disk audio cache.
+  device. Select it from your phone or play music in the app. Playback has
+  no added gaps between songs and supports up to 320 kbps. Optional settings
+  keep songs at a similar loudness and reduce repeat downloads by keeping
+  recently played audio.
 - **Controls other devices.** Move playback to a speaker, a phone, or
   another computer from the device picker, and keep controlling it: play,
   pause, skip, seek, shuffle, repeat, volume.
@@ -39,49 +36,56 @@ cannot play music through Spotifast on this computer or another device.
 - **Search** across songs, artists, albums, playlists, podcasts, and
   episodes, with artist pages, discographies, and related artists.
 - **Background playback.** Closing the window keeps the music playing from
-  the system tray. On Linux, MPRIS supports media keys and `playerctl`.
-- **Themes.** Use light, dark, or system mode. Pages can take a colour from
-  album art.
+  the system tray. Use your keyboard's media keys to play, pause, and skip.
+- **Themes.** Choose light, dark, or your own colours. On Omarchy, Spotifast
+  can follow your desktop theme automatically. Pages can also take a colour
+  from album art.
+
+<a id="account-safety"></a>
+
+## Will my Spotify account get banned?
+
+**We're not aware of any confirmed account bans caused by normal Premium
+listening through Spotifast or other players using the same playback
+software, [librespot](https://github.com/librespot-org/librespot).**
+
+Spotifast plays music using your Spotify Premium subscription. It does not
+unlock Premium for Free accounts, remove ads, export songs, or bypass
+Spotify's copy protection. You sign in on Spotify's own website, and
+Spotifast never receives your Spotify password.
+
+Spotifast is independent of Spotify, so we cannot guarantee Spotify's future
+decisions. Changes at Spotify can also temporarily interrupt playback until
+the app is updated.
 
 ## What it does not do
 
 Spotifast has a limited scope:
 
-- **Playing needs Spotify Premium**, on this computer (as with every
-  librespot-based client) and on other devices too, because Spotify's API
-  only takes playback commands from Premium accounts. Browsing and search
-  work on any account, and Spotifast says so when a Free account signs in.
-- Setup has two sign-ins because Spotify authorizes Web API and streaming
-  access separately. [How it connects](/how-it-connects/) explains why.
-- Local playback tops out at 320 kbps. Spotify protects its lossless streams
-  with DRM that librespot does not support, and Spotifast will not circumvent
-  it. This can change if [lawful support lands upstream](https://github.com/librespot-org/librespot/issues/1583).
+- **Playing needs Spotify Premium**, both on this computer and when
+  controlling another device. Free accounts can browse and search.
+- Setup asks for two Spotify approvals: one to access your library, another
+  to play music on this computer. [How it connects](/how-it-connects/)
+  explains why.
+- **Spotify Lossless is not available.** Playback supports up to 320 kbps.
+  The playback software Spotifast uses, librespot, cannot play Spotify's
+  protected lossless audio. Spotifast will reconsider this if
+  [librespot adds lawful support](https://github.com/librespot-org/librespot/issues/1583).
 - No video podcasts or social features.
-- Spotifast is an **unofficial** client built on Spotify's public Web API
-  and librespot. Spotify changes these from time to time; when they do,
-  features can break until the client catches up.
+- Spotifast is an **unofficial** app. Changes at Spotify can temporarily
+  break features until Spotifast is updated.
 
 Bug reports should include `fastpotify.log`, `panic.log` after a crash, and
 steps to reproduce the problem. See the
 [issue form](https://github.com/crmne/spotifast/issues/new/choose).
-On `main`, after 0.8.0, the log also records the app version, platform and
-active OpenGL renderer. Window-creation failures are written there even when
-the app is started from the desktop without a console.
-
-## Account safety
-
-We are not aware of a Spotify account being suspended for using Spotifast
-or another librespot player with Premium. Sign-in happens on Spotify's own
-pages, audio uses the quality included with Premium, DRM stays intact, and
-Spotifast does not rip tracks or block ads.
-
-Reported suspensions usually involve modded apps that remove ads from free
-accounts, track ripping, or stream manipulation. Spotifast does none of
-those things, and its contribution rules prohibit them.
+Development builds after 0.8.0 also record the app version, operating system,
+and graphics details in the log. If the window fails to open, the log can
+help explain why, even when you started the app from your desktop.
 
 ## Prior art
 
-Spotifast uses [librespot](https://github.com/librespot-org/librespot) for
+Spotifast is written in Rust, with [egui](https://github.com/emilk/egui) for
+its interface and [librespot](https://github.com/librespot-org/librespot) for
 Spotify playback. It takes inspiration from
 [spotify-tui](https://github.com/Rigellute/spotify-tui),
 [spotify-player](https://github.com/aome510/spotify-player),

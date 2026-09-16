@@ -4,17 +4,16 @@ description: Run the MilkDrop visualiser, install presets, and use its controls.
 nav_order: 5
 ---
 
-Open MilkDrop from the top-bar visualiser button, Ctrl+Shift+K, Settings, or
-the mini player's **V** menu. It uses
-[projectM](https://github.com/projectM-visualizer/projectm) to play `.milk`
-presets in its own window and process.
+MilkDrop shows colourful animations that react to your music. Open it from
+the top-bar visualiser button, Ctrl+Shift+K, Settings, or the mini player's
+**V** menu. It runs in its own window.
 
 <video autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop running in Spotifast" style="width: 100%; height: auto;">
   <source src="/assets/images/milkdrop.mp4" type="video/mp4">
 </video>
 
-MilkDrop is included in the Linux, macOS, and x86_64 Windows builds. The
-Windows on ARM build leaves it out.
+MilkDrop is included on Linux and macOS, and in the Windows download for
+Intel or AMD PCs. It is not included in the Windows on ARM download.
 
 ## The window
 
@@ -22,18 +21,23 @@ Drag the image to move the window. Double-click or press **F** for fullscreen.
 Press **Esc** to leave fullscreen or close the window. Drag the lower-right
 corner to resize it.
 
-MilkDrop uses the same post-equalizer, pre-volume audio as the other
-visualisers. It keeps moving at zero volume and stays flat when another device
-is playing.
+Like the other visualisers, MilkDrop follows changes you make with the
+equalizer. Turning down the volume does not change the picture, even at zero.
+It reacts only to music playing on this computer.
 
 ## Presets
 
-Presets change every ten seconds by default. Change the interval in Settings.
-Presets live in the config directory's `milkdrop` folder. The first time
-MilkDrop opens with an empty folder, Spotifast automatically downloads the
-550 MilkDrop 2 presets and the 9,800-preset Cream of the Crop pack. Settings
-can fetch either pack again. Until the first preset arrives, projectM shows
-its idle preset.
+Each visual design is called a **preset**. They change every ten seconds by
+default; choose a different interval in Settings.
+
+On first use, Spotifast automatically downloads the 550 MilkDrop 2 presets
+and the 9,800-preset Cream of the Crop pack. You can download either pack
+again from Settings. A built-in animation appears while the download starts.
+
+Presets are saved in the `milkdrop` folder alongside your settings; see
+[file locations](/settings-and-files/). MilkDrop is powered by
+[projectM](https://github.com/projectM-visualizer/projectm) and supports its
+`.milk` preset files.
 
 ## Controls
 

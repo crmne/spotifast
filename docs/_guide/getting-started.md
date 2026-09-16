@@ -6,81 +6,27 @@ nav_order: 2
 
 ## Install
 
-The [Download page](/download/) has installers and archives for macOS,
-Windows, and Linux.
-
-Or build from source with [Rust](https://rustup.rs) 1.95 or newer:
-
-```sh
-git clone https://github.com/crmne/spotifast
-cd spotifast
-cargo install --path .
-```
-
-On Linux, install the GUI and audio development packages. On Arch:
-
-```sh
-sudo pacman -S --needed alsa-lib libpulse libxkbcommon wayland
-```
-
-On Debian or Ubuntu:
-
-```sh
-sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
-```
-
-Since 0.8.0, letters from system fallback fonts share the Latin
-baseline. This keeps mixed Japanese and Latin titles aligned when macOS
-selects Hiragino Sans, including when Japanese is a preferred language.
-
-Spotifast uses system fonts for scripts that its interface font does not
-cover, including Chinese, Japanese, Korean, Arabic, Hebrew, Thai, and Indic
-scripts. macOS and Windows include fonts for the common cases. On Linux,
-install `noto-fonts` and `noto-fonts-cjk` (Arch) or `fonts-noto` and
-`fonts-noto-cjk` (Debian or Ubuntu) if titles appear as empty boxes.
-
-Since 0.8.0, long right-to-left titles in song rows and the player
-bar end with an ellipsis inside their text area. Joined Arabic letters are
-measured together so the last visible letter stays whole at the edge.
-
-![Japanese, Chinese, and Korean titles in a playlist](/assets/images/scripts.png)
-
-On `main`, after 0.8.0, the Linux desktop entry is
-`packaging/applications/spotifast.desktop`, with a matching icon and window
-identity. After installing it,
-`xdg-mime default spotifast.desktop x-scheme-handler/spotify` picks Spotifast
-for `spotify:` links. Published 0.8.0 packages still use `fastpotify.desktop`;
-use that name in the command until updating. Existing settings and window
-positions are preserved.
+Choose your system on the [Download page](/download/) and follow its
+installation steps. Then open **Spotifast**.
 
 ## Sign in
 
-Start the app and press **Sign in with Spotify**. Your browser opens Spotify's
-consent page, so Spotifast never sees your password. When the browser returns
-to the app, your library loads.
+Press **Sign in with Spotify**. Your browser opens Spotify's sign-in page.
+Approve access there, then return to Spotifast to see your library.
+Spotifast never sees your Spotify password.
 
-Spotifast stores the grant in your system credential store. You normally
-need the browser only once per machine.
-
-On `main`, after 0.8.0, if Spotify is only reachable through a proxy, set it on the sign-in screen
-before you grant access: Off, System, HTTP, or SOCKS5. A manual HTTP or
-SOCKS5 proxy needs a host and a port; username and password are optional.
-The password uses your system credential store and stays out of
-`settings.json`. If the store is unavailable, a newly entered password works
-for this session and Spotifast reports that it could not remember it.
-Authentication applies to Web requests; local playback
-uses only an unauthenticated HTTP proxy and otherwise connects directly.
-SOCKS5 resolves Spotify hostnames at the proxy. After sign-in, the same choice
-lives in Settings → Proxy.
-The browser used for approval keeps its own proxy settings; configure it
-separately if it also needs a proxy to reach Spotify.
+Spotifast remembers your sign-in using your computer's protected storage,
+so you normally do not need to sign in each time you open the app.
 
 ## Enable playback on this computer
 
-Playing music *on this machine* needs a second browser approval because
-Spotify authorizes streaming separately ([why](/how-it-connects/)). Open the
-device menu in the player bar and select **Set up playback here**, or use
-Settings. This needs Spotify Premium. Spotifast saves the playback credential.
+**Playing music requires Spotify Premium.** To listen on this computer,
+open the device menu in the bottom player bar and select **Set up playback
+here**, or find the same option in Settings.
+
+Spotify asks you to approve playback separately from library access. Follow
+the browser prompt once; Spotifast remembers this approval too.
+[Read more about the two sign-ins](/how-it-connects/).
 
 The computer then appears as a Spotify Connect device named **Spotifast**.
 You can rename it in Settings.
@@ -92,30 +38,87 @@ You can rename it in Settings.
   menu or Ctrl+Q. On macOS you can also reopen it from the Dock. Settings can
   turn this off. On Linux, including Flatpak, a desktop with a working system
   tray is required for this behavior.
-- **Play and Pause fade.** With the default audio backend, music played on
-  this computer fades in or out to avoid a hard cut. Gapless transitions
-  between songs and playback on another device are unchanged.
+- **Play and Pause fade.** With the default audio settings, music played on
+  this computer fades in or out to avoid a hard cut.
 - **Play buttons show progress.** The button spins until Spotify responds.
 - **Artist names are links.** Click a credited artist in the player bar to
-  open their page. Since 0.8.0, local playback
-  preserves these links before Web API metadata arrives.
+  open their page, even while the rest of the song's details are loading.
 - **Common actions have shortcuts.** Space plays and pauses, Ctrl+F or `/`
   searches, and `Q` opens the queue. Ctrl+/ shows the full list.
-- **Rows and cards have context menus.** Right-click a song, playlist, album,
-  or artist to see actions such as queue, save, add to playlist, and copy link.
-  Search's **Top result** card has the menu for the song, artist, album,
-  playlist, or podcast it shows. Search shelves and filtered grids, and Home's
-  playlist shortcuts, Made for you, Recently played, and top artist cards offer
-  the same menus. Your own playlists include **Edit details** and **Delete**.
-  Since 0.8.0, Library's album, artist, and podcast
-  grids and artist pages' discography and related-artist cards offer these
-  menus too. Right-clicking opens the menu without starting playback.
-  **Add to playlist** includes a local name filter for the playlists you can
-  edit, for either one song or a selection. **New playlist** stays available
-  when no names match.
+- **Right-click for more actions.** Right-click a song, playlist, album,
+  artist, or podcast to see its menu. These menus are available in Home,
+  Search, Library, and artist pages. Your own playlists include **Edit details**
+  and **Delete**. Opening a menu does not start playback.
+  In **Add to playlist**, type a playlist name to find it, or choose
+  **New playlist**. You can add one song or a selection.
   If the playlist already contains the song, Spotifast asks before adding
   another copy.
 - **Spotify links open in Spotifast.** A `spotify:` link shared from another
   app opens its page, starting Spotifast if it is not running. Links to
   `open.spotify.com` go through the browser first, which hands them over the
   same way. `spotifast <link>` does the same from a terminal.
+
+## Match your desktop theme
+
+Open **Settings → Appearance → Theme** and choose **Light**, **Dark**, or
+**Follow system**. Follow system matches your desktop's appearance.
+
+On Omarchy, installing Spotifast from the AUR sets up theme matching the first
+time you open it. Choose **Follow system** or **Omarchy**, then change your
+desktop theme: Spotifast's colours follow while the music keeps playing.
+New installations already use Follow system. Updating keeps your previous
+theme choice.
+
+For your own colours or a manual installation, see
+[custom themes and Omarchy setup](/settings-and-files/#custom-themes).
+
+## If song titles show empty boxes
+
+Spotifast uses your computer's fonts to display titles in different languages.
+macOS and Windows already include fonts for most languages. On Linux,
+install `noto-fonts` and `noto-fonts-cjk` (Arch) or `fonts-noto` and
+`fonts-noto-cjk` (Debian or Ubuntu) if letters are missing.
+
+Titles can mix languages, including those written from right to left.
+Long titles are shortened with dots to fit the available space.
+
+![Japanese, Chinese, and Korean titles in a playlist](/assets/images/scripts.png)
+
+The app's menus are currently in English. Translations are being developed;
+see [Translating Spotifast](/translating/) to preview them or help.
+
+## Choosing which app opens Spotify links
+
+On macOS, opening Spotifast makes it available for Spotify links. If Spotify's
+own app is installed too, macOS uses whichever app last registered for them.
+On Windows, choose the app in **Settings → Apps → Default apps**.
+
+On Linux, after installing the app launcher, use this command for 0.8.0:
+
+```sh
+xdg-mime default fastpotify.desktop x-scheme-handler/spotify
+```
+
+Development builds after 0.8.0 rename the launcher to `spotifast.desktop`.
+If you installed that launcher, use its new name in the command.
+See [rename compatibility](/renaming/) for details.
+
+## If your network needs a proxy
+
+**In development, not included in 0.8.0:** you can configure a proxy, a server
+your network uses to reach the internet, on the sign-in screen or in
+**Settings → Proxy**. Enter the address, port, and any login details supplied
+by your network administrator. Spotifast protects the saved proxy password.
+If it cannot save the password, it tells you and uses it only until you quit.
+
+Playing music on this computer supports only HTTP proxies without a login.
+With other proxy types, music connects directly to Spotify even though
+browsing uses the proxy. Your browser has separate proxy settings, which may
+also need configuring for sign-in.
+See [proxy options and limits](/how-it-connects/#proxy).
+
+## Build from source
+
+If you want to build Spotifast yourself, follow the
+[build instructions in the README](https://github.com/crmne/spotifast#install).
+They list the Rust version and other tools needed for each system.

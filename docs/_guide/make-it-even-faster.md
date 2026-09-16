@@ -1,53 +1,47 @@
 ---
 title: Make It Even Faster
-description: "Use a personal Spotify app for a separate API quota."
+description: "Reduce loading delays with your own Spotify connection."
 nav_order: 6
 ---
 
 ## API rate limits
 
-Spotifast loads library and catalogue data through Spotify's Web API. By
-default, it shares a public app with several other open-source players. When
-that app reaches Spotify's request limit, requests are delayed and the top bar
-shows a spinner.
+Spotify limits how often apps can ask for information. Spotifast normally
+shares this allowance with other listeners and several other music players.
+When that shared connection is busy, your library and search results can take
+longer to load. The top bar shows a spinner while you wait.
 
-Since 0.8.0, Premium listeners using shared access
-see a one-time introduction to personal apps after their account is verified.
-**Set up personal app** opens Settings at the Client ID field, beside the
-setup guide. **Keep shared app**, Escape, or clicking outside the prompt
-dismisses it. That choice is remembered across restarts; setup remains
-available in Settings. The prompt waits while another dialog is open and does
-not appear in the Winamp window. This replaces the brief daily reminder shown
-after five seconds of busy requests in older releases.
+You can reduce those delays by creating a **personal Spotify app**. This is
+a connection registered to your account on Spotify's developer website.
+You do not need to write code or install another player.
 
-A personal app gives supported requests a separate Development Mode quota.
-Creating one is free and takes a few minutes.
-All Development Mode apps owned by your Spotify developer account share that
+Spotifast offers this setup once after you sign in with Premium. Choose
+**Set up personal app** to open Settings, or **Keep shared app** to continue
+as you are. You can set it up later in Settings.
+
+A personal app gives many of your searches and library requests a separate
+allowance. Creating one is free and takes a few minutes, and Spotify requires
+a Premium account. If you create several personal apps, they share your
 account's allowance, following Spotify's
 [July 2026 quota update](https://developer.spotify.com/blog/2026-07-23-web-api-quota-updates).
-This can reduce delays from the shared app; some requests still need shared
-access, and a personal app has its own limits.
+Some features still use the shared connection, and your personal connection
+has limits too.
 
 ## Shared coverage stays active
 
-Spotify keeps a personal app in Development Mode, and since February 2026 that
-mode omits Spotify-owned playlists and reads playlist items only for playlists
-you own or collaborate on. Artist top tracks, related artists,
-recommendations, and some catalog fields are unavailable too. Spotifast uses
-the shared app for the complete playlist library, the playlist results in a
-search, external playlist metadata and items, and those unavailable operations.
-Your app handles supported requests, including the songs, artists, albums,
-podcasts, and episodes a search returns, which it looks up while the shared app
-looks up the playlists. Each half of a search appears as soon as it arrives, so
-songs are not held up when the shared app is busy. Your app returns ten results
-for each type where the shared app returns twenty, a Development Mode limit.
-The shared app handles the rest.
+Your personal connection searches songs, artists, albums, podcasts, and
+episodes. The shared connection finds playlists and supplies features Spotify
+does not make available to personal apps, such as recommendations and related
+artists. Search results appear as each part is ready, so a delayed playlist
+search does not hold up the songs.
 
-Playlists are the exception. While local playback is signed in, Spotifast
-reads the ones the shared app would serve, other people's and, without a
-personal app, your own, over the same connection that streams the audio, as
-Spotify's own apps do, so they open without waiting on the shared app's quota
-at all.
+Spotify allows personal apps ten search results at a time for each type,
+compared with twenty on the shared connection.
+
+Setting up playback on this computer also helps playlists load faster.
+Spotifast can load playlists that would otherwise use the shared allowance
+through its music connection instead.
+[How it connects](/how-it-connects/) explains which connection each feature uses.
 
 ## Make a Spotify app
 
@@ -75,5 +69,5 @@ at all.
    Spotifast verifies that it belongs to the same Spotify account, then shows
    **Personal app ready**.
 
-This does not affect local playback. Select **Remove** to delete the personal
-grant. The shared app stays signed in.
+Your playback setup stays the same. Select **Remove** to stop using your
+personal connection and return to shared access.

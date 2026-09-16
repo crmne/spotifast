@@ -38,34 +38,23 @@ but is not required for closure. Reopen the issue if it persists after updating.
 
 ## Automated triage
 
-Copilot assesses new and reopened issues, new discussions, and new or edited
-comments on either. It reads the full conversation again and can update triage
-labels when new evidence changes the report. Bot activity, pull request comments
-and generated workflow-failure alerts are ignored. This includes maintainer
-comments on those alerts, so discussing a failed assessment cannot create more
-failure alerts. Reopening a closed issue remains a maintainer decision.
+[Copilot Triage](https://github.com/crmne/copilot-triage) assesses new and
+reopened issues and new discussions. It uses the report and latest five
+comments, adds up to two labels, and may ask for one missing fact or give a
+short answer grounded in the configured documentation and source files.
+Maintainers handle duplicate detection, closure, and removing obsolete labels.
 
-A rocket reaction on the triggering report or comment means that assessment
-completed successfully, including its safety checks and GitHub actions. It does
-not promise a reply, acceptance, or a fix. Clear reports may only receive a
-label. Replies ask for missing information or give a useful answer or decision;
-the agent does not repeat questions already answered or post status chatter.
-An assessment must record an applied action or an explicit no-action result.
-Missing outputs and failed safety checks cannot receive a completion marker.
+Comments do not trigger another assessment. To reassess after new information,
+run **Issue assessment** from Actions with the report kind and number. Preview
+is enabled by default; turn it off to apply the result. Unchanged model prompts
+reuse cached answers. A party-popper reaction marks a completed assessment,
+including one that needed no reply; it does not promise acceptance or a fix.
+Bot-authored reports are skipped, and model failures stay in the job summary.
 
-The marker is cleared when reassessing the same item and restored only after
-success. Failures can be retried from Actions without removing reactions by
-hand. Rockets placed before this behaviour was introduced only indicated an
-attempt had started. An older rocket never prevents a new assessment.
-
-The workflow is controlled by the `COPILOT_ISSUE_ASSESSMENT_ENABLED` repository
-variable. Edit `.github/workflows/issue-assessment.md`, then regenerate its
-lockfile with `gh aw compile issue-assessment` (gh-aw v0.88.7). The companion
-`issue-assessment-complete.yml` marks successful runs. Its small subject artifact
-contains only the GitHub node ID and, for comments, the assessed edit timestamp.
-Keep the workflow's Copilot CLI version pinned. A version update must pass a
-fresh hosted assessment with a recorded result; compilation alone does not
-exercise the connection to its tools.
+The `COPILOT_ISSUE_ASSESSMENT_ENABLED` repository variable controls the workflow.
+Edit `.github/triage.yml` for labels, replies, source files, and response policy.
+The shared action is pinned in `.github/workflows/issue-assessment.yml`; its
+implementation and regression tests live in the Copilot Triage repository.
 
 ## Design principles
 
@@ -132,7 +121,6 @@ ask again only if the resulting scope goes beyond what was approved or requested
 Run the same checks CI runs before submitting:
 
 ```sh
-node --test .github/scripts/issue-assessment.test.cjs
 python3 packaging/test-launchers.py
 cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings

@@ -1,12 +1,12 @@
 ---
 layout: home
 title: Spotifast
-description: A fast, native Spotify client for Linux, macOS, and Windows, written in Rust.
+description: A fast, lightweight Spotify app for Linux, macOS, and Windows.
 permalink: /
 hero:
   name: Spotifast
   text: Spotify, native and fast
-  tagline: Formerly Fastpotify. A lightweight Spotify client with local playback, library access, and Spotify Connect controls for Linux, macOS, and Windows.
+  tagline: Formerly Fastpotify. A lightweight Spotify app for Linux, macOS, and Windows. Listen on your computer, browse your music, and control your other devices.
   actions:
     - theme: brand
       text: Download
@@ -26,32 +26,32 @@ hero:
 features:
   - icon: ⚡
     title: Lightweight
-    details: A native binary with no browser engine. It starts in well under a second and typically uses 100–250 MB of RAM.
+    details: Opens in well under a second and typically uses just 100–250 MB of memory.
   - icon: 🔊
     title: Spotify Connect
-    details: Play locally, gapless and at up to 320 kbps, or control playback on a speaker, phone, or TV from the same window.
+    details: Listen on your computer with smooth transitions between songs, or control music on a speaker, phone, or TV. Playback needs Spotify Premium.
   - icon: 📚
     title: Library and search
     details: Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own.
   - icon: 🎨
     title: Themes
-    details: Use light, dark, or system mode. Pages and the player bar can take their colour from the album art.
+    details: Choose light, dark, or your own colours. On Omarchy, Spotifast can follow your desktop theme as it changes, while the music keeps playing.
   - icon: 📻
     title: Winamp mini player
-    details: Ctrl+M opens a small player for classic Winamp 2 skins, with a spectrum analyser, equalizer, and playlist.
+    details: Bring back the classic Winamp look, with skins, a playlist, sound controls, and animations that move to your music.
     link: /winamp/
     link_text: See it in action
   - icon: 🌀
     title: MilkDrop
-    details: Run projectM's MilkDrop visualiser in its own window, with fullscreen, preset packs, and keyboard controls.
+    details: Watch colourful animations react to your music in their own window or full screen. Choose from more than 10,000 designs.
     link: /milkdrop/
     link_text: Open the guide
   - icon: ⌨️
     title: Desktop controls
-    details: Keyboard shortcuts, MPRIS media controls on Linux, and a tray option that keeps music playing after you close the window.
+    details: Use keyboard shortcuts and your keyboard's media keys. Keep the music playing after you close the window.
   - icon: 🔓
     title: Open source
-    details: MIT-licensed Rust built with egui and librespot. The docs explain its connections and stored credentials.
+    details: Free to use, study, and improve. Explore the code, report a problem, or help build the next version.
     link: https://github.com/crmne/spotifast
     link_text: Read the source
 ---
@@ -59,9 +59,10 @@ features:
 ## It turns into Winamp
 
 Load a classic `.wsz` skin from the
-[Winamp Skin Museum](https://skins.webamp.org). The mini player includes a
-spectrum analyser, equalizer, playlist, shade modes, and crisp integer pixel
-scaling. [See the mini player in detail](/winamp/).
+[Winamp Skin Museum](https://skins.webamp.org). The mini player includes
+animated sound displays, an equalizer to adjust your sound, and a playlist.
+Roll it up into a thin bar or enlarge it while keeping the classic pixels
+sharp. [See the mini player in detail](/winamp/).
 
 <div class="winamp-showcase">
   <img src="/assets/images/winamp.png" alt="The mini player wearing the built-in skin" width="550" height="812">
@@ -70,8 +71,8 @@ scaling. [See the mini player in detail](/winamp/).
 ## MilkDrop with more than 10,000 presets
 
 On first use, Spotifast automatically downloads the original MilkDrop 2
-presets and projectM's Cream of the Crop collection. They react to local
-playback in a resizable window or fullscreen.
+presets and projectM's Cream of the Crop collection. These visual designs
+react to music playing on your computer, in a resizable window or full screen.
 [See the controls and preset details](/milkdrop/).
 
 <video class="milkdrop-showcase" autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop presets reacting to music in Spotifast">

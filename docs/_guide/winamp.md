@@ -18,19 +18,17 @@ the shortcut again, to return to the main window.
 Drop a `.wsz` file on either window to install and use it. Settings lists the
 installed skins and can open the skins folder.
 
-Since 0.8.0, unpacked skins can keep their files
-inside nested folders, up to eight levels below the selected skin folder.
-File names are matched without regard to case. If a name appears more than
-once, the copy closest to the selected folder wins; ties use folder and file
-name order. Symbolic links are skipped.
+You can also use an unpacked skin folder. Spotifast finds skin files inside
+its subfolders, up to eight folders deep, so you do not need to move them all
+into one folder.
 
-The mini player uses whole-number scaling to keep pixels sharp. Right-click
-the title bar, or click **O**, to choose 1x to 4x and set always-on-top. **D**
-toggles double size and **A** toggles always-on-top. Spotifast remembers the
-window position.
+Right-click the title bar, or click **O**, to choose a size from 1x to 4x.
+Each size keeps the classic pixels sharp. The same menu can keep the player
+above other windows. **D** toggles double size and **A** toggles always-on-top.
+Spotifast remembers the window position where your desktop allows it.
 
-Non-rectangular skins use `region.txt` for transparent areas. Winamp 3 and 5
-skins use a different format and are not supported.
+Skins can have transparent areas and shapes other than rectangles. Modern
+Winamp 3 and 5 skin formats are not supported; choose classic Winamp 2 skins.
 
 ## Main controls
 
@@ -50,13 +48,14 @@ playlist and equalizer have their own shade buttons.
 
 Switching to the main window and back keeps the shade modes and restores the
 mini player's own position. It does not inherit the main window's fullscreen
-or maximized state. Wayland compositors choose window positions themselves
-and may ignore the saved position.
+or maximized state. On Linux desktops using Wayland, the desktop chooses where
+windows appear and may ignore the saved position.
 
-The left display shows the spectrum analyser. Click it to switch to the
-oscilloscope, then off. You can also use the **V** menu. The visualiser uses
-local audio after the equalizer and before volume, so it still moves at zero
-volume. It stays flat when another device is playing.
+The left display shows bars that react to the sound (a spectrum analyser).
+Click it to switch to a moving sound wave (an oscilloscope), then off.
+You can also use the **V** menu. Changes to the equalizer affect the picture;
+turning down the volume does not, even at zero. The display reacts only to
+music playing on this computer.
 
 ## Playlist
 

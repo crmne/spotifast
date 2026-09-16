@@ -1,18 +1,24 @@
 ---
 title: Translating Spotifast
-description: Edit standard gettext catalogs and preview the translation pilot.
+description: Help translate Spotifast and preview the work so far.
 nav_order: 6
 ---
 
-Spotifast uses gettext `.po` files, so contributors can use existing translation
-editors such as Poedit or import the catalogs into Weblate. Translations are
-bundled in the application. No translation service is contacted at runtime.
+**The regular app is currently in English.** Translations are being developed,
+with early previews in 12 languages, including Portuguese and Chinese variants.
+There is no language setting in the regular app yet. Corrections from fluent
+speakers are welcome.
+
+Translations are stored in `.po` files, a common format supported by editors
+such as Poedit and Weblate. They are included with Spotifast, so the app does
+not contact an online translation service.
 
 ## Pilot scope
 
 Since 0.8.0, the pilot covers Home and Search navigation, Library
 controls, filters, search hints, and the Liked Songs name and count. These
-languages are available for preview in demo mode:
+languages are available for preview in demo mode, which uses sample music
+data and needs no Spotify account:
 
 | Language | `--demo-language` |
 | --- | --- |
@@ -37,11 +43,6 @@ selection, Queue and Lyrics controls. The Queue page and panel, Recent tab,
 Lyrics panel and full-screen view, and shared loading/retry labels are also
 translated on `main`. These additions are not in 0.8.0. They keep the existing
 controls and keyboard actions. Other menus, pages and settings still need coverage.
-
-The production interface remains English while the translation workflow and
-coverage are developed. These are initial pilot translations, not complete
-localized interfaces or a language setting. Corrections from fluent speakers
-are welcome.
 
 Song, album, artist and playlist names come from Spotify or their creators and
 are kept as provided, as are lyric lines and failure details. Generated queue
