@@ -215,6 +215,8 @@
           default = fastpotify;
           inherit fastpotify;
           spotifast = fastpotify;
+          fastpotify-app = fastpotify;
+          spotifast-app = fastpotify;
         }
       );
 
