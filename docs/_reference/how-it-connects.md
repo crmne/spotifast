@@ -228,10 +228,11 @@ uses the Web API for subsequent control requests.
 Playback runs on a separate runtime. Librespot maintains the Spotify Connect
 session, exposes this computer as a device, receives transfers, and reports
 playback state. If the session drops, it reconnects with the stored credential.
-On Linux, its PulseAudio or PipeWire stream is named **Spotifast**, with
-**Spotify playback** as its description, so system mixers and audio processors
-can identify and route it. Explicit `PULSE_PROP_application.name` and
-`PULSE_PROP_stream.description` environment values take precedence.
+When the PulseAudio backend is selected on Linux, its PulseAudio or PipeWire
+stream is named **Spotifast**, with **Spotify playback** as its description, so
+system mixers and audio processors can identify and route it. Explicit
+`PULSE_PROP_application.name` and `PULSE_PROP_stream.description` environment
+values take precedence.
 The same session checks releases that the Web API calls `single`, so confirmed
 EPs can carry their precise label. Spotifast deduplicates these checks while
 the app session is active. If the engine reconnects, an interrupted check may

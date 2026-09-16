@@ -253,21 +253,31 @@ fn run_control(control: Control) -> i32 {
     2
 }
 
+#[cfg(target_os = "linux")]
+const PULSEAUDIO_PROPERTIES: [(&str, &str); 2] = [
+    ("PULSE_PROP_application.name", "Spotifast"),
+    ("PULSE_PROP_stream.description", "Spotify playback"),
+];
+
+#[cfg(target_os = "linux")]
+fn missing_pulseaudio_properties(
+    mut is_set: impl FnMut(&str) -> bool,
+) -> impl Iterator<Item = (&'static str, &'static str)> {
+    PULSEAUDIO_PROPERTIES
+        .into_iter()
+        .filter(move |(key, _)| !is_set(key))
+}
+
 /// Gives the librespot PulseAudio backend useful stream metadata.
 ///
 /// That backend leaves both names empty unless its caller provides them. An
 /// unnamed stream cannot be identified reliably by mixers and audio processors.
 #[cfg(target_os = "linux")]
 fn configure_pulseaudio_properties() {
-    for (key, value) in [
-        ("PULSE_PROP_application.name", "Spotifast"),
-        ("PULSE_PROP_stream.description", "Spotify playback"),
-    ] {
-        if std::env::var_os(key).is_none() {
-            // SAFETY: run calls this at process startup, before it creates any
-            // threads. Keep explicit values supplied by the launcher or user.
-            unsafe { std::env::set_var(key, value) };
-        }
+    for (key, value) in missing_pulseaudio_properties(|key| std::env::var_os(key).is_some()) {
+        // SAFETY: run calls this at process startup, before it creates any
+        // threads. Keep explicit values supplied by the launcher or user.
+        unsafe { std::env::set_var(key, value) };
     }
 }
 
@@ -1270,6 +1280,22 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_metadata_defaults_preserve_existing_properties() {
+        let defaults = missing_pulseaudio_properties(|_| false).collect::<Vec<_>>();
+        assert_eq!(defaults, PULSEAUDIO_PROPERTIES);
+
+        let defaults = missing_pulseaudio_properties(|key| key == "PULSE_PROP_application.name")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            defaults,
+            [("PULSE_PROP_stream.description", "Spotify playback")]
+        );
+
+        assert_eq!(missing_pulseaudio_properties(|_| true).count(), 0);
+    }
 
     /// A link on the command line is a link, and a control verb is still a
     /// verb: the two do not get in each other's way.
