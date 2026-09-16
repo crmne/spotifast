@@ -199,7 +199,7 @@
                   icnsify packaging/macos/icon-1024.png -o "$app/Resources/fastpotify.icns"
                   substitute packaging/macos/Info.plist "$app/Info.plist" \
                     --replace-fail __VERSION__ "${version}" \
-                    --replace-fail __BUILD__ "${version}"
+                    --replace-fail __BUILD__ "${pkgs.lib.head (pkgs.lib.splitString "-" version)}"
                 '';
 
               meta = {
