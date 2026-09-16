@@ -215,6 +215,8 @@
           default = fastpotify;
           inherit fastpotify;
           spotifast = fastpotify;
+        }
+        // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
           fastpotify-app = fastpotify;
           spotifast-app = fastpotify;
         }
