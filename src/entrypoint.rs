@@ -253,6 +253,24 @@ fn run_control(control: Control) -> i32 {
     2
 }
 
+/// Gives the librespot PulseAudio backend useful stream metadata.
+///
+/// That backend leaves both names empty unless its caller provides them. An
+/// unnamed stream cannot be identified reliably by mixers and audio processors.
+#[cfg(target_os = "linux")]
+fn configure_pulseaudio_properties() {
+    for (key, value) in [
+        ("PULSE_PROP_application.name", "Spotifast"),
+        ("PULSE_PROP_stream.description", "Spotify playback"),
+    ] {
+        if std::env::var_os(key).is_none() {
+            // SAFETY: run calls this at process startup, before it creates any
+            // threads. Keep explicit values supplied by the launcher or user.
+            unsafe { std::env::set_var(key, value) };
+        }
+    }
+}
+
 /// The `nowplaying` snapshot as one human-readable line.
 #[cfg(not(target_os = "linux"))]
 fn format_now_playing(snapshot: &str) -> String {
@@ -305,6 +323,8 @@ fn format_devices(snapshot: &str) -> String {
 }
 
 pub(crate) fn run() -> eframe::Result<()> {
+    #[cfg(target_os = "linux")]
+    configure_pulseaudio_properties();
     let arguments: Vec<_> = std::env::args_os().collect();
     if arguments.len() == 3 && arguments[1] == "--apply-update" {
         let result = fastpotify::updates::install::run_helper(std::path::Path::new(&arguments[2]));
