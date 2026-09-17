@@ -8,7 +8,7 @@ body:
         Please include the log from Spotifast's last run:
 
         - Linux: `~/.local/state/fastpotify/fastpotify.log`
-        - macOS: `~/Library/Application Support/me.paolino.fastpotify/fastpotify.log`
+        - macOS: `~/Library/Application\ Support/me.paolino.fastpotify/fastpotify.log`
         - Windows: `%LOCALAPPDATA%\paolino\fastpotify\data\fastpotify.log`
 
         If the app crashed or vanished, include `panic.log` from the same folder.
