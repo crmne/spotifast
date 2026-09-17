@@ -537,14 +537,7 @@ impl Default for SoftenedCovers {
 }
 
 impl SoftenedCovers {
-    /// The softened cover for `uri`, blurring it in the background the first
-    /// time it is asked for.
-    pub fn texture(
-        &mut self,
-        ctx: &egui::Context,
-        loader: &ArtLoader,
-        uri: &str,
-    ) -> Option<egui::TextureHandle> {
+    fn receive_ready(&mut self, ctx: &egui::Context) {
         while let Ok((ready_uri, image)) = self.ready_rx.try_recv() {
             self.pending.remove(&ready_uri);
             if let Some(image) = image {
@@ -570,6 +563,17 @@ impl SoftenedCovers {
                 self.failed.insert(ready_uri);
             }
         }
+    }
+
+    /// The softened cover for `uri`, blurring it in the background the first
+    /// time it is asked for.
+    pub fn texture(
+        &mut self,
+        ctx: &egui::Context,
+        loader: &ArtLoader,
+        uri: &str,
+    ) -> Option<egui::TextureHandle> {
+        self.receive_ready(ctx);
         if let Some(cover) = self.textures.get_mut(uri) {
             cover.last_used = Instant::now();
             return Some(cover.texture.clone());
@@ -585,9 +589,11 @@ impl SoftenedCovers {
                 let ready_tx = self.ready_tx.clone();
                 let ready_uri = uri.to_string();
                 let ctx = ctx.clone();
+                let loader = loader.clone();
                 self.pending.insert(ready_uri.clone());
-                loader.inner.runtime.spawn_blocking(move || {
+                loader.inner.runtime.clone().spawn_blocking(move || {
                     let image = blurred_background(&bytes, COVER_BLUR);
+                    loader.release_bytes(&ready_uri);
                     let _ = ready_tx.send((ready_uri, image));
                     ctx.request_repaint();
                 });
@@ -788,6 +794,78 @@ mod tests {
         let mut bytes = std::io::Cursor::new(Vec::new());
         image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
         assert!(blurred_background(bytes.get_ref(), LYRICS_BLUR).is_none());
+    }
+
+    fn softened_test_image() -> egui::ColorImage {
+        egui::ColorImage::filled([1, 1], egui::Color32::WHITE)
+    }
+
+    #[test]
+    fn softened_cover_pending_requests_are_deduplicated() {
+        let runtime = artwork_test_runtime();
+        let dir = std::env::temp_dir().join(format!(
+            "fastpotify-softened-pending-{}",
+            std::process::id()
+        ));
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        let mut covers = SoftenedCovers::default();
+        covers.pending.insert("pending".to_string());
+
+        assert!(covers.texture(&ctx, &loader, "pending").is_none());
+        assert_eq!(covers.pending.len(), 1);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn softened_cover_completion_and_failure_clear_pending_state() {
+        let ctx = egui::Context::default();
+        let mut covers = SoftenedCovers::default();
+        covers.pending.insert("ready".to_string());
+        covers.pending.insert("broken".to_string());
+        covers
+            .ready_tx
+            .send(("ready".to_string(), Some(softened_test_image())))
+            .unwrap();
+        covers.ready_tx.send(("broken".to_string(), None)).unwrap();
+
+        covers.receive_ready(&ctx);
+
+        assert!(covers.pending.is_empty());
+        assert!(covers.textures.contains_key("ready"));
+        assert!(covers.failed.contains("broken"));
+    }
+
+    #[test]
+    fn softened_cover_completion_evicts_the_oldest_texture() {
+        let ctx = egui::Context::default();
+        let mut covers = SoftenedCovers::default();
+        let now = Instant::now();
+        for index in 0..HELD_COVERS {
+            covers.textures.insert(
+                format!("cover-{index}"),
+                SoftenedCover {
+                    texture: ctx.load_texture(
+                        format!("cover-{index}"),
+                        softened_test_image(),
+                        egui::TextureOptions::LINEAR,
+                    ),
+                    last_used: now + Duration::from_secs(index as u64),
+                },
+            );
+        }
+        covers.pending.insert("fresh".to_string());
+        covers
+            .ready_tx
+            .send(("fresh".to_string(), Some(softened_test_image())))
+            .unwrap();
+
+        covers.receive_ready(&ctx);
+
+        assert_eq!(covers.textures.len(), HELD_COVERS);
+        assert!(!covers.textures.contains_key("cover-0"));
+        assert!(covers.textures.contains_key("fresh"));
     }
 
     #[test]

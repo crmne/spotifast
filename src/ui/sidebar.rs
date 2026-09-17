@@ -897,7 +897,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             let art = app.backend.art().clone();
             super::widgets::virtual_rows(ui, entries.len(), row_height, |ui, index| {
                 let entry = &entries[index];
-                if let Some(image) = &entry.image {
+                if !app.settings.sidebar_compact
+                    && let Some(image) = &entry.image
+                {
                     // Prepare the enlarged preview before this row is opened.
                     app.softened_covers.texture(ui.ctx(), &art, image);
                 }
