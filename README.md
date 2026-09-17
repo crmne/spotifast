@@ -238,7 +238,7 @@ and on Fedora:
 
 ```bash
 sudo dnf install alsa-lib-devel pulseaudio-libs-devel libxkbcommon-devel \
-  wayland-devel cmake clang libclang-devel
+  wayland-devel cmake clang clang-devel
 ```
 
 On Windows, libprojectM is built with Visual Studio 2022, CMake, LLVM, and
