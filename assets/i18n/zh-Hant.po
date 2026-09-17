@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-17 16:39+0300\n"
+"POT-Creation-Date: 2026-09-17 18:24+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -28,91 +28,91 @@ msgstr "播放"
 msgid "Playlist"
 msgstr "播放清單"
 
-#: src/ui/sidebar.rs:297 src/app.rs:1930 src/app.rs:12715
+#: src/ui/sidebar.rs:292 src/app.rs:1930 src/app.rs:12715
 msgid "Liked Songs"
 msgstr "喜歡的歌曲"
 
-#: src/ui/sidebar.rs:337
+#: src/ui/sidebar.rs:332
 msgid "Library order"
 msgstr "音樂庫順序"
 
-#: src/ui/sidebar.rs:340
+#: src/ui/sidebar.rs:335
 msgid "Recently played"
 msgstr "最近播放"
 
-#: src/ui/sidebar.rs:342
+#: src/ui/sidebar.rs:337
 msgid "Name"
 msgstr "名稱"
 
-#: src/ui/sidebar.rs:345
+#: src/ui/sidebar.rs:340
 msgid "Recently added"
 msgstr "最近新增"
 
-#: src/ui/sidebar.rs:347
+#: src/ui/sidebar.rs:342
 msgid "Local custom order"
 msgstr "本機自訂順序"
 
-#: src/ui/sidebar.rs:350
+#: src/ui/sidebar.rs:345
 msgid "Spotify custom order"
 msgstr "Spotify 自訂順序"
 
-#: src/ui/sidebar.rs:814 src/i18n.rs:111 src/i18n.rs:114
+#: src/ui/sidebar.rs:809 src/i18n.rs:133 src/i18n.rs:136
 msgid "Home"
 msgstr "首頁"
 
-#: src/ui/sidebar.rs:825
+#: src/ui/sidebar.rs:820
 msgid "Search"
 msgstr "搜尋"
 
-#: src/ui/sidebar.rs:857
+#: src/ui/sidebar.rs:852
 msgid "Library"
 msgstr "音樂庫"
 
-#: src/ui/sidebar.rs:870
+#: src/ui/sidebar.rs:865
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "隱藏側邊欄 (Ctrl+B)"
 
-#: src/ui/sidebar.rs:871
+#: src/ui/sidebar.rs:866
 msgid "Hide sidebar (Cmd+B)"
 msgstr "隱藏側邊欄 (Cmd+B)"
 
-#: src/ui/sidebar.rs:885
+#: src/ui/sidebar.rs:880
 msgid "Create a playlist"
 msgstr "建立播放清單"
 
-#: src/ui/sidebar.rs:901
+#: src/ui/sidebar.rs:896
 msgid "Search Your Library"
 msgstr "搜尋音樂庫"
 
-#: src/ui/sidebar.rs:919
+#: src/ui/sidebar.rs:914
 msgid "Playlists"
 msgstr "播放清單"
 
-#: src/ui/sidebar.rs:920
+#: src/ui/sidebar.rs:915
 msgid "Albums"
 msgstr "專輯"
 
-#: src/ui/sidebar.rs:921
+#: src/ui/sidebar.rs:916
 msgid "Artists"
 msgstr "藝人"
 
-#: src/ui/sidebar.rs:922
+#: src/ui/sidebar.rs:917
 msgid "Podcasts"
 msgstr "Podcast"
 
-#: src/ui/sidebar.rs:935
+#: src/ui/sidebar.rs:930
 msgid "Show as list"
 msgstr "顯示為列表"
 
-#: src/ui/sidebar.rs:937
+#: src/ui/sidebar.rs:932
 msgid "Show as grid"
 msgstr "顯示為網格"
 
-#: src/ui/sidebar.rs:956
+#: src/ui/sidebar.rs:951
 msgid "Search in Your Library"
 msgstr "在音樂庫中搜尋"
 
-#: src/ui/sidebar.rs:1081 src/app.rs:1991
+#: src/ui/sidebar.rs:1076 src/app.rs:1991
 msgid "Artist"
 msgstr "藝人"
 
@@ -122,6 +122,20 @@ msgstr "藝人"
 msgid "Playlist • {count} song"
 msgid_plural "Playlist • {count} songs"
 msgstr[0] "播放清單 • {count} 首歌曲"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of songs.
+#: src/i18n.rs:77
+#, rust-format
+msgid "{count} song"
+msgid_plural "{count} songs"
+msgstr[0] "{count} 首歌曲"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of playlists.
+#: src/i18n.rs:88
+#, rust-format
+msgid "{count} playlist"
+msgid_plural "{count} playlists"
+msgstr[0] "{count} 個播放清單"
 
 #: src/ui/player_bar.rs:85 src/ui/lyrics.rs:108 src/ui/lyrics.rs:432
 msgid "Nothing playing"

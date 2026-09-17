@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-17 16:39+0300\n"
+"POT-Creation-Date: 2026-09-17 18:24+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -28,91 +28,91 @@ msgstr "再生"
 msgid "Playlist"
 msgstr "プレイリスト"
 
-#: src/ui/sidebar.rs:297 src/app.rs:1930 src/app.rs:12715
+#: src/ui/sidebar.rs:292 src/app.rs:1930 src/app.rs:12715
 msgid "Liked Songs"
 msgstr "お気に入りの曲"
 
-#: src/ui/sidebar.rs:337
+#: src/ui/sidebar.rs:332
 msgid "Library order"
 msgstr "ライブラリ順"
 
-#: src/ui/sidebar.rs:340
+#: src/ui/sidebar.rs:335
 msgid "Recently played"
 msgstr "最近再生した順"
 
-#: src/ui/sidebar.rs:342
+#: src/ui/sidebar.rs:337
 msgid "Name"
 msgstr "名前順"
 
-#: src/ui/sidebar.rs:345
+#: src/ui/sidebar.rs:340
 msgid "Recently added"
 msgstr "最近追加した順"
 
-#: src/ui/sidebar.rs:347
+#: src/ui/sidebar.rs:342
 msgid "Local custom order"
 msgstr "ローカルのカスタム順"
 
-#: src/ui/sidebar.rs:350
+#: src/ui/sidebar.rs:345
 msgid "Spotify custom order"
 msgstr "Spotifyのカスタム順"
 
-#: src/ui/sidebar.rs:814 src/i18n.rs:111 src/i18n.rs:114
+#: src/ui/sidebar.rs:809 src/i18n.rs:133 src/i18n.rs:136
 msgid "Home"
 msgstr "ホーム"
 
-#: src/ui/sidebar.rs:825
+#: src/ui/sidebar.rs:820
 msgid "Search"
 msgstr "検索"
 
-#: src/ui/sidebar.rs:857
+#: src/ui/sidebar.rs:852
 msgid "Library"
 msgstr "ライブラリ"
 
-#: src/ui/sidebar.rs:870
+#: src/ui/sidebar.rs:865
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "サイドバーを非表示 (Ctrl+B)"
 
-#: src/ui/sidebar.rs:871
+#: src/ui/sidebar.rs:866
 msgid "Hide sidebar (Cmd+B)"
 msgstr "サイドバーを非表示 (Cmd+B)"
 
-#: src/ui/sidebar.rs:885
+#: src/ui/sidebar.rs:880
 msgid "Create a playlist"
 msgstr "プレイリストを作成"
 
-#: src/ui/sidebar.rs:901
+#: src/ui/sidebar.rs:896
 msgid "Search Your Library"
 msgstr "ライブラリを検索"
 
-#: src/ui/sidebar.rs:919
+#: src/ui/sidebar.rs:914
 msgid "Playlists"
 msgstr "プレイリスト"
 
-#: src/ui/sidebar.rs:920
+#: src/ui/sidebar.rs:915
 msgid "Albums"
 msgstr "アルバム"
 
-#: src/ui/sidebar.rs:921
+#: src/ui/sidebar.rs:916
 msgid "Artists"
 msgstr "アーティスト"
 
-#: src/ui/sidebar.rs:922
+#: src/ui/sidebar.rs:917
 msgid "Podcasts"
 msgstr "ポッドキャスト"
 
-#: src/ui/sidebar.rs:935
+#: src/ui/sidebar.rs:930
 msgid "Show as list"
 msgstr "リスト表示"
 
-#: src/ui/sidebar.rs:937
+#: src/ui/sidebar.rs:932
 msgid "Show as grid"
 msgstr "グリッド表示"
 
-#: src/ui/sidebar.rs:956
+#: src/ui/sidebar.rs:951
 msgid "Search in Your Library"
 msgstr "ライブラリ内を検索"
 
-#: src/ui/sidebar.rs:1081 src/app.rs:1991
+#: src/ui/sidebar.rs:1076 src/app.rs:1991
 msgid "Artist"
 msgstr "アーティスト"
 
@@ -122,6 +122,20 @@ msgstr "アーティスト"
 msgid "Playlist • {count} song"
 msgid_plural "Playlist • {count} songs"
 msgstr[0] "プレイリスト • {count}曲"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of songs.
+#: src/i18n.rs:77
+#, rust-format
+msgid "{count} song"
+msgid_plural "{count} songs"
+msgstr[0] "{count}曲"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of playlists.
+#: src/i18n.rs:88
+#, rust-format
+msgid "{count} playlist"
+msgid_plural "{count} playlists"
+msgstr[0] "{count}件のプレイリスト"
 
 #: src/ui/player_bar.rs:85 src/ui/lyrics.rs:108 src/ui/lyrics.rs:432
 msgid "Nothing playing"

@@ -285,12 +285,7 @@ fn liked_entry(app: &App) -> Entry {
         .library
         .liked
         .total
-        .and_then(|_| {
-            subtitle
-                .split_once(" • ")
-                .map(|(_, value)| value.to_string())
-        })
-        .unwrap_or_default();
+        .map_or_else(String::new, |total| app.locale.song_count(total));
     Entry {
         image: None,
         grid_image: None,
@@ -656,10 +651,7 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
                             1 => "Folder • 1 playlist".to_string(),
                             n => format!("Folder • {n} playlists"),
                         },
-                        grid_subtitle: match count {
-                            1 => "1 playlist".to_string(),
-                            n => format!("{n} playlists"),
-                        },
+                        grid_subtitle: app.locale.playlist_count(count as u32),
                         page: Page::Home,
                         uri: String::new(),
                         round: false,
