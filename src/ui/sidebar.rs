@@ -479,7 +479,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if let Some(rect) = art_rect.filter(|_| !floating_art) {
             reserve_expanded_art(ui, rect);
         }
-        contents(app, ui);
+        let grid_art_occlusion = art_rect
+            .filter(|_| floating_art)
+            .map_or(0.0, |rect| ui.max_rect().bottom() - rect.top());
+        contents(app, ui, grid_art_occlusion);
         if let Some(rect) = art_rect {
             if floating_art {
                 paint_grid_art_mask(app, ui, rect);
@@ -796,7 +799,7 @@ fn nav_row(
     response
 }
 
-fn contents(app: &mut App, ui: &mut egui::Ui) {
+fn contents(app: &mut App, ui: &mut egui::Ui, grid_art_occlusion: f32) {
     let palette = app.palette;
     let page = app.page().clone();
     let locale = app.locale;
@@ -1174,6 +1177,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 if let Some(page) = more_page {
                     super::widgets::load_more_when_near_end(ui, app, page, true);
                 }
+                ui.add_space(grid_art_occlusion);
                 return;
             }
 
