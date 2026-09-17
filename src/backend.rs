@@ -1156,6 +1156,10 @@ struct Worker {
     commands: mpsc::UnboundedSender<Command>,
     waker: Waker,
     engine: Option<Arc<Engine>>,
+    /// A rootlist fetch asked for before the engine existed, to run once it
+    /// does. The rootlist carries invitation edit permissions, which no
+    /// other request reports.
+    rootlist_pending: bool,
     album_type_lookup: AlbumTypeLookup,
     /// True while a playback grant or engine connection is in flight, so a
     /// second attempt does not pile up.
@@ -1217,6 +1221,7 @@ impl Worker {
             commands,
             waker,
             engine: None,
+            rootlist_pending: false,
             album_type_lookup: AlbumTypeLookup::default(),
             engine_busy: false,
             search_tasks: Vec::new(),
@@ -2515,6 +2520,9 @@ impl Worker {
                     self.schedule_resume_check(1_500);
                 }
                 self.engine = Some(engine);
+                if std::mem::take(&mut self.rootlist_pending) {
+                    self.fetch_rootlist();
+                }
                 self.reconnects.clear();
                 self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
                 self.start_album_type_lookup();
@@ -2663,10 +2671,12 @@ impl Worker {
         });
     }
 
-    fn fetch_rootlist(&self) {
+    fn fetch_rootlist(&mut self) {
         let Some(engine) = self.engine.clone() else {
+            self.rootlist_pending = true;
             return;
         };
+        self.rootlist_pending = false;
         let events = self.events.clone();
         let waker = self.waker.clone();
         tokio::spawn(async move {
@@ -4629,6 +4639,21 @@ mod authorization_tests {
                 .try_iter()
                 .any(|event| matches!(event, Event::Auth(AuthStatus::Connected { .. })))
         );
+    }
+
+    /// The rootlist carries the edit permission for a playlist shared by
+    /// invitation, and its request is sent once, when the playlist library
+    /// finishes. A cached web token can finish that before the engine
+    /// connects, so the request has to wait rather than be dropped.
+    #[test]
+    fn a_rootlist_request_before_the_engine_waits_for_it() {
+        let (runtime, mut worker, _) = worker("rootlist-before-engine");
+        let _entered = runtime.enter();
+        assert!(worker.engine.is_none());
+
+        worker.fetch_rootlist();
+
+        assert!(worker.rootlist_pending);
     }
 
     #[test]
