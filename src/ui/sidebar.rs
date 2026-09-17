@@ -292,12 +292,7 @@ fn liked_entry(app: &App) -> Entry {
         .library
         .liked
         .total
-        .and_then(|_| {
-            subtitle
-                .split_once(" • ")
-                .map(|(_, value)| value.to_string())
-        })
-        .unwrap_or_default();
+        .map_or_else(String::new, |total| app.locale.song_count(total));
     Entry {
         image: None,
         grid_image: None,
@@ -651,18 +646,12 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
                         image: None,
                         grid_image: None,
                         name: if name.is_empty() {
-                            "Folder".to_string()
+                            gettext(app.locale, "Folder").into_owned()
                         } else {
                             name.clone()
                         },
-                        subtitle: match count {
-                            1 => "Folder • 1 playlist".to_string(),
-                            n => format!("Folder • {n} playlists"),
-                        },
-                        grid_subtitle: match count {
-                            1 => "1 playlist".to_string(),
-                            n => format!("{n} playlists"),
-                        },
+                        subtitle: app.locale.folder_playlist_count(count as u32),
+                        grid_subtitle: app.locale.playlist_count(count as u32),
                         page: Page::Home,
                         uri: String::new(),
                         round: false,
@@ -1244,11 +1233,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art_occlusion: f32) {
                         ui.is_enabled(),
                         active,
                         if let Some((_, collapsed, _)) = &entry.folder {
-                            format!(
-                                "{}, folder, {}",
-                                entry.name,
-                                if *collapsed { "collapsed" } else { "expanded" }
-                            )
+                            app.locale.folder_state_label(&entry.name, *collapsed)
                         } else {
                             entry.name.clone()
                         },
@@ -1608,11 +1593,7 @@ fn library_grid(
                             ui.is_enabled(),
                             active,
                             if let Some((_, collapsed, _)) = &entry.folder {
-                                format!(
-                                    "{}, folder, {}",
-                                    entry.name,
-                                    if *collapsed { "collapsed" } else { "expanded" }
-                                )
+                                app.locale.folder_state_label(&entry.name, *collapsed)
                             } else {
                                 entry.name.clone()
                             },
@@ -1794,7 +1775,7 @@ fn entry_menu(app: &mut App, response: &egui::Response, entry: &Entry, custom_or
                         ui,
                         &app.palette,
                         Some(Icon::Clock),
-                        "Sort by recently played",
+                        &gettext(app.locale, "Sort by recently played"),
                     )
                 {
                     app.actions.push(Action::SetLibrarySort {
@@ -1807,8 +1788,12 @@ fn entry_menu(app: &mut App, response: &egui::Response, entry: &Entry, custom_or
         egui::Popup::context_menu(response)
             .frame(super::widgets::menu_frame(&app.palette))
             .show(|ui| {
-                if super::widgets::menu_item(ui, &app.palette, Some(Icon::Play), "Play")
-                    && let Some(user) = &app.user
+                if super::widgets::menu_item(
+                    ui,
+                    &app.palette,
+                    Some(Icon::Play),
+                    &gettext(app.locale, "Play"),
+                ) && let Some(user) = &app.user
                 {
                     app.actions.push(Action::PlayContext {
                         uri: format!("spotify:user:{}:collection", user.id),
@@ -1824,11 +1809,16 @@ fn entry_menu(app: &mut App, response: &egui::Response, entry: &Entry, custom_or
 fn pin_menu(app: &mut App, ui: &mut egui::Ui, key: &str) {
     let mut pins = app.settings.library_pins();
     let pinned = pins.iter().any(|held| held == key);
+    let label = if pinned {
+        gettext(app.locale, "Unpin")
+    } else {
+        gettext(app.locale, "Pin to top")
+    };
     if super::widgets::menu_item(
         ui,
         &app.palette,
         Some(if pinned { Icon::PinOff } else { Icon::Pin }),
-        if pinned { "Unpin" } else { "Pin to top" },
+        &label,
     ) {
         if pinned {
             pins.retain(|held| held != key);
@@ -2276,6 +2266,29 @@ mod ordering_tests {
         apply_actions(&mut app);
         assert_eq!(app.settings.library_pins(), [LIKED_SONGS_KEY]);
         assert_eq!(app.settings.sidebar_order, ["b", "a", "c", "d"].map(uri));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn folder_names_and_subtitles_follow_the_locale() {
+        use crate::i18n::Locale;
+        use crate::player::RootlistEntry::{FolderEnd, FolderStart, Playlist};
+        let mut app = app("folder-locale");
+        app.locale = Locale::German;
+        app.rootlist = vec![
+            FolderStart {
+                id: "folder".into(),
+                name: String::new(),
+            },
+            Playlist(uri("a")),
+            Playlist(uri("b")),
+            FolderEnd,
+        ];
+        let mut entries = vec![];
+        folder_rows(&app, "", &mut entries);
+        assert_eq!(entries[0].name, "Ordner");
+        assert_eq!(entries[0].subtitle, "Ordner • 2 Playlists");
+        assert_eq!(entries[0].grid_subtitle, "2 Playlists");
         app.backend.shutdown();
     }
 

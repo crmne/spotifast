@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-22 12:43+0200\n"
+"POT-Creation-Date: 2026-09-22 18:48+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Italian\n"
@@ -16,89 +16,121 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: src/ui/sidebar.rs:64 src/app.rs:2132 src/app.rs:13946
-msgid "Liked Songs"
-msgstr "Brani che ti piacciono"
+#: src/ui/sidebar.rs:161 src/ui/player_bar.rs:365
+msgid "Pause"
+msgstr "Pausa"
 
-#: src/ui/sidebar.rs:67 src/app.rs:2158 src/app.rs:13941
+#: src/ui/sidebar.rs:163 src/ui/sidebar.rs:1802 src/ui/player_bar.rs:367
+msgid "Play"
+msgstr "Riproduci"
+
+#: src/ui/sidebar.rs:296 src/app.rs:2158 src/app.rs:13953
 msgid "Playlist"
 msgstr "Playlist"
 
-#: src/ui/sidebar.rs:106
+#: src/ui/sidebar.rs:306 src/app.rs:2132 src/app.rs:13958
+msgid "Liked Songs"
+msgstr "Brani che ti piacciono"
+
+#: src/ui/sidebar.rs:346
 msgid "Library order"
 msgstr "Ordine della libreria"
 
-#: src/ui/sidebar.rs:109
+#: src/ui/sidebar.rs:349
 msgid "Recently played"
 msgstr "Ascoltati di recente"
 
-#: src/ui/sidebar.rs:111
+#: src/ui/sidebar.rs:351
 msgid "Name"
 msgstr "Nome"
 
-#: src/ui/sidebar.rs:114
+#: src/ui/sidebar.rs:354
 msgid "Recently added"
 msgstr "Aggiunti di recente"
 
-#: src/ui/sidebar.rs:116
+#: src/ui/sidebar.rs:356
 msgid "Local custom order"
 msgstr "Ordine personalizzato locale"
 
-#: src/ui/sidebar.rs:119
+#: src/ui/sidebar.rs:359
 msgid "Spotify custom order"
 msgstr "Ordine personalizzato Spotify"
 
-#: src/ui/sidebar.rs:518 src/i18n.rs:111 src/i18n.rs:114
+#: src/ui/sidebar.rs:660
+msgid "Folder"
+msgstr "Cartella"
+
+#: src/ui/sidebar.rs:820 src/i18n.rs:154 src/i18n.rs:157
 msgid "Home"
 msgstr "Home"
 
-#: src/ui/sidebar.rs:529
+#: src/ui/sidebar.rs:831
 msgid "Search"
 msgstr "Cerca"
 
-#: src/ui/sidebar.rs:561
+#: src/ui/sidebar.rs:863
 msgid "Library"
 msgstr "Libreria"
 
-#: src/ui/sidebar.rs:574
+#: src/ui/sidebar.rs:876
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "Nascondi barra laterale (Ctrl+B)"
 
-#: src/ui/sidebar.rs:575
+#: src/ui/sidebar.rs:877
 msgid "Hide sidebar (Cmd+B)"
 msgstr "Nascondi barra laterale (Cmd+B)"
 
-#: src/ui/sidebar.rs:589
+#: src/ui/sidebar.rs:886
+msgid "Show as list"
+msgstr "Mostra come elenco"
+
+#: src/ui/sidebar.rs:888
+msgid "Show as grid"
+msgstr "Mostra come griglia"
+
+#: src/ui/sidebar.rs:901
 msgid "Create a playlist"
 msgstr "Crea una playlist"
 
-#: src/ui/sidebar.rs:605
+#: src/ui/sidebar.rs:917
 msgid "Search Your Library"
 msgstr "Cerca nella libreria"
 
-#: src/ui/sidebar.rs:623
+#: src/ui/sidebar.rs:935
 msgid "Playlists"
 msgstr "Playlist"
 
-#: src/ui/sidebar.rs:624
+#: src/ui/sidebar.rs:936
 msgid "Albums"
 msgstr "Album"
 
-#: src/ui/sidebar.rs:625
+#: src/ui/sidebar.rs:937
 msgid "Artists"
 msgstr "Artisti"
 
-#: src/ui/sidebar.rs:626
+#: src/ui/sidebar.rs:938
 msgid "Podcasts"
 msgstr "Podcast"
 
-#: src/ui/sidebar.rs:646
+#: src/ui/sidebar.rs:958
 msgid "Search in Your Library"
 msgstr "Cerca nella tua libreria"
 
-#: src/ui/sidebar.rs:780 src/app.rs:2193
+#: src/ui/sidebar.rs:1083 src/app.rs:2193
 msgid "Artist"
 msgstr "Artista"
+
+#: src/ui/sidebar.rs:1785
+msgid "Sort by recently played"
+msgstr "Ordina per ascoltati di recente"
+
+#: src/ui/sidebar.rs:1820
+msgid "Unpin"
+msgstr "Rimuovi"
+
+#: src/ui/sidebar.rs:1822
+msgid "Pin to top"
+msgstr "Fissa in alto"
 
 #. Translators: Keep {count} exactly as written. It becomes the number of liked songs.
 #: src/i18n.rs:66
@@ -107,6 +139,40 @@ msgid "Playlist • {count} song"
 msgid_plural "Playlist • {count} songs"
 msgstr[0] "Playlist • {count} brano"
 msgstr[1] "Playlist • {count} brani"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of songs.
+#: src/i18n.rs:77
+#, rust-format
+msgid "{count} song"
+msgid_plural "{count} songs"
+msgstr[0] "{count} brano"
+msgstr[1] "{count} brani"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of playlists.
+#: src/i18n.rs:88
+#, rust-format
+msgid "{count} playlist"
+msgid_plural "{count} playlists"
+msgstr[0] "{count} playlist"
+msgstr[1] "{count} playlist"
+
+#. Translators: Keep {count} exactly as written. It becomes the number of playlists a folder holds.
+#: src/i18n.rs:99
+#, rust-format
+msgid "Folder • {count} playlist"
+msgid_plural "Folder • {count} playlists"
+msgstr[0] "Cartella • {count} playlist"
+msgstr[1] "Cartella • {count} playlist"
+
+#: src/i18n.rs:109
+#, rust-format
+msgid "{name}, folder, collapsed"
+msgstr "{name}, cartella, compressa"
+
+#: src/i18n.rs:111
+#, rust-format
+msgid "{name}, folder, expanded"
+msgstr "{name}, cartella, espansa"
 
 #: src/ui/player_bar.rs:85 src/ui/lyrics.rs:108 src/ui/lyrics.rs:411
 msgid "Nothing playing"
@@ -131,14 +197,6 @@ msgstr "Riproduzione casuale"
 #: src/ui/player_bar.rs:332
 msgid "Previous"
 msgstr "Precedente"
-
-#: src/ui/player_bar.rs:365
-msgid "Pause"
-msgstr "Pausa"
-
-#: src/ui/player_bar.rs:367
-msgid "Play"
-msgstr "Riproduci"
 
 #: src/ui/player_bar.rs:383
 msgid "Next"
@@ -299,13 +357,13 @@ msgid "Podcast"
 msgstr "Podcast"
 
 #. Translators: Keep {track} unchanged. The song title itself is not translated.
-#: src/app.rs:2230 src/app.rs:13951
+#: src/app.rs:2230 src/app.rs:13963
 #, rust-format
 msgid "{track} Radio"
 msgstr "Radio di {track}"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:4013 src/app.rs:13931
+#: src/app.rs:4013 src/app.rs:13943
 #, rust-format
 msgid "Queue {date}"
 msgstr "Coda {date}"

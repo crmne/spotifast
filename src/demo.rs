@@ -1829,6 +1829,88 @@ mod tests {
     }
 
     #[test]
+    fn library_folder_accessibility_labels_follow_the_locale() {
+        use crate::i18n::Locale;
+        use crate::player::RootlistEntry::{FolderEnd, FolderStart};
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("library-folder-labels");
+        app.locale = Locale::German;
+        app.settings.sidebar_grid = true;
+        app.rootlist = vec![
+            FolderStart {
+                id: "focus".into(),
+                name: "Focus".into(),
+            },
+            FolderEnd,
+            FolderStart {
+                id: "weekend".into(),
+                name: "Weekend".into(),
+            },
+            FolderEnd,
+        ];
+        app.collapsed_folders = vec!["weekend".into()];
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Focus, Ordner, ausgeklappt", Role::Button);
+        accessible_node(&tree, "Weekend, Ordner, eingeklappt", Role::Button);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn library_context_menu_labels_follow_the_locale() {
+        use crate::i18n::{Locale, gettext};
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("library-menu-locale");
+        app.locale = Locale::German;
+        app.settings.liked_songs_pinned = false;
+        let row = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == Role::Button
+                        && node.label() == Some(label)
+                        && node.bounds().is_some_and(|bounds| bounds.x0 < 250.0)
+                })
+                .unwrap_or_else(|| panic!("missing sidebar row {label}"))
+                .1
+                .bounds()
+                .unwrap();
+            egui::Rect::from_min_max(
+                egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        };
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let liked = row(&tree, &gettext(Locale::German, "Liked Songs")).center();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(liked, egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, &gettext(Locale::German, "Play"), Role::Button);
+        let pin = accessible_node(&tree, &gettext(Locale::German, "Pin to top"), Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(pin, AccessibleAction::Click, None)],
+        );
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let liked = row(&tree, &gettext(Locale::German, "Liked Songs")).center();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(liked, egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, &gettext(Locale::German, "Unpin"), Role::Button);
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn library_grid_cards_navigate_and_their_corner_buttons_play() {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("library-grid-card-actions");

@@ -69,6 +69,49 @@ impl Locale {
         )
         .replace("{count}", &count.to_string())
     }
+
+    pub fn song_count(self, count: u32) -> String {
+        ngettext(
+            self,
+            // Translators: Keep {count} exactly as written. It becomes a number of songs.
+            "{count} song",
+            "{count} songs",
+            count,
+        )
+        .replace("{count}", &count.to_string())
+    }
+
+    pub fn playlist_count(self, count: u32) -> String {
+        ngettext(
+            self,
+            // Translators: Keep {count} exactly as written. It becomes a number of playlists.
+            "{count} playlist",
+            "{count} playlists",
+            count,
+        )
+        .replace("{count}", &count.to_string())
+    }
+
+    pub fn folder_playlist_count(self, count: u32) -> String {
+        ngettext(
+            self,
+            // Translators: Keep {count} exactly as written. It becomes the number of playlists a folder holds.
+            "Folder • {count} playlist",
+            "Folder • {count} playlists",
+            count,
+        )
+        .replace("{count}", &count.to_string())
+    }
+
+    pub fn folder_state_label(self, name: &str, collapsed: bool) -> String {
+        // Translators: Keep {name} exactly as written. It becomes the folder name.
+        let label = if collapsed {
+            gettext(self, "{name}, folder, collapsed")
+        } else {
+            gettext(self, "{name}, folder, expanded")
+        };
+        label.replace("{name}", name)
+    }
 }
 
 /// The English source is also the fallback for untranslated messages.
@@ -142,6 +185,48 @@ mod tests {
             assert_eq!(Locale::German.liked_song_count(count), german);
         }
     }
+    #[test]
+    fn short_counts_are_localized_without_parsing_complete_phrases() {
+        assert_eq!(Locale::German.song_count(2), "2 Titel");
+        assert_eq!(Locale::Japanese.song_count(2), "2曲");
+        assert_eq!(Locale::German.playlist_count(1), "1 Playlist");
+        assert_eq!(Locale::German.playlist_count(2), "2 Playlists");
+        assert_eq!(Locale::Polish.playlist_count(2), "2 playlisty");
+        assert_eq!(Locale::Russian.playlist_count(5), "5 плейлистов");
+        for (locale, count, expected) in [
+            (Locale::English, 1, "Folder • 1 playlist"),
+            (Locale::English, 2, "Folder • 2 playlists"),
+            (Locale::German, 1, "Ordner • 1 Playlist"),
+            (Locale::German, 2, "Ordner • 2 Playlists"),
+            (Locale::Polish, 1, "Folder • 1 playlista"),
+            (Locale::Polish, 2, "Folder • 2 playlisty"),
+            (Locale::Polish, 5, "Folder • 5 playlist"),
+            (Locale::Russian, 1, "Папка • 1 плейлист"),
+            (Locale::Russian, 3, "Папка • 3 плейлиста"),
+            (Locale::Russian, 5, "Папка • 5 плейлистов"),
+            (Locale::Japanese, 1, "フォルダー • 1件のプレイリスト"),
+            (Locale::Japanese, 4, "フォルダー • 4件のプレイリスト"),
+        ] {
+            assert_eq!(
+                locale.folder_playlist_count(count),
+                expected,
+                "{locale:?} with {count}"
+            );
+        }
+    }
+
+    #[test]
+    fn folder_state_labels_are_completely_localized_phrases() {
+        assert_eq!(
+            Locale::English.folder_state_label("Road trips", true),
+            "Road trips, folder, collapsed"
+        );
+        assert_eq!(
+            Locale::German.folder_state_label("Unterwegs", false),
+            "Unterwegs, Ordner, ausgeklappt"
+        );
+    }
+
     #[test]
     fn locale_plural_rules_cover_european_and_asian_forms() {
         for (locale, count, expected) in [
