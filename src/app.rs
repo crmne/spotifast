@@ -1469,6 +1469,27 @@ impl App {
                     })
             })
             .or_else(|| {
+                self.library
+                    .liked
+                    .items
+                    .iter()
+                    .filter_map(|saved| saved.track.album.as_ref())
+                    .find(|album| album.id == id)
+            })
+            .or_else(|| {
+                self.playlist_pages.values().find_map(|page| {
+                    page.items
+                        .items
+                        .iter()
+                        .find_map(|item| match item.playable() {
+                            Some(PlayableItem::Track(track)) => {
+                                track.album.as_ref().filter(|album| album.id == id)
+                            }
+                            _ => None,
+                        })
+                })
+            })
+            .or_else(|| {
                 self.artist_pages.values().find_map(|page| {
                     page.albums
                         .values()
@@ -1534,6 +1555,27 @@ impl App {
                     .get()
                     .and_then(|results| results.shows.as_ref())
                     .and_then(|shows| shows.items.iter().find(|show| show.id == id))
+            })
+            .or_else(|| {
+                self.library
+                    .episodes
+                    .items
+                    .iter()
+                    .filter_map(|saved| saved.episode.show.as_ref())
+                    .find(|show| show.id == id)
+            })
+            .or_else(|| {
+                self.search
+                    .results
+                    .get()
+                    .and_then(|results| results.episodes.as_ref())
+                    .and_then(|episodes| {
+                        episodes
+                            .items
+                            .iter()
+                            .filter_map(|episode| episode.show.as_ref())
+                            .find(|show| show.id == id)
+                    })
             })
     }
 
@@ -8873,7 +8915,9 @@ fn cover_error(error: &crate::api::client::ApiError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::models::Image;
+    use crate::api::models::{
+        Episode, Image, Page as ApiPage, SavedEpisode, SavedTrack, SearchResults,
+    };
 
     #[test]
     fn middle_clicking_a_playlist_row_autoscrolls_only_on_windows_without_playing_it() {
@@ -12058,6 +12102,75 @@ mod tests {
                 tray: false,
             },
         )
+    }
+
+    #[test]
+    fn known_albums_include_liked_and_playlist_tracks() {
+        let mut app = test_app("known-track-albums");
+        let album = |id: &str| Album {
+            id: id.to_string(),
+            ..Default::default()
+        };
+        app.library.liked.items.push(SavedTrack {
+            track: Track {
+                album: Some(album("liked-album")),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        app.playlist_pages.insert(
+            "playlist".to_string(),
+            PlaylistPage {
+                items: PagedList {
+                    items: vec![PlaylistItem {
+                        item: Some(PlayableItem::Track(Track {
+                            album: Some(album("playlist-album")),
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(app.known_album("liked-album").unwrap().id, "liked-album");
+        assert_eq!(
+            app.known_album("playlist-album").unwrap().id,
+            "playlist-album"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn known_shows_include_saved_and_search_episodes() {
+        let mut app = test_app("known-episode-shows");
+        let show = |id: &str| Show {
+            id: id.to_string(),
+            ..Default::default()
+        };
+        app.library.episodes.items.push(SavedEpisode {
+            episode: Episode {
+                show: Some(show("saved-show")),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        app.search.results = Loadable::Loaded(SearchResults {
+            episodes: Some(ApiPage {
+                items: vec![Episode {
+                    show: Some(show("search-show")),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(app.known_show("saved-show").unwrap().id, "saved-show");
+        assert_eq!(app.known_show("search-show").unwrap().id, "search-show");
+        app.backend.shutdown();
     }
 
     #[test]

@@ -41,11 +41,13 @@ pub(super) fn hero_images<'a>(
     let image = pick_image(images, 640);
     HeroImages {
         image,
-        previous: preview
-            .and_then(|images| pick_image(images, 640))
-            .filter(|previous| Some(*previous) != image),
-        thumbnail: preview
-            .and_then(|images| pick_image(images, 64))
+        previous: image.and_then(|image| {
+            preview
+                .and_then(|images| pick_image(images, 640))
+                .filter(|previous| *previous != image)
+        }),
+        thumbnail: image
+            .and_then(|_| preview.and_then(|images| pick_image(images, 64)))
             .or_else(|| pick_image(images, 64)),
         align_thumbnail,
     }
@@ -1094,7 +1096,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let Some(mut page) = app.playlist_pages.remove(id) else {
         return;
     };
-    let preview = app.known_playlist(id).cloned();
+    let preview = super::loading_preview(&page.playlist, || app.known_playlist(id).cloned());
     let user_id = app.user_id().unwrap_or("").to_string();
     match &page.playlist {
         Loadable::Loaded(playlist) => {
@@ -1276,7 +1278,7 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let Some(page) = app.album_pages.remove(id) else {
         return;
     };
-    let preview = app.known_album(id).cloned();
+    let preview = super::loading_preview(&page.album, || app.known_album(id).cloned());
     let palette = app.palette;
     match &page.album {
         Loadable::Loaded(album) => {
@@ -1733,6 +1735,14 @@ mod tests {
 
         let images = hero_images(&current, Some(&current), false);
         assert_eq!(images.previous, None, "the same cover is not loaded twice");
+
+        let images = hero_images(&[], Some(&preview), false);
+        assert_eq!(images.image, None);
+        assert_eq!(
+            images.previous, None,
+            "missing artwork keeps its placeholder"
+        );
+        assert_eq!(images.thumbnail, None);
     }
 
     #[test]

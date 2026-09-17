@@ -25,7 +25,7 @@ use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, Stroke, vec2};
 use crate::api::models::pick_image;
 use crate::app::App;
 use crate::backend::AuthStatus;
-use crate::model::{Action, Page, ToastKind};
+use crate::model::{Action, Loadable, Page, ToastKind};
 use crate::theme::{self, Icon};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -70,31 +70,43 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     window_resize(ui);
 }
 
+fn loading_preview<T>(details: &Loadable<T>, known: impl FnOnce() -> Option<T>) -> Option<T> {
+    if details.get().is_some() {
+        None
+    } else {
+        known()
+    }
+}
+
 fn page_tint(app: &mut App) -> Option<Color32> {
     let page = app.page().clone();
     let image = match &page {
         Page::Playlist(id) => app
-            .known_playlist(id)
-            .or_else(|| {
-                app.playlist_pages
-                    .get(id)
-                    .and_then(|page| page.playlist.get())
-            })
+            .playlist_pages
+            .get(id)
+            .and_then(|page| page.playlist.get())
+            .or_else(|| app.known_playlist(id))
             .and_then(|playlist| pick_image(&playlist.images, 64))
             .map(str::to_string),
         Page::Album(id) => app
-            .known_album(id)
-            .or_else(|| app.album_pages.get(id).and_then(|page| page.album.get()))
+            .album_pages
+            .get(id)
+            .and_then(|page| page.album.get())
+            .or_else(|| app.known_album(id))
             .and_then(|album| pick_image(&album.images, 64))
             .map(str::to_string),
         Page::Artist(id) => app
-            .known_artist(id)
-            .or_else(|| app.artist_pages.get(id).and_then(|page| page.artist.get()))
+            .artist_pages
+            .get(id)
+            .and_then(|page| page.artist.get())
+            .or_else(|| app.known_artist(id))
             .and_then(|artist| pick_image(&artist.images, 64))
             .map(str::to_string),
         Page::Show(id) => app
-            .known_show(id)
-            .or_else(|| app.show_pages.get(id).and_then(|page| page.show.get()))
+            .show_pages
+            .get(id)
+            .and_then(|page| page.show.get())
+            .or_else(|| app.known_show(id))
             .and_then(|show| pick_image(&show.images, 64))
             .map(str::to_string),
         Page::LikedSongs => return Some(Color32::from_rgb(0x50, 0x38, 0xc8)),

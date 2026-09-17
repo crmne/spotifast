@@ -22,7 +22,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let Some(page) = app.show_pages.remove(id) else {
         return;
     };
-    let preview = app.known_show(id).cloned();
+    let preview = super::loading_preview(&page.show, || app.known_show(id).cloned());
     let palette = app.palette;
     match &page.show {
         Loadable::Loaded(show) => {
@@ -77,7 +77,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             if let Some(show) = &preview {
                 show_hero(app, ui, show, None);
                 ui.add_enabled_ui(false, |ui| {
-                    show_actions(app, ui, show, Some(&show.uri));
+                    show_actions(app, ui, show, None);
                 });
             } else {
                 ui.add_space(40.0);
