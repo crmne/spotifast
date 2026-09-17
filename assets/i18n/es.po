@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-15 00:25+0200\n"
+"POT-Creation-Date: 2026-09-17 16:39+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Spanish\n"
@@ -16,87 +16,103 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: src/ui/sidebar.rs:64 src/app.rs:1930 src/app.rs:12699
-msgid "Liked Songs"
-msgstr "Canciones favoritas"
+#: src/ui/sidebar.rs:152 src/ui/player_bar.rs:365
+msgid "Pause"
+msgstr "Pausar"
 
-#: src/ui/sidebar.rs:67 src/app.rs:1956 src/app.rs:12694
+#: src/ui/sidebar.rs:154 src/ui/player_bar.rs:367
+msgid "Play"
+msgstr "Reproducir"
+
+#: src/ui/sidebar.rs:282 src/app.rs:1956 src/app.rs:12710
 msgid "Playlist"
 msgstr "Playlist"
 
-#: src/ui/sidebar.rs:106
+#: src/ui/sidebar.rs:297 src/app.rs:1930 src/app.rs:12715
+msgid "Liked Songs"
+msgstr "Canciones favoritas"
+
+#: src/ui/sidebar.rs:337
 msgid "Library order"
 msgstr "Orden de la biblioteca"
 
-#: src/ui/sidebar.rs:109
+#: src/ui/sidebar.rs:340
 msgid "Recently played"
 msgstr "Reproducido recientemente"
 
-#: src/ui/sidebar.rs:111
+#: src/ui/sidebar.rs:342
 msgid "Name"
 msgstr "Nombre"
 
-#: src/ui/sidebar.rs:114
+#: src/ui/sidebar.rs:345
 msgid "Recently added"
 msgstr "Añadido recientemente"
 
-#: src/ui/sidebar.rs:116
+#: src/ui/sidebar.rs:347
 msgid "Local custom order"
 msgstr "Orden personalizado local"
 
-#: src/ui/sidebar.rs:119
+#: src/ui/sidebar.rs:350
 msgid "Spotify custom order"
 msgstr "Orden personalizado de Spotify"
 
-#: src/ui/sidebar.rs:518 src/i18n.rs:111 src/i18n.rs:114
+#: src/ui/sidebar.rs:814 src/i18n.rs:111 src/i18n.rs:114
 msgid "Home"
 msgstr "Inicio"
 
-#: src/ui/sidebar.rs:529
+#: src/ui/sidebar.rs:825
 msgid "Search"
 msgstr "Buscar"
 
-#: src/ui/sidebar.rs:561
+#: src/ui/sidebar.rs:857
 msgid "Library"
 msgstr "Biblioteca"
 
-#: src/ui/sidebar.rs:574
+#: src/ui/sidebar.rs:870
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "Ocultar barra lateral (Ctrl+B)"
 
-#: src/ui/sidebar.rs:575
+#: src/ui/sidebar.rs:871
 msgid "Hide sidebar (Cmd+B)"
 msgstr "Ocultar barra lateral (Cmd+B)"
 
-#: src/ui/sidebar.rs:589
+#: src/ui/sidebar.rs:885
 msgid "Create a playlist"
 msgstr "Crear una playlist"
 
-#: src/ui/sidebar.rs:605
+#: src/ui/sidebar.rs:901
 msgid "Search Your Library"
 msgstr "Buscar en la biblioteca"
 
-#: src/ui/sidebar.rs:623
+#: src/ui/sidebar.rs:919
 msgid "Playlists"
 msgstr "Playlists"
 
-#: src/ui/sidebar.rs:624
+#: src/ui/sidebar.rs:920
 msgid "Albums"
 msgstr "Álbumes"
 
-#: src/ui/sidebar.rs:625
+#: src/ui/sidebar.rs:921
 msgid "Artists"
 msgstr "Artistas"
 
-#: src/ui/sidebar.rs:626
+#: src/ui/sidebar.rs:922
 msgid "Podcasts"
 msgstr "Pódcasts"
 
-#: src/ui/sidebar.rs:646
+#: src/ui/sidebar.rs:935
+msgid "Show as list"
+msgstr "Mostrar como lista"
+
+#: src/ui/sidebar.rs:937
+msgid "Show as grid"
+msgstr "Mostrar como cuadrícula"
+
+#: src/ui/sidebar.rs:956
 msgid "Search in Your Library"
 msgstr "Buscar en tu biblioteca"
 
-#: src/ui/sidebar.rs:780 src/app.rs:1991
+#: src/ui/sidebar.rs:1081 src/app.rs:1991
 msgid "Artist"
 msgstr "Artista"
 
@@ -131,14 +147,6 @@ msgstr "Aleatorio"
 #: src/ui/player_bar.rs:332
 msgid "Previous"
 msgstr "Anterior"
-
-#: src/ui/player_bar.rs:365
-msgid "Pause"
-msgstr "Pausar"
-
-#: src/ui/player_bar.rs:367
-msgid "Play"
-msgstr "Reproducir"
 
 #: src/ui/player_bar.rs:383
 msgid "Next"
@@ -307,13 +315,13 @@ msgid "Podcast"
 msgstr "Pódcast"
 
 #. Translators: Keep {track} unchanged. The song title itself is not translated.
-#: src/app.rs:2028 src/app.rs:12704
+#: src/app.rs:2028 src/app.rs:12720
 #, rust-format
 msgid "{track} Radio"
 msgstr "Radio de {track}"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:3798 src/app.rs:12684
+#: src/app.rs:3798 src/app.rs:12700
 #, rust-format
 msgid "Queue {date}"
 msgstr "Cola {date}"

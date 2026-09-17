@@ -46,9 +46,10 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   Spotify Connect devices. The picker uses responding receivers' names and
   combines entries with the same device ID.
 - **Library.** Browse playlists, Liked Songs, saved albums, followed artists,
-  podcasts, and saved episodes. Filter, pin, and reorder sidebar items.
-  Since 0.8.0, double-click a playlist in Library to start playback;
-  a single click opens it.
+  podcasts, and saved episodes. Filter, pin, and reorder sidebar items, and
+  switch between a list and a responsive cover grid.
+  Since 0.8.0, double-click a playlist row in Library to start playback;
+  a single click opens it. Grid cards use their corner play button.
   Settings offers a compact track list with one line per song and spaced
   separators between its name, artists and added date.
   Since 0.8.0, choose name, recent plays, or saved-date order where
