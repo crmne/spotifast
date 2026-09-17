@@ -11,6 +11,7 @@ use crate::theme::{self, Icon, Palette};
 use super::widgets;
 
 const PLAYBACK_DIRTY_ID: &str = "playback-settings-dirty";
+const SETTINGS_MAX_WIDTH: f32 = 800.0;
 pub(crate) const PERSONAL_APP_FOCUS_ID: &str = "focus-personal-app-setup";
 const SETTINGS_FILTER_ID: &str = "settings-filter";
 
@@ -109,6 +110,15 @@ fn section(
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
+    let width = ui.available_width().min(SETTINGS_MAX_WIDTH);
+    ui.with_layout(Layout::top_down(Align::Center), |ui| {
+        ui.allocate_ui_with_layout(Vec2::new(width, 0.0), Layout::top_down(Align::Min), |ui| {
+            show_content(app, ui)
+        });
+    });
+}
+
+fn show_content(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(8.0);
     theme::text(ui, "Settings", theme::bold(28.0), palette.text);
