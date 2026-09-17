@@ -848,6 +848,8 @@ pub struct Toast {
 #[derive(Clone, Debug)]
 pub enum Action {
     Open(Page),
+    /// Extracts a page's tint while its library row is hovered.
+    PrepareTint(String),
     OpenUri(String),
     /// A Spotify link from outside the app: its page opens and the window
     /// comes forward, once the account is signed in.

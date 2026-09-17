@@ -42,7 +42,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&album.images, 300),
+                    pick_image(&album.images, 640),
                     &album.name,
                     &subtitle,
                     false,
@@ -93,7 +93,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&artist.images, 300),
+                    pick_image(&artist.images, 640),
                     &artist.name,
                     "Artist",
                     true,
@@ -145,7 +145,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&show.images, 300),
+                    pick_image(&show.images, 640),
                     &show.name,
                     &show.publisher,
                     false,

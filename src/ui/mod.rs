@@ -74,28 +74,28 @@ fn page_tint(app: &mut App) -> Option<Color32> {
     let page = app.page().clone();
     let image = match &page {
         Page::Playlist(id) => app
-            .playlist_pages
-            .get(id)
-            .and_then(|page| page.playlist.get())
-            .and_then(|playlist| pick_image(&playlist.images, 300))
+            .known_playlist(id)
+            .or_else(|| {
+                app.playlist_pages
+                    .get(id)
+                    .and_then(|page| page.playlist.get())
+            })
+            .and_then(|playlist| pick_image(&playlist.images, 64))
             .map(str::to_string),
         Page::Album(id) => app
-            .album_pages
-            .get(id)
-            .and_then(|page| page.album.get())
-            .and_then(|album| pick_image(&album.images, 300))
+            .known_album(id)
+            .or_else(|| app.album_pages.get(id).and_then(|page| page.album.get()))
+            .and_then(|album| pick_image(&album.images, 64))
             .map(str::to_string),
         Page::Artist(id) => app
-            .artist_pages
-            .get(id)
-            .and_then(|page| page.artist.get())
-            .and_then(|artist| pick_image(&artist.images, 300))
+            .known_artist(id)
+            .or_else(|| app.artist_pages.get(id).and_then(|page| page.artist.get()))
+            .and_then(|artist| pick_image(&artist.images, 64))
             .map(str::to_string),
         Page::Show(id) => app
-            .show_pages
-            .get(id)
-            .and_then(|page| page.show.get())
-            .and_then(|show| pick_image(&show.images, 300))
+            .known_show(id)
+            .or_else(|| app.show_pages.get(id).and_then(|page| page.show.get()))
+            .and_then(|show| pick_image(&show.images, 64))
             .map(str::to_string),
         Page::LikedSongs => return Some(Color32::from_rgb(0x50, 0x38, 0xc8)),
         _ => None,
@@ -104,7 +104,7 @@ fn page_tint(app: &mut App) -> Option<Color32> {
         return None;
     }
     match image {
-        Some(url) => app.tint_for(Some(&url)),
+        Some(url) => app.tint_for(Some(&url)).or_else(|| app.now_playing_tint()),
         None => app.now_playing_tint(),
     }
 }

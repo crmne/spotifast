@@ -643,6 +643,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.recents.error =
                     (surface == "recents-error").then(|| "Connection interrupted".into());
             }
+            "collection-loading" => match app.page().clone() {
+                Page::Playlist(id) => {
+                    app.playlist_pages.get_mut(&id).unwrap().playlist = Loadable::Loading
+                }
+                Page::Album(id) => app.album_pages.get_mut(&id).unwrap().album = Loadable::Loading,
+                Page::Artist(id) => {
+                    app.artist_pages.get_mut(&id).unwrap().artist = Loadable::Loading
+                }
+                Page::Show(id) => app.show_pages.get_mut(&id).unwrap().show = Loadable::Loading,
+                _ => {}
+            },
             "lyrics-follow"
             | "lyrics-empty"
             | "lyrics-loading"
@@ -2985,6 +2996,54 @@ mod tests {
             walk(&shape.shape, &mut text);
         }
         text
+    }
+
+    #[test]
+    fn loading_collections_keep_their_hero_layout() {
+        fn playlist(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::collection::playlist(app, ui, "pl1");
+        }
+        fn album(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::collection::album(app, ui, "alb0");
+        }
+        fn artist(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::artist::show(app, ui, "art0");
+        }
+        fn show(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::show::show(app, ui, "sh0");
+        }
+
+        let (ctx, mut app) = accessible_app("loading-collections");
+        app.playlist_pages.remove("pl1");
+        app.album_pages.remove("alb0");
+        app.artist_pages.remove("art0");
+        app.show_pages.remove("sh0");
+        app.library.playlists = Loadable::Loaded(Vec::new());
+        app.library.albums.items.clear();
+        app.library.artists.items.clear();
+        app.library.shows.items.clear();
+        app.search.results.get_mut().unwrap().albums = None;
+        for (title, detail, view) in [
+            (
+                "Late night focus",
+                "Carmine",
+                playlist as fn(&mut App, &mut egui::Ui),
+            ),
+            ("Fragments", "Bonobo", album),
+            ("Bonobo", "electronic, downtempo, ambient", artist),
+            ("Rework", "37signals", show),
+        ] {
+            let painted = view_frame(&ctx, &mut app, vec![], view);
+            let title = painted.iter().find(|(text, _)| text == title).unwrap().1;
+            assert!(painted.iter().any(|(text, _)| text.contains(detail)));
+            let loading = painted
+                .iter()
+                .find(|(text, _)| text == "Loading…")
+                .unwrap()
+                .1;
+            assert!(loading.top() > title.bottom());
+        }
+        app.backend.shutdown();
     }
 
     fn pointer_click(pos: egui::Pos2, button: egui::PointerButton) -> Vec<egui::Event> {

@@ -1,6 +1,6 @@
 //! Album art: fetched once, kept on disk, decoded by egui on demand.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -70,6 +70,18 @@ impl ArtLoader {
     /// Bytes for `url`, from memory, disk, or the network.
     pub async fn fetch(&self, url: &str) -> Result<Arc<[u8]>, String> {
         self.inner.fetch(url).await
+    }
+
+    /// Whether artwork has finished loading from disk or the network.
+    pub fn is_ready(&self, url: &str) -> bool {
+        matches!(
+            self.inner
+                .entries
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get(url),
+            Some(Entry::Ready { .. })
+        )
     }
 
     /// Marks artwork as visible so size-based eviction keeps it stable.
@@ -419,6 +431,19 @@ pub fn accent_color(bytes: &[u8]) -> Option<[u8; 3]> {
     ])
 }
 
+/// Blur applied to the full-window lyrics backdrop.
+const LYRICS_BLUR: f32 = 9.0;
+
+/// Blur applied to a library thumbnail standing in for a cover.
+///
+/// Softening happens at the same bounded size as the backdrop, so this is
+/// weaker than the backdrop's radius: the thumbnail already carries little
+/// detail, and a heavier blur smears it into flat colour.
+const COVER_BLUR: f32 = 1.5;
+
+/// Softened covers held at once, for library artwork seen recently.
+const HELD_COVERS: usize = 64;
+
 #[derive(Default)]
 pub struct LyricsBackdrop {
     uri: Option<String>,
@@ -449,11 +474,11 @@ impl LyricsBackdrop {
                     self.pending = Some(rx);
                     let ctx = ctx.clone();
                     loader.inner.runtime.spawn_blocking(move || {
-                        let _ = tx.send(lyrics_background(&bytes));
+                        let _ = tx.send(blurred_background(&bytes, LYRICS_BLUR));
                         ctx.request_repaint();
                     });
                 }
-                Err(error) => self.requested = terminal_lyrics_backdrop_error(&error),
+                Err(error) => self.requested = terminal_art_error(&error),
                 Ok(BytesPoll::Pending { .. }) => {}
             }
         }
@@ -473,11 +498,110 @@ impl LyricsBackdrop {
     }
 }
 
-fn terminal_lyrics_backdrop_error(error: &LoadError) -> bool {
+fn terminal_art_error(error: &LoadError) -> bool {
     matches!(error, LoadError::NotSupported)
 }
 
-fn lyrics_background(bytes: &[u8]) -> Option<egui::ColorImage> {
+/// Softened artwork for covers that are still loading, one entry per URL.
+///
+/// A library row's small thumbnail is already on screen when its page opens,
+/// so enlarging it blurred stands in for the cover until the full artwork
+/// arrives. Blurring happens off the UI thread and the result is kept, so a
+/// cover that is opened, left, and opened again shows softened art at once.
+struct SoftenedCover {
+    texture: egui::TextureHandle,
+    last_used: Instant,
+}
+
+type SoftenedResult = (String, Option<egui::ColorImage>);
+
+pub struct SoftenedCovers {
+    textures: HashMap<String, SoftenedCover>,
+    pending: HashSet<String>,
+    failed: HashSet<String>,
+    ready_tx: std::sync::mpsc::Sender<SoftenedResult>,
+    ready_rx: std::sync::mpsc::Receiver<SoftenedResult>,
+}
+
+impl Default for SoftenedCovers {
+    fn default() -> Self {
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        Self {
+            textures: HashMap::new(),
+            pending: HashSet::new(),
+            failed: HashSet::new(),
+            ready_tx,
+            ready_rx,
+        }
+    }
+}
+
+impl SoftenedCovers {
+    /// The softened cover for `uri`, blurring it in the background the first
+    /// time it is asked for.
+    pub fn texture(
+        &mut self,
+        ctx: &egui::Context,
+        loader: &ArtLoader,
+        uri: &str,
+    ) -> Option<egui::TextureHandle> {
+        while let Ok((ready_uri, image)) = self.ready_rx.try_recv() {
+            self.pending.remove(&ready_uri);
+            if let Some(image) = image {
+                if self.textures.len() >= HELD_COVERS
+                    && let Some(oldest) = self
+                        .textures
+                        .iter()
+                        .min_by_key(|(_, cover)| cover.last_used)
+                        .map(|(uri, _)| uri.clone())
+                {
+                    self.textures.remove(&oldest);
+                }
+                let texture =
+                    ctx.load_texture("softened-cover", image, egui::TextureOptions::LINEAR);
+                self.textures.insert(
+                    ready_uri,
+                    SoftenedCover {
+                        texture,
+                        last_used: Instant::now(),
+                    },
+                );
+            } else {
+                self.failed.insert(ready_uri);
+            }
+        }
+        if let Some(cover) = self.textures.get_mut(uri) {
+            cover.last_used = Instant::now();
+            return Some(cover.texture.clone());
+        }
+        if self.failed.contains(uri)
+            || self.pending.contains(uri)
+            || self.pending.len() >= HELD_COVERS
+        {
+            return None;
+        }
+        match ctx.try_load_bytes(uri) {
+            Ok(BytesPoll::Ready { bytes, .. }) => {
+                let ready_tx = self.ready_tx.clone();
+                let ready_uri = uri.to_string();
+                let ctx = ctx.clone();
+                self.pending.insert(ready_uri.clone());
+                loader.inner.runtime.spawn_blocking(move || {
+                    let image = blurred_background(&bytes, COVER_BLUR);
+                    let _ = ready_tx.send((ready_uri, image));
+                    ctx.request_repaint();
+                });
+            }
+            Err(error) if terminal_art_error(&error) => {
+                self.failed.insert(uri.to_string());
+            }
+            _ => {}
+        }
+        None
+    }
+}
+
+fn blurred_background(bytes: &[u8], sigma: f32) -> Option<egui::ColorImage> {
     if bytes.len() > MAX_ART_BYTES {
         return None;
     }
@@ -490,7 +614,7 @@ fn lyrics_background(bytes: &[u8]) -> Option<egui::ColorImage> {
     limits.max_alloc = Some(64 * 1024 * 1024);
     reader.limits(limits);
     let image = reader.decode().ok()?;
-    let image = image.thumbnail(256, 256).blur(9.0).to_rgba8();
+    let image = image.thumbnail(256, 256).blur(sigma).to_rgba8();
     Some(egui::ColorImage::from_rgba_unmultiplied(
         [image.width() as usize, image.height() as usize],
         image.as_raw(),
@@ -651,25 +775,23 @@ mod tests {
 
     #[test]
     fn transient_backdrop_load_errors_remain_retryable() {
-        assert!(!terminal_lyrics_backdrop_error(&LoadError::Loading(
+        assert!(!terminal_art_error(&LoadError::Loading(
             "temporary network failure".into()
         )));
-        assert!(!terminal_lyrics_backdrop_error(
-            &LoadError::NoMatchingBytesLoader
-        ));
-        assert!(terminal_lyrics_backdrop_error(&LoadError::NotSupported));
+        assert!(!terminal_art_error(&LoadError::NoMatchingBytesLoader));
+        assert!(terminal_art_error(&LoadError::NotSupported));
     }
 
     #[test]
-    fn lyrics_background_rejects_oversized_decode_before_thumbnailing() {
+    fn blurred_background_rejects_oversized_decode_before_thumbnailing() {
         let image = image::RgbImage::from_pixel(8193, 1, image::Rgb([20, 30, 40]));
         let mut bytes = std::io::Cursor::new(Vec::new());
         image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
-        assert!(lyrics_background(bytes.get_ref()).is_none());
+        assert!(blurred_background(bytes.get_ref(), LYRICS_BLUR).is_none());
     }
 
     #[test]
-    fn lyrics_background_blurs_edges_and_bounds_texture_size() {
+    fn blurred_background_blurs_edges_and_bounds_texture_size() {
         let image = image::RgbImage::from_fn(640, 320, |x, _| {
             if x < 320 {
                 image::Rgb([255, 0, 0])
@@ -679,7 +801,7 @@ mod tests {
         });
         let mut bytes = std::io::Cursor::new(Vec::new());
         image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
-        let background = lyrics_background(bytes.get_ref()).expect("valid artwork");
+        let background = blurred_background(bytes.get_ref(), LYRICS_BLUR).expect("valid artwork");
         assert_eq!(background.size, [256, 128]);
         let center = background.pixels[64 * 256 + 128];
         assert!(
@@ -690,7 +812,7 @@ mod tests {
             background.pixels[0].r() > 240,
             "the cover's colors remain recognizable"
         );
-        assert!(lyrics_background(b"broken artwork").is_none());
+        assert!(blurred_background(b"broken artwork", LYRICS_BLUR).is_none());
     }
 
     /// The media controls ask for a file rather than a URL, and have to be

@@ -4,97 +4,38 @@ use std::sync::Arc;
 
 use egui::{CornerRadius, Layout, Rect, Sense, UiBuilder, Vec2, pos2, vec2};
 
-use crate::api::models::{Episode, PlayableItem, pick_image};
+use crate::api::models::{Episode, PlayableItem, Show, pick_image};
 use crate::app::App;
 use crate::model::{Action, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 use crate::util;
 
-use super::collection::{Hero, hero};
+use super::collection::{Hero, hero, hero_images};
 use super::widgets;
 
 pub const EPISODE_ROW_HEIGHT: f32 = 128.0;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
-    let Some(page) = app.show_pages.remove(id) else {
+    if !app.show_pages.contains_key(id) {
         app.ensure_loaded(Page::Show(id.to_string()));
+    }
+    let Some(page) = app.show_pages.remove(id) else {
         return;
     };
+    let preview = app.known_show(id).cloned();
     let palette = app.palette;
     match &page.show {
         Loadable::Loaded(show) => {
-            let mut byline = vec![(show.publisher.clone(), None)];
-            if let Some(total) = show.total_episodes {
-                byline.push((format!("{total} episodes"), None));
-            }
-            hero(
+            show_hero(app, ui, show, preview.as_ref());
+            show_actions(
                 app,
                 ui,
-                Hero {
-                    image: pick_image(&show.images, 300),
-                    liked: false,
-                    kind: "Podcast",
-                    title: &show.name,
-                    description: None,
-                    byline,
-                    round: false,
-                },
+                show,
+                page.episodes
+                    .items
+                    .first()
+                    .map(|episode| episode.uri.as_str()),
             );
-            let saved = app.is_saved(&show.uri).unwrap_or(false);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 18.0;
-                if let Some(latest) = page.episodes.items.first() {
-                    let uri = latest.uri.clone();
-                    if app.play_pending(&uri) {
-                        theme::circle_spinner(
-                            ui,
-                            56.0,
-                            palette.accent,
-                            palette.on_accent,
-                            "Starting…",
-                        );
-                    } else if theme::circle_button(
-                        ui,
-                        Icon::PlayFilled,
-                        56.0,
-                        palette.accent,
-                        palette.accent_hover,
-                        palette.on_accent,
-                        "Play latest episode",
-                    )
-                    .clicked()
-                    {
-                        app.actions.push(Action::PlayUris {
-                            uris: vec![uri],
-                            index: 0,
-                        });
-                    }
-                }
-                let (icon, color, tooltip) = if saved {
-                    (
-                        Icon::CircleCheck,
-                        palette.accent,
-                        "Remove from Your Library",
-                    )
-                } else {
-                    (Icon::CirclePlus, palette.secondary, "Follow podcast")
-                };
-                if theme::icon_button(ui, icon, 26.0, color, palette.text, tooltip).clicked() {
-                    app.actions.push(Action::ToggleSaved(show.uri.clone()));
-                }
-                let more = theme::icon_button(
-                    ui,
-                    Icon::Ellipsis,
-                    26.0,
-                    palette.secondary,
-                    palette.text,
-                    "More",
-                );
-                egui::Popup::menu(&more)
-                    .frame(widgets::menu_frame(&palette))
-                    .show(|ui| widgets::context_menu_items(ui, app, &show.uri, &show.name, None));
-            });
-            ui.add_space(16.0);
             if !show.description.is_empty() {
                 theme::section_title(ui, &palette, "About");
                 ui.add_space(4.0);
@@ -133,7 +74,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             );
         }
         Loadable::Loading | Loadable::NotLoaded => {
-            ui.add_space(40.0);
+            if let Some(show) = &preview {
+                show_hero(app, ui, show, None);
+                ui.add_enabled_ui(false, |ui| {
+                    show_actions(app, ui, show, Some(&show.uri));
+                });
+            } else {
+                ui.add_space(40.0);
+            }
             widgets::loading_row(ui, &palette, app.locale);
         }
         Loadable::Failed(error) => {
@@ -143,6 +91,83 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
     }
     app.show_pages.insert(id.to_string(), page);
+}
+
+fn show_hero(app: &mut App, ui: &mut egui::Ui, show: &Show, preview: Option<&Show>) {
+    let mut byline = vec![(show.publisher.clone(), None)];
+    if let Some(total) = show.total_episodes {
+        byline.push((format!("{total} episodes"), None));
+    }
+    let images = hero_images(
+        &show.images,
+        preview.map(|show| show.images.as_slice()),
+        false,
+    );
+    hero(
+        app,
+        ui,
+        Hero {
+            images,
+            liked: false,
+            kind: "Podcast",
+            title: &show.name,
+            description: None,
+            byline,
+            round: false,
+        },
+    );
+}
+
+fn show_actions(app: &mut App, ui: &mut egui::Ui, show: &Show, latest: Option<&str>) {
+    let palette = app.palette;
+    let saved = app.is_saved(&show.uri).unwrap_or(false);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 18.0;
+        if let Some(uri) = latest {
+            if app.play_pending(uri) {
+                theme::circle_spinner(ui, 56.0, palette.accent, palette.on_accent, "Starting…");
+            } else if theme::circle_button(
+                ui,
+                Icon::PlayFilled,
+                56.0,
+                palette.accent,
+                palette.accent_hover,
+                palette.on_accent,
+                "Play latest episode",
+            )
+            .clicked()
+            {
+                app.actions.push(Action::PlayUris {
+                    uris: vec![uri.to_string()],
+                    index: 0,
+                });
+            }
+        }
+        let (icon, color, tooltip) = if saved {
+            (
+                Icon::CircleCheck,
+                palette.accent,
+                "Remove from Your Library",
+            )
+        } else {
+            (Icon::CirclePlus, palette.secondary, "Follow podcast")
+        };
+        if theme::icon_button(ui, icon, 26.0, color, palette.text, tooltip).clicked() {
+            app.actions.push(Action::ToggleSaved(show.uri.clone()));
+        }
+        let more = theme::icon_button(
+            ui,
+            Icon::Ellipsis,
+            26.0,
+            palette.secondary,
+            palette.text,
+            "More",
+        );
+        egui::Popup::menu(&more)
+            .frame(widgets::menu_frame(&palette))
+            .show(|ui| widgets::context_menu_items(ui, app, &show.uri, &show.name, None));
+    });
+    ui.add_space(16.0);
 }
 
 /// One episode with its description, date, length, and progress.

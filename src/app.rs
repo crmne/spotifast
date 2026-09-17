@@ -8,8 +8,8 @@ use egui::Color32;
 
 use crate::api::PlayRequest;
 use crate::api::models::{
-    Album, ArtistRef, Device, PlayableItem, PlaybackState, Playlist, PlaylistItem, Queue, Track,
-    TrackCount, User, UserRef, pick_image,
+    Album, Artist, ArtistRef, Device, PlayableItem, PlaybackState, Playlist, PlaylistItem, Queue,
+    Show, Track, TrackCount, User, UserRef, pick_image,
 };
 use crate::backend::{
     ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, LyricsRequest,
@@ -333,6 +333,7 @@ pub struct App {
     lyrics_restore_maximized: bool,
     pub lyrics_reduce_motion: bool,
     pub lyrics_backdrop: crate::images::LyricsBackdrop,
+    pub softened_covers: crate::images::SoftenedCovers,
     /// The track the lyrics below are for.
     pub lyrics_uri: Option<String>,
     /// `Loaded(None)` when no lyrics are available.
@@ -682,6 +683,7 @@ impl App {
             lyrics_restore_maximized: false,
             lyrics_reduce_motion: false,
             lyrics_backdrop: Default::default(),
+            softened_covers: Default::default(),
             lyrics_uri: None,
             lyrics: Loadable::NotLoaded,
             lyrics_following: true,
@@ -1420,6 +1422,119 @@ impl App {
             });
         }
         None
+    }
+
+    pub fn known_playlist(&self, id: &str) -> Option<&Playlist> {
+        self.library
+            .playlists
+            .get()
+            .and_then(|playlists| playlists.iter().find(|playlist| playlist.id == id))
+            .or_else(|| {
+                self.search
+                    .results
+                    .get()
+                    .and_then(|results| results.playlists.as_ref())
+                    .and_then(|playlists| playlists.items.iter().find(|playlist| playlist.id == id))
+            })
+            .or_else(|| {
+                self.home.discover.values().find_map(|playlists| {
+                    playlists
+                        .get()
+                        .and_then(|playlists| playlists.iter().find(|playlist| playlist.id == id))
+                })
+            })
+    }
+
+    pub fn known_album(&self, id: &str) -> Option<&Album> {
+        self.library
+            .albums
+            .items
+            .iter()
+            .find(|saved| saved.album.id == id)
+            .map(|saved| &saved.album)
+            .or_else(|| {
+                let results = self.search.results.get()?;
+                results
+                    .albums
+                    .as_ref()
+                    .and_then(|albums| albums.items.iter().find(|album| album.id == id))
+                    .or_else(|| {
+                        results.tracks.as_ref().and_then(|tracks| {
+                            tracks
+                                .items
+                                .iter()
+                                .filter_map(|track| track.album.as_ref())
+                                .find(|album| album.id == id)
+                        })
+                    })
+            })
+            .or_else(|| {
+                self.artist_pages.values().find_map(|page| {
+                    page.albums
+                        .values()
+                        .find_map(|albums| albums.items.iter().find(|album| album.id == id))
+                })
+            })
+            .or_else(|| {
+                [
+                    &self.home.top_tracks,
+                    &self.home.top_songs,
+                    &self.home.recommendations,
+                ]
+                .into_iter()
+                .find_map(|tracks| {
+                    tracks.get().and_then(|tracks| {
+                        tracks
+                            .iter()
+                            .filter_map(|track| track.album.as_ref())
+                            .find(|album| album.id == id)
+                    })
+                })
+            })
+    }
+
+    pub fn known_artist(&self, id: &str) -> Option<&Artist> {
+        self.library
+            .artists
+            .items
+            .iter()
+            .find(|artist| artist.id == id)
+            .or_else(|| {
+                self.search
+                    .results
+                    .get()
+                    .and_then(|results| results.artists.as_ref())
+                    .and_then(|artists| artists.items.iter().find(|artist| artist.id == id))
+            })
+            .or_else(|| {
+                self.home
+                    .top_artists
+                    .get()
+                    .and_then(|artists| artists.iter().find(|artist| artist.id == id))
+            })
+            .or_else(|| {
+                self.artist_pages.values().find_map(|page| {
+                    page.related
+                        .get()
+                        .and_then(|artists| artists.iter().find(|artist| artist.id == id))
+                })
+            })
+    }
+
+    pub fn known_show(&self, id: &str) -> Option<&Show> {
+        self.library
+            .shows
+            .items
+            .iter()
+            .find(|saved| saved.show.id == id)
+            .map(|saved| &saved.show)
+            .or_else(|| {
+                self.search
+                    .results
+                    .get()
+                    .and_then(|results| results.shows.as_ref())
+                    .and_then(|shows| shows.items.iter().find(|show| show.id == id))
+            })
     }
 
     // ---- frame ---------------------------------------------------------------
@@ -4582,7 +4697,7 @@ impl App {
                     if let Some(listed) = self.library_entry(&id) {
                         playlist.fill_from(listed);
                     }
-                    if let Some(image) = pick_image(&playlist.images, 300) {
+                    if let Some(image) = pick_image(&playlist.images, 64) {
                         self.tint_for(Some(image));
                     }
                 }
@@ -5149,7 +5264,7 @@ impl App {
             }
             ApiResponse::Artist { id, result } => {
                 if let Ok(artist) = &result {
-                    if let Some(image) = pick_image(&artist.images, 300) {
+                    if let Some(image) = pick_image(&artist.images, 64) {
                         self.tint_for(Some(image));
                     }
                     if let Some(page) = self.artist_pages.get_mut(&id)
@@ -5201,7 +5316,7 @@ impl App {
                     self.request_album_types(std::iter::once(album));
                 }
                 if let Ok(album) = &result
-                    && let Some(image) = pick_image(&album.images, 300)
+                    && let Some(image) = pick_image(&album.images, 64)
                 {
                     self.tint_for(Some(image));
                 }
@@ -5258,7 +5373,7 @@ impl App {
             }
             ApiResponse::Show { id, result } => {
                 if let Ok(show) = &result
-                    && let Some(image) = pick_image(&show.images, 300)
+                    && let Some(image) = pick_image(&show.images, 64)
                 {
                     self.tint_for(Some(image));
                 }
@@ -6782,6 +6897,11 @@ impl App {
         }
         match action {
             Action::Open(page) => self.open(page),
+            Action::PrepareTint(url) => {
+                if self.settings.accent_from_art {
+                    self.tint_for(Some(&url));
+                }
+            }
             Action::OpenUri(uri) => {
                 if let Some(page) = Page::from_uri(&uri) {
                     self.open(page);

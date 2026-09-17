@@ -894,8 +894,13 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             let reorder_slot = reordering.then_some(pointer).flatten().map(|pos| {
                 (((pos.y - list_top) / row_height).round().max(0.0) as usize).min(entries.len())
             });
+            let art = app.backend.art().clone();
             super::widgets::virtual_rows(ui, entries.len(), row_height, |ui, index| {
                 let entry = &entries[index];
+                if let Some(image) = &entry.image {
+                    // Prepare the enlarged preview before this row is opened.
+                    app.softened_covers.texture(ui.ctx(), &art, image);
+                }
                 let droppable = entry.liked || entry.editable;
                 let drop_hover = drop_target == Some(index);
                 let active = entry.folder.is_none() && entry.page == current_page;
@@ -935,6 +940,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         },
                     )
                 });
+                if response.hovered()
+                    && let Some(image) = &entry.image
+                {
+                    app.actions.push(Action::PrepareTint(image.clone()));
+                }
                 // Start reordering after the drag threshold.
                 if !entry.ordering_key().is_empty()
                     && response.drag_started_by(egui::PointerButton::Primary)
