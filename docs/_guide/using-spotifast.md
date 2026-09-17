@@ -72,6 +72,9 @@ order when Shuffle is off. Shuffle chooses a random starting song unless you
 choose a specific row. To resume the current song at its paused position,
 use **Play** in the bottom player bar or press `Space`.
 
+The **Shuffle** button beside **Play** selects the playback order without
+starting the playlist. Select Shuffle first, then press **Play**.
+
 When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.

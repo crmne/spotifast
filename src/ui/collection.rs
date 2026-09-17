@@ -221,33 +221,22 @@ pub fn actions_row(
                     });
                 }
             }
-            let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
-            let shuffling_here = context_here && app.playing_context_shuffle();
+            let shuffle = app.playing_context_shuffle();
             if theme::icon_button(
                 ui,
                 Icon::Shuffle,
                 26.0,
-                if shuffling_here {
+                if shuffle {
                     palette.accent
                 } else {
                     palette.secondary
                 },
                 palette.text,
-                if shuffling_here {
-                    "Shuffle off"
-                } else if context_here {
-                    "Shuffle"
-                } else {
-                    "Shuffle play"
-                },
+                if shuffle { "Shuffle off" } else { "Shuffle" },
             )
             .clicked()
             {
-                if context_here {
-                    app.actions.push(Action::SetShuffle(!shuffling_here));
-                } else {
-                    app.actions.push(Action::ShufflePlay(uri.clone()));
-                }
+                app.actions.push(Action::SetShuffle(!shuffle));
             }
         }
         if let Some((uri, saved)) = &actions.saved {
@@ -2682,6 +2671,64 @@ mod tests {
                 app.backend.shutdown();
             }
         }
+    }
+
+    #[test]
+    fn collection_shuffle_button_changes_mode_without_starting_playback() {
+        let ctx = egui::Context::default();
+        let mut app = test_app();
+        let input = |events| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut draw = |events| {
+            let mut output = ctx.run_ui(input(events), |ui| {
+                actions_row(
+                    &mut app,
+                    ui,
+                    Actions {
+                        play_uri: Some("spotify:playlist:test".into()),
+                        view: None,
+                        saved: None,
+                        saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
+                        saved_tooltips: ("", ""),
+                        owned_playlist: None,
+                        reload: None,
+                        name: "Test",
+                    },
+                    None,
+                );
+            });
+            output.textures_delta.clear();
+        };
+
+        draw(vec![]);
+        let pos = egui::pos2(87.0, 28.0);
+        draw(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+
+        assert!(
+            matches!(app.actions.as_slice(), [Action::SetShuffle(true)]),
+            "shuffle must not start playback: {:?}",
+            app.actions
+        );
     }
 
     #[test]
