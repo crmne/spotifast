@@ -256,7 +256,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             filtered_row(ui, &palette, &needle, "Account", &account_rows[1], |ui| {
                 if theme::pill_button(ui, &palette, "Setup guide", false).clicked() {
                     app.actions.push(Action::OpenUrl(
-                        "https://spotifast.rocks/make-it-even-faster/".into(),
+                        "https://spotifast.rocks/make-it-even-faster/#make-a-spotify-app".into(),
                     ));
                 }
             });
