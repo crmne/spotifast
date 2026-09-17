@@ -1037,6 +1037,8 @@ pub enum Action {
         shelf: crate::settings::LibraryShelf,
         sort: crate::settings::LibrarySort,
     },
+    SetLibraryGrid(bool),
+    ToggleLibraryFolder(String),
     ArrangeLibrary {
         pinned: Vec<String>,
         /// A drag outside the pin block selects this local playlist order.

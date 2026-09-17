@@ -8320,6 +8320,18 @@ impl App {
                     self.mark_settings_dirty();
                 }
             }
+            Action::SetLibraryGrid(grid) => {
+                self.settings.sidebar_grid = grid;
+                self.mark_settings_dirty();
+            }
+            Action::ToggleLibraryFolder(id) => {
+                if self.collapsed_folders.contains(&id) {
+                    self.collapsed_folders.retain(|held| held != &id);
+                } else {
+                    self.collapsed_folders.push(id);
+                }
+                self.session_dirty = true;
+            }
             Action::ArrangeLibrary {
                 pinned,
                 playlist_order,

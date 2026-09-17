@@ -649,6 +649,22 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     }
     for surface in show.unwrap_or("").split(',').map(str::trim) {
         match surface {
+            "library-list"
+            | "library-list-narrow"
+            | "library-list-wide"
+            | "library-grid"
+            | "library-grid-narrow"
+            | "library-grid-wide" => {
+                app.settings.sidebar_grid = surface.starts_with("library-grid");
+                app.settings.art_expanded = false;
+                app.settings.sidebar_width = if surface.ends_with("-narrow") {
+                    230.0
+                } else if surface.ends_with("-wide") {
+                    600.0
+                } else {
+                    380.0
+                };
+            }
             "queue" => app.show_queue_panel = true,
             "playing-next" => {
                 app.show_queue_panel = true;
@@ -1782,6 +1798,90 @@ mod tests {
         let painted = view_frame(&ctx, &mut app, vec![], view);
         assert!(!painted.iter().any(|(text, _)| *text == shows[0].1));
         assert!(painted.iter().any(|(text, _)| *text == shows[1].1));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn library_grid_toggle_is_accessible_and_persistent() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("library-grid-toggle");
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let grid = accessible_node(&tree, "Show as grid", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(grid, AccessibleAction::Click, None)],
+        );
+        assert!(app.settings.sidebar_grid);
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let list = accessible_node(&tree, "Show as list", Role::Button);
+        assert!(tree.nodes.iter().any(|(_, node)| {
+            node.role() == Role::Button && node.label() == Some("Discover Weekly")
+        }));
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(list, AccessibleAction::Click, None)],
+        );
+        assert!(!app.settings.sidebar_grid);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn library_grid_cards_navigate_and_their_corner_buttons_play() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("library-grid-card-actions");
+        app.settings.sidebar_grid = true;
+        app.open(Page::Search);
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let card = accessible_node(&tree, "Sunday morning", Role::Button);
+        let previous_context = app.playing_context_uri();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(card, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.page(), &Page::Playlist("pl2".into()));
+        assert_eq!(app.playing_context_uri(), previous_context);
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play Sunday morning", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, AccessibleAction::Click, None)],
+        );
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some("spotify:playlist:pl2")
+        );
+        assert_eq!(app.page(), &Page::Playlist("pl2".into()));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn double_clicking_a_library_grid_card_only_navigates() {
+        let (ctx, mut app) = accessible_app("library-grid-double-click");
+        app.settings.sidebar_grid = true;
+        app.open(Page::Search);
+        let view = crate::ui::sidebar::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let card = sidebar_text(&painted, "Sunday morning").center();
+        app.actions.clear();
+
+        let [first, second] = double_click(card);
+        view_frame(&ctx, &mut app, first, view);
+        view_frame(&ctx, &mut app, second, view);
+
+        assert!(played_contexts(&app).is_empty());
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::Open(Page::Playlist(id)) if id == "pl2"))
+        );
         app.backend.shutdown();
     }
 

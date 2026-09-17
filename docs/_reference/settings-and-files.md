@@ -228,6 +228,7 @@ main fields are:
 | `pinned_contexts` | `[]` | Local Library pin order; Liked Songs uses `spotifast:liked-songs`, a local key never sent to Spotify |
 | `liked_songs_pinned` | `true` | Keep Liked Songs in the pin block; older settings place it first until moved |
 | `sidebar_compact` | `false` | Names only in the library sidebar, no covers |
+| `sidebar_grid` | `false` | Library entries as responsive cover cards instead of rows |
 | `tracklist_compact` | `false` | One-line track rows without covers |
 | `middle_click_autoscroll` | `false` | Linux only: middle-click a list to autoscroll it. Windows always autoscrolls and macOS never does |
 | `winamp_window` | `false` | The window is the Winamp mini player |
