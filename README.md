@@ -496,7 +496,9 @@ unauthenticated HTTP proxy; with proxy login or SOCKS5 it connects directly.
 Caches (audio, artwork) live under the cache directory and can be deleted at
 any time without signing you out.
 On `main`, after 0.8.0, downloaded artwork uses less temporary memory while
-being saved to the cache. Image quality and the cache budget are unchanged.
+being saved to the cache. Visible cards and collection covers use sharper
+640-pixel artwork. Loading transitions may retain up to 64 softened previews
+in addition to the existing artwork-cache budget.
 
 For blank or incorrectly drawn windows, include `fastpotify.log` in the bug
 report. On `main`, after 0.8.0, it records the app version, platform and active

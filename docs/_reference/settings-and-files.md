@@ -118,9 +118,12 @@ stays in memory alongside the loaded songs. Existing caches remain readable;
 missing or invalid caches are ignored and fetched again as before.
 
 On `main`, after 0.8.0, the artwork loader shares downloaded image bytes with
-the background cache writer instead of making a separate copy. Cached files,
-image quality and the memory budget are unchanged. A failed cache write does
-not prevent the downloaded image from being displayed.
+the background cache writer instead of making a separate copy. Visible library
+cards and collection covers request 640-pixel artwork for sharper HiDPI output;
+compact rows and softened placeholders keep using 64-pixel thumbnails. Up to 64
+softened 256-pixel covers may be retained in addition to the existing artwork
+budget, and their downloaded JPEG bytes are released after decoding. A failed
+cache write does not prevent the downloaded image from being displayed.
 
 The following Liked Songs caching behavior is on `main`, for the release
 since 0.8.0.
@@ -276,9 +279,11 @@ settings.
 `--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
 `queue`, `playing-next`, `devices`, `shortcuts`, `premium`, `create`, `duplicate`, `light`,
-`focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, and `personal-app`.
-`update` shows a sample update badge for checking its layout.
-`personal-app` shows the personal Spotify app introduction.
+`focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`,
+and `collection-loading`. `update` shows a sample update badge for checking its
+layout. `personal-app` shows the personal Spotify app introduction.
+`collection-loading` keeps known collection metadata and placeholder artwork
+visible while replacing the page content, with unfinished controls disabled.
 
 `--demo-shot <PATH>` writes the window to a PNG and exits, which is useful for
 making deterministic screenshots for these pages:
