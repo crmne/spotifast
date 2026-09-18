@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-15 00:25+0200\n"
+"POT-Creation-Date: 2026-09-17 18:24+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Simplified Chinese\n"
@@ -16,87 +16,103 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: src/ui/sidebar.rs:64 src/app.rs:1930 src/app.rs:12699
-msgid "Liked Songs"
-msgstr "喜欢的歌曲"
+#: src/ui/sidebar.rs:152 src/ui/player_bar.rs:365
+msgid "Pause"
+msgstr "暂停"
 
-#: src/ui/sidebar.rs:67 src/app.rs:1956 src/app.rs:12694
+#: src/ui/sidebar.rs:154 src/ui/player_bar.rs:367
+msgid "Play"
+msgstr "播放"
+
+#: src/ui/sidebar.rs:282 src/app.rs:1956 src/app.rs:12710
 msgid "Playlist"
 msgstr "歌单"
 
-#: src/ui/sidebar.rs:106
+#: src/ui/sidebar.rs:292 src/app.rs:1930 src/app.rs:12715
+msgid "Liked Songs"
+msgstr "喜欢的歌曲"
+
+#: src/ui/sidebar.rs:332
 msgid "Library order"
 msgstr "音乐库顺序"
 
-#: src/ui/sidebar.rs:109
+#: src/ui/sidebar.rs:335
 msgid "Recently played"
 msgstr "最近播放"
 
-#: src/ui/sidebar.rs:111
+#: src/ui/sidebar.rs:337
 msgid "Name"
 msgstr "名称"
 
-#: src/ui/sidebar.rs:114
+#: src/ui/sidebar.rs:340
 msgid "Recently added"
 msgstr "最近添加"
 
-#: src/ui/sidebar.rs:116
+#: src/ui/sidebar.rs:342
 msgid "Local custom order"
 msgstr "本地自定义顺序"
 
-#: src/ui/sidebar.rs:119
+#: src/ui/sidebar.rs:345
 msgid "Spotify custom order"
 msgstr "Spotify 自定义顺序"
 
-#: src/ui/sidebar.rs:518 src/i18n.rs:111 src/i18n.rs:114
+#: src/ui/sidebar.rs:809 src/i18n.rs:133 src/i18n.rs:136
 msgid "Home"
 msgstr "首页"
 
-#: src/ui/sidebar.rs:529
+#: src/ui/sidebar.rs:820
 msgid "Search"
 msgstr "搜索"
 
-#: src/ui/sidebar.rs:561
+#: src/ui/sidebar.rs:852
 msgid "Library"
 msgstr "音乐库"
 
-#: src/ui/sidebar.rs:574
+#: src/ui/sidebar.rs:865
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "隐藏侧边栏 (Ctrl+B)"
 
-#: src/ui/sidebar.rs:575
+#: src/ui/sidebar.rs:866
 msgid "Hide sidebar (Cmd+B)"
 msgstr "隐藏侧边栏 (Cmd+B)"
 
-#: src/ui/sidebar.rs:589
+#: src/ui/sidebar.rs:880
 msgid "Create a playlist"
 msgstr "创建歌单"
 
-#: src/ui/sidebar.rs:605
+#: src/ui/sidebar.rs:896
 msgid "Search Your Library"
 msgstr "搜索音乐库"
 
-#: src/ui/sidebar.rs:623
+#: src/ui/sidebar.rs:914
 msgid "Playlists"
 msgstr "歌单"
 
-#: src/ui/sidebar.rs:624
+#: src/ui/sidebar.rs:915
 msgid "Albums"
 msgstr "专辑"
 
-#: src/ui/sidebar.rs:625
+#: src/ui/sidebar.rs:916
 msgid "Artists"
 msgstr "艺人"
 
-#: src/ui/sidebar.rs:626
+#: src/ui/sidebar.rs:917
 msgid "Podcasts"
 msgstr "播客"
 
-#: src/ui/sidebar.rs:646
+#: src/ui/sidebar.rs:930
+msgid "Show as list"
+msgstr "显示为列表"
+
+#: src/ui/sidebar.rs:932
+msgid "Show as grid"
+msgstr "显示为网格"
+
+#: src/ui/sidebar.rs:951
 msgid "Search in Your Library"
 msgstr "在音乐库中搜索"
 
-#: src/ui/sidebar.rs:780 src/app.rs:1991
+#: src/ui/sidebar.rs:1076 src/app.rs:1991
 msgid "Artist"
 msgstr "艺人"
 
@@ -106,6 +122,20 @@ msgstr "艺人"
 msgid "Playlist • {count} song"
 msgid_plural "Playlist • {count} songs"
 msgstr[0] "歌单 • {count} 首歌曲"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of songs.
+#: src/i18n.rs:77
+#, rust-format
+msgid "{count} song"
+msgid_plural "{count} songs"
+msgstr[0] "{count} 首歌曲"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of playlists.
+#: src/i18n.rs:88
+#, rust-format
+msgid "{count} playlist"
+msgid_plural "{count} playlists"
+msgstr[0] "{count} 个歌单"
 
 #: src/ui/player_bar.rs:85 src/ui/lyrics.rs:108 src/ui/lyrics.rs:432
 msgid "Nothing playing"
@@ -130,14 +160,6 @@ msgstr "随机播放"
 #: src/ui/player_bar.rs:332
 msgid "Previous"
 msgstr "上一首"
-
-#: src/ui/player_bar.rs:365
-msgid "Pause"
-msgstr "暂停"
-
-#: src/ui/player_bar.rs:367
-msgid "Play"
-msgstr "播放"
 
 #: src/ui/player_bar.rs:383
 msgid "Next"
@@ -306,13 +328,13 @@ msgid "Podcast"
 msgstr "播客"
 
 #. Translators: Keep {track} unchanged. The song title itself is not translated.
-#: src/app.rs:2028 src/app.rs:12704
+#: src/app.rs:2028 src/app.rs:12720
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track} 电台"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:3798 src/app.rs:12684
+#: src/app.rs:3798 src/app.rs:12700
 #, rust-format
 msgid "Queue {date}"
 msgstr "队列 {date}"

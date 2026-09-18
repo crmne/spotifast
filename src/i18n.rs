@@ -69,6 +69,28 @@ impl Locale {
         )
         .replace("{count}", &count.to_string())
     }
+
+    pub fn song_count(self, count: u32) -> String {
+        ngettext(
+            self,
+            // Translators: Keep {count} exactly as written. It becomes a number of songs.
+            "{count} song",
+            "{count} songs",
+            count,
+        )
+        .replace("{count}", &count.to_string())
+    }
+
+    pub fn playlist_count(self, count: u32) -> String {
+        ngettext(
+            self,
+            // Translators: Keep {count} exactly as written. It becomes a number of playlists.
+            "{count} playlist",
+            "{count} playlists",
+            count,
+        )
+        .replace("{count}", &count.to_string())
+    }
 }
 
 /// The English source is also the fallback for untranslated messages.
@@ -142,6 +164,14 @@ mod tests {
             assert_eq!(Locale::German.liked_song_count(count), german);
         }
     }
+    #[test]
+    fn short_counts_are_localized_without_parsing_complete_phrases() {
+        assert_eq!(Locale::German.song_count(2), "2 Titel");
+        assert_eq!(Locale::Japanese.song_count(2), "2曲");
+        assert_eq!(Locale::Polish.playlist_count(2), "2 playlisty");
+        assert_eq!(Locale::Russian.playlist_count(5), "5 плейлистов");
+    }
+
     #[test]
     fn locale_plural_rules_cover_european_and_asian_forms() {
         for (locale, count, expected) in [

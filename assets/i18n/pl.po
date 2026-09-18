@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-15 00:25+0200\n"
+"POT-Creation-Date: 2026-09-17 18:24+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Polish\n"
@@ -17,87 +17,103 @@ msgstr ""
 "Plural-Forms: nplurals=3; plural=(n == 1 ? 0 : n % 10 >= 2 && n % 10 <= 4 && "
 "(n % 100 < 12 || n % 100 > 14) ? 1 : 2);\n"
 
-#: src/ui/sidebar.rs:64 src/app.rs:1930 src/app.rs:12699
-msgid "Liked Songs"
-msgstr "Polubione utwory"
+#: src/ui/sidebar.rs:152 src/ui/player_bar.rs:365
+msgid "Pause"
+msgstr "Wstrzymaj"
 
-#: src/ui/sidebar.rs:67 src/app.rs:1956 src/app.rs:12694
+#: src/ui/sidebar.rs:154 src/ui/player_bar.rs:367
+msgid "Play"
+msgstr "Odtwórz"
+
+#: src/ui/sidebar.rs:282 src/app.rs:1956 src/app.rs:12710
 msgid "Playlist"
 msgstr "Playlista"
 
-#: src/ui/sidebar.rs:106
+#: src/ui/sidebar.rs:292 src/app.rs:1930 src/app.rs:12715
+msgid "Liked Songs"
+msgstr "Polubione utwory"
+
+#: src/ui/sidebar.rs:332
 msgid "Library order"
 msgstr "Kolejność biblioteki"
 
-#: src/ui/sidebar.rs:109
+#: src/ui/sidebar.rs:335
 msgid "Recently played"
 msgstr "Ostatnio odtwarzane"
 
-#: src/ui/sidebar.rs:111
+#: src/ui/sidebar.rs:337
 msgid "Name"
 msgstr "Nazwa"
 
-#: src/ui/sidebar.rs:114
+#: src/ui/sidebar.rs:340
 msgid "Recently added"
 msgstr "Ostatnio dodane"
 
-#: src/ui/sidebar.rs:116
+#: src/ui/sidebar.rs:342
 msgid "Local custom order"
 msgstr "Własna kolejność lokalna"
 
-#: src/ui/sidebar.rs:119
+#: src/ui/sidebar.rs:345
 msgid "Spotify custom order"
 msgstr "Własna kolejność Spotify"
 
-#: src/ui/sidebar.rs:518 src/i18n.rs:111 src/i18n.rs:114
+#: src/ui/sidebar.rs:809 src/i18n.rs:133 src/i18n.rs:136
 msgid "Home"
 msgstr "Start"
 
-#: src/ui/sidebar.rs:529
+#: src/ui/sidebar.rs:820
 msgid "Search"
 msgstr "Szukaj"
 
-#: src/ui/sidebar.rs:561
+#: src/ui/sidebar.rs:852
 msgid "Library"
 msgstr "Biblioteka"
 
-#: src/ui/sidebar.rs:574
+#: src/ui/sidebar.rs:865
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "Ukryj pasek boczny (Ctrl+B)"
 
-#: src/ui/sidebar.rs:575
+#: src/ui/sidebar.rs:866
 msgid "Hide sidebar (Cmd+B)"
 msgstr "Ukryj pasek boczny (Cmd+B)"
 
-#: src/ui/sidebar.rs:589
+#: src/ui/sidebar.rs:880
 msgid "Create a playlist"
 msgstr "Utwórz playlistę"
 
-#: src/ui/sidebar.rs:605
+#: src/ui/sidebar.rs:896
 msgid "Search Your Library"
 msgstr "Przeszukaj bibliotekę"
 
-#: src/ui/sidebar.rs:623
+#: src/ui/sidebar.rs:914
 msgid "Playlists"
 msgstr "Playlisty"
 
-#: src/ui/sidebar.rs:624
+#: src/ui/sidebar.rs:915
 msgid "Albums"
 msgstr "Albumy"
 
-#: src/ui/sidebar.rs:625
+#: src/ui/sidebar.rs:916
 msgid "Artists"
 msgstr "Wykonawcy"
 
-#: src/ui/sidebar.rs:626
+#: src/ui/sidebar.rs:917
 msgid "Podcasts"
 msgstr "Podcasty"
 
-#: src/ui/sidebar.rs:646
+#: src/ui/sidebar.rs:930
+msgid "Show as list"
+msgstr "Wyświetl jako listę"
+
+#: src/ui/sidebar.rs:932
+msgid "Show as grid"
+msgstr "Wyświetl jako siatkę"
+
+#: src/ui/sidebar.rs:951
 msgid "Search in Your Library"
 msgstr "Przeszukaj swoją bibliotekę"
 
-#: src/ui/sidebar.rs:780 src/app.rs:1991
+#: src/ui/sidebar.rs:1076 src/app.rs:1991
 msgid "Artist"
 msgstr "Wykonawca"
 
@@ -109,6 +125,24 @@ msgid_plural "Playlist • {count} songs"
 msgstr[0] "Playlista • {count} utwór"
 msgstr[1] "Playlista • {count} utwory"
 msgstr[2] "Playlista • {count} utworów"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of songs.
+#: src/i18n.rs:77
+#, rust-format
+msgid "{count} song"
+msgid_plural "{count} songs"
+msgstr[0] "{count} utwór"
+msgstr[1] "{count} utwory"
+msgstr[2] "{count} utworów"
+
+#. Translators: Keep {count} exactly as written. It becomes a number of playlists.
+#: src/i18n.rs:88
+#, rust-format
+msgid "{count} playlist"
+msgid_plural "{count} playlists"
+msgstr[0] "{count} playlista"
+msgstr[1] "{count} playlisty"
+msgstr[2] "{count} playlist"
 
 #: src/ui/player_bar.rs:85 src/ui/lyrics.rs:108 src/ui/lyrics.rs:432
 msgid "Nothing playing"
@@ -133,14 +167,6 @@ msgstr "Odtwarzanie losowe"
 #: src/ui/player_bar.rs:332
 msgid "Previous"
 msgstr "Poprzedni"
-
-#: src/ui/player_bar.rs:365
-msgid "Pause"
-msgstr "Wstrzymaj"
-
-#: src/ui/player_bar.rs:367
-msgid "Play"
-msgstr "Odtwórz"
 
 #: src/ui/player_bar.rs:383
 msgid "Next"
@@ -309,13 +335,13 @@ msgid "Podcast"
 msgstr "Podcast"
 
 #. Translators: Keep {track} unchanged. The song title itself is not translated.
-#: src/app.rs:2028 src/app.rs:12704
+#: src/app.rs:2028 src/app.rs:12720
 #, rust-format
 msgid "{track} Radio"
 msgstr "Radio utworu {track}"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:3798 src/app.rs:12684
+#: src/app.rs:3798 src/app.rs:12700
 #, rust-format
 msgid "Queue {date}"
 msgstr "Kolejka {date}"
