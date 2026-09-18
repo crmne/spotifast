@@ -26,7 +26,9 @@ use std::ffi::CStr;
 use std::sync::OnceLock;
 
 use objc2::exception::catch;
-use objc2::ffi::{class_getInstanceMethod, class_replaceMethod, method_getImplementation, method_getTypeEncoding};
+use objc2::ffi::{
+    class_getInstanceMethod, class_replaceMethod, method_getImplementation, method_getTypeEncoding,
+};
 use objc2::runtime::{AnyClass, AnyObject, Imp, MethodImplementation, Sel};
 use objc2::sel;
 
@@ -59,11 +61,9 @@ pub fn install() {
     }
     // SAFETY: `method` was just checked non-null and came straight from
     // `class_getInstanceMethod`.
-    let (Some(original), types) =
-        (unsafe { method_getImplementation(method) }, unsafe {
-            method_getTypeEncoding(method)
-        })
-    else {
+    let (Some(original), types) = (unsafe { method_getImplementation(method) }, unsafe {
+        method_getTypeEncoding(method)
+    }) else {
         return;
     };
     let _ = ORIGINAL.set(original);
@@ -115,7 +115,9 @@ unsafe extern "C-unwind" fn swizzled_remove_observer(
     };
     let reason = exception.to_string();
     if reason.contains(KNOWN_BENIGN_MARKER) {
-        log::debug!("ignored a known-benign AppKit Touch Bar KVO cleanup exception on window close: {reason}");
+        log::debug!(
+            "ignored a known-benign AppKit Touch Bar KVO cleanup exception on window close: {reason}"
+        );
     } else {
         // Some other, genuinely unexpected failure removing a KVO observer:
         // don't hide it behind this guard, let it crash and get reported
