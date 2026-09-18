@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Top-result artist navigation review</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #111318; color: #f4f4f5; }
+    main { max-width: 980px; margin: auto; padding: 24px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+    fieldset { display: flex; gap: 6px; border: 1px solid #3f4652; border-radius: 8px; }
+    button { border: 0; border-radius: 6px; padding: 8px 14px; background: #292e37; color: inherit; cursor: pointer; }
+    button[aria-pressed="true"] { background: #1ed760; color: #07120a; }
+    img { display: block; max-width: 100%; height: auto; border: 1px solid #3f4652; border-radius: 8px; }
+    p { color: #b9c0ca; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Top-result artist navigation</h1>
+    <p>The resting layout is unchanged. After this change, the artist name in a song Top result underlines on hover and opens that artist's page when selected.</p>
+    <div class="controls">
+      <fieldset aria-label="Theme">
+        <button data-group="theme" data-value="dark" aria-pressed="true">Dark</button>
+        <button data-group="theme" data-value="light" aria-pressed="false">Light</button>
+      </fieldset>
+      <fieldset aria-label="Window size">
+        <button data-group="size" data-value="normal" aria-pressed="true">900x700</button>
+        <button data-group="size" data-value="narrow" aria-pressed="false">620x700</button>
+      </fieldset>
+      <fieldset aria-label="Revision">
+        <button data-group="revision" data-value="before" aria-pressed="true">Before</button>
+        <button data-group="revision" data-value="after" aria-pressed="false">After</button>
+      </fieldset>
+    </div>
+    <img id="capture" src="before-dark-normal.png" alt="Dark normal-width Before capture">
+  </main>
+  <script>
+    const state = { theme: "dark", size: "normal", revision: "before" };
+    const capture = document.querySelector("#capture");
+    for (const button of document.querySelectorAll("button[data-group]")) {
+      button.addEventListener("click", () => {
+        const group = button.dataset.group;
+        state[group] = button.dataset.value;
+        for (const peer of document.querySelectorAll(`[data-group="${group}"]`)) {
+          peer.setAttribute("aria-pressed", peer === button ? "true" : "false");
+        }
+        capture.src = `${state.revision}-${state.theme}-${state.size}.png`;
+        capture.alt = `${state.theme} ${state.size}-width ${state.revision} capture`;
+      });
+    }
+  </script>
+</body>
+</html>

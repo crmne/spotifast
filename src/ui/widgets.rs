@@ -771,8 +771,9 @@ pub(crate) fn artist_links(
     artists: &[ArtistRef],
     font: egui::FontId,
     color: Color32,
-) {
+) -> bool {
     let spacing = ui.spacing().item_spacing;
+    let mut clicked = false;
     ui.spacing_mut().item_spacing.x = 0.0;
     for (index, artist) in artists.iter().enumerate() {
         if index > 0 {
@@ -787,12 +788,14 @@ pub(crate) fn artist_links(
         if let Some(id) = &artist.id {
             if theme::link(ui, &artist.name, font.clone(), color).clicked() {
                 app.actions.push(Action::Open(Page::Artist(id.clone())));
+                clicked = true;
             }
         } else {
             theme::text(ui, &artist.name, font.clone(), color);
         }
     }
     ui.spacing_mut().item_spacing = spacing;
+    clicked
 }
 
 /// Column widths of the track table, computed from the available width.

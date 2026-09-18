@@ -34,7 +34,8 @@ cannot play music through Spotifast on this computer or another device.
 - **Library.** Browse playlists, Liked Songs, saved albums, followed artists,
   podcasts, and saved episodes. Create, edit, and reorder your playlists.
 - **Search** across songs, artists, albums, playlists, podcasts, and
-  episodes, with artist pages, discographies, and related artists.
+  episodes, with artist pages, discographies, and related artists. Select an
+  artist name on a song, including the top result, to open that artist's page.
 - **Background playback.** Closing the window keeps the music playing from
   the system tray. Use your keyboard's media keys to play, pause, and skip.
 - **Themes.** Choose light, dark, or your own colours. On Omarchy, Spotifast

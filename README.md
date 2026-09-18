@@ -62,6 +62,7 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   Right-click album, artist, and podcast cards for their actions (available since 0.8.0).
 - **Search** across songs, artists, albums, playlists, podcasts, and episodes,
   with a top result and per-type views. Right-click results and cards for their actions.
+  Artist names on songs, including the top result, open the artist page.
   Text fields offer Cut, Copy, Paste and Select all from their right-click menu.
   Since 0.8.0, a personal app searches the catalogue while shared
   access finds playlists. Each part appears independently, even if the other fails.

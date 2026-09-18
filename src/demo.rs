@@ -715,6 +715,15 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.theme = crate::settings::ThemeChoice::Light;
                 app.actions.push(Action::SettingsChanged);
             }
+            "dark" => {
+                app.settings.theme = crate::settings::ThemeChoice::Dark;
+                app.actions.push(Action::SettingsChanged);
+            }
+            "song-top-result" => {
+                if let Loadable::Loaded(results) = &mut app.search.results {
+                    results.artists = None;
+                }
+            }
             "finite-playlist" => {
                 if let Some(page) = app.playlist_pages.get_mut("pl1") {
                     let seed = page.items.items.clone();
@@ -3250,6 +3259,47 @@ mod tests {
             );
             app.backend.shutdown();
         }
+    }
+
+    #[test]
+    fn song_top_result_artist_name_opens_the_artist() {
+        let (ctx, mut app) = accessible_app("top-result-song-artist");
+        let mut item = track(0);
+        item.artists = vec![ArtistRef {
+            id: Some("ween".into()),
+            name: "Ween".into(),
+            uri: Some("spotify:artist:ween".into()),
+        }];
+        app.search.results = Loadable::Loaded(SearchResults {
+            tracks: Some(page(vec![item])),
+            ..Default::default()
+        });
+        search_frame(&ctx, &mut app, vec![]);
+        let text = search_frame(&ctx, &mut app, vec![]);
+        let songs_left = text
+            .iter()
+            .filter(|(text, _)| text == "Songs")
+            .max_by(|(_, left), (_, right)| left.left().total_cmp(&right.left()))
+            .expect("songs heading")
+            .1
+            .left();
+        let artist = text
+            .iter()
+            .find(|(text, rect)| {
+                (text == "Song • Ween" || text == "Ween") && rect.left() < songs_left
+            })
+            .expect("top result artist name");
+        app.actions.clear();
+        search_frame(
+            &ctx,
+            &mut app,
+            pointer_click(
+                egui::pos2(artist.1.right() - 4.0, artist.1.center().y),
+                egui::PointerButton::Primary,
+            ),
+        );
+        assert!(matches!(app.actions.as_slice(), [Action::Open(Page::Artist(id))] if id == "ween"));
+        app.backend.shutdown();
     }
 
     fn check_card_menu(

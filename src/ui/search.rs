@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use egui::{Align, CornerRadius, Layout, Rect, Sense, Vec2, pos2, vec2};
 
-use crate::api::models::{Artist, PlayableItem, SearchResults, pick_image};
+use crate::api::models::{Artist, ArtistRef, PlayableItem, SearchResults, pick_image};
 use crate::app::App;
 use crate::model::{Action, Loadable, Page, RowContext, SearchFilter};
 use crate::theme::{self, Icon};
@@ -129,7 +129,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                     ui,
                     pick_image(&artist.images, 300),
                     &artist.name,
-                    "Artist",
+                    TopResultSubtitle::Text("Artist"),
                     true,
                     Some(artist.uri.clone()),
                     Page::Artist(artist.id.clone()),
@@ -149,7 +149,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                     ui,
                     track.image(300),
                     &track.name,
-                    &format!("Song • {}", track.artist_names()),
+                    TopResultSubtitle::SongArtists(&track.artists),
                     false,
                     Some(track.uri.clone()),
                     page,
@@ -170,12 +170,12 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                     ui,
                     pick_image(&album.images, 300),
                     &album.name,
-                    &format!(
+                    TopResultSubtitle::Text(&format!(
                         "Album • {}",
                         crate::api::models::join_names(
                             album.artists.iter().map(|a| a.name.as_str())
                         )
-                    ),
+                    )),
                     false,
                     Some(album.uri.clone()),
                     Page::Album(album.id.clone()),
@@ -193,7 +193,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                     ui,
                     pick_image(&playlist.images, 300),
                     &playlist.name,
-                    &format!("Playlist • {}", playlist.owner_name()),
+                    TopResultSubtitle::Text(&format!("Playlist • {}", playlist.owner_name())),
                     false,
                     Some(playlist.uri.clone()),
                     Page::Playlist(playlist.id.clone()),
@@ -214,7 +214,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                     ui,
                     pick_image(&show.images, 300),
                     &show.name,
-                    &format!("Podcast • {}", show.publisher),
+                    TopResultSubtitle::Text(&format!("Podcast • {}", show.publisher)),
                     false,
                     Some(show.uri.clone()),
                     Page::Show(show.id.clone()),
@@ -251,19 +251,25 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
     }
 }
 
+enum TopResultSubtitle<'a> {
+    Text(&'a str),
+    SongArtists(&'a [ArtistRef]),
+}
+
 #[allow(clippy::too_many_arguments)]
 fn top_result(
     app: &mut App,
     ui: &mut egui::Ui,
     image: Option<&str>,
     title: &str,
-    subtitle: &str,
+    subtitle: TopResultSubtitle<'_>,
     round: bool,
     play_uri: Option<String>,
     page: Page,
     menu: impl FnOnce(&mut egui::Ui, &mut App),
 ) {
     let palette = app.palette;
+    let mut subtitle_clicked = false;
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), 232.0), Sense::click());
     if ui.is_rect_visible(rect) {
@@ -300,15 +306,45 @@ fn top_result(
             theme::bold(26.0),
             palette.text,
         );
-        crate::bidi::paint_line(
-            &painter,
-            text_clip.left(),
-            text_clip.right(),
-            text_clip.top() + 46.0,
-            subtitle,
-            theme::regular(13.5),
-            palette.secondary,
-        );
+        match subtitle {
+            TopResultSubtitle::SongArtists(artists) => {
+                let subtitle_rect = Rect::from_min_max(
+                    pos2(text_clip.left(), text_clip.top() + 36.0),
+                    pos2(text_clip.right(), text_clip.top() + 56.0),
+                );
+                let mut child = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(subtitle_rect)
+                        .layout(Layout::left_to_right(Align::Center)),
+                );
+                child.set_clip_rect(subtitle_rect.intersect(ui.clip_rect()));
+                child.spacing_mut().item_spacing.x = 0.0;
+                theme::text(
+                    &mut child,
+                    "Song • ",
+                    theme::regular(13.5),
+                    palette.secondary,
+                );
+                subtitle_clicked = widgets::artist_links(
+                    &mut child,
+                    app,
+                    artists,
+                    theme::regular(13.5),
+                    palette.secondary,
+                );
+            }
+            TopResultSubtitle::Text(subtitle) => {
+                crate::bidi::paint_line(
+                    &painter,
+                    text_clip.left(),
+                    text_clip.right(),
+                    text_clip.top() + 46.0,
+                    subtitle,
+                    theme::regular(13.5),
+                    palette.secondary,
+                );
+            }
+        }
         if hovered && let Some(uri) = &play_uri {
             let button = Rect::from_center_size(
                 pos2(rect.right() - 44.0, rect.bottom() - 44.0),
@@ -346,7 +382,7 @@ fn top_result(
         }
     }
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-    if response.clicked() && page != Page::Search {
+    if response.clicked() && !subtitle_clicked && page != Page::Search {
         app.actions.push(Action::Open(page));
     }
     egui::Popup::context_menu(&response)
