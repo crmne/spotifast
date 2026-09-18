@@ -114,7 +114,7 @@ unsafe extern "C-unwind" fn swizzled_remove_observer(
         return;
     };
     let reason = exception.to_string();
-    if reason.contains(KNOWN_BENIGN_MARKER) {
+    if is_known_benign(&reason) {
         log::debug!(
             "ignored a known-benign AppKit Touch Bar KVO cleanup exception on window close: {reason}"
         );
@@ -123,5 +123,33 @@ unsafe extern "C-unwind" fn swizzled_remove_observer(
         // don't hide it behind this guard, let it crash and get reported
         // the same way it would have before this guard existed.
         objc2::exception::throw(exception);
+    }
+}
+
+/// The filtering boundary this whole guard exists for: only this one
+/// exception is swallowed, everything else still crashes. Kept as a plain
+/// function over a `&str` so it's testable without an Objective-C runtime.
+fn is_known_benign(reason: &str) -> bool {
+    reason.contains(KNOWN_BENIGN_MARKER)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_known_benign;
+
+    #[test]
+    fn recognizes_the_touch_bar_kvo_reason() {
+        assert!(is_known_benign(
+            "Cannot remove an observer <_NSTouchBarFinderObservation 0x1> for the key path \
+             \"nextResponder\" from <WinitView 0x2> because it is not registered as an observer."
+        ));
+    }
+
+    #[test]
+    fn does_not_swallow_an_unrelated_reason() {
+        assert!(!is_known_benign(
+            "Cannot remove an observer <SomeOtherObserver 0x1> for the key path \"frame\" \
+             from <WinitView 0x2> because it is not registered as an observer."
+        ));
     }
 }

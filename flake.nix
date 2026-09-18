@@ -120,7 +120,7 @@
                 pname = "fastpotify";
                 version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
                 src = self;
-                hash = "sha256-oB2v6uNZNlEOqvIScD/nFTmxGy4DH5EC+wVuaWba0GU=";
+                hash = "sha256-J33xAvyiq4HiM8lCdSduc+NUqxkjpK5cpO6CIn9DMk0=";
               };
               # projectm-sys only searches lib, while CMake may otherwise install to lib64.
               postPatch = ''
