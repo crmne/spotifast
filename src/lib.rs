@@ -33,6 +33,7 @@ pub mod media_controls;
 pub mod media_controls;
 pub mod milkdrop;
 pub mod model;
+pub mod narration;
 pub mod opener;
 pub mod paths;
 pub mod player;

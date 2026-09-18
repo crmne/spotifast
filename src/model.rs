@@ -994,6 +994,9 @@ pub enum Action {
     RetryLyrics,
     ToggleLyricsMotion,
     ToggleDevicesPopup,
+    ToggleSleepTimerPopup,
+    SetSleepTimer(Option<SleepTimerSetting>),
+    ToggleSleepTimerWaitSongEnd,
     /// Ask GitHub for the latest release and report the result to the user.
     CheckForUpdates,
     ShowUpdate,
@@ -1201,4 +1204,10 @@ mod finite_scroll_tests {
         list.fail("offline".into());
         assert_eq!(list.window_at(150, 50), None);
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SleepTimerSetting {
+    Duration(std::time::Duration),
+    EndOfTrack,
 }

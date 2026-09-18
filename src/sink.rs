@@ -68,10 +68,23 @@ pub struct AudioControl {
     buffer_ms: u32,
 }
 
+#[derive(Default, PartialEq, Eq, Debug)]
+enum NarrationPhase {
+    #[default]
+    Idle,
+    Fetching,
+    Playing,
+}
+
 #[derive(Default)]
 struct AudioTarget {
     sink: Weak<rodio::Sink>,
+    narration_sink: Option<rodio::Sink>,
     envelope: Option<Arc<Envelope>>,
+    pending_narration: Option<Vec<u8>>,
+    volume: Option<f32>,
+    narration_phase: NarrationPhase,
+    narration_phase_start: Option<Instant>,
 }
 
 impl AudioControl {
@@ -112,7 +125,13 @@ impl AudioControl {
             return;
         }
         let (sink, envelope) = {
-            let target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(ref ns) = target.narration_sink {
+                ns.stop();
+            }
+            target.pending_narration = None;
+            target.narration_phase = NarrationPhase::Idle;
+            target.narration_phase_start = None;
             (target.sink.upgrade(), target.envelope.clone())
         };
         if let (Some(sink), Some(envelope)) = (&sink, &envelope) {
@@ -128,6 +147,135 @@ impl AudioControl {
             sink.stop();
         }
         self.reset_output.store(true, Ordering::SeqCst);
+    }
+
+    /// Signals that a DJ narration clip is being fetched, so music stream can wait.
+    pub fn begin_narration(&self) {
+        let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+        target.narration_phase = NarrationPhase::Fetching;
+        target.narration_phase_start = Some(Instant::now());
+        if let Some(sink) = target.sink.upgrade() {
+            sink.pause();
+        }
+        log::info!(
+            "AudioControl: DJ narration requested; pausing music sink and waiting for narration to complete"
+        );
+    }
+
+    /// Signals that DJ narration finished or failed.
+    pub fn finish_narration(&self) {
+        let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+        target.narration_phase = NarrationPhase::Idle;
+        target.narration_phase_start = None;
+        if let Some(sink) = target.sink.upgrade() {
+            sink.play();
+        }
+    }
+
+    /// Checks if DJ narration is currently being fetched or actively playing.
+    pub fn is_narration_active(&self) -> bool {
+        let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+        match target.narration_phase {
+            NarrationPhase::Idle => false,
+            NarrationPhase::Fetching => {
+                if target
+                    .narration_phase_start
+                    .is_some_and(|t| t.elapsed() > Duration::from_secs(5))
+                {
+                    log::warn!(
+                        "AudioControl: DJ narration fetch timed out; releasing music stream"
+                    );
+                    target.narration_phase = NarrationPhase::Idle;
+                    target.narration_phase_start = None;
+                    if let Some(sink) = target.sink.upgrade() {
+                        sink.play();
+                    }
+                    false
+                } else {
+                    true
+                }
+            }
+            NarrationPhase::Playing => {
+                let start_elapsed = target
+                    .narration_phase_start
+                    .map(|t| t.elapsed())
+                    .unwrap_or_default();
+                if target.pending_narration.is_some() {
+                    true
+                } else if let Some(ref sink) = target.narration_sink {
+                    if start_elapsed > Duration::from_millis(100) && sink.empty() {
+                        log::info!("AudioControl: DJ narration completed; starting music playback");
+                        target.narration_phase = NarrationPhase::Idle;
+                        target.narration_phase_start = None;
+                        if let Some(sink) = target.sink.upgrade() {
+                            sink.play();
+                        }
+                        false
+                    } else if start_elapsed > Duration::from_secs(45) {
+                        log::warn!("AudioControl: DJ narration playback timed out");
+                        target.narration_phase = NarrationPhase::Idle;
+                        target.narration_phase_start = None;
+                        if let Some(sink) = target.sink.upgrade() {
+                            sink.play();
+                        }
+                        false
+                    } else {
+                        true
+                    }
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    /// Plays a synthesized DJ voice clip directly through rodio's sink.
+    pub fn play_narration(&self, audio_bytes: Vec<u8>) -> Result<(), anyhow::Error> {
+        let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+        target.narration_phase = NarrationPhase::Playing;
+        target.narration_phase_start = Some(Instant::now());
+        if let Some(ref sink) = target.narration_sink {
+            let cursor = std::io::Cursor::new(audio_bytes);
+            let source = rodio::Decoder::new(cursor)?;
+            sink.append(source);
+            log::info!("Queued DJ narration into dedicated audio sink");
+        } else {
+            log::info!("Audio sink not yet active; buffering DJ narration");
+            target.pending_narration = Some(audio_bytes);
+        }
+        Ok(())
+    }
+
+    pub fn set_narration_volume(&self, volume: f32) {
+        let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+        target.volume = Some(volume);
+        if let Some(ref sink) = target.narration_sink {
+            sink.set_volume(volume);
+        }
+    }
+
+    pub fn pause_narration(&self) {
+        let target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(ref sink) = target.narration_sink {
+            sink.pause();
+        }
+    }
+
+    pub fn resume_narration(&self) {
+        let target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(ref sink) = target.narration_sink {
+            sink.play();
+        }
+    }
+
+    pub fn stop_narration(&self) {
+        let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(ref sink) = target.narration_sink {
+            sink.stop();
+        }
+        target.pending_narration = None;
+        target.narration_phase = NarrationPhase::Idle;
+        target.narration_phase_start = None;
     }
 
     /// Opens the write gate once librespot has left the old decoder behind.
@@ -148,9 +296,30 @@ impl AudioControl {
         self.reset_output.swap(false, Ordering::SeqCst)
     }
 
-    fn register(&self, sink: &Arc<rodio::Sink>, envelope: Arc<Envelope>) {
+    fn register(
+        &self,
+        sink: &Arc<rodio::Sink>,
+        narration_sink: rodio::Sink,
+        envelope: Arc<Envelope>,
+    ) {
         let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
         target.sink = Arc::downgrade(sink);
+        if let Some(volume) = target.volume {
+            narration_sink.set_volume(volume);
+        }
+        if let Some(pending) = target.pending_narration.take() {
+            let cursor = std::io::Cursor::new(pending);
+            match rodio::Decoder::new(cursor) {
+                Ok(source) => {
+                    narration_sink.append(source);
+                    log::info!("Flushed buffered DJ narration into newly registered sink");
+                }
+                Err(e) => {
+                    log::warn!("Failed to decode buffered DJ narration: {e}");
+                }
+            }
+        }
+        target.narration_sink = Some(narration_sink);
         target.envelope = Some(envelope);
     }
 }
@@ -476,6 +645,7 @@ impl RodioSink {
             && factor != self.applied_volume
         {
             output.sink.set_volume(factor);
+            self.control.set_narration_volume(factor);
             self.applied_volume = factor;
         }
     }
@@ -535,6 +705,7 @@ impl Sink for RodioSink {
             output.fed = false;
             output.last_write = None;
         }
+        self.control.pause_narration();
         Ok(())
     }
 
@@ -548,12 +719,26 @@ impl Sink for RodioSink {
         }
         self.follow_default(false);
         self.ensure_open()?;
+        self.control.resume_narration();
+        while self.control.is_narration_active() {
+            if self.control.waiting_for_track() {
+                return Ok(());
+            }
+            if self.output.as_ref().is_some_and(|output| output.failed()) {
+                let message = "The audio output stopped working".to_string();
+                (self.on_error)(message.clone());
+                return Err(SinkError::OnWrite(message));
+            }
+            thread::sleep(Duration::from_millis(15));
+        }
         if self.control.take_reset()
             && let Some(output) = &mut self.output
         {
             let sink = Arc::new(rodio::Sink::connect_new(output._stream.mixer()));
+            let narration_sink = rodio::Sink::connect_new(output._stream.mixer());
             let envelope = Envelope::rising(output.sample_rate, INTERRUPT_FADE);
-            self.control.register(&sink, Arc::clone(&envelope));
+            self.control
+                .register(&sink, narration_sink, Arc::clone(&envelope));
             output.sink = sink;
             output.envelope = envelope;
             output.queued = Queued::new();
@@ -774,10 +959,11 @@ fn open_output(
         );
     }
     let sink = Arc::new(rodio::Sink::connect_new(stream.mixer()));
+    let narration_sink = rodio::Sink::connect_new(stream.mixer());
     let envelope = Envelope::open(sample_rate, INTERRUPT_FADE);
     // The first Play has silence to come up from instead of a hard edge.
     let transport = Envelope::closed(sample_rate, TRANSPORT_FADE);
-    control.register(&sink, Arc::clone(&envelope));
+    control.register(&sink, narration_sink, Arc::clone(&envelope));
     Ok(Output {
         sink,
         _stream: stream,
@@ -942,7 +1128,8 @@ mod tests {
         let sink = Arc::new(sink);
         let (interrupt, transport) = wide_open();
         let queued = Queued::new();
-        control.register(&sink, Arc::clone(&interrupt));
+        let (narration_sink, _) = rodio::Sink::new();
+        control.register(&sink, narration_sink, Arc::clone(&interrupt));
         sink.append(chunk(500, &interrupt, &transport, &queued));
         assert_eq!(output.next(), Some(1.0));
 
@@ -973,7 +1160,8 @@ mod tests {
         let (sink, mut output) = rodio::Sink::new();
         let sink = Arc::new(sink);
         let (interrupt, transport) = wide_open();
-        control.register(&sink, Arc::clone(&interrupt));
+        let (narration_sink, _) = rodio::Sink::new();
+        control.register(&sink, narration_sink, Arc::clone(&interrupt));
         sink.append(chunk(500, &interrupt, &transport, &Queued::new()));
         assert_eq!(output.next(), Some(1.0));
         let track_id =

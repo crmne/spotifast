@@ -216,10 +216,10 @@ hyper-proxy2 = { git = "https://github.com/crmne/hyper-proxy2", rev = "efca48113
 # fallback, plus an in-memory credential cache for platform storage.
 # Every librespot crate comes from the
 # fork so one copy exists. Drop patches as upstream takes them.
-librespot-audio = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
-librespot-connect = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
-librespot-core = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
-librespot-metadata = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
-librespot-oauth = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
-librespot-playback = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
-librespot-protocol = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
+librespot-audio = { git = "https://github.com/Clascheurduturfu/librespot", rev = "afc77d10212dbba29997d4204b32ce52c5fc1f89" }
+librespot-connect = { git = "https://github.com/Clascheurduturfu/librespot", rev = "afc77d10212dbba29997d4204b32ce52c5fc1f89" }
+librespot-core = { git = "https://github.com/Clascheurduturfu/librespot", rev = "afc77d10212dbba29997d4204b32ce52c5fc1f89" }
+librespot-metadata = { git = "https://github.com/Clascheurduturfu/librespot", rev = "afc77d10212dbba29997d4204b32ce52c5fc1f89" }
+librespot-oauth = { git = "https://github.com/Clascheurduturfu/librespot", rev = "afc77d10212dbba29997d4204b32ce52c5fc1f89" }
+librespot-playback = { git = "https://github.com/Clascheurduturfu/librespot", rev = "afc77d10212dbba29997d4204b32ce52c5fc1f89" }
+librespot-protocol = { git = "https://github.com/Clascheurduturfu/librespot", rev = "afc77d10212dbba29997d4204b32ce52c5fc1f89" }

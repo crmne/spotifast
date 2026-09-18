@@ -58,6 +58,8 @@ fn entry_play_uri(app: &App, entry: &Entry) -> Option<String> {
     }
 }
 
+pub const DJ_PLAYLIST_URI: &str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq";
+
 fn liked_entry(app: &App) -> Entry {
     Entry {
         image: None,
@@ -1066,6 +1068,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         );
                         if entry.liked {
                             liked_cover(ui, cover_rect, 6.0);
+                        } else if entry.uri == DJ_PLAYLIST_URI {
+                            dj_cover(ui, cover_rect, 6.0);
                         } else {
                             super::widgets::paint_cover(
                                 ui,
@@ -1213,6 +1217,12 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                             app.collapsed_folders.push(folder_id.clone());
                         }
                         app.session_dirty = true;
+                    } else if entry.uri == DJ_PLAYLIST_URI {
+                        app.actions.push(Action::PlayContext {
+                            uri: DJ_PLAYLIST_URI.to_string(),
+                            offset_uri: None,
+                            offset_index: None,
+                        });
                     } else {
                         app.actions.push(Action::Open(entry.page.clone()));
                     }
@@ -1482,6 +1492,61 @@ pub fn liked_cover(ui: &egui::Ui, rect: Rect, radius: f32) {
     let size = rect.width() * 0.45;
     let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(size));
     Icon::HeartFilled
+        .image(egui::Color32::WHITE, size)
+        .paint_at(ui, icon_rect);
+}
+
+/// The cyan-to-emerald DJ tile with sparkles icon.
+pub fn dj_cover(ui: &egui::Ui, rect: Rect, radius: f32) {
+    let texture_id = egui::Id::new("dj-cover-gradient");
+    let texture = ui
+        .data(|data| data.get_temp::<egui::TextureHandle>(texture_id))
+        .unwrap_or_else(|| {
+            let size = 64;
+            let lerp = |a: u8, b: u8, t: f32| (a as f32 + (b as f32 - a as f32) * t) as u8;
+            let top_left = [0x05, 0x19, 0x5a];
+            let top_right = [0x00, 0x64, 0x82];
+            let bottom_left = [0x00, 0x8a, 0x75];
+            let bottom_right = [0x00, 0xd2, 0x6a];
+            let pixels = (0..size)
+                .flat_map(|y| {
+                    let y = y as f32 / (size - 1) as f32;
+                    (0..size).map(move |x| {
+                        let x = x as f32 / (size - 1) as f32;
+                        egui::Color32::from_rgb(
+                            lerp(
+                                lerp(top_left[0], top_right[0], x),
+                                lerp(bottom_left[0], bottom_right[0], x),
+                                y,
+                            ),
+                            lerp(
+                                lerp(top_left[1], top_right[1], x),
+                                lerp(bottom_left[1], bottom_right[1], x),
+                                y,
+                            ),
+                            lerp(
+                                lerp(top_left[2], top_right[2], x),
+                                lerp(bottom_left[2], bottom_right[2], x),
+                                y,
+                            ),
+                        )
+                    })
+                })
+                .collect();
+            let texture = ui.ctx().load_texture(
+                "dj-cover-gradient",
+                egui::ColorImage::new([size, size], pixels),
+                egui::TextureOptions::LINEAR,
+            );
+            ui.data_mut(|data| data.insert_temp(texture_id, texture.clone()));
+            texture
+        });
+    egui::Image::new(&texture)
+        .corner_radius(CornerRadius::same(radius.min(127.0) as u8))
+        .paint_at(ui, rect);
+    let size = rect.width() * 0.45;
+    let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(size));
+    Icon::Sparkles
         .image(egui::Color32::WHITE, size)
         .paint_at(ui, icon_rect);
 }

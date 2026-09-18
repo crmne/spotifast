@@ -15,6 +15,7 @@ pub mod search;
 pub mod settings;
 pub mod show;
 pub mod sidebar;
+pub(crate) mod sleep_timer;
 pub mod topbar;
 mod update;
 pub mod widgets;
@@ -62,6 +63,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         central(app, ui);
     }
     devices::popup(app, ctx);
+    sleep_timer::popup(app, ctx);
     dialogs::show(app, ctx);
     update::show(app, ctx);
     widgets::drag_ghost(ctx, &app.palette);

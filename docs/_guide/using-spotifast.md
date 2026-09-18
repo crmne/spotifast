@@ -291,3 +291,18 @@ in the scrolling and highlights.
 | Dark theme | Light theme |
 | --- | --- |
 | ![Full-screen lyrics with the dark player bar](/assets/images/lyrics-fullscreen-dark.png) | ![Full-screen lyrics with the light player bar](/assets/images/lyrics-fullscreen-light.png) |
+
+## Sleep timer
+
+In the top bar, choose the moon icon to configure a sleep timer. Select a duration
+(from 5 minutes up to 1 hour) or **End of track**.
+
+The **Wait for song to finish** toggle ensures that when a duration countdown elapses,
+playback allows the active track to finish before pausing. The top bar icon displays an
+active countdown badge and tooltip showing remaining time. Choosing **Turn off timer**
+cancels it.
+
+## Spotify AI DJ
+
+The Home view includes Spotify AI DJ in the quick access tiles. Starting DJ plays
+curated sets with spoken DJ voice commentary smoothly sequenced ahead of song intros.

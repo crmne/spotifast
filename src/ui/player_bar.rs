@@ -591,4 +591,30 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     {
         app.actions.push(Action::ToggleLyricsPanel);
     }
+    let sleep_timer_active = app.sleep_timer.is_some();
+    let sleep_timer_tooltip = match &app.sleep_timer {
+        Some(timer) => timer.status_text(),
+        None => gettext(app.locale, "Sleep timer").to_string(),
+    };
+    let sleep_btn = theme::icon_button(
+        ui,
+        Icon::Moon,
+        18.0,
+        if sleep_timer_active || app.show_sleep_timer {
+            palette.accent
+        } else {
+            palette.secondary
+        },
+        palette.text,
+        &sleep_timer_tooltip,
+    );
+    ui.ctx().data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new(super::sleep_timer::BUTTON_RECT_ID),
+            sleep_btn.rect,
+        )
+    });
+    if sleep_btn.clicked() {
+        app.actions.push(Action::ToggleSleepTimerPopup);
+    }
 }

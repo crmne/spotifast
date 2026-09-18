@@ -41,19 +41,35 @@ struct Tile {
 
 fn quick_access(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let mut tiles: Vec<Tile> = vec![Tile {
-        image: None,
-        name: "Liked Songs".to_string(),
-        page: Page::LikedSongs,
-        uri: app
-            .user
-            .as_ref()
-            .map(|user| format!("spotify:user:{}:collection", user.id)),
-        liked: true,
-        owned_playlist: None,
-    }];
+    let mut tiles: Vec<Tile> = vec![
+        Tile {
+            image: None,
+            name: "Liked Songs".to_string(),
+            page: Page::LikedSongs,
+            uri: app
+                .user
+                .as_ref()
+                .map(|user| format!("spotify:user:{}:collection", user.id)),
+            liked: true,
+            owned_playlist: None,
+        },
+        Tile {
+            image: None,
+            name: "DJ".to_string(),
+            page: Page::Playlist("37i9dQZF1EYkqdzj48dyYq".to_string()),
+            uri: Some("spotify:playlist:37i9dQZF1EYkqdzj48dyYq".to_string()),
+            liked: false,
+            owned_playlist: None,
+        },
+    ];
     if let Some(playlists) = app.library.playlists.get() {
-        for playlist in playlists.iter().take(7) {
+        for playlist in playlists
+            .iter()
+            .filter(|p| {
+                p.id != "37i9dQZF1EYkqdzj48dyYq" && !p.uri.contains("37i9dQZF1EYkqdzj48dyYq")
+            })
+            .take(8usize.saturating_sub(tiles.len()))
+        {
             tiles.push(Tile {
                 image: pick_image(&playlist.images, 64).map(str::to_string),
                 name: playlist.name.clone(),
@@ -100,6 +116,8 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                     let cover = Rect::from_min_size(rect.min, Vec2::splat(60.0));
                     if *liked {
                         super::sidebar::liked_cover(ui, cover, 6.0);
+                    } else if uri.as_deref() == Some("spotify:playlist:37i9dQZF1EYkqdzj48dyYq") {
+                        super::sidebar::dj_cover(ui, cover, 6.0);
                     } else {
                         widgets::paint_cover(
                             ui,
@@ -155,7 +173,15 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                 }
                 let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
                 if response.clicked() {
-                    app.actions.push(Action::Open(page.clone()));
+                    if uri.as_deref() == Some("spotify:playlist:37i9dQZF1EYkqdzj48dyYq") {
+                        app.actions.push(Action::PlayContext {
+                            uri: "spotify:playlist:37i9dQZF1EYkqdzj48dyYq".to_string(),
+                            offset_uri: None,
+                            offset_index: None,
+                        });
+                    } else {
+                        app.actions.push(Action::Open(page.clone()));
+                    }
                 }
                 if !liked && let Some(uri) = uri {
                     egui::Popup::context_menu(&response)

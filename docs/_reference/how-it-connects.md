@@ -301,3 +301,15 @@ On startup, network work waits for the protected proxy password to be restored.
 That lookup runs on the credential worker and does not block the interface or
 shutdown. The password belongs to its host, port, and username; editing any of
 these fields clears it. See [password storage and migration](/settings-and-files/).
+
+## Spotify AI DJ TTS fulfillment
+
+When playing Spotify's AI DJ context (`spotify:playlist:37i9dQZF1EYkqdzj48dyYq`),
+the player receives track narration metadata delivered via Spotify Connect
+(`narration.intro.ssml`, `narration.jump.ssml`, or `narration.outro.ssml`).
+
+Spotifast fulfills voice narration through Spotify's client-tts service:
+- **Endpoint**: `https://spclient.wg.spotify.com/client-tts/v1/fulfill` (POST)
+- **Payload**: A binary protobuf request specifying the SSML prompt, voice identifier, provider, and audio format (MP3, 44.1 kHz).
+- **Authentication**: Authenticated with the active session's Spotify Bearer token.
+- **Audio Routing**: Synthesized commentary is decoded and played through rodio while track music samples are held, preventing speech and music overlap.
