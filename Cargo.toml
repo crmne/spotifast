@@ -136,8 +136,10 @@ souvlaki = { version = "0.8", default-features = false }
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 # Serving AppKit while no window exists: the status item and Dock reopen
-# callback live on the main thread.
-objc2 = "0.6"
+# callback live on the main thread. "exception" lets
+# src/mac_touchbar_crash_guard.rs catch a specific AppKit Objective-C
+# exception instead of letting it abort the process.
+objc2 = { version = "0.6", features = ["exception"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication"] }
 # NSAppleEventManager and NSAppleEventDescriptor carry the Spotify links
 # macOS hands an app registered for the scheme (src/mac_links.rs).

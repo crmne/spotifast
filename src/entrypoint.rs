@@ -597,6 +597,7 @@ pub(crate) fn run() -> eframe::Result<()> {
                 // repaint.
                 #[cfg(target_os = "macos")]
                 {
+                    fastpotify::mac_touchbar_crash_guard::install();
                     fastpotify::mac_menu::init();
                     let ctx = cc.egui_ctx.clone();
                     fastpotify::mac_menu::set_waker(move || ctx.request_repaint());
