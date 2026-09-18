@@ -3712,11 +3712,18 @@ impl App {
         }
     }
 
+    /// Whether the local player is the active target, so its queue can be
+    /// rewritten directly. Neither the Web API nor librespot can reorder or
+    /// insert into a live queue; the only way to change one is to clear it
+    /// and re-add its songs in the new order, which only reaches the
+    /// engine actually playing them.
+    pub fn queue_locally_reorderable(&self) -> bool {
+        self.local.is_active() && matches!(self.target(), Target::Local)
+    }
+
     /// Whether the active local queue has rows that can be cleared.
     pub fn can_clear_queue(&self) -> bool {
-        self.local.is_active()
-            && matches!(self.target(), Target::Local)
-            && self.queued_rows_len() > 0
+        self.queue_locally_reorderable() && self.queued_rows_len() > 0
     }
 
     /// Clears manually queued tracks while keeping the context's upcoming rows.
@@ -6449,6 +6456,48 @@ impl App {
             .any(|(pending, at)| pending == uri && at.elapsed() < QUEUE_ADD_DEBOUNCE)
     }
 
+    /// Queues several songs after the ones already queued, skipping any
+    /// queued again within `QUEUE_ADD_DEBOUNCE`, with one combined toast.
+    fn queue_many(&mut self, songs: Vec<(String, String)>) {
+        // Each picked row is its own ask, so a song picked twice is queued
+        // twice. Only an add from an earlier click can make one of them a
+        // repeat, so decide that before adding any.
+        let repeats: Vec<bool> = songs
+            .iter()
+            .map(|(uri, _)| self.queued_moments_ago(uri))
+            .collect();
+        let mut count = 0;
+        for ((uri, label), repeat) in songs.into_iter().zip(repeats) {
+            if !repeat {
+                self.queue_one(uri, label, false);
+                count += 1;
+            }
+        }
+        if count > 0 {
+            self.queued_toast(count);
+        }
+    }
+
+    fn queued_toast(&mut self, count: usize) {
+        self.toast(match count {
+            1 => "1 song added to queue".to_string(),
+            count => format!("{count} songs added to queue"),
+        });
+    }
+
+    /// Replays the manually queued songs on the local engine in their
+    /// current order. librespot can only append to or clear a live queue,
+    /// so a move or positional insert clears it and re-adds every song.
+    fn resync_local_queue(&mut self) {
+        self.backend.player(PlayerCommand::ClearQueue);
+        for uri in self.manual_queue.clone() {
+            if uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:") {
+                self.backend.player(PlayerCommand::AddToQueue(uri));
+            }
+        }
+        self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
+    }
+
     /// Adds one song after existing manual queue entries.
     ///
     /// `announce` is false when a batch should produce one toast.
@@ -6993,26 +7042,62 @@ impl App {
             }
             Action::SetRepeat(mode) => self.set_repeat(mode),
             Action::AddToQueue { uri, label } => self.add_to_queue(uri, label),
-            Action::QueueMany { songs } => {
-                // Each picked row is its own ask, so a song picked twice is
-                // queued twice. Only an add from an earlier click can make
-                // one of them a repeat, so decide that before adding any.
-                let repeats: Vec<bool> = songs
-                    .iter()
-                    .map(|(uri, _)| self.queued_moments_ago(uri))
-                    .collect();
-                let mut count = 0;
-                for ((uri, label), repeat) in songs.into_iter().zip(repeats) {
-                    if !repeat {
-                        self.queue_one(uri, label, false);
-                        count += 1;
-                    }
+            Action::QueueMany { songs } => self.queue_many(songs),
+            Action::MoveInQueue { from, to } => {
+                if !self.queue_locally_reorderable() {
+                    return;
                 }
-                if count > 0 {
-                    self.toast(match count {
-                        1 => "1 song added to queue".to_string(),
-                        count => format!("{count} songs added to queue"),
-                    });
+                let queued_len = self.queued_rows_len();
+                if from >= queued_len || to > queued_len || from == to || to == from + 1 {
+                    return;
+                }
+                if let Loadable::Loaded(queue) = &mut self.queue {
+                    let item = queue.queue.remove(from);
+                    queue
+                        .queue
+                        .insert(if to > from { to - 1 } else { to }, item);
+                }
+                if from < self.manual_queue.len() {
+                    let uri = self.manual_queue.remove(from);
+                    let at = (if to > from { to - 1 } else { to }).min(self.manual_queue.len());
+                    self.manual_queue.insert(at, uri);
+                }
+                self.session_dirty = true;
+                self.resync_local_queue();
+            }
+            Action::InsertInQueue { items, position } => {
+                if !self.queue_locally_reorderable() {
+                    let songs = items
+                        .into_iter()
+                        .map(|item| (item.uri().to_string(), item.name().to_string()))
+                        .collect();
+                    self.queue_many(songs);
+                    return;
+                }
+                let position = position.min(self.queued_rows_len());
+                let repeats: Vec<bool> = items
+                    .iter()
+                    .map(|item| self.queued_moments_ago(item.uri()))
+                    .collect();
+                let mut inserted = 0;
+                for (item, repeat) in items.into_iter().zip(repeats) {
+                    if repeat {
+                        continue;
+                    }
+                    let uri = item.uri().to_string();
+                    self.pending_queue_adds.push((uri.clone(), Instant::now()));
+                    let at = position + inserted;
+                    if let Loadable::Loaded(queue) = &mut self.queue {
+                        queue.queue.insert(at.min(queue.queue.len()), item);
+                    }
+                    self.manual_queue
+                        .insert(at.min(self.manual_queue.len()), uri);
+                    inserted += 1;
+                }
+                if inserted > 0 {
+                    self.session_dirty = true;
+                    self.queued_toast(inserted);
+                    self.resync_local_queue();
                 }
             }
             Action::SetSavedMany { uris, saved } => {
