@@ -6,6 +6,71 @@
 pub const ON_TOP_UNAVAILABLE: &str =
     "On Wayland, use your desktop's Keep Above shortcut or window rule.";
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MacosDoubleClickAction {
+    Ignore,
+    Minimize,
+    Zoom,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_double_click_action(preference: Option<&str>) -> MacosDoubleClickAction {
+    match preference {
+        Some("Minimize") => MacosDoubleClickAction::Minimize,
+        Some("None") => MacosDoubleClickAction::Ignore,
+        Some("Maximize" | "Zoom") | None => MacosDoubleClickAction::Zoom,
+        Some(_) => MacosDoubleClickAction::Ignore,
+    }
+}
+
+/// Handles a macOS title-bar double-click, or leaves a first click to drag.
+#[cfg(target_os = "macos")]
+pub fn macos_titlebar_should_drag() -> bool {
+    use objc2::{MainThreadMarker, sel};
+    use objc2_app_kit::{NSApplication, NSEventType};
+    use objc2_foundation::{NSObjectNSDelayedPerforming, NSUserDefaults, ns_string};
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return true;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(event) = app.currentEvent() else {
+        return true;
+    };
+    if event.r#type() != NSEventType::LeftMouseDown || event.clickCount() != 2 {
+        return true;
+    }
+
+    let preference =
+        NSUserDefaults::standardUserDefaults().stringForKey(ns_string!("AppleActionOnDoubleClick"));
+    let action =
+        macos_double_click_action(preference.as_deref().map(ToString::to_string).as_deref());
+    if let Some(window) = event.window(mtm) {
+        // Let egui finish this frame before AppKit starts resizing the window.
+        // SAFETY: Both NSWindow selectors take one optional sender argument.
+        unsafe {
+            match action {
+                MacosDoubleClickAction::Ignore => {}
+                MacosDoubleClickAction::Minimize => window.performSelector_withObject_afterDelay(
+                    sel!(performMiniaturize:),
+                    None,
+                    0.0,
+                ),
+                MacosDoubleClickAction::Zoom => {
+                    window.performSelector_withObject_afterDelay(sel!(performZoom:), None, 0.0)
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn macos_titlebar_should_drag() -> bool {
+    true
+}
+
 /// The active backend matters: a Wayland session can also host X11 windows.
 /// winit's Wayland backend cannot change a window's stacking level.
 pub fn supports_window_level(display: raw_window_handle::RawDisplayHandle) -> bool {
@@ -73,6 +138,20 @@ pub fn can_restore(pos: [f32; 2], pixels_per_point: f32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macos_titlebar_preferences_map_to_native_actions() {
+        for (preference, action) in [
+            (Some("Minimize"), MacosDoubleClickAction::Minimize),
+            (Some("None"), MacosDoubleClickAction::Ignore),
+            (Some("Maximize"), MacosDoubleClickAction::Zoom),
+            (Some("Zoom"), MacosDoubleClickAction::Zoom),
+            (None, MacosDoubleClickAction::Zoom),
+            (Some("FutureAction"), MacosDoubleClickAction::Ignore),
+        ] {
+            assert_eq!(macos_double_click_action(preference), action);
+        }
+    }
 
     #[test]
     fn only_the_wayland_backend_lacks_window_level_control() {

@@ -868,11 +868,11 @@ fn native_options(
         viewport,
         persist_window,
         persistence_path,
-        // A Wayland compositor stops sending frame callbacks to a hidden
-        // window; waiting for vsync there would block the event loop.
-        // Repaints are event-driven, so nothing spins.
+        // AppKit resize animations need buffer swaps paced with the display.
+        // Keep VSync off elsewhere; hidden Wayland windows receive no frame
+        // callbacks and would block the event loop while waiting for one.
         glow_options: eframe::egui_glow::GlowConfiguration {
-            vsync: false,
+            vsync: cfg!(target_os = "macos"),
             ..Default::default()
         },
         ..Default::default()
@@ -980,6 +980,14 @@ mod native_window_tests {
         assert_eq!(options.viewport.fullsize_content_view, Some(true));
         assert_eq!(options.viewport.titlebar_shown, Some(false));
         assert_eq!(options.viewport.title_shown, Some(false));
+    }
+
+    #[test]
+    fn only_macos_waits_for_vsync() {
+        assert_eq!(
+            native_options(false, None, None).glow_options.vsync,
+            cfg!(target_os = "macos")
+        );
     }
 
     #[test]
