@@ -1,6 +1,6 @@
 //! The now-playing bar along the bottom of the window.
 
-use egui::{Align, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, pos2, vec2};
+use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, pos2, vec2};
 
 use crate::app::{App, NowPlaying};
 use crate::i18n::gettext;
@@ -11,13 +11,17 @@ use crate::util;
 
 use super::widgets::{SliderEvent, thin_slider};
 
+/// How much of the playing art's tint the bar's fill carries.
+const TINT_STRENGTH: f32 = 0.12;
+/// How long the bar takes to cross over to a new song's tint.
+const TINT_FADE_SECONDS: f32 = 0.45;
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let tint = app.now_playing_tint();
-    let fill = match tint {
-        Some(tint) => super::blend(palette.panel, tint, 0.12),
-        None => palette.panel,
-    };
+    // Without a tint the bar is the plain panel, which is also what the fade
+    // eases back to when playback stops or the art has no colour yet.
+    let target = app.now_playing_tint().unwrap_or(palette.panel);
+    let fill = super::blend(palette.panel, eased_tint(ui.ctx(), target), TINT_STRENGTH);
     egui::Panel::bottom("player-bar")
         .exact_size(theme::PLAYER_BAR_HEIGHT)
         .resizable(false)
@@ -60,6 +64,27 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             );
             extras(app, &mut right_ui, now.as_ref());
         });
+}
+
+/// Ease the art tint so the bar crosses over to a new song's colour instead of
+/// switching in a single frame. Each channel animates on its own id, and egui
+/// restarts an animation from the value on screen, so skipping songs mid-fade
+/// carries on from the colour the listener is looking at rather than jumping
+/// back to the one it came from.
+fn eased_tint(ctx: &egui::Context, target: Color32) -> Color32 {
+    let channel = |axis: &'static str, value: u8| {
+        ctx.animate_value_with_time(
+            egui::Id::new(("player-bar-tint", axis)),
+            f32::from(value),
+            TINT_FADE_SECONDS,
+        )
+        .round() as u8
+    };
+    Color32::from_rgb(
+        channel("r", target.r()),
+        channel("g", target.g()),
+        channel("b", target.b()),
+    )
 }
 
 fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option<&NowPlaying>) {
@@ -590,5 +615,73 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     .clicked()
     {
         app.actions.push(Action::ToggleLyricsPanel);
+    }
+}
+
+#[cfg(test)]
+mod player_bar_tint_tests {
+    use super::*;
+    use crate::theme::Palette;
+
+    /// Run one frame at `time` and report the tint the bar would fill with.
+    fn frame(ctx: &egui::Context, time: f64, target: Color32) -> Color32 {
+        let mut tint = Color32::PLACEHOLDER;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                time: Some(time),
+                ..Default::default()
+            },
+            |ui| tint = eased_tint(ui.ctx(), target),
+        );
+        output.textures_delta.clear();
+        tint
+    }
+
+    #[test]
+    fn a_song_without_art_leaves_the_panel_untouched() {
+        // The fade eases toward the panel itself when there is no tint, so the
+        // blend has to land back on exactly the colour it started from.
+        for panel in [Palette::dark().panel, Palette::light().panel] {
+            assert_eq!(super::super::blend(panel, panel, TINT_STRENGTH), panel);
+        }
+    }
+
+    #[test]
+    fn the_first_frame_shows_the_tint_without_fading_in() {
+        let ctx = egui::Context::default();
+        let art = Color32::from_rgb(200, 40, 90);
+        assert_eq!(frame(&ctx, 0.0, art), art);
+    }
+
+    #[test]
+    fn changing_songs_crosses_over_to_the_new_tint() {
+        let ctx = egui::Context::default();
+        let first = Color32::from_rgb(20, 40, 60);
+        let second = Color32::from_rgb(220, 140, 160);
+        let fade = f64::from(TINT_FADE_SECONDS);
+
+        // The first song's colour stands on its own from the frame it arrives.
+        assert_eq!(frame(&ctx, 0.0, first), first);
+
+        // The frame the song changes on still shows the colour on screen, since
+        // egui restarts the fade from there instead of snapping to the new tint.
+        assert_eq!(frame(&ctx, fade, second), first);
+
+        // Partway through, the bar carries neither song's colour.
+        let middle = frame(&ctx, fade * 1.5, second);
+        for channel in 0..3 {
+            let (from, to, mid) = (
+                first.to_array()[channel],
+                second.to_array()[channel],
+                middle.to_array()[channel],
+            );
+            assert!(
+                from < mid && mid < to,
+                "channel {channel} should be between {from} and {to}, got {mid}",
+            );
+        }
+
+        // And once it is over the new song's colour stands on its own.
+        assert_eq!(frame(&ctx, fade * 3.0, second), second);
     }
 }
