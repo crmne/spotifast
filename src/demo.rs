@@ -1852,6 +1852,16 @@ mod tests {
     }
 
     #[test]
+    fn settings_content_is_centered_on_wide_pages() {
+        let (ctx, mut app) = accessible_app("centered-settings");
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        let heading = sidebar_text(&painted, "Settings");
+
+        assert!((heading.left() - 240.0).abs() < 1.0, "{heading:?}");
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn settings_search_filters_rows_clearing_and_empty_state() {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("settings-search");
