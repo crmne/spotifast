@@ -20,6 +20,24 @@ pub fn fills_the_screen(viewport: &egui::ViewportInfo) -> bool {
     viewport.maximized.unwrap_or(false) || viewport.fullscreen.unwrap_or(false)
 }
 
+/// Hides macOS windows before eframe destroys their native views.
+#[cfg(target_os = "macos")]
+pub fn prepare_for_close() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        log::warn!("the macOS window can only close on the main thread");
+        return;
+    };
+    for window in NSApplication::sharedApplication(mtm).windows().iter() {
+        window.orderOut(None);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn prepare_for_close() {}
+
 /// Checks a position in egui points against the fixed coordinate limits.
 #[cfg(not(windows))]
 pub fn can_restore(pos: [f32; 2], _pixels_per_point: f32) -> bool {

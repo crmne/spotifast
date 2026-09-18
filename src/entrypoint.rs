@@ -1253,6 +1253,7 @@ impl eframe::App for Shell {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        fastpotify::window::prepare_for_close();
         if let Some(app) = self.app.as_mut() {
             app.save_state();
         }
