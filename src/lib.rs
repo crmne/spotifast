@@ -34,6 +34,7 @@ pub mod media_controls;
 pub mod milkdrop;
 pub mod model;
 pub mod opener;
+pub mod overscroll;
 pub mod paths;
 pub mod player;
 pub mod playlist_cover;

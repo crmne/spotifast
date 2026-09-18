@@ -107,7 +107,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         {
             app.actions.push(Action::LoadMoreRecents);
         }
-        crate::autoscroll::show(
+        crate::ui::scroll::show(
             ui,
             egui::ScrollArea::vertical()
                 .id_salt("queue-panel-scroll")

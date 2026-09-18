@@ -11,6 +11,7 @@ pub mod login;
 mod lyrics;
 pub mod player_bar;
 pub mod queue;
+pub mod scroll;
 pub mod search;
 pub mod settings;
 pub mod show;
@@ -132,7 +133,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
             topbar::show(app, ui);
             let page = app.page().clone();
-            crate::autoscroll::show(
+            crate::ui::scroll::show(
                 ui,
                 egui::ScrollArea::vertical()
                     .id_salt(("page", page.encode()))
