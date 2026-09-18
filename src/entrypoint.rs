@@ -237,20 +237,24 @@ fn run_control(control: Control) -> i32 {
 
 #[cfg(target_os = "linux")]
 fn run_control(control: Control) -> i32 {
-    if matches!(control, Control::ReloadThemes) {
-        return match single_instance::reload_themes() {
-            Ok(()) => 0,
-            Err(error) => {
-                eprintln!("Spotifast is not running or could not reload themes: {error}");
-                1
-            }
-        };
+    let result = match control {
+        Control::Like => single_instance::toggle_saved(),
+        Control::ReloadThemes => single_instance::reload_themes(),
+        _ => {
+            eprintln!(
+                "On Linux the running instance speaks MPRIS instead; use e.g. \
+                 `playerctl --player=fastpotify play-pause`."
+            );
+            return 2;
+        }
+    };
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Spotifast is not running or does not support remote control: {error}");
+            1
+        }
     }
-    eprintln!(
-        "On Linux the running instance speaks MPRIS instead; use e.g. \
-         `playerctl --player=fastpotify play-pause`."
-    );
-    2
 }
 
 #[cfg(target_os = "linux")]

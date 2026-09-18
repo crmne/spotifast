@@ -96,8 +96,7 @@ pub enum ControlCommand {
 pub struct Guard {
     #[cfg(target_os = "linux")]
     _connection: Option<mpris_server::zbus::blocking::Connection>,
-    /// Filled by control clients, drained by the app every frame. On Linux
-    /// the same requests arrive through MPRIS instead and this stays empty.
+    /// Filled by control clients, drained by the app every frame.
     commands: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>>,
     /// Current-track snapshot for `nowplaying` requests.
     now_playing: std::sync::Arc<std::sync::Mutex<String>>,
@@ -400,8 +399,7 @@ fn read_line(stream: &mut std::net::TcpStream) -> Option<String> {
     String::from_utf8(line.to_vec()).ok()
 }
 
-/// What the running instance answers on its own name, for the launch the
-/// desktop makes when a Spotify link is opened.
+/// Commands supported on Linux that are not provided by MPRIS.
 #[cfg(target_os = "linux")]
 struct Instance {
     commands: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>>,
@@ -411,6 +409,14 @@ struct Instance {
 #[cfg(target_os = "linux")]
 #[zbus::interface(name = "rocks.fastpotify.Instance")]
 impl Instance {
+    fn toggle_saved(&self) {
+        self.commands
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(ControlCommand::ToggleSaved);
+        self.waker.wake();
+    }
+
     fn reload_themes(&self) {
         self.commands
             .lock()
@@ -434,20 +440,27 @@ impl Instance {
     }
 }
 
-/// Re-read local themes in an existing instance. A theme hook must never start
-/// the app or raise its window; use the existing private interface, not MPRIS.
+/// Reread local themes without starting or raising the app.
 #[cfg(target_os = "linux")]
 pub fn reload_themes() -> zbus::Result<()> {
+    call_instance("ReloadThemes")
+}
+
+/// Toggle the playing item's saved state without starting or raising the app.
+#[cfg(target_os = "linux")]
+pub fn toggle_saved() -> zbus::Result<()> {
+    call_instance("ToggleSaved")
+}
+
+#[cfg(target_os = "linux")]
+fn call_instance(method: &str) -> zbus::Result<()> {
     let connection = zbus::blocking::connection::Builder::session()?
         .method_timeout(std::time::Duration::from_secs(2))
         .build()?;
     let proxy =
         zbus::blocking::Proxy::new(&connection, INSTANCE_NAME, INSTANCE_PATH, INSTANCE_NAME)?;
-    let _: Option<()> = proxy.call_with_flags(
-        "ReloadThemes",
-        zbus::proxy::MethodFlags::NoAutoStart.into(),
-        &(),
-    )?;
+    let _: Option<()> =
+        proxy.call_with_flags(method, zbus::proxy::MethodFlags::NoAutoStart.into(), &())?;
     Ok(())
 }
 
