@@ -473,6 +473,8 @@ pub struct App {
     pub update_receipt: Option<PathBuf>,
     /// Winamp window state and active skin.
     pub winamp: crate::winamp::WinampState,
+    #[cfg(target_os = "macos")]
+    pub notch_analyser: crate::vis::Analyser,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -761,6 +763,8 @@ impl App {
             update_restart_arguments: Vec::new(),
             update_receipt: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
+            #[cfg(target_os = "macos")]
+            notch_analyser: crate::vis::Analyser::default(),
         };
         app.local.volume = app.settings.volume;
         // What was played here is on disk and needs nothing from the
@@ -7992,6 +7996,7 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
+        self.sync_notch_widget(ctx);
     }
 
     /// Records a track after enough active listening time.
@@ -8039,6 +8044,109 @@ impl App {
             .record(crate::history::played_track(&now), jiff::Timestamp::now());
         self.plays.save(&self.dirs.history_file());
         self.rebuild_recents();
+    }
+
+    fn sync_notch_widget(&mut self, _ctx: &egui::Context) {
+        #[cfg(target_os = "macos")]
+        {
+            let ctx = _ctx;
+            let is_background = ctx.input(|i| i.viewport().minimized.unwrap_or(false))
+                || self.window_hidden
+                || !ctx.input(|i| i.viewport().focused.unwrap_or(true));
+            let enabled = self.settings.mac_notch_widget;
+            let active = crate::notch::is_active();
+            let now_opt = self.now_playing();
+
+            // Compute FFT levels whenever enabled+playing, not just when the card is expanded.
+            // This ensures bars are ready with real data as soon as the card opens.
+            let levels = if enabled {
+                if let Some(now) = &now_opt {
+                    if now.playing && now.local {
+                        let samples = self
+                            .winamp
+                            .tap
+                            .window(crate::vis::FFT_SAMPLES, crate::vis::LAG);
+                        let bars = self
+                            .notch_analyser
+                            .step(&samples, std::time::Instant::now());
+                        let b0 = (bars[0].height + bars[1].height + bars[2].height + bars[3].height)
+                            as f32
+                            / 48.0;
+                        let b1 = (bars[4].height + bars[5].height + bars[6].height + bars[7].height)
+                            as f32
+                            / 48.0;
+                        let b2 =
+                            (bars[8].height + bars[9].height + bars[10].height + bars[11].height)
+                                as f32
+                                / 48.0;
+                        let b3 =
+                            (bars[12].height + bars[13].height + bars[14].height + bars[15].height)
+                                as f32
+                                / 48.0;
+                        let b4 =
+                            (bars[16].height + bars[17].height + bars[18].height) as f32 / 36.0;
+                        [
+                            b0.clamp(0.0, 1.0),
+                            b1.clamp(0.0, 1.0),
+                            b2.clamp(0.0, 1.0),
+                            b3.clamp(0.0, 1.0),
+                            b4.clamp(0.0, 1.0),
+                        ]
+                    // Remote playback: no local AudioTap, so keep bars flat.
+                    // Fabricating sine-wave heights here would misrepresent the
+                    // AudioTap/Analyser-based design; flat baseline is honest.
+                    } else {
+                        self.notch_analyser.reset();
+                        [0.0; 5]
+                    }
+                } else {
+                    self.notch_analyser.reset();
+                    [0.0; 5]
+                }
+            } else {
+                [0.0; 5]
+            };
+
+            let track_info = now_opt.map(|now| {
+                let art_path = now
+                    .art_url
+                    .as_deref()
+                    .or(now.art_small.as_deref())
+                    .and_then(|url| self.media_art_file(ctx, url));
+                let artist = now
+                    .artists
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let saved = self.is_saved(&now.uri).unwrap_or(false);
+                let accent = self
+                    .now_playing_tint()
+                    .or(Some(self.palette.accent))
+                    .map(|c| [c.r(), c.g(), c.b()]);
+                crate::notch::NotchTrackInfo {
+                    playing: now.playing,
+                    title: now.title,
+                    artist,
+                    album: now.album_name,
+                    duration_ms: now.duration_ms,
+                    position_ms: now.position_ms,
+                    art_path,
+                    uri: now.uri,
+                    saved,
+                    accent,
+                    levels,
+                    is_episode: now.is_episode,
+                }
+            });
+            crate::notch::sync_state(enabled, is_background, track_info.as_ref());
+            // Only schedule a fast repaint while the card is actively expanded or
+            // animating. Hover and state-change callbacks already call notch::wake()
+            // which triggers a repaint via the waker, so idle frames are not needed.
+            if enabled && active {
+                ctx.request_repaint_after(std::time::Duration::from_millis(33));
+            }
+        }
     }
 
     /// Keeps the current track in the window and taskbar title (#94).

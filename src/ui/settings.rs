@@ -323,7 +323,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         RowText::new("Audio cache", "Save downloaded audio for later playback."),
         RowText::new("Apply and restart playback", "Restart local playback to apply these settings.").when(playback_dirty),
         RowText::new("Playback settings applied", "").when(!playback_dirty),
-        RowText::new("Download updates automatically", "Downloads in the background. You choose when to restart.")
+        RowText::new("Download updates automatically", "Downloads in the background. You choose when to restart."),
+        RowText::new("MacBook notch widget", "Show interactive Now Playing widget when hovering over the notch.").when(cfg!(target_os = "macos")),
     ];
     if section_matches(&needle, "Playback on this computer", &playback_rows) {
         any_visible = true;
@@ -468,6 +469,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         &palette,
                         "Keep music playing when the window closes",
                         &mut app.settings.keep_playing_in_background,
+                    )
+                    .changed()
+                    {
+                        changed = true;
+                    }
+                },
+            );
+            #[cfg(target_os = "macos")]
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                "Playback on this computer",
+                &playback_rows[14],
+                |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        "MacBook notch interactive widget",
+                        &mut app.settings.mac_notch_widget,
                     )
                     .changed()
                     {

@@ -25,6 +25,8 @@ pub mod mac_links;
 #[cfg(target_os = "macos")]
 pub mod mac_menu;
 #[cfg(target_os = "macos")]
+pub mod mac_notch;
+#[cfg(target_os = "macos")]
 pub mod mac_touchbar_crash_guard;
 pub mod media;
 #[cfg(target_os = "linux")]
@@ -35,6 +37,7 @@ pub mod media_controls;
 pub mod media_controls;
 pub mod milkdrop;
 pub mod model;
+pub mod notch;
 pub mod opener;
 pub mod paths;
 pub mod player;

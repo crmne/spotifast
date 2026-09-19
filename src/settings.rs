@@ -222,6 +222,8 @@ pub struct Settings {
     pub playback_authorized: bool,
     /// Closing the window hides to the tray and keeps the music playing.
     pub keep_playing_in_background: bool,
+    /// Show the interactive Now Playing widget when hovering over the MacBook notch.
+    pub mac_notch_widget: bool,
     /// Ask GitHub once a day whether a newer release exists.
     pub check_for_updates: bool,
     pub download_updates_automatically: bool,
@@ -362,6 +364,7 @@ impl Default for Settings {
             personal_app_intro_seen: false,
             playback_authorized: false,
             keep_playing_in_background: true,
+            mac_notch_widget: true,
             check_for_updates: true,
             download_updates_automatically: false,
             pinned_contexts: Vec::new(),
@@ -829,6 +832,17 @@ mod tests {
         assert!(settings.system_theme_cache.is_none());
         assert_eq!(settings.theme, ThemeChoice::Dark);
         assert_eq!(settings.volume, 37);
+    }
+
+    #[test]
+    fn mac_notch_widget_defaults_to_true_when_absent_and_round_trips_false() {
+        let empty: Settings = serde_json::from_str("{}").unwrap();
+        assert!(empty.mac_notch_widget);
+        let disabled: Settings = serde_json::from_str(r#"{"mac_notch_widget": false}"#).unwrap();
+        assert!(!disabled.mac_notch_widget);
+        let encoded = serde_json::to_string(&disabled).unwrap();
+        let decoded: Settings = serde_json::from_str(&encoded).unwrap();
+        assert!(!decoded.mac_notch_widget);
     }
 
     #[test]

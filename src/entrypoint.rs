@@ -597,10 +597,13 @@ pub(crate) fn run() -> eframe::Result<()> {
                 // repaint.
                 #[cfg(target_os = "macos")]
                 {
-                    fastpotify::mac_touchbar_crash_guard::install();
                     fastpotify::mac_menu::init();
                     let ctx = cc.egui_ctx.clone();
                     fastpotify::mac_menu::set_waker(move || ctx.request_repaint());
+
+                    fastpotify::notch::init();
+                    let ctx_notch = cc.egui_ctx.clone();
+                    fastpotify::notch::set_waker(move || ctx_notch.request_repaint());
                 }
                 {
                     use raw_window_handle::HasDisplayHandle;
@@ -667,12 +670,30 @@ pub(crate) fn run() -> eframe::Result<()> {
             {
                 let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
                 let app = guard.as_mut().expect("application state present");
+                #[cfg(target_os = "macos")]
+                for command in fastpotify::notch::drain_commands() {
+                    app.actions.push(command.action());
+                }
                 app.background_frame(&headless);
                 if app.quit_requested || app.wants_show {
                     break;
                 }
             }
-            fastpotify::tray::idle(std::time::Duration::from_millis(150));
+            let idle_duration = {
+                #[cfg(target_os = "macos")]
+                {
+                    if fastpotify::notch::is_active() {
+                        std::time::Duration::from_millis(33)
+                    } else {
+                        std::time::Duration::from_millis(150)
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    std::time::Duration::from_millis(150)
+                }
+            };
+            fastpotify::tray::idle(idle_duration);
         }
         let quit = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
@@ -1207,6 +1228,10 @@ impl eframe::App for Shell {
                     }
                 };
                 app.actions.push(action);
+            }
+            #[cfg(target_os = "macos")]
+            for command in fastpotify::notch::drain_commands() {
+                app.actions.push(command.action());
             }
             #[cfg(windows)]
             for command in self.thumbbar.drain_commands() {
