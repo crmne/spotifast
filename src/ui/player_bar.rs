@@ -559,7 +559,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
         app.actions.push(Action::ToggleDevicesPopup);
     }
     let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
-    if theme::icon_button(
+    let queue_button = theme::icon_button(
         ui,
         Icon::ListVideo,
         18.0,
@@ -570,10 +570,20 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
         },
         palette.text,
         &gettext(app.locale, "Queue"),
-    )
-    .clicked()
-    {
+    );
+    if queue_button.clicked() {
         app.actions.push(Action::ToggleQueuePanel);
+    }
+    // A dragged song dropped on the queue button queues it, same as the
+    // "Add to queue" menu item.
+    if let Some(track) = queue_button.dnd_release_payload::<DragTrack>() {
+        app.actions.push(Action::QueueMany {
+            songs: track
+                .items
+                .iter()
+                .map(|item| (item.uri().to_string(), item.name().to_string()))
+                .collect(),
+        });
     }
     if theme::icon_button(
         ui,

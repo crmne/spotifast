@@ -894,6 +894,20 @@ pub enum Action {
     QueueMany {
         songs: Vec<(String, String)>,
     },
+    /// Move a row within the manually queued "Playing next" section, from a
+    /// drag dropped back on the queue. Only applied while the local player
+    /// is the active target; see [`crate::app::App::queue_locally_reorderable`].
+    MoveInQueue {
+        from: usize,
+        to: usize,
+    },
+    /// Insert dragged songs into "Playing next" at a position, instead of
+    /// always appending like `QueueMany`. Falls back to appending when the
+    /// local player is not the active target.
+    InsertInQueue {
+        items: Vec<PlayableItem>,
+        position: usize,
+    },
     /// Set saved state for several songs explicitly.
     SetSavedMany {
         uris: Vec<String>,

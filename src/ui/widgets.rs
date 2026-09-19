@@ -907,13 +907,19 @@ fn track_row_contents(
     // Start a sidebar drag only after egui's drag threshold.
     if row.item.is_track() && response.drag_started_by(egui::PointerButton::Primary) {
         let items = dragged_items(row.item, row.picked, row.picked_songs);
-        // Keep the source index for moves within an editable playlist.
+        // Keep the source index for moves within an editable playlist, or
+        // within the manually queued section while it can be rewritten.
         let from = (items.len() == 1)
             .then(|| match row.context {
                 RowContext::Context {
                     editable_playlist: Some((id, _)),
                     ..
                 } => Some((id.clone(), row.index as u32)),
+                RowContext::Queue
+                    if row.index < app.queued_rows_len() && app.queue_locally_reorderable() =>
+                {
+                    Some(("queue".to_string(), row.index as u32))
+                }
                 _ => None,
             })
             .flatten();

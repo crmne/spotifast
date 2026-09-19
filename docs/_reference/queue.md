@@ -81,3 +81,15 @@ Since 0.8.0, selecting several playlist rows and choosing
 **Add to queue** preserves repeated occurrences in their selected order.
 For example, selecting B, C, B adds all three rows. A repeated click still
 counts once, and the notification reports only the rows actually added.
+
+11. **Dragging within *Playing next* reorders it, only on this computer.**
+    Neither the Web API nor librespot can reorder or insert into a live
+    queue; the only way to change one is to clear it and re-add its songs
+    in the new order, which reaches nothing but the engine actually playing
+    them. So dropping a song, dragged from elsewhere, at a position in
+    *Playing next* inserts it there, and dragging a row already in
+    *Playing next* elsewhere in the same section moves it, only while this
+    computer is the active player. Otherwise every drop still just adds to
+    the end, exactly like **Add to queue**. *Next up* is never a drop
+    target: it plays from the current context, not from a list Spotifast
+    can rewrite.

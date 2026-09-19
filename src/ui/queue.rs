@@ -7,7 +7,7 @@ use egui::{Align, Frame, Layout, Margin};
 use crate::api::models::PlayableItem;
 use crate::app::App;
 use crate::i18n::{Locale, gettext};
-use crate::model::{Action, Loadable, QueueTab, RowContext};
+use crate::model::{Action, DragTrack, Loadable, QueueTab, RowContext};
 use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
@@ -165,8 +165,33 @@ fn clear_button(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// A song was dropped on the queue this frame: the primary button was
+/// released while a drag was over the given rect.
+fn queue_drop(ui: &egui::Ui, rect: egui::Rect) -> Option<Arc<DragTrack>> {
+    if ui.rect_contains_pointer(rect)
+        && ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
+    {
+        egui::DragAndDrop::take_payload::<DragTrack>(ui.ctx())
+    } else {
+        None
+    }
+}
+
 fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     let palette = app.palette;
+    // Neither the Web API nor librespot can reorder or insert into a live
+    // remote queue, so without local playback active every drop just
+    // appends, same as the "Add to queue" menu item.
+    let reorderable = app.queue_locally_reorderable();
+    if !reorderable && let Some(track) = queue_drop(ui, ui.clip_rect()) {
+        app.actions.push(Action::QueueMany {
+            songs: track
+                .items
+                .iter()
+                .map(|item| (item.uri().to_string(), item.name().to_string()))
+                .collect(),
+        });
+    }
     match &app.queue {
         Loadable::Loaded(_) => {}
         Loadable::Loading | Loadable::NotLoaded => {
@@ -249,6 +274,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         ui.add_space(14.0);
     }
     if queue_is_empty(app) {
+        // Nothing queued at all yet: the only slot a drop could land on is
+        // the first one.
+        if reorderable && let Some(track) = queue_drop(ui, ui.clip_rect()) {
+            app.actions.push(Action::InsertInQueue {
+                items: track.items.clone(),
+                position: 0,
+            });
+        }
         widgets::empty_state(
             ui,
             &palette,
@@ -285,12 +318,72 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         });
         ui.add_space(4.0);
         let gap = ui.spacing().item_spacing.y;
+        // Calculate the nearest drop slot from fixed row height because
+        // virtualized rows are not all available during drawing.
+        let list_top = ui.cursor().top();
+        let move_slot = reorderable
+            .then(|| {
+                egui::DragAndDrop::payload::<DragTrack>(ui.ctx())?;
+                if !ui.rect_contains_pointer(ui.clip_rect()) {
+                    return None;
+                }
+                let pos = ui
+                    .ctx()
+                    .pointer_latest_pos()
+                    .filter(|pos| ui.clip_rect().contains(*pos))?;
+                let row = (pos.y - list_top) / (row_height + gap);
+                (row >= 0.0).then(|| (row.round() as usize).min(queued_len))
+            })
+            .flatten();
         widgets::virtual_rows(ui, queued_len, row_height + gap, |ui, index| {
             let width = ui.available_width();
-            queue_row(app, ui, index, compact);
+            let shift = ui.ctx().animate_value_with_time(
+                ui.id().with(("queue-move-shift", index)),
+                match move_slot {
+                    Some(slot) if index < slot => -4.0,
+                    Some(_) => 4.0,
+                    None => 0.0,
+                },
+                0.12,
+            );
+            queue_row(app, ui, index, compact, shift);
             ui.allocate_space(egui::vec2(width, gap));
         });
+        if let Some(slot) = move_slot {
+            let y = list_top + slot as f32 * (row_height + gap);
+            ui.painter().hline(
+                ui.max_rect().x_range().shrink(8.0),
+                y,
+                egui::Stroke::new(2.0, palette.accent),
+            );
+            if ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
+                && let Some(track) = egui::DragAndDrop::take_payload::<DragTrack>(ui.ctx())
+            {
+                match track.from.as_ref() {
+                    Some((origin, from)) if origin == "queue" => {
+                        let from = *from as usize;
+                        // A row dropped back on its own edges moves nothing.
+                        if slot != from && slot != from + 1 {
+                            app.actions.push(Action::MoveInQueue { from, to: slot });
+                        }
+                    }
+                    _ => {
+                        app.actions.push(Action::InsertInQueue {
+                            items: track.items.clone(),
+                            position: slot,
+                        });
+                    }
+                }
+            }
+        }
         ui.add_space(14.0);
+    } else if reorderable && let Some(track) = queue_drop(ui, ui.clip_rect()) {
+        // Nothing manually queued yet, so there is no row to position
+        // against: the only slot is the first one.
+        app.actions.push(Action::InsertInQueue {
+            items: track.items.clone(),
+            position: 0,
+        });
     }
     if queue_len > queued_len {
         // Translators: Upcoming songs from the current playlist or album, after manually queued songs.
@@ -302,7 +395,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         );
         ui.add_space(4.0);
         widgets::virtual_rows(ui, queue_len - queued_len, row_height, |ui, index| {
-            queue_row(app, ui, queued_len + index, compact);
+            queue_row(app, ui, queued_len + index, compact, 0.0);
         });
     }
 }
@@ -438,8 +531,9 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// One row of the queue, numbered and indexed by its place in the whole
-/// queue, whichever section it sits in.
-fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool) {
+/// queue, whichever section it sits in. `shift` parts rows around the slot
+/// a dragged row would land in, in the "Playing next" section only.
+fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shift: f32) {
     let Some(item) = app
         .queue
         .get()
@@ -463,7 +557,7 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool) {
             show_added_by: false,
             compact,
             thin: false,
-            shift: 0.0,
+            shift,
             picked: false,
             picked_songs: &[],
         },
