@@ -458,6 +458,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 "Downloads in the background. You choose when to restart.",
             ),
         ),
+        RowText::new(
+            gettext(locale, "MacBook notch widget"),
+            gettext(
+                locale,
+                "Show interactive Now Playing widget when hovering over the notch.",
+            ),
+        )
+        .when(cfg!(target_os = "macos")),
     ];
     if section_matches(&needle, &playback, &playback_rows) {
         any_visible = true;
@@ -588,6 +596,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     &palette,
                     &keep_playing,
                     &mut app.settings.keep_playing_in_background,
+                )
+                .changed()
+                {
+                    changed = true;
+                }
+            });
+            #[cfg(target_os = "macos")]
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[14], |ui| {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    &gettext(locale, "MacBook notch interactive widget"),
+                    &mut app.settings.mac_notch_widget,
                 )
                 .changed()
                 {

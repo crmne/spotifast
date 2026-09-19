@@ -561,6 +561,8 @@ pub struct App {
     pub update_receipt: Option<fastframe_update::Receipt>,
     /// Winamp window state and active skin.
     pub winamp: crate::winamp::WinampState,
+    #[cfg(target_os = "macos")]
+    pub notch_analyser: crate::vis::Analyser,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -956,6 +958,8 @@ impl App {
             update_restart_arguments: Vec::new(),
             update_receipt: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
+            #[cfg(target_os = "macos")]
+            notch_analyser: crate::vis::Analyser::default(),
         };
         app.local.volume = app.settings.volume;
         // What was played here is on disk and needs nothing from the
@@ -9421,6 +9425,8 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
+        #[cfg(target_os = "macos")]
+        self.sync_notch_widget(ctx);
         self.schedule_next_pass(ctx);
     }
 
@@ -9487,6 +9493,95 @@ impl App {
             .record(crate::history::played_track(&now), jiff::Timestamp::now());
         self.plays.save(&self.dirs.history_file());
         self.rebuild_recents();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn sync_notch_widget(&mut self, _ctx: &egui::Context) {
+        let is_background = _ctx.input(|i| i.viewport().minimized.unwrap_or(false))
+            || self.window_hidden
+            || !_ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        let enabled = self.settings.mac_notch_widget;
+        let active = crate::notch::is_active();
+        let now_opt = self.now_playing();
+
+        let is_playing = now_opt.as_ref().is_some_and(|n| n.playing);
+        let is_local = now_opt.as_ref().is_some_and(|n| n.local);
+        let should_sample = crate::notch::should_sample_visualizer(
+            enabled,
+            is_background,
+            active,
+            is_playing,
+            is_local,
+        );
+
+        let levels = if should_sample {
+            let samples = self
+                .winamp
+                .tap
+                .window(crate::vis::FFT_SAMPLES, crate::vis::LAG);
+            let bars = self
+                .notch_analyser
+                .step(&samples, std::time::Instant::now());
+            let mut levels = [0.0f32; 5];
+            for (i, (range, scale)) in [
+                (0..4, 48.0f32),
+                (4..8, 48.0),
+                (8..12, 48.0),
+                (12..16, 48.0),
+                (16..19, 36.0),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let sum: f32 = bars[range].iter().map(|b| b.height as f32).sum();
+                levels[i] = (sum / scale).clamp(0.0, 1.0);
+            }
+            levels
+        } else {
+            if enabled {
+                self.notch_analyser.reset();
+            }
+            [0.0; 5]
+        };
+
+        let track_info = now_opt.map(|now| {
+            let art_path = now
+                .art_url
+                .as_deref()
+                .or(now.art_small.as_deref())
+                .and_then(|url| self.media_art_file(_ctx, url));
+            let artist = now
+                .artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let saved = self.is_saved(&now.uri).unwrap_or(false);
+            let tint = self.now_playing_tint().unwrap_or(self.palette.accent);
+            let accent = Some([tint.r(), tint.g(), tint.b()]);
+            crate::notch::NotchTrackInfo {
+                playing: now.playing,
+                title: now.title,
+                artist,
+                album: now.album_name,
+                duration_ms: now.duration_ms,
+                position_ms: now.position_ms,
+                art_path,
+                uri: now.uri,
+                saved,
+                accent,
+                levels,
+                is_episode: now.is_episode,
+                is_remote: !now.local,
+            }
+        });
+        crate::notch::sync_state(enabled, is_background, track_info.as_ref());
+        // Only schedule a fast repaint while the card is actively expanded or
+        // animating. Hover and state-change callbacks already call notch::wake()
+        // which triggers a repaint via the waker, so idle frames are not needed.
+        if enabled && active {
+            _ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        }
     }
 
     /// Keeps the current track in the window and taskbar title (#94).

@@ -629,6 +629,10 @@ pub(crate) fn run() -> eframe::Result<()> {
                         spotifast::mac_menu::init();
                         let ctx = cc.egui_ctx.clone();
                         spotifast::mac_menu::set_waker(move || ctx.request_repaint());
+
+                        spotifast::notch::init();
+                        let ctx_notch = cc.egui_ctx.clone();
+                        spotifast::notch::set_waker(move || ctx_notch.request_repaint());
                     }
                     {
                         use raw_window_handle::HasDisplayHandle;
@@ -1290,6 +1294,10 @@ impl eframe::App for Shell {
                 }
             };
             app.actions.push(action);
+        }
+        #[cfg(target_os = "macos")]
+        for command in spotifast::notch::drain_commands() {
+            app.actions.push(command.action());
         }
         #[cfg(windows)]
         for command in self.thumbbar.drain_commands() {
