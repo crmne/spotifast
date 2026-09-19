@@ -62,8 +62,6 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   Right-click album, artist, and podcast cards for their actions (available since 0.8.0).
 - **Search** across songs, artists, albums, playlists, podcasts, and episodes,
   with a top result and per-type views. Right-click results and cards for their actions.
-  When Spotify provides an artist profile, its name on a song opens that page,
-  including from the top result.
   Text fields offer Cut, Copy, Paste and Select all from their right-click menu.
   Since 0.8.0, a personal app searches the catalogue while shared
   access finds playlists. Each part appears independently, even if the other fails.
@@ -168,7 +166,9 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   `playerctl` see Spotifast like any other player. On macOS and Windows,
   `fastpotify next` and its siblings drive the running app from a terminal,
   a launcher, or a hotkey. On Windows, since 0.8.0, hover the taskbar button
-  for Previous, Play/Pause, and Next under the window preview.
+  for Previous, Play/Pause, and Next under the window preview. On macOS, on
+  laptops with a notched display, hover the notch while Spotifast is in the
+  background to reveal playback controls and track details.
 
 ## Install
 
