@@ -392,7 +392,11 @@ fn process_identity(stat: &str) -> Option<&str> {
     stat.rsplit_once(')')?.1.split_whitespace().nth(19)
 }
 
-pub fn replace(prepared: &Prepared) -> Result<()> {
+/// Replaces the installed app and returns the executable to relaunch. That
+/// is `prepared.installation.executable` on every platform except macOS,
+/// where the download can rename the executable inside the bundle; see
+/// `macos::replace`.
+pub fn replace(prepared: &Prepared) -> Result<PathBuf> {
     ensure!(
         hash(&prepared.payload)? == prepared.sha256,
         "The staged update checksum changed"
@@ -401,7 +405,7 @@ pub fn replace(prepared: &Prepared) -> Result<()> {
     let backup = prepared.directory.join("previous");
     match prepared.installation.kind {
         #[cfg(target_os = "macos")]
-        Kind::MacBundle => super::macos::replace(prepared)?,
+        Kind::MacBundle => return super::macos::replace(prepared),
         Kind::Portable => {
             ensure!(!backup.exists(), "This update was already applied");
             backup_current(target, &backup).context("Cannot back up the current app")?;
@@ -439,7 +443,7 @@ pub fn replace(prepared: &Prepared) -> Result<()> {
             );
         }
     }
-    Ok(())
+    Ok(target.clone())
 }
 
 fn backup_current(target: &Path, backup: &Path) -> Result<()> {
@@ -490,35 +494,47 @@ fn installer_path(path: &Path) -> String {
 }
 
 pub fn run_helper(job: &Path) -> Result<()> {
-    let handoff: Handoff = serde_json::from_reader(File::open(job)?)?;
-    let prepared = &handoff.prepared;
+    let mut handoff: Handoff = serde_json::from_reader(File::open(job)?)?;
+    // Kept aside, untouched, for the rollback paths below: replace() can
+    // rename the executable inside a macOS bundle, and a rollback restores
+    // the previous bundle, which still has the old one.
+    let original = handoff.prepared.clone();
     ensure!(
-        job.parent() == Some(prepared.directory.as_path()),
+        job.parent() == Some(original.directory.as_path()),
         "Invalid update job directory"
     );
     ensure!(
-        prepared.payload.parent() == Some(prepared.directory.as_path()),
+        original.payload.parent() == Some(original.directory.as_path()),
         "Invalid staged payload"
     );
     ensure!(
-        prepared.directory.parent() == prepared.installation.root()?.parent(),
+        original.directory.parent() == original.installation.root()?.parent(),
         "Invalid installation directory"
     );
     ensure!(
-        hash(&prepared.payload)? == prepared.sha256,
+        hash(&original.payload)? == original.sha256,
         "The staged update checksum changed"
     );
-    wait_for_parent(handoff.parent, &prepared.directory.join("ready"))?;
-    let result = replace(prepared);
-    if let Err(error) = result {
-        restore_and_restart(prepared, &handoff.arguments)?;
-        fs::write(
-            prepared.directory.join("result.txt"),
-            format!("Update failed: {error:#}"),
-        )?;
-        return Err(error);
+    wait_for_parent(handoff.parent, &original.directory.join("ready"))?;
+    let launch_executable = match replace(&original) {
+        Ok(executable) => executable,
+        Err(error) => {
+            restore_and_restart(&original, &handoff.arguments)?;
+            fs::write(
+                original.directory.join("result.txt"),
+                format!("Update failed: {error:#}"),
+            )?;
+            return Err(error);
+        }
+    };
+    if launch_executable != original.installation.executable {
+        // The receipt this launch takes below is the same job file
+        // `acknowledge` re-reads from the new process, so its recorded
+        // executable has to match what actually got installed.
+        handoff.prepared.installation.executable = launch_executable.clone();
+        fs::write(job, serde_json::to_vec(&handoff)?)?;
     }
-    let mut command = Command::new(&prepared.installation.executable);
+    let mut command = Command::new(&launch_executable);
     command
         .args(&handoff.arguments)
         .arg("--update-receipt")
@@ -530,7 +546,7 @@ pub fn run_helper(job: &Path) -> Result<()> {
             .context("Could not launch the updated app")?;
         let start = Instant::now();
         loop {
-            if prepared.directory.join("started").is_file() {
+            if original.directory.join("started").is_file() {
                 return Ok(());
             }
             ensure!(
@@ -546,16 +562,16 @@ pub fn run_helper(job: &Path) -> Result<()> {
         }
     })();
     if let Err(error) = launch {
-        restore_and_restart(prepared, &handoff.arguments)?;
+        restore_and_restart(&original, &handoff.arguments)?;
         fs::write(
-            prepared.directory.join("result.txt"),
+            original.directory.join("result.txt"),
             format!("Update failed; restored the previous app: {error:#}"),
         )?;
         return Err(error);
     }
     fs::write(
-        prepared.directory.join("result.txt"),
-        format!("Updated to {}", prepared.version),
+        original.directory.join("result.txt"),
+        format!("Updated to {}", original.version),
     )?;
     Ok(())
 }
