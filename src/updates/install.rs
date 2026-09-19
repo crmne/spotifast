@@ -493,6 +493,13 @@ fn installer_path(path: &Path) -> String {
     }
 }
 
+/// Overwrites the job file `run_helper` and `acknowledge` both read, so a
+/// renamed executable is reflected before the new process reads it back.
+fn write_receipt(job: &Path, handoff: &Handoff) -> Result<()> {
+    fs::write(job, serde_json::to_vec(handoff)?)?;
+    Ok(())
+}
+
 pub fn run_helper(job: &Path) -> Result<()> {
     let mut handoff: Handoff = serde_json::from_reader(File::open(job)?)?;
     // Kept aside, untouched, for the rollback paths below: replace() can
@@ -516,23 +523,30 @@ pub fn run_helper(job: &Path) -> Result<()> {
         "The staged update checksum changed"
     );
     wait_for_parent(handoff.parent, &original.directory.join("ready"))?;
+    // Every failure from here on has already changed something on disk (the
+    // bundle itself, or the receipt below), so all of them roll back to
+    // `original` and restart the previous app the same way, rather than
+    // leaving a new install sitting there unlaunched and unrestored.
+    let fail = |error: anyhow::Error, message: &str, arguments: &[String]| -> Result<()> {
+        restore_and_restart(&original, arguments)?;
+        fs::write(
+            original.directory.join("result.txt"),
+            format!("{message}: {error:#}"),
+        )?;
+        Err(error)
+    };
     let launch_executable = match replace(&original) {
         Ok(executable) => executable,
-        Err(error) => {
-            restore_and_restart(&original, &handoff.arguments)?;
-            fs::write(
-                original.directory.join("result.txt"),
-                format!("Update failed: {error:#}"),
-            )?;
-            return Err(error);
-        }
+        Err(error) => return fail(error, "Update failed", &handoff.arguments),
     };
     if launch_executable != original.installation.executable {
         // The receipt this launch takes below is the same job file
         // `acknowledge` re-reads from the new process, so its recorded
         // executable has to match what actually got installed.
         handoff.prepared.installation.executable = launch_executable.clone();
-        fs::write(job, serde_json::to_vec(&handoff)?)?;
+        if let Err(error) = write_receipt(job, &handoff) {
+            return fail(error, "Update failed", &handoff.arguments);
+        }
     }
     let mut command = Command::new(&launch_executable);
     command
@@ -562,12 +576,11 @@ pub fn run_helper(job: &Path) -> Result<()> {
         }
     })();
     if let Err(error) = launch {
-        restore_and_restart(&original, &handoff.arguments)?;
-        fs::write(
-            original.directory.join("result.txt"),
-            format!("Update failed; restored the previous app: {error:#}"),
-        )?;
-        return Err(error);
+        return fail(
+            error,
+            "Update failed; restored the previous app",
+            &handoff.arguments,
+        );
     }
     fs::write(
         original.directory.join("result.txt"),
@@ -727,6 +740,36 @@ mod tests {
         replace(&prepared).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"new");
         assert_eq!(fs::read(stage.join("previous")).unwrap(), b"old");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_receipt_records_a_renamed_executable_and_reads_back() {
+        let directory =
+            std::env::temp_dir().join(format!("fastpotify-receipt-test-{}", rand::random::<u64>()));
+        fs::create_dir(&directory).unwrap();
+        let job = directory.join("handoff.json");
+        let mut handoff = Handoff {
+            prepared: Prepared {
+                installation: Installation {
+                    executable: directory.join("Spotifast.app/Contents/MacOS/fastpotify"),
+                    kind: Kind::MacBundle,
+                },
+                directory: directory.clone(),
+                payload: directory.join("update.dmg"),
+                sha256: String::new(),
+                version: "1.0.0".into(),
+            },
+            parent: std::process::id(),
+            arguments: vec!["--minimized".into()],
+        };
+        let renamed = directory.join("Spotifast.app/Contents/MacOS/Spotifast");
+        handoff.prepared.installation.executable = renamed.clone();
+        write_receipt(&job, &handoff).unwrap();
+        let read_back: Handoff = serde_json::from_reader(File::open(&job).unwrap()).unwrap();
+        assert_eq!(read_back.prepared.installation.executable, renamed);
+        assert_eq!(read_back.arguments, vec!["--minimized".to_string()]);
         fs::remove_dir_all(directory).unwrap();
     }
 }
