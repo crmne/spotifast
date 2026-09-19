@@ -218,7 +218,7 @@ fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
             let card = widgets::card(
                 ui,
                 app,
-                pick_image(&playlist.images, 300),
+                pick_image(&playlist.images, 640),
                 &playlist.name,
                 &subtitle,
                 false,
@@ -290,7 +290,7 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
             let card = widgets::card(
                 ui,
                 app,
-                track.image(300),
+                track.image(640),
                 &track.name,
                 &track.artist_names(),
                 false,
@@ -344,7 +344,7 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
             let card = widgets::card(
                 ui,
                 app,
-                pick_image(&artist.images, 300),
+                pick_image(&artist.images, 640),
                 &artist.name,
                 "Artist",
                 true,

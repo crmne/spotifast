@@ -2,102 +2,29 @@
 
 use std::sync::Arc;
 
-use crate::api::models::{PlayableItem, pick_image};
+use crate::api::models::{Artist, PlayableItem, pick_image};
 use crate::app::App;
 use crate::model::{Action, DiscographyFilter, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 use crate::util;
 
-use super::collection::{Hero, hero};
+use super::collection::{Hero, hero, hero_images};
 use super::widgets::{self, TrackRow};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
-    let Some(page) = app.artist_pages.remove(id) else {
+    if !app.artist_pages.contains_key(id) {
         app.ensure_loaded(Page::Artist(id.to_string()));
+    }
+    let Some(page) = app.artist_pages.remove(id) else {
         return;
     };
+    let preview =
+        super::loading_preview(ui.ctx(), id, &page.artist, || app.known_artist(id).cloned());
     let palette = app.palette;
     match &page.artist {
         Loadable::Loaded(artist) => {
-            let mut byline = Vec::new();
-            if let Some(followers) = &artist.followers {
-                byline.push((
-                    format!("{} followers", util::format_count(followers.total)),
-                    None,
-                ));
-            }
-            if !artist.genres.is_empty() {
-                byline.push((
-                    artist
-                        .genres
-                        .iter()
-                        .take(3)
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    None,
-                ));
-            }
-            hero(
-                app,
-                ui,
-                Hero {
-                    image: pick_image(&artist.images, 300),
-                    liked: false,
-                    kind: "Artist",
-                    title: &artist.name,
-                    description: None,
-                    byline,
-                    round: true,
-                },
-            );
-            let following = app.is_saved(&artist.uri).unwrap_or(false);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 18.0;
-                if app.play_pending(&artist.uri) {
-                    theme::circle_spinner(ui, 56.0, palette.accent, palette.on_accent, "Starting…");
-                } else if theme::circle_button(
-                    ui,
-                    Icon::PlayFilled,
-                    56.0,
-                    palette.accent,
-                    palette.accent_hover,
-                    palette.on_accent,
-                    "Play",
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::PlayContext {
-                        uri: artist.uri.clone(),
-                        offset_uri: None,
-                        offset_index: None,
-                    });
-                }
-                if theme::pill_button(
-                    ui,
-                    &palette,
-                    if following { "Following" } else { "Follow" },
-                    false,
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::ToggleSaved(artist.uri.clone()));
-                }
-                let more = theme::icon_button(
-                    ui,
-                    Icon::Ellipsis,
-                    26.0,
-                    palette.secondary,
-                    palette.text,
-                    "More",
-                );
-                egui::Popup::menu(&more)
-                    .frame(widgets::menu_frame(&palette))
-                    .show(|ui| {
-                        widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None)
-                    });
-            });
-            ui.add_space(20.0);
+            artist_hero(app, ui, artist, preview.as_deref());
+            artist_actions(app, ui, artist);
 
             // Popular.
             theme::section_title(ui, &palette, "Popular");
@@ -199,7 +126,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                             let card = widgets::card(
                                 ui,
                                 app,
-                                pick_image(&album.images, 300),
+                                pick_image(&album.images, 640),
                                 &album.name,
                                 subtitle.trim_start_matches(" • "),
                                 false,
@@ -258,7 +185,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                         let card = widgets::card(
                             ui,
                             app,
-                            pick_image(&artist.images, 300),
+                            pick_image(&artist.images, 640),
                             &artist.name,
                             "Artist",
                             true,
@@ -292,7 +219,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             }
         }
         Loadable::Loading | Loadable::NotLoaded => {
-            ui.add_space(40.0);
+            if let Some(artist) = &preview {
+                artist_hero(app, ui, artist, None);
+                ui.add_enabled_ui(false, |ui| artist_actions(app, ui, artist));
+            } else {
+                ui.add_space(40.0);
+            }
             widgets::loading_row(ui, &palette, app.locale);
         }
         Loadable::Failed(error) => {
@@ -302,4 +234,93 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
     }
     app.artist_pages.insert(id.to_string(), page);
+}
+
+fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Option<&Artist>) {
+    let mut byline = Vec::new();
+    if let Some(followers) = &artist.followers {
+        byline.push((
+            format!("{} followers", util::format_count(followers.total)),
+            None,
+        ));
+    }
+    if !artist.genres.is_empty() {
+        byline.push((
+            artist
+                .genres
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            None,
+        ));
+    }
+    let images = hero_images(
+        &artist.images,
+        preview.map(|artist| artist.images.as_slice()),
+        false,
+    );
+    hero(
+        app,
+        ui,
+        Hero {
+            images,
+            liked: false,
+            kind: "Artist",
+            title: &artist.name,
+            description: None,
+            byline,
+            round: true,
+        },
+    );
+}
+
+fn artist_actions(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
+    let palette = app.palette;
+    let following = app.is_saved(&artist.uri).unwrap_or(false);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 18.0;
+        if app.play_pending(&artist.uri) {
+            theme::circle_spinner(ui, 56.0, palette.accent, palette.on_accent, "Starting…");
+        } else if theme::circle_button(
+            ui,
+            Icon::PlayFilled,
+            56.0,
+            palette.accent,
+            palette.accent_hover,
+            palette.on_accent,
+            "Play",
+        )
+        .clicked()
+        {
+            app.actions.push(Action::PlayContext {
+                uri: artist.uri.clone(),
+                offset_uri: None,
+                offset_index: None,
+            });
+        }
+        if theme::pill_button(
+            ui,
+            &palette,
+            if following { "Following" } else { "Follow" },
+            false,
+        )
+        .clicked()
+        {
+            app.actions.push(Action::ToggleSaved(artist.uri.clone()));
+        }
+        let more = theme::icon_button(
+            ui,
+            Icon::Ellipsis,
+            26.0,
+            palette.secondary,
+            palette.text,
+            "More",
+        );
+        egui::Popup::menu(&more)
+            .frame(widgets::menu_frame(&palette))
+            .show(|ui| widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None));
+    });
+    ui.add_space(20.0);
 }

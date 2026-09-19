@@ -127,7 +127,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                 top_result(
                     app,
                     ui,
-                    pick_image(&artist.images, 300),
+                    pick_image(&artist.images, 640),
                     &artist.name,
                     "Artist",
                     true,
@@ -147,7 +147,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                 top_result(
                     app,
                     ui,
-                    track.image(300),
+                    track.image(640),
                     &track.name,
                     &format!("Song • {}", track.artist_names()),
                     false,
@@ -168,7 +168,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                 top_result(
                     app,
                     ui,
-                    pick_image(&album.images, 300),
+                    pick_image(&album.images, 640),
                     &album.name,
                     &format!(
                         "Album • {}",
@@ -191,7 +191,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                 top_result(
                     app,
                     ui,
-                    pick_image(&playlist.images, 300),
+                    pick_image(&playlist.images, 640),
                     &playlist.name,
                     &format!("Playlist • {}", playlist.owner_name()),
                     false,
@@ -212,7 +212,7 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                 top_result(
                     app,
                     ui,
-                    pick_image(&show.images, 300),
+                    pick_image(&show.images, 640),
                     &show.name,
                     &format!("Podcast • {}", show.publisher),
                     false,
@@ -405,7 +405,7 @@ fn artist_card(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
     let card = widgets::card(
         ui,
         app,
-        pick_image(&artist.images, 300),
+        pick_image(&artist.images, 640),
         &artist.name,
         "Artist",
         true,
@@ -461,7 +461,7 @@ fn album_card(app: &mut App, ui: &mut egui::Ui, album: &crate::api::models::Albu
     let card = widgets::card(
         ui,
         app,
-        pick_image(&album.images, 300),
+        pick_image(&album.images, 640),
         &album.name,
         subtitle.trim_start_matches(" • "),
         false,
@@ -512,7 +512,7 @@ fn playlist_card(app: &mut App, ui: &mut egui::Ui, playlist: &crate::api::models
     let card = widgets::card(
         ui,
         app,
-        pick_image(&playlist.images, 300),
+        pick_image(&playlist.images, 640),
         &playlist.name,
         &format!("By {}", playlist.owner_name()),
         false,
@@ -574,7 +574,7 @@ fn show_card(app: &mut App, ui: &mut egui::Ui, show: &crate::api::models::Show) 
     let card = widgets::card(
         ui,
         app,
-        pick_image(&show.images, 300),
+        pick_image(&show.images, 640),
         &show.name,
         &show.publisher,
         false,
