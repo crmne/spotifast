@@ -594,22 +594,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         }
                         if app.settings.audio_cache {
                             ui.add_space(6.0);
-                            for (mb, label) in [(4096u64, "4 GB"), (1024, "1 GB"), (512, "512 MB")]
+                            // Seven sizes wrap onto more lines inside the
+                            // control area, largest first.
+                            if let Some(mb) = widgets::chips(
+                                ui,
+                                &palette,
+                                &[
+                                    (16_384u64, "16 GB"),
+                                    (8_192, "8 GB"),
+                                    (4_096, "4 GB"),
+                                    (2_048, "2 GB"),
+                                    (1_024, "1 GB"),
+                                    (512, "512 MB"),
+                                    (256, "256 MB"),
+                                ],
+                                app.settings.audio_cache_mb,
+                            ) && app.settings.audio_cache_mb != mb
                             {
-                                if theme::soft_button(
-                                    ui,
-                                    &palette,
-                                    None,
-                                    label,
-                                    app.settings.audio_cache_mb == mb,
-                                )
-                                .clicked()
-                                    && app.settings.audio_cache_mb != mb
-                                {
-                                    app.settings.audio_cache_mb = mb;
-                                    changed = true;
-                                    playback_dirty = true;
-                                }
+                                app.settings.audio_cache_mb = mb;
+                                changed = true;
+                                playback_dirty = true;
                             }
                         }
                     });
@@ -1345,6 +1349,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
     let storage_rows = [
         RowText::new(
+            "Cache folder",
+            format!(
+                "Every cache is stored in {}. A change takes effect after Spotifast restarts.",
+                app.dirs.cache.display()
+            ),
+        ),
+        RowText::new(
             "Artwork cache",
             format!("Stored in {}", app.dirs.art_cache_dir().display()),
         ),
@@ -1367,22 +1378,38 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if section_matches(&needle, "Storage", &storage_rows) {
         any_visible = true;
         section(ui, &palette, "Storage", |ui| {
+            // The control area lays out right-to-left: add the rightmost item
+            // first.
             filtered_row(ui, &palette, &needle, "Storage", &storage_rows[0], |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    if theme::soft_button(ui, &palette, None, "Change folder", false).clicked() {
+                        app.actions.push(Action::ChooseCacheFolder);
+                    }
+                    // Only offered when there is a choice to give up.
+                    if app.settings.cache_dir.is_some()
+                        && theme::soft_button(ui, &palette, None, "Use default", false).clicked()
+                    {
+                        app.actions.push(Action::UseDefaultCacheFolder);
+                    }
+                });
+            });
+            filtered_row(ui, &palette, &needle, "Storage", &storage_rows[1], |ui| {
                 if theme::soft_button(ui, &palette, Some(Icon::Trash), "Clear artwork", false)
                     .clicked()
                 {
                     app.actions.push(Action::ClearArtCache);
                 }
             });
-            filtered_row(ui, &palette, &needle, "Storage", &storage_rows[1], |_| {});
-            filtered_row(ui, &palette, &needle, "Storage", &storage_rows[2], |ui| {
+            filtered_row(ui, &palette, &needle, "Storage", &storage_rows[2], |_| {});
+            filtered_row(ui, &palette, &needle, "Storage", &storage_rows[3], |ui| {
                 if theme::soft_button(ui, &palette, Some(Icon::Trash), "Clear history", false)
                     .clicked()
                 {
                     app.actions.push(Action::ClearPlayHistory);
                 }
             });
-            filtered_row(ui, &palette, &needle, "Storage", &storage_rows[3], |_| {});
+            filtered_row(ui, &palette, &needle, "Storage", &storage_rows[4], |_| {});
         });
     }
 

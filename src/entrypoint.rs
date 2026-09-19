@@ -432,6 +432,29 @@ pub(crate) fn run() -> eframe::Result<()> {
         settings.device_name = name;
     }
 
+    // The folder the listener chose is the root of every cache. It is resolved
+    // here and nowhere else: the rest of the app asks `dirs` where each cache
+    // lives. A choice that cannot be used stays in settings, so a disk that is
+    // not there today does not lose it, and the platform folder is used.
+    let mut dirs = dirs;
+    if let Some(chosen) = settings
+        .cache_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|chosen| !chosen.is_empty())
+    {
+        match paths::check_cache_folder(chosen) {
+            Ok(folder) => {
+                log::info!("storing every cache in {}", folder.display());
+                dirs.cache = folder;
+                if let Err(error) = dirs.ensure() {
+                    log::warn!("unable to create the cache directories: {error}");
+                }
+            }
+            Err(reason) => log::warn!("using the default cache folder: {chosen}: {reason}"),
+        }
+    }
+
     // The application (audio engine, Web API, MPRIS, tray) outlives any
     // window. Closing to the tray destroys the window and this loop creates
     // a new one when the tray or MPRIS asks for it. Plain window lifecycle,

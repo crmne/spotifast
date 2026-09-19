@@ -1000,6 +1000,11 @@ pub enum Action {
     DownloadUpdate,
     InstallUpdate,
     SettingsChanged,
+    /// Pick the folder that holds every cache. It reaches the caches at the
+    /// next start, so the choice is remembered rather than applied.
+    ChooseCacheFolder,
+    /// Give up the chosen cache folder and go back to the platform one.
+    UseDefaultCacheFolder,
     SetTheme(crate::settings::ThemeChoice),
     OpenThemesFolder,
     SetCustomTheme(String),

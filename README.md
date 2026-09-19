@@ -448,8 +448,8 @@ plugin uses the same interface.
 Settings live in one readable JSON file (`~/.config/fastpotify/settings.json`
 on Linux). They include the Connect device name, bitrate, normalisation,
 autoplay, gapless playback, the audio backend (PulseAudio/PipeWire or ALSA on
-Linux), audio cache size, theme, sidebar state, whether pages take colour
-from artwork, and the mini player's skin and size.
+Linux), the audio cache size and folder, theme, sidebar state, whether pages
+take colour from artwork, and the mini player's skin and size.
 Since 0.8.0, you can hide Made for you and Recommended for you
 from Home through JSON preferences; see
 [Home shelves](docs/_reference/settings-and-files.md#home-shelves).
@@ -495,8 +495,8 @@ change the active connection until you apply it.
 Proxy authentication covers Web requests. Local playback can use only an
 unauthenticated HTTP proxy; with proxy login or SOCKS5 it connects directly.
 
-Caches (audio, artwork) live under the cache directory and can be deleted at
-any time without signing you out.
+Caches (audio, artwork) live under the cache directory, whichever folder you
+choose in Settings, and can be deleted at any time without signing you out.
 On `main`, after 0.8.0, downloaded artwork uses less temporary memory while
 being saved to the cache. Image quality and the cache budget are unchanged.
 

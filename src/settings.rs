@@ -175,6 +175,13 @@ pub struct Settings {
     pub audio_buffer_ms: u32,
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
+    /// Folder holding every cache: audio, artwork, lyrics, playlists, and
+    /// Liked Songs. `None` uses the platform cache directory. A folder is
+    /// stored as the text the listener chose, which is what settings.json
+    /// shows and what a hand edit can correct; a choice that cannot be used is
+    /// kept, so a disconnected disk does not lose it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_dir: Option<String>,
     pub theme: ThemeChoice,
     /// Filename selected from the local themes directory.
     pub custom_theme: Option<String>,
@@ -341,6 +348,7 @@ impl Default for Settings {
             audio_buffer_ms: default_buffer_ms(),
             audio_cache: true,
             audio_cache_mb: 1024,
+            cache_dir: None,
             theme: ThemeChoice::System,
             custom_theme: None,
             custom_theme_cache: None,
@@ -854,6 +862,37 @@ mod tests {
         assert_eq!(recovered.custom_theme.as_deref(), Some("gruvbox.json"));
         assert_eq!(recovered.audio_cache_mb, 777);
         assert!(recovered.custom_theme_cache.is_none());
+    }
+
+    #[test]
+    fn a_cache_folder_choice_round_trips_and_older_files_keep_the_default() {
+        assert!(Settings::default().cache_dir.is_none());
+        // A file from before the field existed has to keep loading.
+        let old: Settings = serde_json::from_str(r#"{"audio_cache_mb":777}"#).unwrap();
+        assert!(old.cache_dir.is_none());
+        assert_eq!(old.audio_cache_mb, 777);
+        // Nothing is written while no folder is chosen, so existing files stay
+        // byte for byte as they were.
+        let encoded = serde_json::to_value(Settings::default()).unwrap();
+        assert!(encoded.get("cache_dir").is_none());
+        let settings = Settings {
+            cache_dir: Some("/mnt/media/spotifast-cache".into()),
+            ..Settings::default()
+        };
+        let encoded = serde_json::to_value(&settings).unwrap();
+        assert_eq!(encoded["cache_dir"], "/mnt/media/spotifast-cache");
+        let restored: Settings = serde_json::from_value(encoded).unwrap();
+        assert_eq!(
+            restored.cache_dir.as_deref(),
+            Some("/mnt/media/spotifast-cache")
+        );
+        assert_eq!(restored, settings);
+        // An empty value is refused by the folder check, so loading it must
+        // not lose the rest of the file.
+        let empty: Settings = serde_json::from_str(r#"{"cache_dir":"","volume":37}"#).unwrap();
+        assert_eq!(empty.cache_dir.as_deref(), Some(""));
+        assert_eq!(empty.volume, 37);
+        assert!(crate::paths::check_cache_folder("").is_err());
     }
 
     #[test]

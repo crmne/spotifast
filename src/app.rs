@@ -322,6 +322,9 @@ pub struct App {
 
     pub dialog: Option<Dialog>,
     cover_request: u64,
+    /// Correlates the folder dialog with its answer, as the playlist cover
+    /// does, so a slow reply cannot overwrite a newer choice.
+    cache_folder_request: u64,
     cover_uploads: HashMap<String, u64>,
     /// Successful uploads stay visible while Spotify propagates the new image.
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
@@ -672,6 +675,7 @@ impl App {
             accent_pending: HashSet::new(),
             dialog: None,
             cover_request: 0,
+            cache_folder_request: 0,
             cover_uploads: HashMap::new(),
             uploaded_covers: Default::default(),
             show_queue_panel: session.queue_open.unwrap_or(false),
@@ -1459,6 +1463,17 @@ impl App {
                     result,
                 } => {
                     self.cover_chosen(&id, request, result);
+                }
+                Event::CacheFolderChosen { request, result } => {
+                    if request == self.cache_folder_request {
+                        match result {
+                            Ok(Some(folder)) => self.use_cache_folder(Some(folder)),
+                            Ok(None) => {}
+                            Err(reason) => self.toast_error(format!(
+                                "That folder cannot be used because {reason}"
+                            )),
+                        }
+                    }
                 }
                 Event::Auth(status) => self.handle_auth(status),
                 Event::Playback(status) => self.handle_playback(status),
@@ -2638,6 +2653,27 @@ impl App {
             }
             Err(error) => self.toast_error(format!("Proxy could not be applied: {error}. Previous connection settings are still in use.")),
         }
+    }
+
+    /// Remember the folder the listener wants every cache in, or forget the
+    /// choice when they ask for the default. The caches follow at the next
+    /// start: the running engine and the artwork loader each hold the folder
+    /// they opened, and moving them under a playing track buys nothing.
+    fn use_cache_folder(&mut self, chosen: Option<PathBuf>) {
+        match chosen {
+            Some(folder) => {
+                self.toast(format!(
+                    "Caches will move to {} after Spotifast restarts",
+                    folder.display()
+                ));
+                self.settings.cache_dir = Some(folder.to_string_lossy().into_owned());
+            }
+            None => {
+                self.toast("Caches will go back to the default folder after Spotifast restarts");
+                self.settings.cache_dir = None;
+            }
+        }
+        self.settings_dirty = true;
     }
 
     fn save_settings(&mut self) {
@@ -7544,6 +7580,11 @@ impl App {
             Action::OpenThemesFolder => {
                 self.backend.send(Command::OpenThemesFolder);
             }
+            Action::ChooseCacheFolder => {
+                self.cache_folder_request = self.cache_folder_request.wrapping_add(1);
+                self.backend.choose_cache_folder(self.cache_folder_request);
+            }
+            Action::UseDefaultCacheFolder => self.use_cache_folder(None),
             Action::SettingsChanged => {
                 self.settings_dirty = true;
                 ctx.set_theme(self.theme_preference());

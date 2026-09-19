@@ -137,3 +137,112 @@ impl AppDirs {
         Ok(())
     }
 }
+
+/// Check a cache folder chosen by the listener before anything writes in it.
+///
+/// `~` and `~/...` mean the home directory. The picker returns an absolute
+/// path, so a relative one is refused. The folder must already exist, be a
+/// directory, and accept a file: a read-only folder or a disk that is not
+/// there is caught now instead of failing on every cache write later.
+///
+/// The reason is a clause with no final stop, so callers can put it inside a
+/// sentence: `Err("it cannot be written to")`.
+pub fn check_cache_folder(raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("its path is empty".into());
+    }
+    let folder = expand_home(trimmed);
+    if !folder.is_absolute() {
+        return Err("its path is not absolute".into());
+    }
+    match std::fs::metadata(&folder) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => return Err("it is not a folder".into()),
+        Err(_) => return Err("it does not exist".into()),
+    }
+    if folder.to_str().is_none() {
+        // A path that cannot be written into settings.json is no cache folder.
+        return Err("its path cannot be represented".into());
+    }
+    // A file of our own, removed at once: the folder has to accept writes
+    // before any cache is pointed at it.
+    let probe = folder.join(format!(".spotifast-write-{}", std::process::id()));
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .map(|_| ());
+    let _ = std::fs::remove_file(&probe);
+    written.map_err(|_| "it cannot be written to".to_string())?;
+    Ok(folder)
+}
+
+/// `~` and `~/rest` as the home directory. Anything else is left alone.
+fn expand_home(raw: &str) -> PathBuf {
+    if raw == "~" {
+        return home_dir().unwrap_or_else(|| PathBuf::from(raw));
+    }
+    match raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\")) {
+        Some(rest) => home_dir()
+            .map(|home| home.join(rest))
+            .unwrap_or_else(|| PathBuf::from(raw)),
+        None => PathBuf::from(raw),
+    }
+}
+
+fn home_dir() -> Option<PathBuf> {
+    // The same crate that already answers where the platform keeps things.
+    directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_cache_folder;
+    use std::path::PathBuf;
+
+    fn scratch(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("fastpotify-{name}-test-{}", std::process::id()))
+    }
+
+    #[test]
+    fn a_missing_or_relative_or_empty_folder_is_refused() {
+        assert_eq!(check_cache_folder("").unwrap_err(), "its path is empty");
+        assert_eq!(check_cache_folder("   ").unwrap_err(), "its path is empty");
+        assert_eq!(
+            check_cache_folder("cache").unwrap_err(),
+            "its path is not absolute"
+        );
+        let missing = scratch("absent-cache");
+        let _ = std::fs::remove_dir_all(&missing);
+        assert_eq!(
+            check_cache_folder(&missing.to_string_lossy()).unwrap_err(),
+            "it does not exist"
+        );
+    }
+
+    #[test]
+    fn a_file_is_not_a_cache_folder() {
+        let file = scratch("cache-file");
+        std::fs::write(&file, b"not a folder").unwrap();
+        assert_eq!(
+            check_cache_folder(&file.to_string_lossy()).unwrap_err(),
+            "it is not a folder"
+        );
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn an_existing_folder_is_accepted_and_keeps_no_probe_file() {
+        let folder = scratch("cache-ok");
+        std::fs::create_dir_all(&folder).unwrap();
+        let checked = check_cache_folder(&folder.to_string_lossy()).unwrap();
+        assert_eq!(checked, folder);
+        let leftovers: Vec<_> = std::fs::read_dir(&folder)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .collect();
+        assert!(leftovers.is_empty());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+}
