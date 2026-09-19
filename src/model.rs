@@ -104,6 +104,7 @@ pub enum Page {
     Episodes,
     Playlist(String),
     Album(String),
+    Radio(String),
     Artist(String),
     Show(String),
     Queue,
@@ -123,6 +124,7 @@ impl Page {
             Page::Episodes => "episodes".into(),
             Page::Playlist(id) => format!("playlist:{id}"),
             Page::Album(id) => format!("album:{id}"),
+            Page::Radio(id) => format!("radio:{id}"),
             Page::Artist(id) => format!("artist:{id}"),
             Page::Show(id) => format!("show:{id}"),
             Page::Queue => "queue".into(),
@@ -147,6 +149,7 @@ impl Page {
                 match kind {
                     "playlist" => Page::Playlist(id.into()),
                     "album" => Page::Album(id.into()),
+                    "radio" => Page::Radio(id.into()),
                     "artist" => Page::Artist(id.into()),
                     "show" => Page::Show(id.into()),
                     _ => return None,
@@ -157,6 +160,9 @@ impl Page {
 
     /// Opens whatever a Spotify URI points at.
     pub fn from_uri(uri: &str) -> Option<Self> {
+        if let Some(id) = uri.strip_prefix("spotify:station:track:") {
+            return (!id.is_empty()).then(|| Self::Radio(id.to_owned()));
+        }
         let mut parts = uri.split(':');
         let _ = parts.next()?;
         let kind = parts.next()?;
@@ -848,6 +854,7 @@ pub struct Toast {
 #[derive(Clone, Debug)]
 pub enum Action {
     Open(Page),
+    OpenRadio(Box<Track>),
     OpenUri(String),
     /// A Spotify link from outside the app: its page opens and the window
     /// comes forward, once the account is signed in.

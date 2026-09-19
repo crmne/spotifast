@@ -225,6 +225,13 @@ uses the Web API for subsequent control requests.
 
 ## The engine
 
+Song-radio pages resolve a station and read its track metadata through the
+existing librespot session. Browsing does not load audio, activate Spotify
+Connect, or replace the current queue. These requests do not use the shared
+Web API quota. Playback begins only when a play control or **Start song
+radio** is used. The station can differ from Spotify’s own radio playlist.
+Browsing neither creates a playlist nor writes listening history.
+
 Playback runs on a separate runtime. Librespot maintains the Spotify Connect
 session, exposes this computer as a device, receives transfers, and reports
 playback state. If the session drops, it reconnects with the stored credential.

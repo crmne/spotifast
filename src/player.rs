@@ -442,6 +442,11 @@ impl Engine {
         Ok(album.album_type == AlbumType::EP)
     }
 
+    /// Resolve a radio without loading or activating the Connect player.
+    pub async fn song_radio(&self, seed: &str) -> Result<crate::radio::Station> {
+        crate::radio::resolve(&self.session, seed).await
+    }
+
     /// Spotify's own transcription of a track, as the raw JSON its clients
     /// read; `Ok(None)` when Spotify has none, an error when asking failed.
     pub async fn lyrics_json(&self, track_uri: &str) -> Result<Option<serde_json::Value>> {

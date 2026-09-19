@@ -280,6 +280,17 @@ pub fn populate(app: &mut App) {
     app.library.playlists = Loadable::Loaded(playlists.clone());
 
     let tracks: Vec<Track> = (0..40).map(track).collect();
+    app.radio_pages.insert(
+        tracks[0].id.clone().expect("demo tracks have IDs"),
+        crate::radio::RadioPage {
+            station: Loadable::Loaded(crate::radio::Station {
+                seed: tracks[0].clone(),
+                tracks: tracks.clone(),
+            }),
+            generation: 1,
+            ..Default::default()
+        },
+    );
     for (index, track) in tracks.iter().enumerate() {
         app.saved.insert(track.uri.clone(), index % 3 == 0);
     }
@@ -901,6 +912,18 @@ mod tests {
     use crate::paths::AppDirs;
     use crate::settings::Settings;
     use std::sync::Arc;
+
+    #[test]
+    fn demo_radio_matches_the_song_menu_seed() {
+        let (ctx, mut app) = accessible_app("radio-menu-seed");
+        app.apply(crate::model::Action::OpenRadio(Box::new(track(0))), &ctx);
+        assert!(
+            app.radio_pages[track(0).id.as_ref().unwrap()]
+                .station
+                .get()
+                .is_some()
+        );
+    }
 
     fn accessible_app(name: &str) -> (egui::Context, App) {
         let root =
@@ -4150,6 +4173,7 @@ mod tests {
             Page::Playlist("pl1".into()),
             Page::Playlist("missing".into()),
             Page::Album("alb0".into()),
+            Page::Radio("trk0".into()),
             Page::Artist("art0".into()),
             Page::Show("sh0".into()),
             Page::Queue,

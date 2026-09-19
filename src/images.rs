@@ -85,6 +85,19 @@ impl ArtLoader {
         }
     }
 
+    /// Whether artwork has loaded, without starting a download.
+    /// Bytes may be released after egui creates its texture; eviction forgets both.
+    pub fn is_ready(&self, url: &str) -> bool {
+        matches!(
+            self.inner
+                .entries
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get(url),
+            Some(Entry::Ready { .. })
+        )
+    }
+
     /// Evicts failed entries and the oldest artwork above the memory limit.
     pub fn evict(&self, ctx: &egui::Context) {
         let letting_go: Vec<String> = {

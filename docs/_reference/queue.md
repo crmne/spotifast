@@ -11,8 +11,8 @@ album is playing. Your songs always play first.
 
 Above both, **Playing from** names where the playing song came from: the
 playlist, album, artist, or podcast, which opens when clicked, Liked
-Songs, or a song radio named after its song. A radio has no page of its
-own, so its name is plain text. The line shows only while a song is
+Songs, or a song radio named after its song. The queue’s radio name stays plain text; use a song’s **Go to song radio**
+action to browse its station. The line shows only while a song is
 playing from somewhere Spotify reports.
 
 These are the rules the app follows. The queue tests in `src/app.rs`

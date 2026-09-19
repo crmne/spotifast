@@ -608,6 +608,9 @@ pub fn item_menu(
     match item {
         PlayableItem::Track(track) => {
             if menu_item(ui, &palette, Some(Icon::Radio), "Go to song radio") {
+                app.actions.push(Action::OpenRadio(Box::new(track.clone())));
+            }
+            if menu_item(ui, &palette, Some(Icon::Play), "Start song radio") {
                 app.actions.push(Action::PlayTrackRadio(uri.clone()));
             }
             let artists: Vec<&ArtistRef> = track

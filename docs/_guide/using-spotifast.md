@@ -242,6 +242,22 @@ The bar stays above the page. Library, Queue and Lyrics keep their full height.
 Hover to read the device name or available version; click to open the device
 picker or update window.
 
+## Song radio
+
+Right-click a song and choose **Go to song radio** to open its station as a
+page. Its header immediately shows the selected song's name, artist, and
+available album cover while recommendations load. This keeps your music and
+queue playing as they are. The page shows Spotify's current selection; its
+play button and song rows play that exact list. Choose **Refresh radio** to
+ask for a new selection.
+
+Choose **Start song radio** to start the station immediately on this
+computer and show the Queue tab. Browsing radio requires the local playback
+sign-in too, but does not start or transfer playback. If it is not set up,
+complete **Set up playback here**, then retry the radio page.
+When restoring a radio page at startup, it retries automatically once the
+local playback connection is ready.
+
 ## Recent
 
 The queue panel's second tab combines Spotify's history with tracks played

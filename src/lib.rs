@@ -37,6 +37,7 @@ pub mod opener;
 pub mod paths;
 pub mod player;
 pub mod playlist_cover;
+pub mod radio;
 pub mod resample;
 pub mod session_reads;
 pub mod settings;
