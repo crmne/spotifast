@@ -2573,8 +2573,26 @@ mod tests {
             output.textures_delta.clear();
             output
         };
+        // Open with only this computer, then let device discovery fill the list.
+        let discovered = std::mem::take(&mut app.devices);
         draw(&mut app, vec![]);
         draw(&mut app, vec![]);
+        app.devices = discovered;
+        draw(&mut app, vec![]);
+        let output = draw(&mut app, vec![]);
+        let visible_speakers = output
+            .shapes
+            .iter()
+            .filter(|shape| {
+                matches!(&shape.shape, egui::epaint::Shape::Text(text)
+                    if text.galley.job.text.starts_with("Speaker ")
+                        && shape.clip_rect.contains_rect(text.visual_bounding_rect()))
+            })
+            .count();
+        assert!(
+            visible_speakers >= 5,
+            "show several devices before scrolling, found {visible_speakers}"
+        );
         let popup = egui::AreaState::load(&ctx, egui::Id::new("devices-popup"))
             .unwrap()
             .rect();
@@ -2610,6 +2628,16 @@ mod tests {
         assert!(app.actions.iter().any(
             |action| matches!(action, crate::model::Action::Transfer(id) if id == "speaker-39")
         ));
+        app.devices.clear();
+        draw(&mut app, vec![]);
+        draw(&mut app, vec![]);
+        let popup = egui::AreaState::load(&ctx, egui::Id::new("devices-popup"))
+            .unwrap()
+            .rect();
+        assert!(
+            popup.height() < 160.0,
+            "a list with only this computer should shrink to fit: {popup:?}"
+        );
         app.backend.shutdown();
     }
 

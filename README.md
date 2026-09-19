@@ -40,7 +40,8 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   repeated songs; Play is unavailable when no shown song can play.
 - **Controls other devices.** Move playback to a speaker, a phone, or
   another computer from the device picker, and keep controlling it: play,
-  pause, skip, seek, shuffle, repeat, volume. Long device lists scroll.
+  pause, skip, seek, shuffle, repeat, volume. The picker expands upward to
+  show several devices at once, fitting the window; longer lists scroll.
 - **Finds speakers on your network.** Spotifast finds librespot, spotifyd,
   and supported hardware receivers over mDNS. Once connected, they appear as
   Spotify Connect devices. The picker uses responding receivers' names and
