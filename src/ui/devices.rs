@@ -252,6 +252,9 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                     ui,
                     egui::ScrollArea::vertical()
                         .id_salt("connect-device-list")
+                        // Grow past the Area's remembered height when discovery
+                        // adds devices. Short lists still shrink to their contents.
+                        .min_scrolled_height(max_height)
                         .max_height(max_height),
                     egui::Vec2b::new(false, true),
                     |ui| {

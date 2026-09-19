@@ -30,7 +30,8 @@ cannot play music through Spotifast on this computer or another device.
   recently played audio.
 - **Controls other devices.** Move playback to a speaker, a phone, or
   another computer from the device picker, and keep controlling it: play,
-  pause, skip, seek, shuffle, repeat, volume.
+  pause, skip, seek, shuffle, repeat, volume. The picker expands upward to
+  show several devices at once, fitting the window; longer lists scroll.
 - **Library.** Browse playlists, Liked Songs, saved albums, followed artists,
   podcasts, and saved episodes. Create, edit, and reorder your playlists.
 - **Search** across songs, artists, albums, playlists, podcasts, and
