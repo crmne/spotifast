@@ -8,6 +8,14 @@ use super::install::{self, Installation, Prepared};
 
 const IDENTIFIER: &str = "me.paolino.fastpotify";
 
+// The bundled executable is still "fastpotify", left over from before the
+// app itself was renamed to Spotifast. A future release means to rename it
+// to "Spotifast" too; this lands first so every current install already
+// accepts that name (as opposed to the app bundle, already handled by
+// `image_bundle`) once it does, rather than rejecting the download that
+// renames it.
+const EXECUTABLE_NAMES: [&str; 2] = ["fastpotify", "Spotifast"];
+
 pub(super) fn bundle_root(executable: &Path) -> Result<&Path> {
     let root = executable
         .ancestors()
@@ -15,7 +23,9 @@ pub(super) fn bundle_root(executable: &Path) -> Result<&Path> {
         .context("Missing app bundle")?;
     ensure!(
         root.extension().is_some_and(|extension| extension == "app")
-            && root.join("Contents/MacOS/fastpotify") == executable,
+            && EXECUTABLE_NAMES
+                .iter()
+                .any(|name| root.join("Contents/MacOS").join(name) == executable),
         "Move the app to Applications, then open it to update."
     );
     Ok(root)
@@ -33,7 +43,7 @@ fn plist(bundle: &Path, key: &str) -> Result<String> {
 fn identity(bundle: &Path) -> Result<()> {
     ensure!(
         plist(bundle, "CFBundleIdentifier")? == IDENTIFIER
-            && plist(bundle, "CFBundleExecutable")? == "fastpotify"
+            && EXECUTABLE_NAMES.contains(&plist(bundle, "CFBundleExecutable")?.as_str())
             && plist(bundle, "CFBundlePackageType")? == "APPL",
         "The download is not a Spotifast app bundle"
     );
@@ -127,7 +137,8 @@ fn validate(bundle: &Path, installation: &Installation, version: &str) -> Result
             "macOS could not approve this update for launch"
         );
     }
-    install::verify_version(&bundle.join("Contents/MacOS/fastpotify"), version)
+    let executable = plist(bundle, "CFBundleExecutable")?;
+    install::verify_version(&bundle.join("Contents/MacOS").join(executable), version)
 }
 
 struct Mounted(PathBuf);
@@ -385,5 +396,33 @@ mod tests {
             .is_err()
         );
         assert!(detect(Path::new("/private/var/folders/test/AppTranslocation/test/Fastpotify.app/Contents/MacOS/fastpotify")).is_err());
+    }
+
+    #[test]
+    fn the_renamed_executable_updates_alongside_the_old_one() {
+        // Today's installs run "fastpotify"; a later release means to
+        // rename it to "Spotifast". Both must resolve to their bundle so
+        // today's installs keep auto-updating once that happens.
+        assert_eq!(
+            bundle_root(Path::new(
+                "/Applications/Spotifast.app/Contents/MacOS/Spotifast"
+            ))
+            .unwrap(),
+            Path::new("/Applications/Spotifast.app")
+        );
+        assert_eq!(
+            bundle_root(Path::new(
+                "/Applications/Spotifast.app/Contents/MacOS/fastpotify"
+            ))
+            .unwrap(),
+            Path::new("/Applications/Spotifast.app")
+        );
+        assert!(
+            bundle_root(Path::new(
+                "/Applications/Spotifast.app/Contents/MacOS/spotifast"
+            ))
+            .is_err(),
+            "the Linux/Windows binary name is not the macOS bundle's executable name"
+        );
     }
 }
