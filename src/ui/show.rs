@@ -22,11 +22,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let Some(page) = app.show_pages.remove(id) else {
         return;
     };
-    let preview = super::loading_preview(&page.show, || app.known_show(id).cloned());
+    let preview = super::loading_preview(ui.ctx(), id, &page.show, || app.known_show(id).cloned());
     let palette = app.palette;
     match &page.show {
         Loadable::Loaded(show) => {
-            show_hero(app, ui, show, preview.as_ref());
+            show_hero(app, ui, show, preview.as_deref());
             show_actions(
                 app,
                 ui,

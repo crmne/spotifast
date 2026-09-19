@@ -18,11 +18,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let Some(page) = app.artist_pages.remove(id) else {
         return;
     };
-    let preview = super::loading_preview(&page.artist, || app.known_artist(id).cloned());
+    let preview =
+        super::loading_preview(ui.ctx(), id, &page.artist, || app.known_artist(id).cloned());
     let palette = app.palette;
     match &page.artist {
         Loadable::Loaded(artist) => {
-            artist_hero(app, ui, artist, preview.as_ref());
+            artist_hero(app, ui, artist, preview.as_deref());
             artist_actions(app, ui, artist);
 
             // Popular.

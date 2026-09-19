@@ -1096,7 +1096,9 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let Some(mut page) = app.playlist_pages.remove(id) else {
         return;
     };
-    let preview = super::loading_preview(&page.playlist, || app.known_playlist(id).cloned());
+    let preview = super::loading_preview(ui.ctx(), id, &page.playlist, || {
+        app.known_playlist(id).cloned()
+    });
     let user_id = app.user_id().unwrap_or("").to_string();
     match &page.playlist {
         Loadable::Loaded(playlist) => {
@@ -1174,7 +1176,9 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             byline.push((count_text, None));
             let images = hero_images(
                 &playlist.images,
-                preview.as_ref().map(|playlist| playlist.images.as_slice()),
+                preview
+                    .as_deref()
+                    .map(|playlist| playlist.images.as_slice()),
                 false,
             );
             playlist_hero(app, ui, playlist, images, byline, made_together);
@@ -1278,11 +1282,12 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let Some(page) = app.album_pages.remove(id) else {
         return;
     };
-    let preview = super::loading_preview(&page.album, || app.known_album(id).cloned());
+    let preview =
+        super::loading_preview(ui.ctx(), id, &page.album, || app.known_album(id).cloned());
     let palette = app.palette;
     match &page.album {
         Loadable::Loaded(album) => {
-            album_hero(app, ui, album, &page.tracks, preview.as_ref());
+            album_hero(app, ui, album, &page.tracks, preview.as_deref());
             let generation = page.generation;
             let revision = page.tracks.revision;
             let names = app.user_names_revision;
@@ -1726,12 +1731,37 @@ mod tests {
             width: Some(width),
             height: Some(width),
         };
-        let current = [image("current-large", 640), image("current-small", 64)];
-        let preview = [image("preview-large", 640), image("preview-small", 64)];
-        let images = hero_images(&current, Some(&preview), false);
+        let current = vec![image("current-large", 640), image("current-small", 64)];
+        let preview = vec![image("preview-large", 640), image("preview-small", 64)];
+        let ctx = egui::Context::default();
+        let loading = Loadable::Loading;
+        let loading_preview =
+            super::super::loading_preview(&ctx, "collection", &loading, || Some(preview.clone()));
+        assert_eq!(
+            loading_preview.as_deref().map(Vec::as_slice),
+            Some(preview.as_slice())
+        );
+
+        let loaded = Loadable::Loaded(current.clone());
+        let retained = super::super::loading_preview(&ctx, "collection", &loaded, || {
+            panic!("loaded pages must not scan known metadata")
+        });
+        assert!(Arc::ptr_eq(
+            loading_preview.as_ref().unwrap(),
+            retained.as_ref().unwrap()
+        ));
+        let images = hero_images(
+            loaded.get().unwrap(),
+            retained.as_deref().map(Vec::as_slice),
+            false,
+        );
         assert_eq!(images.image, Some("current-large"));
         assert_eq!(images.previous, Some("preview-large"));
         assert_eq!(images.thumbnail, Some("preview-small"));
+        assert!(
+            super::super::loading_preview(&ctx, "other", &loaded, || None).is_none(),
+            "another page must not inherit the retained cover"
+        );
 
         let images = hero_images(&current, Some(&current), false);
         assert_eq!(images.previous, None, "the same cover is not loaded twice");

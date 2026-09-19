@@ -1,5 +1,7 @@
 //! Window layout: panels, overlays, keyboard shortcuts.
 
+use std::sync::Arc;
+
 pub mod artist;
 pub mod collection;
 pub(crate) mod devices;
@@ -20,7 +22,7 @@ mod update;
 pub mod widgets;
 pub mod winamp;
 
-use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, Stroke, vec2};
+use egui::{Align2, Color32, Context, CornerRadius, Frame, Id, Margin, Rect, Stroke, vec2};
 
 use crate::api::models::pick_image;
 use crate::app::App;
@@ -70,11 +72,34 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     window_resize(ui);
 }
 
-fn loading_preview<T>(details: &Loadable<T>, known: impl FnOnce() -> Option<T>) -> Option<T> {
+/// Keeps the most recent loading preview of each metadata type available to
+/// the loaded hero as an artwork fallback. The fixed typed slot bounds this to
+/// one playlist, album, artist, and show instead of scanning known metadata on
+/// every loaded frame.
+fn loading_preview<T>(
+    ctx: &Context,
+    key: &str,
+    details: &Loadable<T>,
+    known: impl FnOnce() -> Option<T>,
+) -> Option<Arc<T>>
+where
+    T: Send + Sync + 'static,
+{
+    let memory_id = Id::new("collection-loading-preview");
+    let key = Id::new(key);
     if details.get().is_some() {
-        None
+        ctx.data(|data| data.get_temp::<(Id, Arc<T>)>(memory_id))
+            .filter(|(stored_key, _)| *stored_key == key)
+            .map(|(_, preview)| preview)
     } else {
-        known()
+        let preview = known().map(Arc::new);
+        ctx.data_mut(|data| match &preview {
+            Some(preview) => {
+                data.insert_temp(memory_id, (key, Arc::clone(preview)));
+            }
+            None => data.remove::<(Id, Arc<T>)>(memory_id),
+        });
+        preview
     }
 }
 
