@@ -133,6 +133,13 @@ fn both_commands_forward_links_to_the_existing_instance_on_a_private_bus() {
         let result = Command::new(binary).arg("reload-themes").output().unwrap();
         assert_eq!(result.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&result.stderr).contains("not running"));
+        let result = Command::new(binary).arg("like").output().unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&result.stderr).contains("not running"),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
     }
     let Outcome::Only(guard) = fastpotify::single_instance::acquire(&Default::default(), None)
     else {
@@ -189,6 +196,17 @@ fn both_commands_forward_links_to_the_existing_instance_on_a_private_bus() {
             std::mem::take(&mut *commands.lock().unwrap()),
             vec![ControlCommand::ReloadThemes],
             "a reload only asks for themes, never OpenLink or Show"
+        );
+        let result = Command::new(binary).arg("like").output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            std::mem::take(&mut *commands.lock().unwrap()),
+            vec![ControlCommand::ToggleSaved],
+            "like only toggles the saved state, never OpenLink or Show"
         );
     }
 }

@@ -387,7 +387,8 @@ It works automatically, with no Settings toggle. See [autoscroll](docs/_guide/us
 ## Controlling it from outside
 
 On Linux, Spotifast is an MPRIS player, so `playerctl --player=fastpotify
-play-pause` already works.
+play-pause` already works. `fastpotify like` adds or removes the playing
+track from your library.
 
 macOS and Windows have no such bus, so the same verbs are subcommands. They
 talk to the instance already running and print nothing on success:
