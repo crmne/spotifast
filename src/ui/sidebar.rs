@@ -128,6 +128,19 @@ fn cover_play_button(
     true
 }
 
+fn grid_play_rect(cover_rect: Rect) -> Rect {
+    let size = (cover_rect.width() * 0.3).clamp(32.0, 44.0);
+    let inset = LIBRARY_ITEM_PADDING + size / 2.0;
+    Rect::from_center_size(
+        pos2(cover_rect.right() - inset, cover_rect.bottom() - inset),
+        Vec2::splat(size),
+    )
+}
+
+fn grid_pin_rect(cover_rect: Rect) -> Rect {
+    Rect::from_center_size(cover_rect.left_top() + Vec2::splat(12.0), Vec2::splat(20.0))
+}
+
 fn grid_play_button(
     app: &mut App,
     ui: &mut egui::Ui,
@@ -139,12 +152,8 @@ fn grid_play_button(
     let Some(uri) = entry_play_uri(app, entry) else {
         return false;
     };
-    let size = (cover_rect.width() * 0.3).clamp(32.0, 44.0);
-    let inset = LIBRARY_ITEM_PADDING + size / 2.0;
-    let rect = Rect::from_center_size(
-        pos2(cover_rect.right() - inset, cover_rect.bottom() - inset),
-        Vec2::splat(size),
-    );
+    let rect = grid_play_rect(cover_rect);
+    let size = rect.width();
     let button = ui.interact(rect, ui.id().with("library-grid-play"), Sense::click());
     let playing = playing_here && app.believed_playing();
     let action = if playing {
@@ -1658,8 +1667,6 @@ fn library_grid(
                             );
                         }
 
-                        let show_play_button = (!entry.uri.is_empty() || entry.liked)
-                            && (response.hovered() || playing_here);
                         cover_took_click =
                             grid_play_button(app, ui, entry, cover_rect, &response, playing_here);
 
@@ -1690,17 +1697,17 @@ fn library_grid(
                             palette.secondary,
                         );
 
-                        if pinned && !show_play_button {
-                            let center =
-                                pos2(cover_rect.right() - 12.0, cover_rect.bottom() - 12.0);
+                        if pinned {
+                            let pin_rect = grid_pin_rect(cover_rect);
                             ui.painter().circle_filled(
-                                center,
-                                10.0,
+                                pin_rect.center(),
+                                pin_rect.width() / 2.0,
                                 egui::Color32::from_black_alpha(170),
                             );
-                            Icon::Pin
-                                .image(egui::Color32::WHITE, 12.0)
-                                .paint_at(ui, Rect::from_center_size(center, Vec2::splat(12.0)));
+                            Icon::Pin.image(egui::Color32::WHITE, 12.0).paint_at(
+                                ui,
+                                Rect::from_center_size(pin_rect.center(), Vec2::splat(12.0)),
+                            );
                         }
                         if dragging_song && !droppable {
                             ui.painter().rect_filled(
@@ -2072,6 +2079,16 @@ mod ordering_tests {
             let filled = layout.card_width * layout.columns as f32;
             assert!((filled - width).abs() < f32::EPSILON);
         }
+    }
+
+    #[test]
+    fn grid_pin_and_play_controls_keep_opposite_corners() {
+        let cover = Rect::from_min_size(pos2(10.0, 20.0), Vec2::splat(GRID_MIN_CARD_WIDTH));
+        let pin = grid_pin_rect(cover);
+        let play = grid_play_rect(cover);
+        assert!(pin.center().x < cover.center().x && pin.center().y < cover.center().y);
+        assert!(play.center().x > cover.center().x && play.center().y > cover.center().y);
+        assert!(!pin.intersects(play));
     }
 
     #[test]
