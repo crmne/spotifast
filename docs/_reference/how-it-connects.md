@@ -130,6 +130,26 @@ and dragging never write that order back to Spotify.
   macOS security assessment. Apps running from a disk image or an App Translocation
   directory must be moved to a writable installation directory first.
 
+## Collection loading and artwork
+
+On `main`, after 0.8.0, opening a playlist, album, artist, or podcast keeps any
+title, summary, and cover Spotifast already knows while the complete page is
+requested. Controls that need unfinished details stay disabled, and a loading
+indicator marks the unfinished content. If the request fails, the known header
+stays above **Retry**. A direct link with no known details shows only the normal
+loading or error state.
+
+Visible collection cards and page headers use the closest 640-pixel artwork URL
+already present in Spotify metadata. Compact rows, page tint extraction, and
+softened loading previews use 64-pixel thumbnails. These URLs remain unchanged
+and follow the configured proxy and normal artwork cache. Choosing an artwork
+size and reusing known details add no Web API request.
+
+A ready sharp cover stays visible until its replacement is ready. When only a
+small known thumbnail is available, a softened preview may appear while the
+larger image loads. If the completed response has no cover, the page shows its
+placeholder instead of an old image.
+
 Since 0.8.0, album and playlist scrollbars can request a distant track
 page through the existing session or Web API read path, without fetching all
 preceding tracks. These reads run one at a time per list and retain the existing
