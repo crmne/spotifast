@@ -648,6 +648,8 @@ pub(crate) fn run() -> eframe::Result<()> {
                     app: Some(app),
                     slot: std::sync::Arc::clone(&creator_slot),
                     persist_memory,
+                    #[cfg(target_os = "linux")]
+                    frame_pacer: FramePacer::default(),
                     #[cfg(windows)]
                     thumbbar,
                     #[cfg(feature = "demo")]
@@ -887,9 +889,8 @@ fn native_options(
         viewport,
         persist_window,
         persistence_path,
-        // A Wayland compositor stops sending frame callbacks to a hidden
-        // window; waiting for vsync there would block the event loop.
-        // Repaints are event-driven, so nothing spins.
+        // A hidden Wayland surface receives no frame callbacks, so waiting
+        // for vsync in swap_buffers would block input and playback controls.
         glow_options: eframe::egui_glow::GlowConfiguration {
             vsync: false,
             ..Default::default()
@@ -1097,6 +1098,8 @@ mod native_window_tests {
                 app: None,
                 slot: Default::default(),
                 persist_memory: options.persist_window,
+                #[cfg(target_os = "linux")]
+                frame_pacer: FramePacer::default(),
                 #[cfg(windows)]
                 thumbbar: spotifast::thumbbar::ThumbBar::new(),
                 #[cfg(feature = "demo")]
@@ -1113,6 +1116,36 @@ mod native_window_tests {
     }
 }
 
+/// eframe has no native frame-rate limit. Linux cannot safely block on
+/// compositor callbacks when a Wayland window is hidden, so pace it at
+/// 240 frames per second here.
+#[cfg(target_os = "linux")]
+const FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_nanos(1_000_000_000 / 240);
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct FramePacer {
+    next: Option<std::time::Instant>,
+}
+
+#[cfg(target_os = "linux")]
+impl FramePacer {
+    fn wait(&mut self) {
+        if let Some(delay) = self.schedule(std::time::Instant::now()) {
+            std::thread::sleep(delay);
+        }
+    }
+
+    /// The wait before this frame, and the deadline for the next one. The
+    /// current time comes in as a value so the rule can be tested without
+    /// waiting for a real clock.
+    fn schedule(&mut self, now: std::time::Instant) -> Option<std::time::Duration> {
+        let delay = self.next.and_then(|next| next.checked_duration_since(now));
+        self.next = Some(now + FRAME_INTERVAL);
+        delay
+    }
+}
+
 /// The eframe adapter around the long-lived [`app::App`]: delegates frames
 /// and, when the window goes away, hands the state back for the next window.
 struct Shell {
@@ -1121,6 +1154,8 @@ struct Shell {
     /// Keep demo and mini-window memory out of the normal profile, including
     /// after on_exit has returned the App to the event loop.
     persist_memory: bool,
+    #[cfg(target_os = "linux")]
+    frame_pacer: FramePacer,
     #[cfg(windows)]
     thumbbar: spotifast::thumbbar::ThumbBar,
     /// A pending `--demo-shot` capture, if this is a screenshot run.
@@ -1186,6 +1221,11 @@ impl Shell {
 }
 
 impl eframe::App for Shell {
+    #[cfg(target_os = "linux")]
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, _input: &mut egui::RawInput) {
+        self.frame_pacer.wait();
+    }
+
     fn persist_egui_memory(&self) -> bool {
         self.persist_memory
     }
@@ -1323,6 +1363,21 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_first_frame_is_immediate_and_a_late_one_does_not_burst() {
+        let start = std::time::Instant::now();
+        let mut pacer = FramePacer::default();
+
+        assert_eq!(pacer.schedule(start), None);
+        assert_eq!(
+            pacer.schedule(start + FRAME_INTERVAL / 2),
+            Some(FRAME_INTERVAL / 2)
+        );
+        // A frame that is already late is not chased with a catch-up burst.
+        assert_eq!(pacer.schedule(start + FRAME_INTERVAL * 3), None);
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
