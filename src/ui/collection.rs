@@ -1268,7 +1268,12 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
         Loadable::Failed(error) => {
             let error = error.clone();
-            ui.add_space(40.0);
+            if let Some(playlist) = &preview {
+                playlist_loading_hero(app, ui, playlist);
+                playlist_loading_actions(app, ui, playlist, &mut page.filter);
+            } else {
+                ui.add_space(40.0);
+            }
             widgets::error_row(ui, app, &error, Some(Page::Playlist(id.to_string())));
         }
     }
@@ -1411,7 +1416,12 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
         Loadable::Failed(error) => {
             let error = error.clone();
-            ui.add_space(40.0);
+            if let Some(album) = &preview {
+                album_hero(app, ui, album, &page.tracks, None);
+                album_loading_actions(app, ui, album);
+            } else {
+                ui.add_space(40.0);
+            }
             widgets::error_row(ui, app, &error, Some(Page::Album(id.to_string())));
         }
     }

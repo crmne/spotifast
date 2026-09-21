@@ -86,7 +86,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
         Loadable::Failed(error) => {
             let error = error.clone();
-            ui.add_space(40.0);
+            if let Some(show) = &preview {
+                show_hero(app, ui, show, None);
+                ui.add_enabled_ui(false, |ui| {
+                    show_actions(app, ui, show, None);
+                });
+            } else {
+                ui.add_space(40.0);
+            }
             widgets::error_row(ui, app, &error, Some(Page::Show(id.to_string())));
         }
     }
