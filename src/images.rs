@@ -272,12 +272,15 @@ impl Inner {
                 let bytes: Arc<[u8]> = Arc::from(bytes.as_ref());
                 let write_path = path.clone();
                 let payload = Arc::clone(&bytes);
-                self.runtime.spawn_blocking(move || {
-                    let temporary = write_path.with_extension("part");
-                    if std::fs::write(&temporary, &payload).is_ok() {
-                        let _ = std::fs::rename(&temporary, &write_path);
-                    }
-                });
+                let _ = self
+                    .runtime
+                    .spawn_blocking(move || {
+                        let temporary = write_path.with_extension("part");
+                        if std::fs::write(&temporary, &payload).is_ok() {
+                            let _ = std::fs::rename(&temporary, &write_path);
+                        }
+                    })
+                    .await;
                 bytes
             }
         };
@@ -584,25 +587,21 @@ impl SoftenedCovers {
         {
             return None;
         }
-        match ctx.try_load_bytes(uri) {
-            Ok(BytesPoll::Ready { bytes, .. }) => {
-                let ready_tx = self.ready_tx.clone();
-                let ready_uri = uri.to_string();
-                let ctx = ctx.clone();
-                let loader = loader.clone();
-                self.pending.insert(ready_uri.clone());
-                loader.inner.runtime.clone().spawn_blocking(move || {
-                    let image = blurred_background(&bytes, COVER_BLUR);
-                    loader.release_bytes(&ready_uri);
-                    let _ = ready_tx.send((ready_uri, image));
-                    ctx.request_repaint();
-                });
-            }
-            Err(error) if terminal_art_error(&error) => {
-                self.failed.insert(uri.to_string());
-            }
-            _ => {}
-        }
+        let Some(path) = loader.cached_file(uri) else {
+            loader.prefetch(ctx, uri);
+            return None;
+        };
+        let ready_tx = self.ready_tx.clone();
+        let ready_uri = uri.to_string();
+        let ctx = ctx.clone();
+        self.pending.insert(ready_uri.clone());
+        loader.inner.runtime.clone().spawn_blocking(move || {
+            let image = std::fs::read(path)
+                .ok()
+                .and_then(|bytes| blurred_background(&bytes, COVER_BLUR));
+            let _ = ready_tx.send((ready_uri, image));
+            ctx.request_repaint();
+        });
         None
     }
 }
@@ -676,22 +675,6 @@ mod tests {
         )
     }
 
-    async fn wait_for_artwork_file(path: &std::path::Path, expected: &[u8]) {
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if tokio::fs::read(path)
-                    .await
-                    .is_ok_and(|bytes| bytes == expected)
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("the background writer completes while its runtime is alive");
-    }
-
     #[test]
     fn downloaded_artwork_survives_caller_drop_and_reloads_without_network() {
         let dir =
@@ -705,7 +688,13 @@ mod tests {
             assert_eq!(&*bytes, expected.as_slice());
             drop(bytes);
             server.await.unwrap();
-            wait_for_artwork_file(&loader.inner.cache_path(&url), &expected).await;
+            assert_eq!(
+                tokio::fs::read(loader.inner.cache_path(&url))
+                    .await
+                    .unwrap(),
+                expected,
+                "fetch completes only after its cache file is ready"
+            );
             url
         });
         let path = loader.inner.cache_path(&url);
@@ -743,7 +732,10 @@ mod tests {
                 .await
                 .expect("display does not depend on caching");
             server.await.unwrap();
-            wait_for_artwork_file(&path.with_extension("part"), b"complete artwork").await;
+            assert_eq!(
+                tokio::fs::read(path.with_extension("part")).await.unwrap(),
+                b"complete artwork"
+            );
             (bytes, path)
         });
         drop(loader);
@@ -815,6 +807,39 @@ mod tests {
         assert!(covers.texture(&ctx, &loader, "pending").is_none());
         assert_eq!(covers.pending.len(), 1);
 
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn softened_cover_reads_released_source_from_the_disk_cache() {
+        let runtime = artwork_test_runtime();
+        let dir =
+            std::env::temp_dir().join(format!("fastpotify-softened-cached-{}", std::process::id()));
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        let url = "https://i.scdn.co/image/released";
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(loader.inner.cache_path(url), b"cached source bytes").unwrap();
+        loader.inner.entries.lock().unwrap().insert(
+            url.to_string(),
+            Entry::Ready {
+                bytes: None,
+                last_used: Instant::now(),
+                retained: 0,
+            },
+        );
+        let mut covers = SoftenedCovers::default();
+
+        assert!(covers.texture(&ctx, &loader, url).is_none());
+        assert!(covers.pending.contains(url));
+        assert!(matches!(
+            loader.inner.entries.lock().unwrap().get(url),
+            Some(Entry::Ready { bytes: None, .. })
+        ));
+
+        drop(covers);
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(1));
         let _ = std::fs::remove_dir_all(dir);
     }
 
