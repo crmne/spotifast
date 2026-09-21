@@ -5442,8 +5442,9 @@ mod tests {
             }
         }
         assert!(dropped, "no sweep position landed below Liked Songs");
-        let expected: Vec<String> = std::iter::once(4)
-            .chain((0..PLAYLISTS.len()).filter(|index| *index != 4))
+        let expected: Vec<String> = [0, 4]
+            .into_iter()
+            .chain((1..PLAYLISTS.len()).filter(|index| *index != 4))
             .map(|index| format!("spotify:playlist:pl{index}"))
             .collect();
         assert_eq!(app.settings.sidebar_order, expected);

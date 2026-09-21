@@ -1854,7 +1854,8 @@ fn drop_playlist_row(app: &mut App, entries: &[Entry], pinned_rows: usize, slot:
     {
         return;
     }
-    if slot < pinned_rows {
+    let was_pinned = app.settings.library_pins().iter().any(|held| held == key);
+    if slot < pinned_rows || (was_pinned && slot == pinned_rows) {
         drop_row(app, entries, pinned_rows, slot, key);
         return;
     }
@@ -2323,6 +2324,29 @@ mod ordering_tests {
         let restored: Settings =
             serde_json::from_str(&serde_json::to_string(&app.settings).unwrap()).unwrap();
         assert_eq!(restored, app.settings);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn dropping_at_the_end_of_the_pin_block_keeps_the_item_pinned() {
+        let mut app = app("pin-boundary");
+        app.settings.pinned_contexts = [uri("d"), uri("a")].to_vec();
+        let mut entries = rows(&app);
+        entries.push(liked_entry(&app));
+        order_entries(
+            &app,
+            Filter::Playlists,
+            selected_sort(&app, Filter::Playlists),
+            &mut entries,
+        );
+
+        drop_playlist_row(&mut app, &entries, 3, 3, LIKED_SONGS_KEY);
+        apply_actions(&mut app);
+
+        assert_eq!(
+            app.settings.library_pins(),
+            [uri("d"), uri("a"), LIKED_SONGS_KEY.into()]
+        );
         app.backend.shutdown();
     }
 
