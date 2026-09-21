@@ -872,6 +872,16 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art_occlusion: f32) {
             {
                 app.actions.push(Action::ToggleSidebar);
             }
+            let grid = app.settings.sidebar_grid;
+            let (icon, label) = if grid {
+                (Icon::LayoutList, gettext(locale, "Show as list"))
+            } else {
+                (Icon::LayoutGrid, gettext(locale, "Show as grid"))
+            };
+            if theme::icon_button(ui, icon, 16.0, palette.secondary, palette.text, &label).clicked()
+            {
+                app.actions.push(Action::SetLibraryGrid(!grid));
+            }
             // One item never deserved a menu: the plus creates directly.
             if theme::icon_button(
                 ui,
@@ -924,21 +934,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art_occlusion: f32) {
         }
     });
     let sort = selected_sort(app, filter);
-    ui.horizontal(|ui| {
-        sort_menu(app, ui, filter, sort);
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let grid = app.settings.sidebar_grid;
-            let (icon, label) = if grid {
-                (Icon::LayoutList, gettext(locale, "Show as list"))
-            } else {
-                (Icon::LayoutGrid, gettext(locale, "Show as grid"))
-            };
-            if theme::icon_button(ui, icon, 16.0, palette.secondary, palette.text, &label).clicked()
-            {
-                app.actions.push(Action::SetLibraryGrid(!grid));
-            }
-        });
-    });
+    sort_menu(app, ui, filter, sort);
     ui.data_mut(|data| {
         data.insert_temp(filter_id, filter);
         data.insert_temp(show_search_id, show_search);
