@@ -109,7 +109,7 @@ msgstr[0] "歌单 • {count} 首歌曲"
 
 #: src/ui/player_bar.rs:85 src/ui/lyrics.rs:108 src/ui/lyrics.rs:411
 msgid "Nothing playing"
-msgstr "未在播放"
+msgstr "暂无播放曲目"
 
 #: src/ui/player_bar.rs:91
 msgid "Pick a song, album, or playlist"
@@ -145,7 +145,7 @@ msgstr "下一首"
 
 #: src/ui/player_bar.rs:391
 msgid "Repeat"
-msgstr "重复播放"
+msgstr "列表循环"
 
 #: src/ui/player_bar.rs:395
 msgid "Repeat one"
@@ -153,7 +153,7 @@ msgstr "单曲循环"
 
 #: src/ui/player_bar.rs:400
 msgid "Repeat off"
-msgstr "关闭重复播放"
+msgstr "关闭循环"
 
 #: src/ui/player_bar.rs:461
 msgid "Playback position (%)"
@@ -209,7 +209,7 @@ msgstr "正在播放"
 
 #: src/ui/queue.rs:256
 msgid "Nothing queued"
-msgstr "队列为空"
+msgstr "暂无待播歌曲"
 
 #: src/ui/queue.rs:257
 msgid "Queued songs appear here."
@@ -246,7 +246,7 @@ msgstr "全屏歌词"
 #: src/ui/lyrics.rs:81 src/ui/lyrics.rs:357
 msgctxt "lyrics"
 msgid "Follow"
-msgstr "跟随"
+msgstr "跟随歌词"
 
 #: src/ui/lyrics.rs:109 src/ui/lyrics.rs:412
 msgid "Play a song to see its lyrics."
