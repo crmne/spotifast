@@ -1040,6 +1040,28 @@ mod tests {
     }
 
     #[test]
+    fn inter_figures_are_tabular() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let width = |text: &str| {
+                ui.painter()
+                    .layout_no_wrap(text.to_owned(), regular(13.0), Color32::WHITE)
+                    .rect
+                    .width()
+            };
+            // The narrow "1" is the tell: with proportional figures "1:11" is
+            // far narrower than "8:88", so time and date labels jitter as the
+            // value changes. Frozen tabular figures keep every digit equal.
+            assert!(
+                (width("1:11") - width("8:88")).abs() < 0.01,
+                "bundled Inter should draw tabular figures"
+            );
+        });
+        output.textures_delta.clear();
+    }
+
+    #[test]
     fn fallback_baseline_offset_is_zero_for_inter() {
         let inter = include_bytes!("../assets/fonts/InterVariable.ttf");
         let offset = fallback_baseline_y_offset(inter, 0);
