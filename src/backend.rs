@@ -3990,27 +3990,41 @@ struct CachedPlaylist {
     next_offset: Option<u32>,
 }
 
+#[cfg(test)]
 async fn read_cached_playlist(path: std::path::PathBuf) -> std::io::Result<CachedPlaylist> {
-    tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(path)?;
-        // Parse on the file worker without keeping the entire JSON alongside
-        // the deserialized playlist. Snapshot/count validation still follows.
-        serde_json::from_reader(std::io::BufReader::new(file)).map_err(std::io::Error::other)
-    })
-    .await
-    .map_err(std::io::Error::other)?
+    tokio::task::spawn_blocking(move || read_cached_playlist_file(&path))
+        .await
+        .map_err(std::io::Error::other)?
+}
+
+fn read_cached_playlist_file(path: &std::path::Path) -> std::io::Result<CachedPlaylist> {
+    let file = std::fs::File::open(path)?;
+    // Parse on the file worker without keeping the entire JSON alongside
+    // the deserialized playlist. Snapshot/count validation still follows.
+    serde_json::from_reader(std::io::BufReader::new(file)).map_err(std::io::Error::other)
 }
 
 async fn read_playlist_cache(path: std::path::PathBuf) -> std::io::Result<(CachedPlaylist, bool)> {
-    let incremental_path = path.clone();
-    if let Ok(Ok(cache)) =
-        tokio::task::spawn_blocking(move || read_incremental_playlist_cache_file(&incremental_path))
-            .await
-    {
-        return Ok((cache, true));
-    }
-    // A missing or damaged new cache must not hide a readable older cache.
-    read_cached_playlist(path).await.map(|cache| (cache, false))
+    tokio::task::spawn_blocking(move || {
+        // A writer may have created a row file that its manifest does not yet
+        // reference. Hold the account lock through both reading and recovery.
+        let lock = playlist_cache_lock(&path);
+        if let Err(error) = &lock {
+            log::warn!("unable to lock playlist cache {}: {error}", path.display());
+        }
+        let cache = read_incremental_playlist_cache_file(&path)
+            .map(|cache| (cache, true))
+            // A missing or damaged new cache must not hide an older JSON cache.
+            .or_else(|_| read_cached_playlist_file(&path).map(|cache| (cache, false)));
+        if lock.is_ok()
+            && let Err(error) = cleanup_unreferenced_playlist_rows(&path)
+        {
+            log::warn!("unable to clean playlist cache {}: {error}", path.display());
+        }
+        cache
+    })
+    .await
+    .map_err(std::io::Error::other)?
 }
 
 #[cfg(test)]
@@ -4071,6 +4085,73 @@ fn playlist_manifest_path(path: &std::path::Path) -> std::path::PathBuf {
 
 fn playlist_data_path(path: &std::path::Path, data_file: u64) -> std::path::PathBuf {
     path.with_extension(format!("rows.{data_file:016x}"))
+}
+
+fn playlist_cache_lock(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "playlist cache has no parent",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(parent.join(".playlist-cache.lock"))?;
+    file.lock()?;
+    Ok(file)
+}
+
+/// Recover row files from interrupted replacements. Run under the account
+/// lock so a new, unpublished row file cannot be mistaken for an orphan.
+fn cleanup_unreferenced_playlist_rows(path: &std::path::Path) -> std::io::Result<()> {
+    let current = match read_playlist_manifest(path) {
+        Ok(manifest) => Some(manifest.data_file),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "playlist cache has no parent",
+        )
+    })?;
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid playlist cache name",
+            )
+        })?;
+    let prefix = format!("{stem}.rows.");
+    for entry in std::fs::read_dir(parent)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(suffix) = name.to_str().and_then(|name| name.strip_prefix(&prefix)) else {
+            continue;
+        };
+        if suffix.len() != 16 || !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            continue;
+        }
+        let data_file = u64::from_str_radix(suffix, 16).map_err(std::io::Error::other)?;
+        if Some(data_file) == current {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(entry.path())
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!(
+                "unable to remove orphan playlist rows {}: {error}",
+                entry.path().display()
+            );
+        }
+    }
+    Ok(())
 }
 
 fn read_playlist_manifest(path: &std::path::Path) -> std::io::Result<PlaylistCacheManifest> {
@@ -4158,6 +4239,7 @@ fn write_incremental_playlist_cache_file(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    let _lock = playlist_cache_lock(path)?;
     match rows {
         PlaylistCacheRows::Replace(items) => {
             let count = u32::try_from(items.len())
@@ -4165,7 +4247,6 @@ fn write_incremental_playlist_cache_file(
             if count > total {
                 return Err(Error::new(ErrorKind::InvalidInput, "rows exceed total"));
             }
-            let previous = read_playlist_manifest(path).ok();
             let (file, data_file) = create_playlist_data_file(path)?;
             let data_path = playlist_data_path(path, data_file);
             let result = (|| {
@@ -4184,11 +4265,14 @@ fn write_incremental_playlist_cache_file(
                 )
             })();
             if result.is_err() {
-                let _ = std::fs::remove_file(data_path);
-            } else if let Some(previous) = previous
-                && previous.data_file != data_file
-            {
-                let _ = std::fs::remove_file(playlist_data_path(path, previous.data_file));
+                if let Err(error) = std::fs::remove_file(&data_path) {
+                    log::warn!(
+                        "unable to remove incomplete playlist rows {}: {error}",
+                        data_path.display()
+                    );
+                }
+            } else if let Err(error) = cleanup_unreferenced_playlist_rows(path) {
+                log::warn!("unable to clean playlist cache {}: {error}", path.display());
             }
             result
         }
@@ -4268,6 +4352,7 @@ fn write_playlist_block(file: std::fs::File, items: &[PlaylistItem]) -> std::io:
     writer.write_all(b"\n")?;
     writer.flush()?;
     let file = writer.into_inner().map_err(|error| error.into_error())?;
+    // Publish the manifest only after its referenced bytes are durable.
     file.sync_all()?;
     Ok(file.metadata()?.len())
 }
@@ -4574,6 +4659,72 @@ mod playlist_cache_tests {
         );
         assert!(!playlist_data_path(&path, old_data).exists());
         assert_eq!(read_cached_playlist(path).await.unwrap().snapshot, "legacy");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn reopening_a_cache_removes_rows_left_by_an_interrupted_replacement() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-playlist-cache-orphan-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let path = root.join("playlist.json");
+        write_incremental_playlist_cache_file(
+            &path,
+            "current".into(),
+            PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+            1,
+            None,
+        )
+        .unwrap();
+        let current = read_playlist_manifest(&path).unwrap().data_file;
+        let orphan = playlist_data_path(&path, current.wrapping_add(1));
+        let blocked = playlist_data_path(&path, current.wrapping_add(2));
+        let recoverable = playlist_data_path(&path, current.wrapping_add(3));
+        let other_playlist = playlist_data_path(&root.join("other.json"), 1);
+        std::fs::write(&orphan, b"unfinished rows").unwrap();
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::write(&recoverable, b"unfinished rows").unwrap();
+        std::fs::write(&other_playlist, b"unrelated rows").unwrap();
+
+        let (cached, appendable) = read_playlist_cache(path.clone()).await.unwrap();
+        assert_eq!(cached.snapshot, "current");
+        assert!(appendable);
+        assert!(
+            !orphan.exists(),
+            "recovery must remove unreferenced row files"
+        );
+        assert!(playlist_data_path(&path, current).exists());
+        assert!(
+            !recoverable.exists(),
+            "one failed removal must not stop cleanup"
+        );
+        assert!(blocked.is_dir());
+        assert!(other_playlist.exists());
+        std::fs::remove_dir(&blocked).unwrap();
+
+        let before_manifest = root.join("cold.json");
+        let orphan = playlist_data_path(&before_manifest, 1);
+        std::fs::write(&orphan, b"unfinished first checkpoint").unwrap();
+        assert!(read_playlist_cache(before_manifest).await.is_err());
+        assert!(
+            !orphan.exists(),
+            "a crash before the first manifest is recoverable"
+        );
+
+        let orphan = playlist_data_path(&path, current.wrapping_add(1));
+        std::fs::write(&orphan, b"unfinished rows").unwrap();
+        write_incremental_playlist_cache_file(
+            &path,
+            "next".into(),
+            PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+            1,
+            None,
+        )
+        .unwrap();
+        assert!(!orphan.exists());
+        assert!(!playlist_data_path(&path, current).exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 

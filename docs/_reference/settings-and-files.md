@@ -127,7 +127,9 @@ snapshot, and next Spotify offset. A failed append leaves the previous
 checkpoint readable; a later write discards the unfinished tail. Older JSON
 caches remain readable and are retained when a new checkpoint is written.
 Reloads, edits, and changes to previously loaded rows write a fresh data file
-instead of appending to the old prefix.
+instead of appending to the old prefix. A small lock file in the account cache
+directory coordinates reads and writes; reopening the cache removes row files
+left without a manifest reference by an interrupted replacement.
 
 Since 0.10.0, the artwork loader shares downloaded image bytes with
 the background cache writer instead of making a separate copy. Visible library
