@@ -111,15 +111,23 @@ new snapshot after all pending writes have succeeded. Pending edits remain
 visible immediately, but are not saved as confirmed playlist rows. A failed
 write reloads the playlist to reconcile the edit.
 
-Since 0.8.0, playlist checkpoints stream their JSON to a temporary
-file on a background file worker. Saving a large playlist no longer needs a
-second complete JSON buffer in memory. The cache format and checkpoint order
-are unchanged, and a failed write leaves the previous cache in place.
+In 0.8.0, playlist checkpoints began streaming their JSON to a temporary
+file on a background file worker. Saving a large playlist no longer needed a
+second complete JSON buffer in memory. That update kept the cache format and
+checkpoint order unchanged, and a failed write left the previous cache in place.
 
 Since 0.9.0, reading a playlist cache also uses
 a small buffer on a background file worker. The full JSON file no longer
 stays in memory alongside the loaded songs. Existing caches remain readable;
 missing or invalid caches are ignored and fetched again as before.
+
+Playlist checkpoints now keep new rows in a separate append-only data file.
+An atomically replaced manifest records the committed byte length, row count,
+snapshot, and next Spotify offset. A failed append leaves the previous
+checkpoint readable; a later write discards the unfinished tail. Older JSON
+caches remain readable and are retained when a new checkpoint is written.
+Reloads, edits, and changes to previously loaded rows write a fresh data file
+instead of appending to the old prefix.
 
 Since 0.10.0, the artwork loader shares downloaded image bytes with
 the background cache writer instead of making a separate copy. Visible library

@@ -14,7 +14,7 @@ use crate::api::models::{
 };
 use crate::backend::{
     ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, LyricsRequest,
-    PLAYLIST_PAGE_SIZE, RecentsFor, RemoteAction, Waker,
+    PLAYLIST_PAGE_SIZE, PlaylistCacheRows, RecentsFor, RemoteAction, Waker,
 };
 use crate::i18n::{Locale, gettext, ngettext};
 use crate::media::{MediaCommand, MediaState, MediaTrack};
@@ -1846,6 +1846,21 @@ impl App {
                     cache,
                 } => {
                     self.receive_playlist_cache(&account_id, &id, generation, cache);
+                }
+                Event::PlaylistCacheStored {
+                    account_id,
+                    id,
+                    generation,
+                    snapshot,
+                    success,
+                } => {
+                    self.receive_playlist_cache_stored(
+                        &account_id,
+                        &id,
+                        generation,
+                        &snapshot,
+                        success,
+                    );
                 }
                 Event::LikedSongsCache {
                     account_id,
@@ -3948,6 +3963,8 @@ impl App {
             page.cache_restored_through = None;
             page.pending_cache = None;
             page.cache_checked = true;
+            page.cache_write_pending = None;
+            page.cache_append_valid = false;
             page.local_additions.clear();
             page.optimistic_snapshot = None;
             page.snapshot_rechecks = 0;
@@ -3999,6 +4016,8 @@ impl App {
                     playlist.cache_checked = true;
                     playlist.cache_restored_through = None;
                     playlist.pending_cache = None;
+                    playlist.cache_write_pending = None;
+                    playlist.cache_append_valid = false;
                     playlist.local_additions.clear();
                     playlist.optimistic_snapshot = None;
                     playlist.snapshot_rechecks = 0;
@@ -5159,6 +5178,10 @@ impl App {
                     if old_snapshot.is_some() && old_snapshot != new_snapshot {
                         page.items.clear_windows();
                         page.cache_saved_through = None;
+                        page.cache_saved_rows = 0;
+                        page.cache_saved_total = None;
+                        page.cache_write_pending = None;
+                        page.cache_append_valid = false;
                         page.cache_restored_through = None;
                     }
                     if let Ok(playlist) = &result
@@ -5225,6 +5248,15 @@ impl App {
                                 .filter(|id| !id.is_empty())
                                 .collect();
                             page.contributors.extend(adders.iter().cloned());
+                            let extends_checkpoint = offset > 0
+                                && page.items.base_offset == 0
+                                && page.items.loaded_once
+                                && page.items.window_request.is_none()
+                                && page.items.windows.is_empty()
+                                && page.items.next_offset == Some(offset)
+                                && page.items.total == Some(items.total)
+                                && page.items.items.len() <= offset as usize
+                                && page.items_generation == generation;
                             let extends_cached_rows = offset > 0
                                 && page.items.loaded_once
                                 && page.items.window_request.is_none()
@@ -5242,6 +5274,9 @@ impl App {
                                         && cache.playlist_positions.is_some()
                                         && cache.playlist_raw_count == page.items.items.len()
                                 });
+                            if !extends_checkpoint {
+                                page.cache_append_valid = false;
+                            }
                             page.items.absorb(offset, items);
                             page.items_generation = generation;
                             if extends_cached_rows
@@ -6721,17 +6756,62 @@ impl App {
                     if let Some(PlayableItem::Track(track)) = row.item.as_mut()
                         && let Some(playable) = self.playlist_availability.get(&track.uri)
                     {
+                        if track.is_playable != Some(*playable) {
+                            cache.appendable = false;
+                        }
                         track.is_playable = Some(*playable);
                     }
                 }
                 if fill_availability(&self.playlist_availability, &mut page.items.items) {
                     page.items.revision = page.items.revision.wrapping_add(1);
+                    page.cache_append_valid = false;
                 }
             }
             page.pending_cache = cache;
         }
         self.try_adopt_playlist_cache(id);
         self.checkpoint_playlist_cache(id);
+    }
+
+    fn receive_playlist_cache_stored(
+        &mut self,
+        account_id: &str,
+        id: &str,
+        generation: u64,
+        snapshot: &str,
+        success: bool,
+    ) {
+        if self.user_id() != Some(account_id) {
+            return;
+        }
+        let should_check_again = self.playlist_pages.get_mut(id).is_some_and(|page| {
+            let Some(pending) = page.cache_write_pending.take() else {
+                return false;
+            };
+            if pending.generation != generation || pending.snapshot != snapshot {
+                page.cache_write_pending = Some(pending);
+                return false;
+            }
+            let current = page.generation == generation
+                && page.items_generation == generation
+                && page.pending_writes == 0
+                && page
+                    .playlist
+                    .get()
+                    .and_then(|playlist| playlist.snapshot_id.as_deref())
+                    == Some(snapshot);
+            if success && current && page.cache_append_valid {
+                page.cache_saved_through = Some(pending.through);
+                page.cache_saved_rows = pending.rows;
+                page.cache_saved_total = Some(pending.total);
+            } else if !success {
+                page.cache_append_valid = false;
+            }
+            current && (success || !pending.replacing)
+        });
+        if should_check_again {
+            self.checkpoint_playlist_cache(id);
+        }
     }
 
     /// Adopt a playlist's cached prefix once Spotify confirms its snapshot.
@@ -6773,6 +6853,9 @@ impl App {
                 return;
             };
             let cached_through = cache.next_offset.unwrap_or(cache.total);
+            let cached_rows = cache.items.len();
+            let cached_total = cache.total;
+            let cache_appendable = cache.appendable;
             let loaded_through = if page.items.base_offset == 0 {
                 page.items.items.len() as u32
             } else {
@@ -6783,6 +6866,9 @@ impl App {
             };
             if loaded_through >= cached_through {
                 page.cache_saved_through = Some(cached_through);
+                page.cache_saved_rows = cached_rows;
+                page.cache_saved_total = Some(cached_total);
+                page.cache_append_valid = false;
                 page.pending_cache = None;
                 return;
             }
@@ -6811,6 +6897,9 @@ impl App {
                 .adopt_cached_prefix(cache.items, cache.total, cache.next_offset);
             page.items_generation = page.generation;
             page.cache_saved_through = Some(cached_through);
+            page.cache_saved_rows = cached_rows;
+            page.cache_saved_total = Some(cached_total);
+            page.cache_append_valid = cache_appendable;
             page.cache_restored_through = Some(cached_through);
         }
         for track in &tracks {
@@ -6851,9 +6940,8 @@ impl App {
         }
     }
 
-    /// Save useful playlist progress without writing the growing file after
-    /// every 50-item request. The first page, every ten pages after that, and
-    /// the completed list are checkpoints.
+    /// Save the first page, every ten pages after that, and the completed list.
+    /// Only rows added since the confirmed checkpoint are copied on appends.
     fn checkpoint_playlist_cache(&mut self, id: &str) {
         const CHECKPOINT_ITEMS: u32 = PLAYLIST_PAGE_SIZE * 10;
 
@@ -6867,6 +6955,7 @@ impl App {
                 || page.items.base_offset != 0
                 || page.items_generation != page.generation
                 || page.pending_writes > 0
+                || page.cache_write_pending.is_some()
             {
                 return None;
             }
@@ -6878,14 +6967,46 @@ impl App {
             let through = next_offset.unwrap_or(total);
             let previous = page.cache_saved_through.unwrap_or(0);
             let complete = next_offset.is_none();
+            let row_count = page.items.items.len();
+            if page.cache_append_valid
+                && page.cache_saved_through == Some(through)
+                && page.cache_saved_rows == row_count
+                && page.cache_saved_total == Some(total)
+            {
+                return None;
+            }
             if previous > 0 && through.saturating_sub(previous) < CHECKPOINT_ITEMS && !complete {
                 return None;
             }
-            page.cache_saved_through = Some(through);
+            let replacing = !page.cache_append_valid
+                || page.cache_saved_through.is_none()
+                || page.cache_saved_total != Some(total)
+                || page.cache_saved_rows > row_count;
+            let rows = if replacing {
+                PlaylistCacheRows::Replace(page.items.items.clone())
+            } else {
+                PlaylistCacheRows::Append {
+                    previous_rows: page.cache_saved_rows,
+                    previous_offset: previous,
+                    items: page.items.items[page.cache_saved_rows..].to_vec(),
+                }
+            };
+            page.cache_write_pending = Some(PlaylistCachePending {
+                generation: page.generation,
+                snapshot: snapshot.clone(),
+                through,
+                rows: row_count,
+                total,
+                replacing,
+            });
+            if replacing {
+                page.cache_append_valid = true;
+            }
             Some(Command::StorePlaylistCache {
                 id: id.to_string(),
+                generation: page.generation,
                 snapshot,
-                items: page.items.items.clone(),
+                rows,
                 total,
                 next_offset,
             })
@@ -7627,6 +7748,10 @@ impl App {
         page.items.loading = page.refresh_after_write;
         page.items.clear_windows();
         page.cache_saved_through = None;
+        page.cache_saved_rows = 0;
+        page.cache_saved_total = None;
+        page.cache_write_pending = None;
+        page.cache_append_valid = false;
         page.cache_restored_through = None;
         page.pending_cache = None;
     }
@@ -10679,6 +10804,7 @@ mod tests {
                 items: vec![row("spotify:track:other", Some(false))],
                 total: 1,
                 next_offset: None,
+                appendable: false,
             }),
         );
         assert_eq!(
@@ -10762,6 +10888,7 @@ mod tests {
             items: vec![availability_row(Some(playable))],
             total: 1,
             next_offset: None,
+            appendable: false,
         })
     }
 
@@ -17835,6 +17962,10 @@ mod tests {
     fn adding_to_a_loaded_playlist_is_immediate_and_keeps_its_cache() {
         let mut app = headless_app();
         app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
         app.library.playlists = Loadable::Loaded(vec![Playlist {
             id: "best".into(),
             snapshot_id: Some("old".into()),
@@ -17905,11 +18036,11 @@ mod tests {
                 .and_then(|playlist| playlist.snapshot_id.as_deref()),
             Some("new")
         );
-        assert_eq!(
-            page.cache_saved_through,
-            Some(2),
-            "the optimistic rows become the cache for the returned snapshot"
-        );
+        assert_eq!(page.cache_saved_through, None);
+        assert!(page.cache_write_pending.is_some());
+        let generation = page.generation;
+        app.receive_playlist_cache_stored("alice", "best", generation, "new", true);
+        assert_eq!(app.playlist_pages["best"].cache_saved_through, Some(2));
         assert_eq!(app.library.playlists.get().unwrap()[0].track_total(), 2);
     }
 
@@ -18833,6 +18964,7 @@ mod tests {
                 items: vec![cached_playlist_row("spotify:track:wrong"); 4],
                 total: 4,
                 next_offset: None,
+                appendable: false,
             });
             if cache_first {
                 app.receive_playlist_cache("alice", "mix", 0, cache);
@@ -18869,6 +19001,10 @@ mod tests {
     fn playlist_cache_waits_until_all_optimistic_writes_are_confirmed() {
         let mut app = headless_app();
         app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
         app.playlist_pages.insert(
             "mix".into(),
             PlaylistPage {
@@ -18892,7 +19028,7 @@ mod tests {
         );
         app.checkpoint_playlist_cache("mix");
         assert_eq!(app.playlist_pages["mix"].cache_saved_through, None);
-        for (snapshot, saved) in [("first-write", None), ("both-writes", Some(2))] {
+        for (snapshot, saved) in [("first-write", None), ("both-writes", None)] {
             app.handle_api(ApiResponse::PlaylistItemsChanged {
                 id: "mix".into(),
                 message: String::new(),
@@ -18905,6 +19041,9 @@ mod tests {
                 "pending edits stay visible while disk persistence waits"
             );
         }
+        assert!(app.playlist_pages["mix"].cache_write_pending.is_some());
+        app.receive_playlist_cache_stored("alice", "mix", 0, "both-writes", true);
+        assert_eq!(app.playlist_pages["mix"].cache_saved_through, Some(2));
     }
 
     #[test]
@@ -18931,6 +19070,7 @@ mod tests {
                     ],
                     total: 10_000,
                     next_offset: Some(500),
+                    appendable: true,
                 }),
                 cache_checked: true,
                 ..Default::default()
@@ -18945,6 +19085,7 @@ mod tests {
         assert_eq!(page.items.next_offset, Some(500));
         assert_eq!(page.cache_saved_through, Some(500));
         assert_eq!(page.cache_restored_through, Some(500));
+        assert!(page.cache_append_valid);
         assert!(page.items.can_load_more());
         assert_eq!(
             app.backend.take_playlist_sample_requests(),
@@ -18973,6 +19114,22 @@ mod tests {
             Some("spotify:track:one")
         );
         assert_eq!(page.items.next_offset, Some(500));
+
+        // Reopening a valid incremental cache must not rewrite its prefix.
+        app.checkpoint_playlist_cache("large");
+        assert!(app.playlist_pages["large"].cache_write_pending.is_none());
+        let page = app.playlist_pages.get_mut("large").unwrap();
+        page.items
+            .items
+            .push(cached_playlist_row("spotify:track:three"));
+        page.items.next_offset = Some(1_000);
+        app.checkpoint_playlist_cache("large");
+        assert!(
+            app.playlist_pages["large"]
+                .cache_write_pending
+                .as_ref()
+                .is_some_and(|pending| !pending.replacing)
+        );
     }
 
     #[test]
@@ -18991,6 +19148,7 @@ mod tests {
                     items: vec![cached_playlist_row("spotify:track:old")],
                     total: 10_000,
                     next_offset: Some(500),
+                    appendable: false,
                 }),
                 cache_checked: true,
                 ..Default::default()
@@ -19010,6 +19168,10 @@ mod tests {
     fn playlist_cache_checkpoints_are_periodic_and_include_completion() {
         let mut app = headless_app();
         app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
         app.playlist_pages.insert(
             "large".into(),
             PlaylistPage {
@@ -19038,6 +19200,14 @@ mod tests {
             .expect("the playlist")
             .cache_checked = true;
         app.checkpoint_playlist_cache("large");
+        assert_eq!(app.playlist_pages["large"].cache_saved_through, None);
+        assert!(
+            app.playlist_pages["large"]
+                .cache_write_pending
+                .as_ref()
+                .is_some_and(|pending| pending.replacing)
+        );
+        app.receive_playlist_cache_stored("alice", "large", 0, "current", true);
         assert_eq!(app.playlist_pages["large"].cache_saved_through, Some(50));
 
         app.playlist_pages
@@ -19056,19 +19226,96 @@ mod tests {
             .get_mut("large")
             .expect("the playlist")
             .items
+            .items
+            .push(cached_playlist_row("spotify:track:two"));
+        app.playlist_pages
+            .get_mut("large")
+            .expect("the playlist")
+            .items
             .next_offset = Some(550);
         app.checkpoint_playlist_cache("large");
+        assert_eq!(app.playlist_pages["large"].cache_saved_through, Some(50));
+        assert!(
+            app.playlist_pages["large"]
+                .cache_write_pending
+                .as_ref()
+                .is_some_and(|pending| !pending.replacing)
+        );
+        app.receive_playlist_cache_stored("alice", "large", 0, "current", true);
         assert_eq!(app.playlist_pages["large"].cache_saved_through, Some(550));
+        assert_eq!(app.playlist_pages["large"].cache_saved_rows, 2);
 
         let page = app.playlist_pages.get_mut("large").expect("the playlist");
         page.items.total = Some(575);
         page.items.next_offset = None;
         app.checkpoint_playlist_cache("large");
+        assert_eq!(app.playlist_pages["large"].cache_saved_through, Some(550));
+        assert!(
+            app.playlist_pages["large"]
+                .cache_write_pending
+                .as_ref()
+                .is_some_and(|pending| pending.replacing)
+        );
+        app.receive_playlist_cache_stored("alice", "large", 0, "current", true);
         assert_eq!(
             app.playlist_pages["large"].cache_saved_through,
             Some(575),
             "the final short interval is still saved"
         );
+    }
+
+    #[test]
+    fn failed_playlist_cache_append_rebuilds_from_the_last_confirmed_checkpoint() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
+        app.playlist_pages.insert(
+            "large".into(),
+            PlaylistPage {
+                playlist: Loadable::Loaded(Playlist {
+                    snapshot_id: Some("current".into()),
+                    ..Default::default()
+                }),
+                items: PagedList {
+                    items: vec![
+                        cached_playlist_row("spotify:track:one"),
+                        cached_playlist_row("spotify:track:two"),
+                    ],
+                    total: Some(1_000),
+                    next_offset: Some(550),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                cache_checked: true,
+                cache_saved_through: Some(50),
+                cache_saved_rows: 1,
+                cache_saved_total: Some(1_000),
+                cache_append_valid: true,
+                ..Default::default()
+            },
+        );
+
+        app.checkpoint_playlist_cache("large");
+        assert!(
+            app.playlist_pages["large"]
+                .cache_write_pending
+                .as_ref()
+                .is_some_and(|pending| !pending.replacing)
+        );
+        app.receive_playlist_cache_stored("alice", "large", 0, "current", false);
+        assert_eq!(app.playlist_pages["large"].cache_saved_through, Some(50));
+        assert!(
+            app.playlist_pages["large"]
+                .cache_write_pending
+                .as_ref()
+                .is_some_and(|pending| pending.replacing)
+        );
+        app.receive_playlist_cache_stored("alice", "large", 0, "current", true);
+        assert_eq!(app.playlist_pages["large"].cache_saved_through, Some(550));
+        assert_eq!(app.playlist_pages["large"].cache_saved_rows, 2);
     }
 
     #[test]
@@ -19183,6 +19430,7 @@ mod tests {
                     items: vec![cached_playlist_row("spotify:track:cached"); 500],
                     total: 1000,
                     next_offset: Some(500),
+                    appendable: false,
                 }),
                 ..Default::default()
             },
@@ -19417,6 +19665,10 @@ mod tests {
     fn refresh_metadata_cannot_cache_rows_from_the_previous_generation() {
         let mut app = headless_app();
         app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
         app.playlist_pages.insert(
             "changed".into(),
             PlaylistPage {
@@ -19470,6 +19722,10 @@ mod tests {
         });
         let page = &app.playlist_pages["changed"];
         assert_eq!(page.items_generation, 9);
+        assert_eq!(page.cache_saved_through, None);
+        assert!(page.cache_write_pending.is_some());
+        app.receive_playlist_cache_stored("alice", "changed", 9, "new", true);
+        let page = &app.playlist_pages["changed"];
         assert_eq!(page.cache_saved_through, Some(50));
         assert_eq!(
             page.items.items[0].playable().map(PlayableItem::uri),
