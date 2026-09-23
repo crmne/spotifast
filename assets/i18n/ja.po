@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-22 18:48+0300\n"
+"POT-Creation-Date: 2026-09-23 17:34+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -16,119 +16,119 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: src/ui/sidebar.rs:161 src/ui/player_bar.rs:365
+#: src/ui/sidebar.rs:160 src/ui/player_bar.rs:397
 msgid "Pause"
 msgstr "一時停止"
 
-#: src/ui/sidebar.rs:163 src/ui/sidebar.rs:1802 src/ui/player_bar.rs:367
+#: src/ui/sidebar.rs:162 src/ui/sidebar.rs:1806 src/ui/player_bar.rs:399
 msgid "Play"
 msgstr "再生"
 
-#: src/ui/sidebar.rs:296 src/app.rs:2158 src/app.rs:13953
+#: src/ui/sidebar.rs:290 src/app.rs:2223 src/app.rs:14499
 msgid "Playlist"
 msgstr "プレイリスト"
 
-#: src/ui/sidebar.rs:306 src/app.rs:2132 src/app.rs:13958
+#: src/ui/sidebar.rs:300 src/app.rs:2197 src/app.rs:14504
 msgid "Liked Songs"
 msgstr "お気に入りの曲"
 
-#: src/ui/sidebar.rs:346
+#: src/ui/sidebar.rs:340
 msgid "Library order"
 msgstr "ライブラリ順"
 
-#: src/ui/sidebar.rs:349
+#: src/ui/sidebar.rs:343
 msgid "Recently played"
 msgstr "最近再生した順"
 
-#: src/ui/sidebar.rs:351
+#: src/ui/sidebar.rs:345
 msgid "Name"
 msgstr "名前順"
 
-#: src/ui/sidebar.rs:354
+#: src/ui/sidebar.rs:348
 msgid "Recently added"
 msgstr "最近追加した順"
 
-#: src/ui/sidebar.rs:356
+#: src/ui/sidebar.rs:350
 msgid "Local custom order"
 msgstr "ローカルのカスタム順"
 
-#: src/ui/sidebar.rs:359
+#: src/ui/sidebar.rs:353
 msgid "Spotify custom order"
 msgstr "Spotifyのカスタム順"
 
-#: src/ui/sidebar.rs:660
+#: src/ui/sidebar.rs:647
 msgid "Folder"
 msgstr "フォルダー"
 
-#: src/ui/sidebar.rs:820 src/i18n.rs:154 src/i18n.rs:157
+#: src/ui/sidebar.rs:807 src/i18n.rs:154 src/i18n.rs:157
 msgid "Home"
 msgstr "ホーム"
 
-#: src/ui/sidebar.rs:831
+#: src/ui/sidebar.rs:818
 msgid "Search"
 msgstr "検索"
 
-#: src/ui/sidebar.rs:863
+#: src/ui/sidebar.rs:850
 msgid "Library"
 msgstr "ライブラリ"
 
-#: src/ui/sidebar.rs:876
+#: src/ui/sidebar.rs:863
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "サイドバーを非表示 (Ctrl+B)"
 
-#: src/ui/sidebar.rs:877
+#: src/ui/sidebar.rs:864
 msgid "Hide sidebar (Cmd+B)"
 msgstr "サイドバーを非表示 (Cmd+B)"
 
-#: src/ui/sidebar.rs:886
+#: src/ui/sidebar.rs:873
 msgid "Show as list"
 msgstr "リスト表示"
 
-#: src/ui/sidebar.rs:888
+#: src/ui/sidebar.rs:875
 msgid "Show as grid"
 msgstr "グリッド表示"
 
-#: src/ui/sidebar.rs:901
+#: src/ui/sidebar.rs:888
 msgid "Create a playlist"
 msgstr "プレイリストを作成"
 
-#: src/ui/sidebar.rs:917
+#: src/ui/sidebar.rs:904
 msgid "Search Your Library"
 msgstr "ライブラリを検索"
 
-#: src/ui/sidebar.rs:935
+#: src/ui/sidebar.rs:922
 msgid "Playlists"
 msgstr "プレイリスト"
 
-#: src/ui/sidebar.rs:936
+#: src/ui/sidebar.rs:923
 msgid "Albums"
 msgstr "アルバム"
 
-#: src/ui/sidebar.rs:937
+#: src/ui/sidebar.rs:924
 msgid "Artists"
 msgstr "アーティスト"
 
-#: src/ui/sidebar.rs:938
+#: src/ui/sidebar.rs:925
 msgid "Podcasts"
 msgstr "ポッドキャスト"
 
-#: src/ui/sidebar.rs:958
+#: src/ui/sidebar.rs:945
 msgid "Search in Your Library"
 msgstr "ライブラリ内を検索"
 
-#: src/ui/sidebar.rs:1083 src/app.rs:2193
+#: src/ui/sidebar.rs:1070 src/app.rs:2258
 msgid "Artist"
 msgstr "アーティスト"
 
-#: src/ui/sidebar.rs:1785
+#: src/ui/sidebar.rs:1789
 msgid "Sort by recently played"
 msgstr "最近再生した順に並べ替え"
 
-#: src/ui/sidebar.rs:1820
+#: src/ui/sidebar.rs:1824
 msgid "Unpin"
 msgstr "固定を解除"
 
-#: src/ui/sidebar.rs:1822
+#: src/ui/sidebar.rs:1826
 msgid "Pin to top"
 msgstr "先頭に固定"
 
@@ -170,71 +170,71 @@ msgstr "{name}、フォルダー、折りたたみ"
 msgid "{name}, folder, expanded"
 msgstr "{name}、フォルダー、展開"
 
-#: src/ui/player_bar.rs:85 src/ui/lyrics.rs:108 src/ui/lyrics.rs:411
+#: src/ui/player_bar.rs:119 src/ui/lyrics.rs:108 src/ui/lyrics.rs:409
 msgid "Nothing playing"
 msgstr "再生していません"
 
-#: src/ui/player_bar.rs:91
+#: src/ui/player_bar.rs:125
 msgid "Pick a song, album, or playlist"
 msgstr "曲、アルバム、プレイリストを選んでください"
 
-#: src/ui/player_bar.rs:223
+#: src/ui/player_bar.rs:255
 msgid "Remove from Liked Songs"
 msgstr "お気に入りの曲から削除"
 
-#: src/ui/player_bar.rs:229
+#: src/ui/player_bar.rs:261
 msgid "Save to Liked Songs"
 msgstr "お気に入りの曲に保存"
 
-#: src/ui/player_bar.rs:311 src/ui/player_bar.rs:318
+#: src/ui/player_bar.rs:343 src/ui/player_bar.rs:350
 msgid "Shuffle"
 msgstr "シャッフル"
 
-#: src/ui/player_bar.rs:332
+#: src/ui/player_bar.rs:364
 msgid "Previous"
 msgstr "前へ"
 
-#: src/ui/player_bar.rs:383
+#: src/ui/player_bar.rs:415
 msgid "Next"
 msgstr "次へ"
 
-#: src/ui/player_bar.rs:391
+#: src/ui/player_bar.rs:423
 msgid "Repeat"
 msgstr "リピート"
 
-#: src/ui/player_bar.rs:395
+#: src/ui/player_bar.rs:427
 msgid "Repeat one"
 msgstr "1曲リピート"
 
-#: src/ui/player_bar.rs:400
+#: src/ui/player_bar.rs:432
 msgid "Repeat off"
 msgstr "リピートをオフ"
 
-#: src/ui/player_bar.rs:461
+#: src/ui/player_bar.rs:493
 msgid "Playback position (%)"
 msgstr "再生位置 (%)"
 
-#: src/ui/player_bar.rs:499
+#: src/ui/player_bar.rs:531
 msgid "Volume (%)"
 msgstr "音量 (%)"
 
-#: src/ui/player_bar.rs:532
+#: src/ui/player_bar.rs:564
 msgid "Unmute"
 msgstr "ミュートを解除"
 
-#: src/ui/player_bar.rs:534
+#: src/ui/player_bar.rs:566
 msgid "Mute"
 msgstr "ミュート"
 
-#: src/ui/player_bar.rs:553
+#: src/ui/player_bar.rs:585
 msgid "Connect to a device"
 msgstr "デバイスに接続"
 
-#: src/ui/player_bar.rs:572 src/ui/queue.rs:23 src/ui/queue.rs:72
+#: src/ui/player_bar.rs:604 src/ui/queue.rs:23 src/ui/queue.rs:72
 msgid "Queue"
 msgstr "再生待ち"
 
-#: src/ui/player_bar.rs:588 src/ui/lyrics.rs:46 src/ui/lyrics.rs:334
+#: src/ui/player_bar.rs:620 src/ui/lyrics.rs:46 src/ui/lyrics.rs:332
 msgid "Lyrics"
 msgstr "歌詞"
 
@@ -278,7 +278,7 @@ msgstr "次に再生"
 msgid "Next up"
 msgstr "このあと再生"
 
-#: src/ui/queue.rs:339 src/ui/queue.rs:372 src/ui/widgets.rs:2116
+#: src/ui/queue.rs:339 src/ui/queue.rs:372 src/ui/widgets.rs:2140
 msgid "Retry"
 msgstr "再試行"
 
@@ -298,68 +298,68 @@ msgstr "さらに読み込む"
 msgid "Full screen lyrics"
 msgstr "歌詞を全画面表示"
 
-#: src/ui/lyrics.rs:81 src/ui/lyrics.rs:357
+#: src/ui/lyrics.rs:81 src/ui/lyrics.rs:355
 msgctxt "lyrics"
 msgid "Follow"
 msgstr "追従"
 
-#: src/ui/lyrics.rs:109 src/ui/lyrics.rs:412
+#: src/ui/lyrics.rs:109 src/ui/lyrics.rs:410
 msgid "Play a song to see its lyrics."
 msgstr "曲を再生すると歌詞が表示されます。"
 
-#: src/ui/lyrics.rs:121 src/ui/lyrics.rs:424
+#: src/ui/lyrics.rs:121 src/ui/lyrics.rs:422
 #, rust-format
 msgid "Couldn't fetch the lyrics: {error}"
 msgstr "歌詞を取得できませんでした: {error}"
 
-#: src/ui/lyrics.rs:125 src/ui/lyrics.rs:428
+#: src/ui/lyrics.rs:125 src/ui/lyrics.rs:426
 msgid "Try again"
 msgstr "もう一度試す"
 
-#: src/ui/lyrics.rs:136 src/ui/lyrics.rs:439
+#: src/ui/lyrics.rs:136 src/ui/lyrics.rs:437
 msgid "No lyrics"
 msgstr "歌詞はありません"
 
-#: src/ui/lyrics.rs:137 src/ui/lyrics.rs:440
+#: src/ui/lyrics.rs:137 src/ui/lyrics.rs:438
 msgid "No lyrics found for this track."
 msgstr "この曲の歌詞は見つかりませんでした。"
 
-#: src/ui/lyrics.rs:146 src/ui/lyrics.rs:449
+#: src/ui/lyrics.rs:146 src/ui/lyrics.rs:447
 msgid "Instrumental"
 msgstr "インストゥルメンタル"
 
-#: src/ui/lyrics.rs:147 src/ui/lyrics.rs:450
+#: src/ui/lyrics.rs:147 src/ui/lyrics.rs:448
 msgid "No timed lyrics for this track."
 msgstr "この曲には同期された歌詞がありません。"
 
-#: src/ui/lyrics.rs:345
+#: src/ui/lyrics.rs:343
 msgid "Leave full screen (Esc)"
 msgstr "全画面表示を終了 (Esc)"
 
-#: src/ui/widgets.rs:2101
+#: src/ui/widgets.rs:2125
 msgid "Loading…"
 msgstr "読み込み中…"
 
-#: src/app.rs:2140
+#: src/app.rs:2205
 msgid "Radio"
 msgstr "ラジオ"
 
-#: src/app.rs:2174
+#: src/app.rs:2239
 msgid "Album"
 msgstr "アルバム"
 
-#: src/app.rs:2212
+#: src/app.rs:2277
 msgid "Podcast"
 msgstr "ポッドキャスト"
 
 #. Translators: Keep {track} unchanged. The song title itself is not translated.
-#: src/app.rs:2230 src/app.rs:13963
+#: src/app.rs:2295 src/app.rs:14509
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track} のラジオ"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:4013 src/app.rs:13943
+#: src/app.rs:4078 src/app.rs:14489
 #, rust-format
 msgid "Queue {date}"
 msgstr "再生待ち {date}"

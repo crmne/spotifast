@@ -1911,6 +1911,156 @@ mod tests {
     }
 
     #[test]
+    fn library_grid_ignores_song_and_card_drops_behind_expanded_art() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("library-grid-art-drops");
+        app.settings.sidebar_grid = true;
+        app.settings.art_expanded = true;
+        assert!(app.now_playing().unwrap().art_url.is_some());
+        let frame = |ctx: &egui::Context, app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::sidebar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+                .platform_output
+                .accesskit_update
+                .expect("sidebar tree")
+        };
+        let tree = frame(&ctx, &mut app, vec![]);
+        // The demo grid continues underneath the fixed cover at the bottom
+        // left. Check that this point really lies inside a card's bounds.
+        let pos = egui::pos2(60.0, 600.0);
+        assert!(
+            tree.nodes.iter().any(|(_, node)| {
+                node.role() == Role::Button
+                    && node.label() == Some("Running 2026")
+                    && node.bounds().is_some_and(|rect| {
+                        rect.x0 <= f64::from(pos.x)
+                            && rect.x1 >= f64::from(pos.x)
+                            && rect.y0 <= f64::from(pos.y)
+                            && rect.y1 >= f64::from(pos.y)
+                    })
+            }),
+            "the covered card must accept songs"
+        );
+        let release = |app: &mut App| {
+            frame(&ctx, app, vec![egui::Event::PointerMoved(pos)]);
+            frame(
+                &ctx,
+                app,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+        };
+        app.actions.clear();
+        let order = app.settings.sidebar_order.clone();
+        let song = PlayableItem::Track(Track {
+            uri: "spotify:track:art-drop".into(),
+            name: "Art drop".into(),
+            ..Default::default()
+        });
+        egui::DragAndDrop::set_payload(
+            &ctx,
+            DragTrack {
+                title: "Art drop".into(),
+                image: None,
+                items: vec![song],
+                from: None,
+            },
+        );
+        release(&mut app);
+        assert!(!app.actions.iter().any(|action| matches!(
+            action,
+            Action::AddToPlaylist { .. } | Action::SetSavedMany { .. }
+        )));
+        egui::DragAndDrop::clear_payload(&ctx);
+
+        egui::DragAndDrop::set_payload(
+            &ctx,
+            DragEntry {
+                uri: "spotify:playlist:pl1".into(),
+                title: "Late night focus".into(),
+                image: None,
+            },
+        );
+        release(&mut app);
+        assert_eq!(app.settings.sidebar_order, order);
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::SettingsChanged))
+        );
+        egui::DragAndDrop::clear_payload(&ctx);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn library_grid_highlights_a_song_drop_target_during_drag() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("library-grid-drop-highlight");
+        app.settings.sidebar_grid = true;
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let liked = tree
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.role() == Role::Button && node.label() == Some("Liked Songs"))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+            .expect("Liked Songs card");
+        let pos = egui::pos2(liked.x0 as f32 + 24.0, liked.y0 as f32 + 24.0);
+        egui::DragAndDrop::set_payload(
+            &ctx,
+            DragTrack {
+                title: "Art drop".into(),
+                image: None,
+                items: vec![PlayableItem::Track(Track {
+                    uri: "spotify:track:highlight".into(),
+                    ..Default::default()
+                })],
+                from: None,
+            },
+        );
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                events: vec![egui::Event::PointerMoved(pos)],
+                ..Default::default()
+            },
+            |ui| app.frame_ui(ui),
+        );
+        output.textures_delta.clear();
+        assert!(
+            output.shapes.iter().any(|clipped| matches!(&clipped.shape,
+                egui::epaint::Shape::Rect(rect)
+                    if rect.stroke.width == 2.0
+                        && rect.stroke.color == app.palette.accent
+                        && rect.rect.contains(pos)
+            )),
+            "no accent outline on the drop target"
+        );
+        egui::DragAndDrop::clear_payload(&ctx);
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn library_grid_cards_navigate_and_their_corner_buttons_play() {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("library-grid-card-actions");

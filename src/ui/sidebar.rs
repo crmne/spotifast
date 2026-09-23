@@ -219,8 +219,8 @@ fn finish_entry_interaction(
     response: &egui::Response,
     entry: &Entry,
     cover_took_click: bool,
-    play_on_double_click: bool,
     custom_order: bool,
+    drop_allowed: bool,
 ) {
     if response.hovered()
         && let Some(image) = &entry.image
@@ -237,7 +237,8 @@ fn finish_entry_interaction(
             },
         );
     }
-    if (entry.liked || entry.editable)
+    if drop_allowed
+        && (entry.liked || entry.editable)
         && egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx())
         && let Some(track) = response.dnd_release_payload::<DragTrack>()
     {
@@ -267,7 +268,7 @@ fn finish_entry_interaction(
             app.actions.push(Action::Open(entry.page.clone()));
         }
     }
-    if play_on_double_click
+    if !app.settings.sidebar_grid
         && response.double_clicked()
         && entry.folder.is_none()
         && !cover_took_click
@@ -483,10 +484,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if let Some(rect) = art_rect.filter(|_| !floating_art) {
             reserve_expanded_art(ui, rect);
         }
-        let grid_art_occlusion = art_rect
-            .filter(|_| floating_art)
-            .map_or(0.0, |rect| ui.max_rect().bottom() - rect.top());
-        contents(app, ui, grid_art_occlusion);
+        contents(app, ui, art_rect.filter(|_| floating_art));
         if let Some(rect) = art_rect {
             if floating_art {
                 paint_grid_art_mask(app, ui, rect);
@@ -797,7 +795,7 @@ fn nav_row(
     response
 }
 
-fn contents(app: &mut App, ui: &mut egui::Ui, grid_art_occlusion: f32) {
+fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let palette = app.palette;
     let page = app.page().clone();
     let locale = app.locale;
@@ -1167,11 +1165,19 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art_occlusion: f32) {
                 );
             }
             if app.settings.sidebar_grid {
-                library_grid(app, ui, &entries, filter, custom_order, pinned_rows);
+                library_grid(
+                    app,
+                    ui,
+                    &entries,
+                    filter,
+                    custom_order,
+                    pinned_rows,
+                    grid_art,
+                );
                 if let Some(page) = more_page {
                     super::widgets::load_more_when_near_end(ui, app, page, true);
                 }
-                ui.add_space(grid_art_occlusion);
+                ui.add_space(grid_art.map_or(0.0, |rect| ui.max_rect().bottom() - rect.top()));
                 return;
             }
 
@@ -1441,8 +1447,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art_occlusion: f32) {
                     &response,
                     entry,
                     cover_took_click,
-                    true, // List rows retain their double-click shortcut.
                     custom_order,
+                    true,
                 );
             });
             if let Some(slot) = reorder_slot {
@@ -1541,6 +1547,7 @@ fn library_grid(
     filter: Filter,
     custom_order: bool,
     pinned_rows: usize,
+    grid_art: Option<Rect>,
 ) {
     if entries.is_empty() {
         return;
@@ -1552,10 +1559,11 @@ fn library_grid(
     let current_page = app.page().clone();
     let layout = grid_layout(ui.available_width());
     let origin = ui.cursor().min;
-    let pointer = ui
-        .ctx()
-        .pointer_latest_pos()
-        .filter(|pos| ui.clip_rect().contains(*pos) && ui.rect_contains_pointer(ui.clip_rect()));
+    let pointer = ui.ctx().pointer_latest_pos().filter(|pos| {
+        ui.clip_rect().contains(*pos)
+            && ui.rect_contains_pointer(ui.clip_rect())
+            && !grid_art.is_some_and(|art| art.contains(*pos))
+    });
     let dragging_song = egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx());
     let reordering = egui::DragAndDrop::has_payload_of_type::<DragEntry>(ui.ctx());
     let reorder_slot = reordering
@@ -1696,7 +1704,10 @@ fn library_grid(
                                 CornerRadius::same(6),
                                 palette.panel.gamma_multiply(0.5),
                             );
-                        } else if dragging_song && droppable && response.hovered() {
+                        } else if dragging_song
+                            && droppable
+                            && pointer.is_some_and(|pos| rect.contains(pos))
+                        {
                             ui.painter().rect_stroke(
                                 cover_rect,
                                 CornerRadius::same(6),
@@ -1726,8 +1737,8 @@ fn library_grid(
                         &response,
                         entry,
                         cover_took_click,
-                        false, // Grid cards play only through their corner button.
                         custom_order,
+                        pointer.is_some(),
                     );
                 });
             }

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-22 18:48+0300\n"
+"POT-Creation-Date: 2026-09-23 17:34+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Simplified Chinese\n"
@@ -16,119 +16,119 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: src/ui/sidebar.rs:161 src/ui/player_bar.rs:365
+#: src/ui/sidebar.rs:160 src/ui/player_bar.rs:397
 msgid "Pause"
 msgstr "暂停"
 
-#: src/ui/sidebar.rs:163 src/ui/sidebar.rs:1802 src/ui/player_bar.rs:367
+#: src/ui/sidebar.rs:162 src/ui/sidebar.rs:1806 src/ui/player_bar.rs:399
 msgid "Play"
 msgstr "播放"
 
-#: src/ui/sidebar.rs:296 src/app.rs:2158 src/app.rs:13953
+#: src/ui/sidebar.rs:290 src/app.rs:2223 src/app.rs:14499
 msgid "Playlist"
 msgstr "歌单"
 
-#: src/ui/sidebar.rs:306 src/app.rs:2132 src/app.rs:13958
+#: src/ui/sidebar.rs:300 src/app.rs:2197 src/app.rs:14504
 msgid "Liked Songs"
 msgstr "喜欢的歌曲"
 
-#: src/ui/sidebar.rs:346
+#: src/ui/sidebar.rs:340
 msgid "Library order"
 msgstr "音乐库顺序"
 
-#: src/ui/sidebar.rs:349
+#: src/ui/sidebar.rs:343
 msgid "Recently played"
 msgstr "最近播放"
 
-#: src/ui/sidebar.rs:351
+#: src/ui/sidebar.rs:345
 msgid "Name"
 msgstr "名称"
 
-#: src/ui/sidebar.rs:354
+#: src/ui/sidebar.rs:348
 msgid "Recently added"
 msgstr "最近添加"
 
-#: src/ui/sidebar.rs:356
+#: src/ui/sidebar.rs:350
 msgid "Local custom order"
 msgstr "本地自定义顺序"
 
-#: src/ui/sidebar.rs:359
+#: src/ui/sidebar.rs:353
 msgid "Spotify custom order"
 msgstr "Spotify 自定义顺序"
 
-#: src/ui/sidebar.rs:660
+#: src/ui/sidebar.rs:647
 msgid "Folder"
 msgstr "文件夹"
 
-#: src/ui/sidebar.rs:820 src/i18n.rs:154 src/i18n.rs:157
+#: src/ui/sidebar.rs:807 src/i18n.rs:154 src/i18n.rs:157
 msgid "Home"
 msgstr "首页"
 
-#: src/ui/sidebar.rs:831
+#: src/ui/sidebar.rs:818
 msgid "Search"
 msgstr "搜索"
 
-#: src/ui/sidebar.rs:863
+#: src/ui/sidebar.rs:850
 msgid "Library"
 msgstr "音乐库"
 
-#: src/ui/sidebar.rs:876
+#: src/ui/sidebar.rs:863
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "隐藏侧边栏 (Ctrl+B)"
 
-#: src/ui/sidebar.rs:877
+#: src/ui/sidebar.rs:864
 msgid "Hide sidebar (Cmd+B)"
 msgstr "隐藏侧边栏 (Cmd+B)"
 
-#: src/ui/sidebar.rs:886
+#: src/ui/sidebar.rs:873
 msgid "Show as list"
 msgstr "显示为列表"
 
-#: src/ui/sidebar.rs:888
+#: src/ui/sidebar.rs:875
 msgid "Show as grid"
 msgstr "显示为网格"
 
-#: src/ui/sidebar.rs:901
+#: src/ui/sidebar.rs:888
 msgid "Create a playlist"
 msgstr "创建歌单"
 
-#: src/ui/sidebar.rs:917
+#: src/ui/sidebar.rs:904
 msgid "Search Your Library"
 msgstr "搜索音乐库"
 
-#: src/ui/sidebar.rs:935
+#: src/ui/sidebar.rs:922
 msgid "Playlists"
 msgstr "歌单"
 
-#: src/ui/sidebar.rs:936
+#: src/ui/sidebar.rs:923
 msgid "Albums"
 msgstr "专辑"
 
-#: src/ui/sidebar.rs:937
+#: src/ui/sidebar.rs:924
 msgid "Artists"
 msgstr "艺人"
 
-#: src/ui/sidebar.rs:938
+#: src/ui/sidebar.rs:925
 msgid "Podcasts"
 msgstr "播客"
 
-#: src/ui/sidebar.rs:958
+#: src/ui/sidebar.rs:945
 msgid "Search in Your Library"
 msgstr "在音乐库中搜索"
 
-#: src/ui/sidebar.rs:1083 src/app.rs:2193
+#: src/ui/sidebar.rs:1070 src/app.rs:2258
 msgid "Artist"
 msgstr "艺人"
 
-#: src/ui/sidebar.rs:1785
+#: src/ui/sidebar.rs:1789
 msgid "Sort by recently played"
 msgstr "按最近播放排序"
 
-#: src/ui/sidebar.rs:1820
+#: src/ui/sidebar.rs:1824
 msgid "Unpin"
 msgstr "取消置顶"
 
-#: src/ui/sidebar.rs:1822
+#: src/ui/sidebar.rs:1826
 msgid "Pin to top"
 msgstr "置顶"
 
@@ -170,71 +170,71 @@ msgstr "{name}，文件夹，已折叠"
 msgid "{name}, folder, expanded"
 msgstr "{name}，文件夹，已展开"
 
-#: src/ui/player_bar.rs:85 src/ui/lyrics.rs:108 src/ui/lyrics.rs:411
+#: src/ui/player_bar.rs:119 src/ui/lyrics.rs:108 src/ui/lyrics.rs:409
 msgid "Nothing playing"
 msgstr "暂无播放曲目"
 
-#: src/ui/player_bar.rs:91
+#: src/ui/player_bar.rs:125
 msgid "Pick a song, album, or playlist"
 msgstr "选择歌曲、专辑或歌单"
 
-#: src/ui/player_bar.rs:223
+#: src/ui/player_bar.rs:255
 msgid "Remove from Liked Songs"
 msgstr "从喜欢的歌曲中移除"
 
-#: src/ui/player_bar.rs:229
+#: src/ui/player_bar.rs:261
 msgid "Save to Liked Songs"
 msgstr "保存到喜欢的歌曲"
 
-#: src/ui/player_bar.rs:311 src/ui/player_bar.rs:318
+#: src/ui/player_bar.rs:343 src/ui/player_bar.rs:350
 msgid "Shuffle"
 msgstr "随机播放"
 
-#: src/ui/player_bar.rs:332
+#: src/ui/player_bar.rs:364
 msgid "Previous"
 msgstr "上一首"
 
-#: src/ui/player_bar.rs:383
+#: src/ui/player_bar.rs:415
 msgid "Next"
 msgstr "下一首"
 
-#: src/ui/player_bar.rs:391
+#: src/ui/player_bar.rs:423
 msgid "Repeat"
 msgstr "列表循环"
 
-#: src/ui/player_bar.rs:395
+#: src/ui/player_bar.rs:427
 msgid "Repeat one"
 msgstr "单曲循环"
 
-#: src/ui/player_bar.rs:400
+#: src/ui/player_bar.rs:432
 msgid "Repeat off"
 msgstr "关闭循环"
 
-#: src/ui/player_bar.rs:461
+#: src/ui/player_bar.rs:493
 msgid "Playback position (%)"
 msgstr "播放进度 (%)"
 
-#: src/ui/player_bar.rs:499
+#: src/ui/player_bar.rs:531
 msgid "Volume (%)"
 msgstr "音量 (%)"
 
-#: src/ui/player_bar.rs:532
+#: src/ui/player_bar.rs:564
 msgid "Unmute"
 msgstr "取消静音"
 
-#: src/ui/player_bar.rs:534
+#: src/ui/player_bar.rs:566
 msgid "Mute"
 msgstr "静音"
 
-#: src/ui/player_bar.rs:553
+#: src/ui/player_bar.rs:585
 msgid "Connect to a device"
 msgstr "连接到设备"
 
-#: src/ui/player_bar.rs:572 src/ui/queue.rs:23 src/ui/queue.rs:72
+#: src/ui/player_bar.rs:604 src/ui/queue.rs:23 src/ui/queue.rs:72
 msgid "Queue"
 msgstr "播放队列"
 
-#: src/ui/player_bar.rs:588 src/ui/lyrics.rs:46 src/ui/lyrics.rs:334
+#: src/ui/player_bar.rs:620 src/ui/lyrics.rs:46 src/ui/lyrics.rs:332
 msgid "Lyrics"
 msgstr "歌词"
 
@@ -278,7 +278,7 @@ msgstr "接下来播放"
 msgid "Next up"
 msgstr "后续曲目"
 
-#: src/ui/queue.rs:339 src/ui/queue.rs:372 src/ui/widgets.rs:2116
+#: src/ui/queue.rs:339 src/ui/queue.rs:372 src/ui/widgets.rs:2140
 msgid "Retry"
 msgstr "重试"
 
@@ -298,68 +298,68 @@ msgstr "加载更多"
 msgid "Full screen lyrics"
 msgstr "全屏歌词"
 
-#: src/ui/lyrics.rs:81 src/ui/lyrics.rs:357
+#: src/ui/lyrics.rs:81 src/ui/lyrics.rs:355
 msgctxt "lyrics"
 msgid "Follow"
 msgstr "跟随歌词"
 
-#: src/ui/lyrics.rs:109 src/ui/lyrics.rs:412
+#: src/ui/lyrics.rs:109 src/ui/lyrics.rs:410
 msgid "Play a song to see its lyrics."
 msgstr "播放歌曲以查看歌词。"
 
-#: src/ui/lyrics.rs:121 src/ui/lyrics.rs:424
+#: src/ui/lyrics.rs:121 src/ui/lyrics.rs:422
 #, rust-format
 msgid "Couldn't fetch the lyrics: {error}"
 msgstr "无法获取歌词：{error}"
 
-#: src/ui/lyrics.rs:125 src/ui/lyrics.rs:428
+#: src/ui/lyrics.rs:125 src/ui/lyrics.rs:426
 msgid "Try again"
 msgstr "再试一次"
 
-#: src/ui/lyrics.rs:136 src/ui/lyrics.rs:439
+#: src/ui/lyrics.rs:136 src/ui/lyrics.rs:437
 msgid "No lyrics"
 msgstr "暂无歌词"
 
-#: src/ui/lyrics.rs:137 src/ui/lyrics.rs:440
+#: src/ui/lyrics.rs:137 src/ui/lyrics.rs:438
 msgid "No lyrics found for this track."
 msgstr "未找到这首歌的歌词。"
 
-#: src/ui/lyrics.rs:146 src/ui/lyrics.rs:449
+#: src/ui/lyrics.rs:146 src/ui/lyrics.rs:447
 msgid "Instrumental"
 msgstr "纯音乐"
 
-#: src/ui/lyrics.rs:147 src/ui/lyrics.rs:450
+#: src/ui/lyrics.rs:147 src/ui/lyrics.rs:448
 msgid "No timed lyrics for this track."
 msgstr "这首歌没有同步歌词。"
 
-#: src/ui/lyrics.rs:345
+#: src/ui/lyrics.rs:343
 msgid "Leave full screen (Esc)"
 msgstr "退出全屏 (Esc)"
 
-#: src/ui/widgets.rs:2101
+#: src/ui/widgets.rs:2125
 msgid "Loading…"
 msgstr "加载中…"
 
-#: src/app.rs:2140
+#: src/app.rs:2205
 msgid "Radio"
 msgstr "电台"
 
-#: src/app.rs:2174
+#: src/app.rs:2239
 msgid "Album"
 msgstr "专辑"
 
-#: src/app.rs:2212
+#: src/app.rs:2277
 msgid "Podcast"
 msgstr "播客"
 
 #. Translators: Keep {track} unchanged. The song title itself is not translated.
-#: src/app.rs:2230 src/app.rs:13963
+#: src/app.rs:2295 src/app.rs:14509
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track} 电台"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:4013 src/app.rs:13943
+#: src/app.rs:4078 src/app.rs:14489
 #, rust-format
 msgid "Queue {date}"
 msgstr "队列 {date}"
