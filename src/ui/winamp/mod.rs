@@ -35,6 +35,10 @@ pub use pixel_text::PixelText;
 /// How often the visualiser moves.
 const VIS_FRAME: Duration = Duration::from_micros(16_667);
 
+fn visualiser_repaint_delay(vsync: bool) -> Duration {
+    if vsync { VIS_FRAME } else { VIS_FRAME * 2 }
+}
+
 /// The stack's height in skin pixels: the main window, and the equalizer
 /// and the playlist under it, whichever are open.
 fn stack_height(settings: &crate::settings::Settings) -> u32 {
@@ -384,14 +388,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         playlist::show(app, &mut below, now.as_ref(), focused);
     }
 
-    // The visualiser wants a frame every 60th of a second while it moves;
-    // otherwise the marquee steps and the time ticks, and while paused the
-    // time blinks. egui takes one predicted frame (a 60th) off every delay
-    // on the assumption that vsync paces the loop. On platforms where this
-    // window has vsync off, asking for a 60th would leave nothing and spin a
-    // core; asking for two frames waits one.
+    // egui subtracts one predicted frame from delayed repaints. With VSync,
+    // the next buffer swap supplies that frame; without it, request two.
     if vis_moving {
-        ctx.request_repaint_after(VIS_FRAME * 2);
+        ctx.request_repaint_after(visualiser_repaint_delay(cfg!(target_os = "macos")));
     } else if now.is_some() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }
@@ -1541,6 +1541,12 @@ fn shuffle_repeat(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visualiser_repaint_delay_accounts_for_vsync() {
+        assert_eq!(visualiser_repaint_delay(true), VIS_FRAME);
+        assert_eq!(visualiser_repaint_delay(false), VIS_FRAME * 2);
+    }
 
     fn now(title: &str, subtitle: &str, duration_ms: u32) -> NowPlaying {
         NowPlaying {
