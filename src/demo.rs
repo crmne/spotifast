@@ -1964,7 +1964,19 @@ mod tests {
                 (overlap.width() > 16.0 && overlap.height() > 16.0).then(|| overlap.center())
             })
             .expect("an editable card behind the artwork");
-        let release = |app: &mut App| {
+        // A visible card, for the control drop that must still land.
+        let visible = tree
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                let bounds = (node.role() == Role::Button && node.label() == Some("Liked Songs"))
+                    .then(|| node.bounds())
+                    .flatten()?;
+                Some(egui::pos2(bounds.x0 as f32 + 24.0, bounds.y0 as f32 + 24.0))
+            })
+            .expect("Liked Songs card");
+        assert!(!art.contains(visible));
+        let release = |app: &mut App, pos| {
             frame(&ctx, app, vec![egui::Event::PointerMoved(pos)]);
             frame(
                 &ctx,
@@ -1978,7 +1990,6 @@ mod tests {
             );
         };
         app.actions.clear();
-        let order = app.settings.sidebar_order.clone();
         let song = PlayableItem::Track(Track {
             uri: "spotify:track:art-drop".into(),
             name: "Art drop".into(),
@@ -1993,28 +2004,36 @@ mod tests {
                 from: None,
             },
         );
-        release(&mut app);
+        release(&mut app, pos);
         assert!(!app.actions.iter().any(|action| matches!(
             action,
             Action::AddToPlaylist { .. } | Action::SetSavedMany { .. }
         )));
         egui::DragAndDrop::clear_payload(&ctx);
 
-        egui::DragAndDrop::set_payload(
-            &ctx,
-            DragEntry {
-                uri: "spotify:playlist:pl1".into(),
-                title: "Late night focus".into(),
-                image: None,
-            },
-        );
-        release(&mut app);
-        assert_eq!(app.settings.sidebar_order, order);
-        assert!(
-            !app.actions
+        let drag_card = || {
+            egui::DragAndDrop::set_payload(
+                &ctx,
+                DragEntry {
+                    uri: "spotify:playlist:pl1".into(),
+                    title: "Late night focus".into(),
+                    image: None,
+                },
+            );
+        };
+        let rearranged = |app: &App| {
+            app.actions
                 .iter()
-                .any(|action| matches!(action, Action::SettingsChanged))
-        );
+                .any(|action| matches!(action, Action::ArrangeLibrary { .. }))
+        };
+        drag_card();
+        release(&mut app, pos);
+        assert!(!rearranged(&app), "a card dropped on the artwork moved");
+        egui::DragAndDrop::clear_payload(&ctx);
+
+        drag_card();
+        release(&mut app, visible);
+        assert!(rearranged(&app), "a card dropped on a visible card stayed");
         egui::DragAndDrop::clear_payload(&ctx);
         app.backend.shutdown();
     }
@@ -2047,18 +2066,40 @@ mod tests {
                 from: None,
             },
         );
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1280.0, 800.0),
-                )),
-                events: vec![egui::Event::PointerMoved(pos)],
-                ..Default::default()
-            },
-            |ui| app.frame_ui(ui),
+        let run = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        // Hold the button down away from the card, as a real drag does:
+        // egui then stops reporting other widgets as hovered, so the
+        // outline has to follow the pointer instead.
+        let start = egui::pos2(900.0, 400.0);
+        run(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(start),
+                egui::Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
         );
-        output.textures_delta.clear();
+        run(&mut app, vec![egui::Event::PointerMoved(pos)]);
+        let output = run(&mut app, vec![egui::Event::PointerMoved(pos)]);
+        assert!(ctx.input(|input| input.pointer.primary_down()));
         assert!(
             output.shapes.iter().any(|clipped| matches!(&clipped.shape,
                 egui::epaint::Shape::Rect(rect)
