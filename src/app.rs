@@ -7494,7 +7494,9 @@ impl App {
                 }
             }
             Action::ToggleShuffle => {
-                let shuffle = self.now_playing().is_some_and(|now| now.shuffle);
+                let shuffle = self
+                    .now_playing()
+                    .map_or(self.shuffle_wanted, |now| now.shuffle);
                 self.set_shuffle(!shuffle);
             }
             Action::SetShuffle(shuffle) => self.set_shuffle(shuffle),
@@ -17356,6 +17358,86 @@ mod tests {
             [ApiRequest::ShufflePlay { device_id: Some(device), play }]
                 if device == "remote1" && play.context_uri.as_deref() == Some("spotify:playlist:pl0")
         ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn player_bar_uses_pending_shuffle_without_a_device() {
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, Toggled, TreeId};
+
+        fn draw_player_bar(
+            ctx: &egui::Context,
+            app: &mut App,
+            events: Vec<egui::Event>,
+        ) -> egui::accesskit::TreeUpdate {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            app.apply_actions(ctx);
+            output.platform_output.accesskit_update.unwrap()
+        }
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = headless_app();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.remote.take().expect("demo remote playback");
+        app.local_ready = false;
+        app.local_device_id = None;
+        app.local_playback = LocalPlayback::Unavailable;
+        app.local.connected = false;
+        app.selected_device = None;
+        app.shuffle_wanted = false;
+        assert!(app.now_playing().is_none());
+
+        click_collection_action(
+            &ctx,
+            &mut app,
+            "spotify:playlist:pl0",
+            egui::pos2(87.0, 28.0),
+        );
+        assert!(app.playing_context_shuffle());
+
+        draw_player_bar(&ctx, &mut app, Vec::new());
+        let enabled = draw_player_bar(&ctx, &mut app, Vec::new());
+        let (shuffle_id, shuffle_node) = enabled
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Shuffle"))
+            .expect("player-bar Shuffle button");
+        assert_eq!(shuffle_node.toggled(), Some(Toggled::True));
+
+        draw_player_bar(
+            &ctx,
+            &mut app,
+            vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                target_tree: TreeId::ROOT,
+                target_node: *shuffle_id,
+                action: AccessibleAction::Click,
+                data: None,
+            })],
+        );
+        assert!(!app.playing_context_shuffle());
+
+        let disabled = draw_player_bar(&ctx, &mut app, Vec::new());
+        let shuffle_node = &disabled
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Shuffle"))
+            .expect("player-bar Shuffle button")
+            .1;
+        assert_eq!(shuffle_node.toggled(), Some(Toggled::False));
+        assert!(app.backend.take_remote_shuffle_requests().is_empty());
         app.backend.shutdown();
     }
 
