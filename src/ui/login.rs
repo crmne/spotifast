@@ -15,7 +15,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
         .frame(Frame::new().fill(palette.window))
         .show(ui, |ui| {
             let rect = ui.max_rect();
-            super::titlebar_drag(ui, rect);
+            // The native double-click action belongs to the top bar, not the empty login background.
+            let drag_rect = if cfg!(target_os = "macos") {
+                Rect::from_min_size(
+                    rect.min,
+                    Vec2::new(rect.width(), theme::TOP_BAR_HEIGHT + theme::titlebar_inset(ui.ctx())),
+                )
+            } else {
+                rect
+            };
+            super::titlebar_drag(ui, drag_rect);
             let top = super::blend(palette.window, palette.accent, 0.10);
             super::widgets::paint_vertical_gradient(ui, rect, top, palette.window);
             let card_width = 440.0;

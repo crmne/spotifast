@@ -242,7 +242,7 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
         || (cfg!(target_os = "macos")
             && response.is_pointer_button_down_on()
             && ui.input(|input| input.pointer.primary_pressed())
-            && crate::window::macos_titlebar_should_drag())
+            && crate::window::macos_titlebar_should_drag(ui.ctx()))
     {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }

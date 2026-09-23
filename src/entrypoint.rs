@@ -891,7 +891,7 @@ fn native_options(
         // Keep VSync off elsewhere; hidden Wayland windows receive no frame
         // callbacks and would block the event loop while waiting for one.
         glow_options: eframe::egui_glow::GlowConfiguration {
-            vsync: cfg!(target_os = "macos"),
+            vsync: cfg!(target_os = "macos") && persist_window,
             ..Default::default()
         },
         ..Default::default()
@@ -1026,11 +1026,19 @@ mod native_window_tests {
     }
 
     #[test]
-    fn only_macos_waits_for_vsync() {
+    fn only_the_macos_main_window_waits_for_vsync() {
         assert_eq!(
             native_options(false, None, None).glow_options.vsync,
             cfg!(target_os = "macos")
         );
+        let mini = MiniWindow {
+            size: egui::vec2(550.0, 232.0),
+            position: None,
+            on_top: false,
+            taskbar: true,
+            storage_path: "cache/winamp.ron".into(),
+        };
+        assert!(!native_options(false, Some(mini), None).glow_options.vsync);
     }
 
     #[test]
