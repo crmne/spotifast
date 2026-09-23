@@ -548,8 +548,12 @@ impl<T> CursorList<T> {
 pub struct Library {
     pub playlists: Loadable<Vec<Playlist>>,
     pub playlists_next: Option<u32>,
-    /// The later playlist page on its way. A reload forgets it, so a page
-    /// asked for before the reload is not taken into the new list.
+    /// Which load of the playlists the pages on their way belong to. Every
+    /// load from the top takes a new one, so a page asked for by an earlier
+    /// load is not taken into the new list, even at the same offset.
+    pub playlists_generation: u64,
+    /// The later playlist page on its way, so a second answer for a page
+    /// already taken adds nothing.
     pub playlists_asked: Option<u32>,
     pub liked: PagedList<SavedTrack>,
     pub albums: PagedList<SavedAlbum>,

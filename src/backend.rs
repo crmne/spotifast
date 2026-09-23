@@ -139,6 +139,7 @@ pub enum ApiRequest {
     },
     MyPlaylists {
         offset: u32,
+        generation: u64,
     },
     Playlist {
         id: String,
@@ -370,6 +371,7 @@ pub enum ApiResponse {
     },
     MyPlaylists {
         offset: u32,
+        generation: u64,
         result: ApiResult<Page<Playlist>>,
     },
     Playlist {
@@ -3465,8 +3467,9 @@ async fn handle(
                 result,
             }
         }
-        ApiRequest::MyPlaylists { offset } => ApiResponse::MyPlaylists {
+        ApiRequest::MyPlaylists { offset, generation } => ApiResponse::MyPlaylists {
             offset,
+            generation,
             result: routed!(my_playlists(offset, 50)),
         },
         ApiRequest::Playlist { id, generation } => ApiResponse::Playlist {
