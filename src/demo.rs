@@ -1936,22 +1936,34 @@ mod tests {
                 .expect("sidebar tree")
         };
         let tree = frame(&ctx, &mut app, vec![]);
-        // The demo grid continues underneath the fixed cover at the bottom
-        // left. Check that this point really lies inside a card's bounds.
-        let pos = egui::pos2(60.0, 600.0);
-        assert!(
-            tree.nodes.iter().any(|(_, node)| {
-                node.role() == Role::Button
-                    && node.label() == Some("Running 2026")
-                    && node.bounds().is_some_and(|rect| {
-                        rect.x0 <= f64::from(pos.x)
-                            && rect.x1 >= f64::from(pos.x)
-                            && rect.y0 <= f64::from(pos.y)
-                            && rect.y1 >= f64::from(pos.y)
-                    })
-            }),
-            "the covered card must accept songs"
-        );
+        let art = ctx
+            .read_response(egui::Id::new("sidebar-art"))
+            .expect("expanded artwork")
+            .rect;
+        let playlists = app.library.playlists.get().expect("demo playlists");
+        // Pick an editable card actually covered by the artwork, regardless
+        // of platform font metrics and title-bar height.
+        let pos = tree
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                let label = node.label()?;
+                if node.role() != Role::Button
+                    || !playlists
+                        .iter()
+                        .any(|playlist| playlist.name == label && app.can_edit_playlist(playlist))
+                {
+                    return None;
+                }
+                let bounds = node.bounds()?;
+                let card = egui::Rect::from_min_max(
+                    egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                    egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+                );
+                let overlap = card.intersect(art);
+                (overlap.width() > 16.0 && overlap.height() > 16.0).then(|| overlap.center())
+            })
+            .expect("an editable card behind the artwork");
         let release = |app: &mut App| {
             frame(&ctx, app, vec![egui::Event::PointerMoved(pos)]);
             frame(
