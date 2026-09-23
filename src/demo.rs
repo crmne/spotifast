@@ -678,6 +678,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 }
             }
             "devices" => app.show_devices = true,
+            // These paired states capture both outcomes of the collection
+            // Shuffle click for the PR visual comparison.
+            "shuffle-selected" => {
+                app.apply(Action::SetShuffle(true), &egui::Context::default());
+            }
+            "shuffle-started" => {
+                app.apply(
+                    Action::ShufflePlay("spotify:playlist:pl0".into()),
+                    &egui::Context::default(),
+                );
+            }
             "german" => app.locale = crate::i18n::Locale::German,
             "update" => {
                 app.update = Some(crate::updates::Release {

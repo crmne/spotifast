@@ -290,8 +290,10 @@ settings.
 and `--demo-show` adds surfaces on top of it: a comma separated list of
 `queue`, `playing-next`, `devices`, `shortcuts`, `premium`, `create`, `duplicate`, `light`,
 `focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`,
-and `collection-loading`. `update` shows a sample update badge for checking its
-layout. `personal-app` shows the personal Spotify app introduction.
+`collection-loading`, `shuffle-selected`, and `shuffle-started`. The last two
+capture the selected-mode and playback-started outcomes of a collection Shuffle
+click. `update` shows a sample update badge for checking its layout. `personal-app`
+shows the personal Spotify app introduction.
 `collection-loading` keeps known collection metadata and placeholder artwork
 visible while replacing the page content, with unfinished controls disabled.
 

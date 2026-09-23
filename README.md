@@ -127,11 +127,15 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   immediately while playback starts.
 - Since 0.8.0, a playlist's **Play** button explicitly starts at
   its first available song when Shuffle is off and the original order is
-  selected. The Shuffle button beside it selects the mode without starting
-  playback. Double-click a row to start there; use the player bar to resume.
+  selected. Double-click a row to start there; use the player bar to resume.
   Cached playlists must match Spotify's revision and song count before their
   rows can determine playback order. Pending playlist edits stay visible and
   are saved to that cache only after all writes succeed.
+- On `main`, after 0.8.0, the **Shuffle** button beside a collection's **Play**
+  button sets the global mode without starting that collection. Choose it before
+  a playback device is active; the next **Play** uses that selection. While
+  another collection plays, it changes that playback's mode without switching
+  to the viewed collection.
   Refresh waits for pending edits and their Spotify revision to be confirmed;
   a failed refresh keeps the current rows and offers a retry.
   Choose **Refresh** in a playlist's **…** menu to pick up changes made in

@@ -17233,6 +17233,160 @@ mod tests {
         app.backend.shutdown();
     }
 
+    fn draw_collection_actions(
+        ctx: &egui::Context,
+        app: &mut App,
+        uri: &str,
+        events: Vec<egui::Event>,
+    ) {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                crate::ui::collection::actions_row(
+                    app,
+                    ui,
+                    crate::ui::collection::Actions {
+                        play_uri: Some(uri.to_owned()),
+                        view: None,
+                        saved: None,
+                        saved_icons: (
+                            crate::theme::Icon::CirclePlus,
+                            crate::theme::Icon::CircleCheck,
+                        ),
+                        saved_tooltips: ("", ""),
+                        owned_playlist: None,
+                        reload: None,
+                        name: "Test",
+                    },
+                    None,
+                );
+            },
+        );
+        output.textures_delta.clear();
+        app.apply_actions(ctx);
+    }
+
+    fn click_collection_action(
+        ctx: &egui::Context,
+        app: &mut App,
+        uri: &str,
+        position: egui::Pos2,
+    ) {
+        let click = vec![
+            egui::Event::PointerMoved(position),
+            egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ];
+        draw_collection_actions(ctx, app, uri, vec![]);
+        draw_collection_actions(ctx, app, uri, click);
+    }
+
+    #[test]
+    fn shuffle_selected_without_a_device_applies_when_collection_play_starts() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        let remote = app.remote.take().expect("demo remote playback");
+        app.local_ready = false;
+        app.local_device_id = None;
+        app.local_playback = LocalPlayback::Unavailable;
+        app.local.connected = false;
+        app.selected_device = None;
+        app.shuffle_wanted = false;
+        assert!(matches!(app.target(), Target::Remote(None)));
+
+        click_collection_action(
+            &ctx,
+            &mut app,
+            "spotify:playlist:pl0",
+            egui::pos2(87.0, 28.0),
+        );
+        assert!(app.playing_context_shuffle());
+        assert!(app.remote.is_none(), "Shuffle must not start playback");
+        assert!(app.backend.take_remote_play_requests().is_empty());
+
+        let playing_context = remote
+            .state
+            .context
+            .as_ref()
+            .expect("demo playing context")
+            .uri
+            .clone();
+        assert_ne!(playing_context, "spotify:playlist:pl0");
+        app.remote = Some(remote);
+        click_collection_action(
+            &ctx,
+            &mut app,
+            "spotify:playlist:pl0",
+            egui::pos2(28.0, 28.0),
+        );
+
+        let requests = app.backend.take_remote_play_requests();
+        assert!(matches!(
+            requests.as_slice(),
+            [ApiRequest::ShufflePlay { device_id: Some(device), play }]
+                if device == "remote1" && play.context_uri.as_deref() == Some("spotify:playlist:pl0")
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn shuffle_toggle_on_another_collection_keeps_playing_context_until_play() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.shuffle_wanted = true;
+        let playing_context = app
+            .playing_context_uri()
+            .expect("demo is playing a collection");
+        let other_collection = "spotify:playlist:pl0";
+        assert_ne!(playing_context, other_collection);
+        app.open(Page::Playlist("pl0".into()));
+
+        click_collection_action(&ctx, &mut app, other_collection, egui::pos2(87.0, 28.0));
+        assert!(!app.playing_context_shuffle());
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some(playing_context.as_str())
+        );
+        assert!(
+            app.backend.take_remote_play_requests().is_empty(),
+            "changing the global mode must not start the viewed collection"
+        );
+
+        click_collection_action(&ctx, &mut app, other_collection, egui::pos2(28.0, 28.0));
+        let requests = app.backend.take_remote_play_requests();
+        assert!(matches!(
+            requests.as_slice(),
+            [ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id: Some(device),
+                play: Some(play),
+                ..
+            }] if device == "remote1" && play.context_uri.as_deref() == Some(other_collection)
+        ));
+        app.backend.shutdown();
+    }
+
     #[test]
     fn collection_play_starts_at_the_first_available_row_in_the_shown_view() {
         use egui::accesskit::{Action as AccessibleAction, ActionRequest, Role, TreeId};
