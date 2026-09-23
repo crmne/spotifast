@@ -5625,7 +5625,6 @@ dependencies = [
  "cpal",
  "ctr",
  "directories",
- "dispatch2",
  "eframe",
  "egui",
  "egui_extras",

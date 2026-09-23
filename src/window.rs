@@ -11,7 +11,6 @@ pub const ON_TOP_UNAVAILABLE: &str =
 enum MacosDoubleClickAction {
     Ignore,
     Minimize,
-    Fill,
     Zoom,
 }
 
@@ -20,62 +19,16 @@ fn macos_double_click_action(preference: Option<&str>) -> MacosDoubleClickAction
     match preference {
         Some("Minimize") => MacosDoubleClickAction::Minimize,
         Some("None") => MacosDoubleClickAction::Ignore,
-        Some("Maximize" | "Fill") => MacosDoubleClickAction::Fill,
+        // AppKit already handles Fill as part of the native window drag.
+        Some("Maximize" | "Fill") => MacosDoubleClickAction::Ignore,
         Some("Zoom") | None => MacosDoubleClickAction::Zoom,
         Some(_) => MacosDoubleClickAction::Ignore,
     }
 }
 
-#[cfg(target_os = "macos")]
-fn macos_fill_target(
-    frame: objc2_foundation::NSRect,
-    visible: objc2_foundation::NSRect,
-    previous: Option<objc2_foundation::NSRect>,
-) -> objc2_foundation::NSRect {
-    let same_frame = (frame.origin.x - visible.origin.x).abs() < 1.0
-        && (frame.origin.y - visible.origin.y).abs() < 1.0
-        && (frame.size.width - visible.size.width).abs() < 1.0
-        && (frame.size.height - visible.size.height).abs() < 1.0;
-    if same_frame {
-        previous.unwrap_or(frame)
-    } else {
-        visible
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn macos_fill_window(window_number: isize, ctx: &egui::Context) {
-    use objc2::MainThreadMarker;
-    use objc2_app_kit::NSApplication;
-    use objc2_foundation::NSRect;
-
-    let Some(mtm) = MainThreadMarker::new() else {
-        return;
-    };
-    let app = NSApplication::sharedApplication(mtm);
-    let Some(window) = app.windowWithWindowNumber(window_number) else {
-        return;
-    };
-    let Some(screen) = window.screen() else {
-        return;
-    };
-    let frame = window.frame();
-    let visible = screen.visibleFrame();
-    let id = egui::Id::new(("macos-titlebar-fill", window_number));
-    let target = ctx.data_mut(|data| {
-        let previous = data.get_temp::<NSRect>(id);
-        let target = macos_fill_target(frame, visible, previous);
-        if target == visible {
-            data.insert_temp(id, frame);
-        }
-        target
-    });
-    window.setFrame_display_animate(target, true, true);
-}
-
 /// Handles a macOS title-bar double-click, or leaves a first click to drag.
 #[cfg(target_os = "macos")]
-pub fn macos_titlebar_should_drag(ctx: &egui::Context) -> bool {
+pub fn macos_titlebar_should_drag() -> bool {
     use objc2::{MainThreadMarker, sel};
     use objc2_app_kit::{NSApplication, NSEventType};
     use objc2_foundation::{NSObjectNSDelayedPerforming, NSUserDefaults, ns_string};
@@ -106,12 +59,6 @@ pub fn macos_titlebar_should_drag(ctx: &egui::Context) -> bool {
                     None,
                     0.0,
                 ),
-                MacosDoubleClickAction::Fill => {
-                    let window_number = window.windowNumber();
-                    let ctx = ctx.clone();
-                    dispatch2::DispatchQueue::main()
-                        .exec_async(move || macos_fill_window(window_number, &ctx));
-                }
                 MacosDoubleClickAction::Zoom => {
                     window.performSelector_withObject_afterDelay(sel!(performZoom:), None, 0.0)
                 }
@@ -122,8 +69,36 @@ pub fn macos_titlebar_should_drag(ctx: &egui::Context) -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn macos_titlebar_should_drag(_ctx: &egui::Context) -> bool {
+pub fn macos_titlebar_should_drag() -> bool {
     true
+}
+
+/// Minimize the active window without leaving egui's macOS viewport flag stale
+/// when the user later restores it from the Dock.
+pub fn minimize_window(ctx: &egui::Context) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::{MainThreadMarker, sel};
+        use objc2_app_kit::NSApplication;
+        use objc2_foundation::NSObjectNSDelayedPerforming;
+
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        let window = app.currentEvent().and_then(|event| event.window(mtm));
+        if let Some(window) = window.or_else(|| app.keyWindow()) {
+            // Let egui finish this frame before AppKit minimizes the window.
+            // SAFETY: NSWindow's selector takes one optional sender argument.
+            unsafe {
+                window.performSelector_withObject_afterDelay(sel!(miniaturize:), None, 0.0);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+    #[cfg(target_os = "macos")]
+    let _ = ctx;
 }
 
 /// The active backend matters: a Wayland session can also host X11 windows.
@@ -199,30 +174,14 @@ mod tests {
         for (preference, action) in [
             (Some("Minimize"), MacosDoubleClickAction::Minimize),
             (Some("None"), MacosDoubleClickAction::Ignore),
-            (Some("Maximize"), MacosDoubleClickAction::Fill),
-            (Some("Fill"), MacosDoubleClickAction::Fill),
+            (Some("Maximize"), MacosDoubleClickAction::Ignore),
+            (Some("Fill"), MacosDoubleClickAction::Ignore),
             (Some("Zoom"), MacosDoubleClickAction::Zoom),
             (None, MacosDoubleClickAction::Zoom),
             (Some("FutureAction"), MacosDoubleClickAction::Ignore),
         ] {
             assert_eq!(macos_double_click_action(preference), action);
         }
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn filling_again_restores_the_previous_window_frame() {
-        use objc2_foundation::{NSPoint, NSRect, NSSize};
-
-        let original = NSRect::new(NSPoint::new(120.0, 80.0), NSSize::new(800.0, 600.0));
-        let visible = NSRect::new(NSPoint::new(0.0, 40.0), NSSize::new(1400.0, 860.0));
-        assert_eq!(macos_fill_target(original, visible, None), visible);
-        assert_eq!(
-            macos_fill_target(visible, visible, Some(original)),
-            original
-        );
-        let moved = NSRect::new(NSPoint::new(300.0, 150.0), NSSize::new(700.0, 500.0));
-        assert_eq!(macos_fill_target(moved, visible, Some(original)), visible);
     }
 
     #[test]
