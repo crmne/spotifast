@@ -6639,6 +6639,9 @@ impl App {
                 self.local.shuffle = shuffle;
                 self.backend.player(PlayerCommand::Shuffle(shuffle));
             }
+            Target::Remote(None) if self.remote_fresh().is_none() => {
+                // Keep the mode for Play without requesting an absent device.
+            }
             Target::Remote(device_id) => {
                 if let Some(remote) = self.remote.as_mut() {
                     remote.state.shuffle_state = shuffle;
@@ -17322,6 +17325,14 @@ mod tests {
         assert!(app.playing_context_shuffle());
         assert!(app.remote.is_none(), "Shuffle must not start playback");
         assert!(app.backend.take_remote_play_requests().is_empty());
+        assert!(
+            app.backend.take_remote_shuffle_requests().is_empty(),
+            "without an active device, Shuffle stays pending instead of calling Spotify"
+        );
+        assert!(
+            app.toasts.is_empty(),
+            "selecting a pending mode shows no error"
+        );
 
         let playing_context = remote
             .state
@@ -17344,6 +17355,43 @@ mod tests {
             requests.as_slice(),
             [ApiRequest::ShufflePlay { device_id: Some(device), play }]
                 if device == "remote1" && play.context_uri.as_deref() == Some("spotify:playlist:pl0")
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn shuffle_targets_active_remote_playback_without_a_device_id() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.local_ready = false;
+        app.selected_device = None;
+        app.shuffle_wanted = false;
+        app.remote
+            .as_mut()
+            .unwrap()
+            .state
+            .device
+            .as_mut()
+            .unwrap()
+            .id = None;
+        assert!(matches!(app.target(), Target::Remote(None)));
+
+        click_collection_action(
+            &ctx,
+            &mut app,
+            "spotify:playlist:pl0",
+            egui::pos2(87.0, 28.0),
+        );
+        assert!(matches!(
+            app.backend.take_remote_shuffle_requests().as_slice(),
+            [ApiRequest::Remote {
+                action: RemoteAction::Shuffle,
+                device_id: None,
+                flag: true,
+                ..
+            }]
         ));
         app.backend.shutdown();
     }
