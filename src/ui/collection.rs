@@ -2194,7 +2194,7 @@ mod tests {
             labels[index].to_lowercase()
         });
 
-        assert!(calls.get() <= visible.len());
+        assert_eq!(calls.get(), visible.len());
         assert_eq!(visible, [3, 0, 1, 2]);
     }
 
