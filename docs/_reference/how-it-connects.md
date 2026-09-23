@@ -219,7 +219,8 @@ saved shows, the same request the library's Podcasts shelf makes, if it has
 not been read yet. It then asks for the five newest episodes of each of the
 eight most recently saved shows, one show at a time, through the normal
 personal/shared app routing. Spotify includes each episode's resume point in
-those answers. Shows known to be audiobooks are not asked for. These requests
+those answers. Play uses that position so an in-progress episode continues
+rather than starting over. Shows known to be audiobooks are not asked for. These requests
 run when Home refreshes: on opening Home, at most once every ten minutes, and
 on a manual refresh. A rate limit, exhausted quota or expired sign-in stops the
 remaining shows for that refresh; the shelf keeps what it showed before.

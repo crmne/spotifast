@@ -33,7 +33,9 @@ left, followed by each podcast's newest episode if it came out in the last 30
 days and you have not started it, marked **New**. It covers the eight podcasts
 you saved most recently and the five newest episodes of each. Audiobooks are
 left out. The shelf is hidden when there is nothing to show. Click a card to
-open the podcast, or use its play button to play the episode.
+open the podcast, or use its play button to play the episode. An episode you
+have started continues from where you left it. The same is true of Play on a
+podcast page, a saved episode, or a search result.
 
 ## Dragging beyond the visible list
 
