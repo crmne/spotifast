@@ -360,7 +360,7 @@ pub fn table_items_hit(
     generation: u64,
     items_revision: u64,
     user_names_revision: u64,
-) -> Option<Arc<[TableItem]>> {
+) -> Option<Arc<Vec<TableItem>>> {
     app.table_rows.get(page).and_then(|cached| {
         (cached.generation == generation
             && cached.items_revision == items_revision
@@ -376,8 +376,8 @@ pub fn remember_table_items(
     items_revision: u64,
     user_names_revision: u64,
     items: Vec<TableItem>,
-) -> Arc<[TableItem]> {
-    let items: Arc<[TableItem]> = items.into();
+) -> Arc<Vec<TableItem>> {
+    let items = Arc::new(items);
     app.table_rows.insert(
         page.clone(),
         TableRowsCache {
@@ -385,6 +385,11 @@ pub fn remember_table_items(
             items_revision,
             user_names_revision,
             items: Arc::clone(&items),
+            playlist_positions: None,
+            playlist_raw_count: 0,
+            playlist_duration_ms: 0,
+            playlist_owner: None,
+            playlist_append_revision: None,
         },
     );
     app.retain_table_rows(&page);
@@ -405,7 +410,7 @@ pub fn cached_table_items(
     items_revision: u64,
     user_names_revision: u64,
     build: impl FnOnce() -> Vec<TableItem>,
-) -> Arc<[TableItem]> {
+) -> Arc<Vec<TableItem>> {
     if let Some(items) =
         table_items_hit(app, &page, generation, items_revision, user_names_revision)
     {
@@ -953,19 +958,22 @@ fn total_duration(items: &[TableItem]) -> u64 {
         .sum()
 }
 
-fn items_of(
-    list: &PagedList<crate::api::models::PlaylistItem>,
+fn playlist_rows(
+    list: &[crate::api::models::PlaylistItem],
+    start: usize,
     owner_id: Option<&str>,
     owner_name: &str,
     names: &std::collections::HashMap<String, Option<String>>,
-) -> Vec<TableItem> {
-    list.items
-        .iter()
-        .filter_map(|item| {
-            let mut playable = item.playable().cloned()?;
+) -> (Vec<TableItem>, Vec<usize>, u64) {
+    let mut rows = Vec::new();
+    let mut positions = Vec::new();
+    let mut duration_ms = 0;
+    for (index, item) in list.iter().enumerate() {
+        if let Some(mut playable) = item.playable().cloned() {
             if let PlayableItem::Track(track) = &mut playable {
                 track.is_local |= item.is_local;
             }
+            duration_ms += playable.duration_ms() as u64;
             let adder = item
                 .added_by
                 .as_ref()
@@ -980,9 +988,94 @@ fn items_of(
                             .unwrap_or_else(|| id.to_string())
                     }
                 });
-            Some((playable, item.added_at.clone(), adder))
-        })
-        .collect()
+            positions.push(start + index);
+            rows.push((playable, item.added_at.clone(), adder));
+        }
+    }
+    (rows, positions, duration_ms)
+}
+
+pub(crate) fn playlist_cached_table_items(
+    app: &mut App,
+    id: &str,
+    generation: u64,
+    list: &PagedList<crate::api::models::PlaylistItem>,
+    owner_id: Option<&str>,
+    owner_name: &str,
+) -> (Arc<Vec<TableItem>>, Arc<Vec<usize>>, u64) {
+    let key = Page::Playlist(id.to_string());
+    let revision = list.revision;
+    let names_revision = app.user_names_revision;
+    let same_owner = |cache: &TableRowsCache| {
+        cache
+            .playlist_owner
+            .as_ref()
+            .is_some_and(|(id, name)| id.as_deref() == owner_id && name == owner_name)
+    };
+    if let Some(cache) = app.table_rows.get(&key)
+        && cache.generation == generation
+        && cache.items_revision == revision
+        && cache.user_names_revision == names_revision
+        && same_owner(cache)
+        && let Some(positions) = &cache.playlist_positions
+    {
+        let result = (
+            Arc::clone(&cache.items),
+            Arc::clone(positions),
+            cache.playlist_duration_ms,
+        );
+        app.retain_table_rows(&key);
+        return result;
+    }
+
+    let append_from = app.table_rows.get(&key).and_then(|cache| {
+        (cache.generation == generation
+            && cache.user_names_revision == names_revision
+            && same_owner(cache)
+            && cache.playlist_append_revision == Some(revision)
+            && cache.playlist_raw_count <= list.items.len())
+        .then_some(cache.playlist_raw_count)
+    });
+    if let Some(start) = append_from {
+        let (new_rows, new_positions, new_duration) = playlist_rows(
+            &list.items[start..],
+            start,
+            owner_id,
+            owner_name,
+            &app.user_names,
+        );
+        if let Some(cache) = app.table_rows.get_mut(&key)
+            && let Some(positions) = cache.playlist_positions.as_mut()
+            && let Some(rows) = Arc::get_mut(&mut cache.items)
+            && let Some(old_positions) = Arc::get_mut(positions)
+        {
+            rows.extend(new_rows);
+            old_positions.extend(new_positions);
+            cache.items_revision = revision;
+            cache.playlist_raw_count = list.items.len();
+            cache.playlist_duration_ms += new_duration;
+            cache.playlist_append_revision = None;
+            let result = (
+                Arc::clone(&cache.items),
+                Arc::clone(positions),
+                cache.playlist_duration_ms,
+            );
+            app.retain_table_rows(&key);
+            return result;
+        }
+    }
+
+    let (rows, positions, duration_ms) =
+        playlist_rows(&list.items, 0, owner_id, owner_name, &app.user_names);
+    let items = remember_table_items(app, key.clone(), generation, revision, names_revision, rows);
+    let positions = Arc::new(positions);
+    if let Some(cache) = app.table_rows.get_mut(&key) {
+        cache.playlist_positions = Some(Arc::clone(&positions));
+        cache.playlist_raw_count = list.items.len();
+        cache.playlist_duration_ms = duration_ms;
+        cache.playlist_owner = Some((owner_id.map(str::to_string), owner_name.to_string()));
+    }
+    (items, positions, duration_ms)
 }
 
 /// A complete, ranked view of the listener's current top tracks.
@@ -1064,29 +1157,14 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let user_id = app.user_id().unwrap_or("").to_string();
     match &page.playlist {
         Loadable::Loaded(playlist) => {
-            let generation = page.generation;
-            let revision = page.items.revision;
-            let names = app.user_names_revision;
-            let key = Page::Playlist(id.to_string());
-            let items = if let Some(items) = table_items_hit(app, &key, generation, revision, names)
-            {
-                items
-            } else {
-                let rows = items_of(
-                    &page.items,
-                    playlist.owner.id.as_deref(),
-                    playlist.owner_name(),
-                    &app.user_names,
-                );
-                remember_table_items(app, key, generation, revision, names, rows)
-            };
-            let positions: Vec<usize> = page
-                .items
-                .items
-                .iter()
-                .enumerate()
-                .filter_map(|(index, item)| item.playable().map(|_| index))
-                .collect();
+            let (items, positions, duration_ms) = playlist_cached_table_items(
+                app,
+                id,
+                page.generation,
+                &page.items,
+                playlist.owner.id.as_deref(),
+                playlist.owner_name(),
+            );
             let count = page
                 .items
                 .total
@@ -1130,7 +1208,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 format!(
                     "{} songs, {}",
                     util::format_count(count as u64),
-                    util::format_total_ms(total_duration(&items))
+                    util::format_total_ms(duration_ms)
                 )
             } else {
                 format!("{} songs", util::format_count(count as u64))

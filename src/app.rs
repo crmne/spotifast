@@ -4961,6 +4961,7 @@ impl App {
                 let mut uris = Vec::new();
                 let mut adders: Vec<String> = Vec::new();
                 let mut tracks = Vec::new();
+                let cache_key = Page::Playlist(id.clone());
                 if let Some(page) = self.playlist_pages.get_mut(&id) {
                     match result {
                         _ if page
@@ -4995,8 +4996,30 @@ impl App {
                                 .filter(|id| !id.is_empty())
                                 .collect();
                             page.contributors.extend(adders.iter().cloned());
+                            let extends_cached_rows = offset > 0
+                                && page.items.loaded_once
+                                && page.items.window_request.is_none()
+                                && page.items.windows.is_empty()
+                                && page.items.next_offset == Some(offset)
+                                && page.items.total == Some(items.total)
+                                && u32::try_from(page.items.items.len())
+                                    .ok()
+                                    .and_then(|len| page.items.base_offset.checked_add(len))
+                                    == Some(offset)
+                                && self.table_rows.get(&cache_key).is_some_and(|cache| {
+                                    cache.generation == generation
+                                        && cache.items_revision == page.items.revision
+                                        && cache.user_names_revision == self.user_names_revision
+                                        && cache.playlist_positions.is_some()
+                                        && cache.playlist_raw_count == page.items.items.len()
+                                });
                             page.items.absorb(offset, items);
                             page.items_generation = generation;
+                            if extends_cached_rows
+                                && let Some(cache) = self.table_rows.get_mut(&cache_key)
+                            {
+                                cache.playlist_append_revision = Some(page.items.revision);
+                            }
                         }
                         Err(error) => page.items.fail(friendly_page_error(&error)),
                     }
@@ -9455,6 +9478,8 @@ fn cover_error(error: &crate::api::client::ApiError) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::api::models::{
         Episode, Image, Page as ApiPage, SavedEpisode, SavedTrack, SearchResults,
@@ -15953,6 +15978,162 @@ mod tests {
             })),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn playlist_row_cache_extends_without_cloning_old_rows_or_losing_null_slots() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.playlist_pages.insert(
+            "rows".into(),
+            PlaylistPage {
+                items: PagedList {
+                    items: vec![
+                        cached_playlist_row("spotify:track:first"),
+                        Default::default(),
+                    ],
+                    total: Some(100),
+                    next_offset: Some(2),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let cached = |app: &mut App| {
+            let page = app.playlist_pages.remove("rows").unwrap();
+            let result = crate::ui::collection::playlist_cached_table_items(
+                app,
+                "rows",
+                page.generation,
+                &page.items,
+                None,
+                "",
+            );
+            app.playlist_pages.insert("rows".into(), page);
+            result
+        };
+        let (rows, positions, _) = cached(&mut app);
+        assert_eq!(positions.as_slice(), [0]);
+        let old_rows = Arc::as_ptr(&rows);
+        let old_positions = Arc::as_ptr(&positions);
+        drop(rows);
+        drop(positions);
+
+        app.handle_api(ApiResponse::PlaylistItems {
+            id: "rows".into(),
+            offset: 2,
+            generation: 0,
+            result: Ok(crate::api::models::Page {
+                items: vec![
+                    cached_playlist_row("spotify:track:second"),
+                    Default::default(),
+                ],
+                total: 100,
+                limit: 2,
+                offset: 2,
+                next: Some("next".into()),
+            }),
+        });
+        let (rows, positions, _) = cached(&mut app);
+        assert_eq!(Arc::as_ptr(&rows), old_rows, "old rows were rebuilt");
+        assert_eq!(Arc::as_ptr(&positions), old_positions);
+        assert_eq!(positions.as_slice(), [0, 2]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].0.uri(), "spotify:track:second");
+    }
+
+    #[test]
+    fn playlist_row_cache_rebuilds_for_edits_refreshes_and_window_jumps() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.playlist_pages.insert(
+            "rows".into(),
+            PlaylistPage {
+                items: PagedList {
+                    items: vec![cached_playlist_row("spotify:track:first")],
+                    total: Some(100),
+                    next_offset: Some(1),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let cached = |app: &mut App, owner_name: &str| {
+            let page = app.playlist_pages.remove("rows").unwrap();
+            let result = crate::ui::collection::playlist_cached_table_items(
+                app,
+                "rows",
+                page.generation,
+                &page.items,
+                None,
+                owner_name,
+            );
+            app.playlist_pages.insert("rows".into(), page);
+            result
+        };
+        let (rows, _, _) = cached(&mut app, "");
+        let first = Arc::as_ptr(&rows);
+        drop(rows);
+
+        let (rows, _, _) = cached(&mut app, "renamed owner");
+        assert_ne!(Arc::as_ptr(&rows), first);
+        let first = Arc::as_ptr(&rows);
+        drop(rows);
+
+        let page = app.playlist_pages.get_mut("rows").unwrap();
+        page.items
+            .items
+            .insert(0, cached_playlist_row("spotify:track:added"));
+        page.items.revision += 1;
+        let (rows, positions, _) = cached(&mut app, "renamed owner");
+        assert_ne!(Arc::as_ptr(&rows), first);
+        assert_eq!(rows[0].0.uri(), "spotify:track:added");
+        assert_eq!(positions.as_slice(), [0, 1]);
+        drop(rows);
+        drop(positions);
+
+        app.handle_api(ApiResponse::PlaylistItems {
+            id: "rows".into(),
+            offset: 0,
+            generation: 0,
+            result: Ok(crate::api::models::Page {
+                items: vec![cached_playlist_row("spotify:track:refreshed")],
+                total: 100,
+                limit: 1,
+                offset: 0,
+                next: Some("next".into()),
+            }),
+        });
+        let (rows, positions, _) = cached(&mut app, "renamed owner");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0.uri(), "spotify:track:refreshed");
+        assert_eq!(positions.as_slice(), [0]);
+        drop(rows);
+        drop(positions);
+
+        app.playlist_pages
+            .get_mut("rows")
+            .unwrap()
+            .items
+            .window_request = Some(50);
+        app.handle_api(ApiResponse::PlaylistItems {
+            id: "rows".into(),
+            offset: 50,
+            generation: 0,
+            result: Ok(crate::api::models::Page {
+                items: vec![cached_playlist_row("spotify:track:window")],
+                total: 100,
+                limit: 1,
+                offset: 50,
+                next: Some("next".into()),
+            }),
+        });
+        let (rows, positions, _) = cached(&mut app, "renamed owner");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0.uri(), "spotify:track:window");
+        assert_eq!(positions.as_slice(), [0]);
     }
 
     #[test]
