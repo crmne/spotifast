@@ -333,6 +333,11 @@ addresses when one cannot connect, including a prompt IPv4/IPv6 fallback.
 Socket and proxy tunnel setup have a five-second limit. See
 [how it connects](docs/_reference/how-it-connects.md#the-engine).
 
+On `main`, after 0.8.0, the whole engine connection can take up to 75 seconds,
+including server resolution and authentication. A stalled setup may therefore
+remain **Connecting** longer than one five-second attempt; the outer deadline
+does not guarantee that every fallback will be tried.
+
 Existing token files migrate after the protected write has been read back
 successfully. A failed migration keeps the original for recovery and reports
 an error. Sign-out removes shared, personal, and playback grants, including
