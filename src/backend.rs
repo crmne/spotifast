@@ -34,13 +34,19 @@ pub type ApiResult<T> = Result<T, ApiError>;
 
 const PREMIUM_NEEDED: &str = "Local playback needs Spotify Premium.";
 const ALBUM_TYPE_TIMEOUT: Duration = Duration::from_secs(30);
-// Librespot can try six APs and retry each five-second connection once.
+// Leave time for access-point retries plus resolver and authentication work.
 const ENGINE_CONNECT_TIMEOUT: Duration = Duration::from_secs(75);
 // Keep at most one full Web API album page outstanding for a playback engine.
 const MAX_PENDING_ALBUM_TYPES: usize = 50;
 pub const PLAYLIST_PAGE_SIZE: u32 = 50;
 const RECONNECT_WINDOW: Duration = Duration::from_secs(600);
 const RECONNECT_LIMIT: usize = 6;
+
+async fn connect_engine_with_deadline<F: std::future::Future>(
+    connect: F,
+) -> Result<F::Output, tokio::time::error::Elapsed> {
+    tokio::time::timeout(ENGINE_CONNECT_TIMEOUT, connect).await
+}
 
 /// True when the session has already dropped this many times in the window,
 /// so another reconnect would only flap. Callers that still reconnect must
@@ -2504,10 +2510,13 @@ impl Worker {
                     return;
                 }
             };
-            let attempt = tokio::time::timeout(
-                ENGINE_CONNECT_TIMEOUT,
-                Engine::connect(&config, proxy, credentials, cache, notify),
-            )
+            let attempt = connect_engine_with_deadline(Engine::connect(
+                &config,
+                proxy,
+                credentials,
+                cache,
+                notify,
+            ))
             .await;
             let outcome = match attempt {
                 Ok(Ok(engine)) => Command::EngineConnected {
@@ -4076,9 +4085,38 @@ fn playback_credentials(account: Option<AccountId>, access_token: String) -> Opt
 mod authorization_tests {
     use super::*;
 
-    #[test]
-    fn engine_timeout_outlasts_all_access_point_attempts() {
-        assert!(ENGINE_CONNECT_TIMEOUT > Duration::from_secs(6 * 2 * 5));
+    #[tokio::test(start_paused = true)]
+    async fn engine_deadline_reaches_final_access_point_after_stalled_retries() {
+        let started = tokio::time::Instant::now();
+        let mut attempts = Vec::new();
+        let result = connect_engine_with_deadline(async {
+            // Resolver and other setup work also spend the outer budget.
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            // Model the pinned librespot cap: six APs, two five-second
+            // connection attempts per AP. The final retry succeeds.
+            for ap in 0..6 {
+                for retry in 0..2 {
+                    attempts.push((ap, retry));
+                    if (ap, retry) == (5, 1) {
+                        return ap;
+                    }
+                    assert!(
+                        tokio::time::timeout(Duration::from_secs(5), std::future::pending::<()>())
+                            .await
+                            .is_err()
+                    );
+                }
+            }
+            unreachable!("the final fallback should connect");
+        })
+        .await;
+
+        assert_eq!(result.unwrap(), 5);
+        assert_eq!(
+            attempts,
+            (0..6).flat_map(|ap| [(ap, 0), (ap, 1)]).collect::<Vec<_>>()
+        );
+        assert_eq!(started.elapsed(), Duration::from_secs(65));
     }
 
     #[test]

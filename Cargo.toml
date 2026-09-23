@@ -170,6 +170,8 @@ include-po = "0.2"
 [dev-dependencies]
 # Exercise the same PO compiler used by build.rs with partial catalogs.
 polib = "0.3"
+# Run connection-deadline regressions with a virtual clock.
+tokio = { version = "1", features = ["test-util"] }
 
 # The icon and version information Windows shows for the executable.
 [target.'cfg(windows)'.build-dependencies]

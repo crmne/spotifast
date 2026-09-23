@@ -304,10 +304,12 @@ connects over TCP in the resolver's preference order: port 4070 first,
 falling back to 443 and 80. Only outbound connections are needed; no
 inbound ports have to be open.
 
-Each socket setup and handshake shares a five-second deadline. Librespot can
-retry an endpoint once before moving on, and Spotifast leaves enough time for
-all six resolver entries. A stalled TCP connection or HTTP proxy tunnel
-therefore cannot keep the engine from reaching the final fallback endpoint.
+Each socket setup and handshake shares a five-second deadline. The pinned
+librespot version can try up to six access points and retry each connection
+once. Spotifast allows 75 seconds for the whole engine connection, giving
+stalled endpoints more time to fall back. Resolving access points,
+authentication, and other setup also use that outer deadline, so reaching
+every fallback endpoint is not guaranteed.
 
 Since 0.8.0, the access-point and Dealer TCP connectors resolve
 names off the playback runtime thread and try all returned addresses. If
