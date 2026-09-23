@@ -886,6 +886,14 @@ fn absolute_row_index(row_offset: u32, local_index: usize) -> usize {
     (row_offset as usize).saturating_add(local_index)
 }
 
+fn sort_by_text_key(visible: &mut [usize], ascending: bool, key: impl Fn(usize) -> String) {
+    if ascending {
+        visible.sort_by_cached_key(|&index| key(index));
+    } else {
+        visible.sort_by_cached_key(|&index| std::cmp::Reverse(key(index)));
+    }
+}
+
 /// The indices of `items` as a view presents them: filtered by `needle`
 /// (already lowercased), then ordered by `sort`.
 fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> Vec<usize> {
@@ -917,42 +925,43 @@ fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> V
         .map(|(index, _)| index)
         .collect();
     if let Some(sort) = sort {
-        let album_of = |item: &PlayableItem| match item {
-            PlayableItem::Track(track) => track
-                .album
-                .as_ref()
-                .map(|album| album.name.to_lowercase())
-                .unwrap_or_default(),
-            PlayableItem::Episode(_) => String::new(),
-        };
-        let duration_of = |item: &PlayableItem| match item {
-            PlayableItem::Track(track) => track.duration_ms,
-            PlayableItem::Episode(episode) => episode.duration_ms,
-        };
-        visible.sort_by(|a, b| {
-            let (item_a, added_a, adder_a) = &items[*a];
-            let (item_b, added_b, adder_b) = &items[*b];
-            let ordering = match sort.column {
-                SortColumn::Title => item_a
-                    .name()
-                    .to_lowercase()
-                    .cmp(&item_b.name().to_lowercase()),
-                SortColumn::Album => album_of(item_a).cmp(&album_of(item_b)),
-                SortColumn::Added => added_a.cmp(added_b),
-                SortColumn::Index => a.cmp(b),
-                SortColumn::AddedBy => adder_a
-                    .as_deref()
-                    .unwrap_or_default()
-                    .to_lowercase()
-                    .cmp(&adder_b.as_deref().unwrap_or_default().to_lowercase()),
-                SortColumn::Duration => duration_of(item_a).cmp(&duration_of(item_b)),
-            };
-            if sort.ascending {
-                ordering
-            } else {
-                ordering.reverse()
+        match sort.column {
+            SortColumn::Title => sort_by_text_key(&mut visible, sort.ascending, |index| {
+                items[index].0.name().to_lowercase()
+            }),
+            SortColumn::Album => {
+                sort_by_text_key(&mut visible, sort.ascending, |index| {
+                    match &items[index].0 {
+                        PlayableItem::Track(track) => track
+                            .album
+                            .as_ref()
+                            .map(|album| album.name.to_lowercase())
+                            .unwrap_or_default(),
+                        PlayableItem::Episode(_) => String::new(),
+                    }
+                })
             }
-        });
+            SortColumn::AddedBy => sort_by_text_key(&mut visible, sort.ascending, |index| {
+                items[index].2.as_deref().unwrap_or_default().to_lowercase()
+            }),
+            SortColumn::Added | SortColumn::Index | SortColumn::Duration => {
+                visible.sort_by(|a, b| {
+                    let ordering = match sort.column {
+                        SortColumn::Added => items[*a].1.cmp(&items[*b].1),
+                        SortColumn::Index => a.cmp(b),
+                        SortColumn::Duration => {
+                            items[*a].0.duration_ms().cmp(&items[*b].0.duration_ms())
+                        }
+                        _ => unreachable!("text columns are handled above"),
+                    };
+                    if sort.ascending {
+                        ordering
+                    } else {
+                        ordering.reverse()
+                    }
+                });
+            }
+        }
     }
     visible
 }
@@ -2132,6 +2141,61 @@ mod tests {
         });
         let visible = view_indices(&items, "", sort);
         assert_eq!(visible, vec![3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn text_sorts_preserve_case_insensitive_ties_in_both_directions() {
+        let mut items = make_test_tracks();
+        for (item, label) in items.iter_mut().zip(["Beta", "alpha", "ALPHA", "zeta"]) {
+            let PlayableItem::Track(track) = &mut item.0 else {
+                panic!("test rows are tracks");
+            };
+            track.name = label.into();
+            track.album.as_mut().unwrap().name = label.into();
+            item.2 = Some(label.into());
+        }
+
+        for column in [SortColumn::Title, SortColumn::Album, SortColumn::AddedBy] {
+            assert_eq!(
+                view_indices(
+                    &items,
+                    "",
+                    Some(TableSort {
+                        column,
+                        ascending: true,
+                    }),
+                ),
+                vec![1, 2, 0, 3],
+                "{column:?} ascending"
+            );
+            assert_eq!(
+                view_indices(
+                    &items,
+                    "",
+                    Some(TableSort {
+                        column,
+                        ascending: false,
+                    }),
+                ),
+                vec![3, 0, 1, 2],
+                "{column:?} descending must keep tied rows in playlist order"
+            );
+        }
+    }
+
+    #[test]
+    fn text_sort_normalizes_each_visible_row_once() {
+        let labels = ["Beta", "alpha", "ALPHA", "zeta"];
+        let mut visible = [0, 1, 2, 3];
+        let calls = std::cell::Cell::new(0);
+
+        sort_by_text_key(&mut visible, false, |index| {
+            calls.set(calls.get() + 1);
+            labels[index].to_lowercase()
+        });
+
+        assert!(calls.get() <= visible.len());
+        assert_eq!(visible, [3, 0, 1, 2]);
     }
 
     #[test]
