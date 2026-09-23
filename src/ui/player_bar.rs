@@ -15,6 +15,12 @@ use super::widgets::{SliderEvent, thin_slider};
 const TINT_STRENGTH: f32 = 0.12;
 /// How long the bar takes to cross over to a new song's tint.
 const TINT_FADE_SECONDS: f32 = 0.45;
+const TINT_SESSION_ID: &str = "player-bar-tint-session";
+
+/// Forget this bar's animation session while the sign-in screen is shown.
+pub(crate) fn end_tint_session(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.remove::<u64>(egui::Id::new(TINT_SESSION_ID)));
+}
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
@@ -69,9 +75,14 @@ fn eased_fill(ctx: &egui::Context, panel: Color32, tint: Option<Color32>) -> Col
     let target = tint.map_or(panel, |tint| super::blend(panel, tint, TINT_STRENGTH));
     // Color32 stores premultiplied RGB, so interpolate unmultiplied channels.
     let [r, g, b, _] = target.to_srgba_unmultiplied();
+    // A new pass after sign-out gets new ids without clearing other animations.
+    let pass = ctx.cumulative_pass_nr();
+    let session = ctx.data_mut(|data| {
+        *data.get_temp_mut_or_insert_with(egui::Id::new(TINT_SESSION_ID), || pass)
+    });
     let channel = |axis: &'static str, value: u8| {
         ctx.animate_value_with_time(
-            egui::Id::new(("player-bar-tint", axis)),
+            egui::Id::new(("player-bar-tint", session, axis)),
             f32::from(value),
             TINT_FADE_SECONDS,
         )
@@ -699,5 +710,30 @@ mod player_bar_tint_tests {
         assert_eq!(frame(&ctx, 0.2, panel, Some(third)), middle);
         assert_ne!(frame(&ctx, 0.2 + fade / 2.0, panel, Some(third)), middle);
         assert_eq!(frame(&ctx, 0.2 + fade, panel, Some(third)), third_fill);
+    }
+
+    #[test]
+    fn a_new_session_does_not_reuse_the_previous_tint() {
+        let ctx = egui::Context::default();
+        let panel = Palette::dark().panel;
+        let first = Color32::from_rgb(20, 40, 60);
+        let second = Color32::from_rgb(220, 140, 160);
+        let next_session = Color32::from_rgb(40, 230, 30);
+
+        frame(&ctx, 0.0, panel, Some(first));
+        frame(&ctx, 0.1, panel, Some(second));
+        assert_ne!(
+            frame(&ctx, 0.2, panel, Some(second)),
+            super::super::blend(panel, second, TINT_STRENGTH)
+        );
+
+        end_tint_session(&ctx);
+        assert_eq!(
+            frame(&ctx, 0.21, panel, Some(next_session)),
+            super::super::blend(panel, next_session, TINT_STRENGTH)
+        );
+
+        end_tint_session(&ctx);
+        assert_eq!(frame(&ctx, 0.22, panel, None), panel);
     }
 }

@@ -41,6 +41,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let connecting = matches!(app.auth, AuthStatus::Connecting | AuthStatus::Starting)
         || (app.is_connected() && app.user.is_none());
     if !signed_in {
+        player_bar::end_tint_session(ctx);
         login::show(app, ui, connecting);
         update::show(app, ctx);
         toasts(app, ctx, 20.0);
