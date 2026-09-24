@@ -6800,14 +6800,18 @@ impl App {
                     .get()
                     .and_then(|playlist| playlist.snapshot_id.as_deref())
                     == Some(snapshot);
-            if success && current && page.cache_append_valid {
+            if !current {
+                page.cache_append_valid = false;
+                return true;
+            }
+            if success && page.cache_append_valid {
                 page.cache_saved_through = Some(pending.through);
                 page.cache_saved_rows = pending.rows;
                 page.cache_saved_total = Some(pending.total);
             } else if !success {
                 page.cache_append_valid = false;
             }
-            current && (success || !pending.replacing)
+            success || !pending.replacing
         });
         if should_check_again {
             self.checkpoint_playlist_cache(id);
@@ -7750,7 +7754,7 @@ impl App {
         page.cache_saved_through = None;
         page.cache_saved_rows = 0;
         page.cache_saved_total = None;
-        page.cache_write_pending = None;
+        // Let the old write finish before checkpointing the edited snapshot.
         page.cache_append_valid = false;
         page.cache_restored_through = None;
         page.pending_cache = None;
@@ -18042,6 +18046,89 @@ mod tests {
         app.receive_playlist_cache_stored("alice", "best", generation, "new", true);
         assert_eq!(app.playlist_pages["best"].cache_saved_through, Some(2));
         assert_eq!(app.library.playlists.get().unwrap()[0].track_total(), 2);
+    }
+
+    #[test]
+    fn confirmed_playlist_edit_waits_for_old_checkpoint_then_saves_new_snapshot() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
+        app.playlist_pages.insert(
+            "best".into(),
+            PlaylistPage {
+                generation: 7,
+                items_generation: 7,
+                playlist: Loadable::Loaded(Playlist {
+                    id: "best".into(),
+                    snapshot_id: Some("old".into()),
+                    items_count: Some(TrackCount { total: 1 }),
+                    ..Default::default()
+                }),
+                items: PagedList {
+                    items: vec![cached_playlist_row("spotify:track:one")],
+                    total: Some(1),
+                    next_offset: None,
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                cache_checked: true,
+                ..Default::default()
+            },
+        );
+        app.checkpoint_playlist_cache("best");
+        let old_generation = app.playlist_pages["best"].generation;
+        assert_eq!(
+            app.playlist_pages["best"]
+                .cache_write_pending
+                .as_ref()
+                .map(|write| write.snapshot.as_str()),
+            Some("old")
+        );
+
+        let added = cached_playlist_row("spotify:track:honey")
+            .playable()
+            .unwrap()
+            .clone();
+        app.apply(
+            Action::ConfirmAddToPlaylist {
+                position: None,
+                playlist_id: "best".into(),
+                playlist_name: "The best music ever".into(),
+                items: vec![added],
+            },
+            &egui::Context::default(),
+        );
+        app.handle_api(ApiResponse::PlaylistItemsChanged {
+            id: "best".into(),
+            message: String::new(),
+            result: Ok(Some("new".into())),
+        });
+        assert_eq!(
+            app.playlist_pages["best"]
+                .cache_write_pending
+                .as_ref()
+                .map(|write| write.snapshot.as_str()),
+            Some("old"),
+            "the confirmed edit must wait for the older disk write"
+        );
+
+        app.receive_playlist_cache_stored("alice", "best", old_generation, "old", true);
+        let page = &app.playlist_pages["best"];
+        assert_eq!(page.items.items.len(), 2);
+        assert_eq!(page.cache_saved_through, None);
+        assert_eq!(
+            page.cache_write_pending
+                .as_ref()
+                .map(|write| write.snapshot.as_str()),
+            Some("new"),
+            "the stale completion must request the edited snapshot"
+        );
+        let new_generation = page.generation;
+        app.receive_playlist_cache_stored("alice", "best", new_generation, "new", true);
+        assert_eq!(app.playlist_pages["best"].cache_saved_through, Some(2));
     }
 
     #[test]

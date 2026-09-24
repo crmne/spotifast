@@ -548,6 +548,17 @@ pub enum PlaylistCacheRows {
     },
 }
 
+struct PlaylistCacheWrite {
+    path: std::path::PathBuf,
+    account_id: String,
+    id: String,
+    generation: u64,
+    snapshot: String,
+    rows: PlaylistCacheRows,
+    total: u32,
+    next_offset: Option<u32>,
+}
+
 pub enum Command {
     OpenThemesFolder,
     ProxyRestored {
@@ -1566,6 +1577,12 @@ impl Worker {
     }
 
     async fn run(&mut self, mut commands: mpsc::UnboundedReceiver<Command>) {
+        let (cache_writes, cache_write_receiver) = mpsc::unbounded_channel();
+        let cache_writer = tokio::spawn(store_playlist_caches(
+            cache_write_receiver,
+            self.events.clone(),
+            self.waker.clone(),
+        ));
         while let Some(command) = commands.recv().await {
             if self.restoring_proxy
                 && !matches!(
@@ -1892,8 +1909,23 @@ impl Worker {
                     total,
                     next_offset,
                 } => {
-                    self.store_playlist_cache(id, generation, snapshot, rows, total, next_offset)
-                        .await
+                    if let Some(account) = self.api.account() {
+                        let account_id = account.as_str().to_string();
+                        let path = self
+                            .dirs
+                            .account_playlist_cache_dir(&account_id)
+                            .join(format!("{id}.json"));
+                        let _ = cache_writes.send(PlaylistCacheWrite {
+                            path,
+                            account_id,
+                            id,
+                            generation,
+                            snapshot,
+                            rows,
+                            total,
+                            next_offset,
+                        });
+                    }
                 }
                 Command::UserNames(ids) => self.fetch_user_names(ids),
                 Command::LoadLikedSongsCache { generation } => {
@@ -1977,6 +2009,8 @@ impl Worker {
         if let Some(engine) = self.engine.take() {
             engine.shutdown();
         }
+        drop(cache_writes);
+        let _ = cache_writer.await;
     }
 
     // ---- Web API sign-in --------------------------------------------------
@@ -3131,44 +3165,6 @@ impl Worker {
         });
     }
 
-    async fn store_playlist_cache(
-        &self,
-        id: String,
-        generation: u64,
-        snapshot: String,
-        rows: PlaylistCacheRows,
-        total: u32,
-        next_offset: Option<u32>,
-    ) {
-        let Some(account) = self.api.account() else {
-            return;
-        };
-        let path = self
-            .dirs
-            .account_playlist_cache_dir(account.as_str())
-            .join(format!("{id}.json"));
-        let account_id = account.as_str().to_string();
-        let result = write_incremental_playlist_cache(
-            path.clone(),
-            snapshot.clone(),
-            rows,
-            total,
-            next_offset,
-        )
-        .await;
-        if let Err(error) = &result {
-            log::warn!("unable to store playlist cache {}: {error}", path.display());
-        }
-        let _ = self.events.send(Event::PlaylistCacheStored {
-            account_id,
-            id,
-            generation,
-            snapshot,
-            success: result.is_ok(),
-        });
-        self.waker.wake();
-    }
-
     /// Ask Spotify who is behind each user id. Only the streaming session
     /// can ask; without one the interface shows the bare ids.
     fn fetch_user_names(&self, ids: Vec<String>) {
@@ -4210,6 +4206,45 @@ fn read_incremental_playlist_cache_file(path: &std::path::Path) -> std::io::Resu
     })
 }
 
+/// Keep writes in command order without making the command loop wait for disk.
+async fn store_playlist_caches(
+    mut writes: mpsc::UnboundedReceiver<PlaylistCacheWrite>,
+    events: std::sync::mpsc::Sender<Event>,
+    waker: Waker,
+) {
+    while let Some(write) = writes.recv().await {
+        let PlaylistCacheWrite {
+            path,
+            account_id,
+            id,
+            generation,
+            snapshot,
+            rows,
+            total,
+            next_offset,
+        } = write;
+        let result = write_incremental_playlist_cache(
+            path.clone(),
+            snapshot.clone(),
+            rows,
+            total,
+            next_offset,
+        )
+        .await;
+        if let Err(error) = &result {
+            log::warn!("unable to store playlist cache {}: {error}", path.display());
+        }
+        let _ = events.send(Event::PlaylistCacheStored {
+            account_id,
+            id,
+            generation,
+            snapshot,
+            success: result.is_ok(),
+        });
+        waker.wake();
+    }
+}
+
 async fn write_incremental_playlist_cache(
     path: std::path::PathBuf,
     snapshot: String,
@@ -4910,6 +4945,58 @@ fn playback_credentials(account: Option<AccountId>, access_token: String) -> Opt
 #[cfg(test)]
 mod authorization_tests {
     use super::*;
+
+    #[test]
+    fn playlist_cache_store_does_not_hold_up_the_command_loop() {
+        let (runtime, mut worker, events) = worker("playlist-cache-command-loop");
+        worker
+            .api
+            .install(ApiSource::Shared, AccountId::new("alice"))
+            .unwrap();
+        let path = worker
+            .dirs
+            .account_playlist_cache_dir("alice")
+            .join("mix.json");
+        let root = worker.dirs.cache.parent().unwrap().to_path_buf();
+        let lock = playlist_cache_lock(&path).unwrap();
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::StorePlaylistCache {
+                id: "mix".into(),
+                generation: 1,
+                snapshot: "old".into(),
+                rows: PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+                total: 1,
+                next_offset: None,
+            })
+            .unwrap();
+        commands
+            .send(Command::ConfigurePersonalWebApp(None))
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        let thread = std::thread::spawn(move || runtime.block_on(worker.run(receiver)));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let handled_next_command = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break false;
+            }
+            match events.recv_timeout(remaining) {
+                Ok(Event::WebApp { client_id: None }) => break true,
+                Ok(_) => continue,
+                Err(_) => break false,
+            }
+        };
+        drop(lock);
+        thread.join().unwrap();
+        assert!(
+            handled_next_command,
+            "a pending disk write blocked the command loop"
+        );
+        assert_eq!(read_playlist_manifest(&path).unwrap().snapshot, "old");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test(start_paused = true)]
     async fn engine_deadline_reaches_final_access_point_after_stalled_retries() {
