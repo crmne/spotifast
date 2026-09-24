@@ -165,6 +165,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical()
             .id_salt("lyrics-scroll")
             .auto_shrink([false, false]),
+        ("lyrics-scroll", &now.uri),
         egui::Vec2b::new(false, true),
         |ui| {
             // Before the first line there is nothing to highlight, so the

@@ -112,6 +112,11 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             egui::ScrollArea::vertical()
                 .id_salt("queue-panel-scroll")
                 .auto_shrink([false, false]),
+            (
+                "queue-panel-scroll",
+                app.queue_tab.encode(),
+                app.current_track_uri(),
+            ),
             egui::Vec2b::new(false, true),
             |ui| match app.queue_tab {
                 QueueTab::Queue => contents(app, ui, true),

@@ -37,10 +37,11 @@ impl Pull {
 pub fn show<R>(
     ui: &mut egui::Ui,
     area: egui::ScrollArea,
+    identity: impl std::hash::Hash + std::fmt::Debug,
     axes: egui::Vec2b,
     contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::scroll_area::ScrollAreaOutput<R> {
-    let id = ui.id().with("overscroll");
+    let id = ui.id().with(("overscroll", &identity));
     let now = ui.input(|input| input.time);
     let state: Pull = ui.data(|data| data.get_temp(id)).unwrap_or_default();
     let offset = drawn_offset(&state, now);
@@ -268,11 +269,19 @@ mod tests {
     }
 
     fn run(frames: &[Frame]) -> Vec<(f32, Pull, f32)> {
+        run_with_identity(frames, |_| "exercised")
+    }
+
+    fn run_with_identity(
+        frames: &[Frame],
+        identity_at: impl Fn(usize) -> &'static str,
+    ) -> Vec<(f32, Pull, f32)> {
         let ctx = egui::Context::default();
         let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(200.0, 100.0));
         let mut seen = Vec::new();
         let mut time = 0.0;
-        for frame in frames {
+        for (index, frame) in frames.iter().enumerate() {
+            let identity = identity_at(index);
             time += frame.after;
             // Keep the pointer over the area.
             let mut events = vec![egui::Event::PointerMoved(egui::pos2(100.0, 50.0))];
@@ -291,13 +300,13 @@ mod tests {
                 ..Default::default()
             };
             let mut output = ctx.run_ui(input, |ui| {
-                let id = ui.id().with("overscroll");
+                let id = ui.id().with(("overscroll", identity));
                 let before: Pull = ui.data(|data| data.get_temp(id)).unwrap_or_default();
                 let drawn = drawn_offset(&before, time);
                 let area = egui::ScrollArea::vertical()
                     .id_salt("exercised")
                     .auto_shrink([false, false]);
-                let out = show(ui, area, egui::Vec2b::new(false, true), |ui| {
+                let out = show(ui, area, identity, egui::Vec2b::new(false, true), |ui| {
                     ui.allocate_space(vec2(150.0, 200.0));
                 });
                 let held = ui
@@ -357,6 +366,21 @@ mod tests {
         let (_, held, _) = seen.last().expect("frames ran");
         assert!(held.moved, "the gesture was not credited with scrolling");
         assert!(held.pull > 0.0, "a gesture with a tail gave nothing");
+    }
+
+    #[test]
+    fn scrolling_past_the_last_row_pulls_up_and_releases() {
+        let mut frames = ticks(-40.0, 8);
+        frames.push(lift());
+        let seen = run(&frames);
+        let (_, held, _) = seen[7];
+        assert!(held.moved, "the gesture did not scroll to the last row");
+        assert!(
+            held.pull < 0.0,
+            "the last row gave no upward pull: {held:?}"
+        );
+        let (_, released, _) = seen.last().expect("release frame ran");
+        assert!(released.release.is_some(), "bottom pull did not release");
     }
 
     #[test]
@@ -494,6 +518,29 @@ mod tests {
         let (_, held, drawn) = seen.last().expect("frames ran");
         assert!(held.idle(), "still holding after the release: {held:?}");
         assert_eq!(*drawn, 0.0, "still drawing an offset after the release");
+    }
+
+    #[test]
+    fn switching_lists_does_not_carry_a_release_or_gesture_state() {
+        let mut frames = up_off_the_first_row(3);
+        frames.push(lift());
+        let switched_at = frames.len();
+        frames.push(gap(0.016));
+        let seen = run_with_identity(&frames, |index| {
+            if index < switched_at {
+                "first"
+            } else {
+                "second"
+            }
+        });
+        assert!(seen[switched_at - 1].1.release.is_some());
+        let (_, next, drawn) = seen[switched_at];
+        assert_eq!(drawn, 0.0, "the old pull appeared in the next list");
+        assert_eq!(
+            next,
+            Pull::default(),
+            "the old gesture reached the next list"
+        );
     }
 
     #[test]

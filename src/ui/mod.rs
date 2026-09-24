@@ -193,6 +193,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                 egui::ScrollArea::vertical()
                     .id_salt(("page", page.encode()))
                     .auto_shrink([false, false]),
+                ("page", page.encode()),
                 egui::Vec2b::new(false, true),
                 |ui| {
                     Frame::new()
