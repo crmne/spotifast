@@ -25,6 +25,12 @@ Point at a horizontal shelf, such as Made for you or Recently played on
 Home, and hold `Shift` while turning the mouse wheel. The shelf moves while
 the surrounding page stays put. Release `Shift` to scroll the page normally.
 
+## Reaching the end of a list
+
+When you scroll to either end of a page, the Library sidebar, the queue, or
+lyrics (including full screen), the content can move briefly over empty space
+and settle back. A list already resting at its end stays still.
+
 ## Podcasts on Home
 
 Since 0.10.0, Home has a **Your podcasts** shelf below Recently
