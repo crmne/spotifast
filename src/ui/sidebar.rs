@@ -748,7 +748,7 @@ fn playlist_entry(
 ) -> Entry {
     Entry {
         image: pick_image(&playlist.images, 64).map(str::to_string),
-        grid_image: pick_image(&playlist.images, 640).map(str::to_string),
+        grid_image: pick_image(&playlist.images, super::GRID_ART_TARGET_WIDTH).map(str::to_string),
         name: playlist.name.clone(),
         // Translators: {owner} is the name of the playlist's owner.
         subtitle: gettext(locale, "Playlist • {owner}").replace("{owner}", playlist.owner_name()),
@@ -1041,7 +1041,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 );
                 entries.push(Entry {
                     image: pick_image(&album.images, 64).map(str::to_string),
-                    grid_image: pick_image(&album.images, 640).map(str::to_string),
+                    grid_image: pick_image(&album.images, super::GRID_ART_TARGET_WIDTH)
+                        .map(str::to_string),
                     name: album.name.clone(),
                     subtitle: format!("{} • {artists}", app.album_kind_label(album)),
                     grid_subtitle: artists,
@@ -1070,7 +1071,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 }
                 entries.push(Entry {
                     image: pick_image(&artist.images, 64).map(str::to_string),
-                    grid_image: pick_image(&artist.images, 640).map(str::to_string),
+                    grid_image: pick_image(&artist.images, super::GRID_ART_TARGET_WIDTH)
+                        .map(str::to_string),
                     name: artist.name.clone(),
                     subtitle: gettext(locale, "Artist").into_owned(),
                     grid_subtitle: String::new(),
@@ -1104,7 +1106,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 }
                 entries.push(Entry {
                     image: pick_image(&show.images, 64).map(str::to_string),
-                    grid_image: pick_image(&show.images, 640).map(str::to_string),
+                    grid_image: pick_image(&show.images, super::GRID_ART_TARGET_WIDTH)
+                        .map(str::to_string),
                     name: show.name.clone(),
                     // Translators: {publisher} is the podcast's publisher.
                     subtitle: gettext(locale, "Podcast • {publisher}")
@@ -2081,6 +2084,25 @@ mod ordering_tests {
             .iter()
             .map(|entry| entry.uri.rsplit(':').next().unwrap())
             .collect()
+    }
+
+    #[test]
+    fn grid_cards_use_smaller_art_than_page_headers() {
+        let images = [64, 300, 640]
+            .map(|width| crate::api::models::Image {
+                url: width.to_string(),
+                width: Some(width),
+                height: Some(width),
+            })
+            .to_vec();
+        let playlist = Playlist {
+            images: images.clone(),
+            ..Default::default()
+        };
+        let entry = playlist_entry(Locale::English, &playlist, 0, "", false, 0);
+        assert_eq!(entry.image.as_deref(), Some("64"));
+        assert_eq!(entry.grid_image.as_deref(), Some("300"));
+        assert_eq!(pick_image(&images, 640), Some("640"));
     }
 
     #[test]

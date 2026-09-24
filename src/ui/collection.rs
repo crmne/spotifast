@@ -47,6 +47,10 @@ pub(super) fn hero_images<'a>(
             preview
                 .and_then(|images| pick_image(images, 640))
                 .filter(|previous| *previous != image)
+                .or_else(|| {
+                    pick_image(images, super::GRID_ART_TARGET_WIDTH)
+                        .filter(|smaller| *smaller != image)
+                })
         }),
         thumbnail: image
             .and_then(|_| preview.and_then(|images| pick_image(images, 64)))
@@ -2008,6 +2012,16 @@ mod tests {
 
         let images = hero_images(&current, Some(&current), false);
         assert_eq!(images.previous, None, "the same cover is not loaded twice");
+
+        let with_grid_art = vec![
+            image("current-large", 640),
+            image("current-grid", 300),
+            image("current-small", 64),
+        ];
+        let images = hero_images(&with_grid_art, None, false);
+        assert_eq!(images.image, Some("current-large"));
+        assert_eq!(images.previous, Some("current-grid"));
+        assert_eq!(images.thumbnail, Some("current-small"));
 
         let images = hero_images(&[], Some(&preview), false);
         assert_eq!(images.image, None);

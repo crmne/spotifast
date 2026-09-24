@@ -86,6 +86,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     window_resize(ui);
 }
 
+/// Spotify artwork width used by the library grid and its page preview.
+const GRID_ART_TARGET_WIDTH: u32 = 300;
+
 /// Keeps the most recent loading preview of each metadata type available to
 /// the loaded hero as an artwork fallback. The fixed typed slot bounds this to
 /// one playlist, album, artist, and show instead of scanning known metadata on
