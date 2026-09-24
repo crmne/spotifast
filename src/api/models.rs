@@ -394,6 +394,25 @@ pub struct Episode {
     pub external_urls: ExternalUrls,
 }
 
+impl Episode {
+    /// Spotify's saved place in this episode when it was started and not
+    /// finished, kept a moment short of the end. A finished or unstarted
+    /// episode starts from the beginning.
+    pub fn resume_ms(&self) -> Option<u32> {
+        let resume = self.resume_point.as_ref()?;
+        if resume.fully_played || resume.resume_position_ms == 0 {
+            return None;
+        }
+        Some(if self.duration_ms > 0 {
+            resume
+                .resume_position_ms
+                .min(self.duration_ms.saturating_sub(1))
+        } else {
+            resume.resume_position_ms
+        })
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Show {
     #[serde(default)]

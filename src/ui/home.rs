@@ -475,9 +475,9 @@ fn podcasts(app: &mut App, ui: &mut egui::Ui) {
                     true,
                 );
                 if card.play {
-                    app.actions.push(Action::PlayUris {
-                        uris: vec![episode.uri.clone()],
-                        index: 0,
+                    app.actions.push(Action::PlayEpisode {
+                        uri: episode.uri.clone(),
+                        resume_ms: episode.resume_ms(),
                     });
                 }
                 if card.clicked && !show.id.is_empty() {

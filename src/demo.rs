@@ -1870,6 +1870,95 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The Home card's Play continues from the place that card shows, even
+    /// when another loaded copy of the episode, here in saved episodes,
+    /// still holds an older place.
+    #[test]
+    fn a_home_podcast_card_resumes_from_the_place_it_shows() {
+        let (ctx, mut app) = accessible_app("home-podcast-resume");
+        let card = app.home.podcasts[0].1[0].clone();
+        assert_eq!(card.resume_ms(), Some(1_200_000));
+        let mut stale = card.clone();
+        stale.resume_point = Some(ResumePoint {
+            fully_played: false,
+            resume_position_ms: 600_000,
+        });
+        app.library.episodes.items.push(SavedEpisode {
+            episode: stale,
+            ..SavedEpisode::default()
+        });
+        let frame = |ctx: &egui::Context, app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 2200.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::home::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::home::show);
+        let left = painted
+            .iter()
+            .find(|(text, _)| text == "20 min left • Rework")
+            .map(|(_, rect)| rect.center())
+            .expect("the started episode's card");
+        frame(&ctx, &mut app, vec![egui::Event::PointerMoved(left)]);
+        let tree = frame(&ctx, &mut app, vec![egui::Event::PointerMoved(left)])
+            .platform_output
+            .accesskit_update
+            .unwrap();
+        let play = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.label() == Some("Play"))
+            .filter_map(|(_, node)| node.bounds())
+            .map(|bounds| {
+                egui::pos2(
+                    ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                    ((bounds.y0 + bounds.y1) / 2.0) as f32,
+                )
+            })
+            // The hovered card's button sits on its cover, just above the text.
+            .filter(|center| center.y < left.y && left.distance(*center) < 250.0)
+            .min_by(|a, b| left.distance(*a).total_cmp(&left.distance(*b)))
+            .expect("the card's Play button on hover");
+        app.actions.clear();
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(play),
+                egui::Event::PointerButton {
+                    pos: play,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: play,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        assert!(
+            app.actions.iter().any(|action| matches!(
+                action,
+                Action::PlayEpisode { uri, resume_ms: Some(1_200_000) } if *uri == card.uri
+            )),
+            "{:?}",
+            app.actions
+        );
+        app.backend.shutdown();
+    }
+
     /// Spotify lists audiobooks among saved shows, but librespot can't play
     /// them, so the Podcasts shelf leaves out any show marked as one.
     #[test]

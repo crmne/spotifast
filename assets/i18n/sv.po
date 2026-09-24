@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-24 17:42+0200\n"
+"POT-Creation-Date: 2026-09-24 17:57+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -28,12 +28,12 @@ msgstr "Pausa {name}"
 msgid "Play {name}"
 msgstr "Spela {name}"
 
-#: src/ui/sidebar.rs:289 src/app.rs:2305 src/app.rs:15752
+#: src/ui/sidebar.rs:289 src/app.rs:2305 src/app.rs:15838
 #: src/ui/collection.rs:1633 src/ui/collection.rs:1810
 msgid "Playlist"
 msgstr "Spellista"
 
-#: src/ui/sidebar.rs:299 src/app.rs:2279 src/app.rs:15757
+#: src/ui/sidebar.rs:299 src/app.rs:2279 src/app.rs:15843
 #: src/ui/collection.rs:1803 src/ui/home.rs:49 src/ui/keys.rs:249
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -160,7 +160,7 @@ msgstr "Sortera efter nyligen spelade"
 
 #: src/ui/sidebar.rs:1828 src/ui/player_bar.rs:399 src/ui/widgets.rs:873
 #: src/ui/widgets.rs:2266 src/ui/artist.rs:329 src/ui/collection.rs:217
-#: src/ui/home.rs:147 src/ui/search.rs:390 src/ui/show.rs:319
+#: src/ui/home.rs:147 src/ui/search.rs:390 src/ui/show.rs:311
 msgid "Play"
 msgstr "Spela"
 
@@ -472,7 +472,7 @@ msgid "Follow"
 msgstr "Följ"
 
 #: src/ui/widgets.rs:907 src/ui/collection.rs:1681 src/ui/collection.rs:1703
-#: src/ui/show.rs:177
+#: src/ui/show.rs:169
 msgid "Remove from Your Library"
 msgstr "Ta bort från Ditt bibliotek"
 
@@ -507,7 +507,7 @@ msgid "Play {title}, {subtitle}"
 msgstr "Spela {title}, {subtitle}"
 
 #: src/ui/widgets.rs:1648 src/ui/artist.rs:359 src/ui/collection.rs:309
-#: src/ui/show.rs:195 src/ui/show.rs:397
+#: src/ui/show.rs:187 src/ui/show.rs:389
 msgid "More"
 msgstr "Mer"
 
@@ -557,7 +557,7 @@ msgstr "DATUM TILLAGD"
 msgid "Sort by duration"
 msgstr "Sortera efter längd"
 
-#: src/ui/widgets.rs:2317 src/app.rs:9838 src/ui/collection.rs:730
+#: src/ui/widgets.rs:2317 src/app.rs:9850 src/ui/collection.rs:730
 msgid "Loading…"
 msgstr "Läser in…"
 
@@ -672,7 +672,7 @@ msgstr "Radio"
 msgid "Album"
 msgstr "Album"
 
-#: src/app.rs:2359 src/ui/show.rs:132
+#: src/app.rs:2359 src/ui/show.rs:124
 msgid "Podcast"
 msgstr "Podd"
 
@@ -725,7 +725,7 @@ msgid "Queue cleared"
 msgstr "Kön rensad"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:4264 src/app.rs:15742
+#: src/app.rs:4264 src/app.rs:15828
 #, rust-format
 msgid "Queue {date}"
 msgstr "Kö {date}"
@@ -935,24 +935,24 @@ msgid_plural "{count} pasted links could not be added"
 msgstr[0] "{count} inklistrad länk kunde inte läggas till"
 msgstr[1] "{count} inklistrade länkar kunde inte läggas till"
 
-#: src/app.rs:8427
+#: src/app.rs:8439
 msgid "Spotify doesn't let apps remove a playlist description, so it was kept"
 msgstr ""
 "Spotify låter inte appar ta bort en spellistas beskrivning, så den behölls"
 
-#: src/app.rs:8471 src/app.rs:8484
+#: src/app.rs:8483 src/app.rs:8496
 msgid "Link copied"
 msgstr "Länken kopierad"
 
 #. Translators: {count} is a number of song links, always more than one.
-#: src/app.rs:8488
+#: src/app.rs:8500
 #, rust-format
 msgid "{count} link copied"
 msgid_plural "{count} links copied"
 msgstr[0] "{count} länk kopierad"
 msgstr[1] "{count} länkar kopierade"
 
-#: src/app.rs:8738
+#: src/app.rs:8750
 msgid ""
 "Spotify doesn't let apps reorder your playlists, so this order is saved on "
 "this computer"
@@ -960,89 +960,89 @@ msgstr ""
 "Spotify låter inte appar ändra ordningen på dina spellistor, så den här "
 "ordningen sparas på den här datorn"
 
-#: src/app.rs:8798
+#: src/app.rs:8810
 msgid "Restarting local playback"
 msgstr "Startar om lokal uppspelning"
 
-#: src/app.rs:8827
+#: src/app.rs:8839
 msgid "Local playback needs Spotify Premium"
 msgstr "Lokal uppspelning kräver Spotify Premium"
 
-#: src/app.rs:8839
+#: src/app.rs:8851
 msgid "Opening your browser to set up local playback"
 msgstr "Öppnar webbläsaren för att konfigurera lokal uppspelning"
 
-#: src/app.rs:8856
+#: src/app.rs:8868
 msgid "Play history cleared"
 msgstr "Uppspelningshistoriken rensad"
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:8867
+#: src/app.rs:8879
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr "Rensade {size} MB omslagsbilder"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8873
+#: src/app.rs:8885
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr "Kunde inte rensa omslagsbilder: {error}"
 
-#: src/app.rs:9029
+#: src/app.rs:9041
 msgid "Downloading MilkDrop preset packs"
 msgstr "Laddar ned MilkDrop-förinställningspaket"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:9063
+#: src/app.rs:9075
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "Laddar ned förinställningar från {name}"
 
-#: src/app.rs:9950
+#: src/app.rs:9962
 msgid "Couldn't start playback"
 msgstr "Kunde inte starta uppspelningen"
 
-#: src/app.rs:9951
+#: src/app.rs:9963
 msgid "Couldn't pause"
 msgstr "Kunde inte pausa"
 
-#: src/app.rs:9952
+#: src/app.rs:9964
 msgid "Couldn't skip"
 msgstr "Kunde inte hoppa framåt"
 
-#: src/app.rs:9953
+#: src/app.rs:9965
 msgid "Couldn't go back"
 msgstr "Kunde inte gå tillbaka"
 
-#: src/app.rs:9954
+#: src/app.rs:9966
 msgid "Couldn't seek"
 msgstr "Kunde inte spola"
 
-#: src/app.rs:9955
+#: src/app.rs:9967
 msgid "Couldn't change the volume"
 msgstr "Kunde inte ändra volymen"
 
-#: src/app.rs:9956
+#: src/app.rs:9968
 msgid "Couldn't change shuffle"
 msgstr "Kunde inte ändra blandning"
 
-#: src/app.rs:9957
+#: src/app.rs:9969
 msgid "Couldn't change repeat"
 msgstr "Kunde inte ändra upprepning"
 
-#: src/app.rs:9998
+#: src/app.rs:10010
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify gör inte den här spellistans låtar tillgängliga för tredjepartsappar."
 
-#: src/app.rs:10128
+#: src/app.rs:10140
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "Spotify-inloggningen har gått ut. Logga in igen och försök sedan ladda upp "
 "omslaget igen."
 
-#: src/app.rs:10133
+#: src/app.rs:10145
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If using a personal app, reconnect "
@@ -1052,19 +1052,19 @@ msgstr ""
 "sedan in igen för att ge behörighet att ladda upp bilder. Om du använder en "
 "personlig app, anslut den också igen i Inställningar."
 
-#: src/app.rs:10137
+#: src/app.rs:10149
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotify avvisade bildens storlek. Välj en mindre bild."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:10140
+#: src/app.rs:10152
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Kunde inte ladda upp omslaget: {error}. Försök igen."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:15762 src/app/radio.rs:38
+#: src/app.rs:15848 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track}-radio"
@@ -1756,7 +1756,7 @@ msgstr "Rensa omslag"
 msgid "Clear history"
 msgstr "Rensa historik"
 
-#: src/ui/settings.rs:1631 src/ui/show.rs:42
+#: src/ui/settings.rs:1631 src/ui/show.rs:34
 msgid "About"
 msgstr "Om"
 
@@ -1934,8 +1934,8 @@ msgid_plural "{count} followers"
 msgstr[0] "{count} följare"
 msgstr[1] "{count} följare"
 
-#: src/ui/artist.rs:320 src/ui/collection.rs:203 src/ui/show.rs:154
-#: src/ui/show.rs:306
+#: src/ui/artist.rs:320 src/ui/collection.rs:203 src/ui/show.rs:146
+#: src/ui/show.rs:298
 msgid "Starting…"
 msgstr "Startar…"
 
@@ -2614,33 +2614,33 @@ msgstr "Album • {artists}"
 msgid "Song • "
 msgstr "Låt • "
 
-#: src/ui/show.rs:57
+#: src/ui/show.rs:49
 msgid "All episodes"
 msgstr "Alla avsnitt"
 
 #. Translators: {count} is the number of episodes of a podcast.
-#: src/ui/show.rs:113
+#: src/ui/show.rs:105
 #, rust-format
 msgid "{count} episode"
 msgid_plural "{count} episodes"
 msgstr[0] "{count} avsnitt"
 msgstr[1] "{count} avsnitt"
 
-#: src/ui/show.rs:163
+#: src/ui/show.rs:155
 msgid "Play latest episode"
 msgstr "Spela senaste avsnittet"
 
-#: src/ui/show.rs:183
+#: src/ui/show.rs:175
 msgid "Follow podcast"
 msgstr "Följ podden"
 
 #. Translators: {duration} is the time left in an episode, such as "12 min".
-#: src/ui/show.rs:347
+#: src/ui/show.rs:339
 #, rust-format
 msgid "{duration} left"
 msgstr "{duration} kvar"
 
-#: src/ui/show.rs:369
+#: src/ui/show.rs:361
 msgid "Played"
 msgstr "Spelad"
 

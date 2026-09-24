@@ -910,6 +910,12 @@ pub enum Action {
         offset_uri: Option<String>,
         offset_index: Option<u32>,
     },
+    /// Play one episode, from `resume_ms` when the row, card or button
+    /// that asked showed it as started.
+    PlayEpisode {
+        uri: String,
+        resume_ms: Option<u32>,
+    },
     PlayUris {
         uris: Vec<String>,
         index: u32,

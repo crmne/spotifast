@@ -85,6 +85,8 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   recommendations. Right-click playlist shortcuts and shelf cards for their actions.
   Since 0.10.0, **Your podcasts** lists episodes of your saved
   podcasts that you have started, then new ones you have not.
+  Playing an episode you have started, from Home, a podcast page, your saved
+  episodes or search, continues where you left it.
 - **Artist pages** with popular songs, a filterable discography, and related
   artists. **Album**, **playlist**, and **podcast** pages support playback
   from any row. Since 0.8.0, album and playlist scrollbars represent the full track count;

@@ -29,15 +29,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
     match &page.show {
         Loadable::Loaded(show) => {
             show_hero(app, ui, show, preview.as_deref());
-            show_actions(
-                app,
-                ui,
-                show,
-                page.episodes
-                    .items
-                    .first()
-                    .map(|episode| episode.uri.as_str()),
-            );
+            show_actions(app, ui, show, page.episodes.items.first());
             if !show.description.is_empty() {
                 theme::section_title(ui, &palette, &gettext(locale, "About"));
                 ui.add_space(4.0);
@@ -138,14 +130,14 @@ fn show_hero(app: &mut App, ui: &mut egui::Ui, show: &Show, preview: Option<&Sho
     );
 }
 
-fn show_actions(app: &mut App, ui: &mut egui::Ui, show: &Show, latest: Option<&str>) {
+fn show_actions(app: &mut App, ui: &mut egui::Ui, show: &Show, latest: Option<&Episode>) {
     let palette = app.palette;
     let locale = app.locale;
     let saved = app.is_saved(&show.uri).unwrap_or(false);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
-        if let Some(uri) = latest {
-            if app.play_pending(uri) {
+        if let Some(latest) = latest {
+            if app.play_pending(&latest.uri) {
                 theme::circle_spinner(
                     ui,
                     56.0,
@@ -164,9 +156,9 @@ fn show_actions(app: &mut App, ui: &mut egui::Ui, show: &Show, latest: Option<&s
             )
             .clicked()
             {
-                app.actions.push(Action::PlayUris {
-                    uris: vec![uri.to_string()],
-                    index: 0,
+                app.actions.push(Action::PlayEpisode {
+                    uri: latest.uri.clone(),
+                    resume_ms: latest.resume_ms(),
                 });
             }
         }
@@ -323,9 +315,9 @@ pub fn episode_row(
         if is_current {
             app.actions.push(Action::TogglePlay);
         } else {
-            app.actions.push(Action::PlayUris {
-                uris: vec![episode.uri.clone()],
-                index: 0,
+            app.actions.push(Action::PlayEpisode {
+                uri: episode.uri.clone(),
+                resume_ms: episode.resume_ms(),
             });
         }
     }
@@ -404,9 +396,9 @@ pub fn episode_row(
         .frame(widgets::menu_frame(&palette))
         .show(|ui| widgets::item_menu(ui, app, &item, None, None));
     if response.double_clicked() {
-        app.actions.push(Action::PlayUris {
-            uris: vec![episode.uri.clone()],
-            index: 0,
+        app.actions.push(Action::PlayEpisode {
+            uri: episode.uri.clone(),
+            resume_ms: episode.resume_ms(),
         });
     }
     let _ = RowContext::Uris(Arc::from([]));

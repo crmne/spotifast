@@ -9,8 +9,8 @@ use egui::Color32;
 
 use crate::api::PlayRequest;
 use crate::api::models::{
-    Album, Artist, ArtistRef, Device, Episode, PlayableItem, PlaybackState, Playlist, PlaylistItem,
-    Queue, Show, Track, TrackCount, User, UserRef, pick_image,
+    Album, Artist, ArtistRef, Device, PlayableItem, PlaybackState, Playlist, PlaylistItem, Queue,
+    Show, Track, TrackCount, User, UserRef, pick_image,
 };
 use crate::backend::{
     ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, LyricsRequest,
@@ -1721,59 +1721,6 @@ impl App {
                             .find(|show| show.id == id)
                     })
             })
-    }
-
-    /// An episode this app has already loaded, from the library, Home, a
-    /// podcast page, or search.
-    fn known_episode(&self, uri: &str) -> Option<&Episode> {
-        self.library
-            .episodes
-            .items
-            .iter()
-            .find(|saved| saved.episode.uri == uri)
-            .map(|saved| &saved.episode)
-            .or_else(|| {
-                self.home
-                    .podcasts
-                    .iter()
-                    .flat_map(|(_, episodes)| episodes)
-                    .find(|episode| episode.uri == uri)
-            })
-            .or_else(|| {
-                self.show_pages
-                    .values()
-                    .flat_map(|page| page.episodes.items.iter())
-                    .find(|episode| episode.uri == uri)
-            })
-            .or_else(|| {
-                self.search
-                    .results
-                    .get()
-                    .and_then(|results| results.episodes.as_ref())
-                    .and_then(|page| page.items.iter().find(|episode| episode.uri == uri))
-            })
-    }
-
-    /// Spotify's saved place in an in-progress episode, when this app has
-    /// seen it. A finished or unstarted episode has no place to continue from.
-    fn episode_resume_ms(&self, uri: &str) -> Option<u32> {
-        if !uri.contains(":episode:") {
-            return None;
-        }
-        let episode = self.known_episode(uri)?;
-        let resume = episode.resume_point.as_ref()?;
-        if resume.fully_played || resume.resume_position_ms == 0 {
-            return None;
-        }
-        if episode.duration_ms > 0 {
-            Some(
-                resume
-                    .resume_position_ms
-                    .min(episode.duration_ms.saturating_sub(1)),
-            )
-        } else {
-            Some(resume.resume_position_ms)
-        }
     }
 
     // ---- frame ---------------------------------------------------------------
@@ -8029,14 +7976,16 @@ impl App {
                     return;
                 }
                 let (uris, index) = cap_uris(&uris, index);
-                let mut request = PlayRequest::tracks(uris).starting_at_index(index);
-                // An in-progress episode continues from Spotify's resume
-                // point. The interface already shows that place as time left.
-                // The playing episode is left alone so a second click does
-                // not jump back to a stale saved position.
-                if let Some(uri) = request.uris.get(index as usize)
-                    && self.now_playing().is_none_or(|now| now.uri != *uri)
-                    && let Some(position_ms) = self.episode_resume_ms(uri)
+                let request = PlayRequest::tracks(uris).starting_at_index(index);
+                self.play_request(request, false);
+            }
+            Action::PlayEpisode { uri, resume_ms } => {
+                // A started episode continues from the place the row or card
+                // showed as time left. The playing episode is left where it
+                // is playing, not sent back to a saved position older than it.
+                let mut request = PlayRequest::tracks(vec![uri.clone()]).starting_at_index(0);
+                if self.now_playing().is_none_or(|now| now.uri != uri)
+                    && let Some(position_ms) = resume_ms
                 {
                     request.position_ms = position_ms;
                 }
@@ -11983,31 +11932,19 @@ mod tests {
         );
     }
 
-    /// Play on an in-progress episode continues from Spotify's resume point.
-    /// The Home shelf, a podcast page, saved episodes, and search all show
-    /// that place as time left, then send PlayUris of the episode alone.
+    /// Play on an in-progress episode continues from the place the row or
+    /// card showed as time left. The playing episode stays where it plays.
     #[test]
     fn playing_an_in_progress_episode_continues_from_its_resume_point() {
         let ctx = egui::Context::default();
         let mut app = headless_app();
         let in_progress = "spotify:episode:mid";
-        let finished = "spotify:episode:done";
-        let fresh = "spotify:episode:new";
-        let episode = |uri: &str, fully_played: bool, resume_position_ms: u32| Episode {
-            uri: uri.into(),
-            duration_ms: 2_400_000,
-            resume_point: Some(ResumePoint {
-                fully_played,
-                resume_position_ms,
-            }),
-            ..Episode::default()
-        };
-        let play = |app: &mut App, uri: &str| {
+        let play = |app: &mut App, uri: &str, resume_ms: Option<u32>| {
             app.queued_play = None;
             app.apply(
-                Action::PlayUris {
-                    uris: vec![uri.into()],
-                    index: 0,
+                Action::PlayEpisode {
+                    uri: uri.into(),
+                    resume_ms,
                 },
                 &ctx,
             );
@@ -12016,80 +11953,8 @@ mod tests {
                 .expect("play is held for the engine")
                 .position_ms
         };
-
-        app.library.episodes.items.push(SavedEpisode {
-            episode: episode(in_progress, false, 600_000),
-            ..SavedEpisode::default()
-        });
-        assert_eq!(
-            play(&mut app, in_progress),
-            600_000,
-            "a saved episode continues where Spotify left it"
-        );
-
-        app.library.episodes.items.clear();
-        app.home.podcasts = vec![(
-            Show {
-                id: "show".into(),
-                ..Show::default()
-            },
-            vec![episode(in_progress, false, 1_200_000)],
-        )];
-        assert_eq!(
-            play(&mut app, in_progress),
-            1_200_000,
-            "Home's Continue card continues from the same resume point"
-        );
-
-        app.home.podcasts.clear();
-        app.search.results = Loadable::Loaded(SearchResults {
-            episodes: Some(ApiPage {
-                items: vec![episode(in_progress, false, 450_000)],
-                ..ApiPage::default()
-            }),
-            ..SearchResults::default()
-        });
-        assert_eq!(
-            play(&mut app, in_progress),
-            450_000,
-            "a search result continues from its resume point"
-        );
-
-        app.search.results = Loadable::NotLoaded;
-        app.show_pages.insert(
-            "show".into(),
-            ShowPage {
-                episodes: PagedList {
-                    items: vec![
-                        episode(fresh, false, 0),
-                        episode(finished, true, 2_390_000),
-                        episode(in_progress, false, 900_000),
-                    ],
-                    ..PagedList::default()
-                },
-                ..ShowPage::default()
-            },
-        );
-        assert_eq!(
-            play(&mut app, in_progress),
-            900_000,
-            "Play on a podcast page continues an in-progress episode"
-        );
-        assert_eq!(
-            play(&mut app, finished),
-            0,
-            "a finished episode starts over"
-        );
-        assert_eq!(
-            play(&mut app, fresh),
-            0,
-            "an unstarted episode starts at zero"
-        );
-        assert_eq!(
-            play(&mut app, "spotify:track:song"),
-            0,
-            "a song PlayUris is unchanged"
-        );
+        assert_eq!(play(&mut app, in_progress, Some(600_000)), 600_000);
+        assert_eq!(play(&mut app, "spotify:episode:new", None), 0);
 
         app.frame_now = Some(NowPlaying {
             local: true,
@@ -12116,10 +11981,29 @@ mod tests {
             resuming: false,
         });
         assert_eq!(
-            play(&mut app, in_progress),
+            play(&mut app, in_progress, Some(600_000)),
             0,
-            "the playing episode is not sent back to a stale resume point"
+            "the playing episode is not sent back to an older saved place"
         );
+    }
+
+    /// A started episode resumes where Spotify left it; a finished or
+    /// unstarted one starts over, and a place past the end stays inside it.
+    #[test]
+    fn an_episode_resumes_only_where_it_was_left_unfinished() {
+        let episode = |fully_played: bool, resume_position_ms: u32| Episode {
+            duration_ms: 2_400_000,
+            resume_point: Some(ResumePoint {
+                fully_played,
+                resume_position_ms,
+            }),
+            ..Episode::default()
+        };
+        assert_eq!(episode(false, 900_000).resume_ms(), Some(900_000));
+        assert_eq!(episode(true, 2_390_000).resume_ms(), None);
+        assert_eq!(episode(false, 0).resume_ms(), None);
+        assert_eq!(episode(false, 9_000_000).resume_ms(), Some(2_399_999));
+        assert_eq!(Episode::default().resume_ms(), None);
     }
 
     /// A media key can arrive before startup has reported that the saved
