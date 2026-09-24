@@ -675,7 +675,8 @@ pub struct PlaylistPage {
     pub cache_saved_total: Option<u32>,
     /// Number of rows in that checkpoint. Spotify offsets may skip positions.
     pub cache_saved_rows: usize,
-    /// One checkpoint at a time, so an unsuccessful append can be retried.
+    /// Identifies an in-flight checkpoint across generation resets until it completes.
+    /// One checkpoint at a time lets failed appends be retried safely.
     pub cache_write_pending: Option<PlaylistCachePending>,
     /// False when existing rows may have changed since the saved checkpoint.
     pub cache_append_valid: bool,

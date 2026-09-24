@@ -3966,7 +3966,6 @@ impl App {
             page.cache_restored_through = None;
             page.pending_cache = None;
             page.cache_checked = true;
-            page.cache_write_pending = None;
             page.cache_append_valid = false;
             page.local_additions.clear();
             page.optimistic_snapshot = None;
@@ -4019,7 +4018,6 @@ impl App {
                     playlist.cache_checked = true;
                     playlist.cache_restored_through = None;
                     playlist.pending_cache = None;
-                    playlist.cache_write_pending = None;
                     playlist.cache_append_valid = false;
                     playlist.local_additions.clear();
                     playlist.optimistic_snapshot = None;
@@ -5183,7 +5181,6 @@ impl App {
                         page.cache_saved_through = None;
                         page.cache_saved_rows = 0;
                         page.cache_saved_total = None;
-                        page.cache_write_pending = None;
                         page.cache_append_valid = false;
                         page.cache_restored_through = None;
                     }
@@ -19413,6 +19410,127 @@ mod tests {
         assert!(app.playlist_pages["second"].cache_write_pending.is_some());
         app.receive_playlist_cache_stored("alice", "second", 0, "current", true);
         assert_eq!(app.playlist_pages["second"].cache_saved_through, Some(1));
+    }
+
+    #[test]
+    fn stale_cache_write_completion_checkpoints_rows_after_playlist_resets() {
+        #[derive(Clone, Copy, Debug)]
+        enum Reset {
+            WindowJump,
+            Reload,
+            SnapshotChange,
+        }
+
+        for reset in [Reset::WindowJump, Reset::Reload, Reset::SnapshotChange] {
+            let mut app = headless_app();
+            app.backend.set_offline(true);
+            app.user = Some(User {
+                id: "alice".into(),
+                ..Default::default()
+            });
+            let old_generation = 7;
+            app.load_generation = old_generation;
+            app.playlist_pages.insert(
+                "best".into(),
+                PlaylistPage {
+                    generation: old_generation,
+                    items_generation: old_generation,
+                    playlist: Loadable::Loaded(Playlist {
+                        id: "best".into(),
+                        snapshot_id: Some("old".into()),
+                        items_count: Some(TrackCount { total: 1 }),
+                        ..Default::default()
+                    }),
+                    items: PagedList {
+                        items: vec![cached_playlist_row("spotify:track:old")],
+                        total: Some(1),
+                        next_offset: None,
+                        loaded_once: true,
+                        ..Default::default()
+                    },
+                    cache_checked: true,
+                    ..Default::default()
+                },
+            );
+
+            // Start an old-snapshot write, then invalidate its displayed rows.
+            app.checkpoint_playlist_cache("best");
+            assert!(app.playlist_cache_write_in_flight);
+            assert_eq!(
+                app.playlist_pages["best"]
+                    .cache_write_pending
+                    .as_ref()
+                    .map(|pending| pending.snapshot.as_str()),
+                Some("old")
+            );
+
+            let current_snapshot = match reset {
+                Reset::WindowJump => {
+                    app.load_playlist_items_at("best", 0);
+                    "old"
+                }
+                Reset::Reload => {
+                    app.reload(Page::Playlist("best".into()));
+                    let generation = app.playlist_pages["best"].generation;
+                    app.handle_api(ApiResponse::Playlist {
+                        id: "best".into(),
+                        generation,
+                        result: Ok(Playlist {
+                            id: "best".into(),
+                            snapshot_id: Some("old".into()),
+                            items_count: Some(TrackCount { total: 1 }),
+                            ..Default::default()
+                        }),
+                    });
+                    "old"
+                }
+                Reset::SnapshotChange => {
+                    app.handle_api(ApiResponse::Playlist {
+                        id: "best".into(),
+                        generation: old_generation,
+                        result: Ok(Playlist {
+                            id: "best".into(),
+                            snapshot_id: Some("new".into()),
+                            items_count: Some(TrackCount { total: 1 }),
+                            ..Default::default()
+                        }),
+                    });
+                    "new"
+                }
+            };
+            let generation = app.playlist_pages["best"].generation;
+
+            // The refreshed rows arrive while the old disk write still runs.
+            app.handle_api(ApiResponse::PlaylistItems {
+                id: "best".into(),
+                offset: 0,
+                generation,
+                result: Ok(ApiPage {
+                    items: vec![cached_playlist_row("spotify:track:new")],
+                    total: 1,
+                    limit: PLAYLIST_PAGE_SIZE,
+                    offset: 0,
+                    next: None,
+                }),
+            });
+            assert_eq!(
+                app.playlist_pages["best"]
+                    .cache_write_pending
+                    .as_ref()
+                    .map(|pending| pending.snapshot.as_str()),
+                Some("old"),
+                "{reset:?} must retain the in-flight write marker"
+            );
+
+            app.receive_playlist_cache_stored("alice", "best", old_generation, "old", true);
+            let pending = app.playlist_pages["best"]
+                .cache_write_pending
+                .as_ref()
+                .unwrap_or_else(|| panic!("{reset:?} lost its refreshed checkpoint"));
+            assert_eq!(pending.generation, generation, "{reset:?}");
+            assert_eq!(pending.snapshot, current_snapshot, "{reset:?}");
+            assert!(app.playlist_cache_write_in_flight, "{reset:?}");
+        }
     }
 
     #[test]
