@@ -346,6 +346,8 @@ pub struct App {
     pub queue_tab: QueueTab,
     pub search: SearchState,
     pub playlist_pages: HashMap<String, PlaylistPage>,
+    /// One checkpoint snapshot at a time, including pages evicted while it writes.
+    playlist_cache_write_in_flight: bool,
     load_generation: u64,
     pub album_pages: HashMap<String, AlbumPage>,
     pub artist_pages: HashMap<String, ArtistPage>,
@@ -757,6 +759,7 @@ impl App {
                 .unwrap_or_default(),
             search: SearchState::default(),
             playlist_pages: HashMap::new(),
+            playlist_cache_write_in_flight: false,
             load_generation: 0,
             album_pages: HashMap::new(),
             artist_pages: HashMap::new(),
@@ -6781,40 +6784,54 @@ impl App {
         snapshot: &str,
         success: bool,
     ) {
-        if self.user_id() != Some(account_id) {
-            return;
-        }
-        let should_check_again = self.playlist_pages.get_mut(id).is_some_and(|page| {
-            let Some(pending) = page.cache_write_pending.take() else {
-                return false;
-            };
-            if pending.generation != generation || pending.snapshot != snapshot {
-                page.cache_write_pending = Some(pending);
-                return false;
-            }
-            let current = page.generation == generation
-                && page.items_generation == generation
-                && page.pending_writes == 0
-                && page
-                    .playlist
-                    .get()
-                    .and_then(|playlist| playlist.snapshot_id.as_deref())
-                    == Some(snapshot);
-            if !current {
-                page.cache_append_valid = false;
-                return true;
-            }
-            if success && page.cache_append_valid {
-                page.cache_saved_through = Some(pending.through);
-                page.cache_saved_rows = pending.rows;
-                page.cache_saved_total = Some(pending.total);
-            } else if !success {
-                page.cache_append_valid = false;
-            }
-            success || !pending.replacing
-        });
+        self.playlist_cache_write_in_flight = false;
+        let same_account = self.user_id() == Some(account_id);
+        let should_check_again = same_account
+            && self.playlist_pages.get_mut(id).is_some_and(|page| {
+                let Some(pending) = page.cache_write_pending.take() else {
+                    return false;
+                };
+                if pending.generation != generation || pending.snapshot != snapshot {
+                    page.cache_write_pending = Some(pending);
+                    return false;
+                }
+                let current = page.generation == generation
+                    && page.items_generation == generation
+                    && page.pending_writes == 0
+                    && page
+                        .playlist
+                        .get()
+                        .and_then(|playlist| playlist.snapshot_id.as_deref())
+                        == Some(snapshot);
+                if !current {
+                    page.cache_append_valid = false;
+                    return true;
+                }
+                if success && page.cache_append_valid {
+                    page.cache_saved_through = Some(pending.through);
+                    page.cache_saved_rows = pending.rows;
+                    page.cache_saved_total = Some(pending.total);
+                } else if !success {
+                    page.cache_append_valid = false;
+                }
+                success || !pending.replacing
+            });
         if should_check_again {
             self.checkpoint_playlist_cache(id);
+        }
+        if !self.playlist_cache_write_in_flight {
+            let waiting: Vec<_> = self
+                .playlist_pages
+                .keys()
+                .filter(|waiting| !same_account || waiting.as_str() != id)
+                .cloned()
+                .collect();
+            for waiting in waiting {
+                self.checkpoint_playlist_cache(&waiting);
+                if self.playlist_cache_write_in_flight {
+                    break;
+                }
+            }
         }
     }
 
@@ -6949,6 +6966,9 @@ impl App {
     fn checkpoint_playlist_cache(&mut self, id: &str) {
         const CHECKPOINT_ITEMS: u32 = PLAYLIST_PAGE_SIZE * 10;
 
+        if self.playlist_cache_write_in_flight {
+            return;
+        }
         let command = self.playlist_pages.get_mut(id).and_then(|page| {
             let snapshot = page
                 .playlist
@@ -7016,6 +7036,7 @@ impl App {
             })
         });
         if let Some(command) = command {
+            self.playlist_cache_write_in_flight = true;
             self.backend.send(command);
         }
     }
@@ -19349,6 +19370,49 @@ mod tests {
             Some(575),
             "the final short interval is still saved"
         );
+    }
+
+    #[test]
+    fn playlist_cache_waits_for_the_previous_playlist_write() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
+        for id in ["first", "second"] {
+            app.playlist_pages.insert(
+                id.into(),
+                PlaylistPage {
+                    playlist: Loadable::Loaded(Playlist {
+                        id: id.into(),
+                        snapshot_id: Some("current".into()),
+                        ..Default::default()
+                    }),
+                    items: PagedList {
+                        items: vec![cached_playlist_row("spotify:track:one")],
+                        total: Some(1),
+                        next_offset: None,
+                        loaded_once: true,
+                        ..Default::default()
+                    },
+                    cache_checked: true,
+                    ..Default::default()
+                },
+            );
+        }
+
+        app.checkpoint_playlist_cache("first");
+        app.checkpoint_playlist_cache("second");
+        assert!(app.playlist_pages["first"].cache_write_pending.is_some());
+        assert!(app.playlist_pages["second"].cache_write_pending.is_none());
+
+        // A page may be evicted while its disk write is still in progress.
+        app.playlist_pages.remove("first");
+        app.receive_playlist_cache_stored("alice", "first", 0, "current", true);
+        assert!(app.playlist_pages["second"].cache_write_pending.is_some());
+        app.receive_playlist_cache_stored("alice", "second", 0, "current", true);
+        assert_eq!(app.playlist_pages["second"].cache_saved_through, Some(1));
     }
 
     #[test]

@@ -151,14 +151,15 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   its first available song when Shuffle is off and the original order is
   selected. Double-click a row to start there; use the player bar to resume.
   Cached playlists must match Spotify's revision and song count before their
-  rows can determine playback order. Pending playlist edits stay visible and
-  are saved to that cache only after all writes succeed.
+  rows can determine playback order. Pending playlist edits stay visible; a
+  cache checkpoint includes them only after all writes succeed.
   Refresh waits for pending edits and their Spotify revision to be confirmed;
   a failed refresh keeps the current rows and offers a retry.
   Choose **Refresh** in a playlist's **…** menu to pick up changes made in
   another Spotify client.
-  Large playlist checkpoints read and write their JSON through a small background
-  buffer, preserving the existing cache format without another full JSON copy.
+  Large playlists save loaded rows in incremental checkpoints, so reopening can
+  resume without fetching earlier pages. Older cache files still load. Cache
+  writes run in the background with one pending snapshot to limit memory use.
 - Since 0.10.0, the **Shuffle** button beside a collection's **Play**
   button sets the global mode without starting that collection. Choose it before
   a playback device is active; the next **Play** uses that selection. While

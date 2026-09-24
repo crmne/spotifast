@@ -1577,7 +1577,7 @@ impl Worker {
     }
 
     async fn run(&mut self, mut commands: mpsc::UnboundedReceiver<Command>) {
-        let (cache_writes, cache_write_receiver) = mpsc::unbounded_channel();
+        let (cache_writes, cache_write_receiver) = mpsc::channel(1);
         let cache_writer = tokio::spawn(store_playlist_caches(
             cache_write_receiver,
             self.events.clone(),
@@ -1915,7 +1915,7 @@ impl Worker {
                             .dirs
                             .account_playlist_cache_dir(&account_id)
                             .join(format!("{id}.json"));
-                        let _ = cache_writes.send(PlaylistCacheWrite {
+                        if let Err(error) = cache_writes.try_send(PlaylistCacheWrite {
                             path,
                             account_id,
                             id,
@@ -1924,6 +1924,27 @@ impl Worker {
                             rows,
                             total,
                             next_offset,
+                        }) {
+                            let write = error.into_inner();
+                            log::warn!(
+                                "unable to queue playlist cache {}: writer unavailable",
+                                write.path.display()
+                            );
+                            self.emit(Event::PlaylistCacheStored {
+                                account_id: write.account_id,
+                                id: write.id,
+                                generation: write.generation,
+                                snapshot: write.snapshot,
+                                success: false,
+                            });
+                        }
+                    } else {
+                        self.emit(Event::PlaylistCacheStored {
+                            account_id: String::new(),
+                            id,
+                            generation,
+                            snapshot,
+                            success: false,
                         });
                     }
                 }
@@ -4208,7 +4229,7 @@ fn read_incremental_playlist_cache_file(path: &std::path::Path) -> std::io::Resu
 
 /// Keep writes in command order without making the command loop wait for disk.
 async fn store_playlist_caches(
-    mut writes: mpsc::UnboundedReceiver<PlaylistCacheWrite>,
+    mut writes: mpsc::Receiver<PlaylistCacheWrite>,
     events: std::sync::mpsc::Sender<Event>,
     waker: Waker,
 ) {
@@ -4995,6 +5016,62 @@ mod authorization_tests {
             "a pending disk write blocked the command loop"
         );
         assert_eq!(read_playlist_manifest(&path).unwrap().snapshot, "old");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_cache_writer_rejects_excess_snapshots_without_blocking_commands() {
+        let (runtime, mut worker, events) = worker("playlist-cache-bounded-writes");
+        worker
+            .api
+            .install(ApiSource::Shared, AccountId::new("alice"))
+            .unwrap();
+        let path = worker
+            .dirs
+            .account_playlist_cache_dir("alice")
+            .join("mix.json");
+        let root = worker.dirs.cache.parent().unwrap().to_path_buf();
+        let lock = playlist_cache_lock(&path).unwrap();
+        let (commands, receiver) = mpsc::unbounded_channel();
+        for generation in 0..4 {
+            commands
+                .send(Command::StorePlaylistCache {
+                    id: "mix".into(),
+                    generation,
+                    snapshot: format!("snapshot-{generation}"),
+                    rows: PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+                    total: 1,
+                    next_offset: None,
+                })
+                .unwrap();
+        }
+        commands
+            .send(Command::ConfigurePersonalWebApp(None))
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        let thread = std::thread::spawn(move || runtime.block_on(worker.run(receiver)));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut rejected = 0;
+        let handled_next_command = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break false;
+            }
+            match events.recv_timeout(remaining) {
+                Ok(Event::PlaylistCacheStored { success: false, .. }) => rejected += 1,
+                Ok(Event::WebApp { client_id: None }) => break true,
+                Ok(_) => {}
+                Err(_) => break false,
+            }
+        };
+        drop(lock);
+        thread.join().unwrap();
+        assert!(
+            handled_next_command,
+            "cache writes blocked the command loop"
+        );
+        assert!(rejected >= 2, "only one write may wait behind the writer");
         std::fs::remove_dir_all(root).unwrap();
     }
 
