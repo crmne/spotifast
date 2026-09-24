@@ -771,6 +771,7 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 item,
                 context: &context,
                 show_cover,
+                show_playing_overlay: true,
                 show_album: table.show_album,
                 added_at: added_at.as_deref(),
                 added_by: added_by.as_deref(),

@@ -52,6 +52,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 item,
                                 context: &context,
                                 show_cover: !app.settings.tracklist_compact,
+                                show_playing_overlay: true,
                                 show_album: false,
                                 added_at: None,
                                 added_by: None,

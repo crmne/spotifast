@@ -985,6 +985,9 @@ pub struct TrackRow<'a> {
     pub item: &'a PlayableItem,
     pub context: &'a RowContext,
     pub show_cover: bool,
+    /// Show playback status over the cover when there is no number column.
+    /// Loading and hover/focus controls are independent of this flag.
+    pub show_playing_overlay: bool,
     pub show_album: bool,
     pub added_at: Option<&'a str>,
     /// Who put the song here, on playlists made together.
@@ -1080,6 +1083,57 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
         heart: if row.compact { 0.0 } else { 36.0 },
         duration: if row.compact { 44.0 } else { 56.0 },
         more: if row.compact { 0.0 } else { 36.0 },
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PlayingIndicatorClock {
+    time: f64,
+    last_time: f64,
+    was_focused: bool,
+}
+
+/// Playback activity, not an audio visualiser. Only a visible playing row
+/// calls this. Keep one clock per viewport so all rows freeze at their last
+/// painted phase while unfocused, without per-song state or animation frames.
+fn paint_playing_indicator(ui: &Ui, cell: Rect, color: Color32) {
+    let icon = Rect::from_center_size(cell.center(), Vec2::splat(16.0));
+    if !ui.is_rect_visible(icon) {
+        return;
+    }
+    let (now, focused) = ui.input(|input| (input.time, input.focused));
+    let clock_id = egui::Id::new(("playing-indicator-clock", ui.ctx().viewport_id()));
+    let time = ui.data_mut(|data| {
+        let clock = data.get_temp_mut_or_insert_with(clock_id, || PlayingIndicatorClock {
+            time: now,
+            last_time: now,
+            was_focused: focused,
+        });
+        if focused && clock.was_focused {
+            clock.time += now - clock.last_time;
+        }
+        clock.last_time = now;
+        clock.was_focused = focused;
+        clock.time
+    });
+    for (index, (speed, phase)) in [(1.1, 0.0), (1.4, 2.1), (0.9, 4.2), (1.25, 1.0)]
+        .into_iter()
+        .enumerate()
+    {
+        let wave = (time * std::f64::consts::TAU * speed + phase).sin();
+        let height = 3.0 + 11.0 * (0.5 + 0.5 * wave) as f32;
+        let left = icon.center().x - 5.5 + index as f32 * 3.0;
+        let bottom = icon.bottom() - 1.0;
+        ui.painter().rect_filled(
+            Rect::from_min_max(pos2(left, bottom - height), pos2(left + 2.0, bottom)),
+            CornerRadius::ZERO,
+            color,
+        );
+    }
+    // Same cadence as the loading spinner, without an idle animation timer.
+    if focused {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(33));
     }
 }
 
@@ -1236,7 +1290,7 @@ fn track_row_contents(
             };
             theme::paint_icon(ui, icon, cell, 14.0, palette.text);
         } else if playing {
-            theme::paint_icon(ui, Icon::AudioLines, cell, 16.0, palette.accent);
+            paint_playing_indicator(ui, cell, palette.accent);
         } else {
             let color = if is_current {
                 palette.accent
@@ -1275,7 +1329,8 @@ fn track_row_contents(
             Some(app.backend.art()),
         );
         // Without a number column the cover carries the play control:
-        // hover shows it, a click uses it, and what plays shows there.
+        // hover shows it and a click uses it. The Queue keeps its artwork
+        // clear while playing; other compact lists show playback status.
         if cols.number == 0.0 {
             let scrim = |alpha: u8| {
                 painter.rect_filled(
@@ -1300,9 +1355,9 @@ fn track_row_contents(
                     Icon::PlayFilled
                 };
                 theme::paint_icon(ui, icon, cover_rect, 16.0, Color32::WHITE);
-            } else if playing {
+            } else if playing && row.show_playing_overlay {
                 scrim(110);
-                theme::paint_icon(ui, Icon::AudioLines, cover_rect, 16.0, palette.accent);
+                paint_playing_indicator(ui, cover_rect, palette.accent);
             }
         }
         x += cols.cover;
@@ -3476,6 +3531,359 @@ mod tests {
         })
     }
 
+    struct PlayingRow {
+        app: App,
+        ctx: egui::Context,
+        item: PlayableItem,
+        context: RowContext,
+        compact: bool,
+        thin: bool,
+        show_playing_overlay: bool,
+        window_focused: bool,
+        clip: Rect,
+        rect: Rect,
+        id: egui::Id,
+        time: f64,
+    }
+
+    impl PlayingRow {
+        fn new(compact: bool, thin: bool, palette: Palette) -> Self {
+            let mut app = test_app();
+            crate::demo::populate(&mut app);
+            app.backend.shutdown();
+            app.palette = palette;
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            theme::apply(&ctx, &palette);
+            let item = song(&app.current_track_uri().unwrap());
+            Self {
+                app,
+                ctx,
+                item,
+                context: RowContext::Uris(std::sync::Arc::from([])),
+                compact,
+                thin,
+                show_playing_overlay: true,
+                window_focused: true,
+                clip: Rect::EVERYTHING,
+                rect: Rect::NOTHING,
+                id: egui::Id::NULL,
+                time: 0.0,
+            }
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
+            self.time += 0.125;
+            let mut output = self.ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(760.0, 520.0))),
+                    time: Some(self.time),
+                    predicted_dt: 0.0,
+                    focused: self.window_focused,
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    ui.set_clip_rect(ui.clip_rect().intersect(self.clip));
+                    let (response, _) = track_row_response(
+                        ui,
+                        &mut self.app,
+                        TrackRow {
+                            index: 0,
+                            number: Some(1),
+                            item: &self.item,
+                            context: &self.context,
+                            show_cover: !self.thin,
+                            show_playing_overlay: self.show_playing_overlay,
+                            show_album: false,
+                            added_at: None,
+                            added_by: None,
+                            show_added_by: false,
+                            compact: self.compact,
+                            thin: self.thin,
+                            shift: 0.0,
+                            picked: false,
+                            picked_songs: &[],
+                        },
+                    );
+                    self.rect = response.rect;
+                    self.id = response.id;
+                },
+            );
+            output.textures_delta.clear();
+            output
+        }
+
+        fn bars(&self, output: &egui::FullOutput) -> Vec<Rect> {
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Rect(shape)
+                        if shape.fill == self.app.palette.accent && shape.rect.width() == 2.0 =>
+                    {
+                        Some(shape.rect)
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn settled(&mut self) -> egui::FullOutput {
+            self.frame(vec![]);
+            self.frame(vec![]);
+            self.frame(vec![])
+        }
+
+        fn assert_idle(&mut self) {
+            let output = self.settled();
+            assert!(self.bars(&output).is_empty());
+            assert!(
+                output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                    > std::time::Duration::from_millis(33)
+            );
+        }
+    }
+
+    #[test]
+    fn playing_rows_animate_inside_the_existing_icon_and_follow_pause_resume() {
+        for mut palette in [Palette::dark(), Palette::light()] {
+            palette.accent = Color32::from_rgb(255, 0, 90);
+            for (compact, thin) in [(false, false), (true, false), (false, true)] {
+                let mut row = PlayingRow::new(compact, thin, palette);
+                let first = row.settled();
+                let second = row.frame(vec![]);
+                let bars = row.bars(&first);
+                assert_eq!(bars.len(), 4);
+                assert_ne!(bars, row.bars(&second));
+                let center_x = row.rect.left() + if compact { 28.0 } else { 30.0 };
+                let icon =
+                    Rect::from_center_size(pos2(center_x, row.rect.center().y), Vec2::splat(16.0));
+                for _ in 0..40 {
+                    let output = row.frame(vec![]);
+                    let bars = row.bars(&output);
+                    assert_eq!(bars.len(), 4);
+                    for bar in bars {
+                        assert!(icon.contains_rect(bar), "{bar:?} outside {icon:?}");
+                        assert!((3.0..=14.0).contains(&bar.height()));
+                        assert_eq!(bar.bottom(), icon.bottom() - 1.0);
+                    }
+                    assert_eq!(
+                        output.viewport_output[&egui::ViewportId::ROOT].repaint_delay,
+                        std::time::Duration::from_millis(33)
+                    );
+                }
+                let height = row.rect.height();
+                row.app.apply(Action::TogglePlay, &row.ctx);
+                assert!(!row.app.believed_playing());
+                row.assert_idle();
+                row.app.apply(Action::TogglePlay, &row.ctx);
+                let resumed = row.settled();
+                assert_eq!(row.bars(&resumed).len(), 4);
+                assert_eq!(row.rect.height(), height);
+                assert!(row.app.actions.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn playing_rows_only_animate_while_the_window_is_focused() {
+        for compact in [false, true] {
+            let mut row = PlayingRow::new(compact, false, Palette::dark());
+            let playing = row.settled();
+            let frozen_bars = row.bars(&playing);
+            assert_eq!(frozen_bars.len(), 4);
+            let mut uninterrupted = PlayingRow::new(compact, false, Palette::dark());
+            uninterrupted.settled();
+
+            row.window_focused = false;
+            let unfocused = row.frame(vec![egui::Event::WindowFocused(false)]);
+            assert_eq!(row.bars(&unfocused), frozen_bars);
+            // Progress updates can still redraw an unfocused window. Those
+            // frames must keep the same bars without scheduling animation.
+            for _ in 0..4 {
+                row.time += 60.0;
+                let background = row.settled();
+                assert_eq!(row.bars(&background), frozen_bars);
+                assert!(
+                    background.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                        > std::time::Duration::from_millis(33)
+                );
+            }
+
+            row.window_focused = true;
+            let resumed = row.frame(vec![egui::Event::WindowFocused(true)]);
+            assert_eq!(row.bars(&resumed), frozen_bars);
+            let next = row.frame(vec![]);
+            assert_ne!(row.bars(&next), frozen_bars);
+            let continued = uninterrupted.frame(vec![]);
+            assert_eq!(row.bars(&next), uninterrupted.bars(&continued));
+        }
+    }
+
+    #[test]
+    fn playing_rows_start_frozen_when_the_window_is_unfocused() {
+        let mut row = PlayingRow::new(false, false, Palette::dark());
+        row.window_focused = false;
+        let first = row.settled();
+        let bars = row.bars(&first);
+        assert_eq!(bars.len(), 4);
+        row.time += 60.0;
+        let later = row.settled();
+        assert_eq!(row.bars(&later), bars);
+        assert!(
+            later.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                > std::time::Duration::from_millis(33)
+        );
+        row.window_focused = true;
+        let resumed = row.frame(vec![egui::Event::WindowFocused(true)]);
+        assert_eq!(row.bars(&resumed), bars);
+        let next = row.frame(vec![]);
+        assert_ne!(row.bars(&next), bars);
+    }
+
+    #[test]
+    fn queue_artwork_stays_clear_until_hover_focus_or_pending_playback() {
+        let mut row = PlayingRow::new(true, false, Palette::dark());
+        row.show_playing_overlay = false;
+        row.assert_idle();
+        let scrimmed = |output: &egui::FullOutput, alpha| {
+            output.shapes.iter().any(|shape| {
+                matches!(&shape.shape, egui::epaint::Shape::Rect(rect)
+                    if rect.fill == Color32::from_black_alpha(alpha)
+                        && rect.rect.size() == Vec2::splat(36.0))
+            })
+        };
+        assert!(!scrimmed(&row.settled(), 110));
+
+        let hovered = row.frame(vec![egui::Event::PointerMoved(row.rect.center())]);
+        assert!(scrimmed(&hovered, 140));
+        row.frame(vec![egui::Event::PointerGone]);
+        row.ctx.memory_mut(|memory| memory.request_focus(row.id));
+        assert!(scrimmed(&row.settled(), 140));
+        row.frame(vec![egui::Event::Key {
+            key: egui::Key::Space,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        assert!(matches!(
+            row.app.actions.as_slice(),
+            [Action::PlayFromRow { .. }]
+        ));
+        row.app.actions.clear();
+        row.ctx.memory_mut(|memory| memory.surrender_focus(row.id));
+        row.app.apply(
+            Action::PlayUris {
+                uris: vec![row.item.uri().into()],
+                index: 0,
+            },
+            &row.ctx,
+        );
+        let pending = row.settled();
+        assert!(scrimmed(&pending, 140));
+        assert!(
+            pending
+                .shapes
+                .iter()
+                .any(|shape| matches!(shape.shape, egui::epaint::Shape::Path(_)))
+        );
+
+        // Full-width queue rows retain the separate number-column indicator.
+        let mut full = PlayingRow::new(false, false, Palette::dark());
+        full.show_playing_overlay = false;
+        let playing = full.settled();
+        assert_eq!(full.bars(&playing).len(), 4);
+    }
+
+    #[test]
+    fn playing_rows_yield_to_controls_pending_plays_and_clipping() {
+        for compact in [false, true] {
+            let mut row = PlayingRow::new(compact, false, Palette::dark());
+            row.settled();
+            row.frame(vec![egui::Event::PointerMoved(row.rect.center())]);
+            row.assert_idle();
+            row.frame(vec![egui::Event::PointerGone]);
+            row.ctx.memory_mut(|memory| memory.request_focus(row.id));
+            row.assert_idle();
+            row.frame(vec![egui::Event::Key {
+                key: egui::Key::Space,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            assert!(
+                matches!(row.app.actions.as_slice(), [Action::PlayFromRow { uri, .. }] if uri == row.item.uri())
+            );
+            row.app.actions.clear();
+            row.ctx.memory_mut(|memory| memory.surrender_focus(row.id));
+            let playing = row.settled();
+            assert_eq!(row.bars(&playing).len(), 4);
+            // The row can still be partly visible while its indicator is clipped.
+            row.clip = Rect::from_min_max(pos2(100.0, 0.0), pos2(760.0, 520.0));
+            row.assert_idle();
+            row.clip = Rect::NOTHING;
+            row.assert_idle();
+            row.clip = Rect::EVERYTHING;
+            row.app.apply(
+                Action::PlayUris {
+                    uris: vec![row.item.uri().into()],
+                    index: 0,
+                },
+                &row.ctx,
+            );
+            assert!(row.app.play_pending(row.item.uri()));
+            let pending = row.settled();
+            assert!(row.bars(&pending).is_empty());
+            assert!(
+                pending
+                    .shapes
+                    .iter()
+                    .any(|shape| matches!(shape.shape, egui::epaint::Shape::Path(_))),
+                "pending playback keeps its spinner"
+            );
+        }
+    }
+
+    #[test]
+    fn playing_rows_stop_for_other_tracks_queue_occurrences_and_sign_out() {
+        let mut row = PlayingRow::new(false, false, Palette::dark());
+        let playing = row.settled();
+        assert_eq!(row.bars(&playing).len(), 4);
+        row.context = RowContext::Queue;
+        row.assert_idle();
+        row.context = RowContext::Uris(std::sync::Arc::from([]));
+        row.app.remote.as_mut().unwrap().state.item = Some(song("spotify:track:another"));
+        row.assert_idle();
+        row.app.remote.as_mut().unwrap().state.item = Some(row.item.clone());
+        let returned = row.settled();
+        assert_eq!(row.bars(&returned).len(), 4);
+        row.app.local.track = Some(crate::player::LocalTrack {
+            uri: row.item.uri().into(),
+            ..Default::default()
+        });
+        row.app.local.playback = crate::player::Playback::Playing;
+        row.app.remote = None;
+        let local = row.settled();
+        assert_eq!(row.bars(&local).len(), 4);
+        row.app.local.playback = crate::player::Playback::Paused;
+        row.assert_idle();
+        row.app.local.playback = crate::player::Playback::Playing;
+        row.app.apply(Action::SignOut, &row.ctx);
+        // Sign-out completes asynchronously. The signed-out view must stop
+        // drawing rows even if it still has the last playback snapshot.
+        row.app.auth = crate::backend::AuthStatus::SignedOut;
+        for _ in 0..4 {
+            let mut output = row
+                .ctx
+                .run_ui(egui::RawInput::default(), |ui| row.app.frame_ui(ui));
+            output.textures_delta.clear();
+            assert!(row.bars(&output).is_empty());
+        }
+    }
+
     #[test]
     fn track_row_selection_preserves_transparency_and_focus_without_an_outline() {
         for mut palette in [Palette::dark(), Palette::light()] {
@@ -3512,6 +3920,7 @@ mod tests {
                                     item: &item,
                                     context: &context,
                                     show_cover: false,
+                                    show_playing_overlay: true,
                                     show_album: false,
                                     added_at: None,
                                     added_by: None,

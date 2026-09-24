@@ -627,6 +627,7 @@ fn track_list(
                 item: &item,
                 context: &context,
                 show_cover: !app.settings.tracklist_compact,
+                show_playing_overlay: true,
                 show_album: true,
                 added_at: None,
                 added_by: None,
