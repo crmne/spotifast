@@ -180,6 +180,11 @@ In a playlist, album or Liked Songs, focus a song row and use the up and down
 arrows to move between whole rows in the displayed order. Rows scroll into
 view as you move; Enter plays the focused song. Tab still reaches artist
 links and each row's Like and More controls.
+Arrow navigation selects only the destination song. Hold `Shift` with up or
+down to extend or shrink the selection from its anchor. Press `Delete` to
+remove selected songs from a playlist you can edit, just like **Remove from
+this playlist**. Text fields, dialogs and open menus keep Delete from acting
+on the list.
 
 Left and right arrows adjust a focused volume slider by five percentage
 points, or the seek slider by one percent of the song. Screen readers can
