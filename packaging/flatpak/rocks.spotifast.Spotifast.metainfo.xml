@@ -50,6 +50,9 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.10.2" date="2026-09-25">
+      <url>https://github.com/crmne/spotifast/releases/tag/v0.10.2</url>
+    </release>
     <release version="0.10.1" date="2026-09-24">
       <url>https://github.com/crmne/spotifast/releases/tag/v0.10.1</url>
     </release>

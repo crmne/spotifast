@@ -77,10 +77,9 @@ Source: "{#Binary}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#LegacyBinary}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "fastpotify-installer.txt"; DestDir: "{app}"; Flags: ignoreversion
 #else
-; The 0.9.1 updater relaunches the app under the name it was running as,
-; which is fastpotify.exe when an older updater installed 0.9.1. A copy under
-; that name lets its update finish; the update after it relaunches
-; spotifast.exe (see updates::install::replace).
+; The update helper relaunches the app under the name it was running as,
+; and that is fastpotify.exe for an installation that reached 0.9.1 through
+; an older updater. A copy under that name lets those updates finish.
 Source: "{#Binary}"; DestDir: "{app}"; DestName: "fastpotify.exe"; Flags: ignoreversion
 #endif
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion

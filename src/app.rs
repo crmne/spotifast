@@ -26,7 +26,6 @@ use crate::player::{EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand,
 use crate::settings::{CachedRootlist, SessionState, Settings, ThemeChoice};
 use crate::single_instance::ControlCommand;
 use crate::theme::{self, Palette};
-use crate::tray::{TrayCommand, TrayService};
 use crate::util;
 
 const REMOTE_POLL_ACTIVE: Duration = Duration::from_secs(4);
@@ -240,7 +239,9 @@ pub struct App {
     /// from. Finding the file touches the disk and the controls are synced
     /// every frame, so the answer is kept until the artwork changes.
     media_art: Option<(String, PathBuf)>,
-    tray: Option<TrayService>,
+    tray: Option<fastframe_tray::Tray>,
+    /// Whether the tray menu last offered Pause rather than Play.
+    tray_playing: bool,
     pub window_hidden: bool,
     /// The window should close but the process should stay in the tray.
     pub hide_intent: bool,
@@ -276,7 +277,7 @@ pub struct App {
     #[cfg(any(test, feature = "demo"))]
     pub demo_windows_controls: bool,
     applied_dark: Option<bool>,
-    pub custom_themes: theme::custom::Catalog,
+    pub custom_themes: theme::Catalog,
 
     pub auth: AuthStatus,
     pub user: Option<User>,
@@ -555,9 +556,9 @@ pub struct App {
     pub show_update: bool,
     pub update_download: crate::updates::DownloadState,
     pub update_source: crate::updates::Source,
-    pub update_support: Option<Result<crate::updates::install::Installation, String>>,
+    pub update_support: Option<Result<crate::updates::Installation, String>>,
     pub update_restart_arguments: Vec<String>,
-    pub update_receipt: Option<PathBuf>,
+    pub update_receipt: Option<fastframe_update::Receipt>,
     /// Winamp window state and active skin.
     pub winamp: crate::winamp::WinampState,
 }
@@ -593,6 +594,78 @@ const GLIDE_STOP: f32 = 40.0;
 /// How long fingers may rest on the pad before lifting and still glide,
 /// in seconds: the span the release speed is measured over.
 const GLIDE_REST: f64 = 0.1;
+
+const TRAY_SHOW: &str = "show";
+const TRAY_PLAY_PAUSE: &str = "play-pause";
+const TRAY_NEXT: &str = "next";
+const TRAY_PREVIOUS: &str = "previous";
+const TRAY_QUIT: &str = "quit";
+
+/// What the shell around `eframe::run_native` does with the app between
+/// windows.
+impl fastframe_shell::Resident for App {
+    /// Quit wins; switching between the main window and the mini player
+    /// opens the other at once; closing to the tray runs without a window.
+    fn closed(&self) -> fastframe_shell::Closed {
+        use fastframe_shell::Closed;
+        if self.quit_requested {
+            Closed::Quit
+        } else if self.switch_intent {
+            Closed::Reopen
+        } else if self.hide_intent {
+            Closed::Hide
+        } else {
+            Closed::Quit
+        }
+    }
+
+    fn window_gone(&mut self) {
+        App::window_gone(self);
+    }
+
+    /// Audio, MPRIS, the tray and polling keep running until Show or Quit.
+    fn headless_frame(&mut self, ctx: &egui::Context) -> fastframe_shell::Headless {
+        use fastframe_shell::Headless;
+        self.background_frame(ctx);
+        if self.quit_requested {
+            Headless::Quit
+        } else if self.wants_show {
+            Headless::Show
+        } else {
+            Headless::Wait
+        }
+    }
+
+    fn shutdown(&mut self) {
+        App::shutdown(self);
+    }
+}
+
+/// The tray menu's Play or Pause entry, for what is playing.
+fn play_pause_label(playing: bool) -> &'static str {
+    if playing { "Pause" } else { "Play" }
+}
+
+/// The tray item: Spotifast's icon, and a menu that shows or hides the
+/// window, controls playback and quits.
+fn tray_config() -> fastframe_tray::Config {
+    use fastframe_tray::MenuItem;
+    fastframe_tray::Config {
+        id: "spotifast",
+        title: "Spotifast".into(),
+        icon: util::app_icon_rgba,
+        template_icon: Some(util::tray_template_rgba),
+        menu: vec![
+            MenuItem::action(TRAY_SHOW, "Show or hide Spotifast"),
+            MenuItem::Separator,
+            MenuItem::action(TRAY_PLAY_PAUSE, play_pause_label(false)),
+            MenuItem::action(TRAY_NEXT, "Next"),
+            MenuItem::action(TRAY_PREVIOUS, "Previous"),
+            MenuItem::Separator,
+            MenuItem::action(TRAY_QUIT, "Quit"),
+        ],
+    }
+}
 
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, mut settings: Settings, options: AppOptions) -> Self {
@@ -657,7 +730,7 @@ impl App {
         let wake = waker.clone();
         let tray = options
             .tray
-            .then(|| TrayService::spawn(move || wake.wake()))
+            .then(|| fastframe_tray::Tray::spawn(tray_config(), move || wake.wake()))
             .flatten();
 
         let first_page = session
@@ -669,7 +742,7 @@ impl App {
 
         let palette = settings.cached_palette().unwrap_or_else(Palette::dark);
         let mut app = Self {
-            custom_themes: theme::custom::Catalog::default(),
+            custom_themes: theme::Catalog::default(),
             dirs,
             settings,
             applied_proxy,
@@ -686,6 +759,7 @@ impl App {
             system_appearance,
             media_art: None,
             tray,
+            tray_playing: false,
             window_hidden: false,
             hide_intent: false,
             wants_show: false,
@@ -999,9 +1073,6 @@ impl App {
         self.window_hidden = true;
         self.hide_intent = false;
         self.wants_show = false;
-        if let Some(tray) = &mut self.tray {
-            tray.hidden();
-        }
     }
 
     /// Whether closing the window keeps the app in the tray rather than
@@ -1733,7 +1804,7 @@ impl App {
     fn handle_backend_events(&mut self, events: Vec<Event>) {
         for event in events {
             if self.offline
-                && (matches!(self.update_source, crate::updates::Source::GitHub)
+                && (self.update_source.is_github()
                     || !matches!(
                         &event,
                         Event::UpdateChecked { .. }
@@ -3048,17 +3119,31 @@ impl App {
     /// Called at launch or by the local reload command. Construction and window
     /// attachment never scan theme files.
     pub fn load_custom_themes(&mut self, waker: &Waker) {
+        let waker = waker.clone();
         self.custom_themes.start(
             self.dirs.config.join("themes"),
             self.settings.custom_theme.clone(),
-            waker,
+            &fastframe_theme::Waker::new(move || waker.wake()),
         );
     }
 
+    /// Adds the desktop's palettes (Omarchy on Linux) for a normal launch.
+    pub fn enable_desktop_themes(&mut self) {
+        theme::enable_desktop_themes(&mut self.custom_themes, &self.dirs.config.join("themes"));
+    }
+
     fn poll_custom_themes(&mut self, ctx: &egui::Context) {
-        if !self.custom_themes.poll() {
-            return;
+        // The themes folder or Omarchy's current theme changed on disk.
+        if self.custom_themes.needs_reload() {
+            self.actions.push(Action::ReloadThemes);
         }
+        if self.custom_themes.poll() {
+            self.adopt_custom_themes(ctx);
+        }
+    }
+
+    /// Takes the selected and the desktop's palettes from a finished scan.
+    fn adopt_custom_themes(&mut self, ctx: &egui::Context) {
         let mut changed = false;
         if let Some(filename) = &self.settings.custom_theme
             && let Some(theme) = self.custom_themes.find(filename)
@@ -3139,22 +3224,27 @@ impl App {
     }
 
     fn handle_tray(&mut self) {
-        let Some(commands) = self.tray.as_ref().map(TrayService::drain_commands) else {
+        use fastframe_tray::Event;
+        let Some(events) = self.tray.as_ref().map(fastframe_tray::Tray::events) else {
             return;
         };
-        for command in commands {
-            match command {
-                TrayCommand::Show => self.actions.push(Action::ShowWindow),
-                TrayCommand::ShowHide => self.actions.push(if self.window_hidden {
-                    Action::ShowWindow
-                } else {
-                    Action::HideWindow
-                }),
-                TrayCommand::PlayPause => self.actions.push(Action::TogglePlay),
-                TrayCommand::Next => self.actions.push(Action::Next),
-                TrayCommand::Previous => self.actions.push(Action::Previous),
-                TrayCommand::Quit => self.actions.push(Action::Quit),
-            }
+        for event in events {
+            let action = match event {
+                Event::Show => Action::ShowWindow,
+                Event::Toggle | Event::Menu(TRAY_SHOW) => {
+                    if self.window_hidden {
+                        Action::ShowWindow
+                    } else {
+                        Action::HideWindow
+                    }
+                }
+                Event::Menu(TRAY_PLAY_PAUSE) => Action::TogglePlay,
+                Event::Menu(TRAY_NEXT) => Action::Next,
+                Event::Menu(TRAY_PREVIOUS) => Action::Previous,
+                Event::Menu(TRAY_QUIT) => Action::Quit,
+                Event::Menu(_) => continue,
+            };
+            self.actions.push(action);
         }
     }
 
@@ -3362,8 +3452,11 @@ impl App {
             controls.update(state);
         }
         let playing = self.now_playing().is_some_and(|now| now.playing);
-        if let Some(tray) = &mut self.tray {
-            tray.set_playing(playing);
+        if let Some(tray) = &mut self.tray
+            && self.tray_playing != playing
+        {
+            self.tray_playing = playing;
+            tray.set_label(TRAY_PLAY_PAUSE, play_pause_label(playing));
         }
         #[cfg(target_os = "macos")]
         crate::mac_menu::set_playing(playing);
@@ -8697,12 +8790,17 @@ impl App {
                 }
             }
             Action::InstallUpdate => {
-                if let crate::updates::DownloadState::Ready(prepared) = &self.update_download {
+                if matches!(
+                    self.update_download,
+                    crate::updates::DownloadState::Ready(_)
+                ) && let crate::updates::DownloadState::Ready(prepared) = std::mem::replace(
+                    &mut self.update_download,
+                    crate::updates::DownloadState::Installing,
+                ) {
                     self.backend.send(Command::InstallUpdate {
-                        prepared: prepared.clone(),
+                        prepared,
                         arguments: self.update_restart_arguments.clone(),
                     });
-                    self.update_download = crate::updates::DownloadState::Installing;
                 }
             }
             Action::SetLibrarySort { shelf, sort } => {
@@ -9148,7 +9246,7 @@ impl App {
 
     fn check_for_updates(&mut self, manual: bool) {
         if self.update_checking
-            || (self.offline && matches!(self.update_source, crate::updates::Source::GitHub))
+            || (self.offline && self.update_source.is_github())
             || !matches!(
                 self.update_download,
                 crate::updates::DownloadState::Idle | crate::updates::DownloadState::Failed(_)
@@ -14854,10 +14952,12 @@ mod tests {
             restored.apply_theme(&ctx);
             assert_eq!(restored.palette, expected);
             assert!(
-                restored
-                    .custom_themes
-                    .detail_in(crate::i18n::Locale::English, Some("local.json"))
-                    .contains("last usable")
+                theme::catalog_detail(
+                    &restored.custom_themes,
+                    crate::i18n::Locale::English,
+                    Some("local.json")
+                )
+                .contains("last usable")
             );
             restored.save_settings();
             assert_eq!(Settings::load(&restored.dirs.settings_file()), accepted);
@@ -14895,6 +14995,42 @@ mod tests {
         std::fs::remove_dir_all(app.dirs.config.parent().unwrap()).unwrap();
     }
 
+    /// What a scan reports when Omarchy is (or is not) followed.
+    fn show_system_theme(
+        app: &mut App,
+        ctx: &egui::Context,
+        theme: Option<theme::CustomTheme>,
+        follows: bool,
+    ) {
+        app.custom_themes = theme::Catalog::preview(theme.into_iter().collect(), follows);
+        app.adopt_custom_themes(ctx);
+    }
+
+    /// Quit wins over everything, a switch between the main window and the
+    /// mini player reopens at once, and closing to the tray runs headless
+    /// until Show or Quit.
+    #[test]
+    fn the_shell_learns_what_a_closed_window_means() {
+        use fastframe_shell::{Closed, Headless, Resident};
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        assert_eq!(app.closed(), Closed::Quit);
+        app.hide_intent = true;
+        assert_eq!(app.closed(), Closed::Hide);
+        app.switch_intent = true;
+        assert_eq!(app.closed(), Closed::Reopen);
+        app.quit_requested = true;
+        assert_eq!(app.closed(), Closed::Quit);
+        app.quit_requested = false;
+        Resident::window_gone(&mut app);
+        assert!(app.window_hidden && !app.hide_intent);
+        assert_eq!(app.headless_frame(&ctx), Headless::Wait);
+        app.wants_show = true;
+        assert_eq!(app.headless_frame(&ctx), Headless::Show);
+        app.quit_requested = true;
+        assert_eq!(app.headless_frame(&ctx), Headless::Quit);
+    }
+
     fn wait_for_custom_themes(app: &mut App, ctx: &egui::Context) {
         let deadline = Instant::now() + Duration::from_secs(3);
         while app.custom_themes.loading() {
@@ -14913,13 +15049,11 @@ mod tests {
         app.window_hidden = true;
         app.resume_track = Some("spotify:track:playing".into());
         app.resume_position_ms = 123_000;
-        let theme = theme::custom::CustomTheme {
+        let theme = theme::CustomTheme {
             filename: "omarchy.json".into(),
             palette: Palette::light(),
         };
-        app.custom_themes
-            .load_system_test(Some(theme.clone()), true);
-        wait_for_custom_themes(&mut app, &ctx);
+        show_system_theme(&mut app, &ctx, Some(theme.clone()), true);
         app.apply_theme(&ctx);
         assert_eq!(app.palette, theme.palette);
         assert_eq!(app.settings.theme, ThemeChoice::System);
@@ -14928,8 +15062,7 @@ mod tests {
         let saved = Settings::load(&app.dirs.settings_file());
         assert_eq!(saved.cached_palette(), Some(theme.palette));
 
-        app.custom_themes.load_system_test(None, true);
-        wait_for_custom_themes(&mut app, &ctx);
+        show_system_theme(&mut app, &ctx, None, true);
         app.apply_theme(&ctx);
         assert_eq!(
             app.palette, theme.palette,
@@ -14942,26 +15075,23 @@ mod tests {
             app.apply(Action::SetTheme(choice), &ctx);
             let mut updated = theme.clone();
             updated.palette.accent = egui::Color32::RED;
-            app.custom_themes.load_system_test(Some(updated), true);
-            wait_for_custom_themes(&mut app, &ctx);
+            show_system_theme(&mut app, &ctx, Some(updated), true);
             app.apply_theme(&ctx);
             assert_eq!(app.palette, expected);
         }
         app.apply(Action::SetTheme(ThemeChoice::System), &ctx);
         assert_eq!(app.palette.accent, egui::Color32::RED);
-        let custom = theme::custom::CustomTheme {
+        let custom = theme::CustomTheme {
             filename: "mine.json".into(),
             palette: Palette::dark(),
         };
-        app.custom_themes = theme::custom::Catalog::from_themes(vec![custom.clone()]);
+        app.custom_themes = theme::Catalog::preview(vec![custom.clone()], false);
         app.apply(Action::SetCustomTheme(custom.filename.clone()), &ctx);
-        app.custom_themes.load_system_test(Some(theme), true);
-        wait_for_custom_themes(&mut app, &ctx);
+        show_system_theme(&mut app, &ctx, Some(theme), true);
         app.apply_theme(&ctx);
         assert_eq!(app.palette, custom.palette);
         app.apply(Action::SetTheme(ThemeChoice::System), &ctx);
-        app.custom_themes.load_system_test(None, false);
-        wait_for_custom_themes(&mut app, &ctx);
+        show_system_theme(&mut app, &ctx, None, false);
         assert!(app.settings.system_theme_cache.is_none());
         assert_eq!(app.theme_preference(), egui::ThemePreference::System);
         assert!(app.window_hidden);
@@ -15055,31 +15185,21 @@ mod tests {
         let mut app = test_app("custom-theme-worker");
         app.backend.shutdown();
         let ctx = egui::Context::default();
+        let directory = app.dirs.config.join("themes");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("old.json"), br#"{"base":"dark"}"#).unwrap();
         app.settings.custom_theme = Some("old.json".into());
-        let (started, worker) = std::sync::mpsc::channel();
-        let (finish, continue_load) = std::sync::mpsc::channel();
-        app.custom_themes.load_test(move || {
-            started.send(std::thread::current().id()).unwrap();
-            continue_load.recv().unwrap();
-            vec![theme::custom::CustomTheme {
-                filename: "old.json".into(),
-                palette: Palette::dark(),
-            }]
-        });
-        assert_ne!(
-            worker.recv_timeout(Duration::from_secs(3)).unwrap(),
-            std::thread::current().id()
-        );
+        app.load_custom_themes(&Waker::default());
         app.apply(Action::SetTheme(ThemeChoice::Light), &ctx);
         assert_eq!(app.palette, Palette::light());
         assert!(app.custom_themes.loading());
-        finish.send(()).unwrap();
         wait_for_custom_themes(&mut app, &ctx);
         app.apply_theme(&ctx);
         assert_eq!(app.palette, Palette::light());
         assert!(app.custom_themes.find("old.json").is_some());
         assert!(app.settings.custom_theme.is_none());
         assert!(app.settings.custom_theme_cache.is_none());
+        std::fs::remove_dir_all(app.dirs.config.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -15089,10 +15209,13 @@ mod tests {
         app.settings.theme = ThemeChoice::System;
         let mut palette = Palette::light();
         palette.accent = egui::Color32::RED;
-        app.custom_themes = theme::custom::Catalog::from_themes(vec![theme::custom::CustomTheme {
-            filename: "local.json".into(),
-            palette,
-        }]);
+        app.custom_themes = theme::Catalog::preview(
+            vec![theme::CustomTheme {
+                filename: "local.json".into(),
+                palette,
+            }],
+            false,
+        );
         app.apply(Action::SetCustomTheme("local.json".into()), &ctx);
         assert_eq!(app.palette, palette);
         assert_eq!(

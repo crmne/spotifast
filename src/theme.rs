@@ -4,11 +4,17 @@
 //! All colors use [`Palette`] so light, dark, and album-art-tinted themes stay
 //! consistent.
 
-pub mod custom;
 #[cfg(target_os = "linux")]
 mod omarchy;
 
+use crate::i18n::{Locale, gettext};
 use egui::{Color32, CornerRadius, Response, Sense, Stroke, Vec2};
+use std::borrow::Cow;
+
+/// A palette file from the themes directory.
+pub type CustomTheme = fastframe_theme::CustomTheme<Palette>;
+/// The palette files, and the Omarchy palette where the desktop has one.
+pub type Catalog = fastframe_theme::Catalog<Palette>;
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Palette {
@@ -97,6 +103,100 @@ impl Palette {
     }
 }
 
+impl fastframe_theme::Palette for Palette {
+    fn base(base: fastframe_theme::Base) -> Self {
+        match base {
+            fastframe_theme::Base::Dark => Self::dark(),
+            fastframe_theme::Base::Light => Self::light(),
+        }
+    }
+
+    fn set(&mut self, name: &str, color: Color32) -> bool {
+        match name {
+            "window" => self.window = color,
+            "panel" => self.panel = color,
+            "surface" => self.surface = color,
+            "surface_hover" => self.surface_hover = color,
+            "surface_active" => self.surface_active = color,
+            "outline" => self.outline = color,
+            "text" => self.text = color,
+            "secondary" => self.secondary = color,
+            "dim" => self.dim = color,
+            "accent" => self.accent = color,
+            "accent_hover" => self.accent_hover = color,
+            "on_accent" => self.on_accent = color,
+            "danger" => self.danger = color,
+            "warning" => self.warning = color,
+            "overlay" => self.overlay = color,
+            "shadow" => self.shadow = color,
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// Whether a launch may follow the desktop's themes with this themes
+/// folder. An updater trial of the legacy Fastpotify profile does not, so the
+/// old hook and profile stay together until the update is accepted.
+fn desktop_themes_allowed(themes: &std::path::Path) -> bool {
+    themes != crate::paths::AppDirs::legacy().config.join("themes")
+}
+
+/// Adds the desktop's palettes to a normal launch: Omarchy's on Linux, with
+/// the packaged template and hook installed for the user. The shared
+/// palettes fastframe-theme carries stay out of Spotifast's picker.
+pub fn enable_desktop_themes(catalog: &mut Catalog, themes: &std::path::Path) {
+    if !desktop_themes_allowed(themes) {
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    omarchy::upgrade_legacy_hook();
+    catalog.enable_desktop_themes(fastframe_theme::DesktopThemes {
+        slug: "spotifast",
+        omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"),
+        presets: false,
+    });
+}
+
+/// The status line under the Theme setting, empty when all is well.
+pub fn catalog_detail(
+    catalog: &Catalog,
+    locale: Locale,
+    selected: Option<&str>,
+) -> Cow<'static, str> {
+    use fastframe_theme::{Problem, Status};
+    let Some(status) = catalog.status(selected) else {
+        return Cow::Borrowed("");
+    };
+    match status {
+        Status::Loading => gettext(locale, "Loading local themes…"),
+        Status::SelectedUnavailable => gettext(
+            locale,
+            "The selected theme is unavailable. Keeping the last usable appearance. See the log for details.",
+        ),
+        Status::Problem(Problem::Unreadable) => gettext(
+            locale,
+            "The themes folder could not be read. See the log for details.",
+        ),
+        Status::Problem(Problem::TooManyEntries) => gettext(
+            locale,
+            "The themes folder has more than 512 entries. Keep fewer files there to list the custom palettes.",
+        ),
+        Status::Problem(Problem::TooManyThemes) => gettext(
+            locale,
+            "Only 128 custom palettes can be listed. Keep fewer JSON files in the themes folder to see the rest.",
+        ),
+        Status::Problem(Problem::OmarchyUnreadable) => gettext(
+            locale,
+            "The Omarchy palette could not be loaded. Keeping the last usable appearance. See the log for details.",
+        ),
+        Status::Problem(_) => gettext(
+            locale,
+            "Custom themes could not be loaded. Run spotifast reload-themes to try again.",
+        ),
+    }
+}
+
 pub const RADIUS: u8 = 8;
 pub const RADIUS_SMALL: u8 = 4;
 pub const ROW_HEIGHT: f32 = 56.0;
@@ -123,31 +223,43 @@ pub fn titlebar_inset(ctx: &egui::Context) -> f32 {
     }
 }
 
-const INTER_MEDIUM: &str = "inter-medium";
-const INTER_SEMIBOLD: &str = "inter-semibold";
-const INTER_BOLD: &str = "inter-bold";
-
 pub fn regular(size: f32) -> egui::FontId {
-    egui::FontId::new(size, egui::FontFamily::Proportional)
+    fastframe_fonts::Weight::Regular.font_id(size)
 }
 
 pub fn medium(size: f32) -> egui::FontId {
-    egui::FontId::new(size, egui::FontFamily::Name(INTER_MEDIUM.into()))
+    fastframe_fonts::Weight::Medium.font_id(size)
 }
 
 pub fn semibold(size: f32) -> egui::FontId {
-    egui::FontId::new(size, egui::FontFamily::Name(INTER_SEMIBOLD.into()))
+    fastframe_fonts::Weight::SemiBold.font_id(size)
 }
 
 pub fn bold(size: f32) -> egui::FontId {
-    egui::FontId::new(size, egui::FontFamily::Name(INTER_BOLD.into()))
+    fastframe_fonts::Weight::Bold.font_id(size)
+}
+
+/// How the desktop renders text, read once per process.
+///
+/// Tests use the platform's default instead of asking the desktop, so they
+/// neither wait on D-Bus nor depend on the machine's settings.
+pub fn text_rendering() -> fastframe_text::TextRendering {
+    static RENDERING: std::sync::OnceLock<fastframe_text::TextRendering> =
+        std::sync::OnceLock::new();
+    *RENDERING.get_or_init(|| {
+        if cfg!(test) {
+            fastframe_text::TextRendering::platform_default()
+        } else {
+            fastframe_text::detect()
+        }
+    })
 }
 
 /// Install fonts, icons, and the base style once.
 pub fn install(ctx: &egui::Context) {
     install_fonts(ctx);
-    register_icons(ctx);
     egui_extras::install_image_loaders(ctx);
+    fastframe_icons::install::<Icon>(ctx);
 }
 
 /// Applies the palette to egui's own widgets so dialogs, menus, and text
@@ -171,6 +283,10 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
         egui::Visuals::light()
     };
     visuals.dark_mode = palette.dark;
+    // Glyph coverage, hinting and sub-pixel positions as the desktop draws
+    // them: linear coverage in both themes on Linux, where egui's dark curve
+    // (2c - c²) made text heavier than GTK's.
+    text_rendering().apply_to_visuals(visuals);
     visuals.panel_fill = palette.panel;
     visuals.window_fill = palette.overlay;
     visuals.extreme_bg_color = palette.surface;
@@ -261,361 +377,114 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
     style.url_in_tooltip = false;
 }
 
-/// Fits Inter's stems to the pixel grid and places each glyph on a whole
-/// pixel. egui's default hinting keeps linear metrics, so it never snaps
-/// stems horizontally, and sub-pixel binning then moves glyphs by quarter
-/// pixels: at a fractional scale such as 133% every vertical stem straddled
-/// two pixels and text looked soft. Line breaks are unchanged, since egui
-/// lays text out from the unhinted advances.
-fn crisp(tweak: &mut egui::epaint::text::FontTweak) {
-    use egui::epaint::text::{HintingTarget, SmoothHinting};
-    tweak.hinting_target = HintingTarget::Smooth(SmoothHinting {
-        light: false,
-        symmetric_rendering: true,
-        preserve_linear_metrics: false,
-    });
-    tweak.subpixel_binning = Some(false);
-}
-
+/// Inter at its four weights with the monochrome emoji face right behind it
+/// (so every emoji wears the same style, ahead of egui's own pair), then the
+/// installed faces for the scripts Inter lacks, drawn the way the desktop
+/// renders text.
 fn install_fonts(ctx: &egui::Context) {
-    use egui::epaint::text::VariationCoords;
-    use egui::{FontData, FontDefinitions, FontFamily};
-    use std::sync::Arc;
-
-    let mut fonts = FontDefinitions::default();
-    let inter = include_bytes!("../assets/fonts/InterVariable.ttf");
-    let weighted = |weight: f32| {
-        let mut data = FontData::from_static(inter);
-        data.tweak.coords = VariationCoords::new([(b"wght", weight)]);
-        crisp(&mut data.tweak);
-        Arc::new(data)
-    };
-    fonts.font_data.insert("inter".to_owned(), weighted(400.0));
-    fonts
-        .font_data
-        .insert(INTER_MEDIUM.to_owned(), weighted(500.0));
-    fonts
-        .font_data
-        .insert(INTER_SEMIBOLD.to_owned(), weighted(600.0));
-    fonts
-        .font_data
-        .insert(INTER_BOLD.to_owned(), weighted(700.0));
-
-    let noto_emoji = include_bytes!("../assets/fonts/NotoEmoji.ttf");
-    fonts.font_data.insert(
-        "noto_emoji".to_owned(),
-        Arc::new(FontData::from_static(noto_emoji)),
-    );
-
-    fonts
-        .families
-        .entry(FontFamily::Proportional)
-        .or_default()
-        .insert(0, "inter".to_owned());
-    // Right behind the text face, ahead of the emoji subset and the icon
-    // font egui bundles, so every emoji comes from the one full face and
-    // wears the same style; egui's pair still serves what Noto lacks.
-    fonts
-        .families
-        .entry(FontFamily::Proportional)
-        .or_default()
-        .insert(1, "noto_emoji".to_owned());
-    fonts
-        .families
-        .entry(FontFamily::Monospace)
-        .or_default()
-        .insert(1, "noto_emoji".to_owned());
-    let fallbacks: Vec<String> = fonts.families[&FontFamily::Proportional]
-        .iter()
-        .skip(1)
-        .cloned()
-        .collect();
-    for name in [INTER_MEDIUM, INTER_SEMIBOLD, INTER_BOLD] {
-        let mut family = vec![name.to_owned()];
-        family.extend(fallbacks.iter().cloned());
-        fonts.families.insert(FontFamily::Name(name.into()), family);
-    }
-
-    // Add installed fallbacks for scripts Inter does not cover. Keep them after
-    // Inter and the emoji font to preserve Latin shapes and color emoji.
-    for font in crate::system_fonts::fallbacks() {
-        // Reuse cached font bytes to avoid copying large collections whenever
-        // epaint rebuilds the glyph atlas.
-        let mut data = FontData::from_static(&font.bytes);
-        data.index = font.index;
-        let offset = fallback_baseline_y_offset(&font.bytes, font.index);
-        if offset.abs() > 0.001 {
-            data.tweak.y_offset_factor = offset;
-        }
-        fonts.font_data.insert(font.name.clone(), Arc::new(data));
-        for family in fonts.families.values_mut() {
-            family.push(font.name.clone());
-        }
-    }
-
+    let emoji = egui::FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf"));
+    let mut fonts = fastframe_fonts::FontSetup::default()
+        .companion("noto_emoji", std::sync::Arc::new(emoji))
+        .definitions();
+    text_rendering().apply_to(&mut fonts);
     ctx.set_fonts(fonts);
 }
 
-// Adjusts a fallback face's baseline to align with Inter.
-//
-// epaint positions fallback glyphs by centering the difference between the
-// primary font's row height and the fallback font's row height:
-//
-//     glyph.pos.y = fallback.ascent + 0.5 * (primary.row_height - fallback.row_height)
-//
-// When the fallback face has vertical metrics different from Inter (for example,
-// Hiragino Sans on macOS, which declares a line height of 1.5 em via a 0.5 em lineGap),
-// this centering shifts the fallback baseline upward or downward relative to Latin text.
-//
-// Offsetting the glyph downward by the difference in baseline-to-center distances:
-//
-//     (inter.ascent - 0.5 * inter.row_height) - (fallback.ascent - 0.5 * fallback.row_height)
-//
-// neutralises epaint's centering and aligns the baselines across all mixed scripts
-// and font sizes.
-fn fallback_baseline_y_offset(bytes: &[u8], index: u32) -> f32 {
-    use skrifa::MetadataProvider as _;
-
-    let Ok(font) = skrifa::FontRef::from_index(bytes, index) else {
-        return 0.0;
-    };
-    let metrics = font.metrics(
-        skrifa::instance::Size::unscaled(),
-        skrifa::instance::LocationRef::default(),
-    );
-    let upm = metrics.units_per_em as f32;
-    if upm <= 0.0 {
-        return 0.0;
-    }
-    let fallback_height = metrics.ascent - metrics.descent + metrics.leading;
-    if fallback_height <= 0.0 {
-        return 0.0;
-    }
-
-    // Inter's metrics from assets/fonts/InterVariable.ttf:
-    // units_per_em = 2048, typo_asc = 1984, typo_desc = -494, typo_line_gap = 0
-    // ascent_ratio = 1984 / 2048 = 0.96875
-    // row_height_ratio = (1984 - (-494)) / 2048 = 2478 / 2048 = 1.2099609375
-    // baseline_center = 0.96875 - 0.5 * 1.2099609375 = 0.36376953125
-    const INTER_BASELINE_CENTER: f32 = (1984.0 / 2048.0) - 0.5 * ((1984.0 + 494.0) / 2048.0);
-
-    let fallback_baseline_center = (metrics.ascent - 0.5 * fallback_height) / upm;
-    INTER_BASELINE_CENTER - fallback_baseline_center
-}
-
-macro_rules! icons {
-    ($($variant:ident => $file:literal),* $(,)?) => {
-        &[$((
-            Icon::$variant,
-            concat!("bytes://spotifast-icon-", $file, ".svg"),
-            include_bytes!(concat!("../assets/icons/", $file, ".svg")).as_slice(),
-        )),*]
-    };
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub enum Icon {
-    ArrowLeft,
-    ArrowRight,
-    AudioLines,
-    BadgeCheck,
-    Bookmark,
-    BookmarkFilled,
-    Car,
-    Cast,
-    Check,
-    ChevronDown,
-    ChevronLeft,
-    ChevronRight,
-    ChevronUp,
-    CircleAlert,
-    CircleCheck,
-    CirclePlay,
-    CirclePlus,
-    CircleX,
-    Clock,
-    Compass,
-    Copy,
-    Disc,
-    Ellipsis,
-    Expand,
-    ExternalLink,
-    Gamepad,
-    Globe,
-    GripVertical,
-    Headphones,
-    Heart,
-    HeartFilled,
-    House,
-    Info,
-    Laptop,
-    Library,
-    LayoutGrid,
-    LayoutList,
-    ListEnd,
-    ListMusic,
-    ListPlus,
-    ListVideo,
-    Loader,
-    Lock,
-    LogOut,
-    Mic,
-    Minus,
-    Monitor,
-    Moon,
-    Music,
-    Pause,
-    PauseFilled,
-    PanelLeft,
-    Pin,
-    PinOff,
-    Pencil,
-    Play,
-    PlayFilled,
-    Plus,
-    Radio,
-    Refresh,
-    Repeat,
-    Repeat1,
-    Search,
-    Settings,
-    Shrink,
-    Shuffle,
-    SkipBack,
-    SkipBackFilled,
-    SkipForward,
-    SkipForwardFilled,
-    Smartphone,
-    Sparkles,
-    Speaker,
-    Square,
-    SquarePen,
-    Sun,
-    Tablet,
-    Trash,
-    TrendingUp,
-    Tv,
-    User,
-    Users,
-    Volume,
-    Volume1,
-    Volume2,
-    VolumeX,
-    Watch,
-    X,
-    Zap,
-}
-
-const ICONS: &[(Icon, &str, &[u8])] = icons! {
-    ArrowLeft => "arrow-left",
-    ArrowRight => "arrow-right",
-    AudioLines => "audio-lines",
-    BadgeCheck => "badge-check",
-    Bookmark => "bookmark",
-    BookmarkFilled => "bookmark-filled",
-    Car => "car",
-    Cast => "cast",
-    Check => "check",
-    ChevronDown => "chevron-down",
-    ChevronLeft => "chevron-left",
-    ChevronRight => "chevron-right",
-    ChevronUp => "chevron-up",
-    CircleAlert => "circle-alert",
-    CircleCheck => "circle-check",
-    CirclePlay => "circle-play",
-    CirclePlus => "circle-plus",
-    CircleX => "circle-x",
-    Clock => "clock",
-    Compass => "compass",
-    Copy => "copy",
-    Disc => "disc-3",
-    Ellipsis => "ellipsis",
-    Expand => "expand",
-    ExternalLink => "external-link",
-    Gamepad => "gamepad-2",
-    Globe => "globe",
-    GripVertical => "grip-vertical",
-    Headphones => "headphones",
-    Heart => "heart",
-    HeartFilled => "heart-filled",
-    House => "house",
-    Info => "info",
-    Laptop => "laptop",
-    Library => "library",
-    LayoutGrid => "layout-grid",
-    LayoutList => "layout-list",
-    ListEnd => "list-end",
-    ListMusic => "list-music",
-    ListPlus => "list-plus",
-    ListVideo => "list-video",
-    Loader => "loader-circle",
-    Lock => "lock",
-    LogOut => "log-out",
-    Mic => "mic",
-    Minus => "minus",
-    Monitor => "monitor",
-    Moon => "moon",
-    Music => "music",
-    Pause => "pause",
-    PauseFilled => "pause-filled",
-    PanelLeft => "panel-left",
-    Pin => "pin",
-    PinOff => "pin-off",
-    Pencil => "pencil",
-    Play => "play",
-    PlayFilled => "play-filled",
-    Plus => "plus",
-    Radio => "radio",
-    Refresh => "refresh-cw",
-    Repeat => "repeat",
-    Repeat1 => "repeat-1",
-    Search => "search",
-    Settings => "settings",
-    Shrink => "shrink",
-    Shuffle => "shuffle",
-    SkipBack => "skip-back",
-    SkipBackFilled => "skip-back-filled",
-    SkipForward => "skip-forward",
-    SkipForwardFilled => "skip-forward-filled",
-    Smartphone => "smartphone",
-    Sparkles => "sparkles",
-    Speaker => "speaker",
-    Square => "square",
-    SquarePen => "square-pen",
-    Sun => "sun",
-    Tablet => "tablet",
-    Trash => "trash-2",
-    TrendingUp => "trending-up",
-    Tv => "tv",
-    User => "user",
-    Users => "users",
-    Volume => "volume",
-    Volume1 => "volume-1",
-    Volume2 => "volume-2",
-    VolumeX => "volume-x",
-    Watch => "watch",
-    X => "x",
-    Zap => "zap",
-};
-
-impl Icon {
-    pub fn uri(self) -> &'static str {
-        ICONS
-            .iter()
-            .find(|(icon, _, _)| *icon == self)
-            .map_or("", |(_, uri, _)| *uri)
-    }
-
-    pub fn image(self, color: Color32, size: f32) -> egui::Image<'static> {
-        egui::Image::new(self.uri())
-            .tint(color)
-            .fit_to_exact_size(Vec2::splat(size))
-    }
-}
-
-fn register_icons(ctx: &egui::Context) {
-    for (_, uri, bytes) in ICONS {
-        ctx.include_bytes(*uri, *bytes);
+fastframe_icons::icons! {
+    /// Every icon the interface draws. The shared Lucide icons come from
+    /// fastframe-icons; the rest are Spotifast's own files.
+    pub enum Icon {
+        prefix: "spotifast-icon-",
+        directory: "../assets/icons/",
+        ArrowLeft => lucide "arrow-left",
+        ArrowRight => "arrow-right",
+        AudioLines => "audio-lines",
+        BadgeCheck => "badge-check",
+        Bookmark => "bookmark",
+        BookmarkFilled => "bookmark-filled",
+        Car => "car",
+        Cast => "cast",
+        Check => lucide "check",
+        ChevronDown => lucide "chevron-down",
+        ChevronLeft => lucide "chevron-left",
+        ChevronRight => lucide "chevron-right",
+        ChevronUp => lucide "chevron-up",
+        CircleAlert => lucide "circle-alert",
+        CircleCheck => lucide "circle-check",
+        CirclePlay => "circle-play",
+        CirclePlus => "circle-plus",
+        CircleX => lucide "circle-x",
+        Clock => lucide "clock",
+        Compass => "compass",
+        Copy => lucide "copy",
+        Disc => "disc-3",
+        Ellipsis => lucide "ellipsis",
+        Expand => "expand",
+        ExternalLink => lucide "external-link",
+        Gamepad => "gamepad-2",
+        Globe => "globe",
+        GripVertical => "grip-vertical",
+        Headphones => "headphones",
+        Heart => "heart",
+        HeartFilled => "heart-filled",
+        House => "house",
+        Info => lucide "info",
+        Laptop => "laptop",
+        Library => "library",
+        LayoutGrid => "layout-grid",
+        LayoutList => "layout-list",
+        ListEnd => "list-end",
+        ListMusic => "list-music",
+        ListPlus => "list-plus",
+        ListVideo => "list-video",
+        Loader => "loader-circle",
+        Lock => lucide "lock",
+        LogOut => lucide "log-out",
+        Mic => lucide "mic",
+        Minus => lucide "minus",
+        Monitor => lucide "monitor",
+        Moon => lucide "moon",
+        Music => "music",
+        Pause => lucide "pause",
+        PauseFilled => "pause-filled",
+        PanelLeft => lucide "panel-left",
+        Pin => lucide "pin",
+        PinOff => lucide "pin-off",
+        Pencil => lucide "pencil",
+        Play => lucide "play",
+        PlayFilled => "play-filled",
+        Plus => lucide "plus",
+        Radio => "radio",
+        Refresh => lucide "refresh-cw",
+        Repeat => "repeat",
+        Repeat1 => "repeat-1",
+        Search => lucide "search",
+        Settings => lucide "settings",
+        Shrink => "shrink",
+        Shuffle => "shuffle",
+        SkipBack => "skip-back",
+        SkipBackFilled => "skip-back-filled",
+        SkipForward => "skip-forward",
+        SkipForwardFilled => "skip-forward-filled",
+        Smartphone => lucide "smartphone",
+        Sparkles => "sparkles",
+        Speaker => "speaker",
+        Square => "square",
+        SquarePen => lucide "square-pen",
+        Sun => lucide "sun",
+        Tablet => "tablet",
+        Trash => lucide "trash-2",
+        TrendingUp => "trending-up",
+        Tv => "tv",
+        User => lucide "user",
+        Users => lucide "users",
+        Volume => "volume",
+        Volume1 => "volume-1",
+        Volume2 => lucide "volume-2",
+        VolumeX => lucide "volume-x",
+        Watch => "watch",
+        X => lucide "x",
+        Zap => "zap",
     }
 }
 
@@ -1021,22 +890,81 @@ pub fn subtle(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Response {
 mod tests {
     use super::*;
 
+    /// Palette files name the sixteen colours every app shares, and only
+    /// those: a typo is an invalid file, not an ignored colour.
     #[test]
-    fn inter_snaps_to_whole_pixels() {
-        use egui::epaint::text::{FontTweak, HintingTarget, SmoothHinting};
-        let mut tweak = FontTweak::default();
-        crisp(&mut tweak);
-        // Stems fit the pixel grid horizontally, and glyphs are not moved
-        // by fractions of a pixel afterwards (soft text at 133%).
-        assert!(matches!(
-            tweak.hinting_target,
-            HintingTarget::Smooth(SmoothHinting {
-                light: false,
-                preserve_linear_metrics: false,
-                ..
-            })
+    fn palette_files_set_every_base_colour() {
+        use fastframe_theme::Palette as _;
+        for name in fastframe_theme::BASE_COLORS {
+            let mut palette = Palette::dark();
+            assert!(palette.set(name, Color32::from_rgb(1, 2, 3)), "{name}");
+            assert_ne!(palette, Palette::dark(), "{name}");
+        }
+        assert!(!Palette::dark().set("typo", Color32::RED));
+        let light: Palette =
+            fastframe_theme::parse_palette(r##"{"base":"light","colors":{"accent":"#8c3fa5"}}"##)
+                .unwrap();
+        assert!(!light.dark);
+        assert_eq!(light.accent, Color32::from_rgb(140, 63, 165));
+        assert_eq!(light.window, Palette::light().window);
+    }
+
+    /// Compared line by line: a Windows checkout may turn the files' line
+    /// endings into CRLF, which no Linux package ships.
+    #[test]
+    fn the_shipped_omarchy_files_are_the_shared_ones() {
+        let lines = |text: &str| text.replace("\r\n", "\n");
+        assert_eq!(
+            lines(include_str!("../contrib/omarchy/spotifast-theme")),
+            lines(&fastframe_theme::omarchy::hook_script("spotifast"))
+        );
+        assert_eq!(
+            lines(include_str!("../contrib/omarchy/spotifast.json.tpl")),
+            lines(fastframe_theme::omarchy::BASE_TEMPLATE)
+        );
+    }
+
+    #[test]
+    fn an_updater_trial_of_the_legacy_profile_leaves_the_desktop_alone() {
+        assert!(!desktop_themes_allowed(
+            &crate::paths::AppDirs::legacy().config.join("themes")
         ));
-        assert_eq!(tweak.subpixel_binning, Some(false));
+        assert!(desktop_themes_allowed(
+            &crate::paths::AppDirs::discover().config.join("themes")
+        ));
+    }
+
+    #[test]
+    fn every_catalog_problem_has_a_sentence() {
+        let catalog = Catalog::default();
+        assert_eq!(catalog_detail(&catalog, Locale::English, None), "");
+        assert!(
+            catalog_detail(&catalog, Locale::English, Some("gone.json")).contains("last usable")
+        );
+    }
+
+    /// A palette replaces egui's visuals, which must not take back the
+    /// desktop's text rendering: on Linux, linear coverage in both themes.
+    #[test]
+    fn palettes_keep_the_desktops_text_rendering() {
+        for palette in [Palette::dark(), Palette::light()] {
+            let ctx = egui::Context::default();
+            apply(&ctx, &palette);
+            let options = ctx.global_style().visuals.text_options;
+            assert_eq!(
+                options.color_transfer_function,
+                text_rendering().color_transfer_function(palette.dark),
+                "dark: {}",
+                palette.dark
+            );
+            if cfg!(target_os = "linux") {
+                assert_eq!(
+                    options.color_transfer_function,
+                    egui::epaint::FontColorTransferFunction::Off
+                );
+            }
+            assert!(options.subpixel_binning);
+        }
     }
 
     /// Native desktop apps keep the arrow over buttons and switch to the
@@ -1111,53 +1039,24 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    /// The monochrome emoji face comes right after Inter at every weight
+    /// and in the monospace family, ahead of egui's own emoji pair.
     #[test]
-    fn inter_figures_are_tabular() {
+    fn the_emoji_face_follows_inter_everywhere() {
         let ctx = egui::Context::default();
         install(&ctx);
-        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            let width = |text: &str| {
-                ui.painter()
-                    .layout_no_wrap(text.to_owned(), regular(13.0), Color32::WHITE)
-                    .rect
-                    .width()
-            };
-            // The narrow "1" is the tell: with proportional figures "1:11" is
-            // far narrower than "8:88", so time and date labels jitter as the
-            // value changes. Frozen tabular figures keep every digit equal.
-            assert!(
-                (width("1:11") - width("8:88")).abs() < 0.01,
-                "bundled Inter should draw tabular figures"
-            );
-        });
-        output.textures_delta.clear();
-    }
-
-    #[test]
-    fn fallback_baseline_offset_is_zero_for_inter() {
-        let inter = include_bytes!("../assets/fonts/InterVariable.ttf");
-        let offset = fallback_baseline_y_offset(inter, 0);
-        assert!(
-            offset.abs() < 1e-4,
-            "Inter should have zero offset relative to itself, got {offset}"
-        );
-    }
-
-    #[test]
-    fn fallback_baseline_offset_is_bounded_for_installed_fonts() {
-        for font in crate::system_fonts::fallbacks() {
-            let offset = fallback_baseline_y_offset(&font.bytes, font.index);
-            assert!(
-                offset.is_finite(),
-                "{} offset was not finite: {offset}",
-                font.name
-            );
-            assert!(
-                (-1.0..=1.0).contains(&offset),
-                "{} offset was out of expected range: {offset}",
-                font.name
-            );
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let fonts = ctx.fonts(|fonts| fonts.definitions().clone());
+        for weight in fastframe_fonts::Weight::ALL {
+            let family = &fonts.families[&weight.family()];
+            assert_eq!(family[..2], [weight.name(), "noto_emoji"], "{weight:?}");
         }
+        assert_eq!(
+            fonts.families[&egui::FontFamily::Monospace][1],
+            "noto_emoji"
+        );
     }
 
     #[test]
@@ -1174,96 +1073,5 @@ mod tests {
             assert!(galley.rows[0].glyphs.len() >= 10);
         });
         output.textures_delta.clear();
-    }
-
-    /// Compare the painted glyph positions, including the raster offset, with
-    /// the same glyph drawn by its untweaked face. Inspecting `glyph.pos` alone
-    /// misses FontTweak, which is applied to the glyph's texture offset.
-    #[test]
-    fn fallback_glyphs_are_painted_on_the_latin_baseline() {
-        use egui::{FontFamily, FontId};
-        use skrifa::MetadataProvider as _;
-        use std::sync::Arc;
-
-        for pixels_per_point in [1.0, 1.5, 2.0] {
-            let ctx = egui::Context::default();
-            ctx.set_pixels_per_point(pixels_per_point);
-            install(&ctx);
-            ctx.run_ui(egui::RawInput::default(), |_| {})
-                .textures_delta
-                .clear();
-            let mut fonts = ctx.fonts(|fonts| fonts.definitions().clone());
-            let inter_data = Arc::clone(&fonts.font_data["inter"]);
-            let inter = skrifa::FontRef::from_index(&inter_data.font, 0).expect("bundled Inter");
-            let inter_map = inter.charmap();
-            let mut cases = Vec::new();
-            for font in crate::system_fonts::fallbacks() {
-                let face = skrifa::FontRef::from_index(&font.bytes, font.index)
-                    .expect("readable system fallback");
-                let Some(character) = crate::system_fonts::FALLBACK_SCRIPTS
-                    .iter()
-                    .map(|(_, probe, _)| *probe)
-                    .find(|probe| {
-                        inter_map.map(*probe).is_none() && face.charmap().map(*probe).is_some()
-                    })
-                else {
-                    continue;
-                };
-                let reference = format!("raw-{}", font.name);
-                let mut raw = (*fonts.font_data[&font.name]).clone();
-                raw.tweak.y_offset_factor = 0.0;
-                raw.tweak.y_offset = 0.0;
-                fonts.font_data.insert(reference.clone(), Arc::new(raw));
-                fonts.families.insert(
-                    FontFamily::Name(reference.clone().into()),
-                    vec![reference.clone()],
-                );
-                // Use the application's actual installed faces, selecting this
-                // fallback explicitly so an earlier face cannot mask a failure.
-                for primary in ["inter", INTER_MEDIUM, INTER_SEMIBOLD, INTER_BOLD] {
-                    let mixed = format!("{primary}-{}", font.name);
-                    fonts.families.insert(
-                        FontFamily::Name(mixed.clone().into()),
-                        vec![primary.into(), font.name.clone()],
-                    );
-                    cases.push((character, reference.clone(), mixed));
-                }
-            }
-            ctx.set_fonts(fonts);
-            ctx.run_ui(egui::RawInput::default(), |_| {})
-                .textures_delta
-                .clear();
-            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-                for (character, reference, mixed) in &cases {
-                    for size in [14.0, 28.0] {
-                        let layout = |text, family: &String| {
-                            ui.painter().layout_no_wrap(
-                                text,
-                                FontId::new(size, FontFamily::Name(family.clone().into())),
-                                Color32::WHITE,
-                            )
-                        };
-                        let raw = layout(character.to_string(), reference);
-                        let galley = layout(format!("A{character}A"), mixed);
-                        let row = &galley.rows[0];
-                        let glyph = row.glyphs.iter().find(|g| g.chr == *character).unwrap();
-                        let raw_row = &raw.rows[0];
-                        let raw_glyph = &raw_row.glyphs[0];
-                        let top = row.visuals.mesh.vertices[glyph.first_vertex as usize].pos.y;
-                        let raw_top =
-                            raw_row.visuals.mesh.vertices[raw_glyph.first_vertex as usize].pos.y;
-                        let baseline = top - raw_top + raw_glyph.pos.y;
-                        let latin_baseline = row.glyphs[0].pos.y;
-                        // Glyphs and their offsets snap independently to pixels.
-                        let error_pixels = (baseline - latin_baseline).abs() * pixels_per_point;
-                        assert!(
-                            error_pixels <= 1.01,
-                            "{mixed}, {character}, {size} pt at {pixels_per_point}x: baseline {baseline}, Latin {latin_baseline} ({error_pixels} px apart)"
-                        );
-                    }
-                }
-            });
-            output.textures_delta.clear();
-        }
     }
 }

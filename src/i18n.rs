@@ -2,9 +2,7 @@
 //! for every message a catalog has not translated yet. The interface follows
 //! the operating system's language unless Settings names another one.
 
-use std::borrow::Cow;
-use std::sync::OnceLock;
-use tr::Translator;
+pub use fastframe_i18n::{gettext, ngettext, pgettext};
 
 include!(concat!(env!("OUT_DIR"), "/catalogs.rs"));
 
@@ -41,8 +39,8 @@ pub enum Locale {
     ChineseTraditional,
 }
 
-impl Locale {
-    fn translator(self) -> Option<&'static dyn Translator> {
+impl fastframe_i18n::Locale for Locale {
+    fn catalog(self) -> Option<&'static dyn fastframe_i18n::Translator> {
         match self {
             Self::English => None,
             Self::German => Some(&de_de::Translator),
@@ -60,7 +58,9 @@ impl Locale {
             Self::ChineseTraditional => Some(&zh_hant::Translator),
         }
     }
+}
 
+impl Locale {
     /// The tag this locale is named by on the command line and in
     /// `settings.json`. [`Self::from_tag`] reads each one back.
     pub fn tag(self) -> &'static str {
@@ -113,51 +113,26 @@ impl Locale {
     /// The language the operating system is read in, or English when it
     /// prefers only languages no catalog covers.
     ///
-    /// `sys_locale` asks each platform its own way: the preferred languages
-    /// on macOS and Windows, and `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and
-    /// `LANG` elsewhere. The first preferred language with a catalog wins, so
-    /// a desktop that lists Norwegian and then German gets German.
+    /// The first preferred language with a catalog wins, so a desktop that
+    /// lists Norwegian and then German gets German.
     pub fn from_system() -> Self {
         // Tests assert the English interface whatever the machine reads. A
         // test about another language sets it explicitly.
         if cfg!(test) {
             return Self::English;
         }
-        // The answer is read once: on macOS it costs a Core Foundation call,
-        // and it is asked for when the setting changes as well as at start.
-        static DETECTED: OnceLock<Locale> = OnceLock::new();
-        *DETECTED.get_or_init(|| {
-            Self::from_preferred(sys_locale::get_locales().collect::<Vec<_>>().iter())
-        })
-    }
-
-    /// The first catalog in a preference-ordered list of language tags.
-    fn from_preferred<'a>(tags: impl IntoIterator<Item = &'a String>) -> Self {
-        tags.into_iter()
-            .find_map(|tag| Self::from_language_tag(tag))
-            .unwrap_or_default()
+        fastframe_i18n::detect(Self::from_parsed_tag).unwrap_or_default()
     }
 
     /// The catalog closest to a language tag, BCP 47 (`pt-BR`, `zh-Hant-TW`)
     /// or POSIX (`es_UY.UTF-8`), or `None` when no catalog speaks it.
     pub fn from_language_tag(tag: &str) -> Option<Self> {
-        let tag = tag.to_ascii_lowercase();
-        // A POSIX name can carry an encoding and a modifier: sr_RS.UTF-8@latin.
-        let tag = tag.split(['.', '@']).next()?;
-        let mut subtags = tag.split(['-', '_']).filter(|part| !part.is_empty());
-        let language = subtags.next()?;
-        let mut script = None;
-        let mut region = None;
-        for subtag in subtags {
-            match subtag.len() {
-                4 => script = script.or(Some(subtag)),
-                // A region is two letters (BR) or three digits (419). Windows
-                // also writes the legacy Chinese scripts as CHS and CHT.
-                2 | 3 => region = region.or(Some(subtag)),
-                _ => {}
-            }
-        }
-        Some(match language {
+        fastframe_i18n::LanguageTag::parse(tag).and_then(|tag| Self::from_parsed_tag(&tag))
+    }
+
+    fn from_parsed_tag(tag: &fastframe_i18n::LanguageTag) -> Option<Self> {
+        let region = tag.region.as_deref();
+        Some(match tag.language.as_str() {
             "en" => Self::English,
             "de" => Self::German,
             "es" => Self::Spanish,
@@ -178,7 +153,9 @@ impl Locale {
             },
             // A written script decides. Otherwise the region does, and
             // Simplified is the default, as in mainland China and Singapore.
-            "zh" => match (script, region) {
+            // Windows writes the legacy Chinese scripts as the regions CHS
+            // and CHT.
+            "zh" => match (tag.script.as_deref(), region) {
                 (Some("hant"), _) => Self::ChineseTraditional,
                 (Some("hans"), _) => Self::ChineseSimplified,
                 (_, Some("tw" | "hk" | "mo" | "cht")) => Self::ChineseTraditional,
@@ -262,37 +239,6 @@ pub const LOCALES: &[Locale] = &[
     Locale::ChineseTraditional,
 ];
 
-/// The English source is also the fallback for untranslated messages.
-pub fn gettext(locale: Locale, source: &'static str) -> Cow<'static, str> {
-    locale
-        .translator()
-        .map_or(Cow::Borrowed(source), |catalog| {
-            catalog.translate(source, None)
-        })
-}
-
-/// Translate a phrase whose meaning depends on its interface context.
-pub fn pgettext(locale: Locale, context: &'static str, source: &'static str) -> Cow<'static, str> {
-    locale
-        .translator()
-        .map_or(Cow::Borrowed(source), |catalog| {
-            catalog.translate(source, Some(context))
-        })
-}
-
-/// Select a whole translated phrase using the catalog's gettext plural rules.
-pub fn ngettext(
-    locale: Locale,
-    singular: &'static str,
-    plural: &'static str,
-    count: u32,
-) -> Cow<'static, str> {
-    locale.translator().map_or(
-        Cow::Borrowed(if count == 1 { singular } else { plural }),
-        |catalog| catalog.ntranslate(count.into(), singular, plural, None),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,16 +304,13 @@ mod tests {
     #[test]
     fn the_first_preferred_language_with_a_catalog_wins() {
         let tags = |list: &[&str]| list.iter().map(|tag| tag.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            Locale::from_preferred(&tags(&["nb-NO", "de-DE", "en-US"])),
-            Locale::German
-        );
-        assert_eq!(
-            Locale::from_preferred(&tags(&["es-MX", "en-US"])),
-            Locale::Spanish
-        );
-        assert_eq!(Locale::from_preferred(&tags(&["ko-KR"])), Locale::English);
-        assert_eq!(Locale::from_preferred(&tags(&[])), Locale::English);
+        let preferred = |list: &[&str]| {
+            fastframe_i18n::first_supported(tags(list), Locale::from_parsed_tag).unwrap_or_default()
+        };
+        assert_eq!(preferred(&["nb-NO", "de-DE", "en-US"]), Locale::German);
+        assert_eq!(preferred(&["es-MX", "en-US"]), Locale::Spanish);
+        assert_eq!(preferred(&["ko-KR"]), Locale::English);
+        assert_eq!(preferred(&[]), Locale::English);
     }
 
     #[test]

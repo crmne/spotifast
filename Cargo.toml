@@ -1,9 +1,9 @@
 [package]
 name = "spotifast"
 default-run = "spotifast"
-version = "0.10.1"
+version = "0.10.2"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.98"
 license = "MIT"
 description = "A native Spotify client"
 repository = "https://github.com/crmne/spotifast"
@@ -30,15 +30,7 @@ clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
-env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
 directories = "6"
-# A small translation trait for catalogs generated from PO files at build time.
-# No system libintl, global locale, or runtime catalog parsing is needed.
-tr = { version = "0.1.11", default-features = false }
-# The operating system's preferred languages, so the interface can follow
-# them: the preferred-language APIs on macOS and Windows and the POSIX
-# locale variables elsewhere, without platform code of our own.
-sys-locale = "0.3"
 # One protected-store API, with only each target's native provider below.
 # Durable Spotify grants must not be copied into ordinary state JSON.
 keyring-core = "1"
@@ -48,11 +40,33 @@ keyring-core = "1"
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "links", "wayland", "x11", "persistence"] }
 egui = "0.36"
 egui_extras = { version = "0.36", features = ["image", "svg"] }
-# Reading what a system font covers, so the app can borrow a face for a script
-# Inter cannot draw. skrifa is the parser epaint already rasterizes with, and
-# the version has to track epaint's or the binary compiles two copies of it;
-# memmap2 keeps the probe to the few pages of each font that answer the
-# question.
+# The shared foundation of Spotifast, ZapFast, RekordFlash and TonePush
+# (crmne/fastframe). Every crate comes from the same revision; move them
+# together.
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+fastframe-icons = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+fastframe-theme = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+# Catalogs compiled from PO files at build time (see build.rs) and the
+# system's preferred languages. No libintl or runtime catalog parsing.
+fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+# The log file for bug reports and the panic log (env_logger underneath).
+fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+# The tray item, so closing the window can keep the music playing:
+# StatusNotifier on Linux, the notification area on Windows, the menu bar
+# on macOS.
+fastframe-tray = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+# Keeps the app running without a window around eframe::run_native.
+fastframe-shell = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+# The macOS title-bar double-click setting (does nothing elsewhere).
+fastframe-macos = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0" }
+# Self-update from GitHub releases, on the reqwest client below.
+fastframe-update = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0", features = ["reqwest"] }
+# Reading installed fonts for MilkDrop's overlays, the Winamp playlist's
+# pixel text, and the playlist face. skrifa is the parser epaint already
+# rasterizes with, and the version has to track epaint's or the binary
+# compiles two copies of it; memmap2 keeps the search for the playlist face
+# to the few pages of each font that name it. fastframe-fonts uses both.
 skrifa = "0.44"
 memmap2 = "0.9"
 # bmp is for Winamp skins, whose bitmaps are BMP files.
@@ -130,24 +144,21 @@ aes = "0.8"
 ctr = "0.9"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-# The tray item and the desktop's media controls on Windows and macOS, so
-# closing the window keeps the music playing there too. Linux has ksni and
-# mpris-server below.
-tray-icon = { version = "0.24", default-features = false }
+# The desktop's media controls on Windows and macOS, so closing the window
+# keeps the music playing there too. Linux has mpris-server below.
 souvlaki = { version = "0.8", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
-# Serving AppKit while no window exists: the status item and Dock reopen
-# callback live on the main thread. "exception" lets
+# The application menus and Dock menu (src/mac_menu.rs). "exception" lets
 # src/mac_touchbar_crash_guard.rs catch a specific AppKit Objective-C
 # exception instead of letting it abort the process.
 objc2 = { version = "0.6", features = ["exception"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow"] }
 # NSAppleEventManager and NSAppleEventDescriptor carry the Spotify links
 # macOS hands an app registered for the scheme (src/mac_links.rs), and
-# NSUserDefaults reads its title-bar double-click action.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSUserDefaults"] }
+# NSRunLoop has the delayed perform the title bar uses (src/window.rs).
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSObjCRuntime", "NSRunLoop", "NSString"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }
@@ -157,7 +168,6 @@ windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Globali
 [target.'cfg(target_os = "linux")'.dependencies]
 # Reuses the zbus/Tokio stack already used for desktop integration.
 zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-tokio-crypto-rust"] }
-ksni = { version = "0.3", features = ["blocking"] }
 librespot-playback = { version = "0.8", default-features = false, features = ["rodio-backend", "pulseaudio-backend", "rustls-tls-native-roots"] }
 mpris-server = { version = "0.10", features = ["tokio"] }
 # The bus mpris-server already speaks, named directly so its interface macro
@@ -171,13 +181,12 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 x11rb = { version = "0.13", default-features = false }
 
 [build-dependencies]
-# Validate/filter unfinished PO entries, then compile catalog text and gettext
-# plural expressions to Rust. Ordinary builds do not need gettext tools.
-polib = "0.3"
-include-po = "0.2"
+# Drops unfinished PO entries and compiles catalog text and gettext plural
+# expressions to Rust. Ordinary builds do not need gettext tools.
+fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.1.0", features = ["build"] }
 
 [dev-dependencies]
-# Exercise the same PO compiler used by build.rs with partial catalogs.
+# Checks that every catalog covers the template and keeps its placeholders.
 polib = "0.3"
 # Run connection-deadline regressions with a virtual clock.
 tokio = { version = "1", features = ["test-util"] }

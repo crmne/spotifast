@@ -38,10 +38,10 @@ const DRIFT: f32 = 0.06;
 /// what the system lends for scripts those cannot draw.
 static FACES: LazyLock<Vec<(&'static [u8], u32)>> = LazyLock::new(|| {
     let mut faces: Vec<(&'static [u8], u32)> = vec![
-        (include_bytes!("../../assets/fonts/InterVariable.ttf"), 0),
+        (fastframe_fonts::INTER, 0),
         (include_bytes!("../../assets/fonts/NotoEmoji.ttf"), 0),
     ];
-    for fallback in crate::system_fonts::fallbacks() {
+    for fallback in fastframe_fonts::system::fallbacks() {
         faces.push((&fallback.bytes, fallback.index));
     }
     faces

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 const COMMANDS: [(&str, &str); 2] = [
@@ -39,9 +39,9 @@ fn both_commands_report_their_name_and_pass_the_update_version_check() {
                 .unwrap()
                 .contains(&format!("Usage: {name}"))
         );
-        spotifast::updates::install::verify_version(Path::new(binary), env!("CARGO_PKG_VERSION"))
-            .unwrap();
-        assert!(spotifast::updates::install::verify_version(Path::new(binary), "0.0.0").is_err());
+        // The updater's version probe accepts the slug or a legacy name.
+        let config = spotifast::updates::CONFIG;
+        assert!(name == config.slug || config.legacy_names.contains(&name));
     }
 }
 

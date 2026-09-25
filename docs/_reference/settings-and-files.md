@@ -295,12 +295,14 @@ and `--demo-show` adds surfaces on top of it: a comma separated list of
 `focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`,
 `collection-loading`, `shuffle-selected`, `shuffle-started`, `library-list`,
 `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
-and `library-grid-wide`. The Library variants show the list or cover grid with
+`library-grid-wide`, and `rtl`. The Library variants show the list or cover grid with
 a normal, narrow, or wide sidebar and collapsed artwork for matching captures.
 `shuffle-selected` and `shuffle-started` capture the selected-mode and
 playback-started outcomes of a collection Shuffle click. `update` shows a sample
 update badge for checking its layout. `personal-app` shows the personal Spotify
 app introduction.
+`rtl` gives the first songs of `playlist:pl1` invented Hebrew and Arabic
+titles, some mixed with English, numbers, and brackets.
 `collection-loading` keeps known collection metadata and placeholder artwork
 visible while replacing the page content, with unfinished controls disabled.
 `--demo-language <TAG>` shows the interface in one of the bundled languages,
@@ -351,7 +353,7 @@ Create a `themes` folder beside `settings.json` and put JSON files in it.
 Run `spotifast reload-themes` if the app is already open, then select the
 filename under **Settings → Appearance → Theme**.
 The default is **Follow system**. It uses your desktop’s light/dark appearance,
-or the current Omarchy palette on a packaged Omarchy installation. On Linux,
+or the current Omarchy palette on an Omarchy desktop. On Linux,
 the light/dark appearance comes from the desktop portal's `color-scheme`
 setting (GNOME, KDE and Flatpak), and since 0.10.0, the app follows
 it when it changes. Saved Dark,
@@ -362,8 +364,10 @@ Themes change colors and keep the app's existing fonts.
 The **Open themes folder** icon button beside the picker creates the folder if
 needed and opens it in your file
 manager, using the same button style as the Winamp skins folder.
-After adding or editing a JSON file, run `spotifast reload-themes` to refresh
-the list and the selected palette without restarting playback.
+After adding or editing a JSON file on macOS or Windows, run
+`spotifast reload-themes` to refresh the list and the selected palette without
+restarting playback. Since 0.10.2, Spotifast on Linux notices changes to the
+themes folder by itself.
 Choosing a built-in theme clears the custom selection.
 
 For example, `themes/gruvbox.json`:
@@ -390,8 +394,9 @@ Values must be `#RRGGBB` or `#RRGGBBAA`.
 Files are read in the background at launch and when `spotifast reload-themes`
 is called. The command updates the selected palette without interrupting
 playback, changing your selection or showing the window. It does not start a
-stopped app. Repeated requests are combined while a scan is running, and no
-continuous file watcher or polling timer is added. Use regular UTF-8 `.json` files, not symbolic links or
+stopped app. Repeated requests are combined while a scan is running. On Linux,
+filesystem notifications for the themes folder and Omarchy's current theme
+start the same reload, with no polling timer. Use regular UTF-8 `.json` files, not symbolic links or
 subdirectories. Each file is limited to 64 KiB. Keep at most 128 JSON files and
 512 total entries in the themes folder; the saved selection is still checked
 when a folder exceeds these limits.
@@ -422,10 +427,14 @@ and track later theme changes. An existing explicit Dark, Light or custom
 choice stays selected. Choose **Follow system** or **Omarchy** under
 **Settings → Appearance → Theme** to follow Omarchy instead.
 
+Since 0.10.2, portable archives and Cargo builds follow Omarchy too: Spotifast
+reads the palette Omarchy rendered for it, or renders the template itself from
+the current theme's colours, and picks up theme changes without the hook.
+
 Setup never replaces an existing template, hook or palette, and never changes
 your selected theme. Other users are set up independently when they launch the
-app. Demo mode, portable archives and Cargo builds do not perform automatic
-setup. A package uninstall removes the shared integration assets; your user
+app. Demo mode, portable archives and Cargo builds do not install the template
+or hook. A package uninstall removes the shared integration assets; your user
 configuration remains, like the rest of your preferences.
 
 For a manual installation, the repository includes an

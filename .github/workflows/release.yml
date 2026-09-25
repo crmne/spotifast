@@ -61,13 +61,8 @@ jobs:
       - name: MSVC environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          # v2: caches from before the projectm-sys fork replay its stale
-          # build output instead of compiling the fork.
-          prefix-key: v2
-          key: ${{ matrix.target }}
-
+      # No compiler cache: published binaries never build from outputs
+      # restored from an Actions cache.
       - run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features }}
 
       # The zip and installer must run on a clean Windows machine without a
@@ -167,10 +162,7 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: macos-universal
-
+      # No compiler cache, as in the build job above.
       - name: Build both architectures
         run: |
           cargo build --release --target aarch64-apple-darwin
@@ -249,8 +241,13 @@ jobs:
     needs: [build, macos, flatpak]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.macos.result == 'success' }}
     runs-on: ubuntu-latest
+    # Publishing waits for the maintainer's approval, and only this job can
+    # read the release signing key (v* tags only).
+    environment: release-signing
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v7
         with:
           path: dist
@@ -264,6 +261,22 @@ jobs:
             --output "dist/spotifast-${GITHUB_REF_NAME}-source.tar.gz"
       - name: Public filenames, updater compatibility and checksums
         run: python3 packaging/release-names.py dist "$GITHUB_REF_NAME"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0'
+      # Sign the manifest release-names.py wrote (checksums.txt.sig), then
+      # check the signature and every listed file against the committed key.
+      # Updaters that carry the key refuse releases without a valid one.
+      - name: Sign checksums
+        env:
+          SPOTIFAST_UPDATE_SIGNING_KEY: ${{ secrets.SPOTIFAST_UPDATE_SIGNING_KEY }}
+        run: |
+          gem install native-packages --version 0.7.0 --no-document
+          native-packages sign-checksums dist/checksums.txt \
+            --public-key assets/update-public-key.hex \
+            --key-env SPOTIFAST_UPDATE_SIGNING_KEY
+          native-packages verify-checksums dist/checksums.txt \
+            --public-key assets/update-public-key.hex
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

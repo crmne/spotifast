@@ -32,16 +32,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev ruby
-      # Only main writes the cache. A pull request reads it and builds on
-      # top; letting every branch save its own copy filled the repository's
+      # After the toolchain, so the cache key follows the pinned rustc. The
+      # key carries no job name, so each job sets its own generation. Only
+      # pushes to main save; a pull request restores and builds on top.
+      # Letting every branch save its own copy filled the repository's
       # ten-gigabyte cache in a few days, and a full cache evicts the entry
       # the next build wanted.
-      - uses: Swatinem/rust-cache@v2
+      - uses: jdx/mr-boxington-action@v1
         with:
-          # v2: caches from before the projectm-sys fork replay its stale
-          # build output instead of compiling the fork.
-          prefix-key: v2
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-generation: quality-v1
       - name: Formatting
         run: cargo fmt --all --check
       - name: Flatpak release metadata regression tests
@@ -51,20 +50,22 @@ jobs:
       - name: Release name migration regressions
         run: python3 packaging/test-release-names.py
       - name: Clippy (default features)
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: mbx clippy --locked --all-targets -- -D warnings
       - name: Clippy (all features)
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: mbx clippy --locked --all-targets --all-features -- -D warnings
       - name: Rustdoc
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --locked --all-features --no-deps
+        run: mbx doc --locked --all-features --no-deps
 
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
       CMAKE_GENERATOR: Ninja
-    timeout-minutes: 30
+    # A cold mbx cache on Windows (projectM through cmake) needs about 30
+    # minutes before the action saves the cache; warm runs take far less.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -91,28 +92,28 @@ jobs:
       - name: MSVC environment for libprojectM
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
-      - uses: Swatinem/rust-cache@v2
+      - uses: jdx/mr-boxington-action@v1
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-generation: test-v1
       # The demo feature carries the headless render test that lays out every
       # page, panel, and dialog without a display.
       - name: Tests (default features)
-        run: cargo test --locked --all-targets
+        run: mbx test --locked --all-targets
       - name: Tests (all features)
-        run: cargo test --locked --all-targets --all-features
+        run: mbx test --locked --all-targets --all-features
       - name: Native credential store (dummy grants)
         if: runner.os == 'Windows' || runner.os == 'macOS'
         timeout-minutes: 2
-        run: cargo test --locked --lib credentials::tests::native_store_round_trip -- --ignored --exact
+        run: mbx test --locked --lib credentials::tests::native_store_round_trip -- --ignored --exact
       - name: Documentation tests
-        run: cargo test --locked --all-features --doc
+        run: mbx test --locked --all-features --doc
       # A build can pass while importing Microsoft's C++ runtime, then fail on
       # a clean user's machine. Inspect the executable CI actually produced.
       - name: Standalone Windows runtime
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cargo build --locked
+          mbx build --locked
           $imports = & dumpbin /dependents target\debug\spotifast.exe | Out-String
           $runtime = $imports | Select-String -Pattern 'MSVCP[0-9_]*\.dll|VCRUNTIME[0-9_]*\.dll'
           if ($runtime) { throw "Spotifast imports an MSVC runtime:`n$runtime" }
@@ -131,7 +132,7 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          cargo build --locked
+          mbx build --locked
           version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
           app="$RUNNER_TEMP/spotifast-bundle-check/Spotifast.app"
           bash packaging/macos/bundle.sh target/debug/spotifast "$app" "$version"

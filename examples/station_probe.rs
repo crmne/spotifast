@@ -7,7 +7,9 @@ use librespot_core::{Session, SessionConfig, cache::Cache};
 use librespot_protocol::autoplay_context_request::AutoplayContextRequest;
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    fastframe_log::Logging::new("spotifast", env!("CARGO_PKG_VERSION"))
+        .filter("warn")
+        .init()?;
     let track = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "spotify:track:4uLU6hMCjMI75M1A2tKUQC".into());

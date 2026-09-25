@@ -12,32 +12,13 @@ pub fn on_top_unavailable(locale: crate::i18n::Locale) -> std::borrow::Cow<'stat
     )
 }
 
-#[cfg(any(target_os = "macos", test))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MacosDoubleClickAction {
-    Ignore,
-    Minimize,
-    Zoom,
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn macos_double_click_action(preference: Option<&str>) -> MacosDoubleClickAction {
-    match preference {
-        Some("Minimize") => MacosDoubleClickAction::Minimize,
-        Some("None") => MacosDoubleClickAction::Ignore,
-        // AppKit already handles Fill as part of the native window drag.
-        Some("Maximize" | "Fill") => MacosDoubleClickAction::Ignore,
-        Some("Zoom") | None => MacosDoubleClickAction::Zoom,
-        Some(_) => MacosDoubleClickAction::Ignore,
-    }
-}
-
 /// Handles a macOS title-bar double-click, or leaves a first click to drag.
 #[cfg(target_os = "macos")]
 pub fn macos_titlebar_should_drag() -> bool {
+    use fastframe_macos::DoubleClick;
     use objc2::{MainThreadMarker, sel};
     use objc2_app_kit::{NSApplication, NSEventType};
-    use objc2_foundation::{NSObjectNSDelayedPerforming, NSUserDefaults, ns_string};
+    use objc2_foundation::NSObjectNSDelayedPerforming;
 
     let Some(mtm) = MainThreadMarker::new() else {
         return true;
@@ -50,22 +31,20 @@ pub fn macos_titlebar_should_drag() -> bool {
         return true;
     }
 
-    let preference =
-        NSUserDefaults::standardUserDefaults().stringForKey(ns_string!("AppleActionOnDoubleClick"));
-    let action =
-        macos_double_click_action(preference.as_deref().map(ToString::to_string).as_deref());
     if let Some(window) = event.window(mtm) {
         // Let egui finish this frame before AppKit starts resizing the window.
         // SAFETY: Both NSWindow selectors take one optional sender argument.
         unsafe {
-            match action {
-                MacosDoubleClickAction::Ignore => {}
-                MacosDoubleClickAction::Minimize => window.performSelector_withObject_afterDelay(
+            match fastframe_macos::double_click_action() {
+                // AppKit already fills the screen as part of the native
+                // window drag.
+                DoubleClick::Fill | DoubleClick::Nothing => {}
+                DoubleClick::Minimize => window.performSelector_withObject_afterDelay(
                     sel!(performMiniaturize:),
                     None,
                     0.0,
                 ),
-                MacosDoubleClickAction::Zoom => {
+                DoubleClick::Zoom => {
                     window.performSelector_withObject_afterDelay(sel!(performZoom:), None, 0.0)
                 }
             }
@@ -289,21 +268,6 @@ mod tests {
         assert!(!custom_titlebar_for(true, false));
         assert!(!custom_titlebar_for(false, true));
         assert!(!custom_titlebar_for(false, false));
-    }
-
-    #[test]
-    fn macos_titlebar_preferences_map_to_native_actions() {
-        for (preference, action) in [
-            (Some("Minimize"), MacosDoubleClickAction::Minimize),
-            (Some("None"), MacosDoubleClickAction::Ignore),
-            (Some("Maximize"), MacosDoubleClickAction::Ignore),
-            (Some("Fill"), MacosDoubleClickAction::Ignore),
-            (Some("Zoom"), MacosDoubleClickAction::Zoom),
-            (None, MacosDoubleClickAction::Zoom),
-            (Some("FutureAction"), MacosDoubleClickAction::Ignore),
-        ] {
-            assert_eq!(macos_double_click_action(preference), action);
-        }
     }
 
     #[test]

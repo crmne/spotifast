@@ -1,38 +1,7 @@
-use tr::Translator;
-
-include!(concat!(env!("OUT_DIR"), "/test_catalog.rs"));
-
-#[test]
-fn compiled_po_omits_unfinished_messages_and_uses_locale_plural_rules() {
-    let catalog = fixture::Translator;
-    assert_eq!(fixture::PLURALS, 3);
-    assert_eq!(catalog.translate("Home", None), "Start");
-    for source in ["Search", "Library", "Missing", "Removed"] {
-        assert_eq!(catalog.translate(source, None), source);
-    }
-    for count in [0, 1, 2, 5, 12, 22, 101, 112] {
-        let singular = "Playlist • {count} song";
-        let plural = "Playlist • {count} songs";
-        assert_eq!(
-            catalog.ntranslate(count, singular, plural, None),
-            if count == 1 { singular } else { plural },
-            "an incomplete plural must fall back to a whole English phrase"
-        );
-        assert_eq!(
-            catalog.ntranslate(count, "{count} track", "{count} tracks", None),
-            match count {
-                1 => "{count} utwór",
-                2 | 22 => "{count} utwory",
-                _ => "{count} utworów",
-            }
-        );
-    }
-}
-
 /// Catalogs expected to translate every message in the template.
 ///
 /// The others are filled in as translators reach them: an empty `msgstr`
-/// compiles out and shows the English source, as the test above checks. A
+/// compiles out and shows the English source (fastframe-i18n tests that). A
 /// catalog listed here must stay complete, and every catalog must keep the
 /// placeholders of whatever it does translate.
 const COMPLETE: &[&str] = &[

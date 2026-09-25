@@ -63,8 +63,8 @@ You can rename it in Settings.
 Open **Settings → Appearance → Theme** and choose **Light**, **Dark**, or
 **Follow system**. Follow system matches your desktop's appearance.
 
-On Omarchy, installing Spotifast from the AUR sets up theme matching the first
-time you open it. Choose **Follow system** or **Omarchy**, then change your
+On Omarchy, Spotifast matches your desktop theme from the first time you open
+it; the AUR package also installs the theme hook. Choose **Follow system** or **Omarchy**, then change your
 desktop theme: Spotifast's colours follow while the music keeps playing.
 New installations already use Follow system. Updating keeps your previous
 theme choice.

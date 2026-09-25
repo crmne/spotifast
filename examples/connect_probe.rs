@@ -7,7 +7,9 @@
 use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    fastframe_log::Logging::new("spotifast", env!("CARGO_PKG_VERSION"))
+        .filter("warn")
+        .init()?;
     let wanted = std::env::args().nth(1);
 
     println!("browsing for _spotify-connect._tcp ...");

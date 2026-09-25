@@ -139,9 +139,8 @@ with its current-track pickup.
   the application so replacement stays on the same filesystem. The directory
   retains the previous executable or Mac app bundle and `result.txt` for recovery and diagnosis.
   Helper startup errors are retained in `helper.log`. On macOS the helper runs
-  from the signed installed bundle instead of copying its executable outside it.
-  A Windows installer update relaunches the installed `spotifast.exe`, whatever
-  name the app was running under.
+  from a copy of the whole signed bundle in that directory, so replacing or
+  restoring the installed app never moves the helper's own code.
   Settings, caches and credential stores are not replaced. Package-manager
   installs keep their package-manager update path. Mac updates verify the bundle
   identifier, version and code signature before replacing the whole app bundle.

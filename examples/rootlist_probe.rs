@@ -10,7 +10,9 @@ use librespot_protocol::playlist4_external::SelectedListContent;
 use protobuf::Message as _;
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    fastframe_log::Logging::new("spotifast", env!("CARGO_PKG_VERSION"))
+        .filter("warn")
+        .init()?;
 
     let dirs = spotifast::paths::AppDirs::discover();
     let cache = Cache::new::<&std::path::Path>(None, None, None, None)?.with_memory_credentials();

@@ -130,21 +130,28 @@ maintainer approval and an exact force-with-lease guard; keep a recovery ref.
 
 ## Disk use
 
-Build caches save hours of recompiling, so keep them, but keep them small:
+Builds go through [mbx](https://mr-boxington.jdx.dev), enabled for mise users
+by `mise.toml` (run `mise trust` once in each new checkout or worktree, or
+mise refuses to run `cargo` there). It keeps compiled work in one shared
+store, places each checkout's `target/` under a disk budget, and collects old
+outputs on its own. Plain `cargo` still works for contributors who do not use
+mise or mbx.
 
-- Use one build cache per project: `target/` in the main checkout. A git
-  worktree used on its own may set `CARGO_TARGET_DIR` to that directory.
-  Worktrees that build at the same time must not share it: cargo names
-  their artifacts alike, so one worktree's test run can execute another's
-  binary and report its result. Give each concurrent worktree its own
-  target under `~/.cache/` and delete it when that work is done; a fresh
-  target costs 20 GB or more.
+- Give each worktree and each parallel agent its own target directory. A
+  worktree's own `target/` is enough, and mbx manages it; a second build in
+  the same checkout uses `CARGO_TARGET_DIR=target/<name>`, which stays inside
+  the managed target. Never point builds at a shared target directory: Cargo's
+  lock serializes them, one worktree's test run can execute another's binary,
+  and the store already shares compiled outputs.
+- Never vary `codegen-units` or other compiler flags per agent. Each variant
+  is a separate cache entry and fills the disk.
+- Do not `cargo clean` to save space. `mbx gc --dry-run` previews collection
+  and `mbx gc` runs it now; `mbx cache stats` shows what is held.
+- When a build is colder than expected, `mbx explain --last` says what missed
+  the cache and why.
 - Never put build output or large scratch files in `/tmp`. It is a small
   in-memory filesystem with a per-user quota, and filling it breaks every
   shell on the machine.
-- Rotate the cache: `cargo sweep --time 14` (from `cargo install cargo-sweep`)
-  removes artifacts unused for two weeks. If `target/` still exceeds about
-  60 GB, run `cargo clean`.
 - Delete one-off QA, packaging, and release-validation directories (under
   `.cache/` or `~/.cache/`) once their result is recorded.
 

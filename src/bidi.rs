@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use egui::emath::GuiRounding as _;
 use egui::epaint::text::{Glyph, Row};
 use egui::epaint::{Mesh, Vec2};
 use egui::text::LayoutJob;
@@ -262,13 +263,14 @@ pub fn reorder(galley: &mut Arc<Galley>) {
     }
     let galley = Arc::make_mut(galley);
     let text = galley.job.text.clone();
+    let pixels_per_point = galley.pixels_per_point;
     for placed in &mut galley.rows {
-        reorder_row(Arc::make_mut(&mut placed.row), &text);
+        reorder_row(Arc::make_mut(&mut placed.row), &text, pixels_per_point);
     }
     refresh_bounds(galley);
 }
 
-fn reorder_row(row: &mut Row, text: &str) {
+fn reorder_row(row: &mut Row, text: &str, pixels_per_point: f32) {
     if row.glyphs.is_empty() || already_visual(&row.glyphs) {
         return;
     }
@@ -300,15 +302,17 @@ fn reorder_row(row: &mut Row, text: &str) {
                 .iter()
                 .map(|glyph| glyph.pos.x)
                 .fold(f32::INFINITY, f32::min);
-            let max_x = slice
-                .iter()
-                .map(Glyph::max_x)
-                .fold(f32::NEG_INFINITY, f32::max);
-            (min_x.is_finite() && max_x.is_finite()).then_some(Atom {
+            // A run is as wide as its shaped advances, the measure epaint
+            // gives the row. Glyph positions sit on whole pixels, and the
+            // zero-width stand-ins after a ligature such as لا sit past its
+            // advance, so their extent is up to a pixel wider: a row cut to
+            // fit its column grew past it (Windows' Arabic face, 18 pt).
+            let width = slice.iter().map(|glyph| glyph.advance_width).sum();
+            min_x.is_finite().then_some(Atom {
                 glyphs,
                 key,
                 min_x,
-                width: (max_x - min_x).max(0.0),
+                width,
             })
         })
         .collect();
@@ -316,7 +320,11 @@ fn reorder_row(row: &mut Row, text: &str) {
 
     let mut cursor = 0.0_f32;
     for atom in &atoms {
-        let delta = cursor - atom.min_x;
+        // Both ends on whole physical pixels. epaint rasterizes each glyph
+        // for its place on the pixel grid; moving the quad by a fraction
+        // left the moved runs between pixels, blurred (0.21 px at 133%).
+        let delta = fastframe_text::snap_to_pixels(cursor, pixels_per_point)
+            - fastframe_text::snap_to_pixels(atom.min_x, pixels_per_point);
         if delta.abs() > 0.01 {
             for glyph in &mut row.glyphs[atom.glyphs.clone()] {
                 glyph.pos.x += delta;
@@ -344,8 +352,16 @@ fn reorder_row(row: &mut Row, text: &str) {
     let glyphs = std::mem::take(&mut row.glyphs);
     row.glyphs = order.into_iter().map(|index| glyphs[index]).collect();
     repack_glyph_vertices(row);
-    let content_right = row.glyphs.iter().map(Glyph::max_x).fold(0.0_f32, f32::max);
-    row.size.x = row.size.x.max(content_right).max(cursor);
+    // The advances add up to the width epaint measured, which it rounded to
+    // the interface grid (1/32 point) after summing in pixels. Summed here in
+    // points, a width that falls on a rounding midpoint can land on the other
+    // side of it and round a step up (198.046875 against epaint's 198.046844,
+    // Arabic at 13 pt and 133%): the same width, not a wider row. Only a row
+    // whose measured width left out a trailing space, now moved inside it,
+    // grows, and a space is many grid steps wide.
+    if cursor > row.size.x + egui::emath::GUI_ROUNDING {
+        row.size.x = cursor.round_ui();
+    }
 }
 
 /// Glyphs that move together, and where they sat before.
@@ -998,6 +1014,95 @@ mod tests {
                 )
             },
         );
+    }
+
+    /// Runs moved into visual order stay on whole physical pixels at
+    /// fractional scales, where epaint rasterized them, instead of landing
+    /// between pixels and blurring.
+    #[test]
+    fn reordered_runs_stay_on_whole_pixels() {
+        for pixels_per_point in [4.0 / 3.0, 1.6] {
+            let ctx = egui::Context::default();
+            crate::theme::install(&ctx);
+            let mut input = egui::RawInput::default();
+            input
+                .viewports
+                .entry(egui::ViewportId::ROOT)
+                .or_default()
+                .native_pixels_per_point = Some(pixels_per_point);
+            ctx.run_ui(input.clone(), |_| {}).textures_delta.clear();
+            let mut output = ctx.run_ui(input, |ui| {
+                for text in ["Song 12 שיר ישן, part 3", "غيوم في السماء (Live) 2024"]
+                {
+                    let galley = layout_line(
+                        ui.painter(),
+                        text,
+                        FontId::proportional(13.0),
+                        Color32::WHITE,
+                    );
+                    assert_eq!(galley.pixels_per_point, pixels_per_point);
+                    let on_grid = |x: f32| {
+                        let pixels = x * pixels_per_point;
+                        (pixels - pixels.round()).abs() < 1e-3
+                    };
+                    let row = &galley.rows[0].row;
+                    assert!(row.glyphs.iter().any(|glyph| glyph.rtl), "{text}");
+                    for glyph in &row.glyphs {
+                        assert!(on_grid(glyph.pos.x), "{text}: {glyph:?}");
+                    }
+                    for vertex in &row.visuals.mesh.vertices[row.visuals.glyph_vertex_range.clone()]
+                    {
+                        assert!(on_grid(vertex.pos.x), "{text} at {pixels_per_point}");
+                    }
+                }
+            });
+            output.textures_delta.clear();
+        }
+    }
+
+    /// Moving runs into visual order keeps the width epaint shaped, at any
+    /// scale: [`layout`] measures its cuts in logical order, so a reordered
+    /// row that grew would be drawn past the column it was cut for. The
+    /// zero-width stand-ins after a ligature such as لا sit on whole pixels
+    /// beyond its advance, and neither they nor the pixel grid are part of a
+    /// run's width.
+    #[test]
+    fn reordering_keeps_the_shaped_width() {
+        for pixels_per_point in [1.0, 4.0 / 3.0, 1.5, 1.6, 2.0] {
+            let ctx = egui::Context::default();
+            crate::theme::install(&ctx);
+            let mut input = egui::RawInput::default();
+            input
+                .viewports
+                .entry(egui::ViewportId::ROOT)
+                .or_default()
+                .native_pixels_per_point = Some(pixels_per_point);
+            ctx.run_ui(input.clone(), |_| {}).textures_delta.clear();
+            let mut output = ctx.run_ui(input, |ui| {
+                for text in [
+                    "لالا\u{2026}",
+                    "لالالالالالا",
+                    "והתקשרו\u{2026}",
+                    "Song 12 שיר ישן, part 3",
+                    "غيوم في السماء (Live) 2024",
+                ] {
+                    for size in [13.0, 18.0] {
+                        let font = FontId::proportional(size);
+                        let logical =
+                            ui.painter()
+                                .layout_no_wrap(text.to_owned(), font, Color32::WHITE);
+                        let mut visual = logical.clone();
+                        reorder(&mut visual);
+                        assert_eq!(
+                            visual.rows[0].size.x, logical.rows[0].size.x,
+                            "{text} at {size} pt, {pixels_per_point}x"
+                        );
+                        assert_eq!(visual.size(), logical.size(), "{text}");
+                    }
+                }
+            });
+            output.textures_delta.clear();
+        }
     }
 
     /// Text without right-to-left letters is never copied or moved.

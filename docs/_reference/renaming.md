@@ -90,10 +90,10 @@ Windows keeps the installer GUID so an upgrade remains the same installed
 application. Fresh installs use `Programs\Spotifast`; upgrades preserve the
 installation directory recorded by the existing installer. The app, shortcuts,
 registered link handler and primary executable use Spotifast. The installer
-also keeps a `fastpotify.exe` copy of the app: the 0.9.1 updater relaunches
-the app under the name it was running as, which is `fastpotify.exe` when an
-older updater installed 0.9.1, and the update after that relaunches
-`spotifast.exe`.
+also keeps a `fastpotify.exe` copy of the app, because the update helper
+relaunches the app under the name it was running as, and that is
+`fastpotify.exe` for an installation that reached 0.9.1 through an older
+updater.
 
 ## Flatpak
 

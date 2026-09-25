@@ -226,17 +226,17 @@ pub struct Settings {
     /// Last accepted appearance, retained if its source file becomes unavailable.
     #[serde(
         default,
-        deserialize_with = "crate::theme::custom::read_cached_theme",
+        deserialize_with = "fastframe_theme::read_cached_theme",
         skip_serializing_if = "Option::is_none"
     )]
-    pub custom_theme_cache: Option<crate::theme::custom::CustomTheme>,
+    pub custom_theme_cache: Option<crate::theme::CustomTheme>,
     /// Last detected system palette, so following Omarchy survives a restart.
     #[serde(
         default,
-        deserialize_with = "crate::theme::custom::read_cached_theme",
+        deserialize_with = "fastframe_theme::read_cached_theme",
         skip_serializing_if = "Option::is_none"
     )]
-    pub system_theme_cache: Option<crate::theme::custom::CustomTheme>,
+    pub system_theme_cache: Option<crate::theme::CustomTheme>,
     pub home: HomeSettings,
     /// Tint the interface with the colour of the playing album's art.
     pub accent_from_art: bool,
@@ -1004,7 +1004,7 @@ mod tests {
         settings.custom_theme = Some("gruvbox.json".into());
         let mut palette = crate::theme::Palette::light();
         palette.shadow = egui::Color32::from_rgba_unmultiplied(37, 128, 249, 117);
-        settings.custom_theme_cache = Some(crate::theme::custom::CustomTheme {
+        settings.custom_theme_cache = Some(crate::theme::CustomTheme {
             filename: "gruvbox.json".into(),
             palette,
         });

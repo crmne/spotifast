@@ -84,6 +84,18 @@ const TRACKS: &[&str] = &[
     "Kaleidoscope",
 ];
 
+/// Invented Hebrew and Arabic titles for `--demo-show rtl`: whole lines,
+/// lines mixed with English, numbers, brackets, and punctuation.
+#[cfg(feature = "demo")]
+const RTL_TRACKS: &[(&str, &str, &str)] = &[
+    ("שיר ישן (גרסה חיה)", "להקת הים", "גלים, 2024"),
+    ("Song 12 שיר ישן, part 3", "Kasia & נועה", "Sessions: חלק ב"),
+    ("غيوم في السماء (Live) 2024", "فرقة الغيوم", "السماء"),
+    ("ليل طويل، الجزء الأول", "نور", "رحلة 7"),
+    ("Tel Aviv Nights: לילות, חלק 2", "Sam & דנה", "Nights"),
+    ("مدينة [Remix]", "فرقة الغيوم", "Remixes: مدينة"),
+];
+
 fn demo_added_at(index: usize, now: Timestamp) -> String {
     let age = match index {
         0 => SignedDuration::from_secs(30),
@@ -774,6 +786,24 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     Action::ShufflePlay("spotify:playlist:pl0".into()),
                     &egui::Context::default(),
                 );
+            }
+            "rtl" => {
+                if let Some(page) = app.playlist_pages.get_mut("pl1") {
+                    for (item, &(title, artist, album)) in
+                        page.items.items.iter_mut().zip(RTL_TRACKS)
+                    {
+                        if let Some(PlayableItem::Track(track)) = &mut item.item {
+                            track.name = title.into();
+                            if let Some(first) = track.artists.first_mut() {
+                                first.name = artist.into();
+                            }
+                            if let Some(album_ref) = &mut track.album {
+                                album_ref.name = album.into();
+                            }
+                        }
+                    }
+                    page.items.revision += 1;
+                }
             }
             "german" => {
                 app.settings.language =
@@ -2475,10 +2505,7 @@ mod tests {
 
     #[test]
     fn update_window_keeps_downloads_running_and_waits_for_restart() {
-        use crate::updates::{
-            DownloadState,
-            install::{Installation, Kind, Prepared},
-        };
+        use crate::updates::{DownloadState, Installation, Kind, Prepared};
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("update-window");
         app.update = Some(crate::updates::Release {
@@ -2516,13 +2543,8 @@ mod tests {
             app.update_download,
             DownloadState::Downloading { .. }
         ));
-        app.update_download = DownloadState::Ready(Box::new(Prepared {
-            installation,
-            directory: "/test/stage".into(),
-            payload: "/test/stage/payload".into(),
-            version: "9.9.9".into(),
-            sha256: String::new(),
-        }));
+        app.update_download =
+            DownloadState::Ready(Box::new(Prepared::sample(installation, "9.9.9")));
         accessible_frame(&ctx, &mut app, vec![]);
         assert!(!app.show_update);
         assert!(matches!(app.update_download, DownloadState::Ready(_)));
@@ -3896,6 +3918,31 @@ mod tests {
         text
     }
 
+    /// `--demo-show rtl` fills the playlist with right-to-left titles, which
+    /// the page hands to layout in the order they were typed.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_rtl_demo_shows_right_to_left_titles() {
+        fn playlist(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::collection::playlist(app, ui, "pl1");
+        }
+        let (ctx, mut app) = accessible_app("rtl-titles");
+        apply_flags(&mut app, Some("playlist:pl1"), Some("rtl"));
+        view_frame(&ctx, &mut app, vec![], playlist);
+        let painted = view_frame(&ctx, &mut app, vec![], playlist);
+        for (title, artist, _) in RTL_TRACKS {
+            assert!(
+                painted.iter().any(|(text, _)| text == title),
+                "{title} is not drawn"
+            );
+            assert!(
+                painted.iter().any(|(text, _)| text.contains(artist)),
+                "{artist} is not drawn"
+            );
+        }
+        app.backend.shutdown();
+    }
+
     #[test]
     fn loading_collections_keep_their_hero_layout() {
         fn playlist(app: &mut App, ui: &mut egui::Ui) {
@@ -4120,11 +4167,13 @@ mod tests {
         });
         let mut palette = crate::theme::Palette::light();
         palette.accent = egui::Color32::from_rgb(140, 63, 165);
-        app.custom_themes =
-            crate::theme::custom::Catalog::from_themes(vec![crate::theme::custom::CustomTheme {
+        app.custom_themes = crate::theme::Catalog::preview(
+            vec![crate::theme::CustomTheme {
                 filename: "local.json".into(),
                 palette,
-            }]);
+            }],
+            false,
+        );
         for _ in 0..3 {
             view_frame(&ctx, &mut app, vec![], App::frame_ui);
         }
@@ -7996,10 +8045,7 @@ mod tests {
     /// that it never does.
     #[test]
     fn the_top_bar_badges_never_cover_the_search_field() {
-        use crate::updates::{
-            DownloadState,
-            install::{Installation, Kind, Prepared},
-        };
+        use crate::updates::{DownloadState, Installation, Kind, Prepared};
         use egui::accesskit::{Action as AccessibleAction, Role};
         // `widgets::search_field` insets its text this far from the pill's
         // right edge, so the pill reaches past the rect the field reports.
@@ -8021,16 +8067,13 @@ mod tests {
                 ),
                 (
                     Some("Update ready"),
-                    DownloadState::Ready(Box::new(Prepared {
-                        installation: Installation {
+                    DownloadState::Ready(Box::new(Prepared::sample(
+                        Installation {
                             executable: "/test/fastpotify".into(),
                             kind: Kind::Portable,
                         },
-                        directory: "/test/stage".into(),
-                        payload: "/test/stage/payload".into(),
-                        version: "9.9.9".into(),
-                        sha256: String::new(),
-                    })),
+                        "9.9.9",
+                    ))),
                 ),
             ] {
                 app.update_download = state;

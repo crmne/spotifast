@@ -26,12 +26,6 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
-    #[arg(long, hide = true)]
-    update_receipt: Option<std::path::PathBuf>,
-
-    #[arg(long, hide = true)]
-    update_error: Option<String>,
-
     /// Start with sample data and no Spotify connection (for screenshots).
     #[cfg(feature = "demo")]
     #[arg(long)]
@@ -348,14 +342,10 @@ fn format_devices(snapshot: &str) -> String {
 pub(crate) fn run() -> eframe::Result<()> {
     #[cfg(target_os = "linux")]
     configure_pulseaudio_properties();
-    let arguments: Vec<_> = std::env::args_os().collect();
-    if arguments.len() == 3 && arguments[1] == "--apply-update" {
-        let result = spotifast::updates::install::run_helper(std::path::Path::new(&arguments[2]));
-        if let Err(error) = &result {
-            eprintln!("{error:#}");
-        }
-        std::process::exit(if result.is_ok() { 0 } else { 1 });
-    }
+    // First of all: `--apply-update <job>` makes this process the update
+    // helper, which installs and exits; otherwise the receipt and error an
+    // update relaunch carries are taken out of the arguments.
+    let launch = fastframe_update::intercept(&spotifast::updates::CONFIG);
     // A MilkDrop child launch is a bare visualiser window, not the app: it has
     // its own event loop and OpenGL context, reads the sound from a shared
     // buffer, and never touches the app's state. Handle it before anything
@@ -368,7 +358,8 @@ pub(crate) fn run() -> eframe::Result<()> {
     // Follow the invoked command, including the Linux package's spotifast
     // symlink. Old updaters execute a file named fastpotify and require its
     // original --version output; both commands otherwise start the same app.
-    let name = match arguments
+    let name = match launch
+        .arguments
         .first()
         .and_then(|arg| std::path::Path::new(arg).file_stem())
         .and_then(|arg| arg.to_str())
@@ -376,8 +367,12 @@ pub(crate) fn run() -> eframe::Result<()> {
         Some(name) if name.eq_ignore_ascii_case("fastpotify") => "fastpotify",
         _ => "spotifast",
     };
-    let cli = Cli::from_arg_matches(&Cli::command().name(name).get_matches())
-        .unwrap_or_else(|error| error.exit());
+    let cli = Cli::from_arg_matches(
+        &Cli::command()
+            .name(name)
+            .get_matches_from(&launch.arguments),
+    )
+    .unwrap_or_else(|error| error.exit());
     // Demo mode invents plays, settings, and a signed-in account. Without a
     // folder of its own it would write them into the real profile, where
     // they would pass for the user's history and stop the next real launch
@@ -411,9 +406,9 @@ pub(crate) fn run() -> eframe::Result<()> {
             }
         });
     // The application (audio engine, Web API, MPRIS, tray) outlives any
-    // window. Closing to the tray destroys the window and this loop creates
-    // a new one when the tray or MPRIS asks for it. Plain window lifecycle,
-    // portable across desktops.
+    // window. Closing to the tray destroys the window and the shell below
+    // creates a new one when the tray or MPRIS asks for it. Plain window
+    // lifecycle, portable across desktops.
     let waker = backend::Waker::default();
 
     // A second launch surfaces the instance already running instead of
@@ -436,9 +431,9 @@ pub(crate) fn run() -> eframe::Result<()> {
         None
     };
     #[cfg(feature = "demo")]
-    let migrate = guarded && cli.demo_data.is_none() && cli.update_receipt.is_none();
+    let migrate = guarded && cli.demo_data.is_none() && launch.receipt.is_none();
     #[cfg(not(feature = "demo"))]
-    let migrate = guarded && cli.update_receipt.is_none();
+    let migrate = guarded && launch.receipt.is_none();
     if migrate {
         paths::AppDirs::discover()
             .migrate_legacy()
@@ -456,7 +451,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     } else {
         "warn,spotifast=info"
     };
-    let dirs = paths::AppDirs::for_launch(cli.update_receipt.is_some());
+    let dirs = paths::AppDirs::for_launch(launch.receipt.is_some());
     #[cfg(feature = "demo")]
     let dirs = cli
         .demo_data
@@ -468,27 +463,23 @@ pub(crate) fn run() -> eframe::Result<()> {
         })
         .unwrap_or(dirs);
     let dirs_ready = dirs.ensure();
-    let mut logger =
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter));
     // Launched from a desktop, stderr goes nowhere; keep the run's log where
-    // a bug report can find it.
-    match std::fs::File::create(dirs.log_file()) {
-        Ok(file) => {
-            logger.target(env_logger::Target::Pipe(Box::new(Tee(file))));
-        }
-        Err(error) => eprintln!("not keeping a log file: {error}"),
+    // a bug report can find it, and a line per panic in the panic log (with
+    // any link in its message removed: a URL can carry a token).
+    if let Err(error) = fastframe_log::Logging::new("spotifast", env!("CARGO_PKG_VERSION"))
+        .filter(default_filter)
+        .file(dirs.log_file())
+        .panic_log(dirs.panic_log())
+        .panic_message(fastframe_log::PanicMessage::Redacted(
+            fastframe_log::redact::links,
+        ))
+        .init()
+    {
+        eprintln!("not logging: {error}");
     }
-    logger.init();
-    log::info!(
-        "Starting Spotifast {} on {} ({})",
-        env!("CARGO_PKG_VERSION"),
-        std::env::consts::OS,
-        std::env::consts::ARCH
-    );
     if let Err(error) = dirs_ready {
         log::warn!("unable to create the application directories: {error}");
     }
-    log_panics(dirs.panic_log());
     let mut settings = settings::Settings::load(&dirs.settings_file());
     if let Some(name) = cli.device_name {
         settings.device_name = name;
@@ -520,9 +511,8 @@ pub(crate) fn run() -> eframe::Result<()> {
     let desktop_surfaces = options.media_controls;
     #[allow(unused_mut)]
     let mut app = app::App::new(&waker, dirs, settings, options);
-    #[cfg(target_os = "linux")]
     if guarded {
-        app.custom_themes.enable_packaged_omarchy();
+        app.enable_desktop_themes();
     }
     #[cfg(feature = "demo")]
     let load_themes = guarded || cli.demo_data.is_some();
@@ -531,8 +521,8 @@ pub(crate) fn run() -> eframe::Result<()> {
     if load_themes {
         app.load_custom_themes(&waker);
     }
-    app.update_receipt = cli.update_receipt;
-    if let Some(error) = cli.update_error {
+    app.update_receipt = launch.receipt;
+    if let Some(error) = launch.error {
         app.report_update_failure(error);
     }
     if let Some(guard) = &instance {
@@ -546,7 +536,7 @@ pub(crate) fn run() -> eframe::Result<()> {
         spotifast::demo::populate(&mut app);
         spotifast::demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
         if let Some(feed) = &cli.demo_update_feed {
-            match spotifast::updates::Source::local(feed) {
+            match fastframe_update::Source::local(feed) {
                 Ok(source) => app.update_source = source,
                 Err(error) => {
                     eprintln!("{error:#}");
@@ -581,214 +571,114 @@ pub(crate) fn run() -> eframe::Result<()> {
     #[cfg(feature = "demo")]
     let demo_storage = app.dirs.cache.join("demo-window.ron");
     let window_profile = app.dirs.window_profile();
-    let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(app)));
-    loop {
-        let creator_slot = std::sync::Arc::clone(&slot);
-        let creator_waker = waker.clone();
-        #[cfg(feature = "demo")]
-        let creator_shot = shot.clone();
-        let mini = {
-            let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
-            MiniWindow::wanted(guard.as_ref().expect("application state present"))
-        };
-        #[cfg(feature = "demo")]
-        let options = {
-            let options = native_options(
-                shot.is_some() && mini.is_none() && demo_inner.is_none(),
-                mini,
-                demo_inner,
-            );
-            if demo {
-                demo_native_options(options, demo_storage.clone())
-            } else {
-                options
-            }
-        };
-        #[cfg(not(feature = "demo"))]
-        let options = native_options(false, mini, None);
-        let options = profile_options(options, window_profile);
-        let persist_memory = options.persist_window;
-        #[cfg(windows)]
-        let thumbbar_enabled = desktop_surfaces && options.viewport.taskbar != Some(false);
-        #[cfg(target_os = "linux")]
-        let hide_from_taskbar = options.viewport.taskbar == Some(false);
-        eframe::run_native(
-            "Spotifast",
-            options,
-            Box::new(move |cc| {
-                if let Some(gl) = &cc.gl {
-                    use eframe::glow::HasContext;
-                    // eframe has made this window's GL context current before
-                    // calling the app creator. These identify the renderer
-                    // actually selected, which may differ from the listed GPU.
-                    unsafe {
-                        log::info!(
-                            "OpenGL renderer: {}; vendor: {}; version: {}",
-                            gl.get_parameter_string(eframe::glow::RENDERER),
-                            gl.get_parameter_string(eframe::glow::VENDOR),
-                            gl.get_parameter_string(eframe::glow::VERSION)
-                        );
+    fastframe_shell::Shell::new(app, &waker)
+        .idle(fastframe_tray::idle)
+        .run(|lease| {
+            #[cfg(windows)]
+            let creator_waker = waker.clone();
+            #[cfg(feature = "demo")]
+            let creator_shot = shot.clone();
+            let mini = lease.peek(MiniWindow::wanted);
+            #[cfg(feature = "demo")]
+            let options = {
+                let options = native_options(
+                    shot.is_some() && mini.is_none() && demo_inner.is_none(),
+                    mini,
+                    demo_inner,
+                );
+                if demo {
+                    demo_native_options(options, demo_storage.clone())
+                } else {
+                    options
+                }
+            };
+            #[cfg(not(feature = "demo"))]
+            let options = native_options(false, mini, None);
+            let options = profile_options(options, window_profile);
+            let persist_memory = options.persist_window;
+            #[cfg(windows)]
+            let thumbbar_enabled = desktop_surfaces && options.viewport.taskbar != Some(false);
+            #[cfg(target_os = "linux")]
+            let hide_from_taskbar = options.viewport.taskbar == Some(false);
+            eframe::run_native(
+                "Spotifast",
+                options,
+                Box::new(move |cc| {
+                    if let Some(gl) = &cc.gl {
+                        use eframe::glow::HasContext;
+                        // eframe has made this window's GL context current
+                        // before calling the app creator. These identify the
+                        // renderer actually selected, which may differ from
+                        // the listed GPU.
+                        unsafe {
+                            log::info!(
+                                "OpenGL renderer: {}; vendor: {}; version: {}",
+                                gl.get_parameter_string(eframe::glow::RENDERER),
+                                gl.get_parameter_string(eframe::glow::VENDOR),
+                                gl.get_parameter_string(eframe::glow::VERSION)
+                            );
+                        }
                     }
-                }
-                creator_waker.attach(&cc.egui_ctx);
-                let mut app = creator_slot
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .take()
-                    .expect("application state present");
-                // Built once per window, before the first frame; the handler
-                // wakes the loop so a menu pick is not held until the next
-                // repaint.
-                #[cfg(target_os = "macos")]
-                {
-                    spotifast::mac_touchbar_crash_guard::install();
-                    spotifast::mac_menu::init();
-                    let ctx = cc.egui_ctx.clone();
-                    spotifast::mac_menu::set_waker(move || ctx.request_repaint());
-                }
-                {
-                    use raw_window_handle::HasDisplayHandle;
-                    if let Ok(display) = cc.display_handle() {
-                        app.window_level_supported =
-                            spotifast::window::supports_window_level(display.as_raw());
-                        app.taskbar_hiding_supported =
-                            spotifast::window::supports_hiding_from_taskbar(display.as_raw());
-                    }
-                }
-                // winit hides a taskbar button on Windows only; X11 is asked
-                // here, while the window is still unmapped.
-                #[cfg(target_os = "linux")]
-                if hide_from_taskbar {
-                    use raw_window_handle::HasWindowHandle;
-                    if let Ok(handle) = cc.window_handle() {
-                        spotifast::window::skip_x11_taskbar(handle.as_raw());
-                    }
-                }
-                app.attach(&cc.egui_ctx);
-                #[cfg(windows)]
-                let thumbbar = {
-                    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-                    let mut toolbar = spotifast::thumbbar::ThumbBar::new();
-                    if thumbbar_enabled
-                        && let Ok(handle) = cc.window_handle()
-                        && let RawWindowHandle::Win32(window) = handle.as_raw()
+                    let mut app = lease.take(&cc.egui_ctx);
+                    // Built once per window, before the first frame; the
+                    // handler wakes the loop so a menu pick is not held until
+                    // the next repaint.
+                    #[cfg(target_os = "macos")]
                     {
-                        let wake = creator_waker.clone();
-                        // The shell and toolbar share this window's thread
-                        // and lifetime; the toolbar is detached on shell drop.
-                        unsafe { toolbar.attach(window.hwnd.get(), move || wake.wake()) };
+                        spotifast::mac_touchbar_crash_guard::install();
+                        spotifast::mac_menu::init();
+                        let ctx = cc.egui_ctx.clone();
+                        spotifast::mac_menu::set_waker(move || ctx.request_repaint());
                     }
-                    toolbar
-                };
-                Ok(Box::new(Shell {
-                    app: Some(app),
-                    slot: std::sync::Arc::clone(&creator_slot),
-                    persist_memory,
+                    {
+                        use raw_window_handle::HasDisplayHandle;
+                        if let Ok(display) = cc.display_handle() {
+                            app.window_level_supported =
+                                spotifast::window::supports_window_level(display.as_raw());
+                            app.taskbar_hiding_supported =
+                                spotifast::window::supports_hiding_from_taskbar(display.as_raw());
+                        }
+                    }
+                    // winit hides a taskbar button on Windows only; X11 is
+                    // asked here, while the window is still unmapped.
+                    #[cfg(target_os = "linux")]
+                    if hide_from_taskbar {
+                        use raw_window_handle::HasWindowHandle;
+                        if let Ok(handle) = cc.window_handle() {
+                            spotifast::window::skip_x11_taskbar(handle.as_raw());
+                        }
+                    }
+                    app.attach(&cc.egui_ctx);
                     #[cfg(windows)]
-                    thumbbar,
-                    #[cfg(feature = "demo")]
-                    shot: creator_shot.clone(),
-                    #[cfg(feature = "demo")]
-                    drag: demo_drag,
-                }))
-            }),
-        )
-        .inspect_err(|error| log::error!("Native window failed: {error}"))?;
-        waker.detach();
-
-        let (switch, hide) = {
-            let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
-            let app = guard.as_ref().expect("application state present");
-            (
-                !app.quit_requested && app.switch_intent,
-                !app.quit_requested && app.hide_intent,
+                    let thumbbar = {
+                        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                        let mut toolbar = spotifast::thumbbar::ThumbBar::new();
+                        if thumbbar_enabled
+                            && let Ok(handle) = cc.window_handle()
+                            && let RawWindowHandle::Win32(window) = handle.as_raw()
+                        {
+                            let wake = creator_waker.clone();
+                            // The shell and toolbar share this window's thread
+                            // and lifetime; the toolbar is detached on shell
+                            // drop.
+                            unsafe { toolbar.attach(window.hwnd.get(), move || wake.wake()) };
+                        }
+                        toolbar
+                    };
+                    Ok(Box::new(Shell {
+                        app,
+                        persist_memory,
+                        #[cfg(windows)]
+                        thumbbar,
+                        #[cfg(feature = "demo")]
+                        shot: creator_shot.clone(),
+                        #[cfg(feature = "demo")]
+                        drag: demo_drag,
+                    }))
+                }),
             )
-        };
-        if switch {
-            // Straight back round: the other kind of window opens.
-            continue;
-        }
-        if !hide {
-            break;
-        }
-
-        // Tray life: no window, but audio, MPRIS, the tray, and polling all
-        // keep running until Show or Quit.
-        let headless = egui::Context::default();
-        slot.lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_mut()
-            .expect("application state present")
-            .window_gone();
-        loop {
-            {
-                let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
-                let app = guard.as_mut().expect("application state present");
-                app.background_frame(&headless);
-                if app.quit_requested || app.wants_show {
-                    break;
-                }
-            }
-            spotifast::tray::idle(std::time::Duration::from_millis(150));
-        }
-        let quit = {
-            let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
-            guard
-                .as_ref()
-                .expect("application state present")
-                .quit_requested
-        };
-        if quit {
-            break;
-        }
-    }
-
-    if let Some(mut app) = slot.lock().unwrap_or_else(|p| p.into_inner()).take() {
-        app.shutdown();
-    }
-    Ok(())
-}
-
-/// Every log line goes to stderr and to the log file.
-struct Tee(std::fs::File);
-
-impl std::io::Write for Tee {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let _ = std::io::stderr().write_all(buf);
-        self.0.write_all(buf)?;
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        let _ = std::io::stderr().flush();
-        self.0.flush()
-    }
-}
-
-/// Records every panic in `path` before the process dies of it.
-///
-/// Release builds abort on panic and, on Windows, have no console, so a
-/// crash would otherwise leave nothing behind to put in a bug report.
-fn log_panics(path: std::path::PathBuf) {
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        previous(info);
-        let thread = std::thread::current();
-        let entry = format!(
-            "{} spotifast {} on thread {:?}: {info}\n",
-            jiff::Timestamp::now(),
-            env!("CARGO_PKG_VERSION"),
-            thread.name().unwrap_or("unnamed"),
-        );
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path);
-        if let Ok(mut file) = file {
-            use std::io::Write;
-            let _ = file.write_all(entry.as_bytes());
-        }
-    }));
+            .inspect_err(|error| log::error!("Native window failed: {error}"))
+        })
 }
 
 /// The Winamp mini player's window, when that is the window to open.
@@ -1194,20 +1084,8 @@ mod native_window_tests {
                 Some(cache.join("demo-window.ron"))
             );
             assert!(!options.persist_window);
-            // Shell retains this policy even after handing its App back to
-            // the event loop on exit, when eframe also saves egui memory.
-            let shell = Shell {
-                app: None,
-                slot: Default::default(),
-                persist_memory: options.persist_window,
-                #[cfg(windows)]
-                thumbbar: spotifast::thumbbar::ThumbBar::new(),
-                #[cfg(feature = "demo")]
-                shot: None,
-                #[cfg(feature = "demo")]
-                drag: None,
-            };
-            assert!(!eframe::App::persist_egui_memory(&shell));
+            // Shell keeps this policy in its own field, so it holds even
+            // after on_exit has handed the App back.
         }
     }
 
@@ -1221,8 +1099,7 @@ mod native_window_tests {
 /// The eframe adapter around the long-lived [`app::App`]: delegates frames
 /// and, when the window goes away, hands the state back for the next window.
 struct Shell {
-    app: Option<app::App>,
-    slot: std::sync::Arc<std::sync::Mutex<Option<app::App>>>,
+    app: fastframe_shell::Held<app::App>,
     /// Keep demo and mini-window memory out of the normal profile, including
     /// after on_exit has returned the App to the event loop.
     persist_memory: bool,
@@ -1355,104 +1232,98 @@ impl eframe::App for Shell {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Some(app) = self.app.as_mut() {
-            #[cfg(target_os = "macos")]
-            for command in spotifast::mac_menu::drain_commands() {
-                use spotifast::mac_menu::MenuCommand;
-                use spotifast::model::{Action, Dialog, Page};
-                let action = match command {
-                    MenuCommand::PlayPause => Action::TogglePlay,
-                    MenuCommand::Next => Action::Next,
-                    MenuCommand::Previous => Action::Previous,
-                    MenuCommand::SeekForward => Action::SeekBy(10_000),
-                    MenuCommand::SeekBackward => Action::SeekBy(-10_000),
-                    MenuCommand::ToggleShuffle => Action::ToggleShuffle,
-                    MenuCommand::CycleRepeat => Action::CycleRepeat,
-                    MenuCommand::VolumeUp => Action::VolumeBy(5),
-                    MenuCommand::VolumeDown => Action::VolumeBy(-5),
-                    MenuCommand::ToggleMute => Action::ToggleMute,
-                    MenuCommand::Home => Action::Open(Page::Home),
-                    MenuCommand::Search => Action::FocusSearch,
-                    MenuCommand::LikedSongs => Action::Open(Page::LikedSongs),
-                    MenuCommand::Sidebar => Action::ToggleSidebar,
-                    MenuCommand::Queue => Action::ToggleQueuePanel,
-                    MenuCommand::Settings => Action::Open(Page::Settings),
-                    MenuCommand::CheckForUpdates => Action::CheckForUpdates,
-                    MenuCommand::Shortcuts => Action::ShowDialog(Dialog::Shortcuts),
-                    MenuCommand::Back => Action::Back,
-                    MenuCommand::Forward => Action::Forward,
-                    MenuCommand::OpenRepo => {
-                        ctx.open_url(egui::OpenUrl::new_tab("https://github.com/crmne/spotifast"));
-                        continue;
-                    }
-                    // Editing goes through egui, which owns the text field
-                    // and the clipboard.
-                    MenuCommand::Cut => {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestCut);
-                        continue;
-                    }
-                    MenuCommand::Copy => {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestCopy);
-                        continue;
-                    }
-                    MenuCommand::Paste => {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                        continue;
-                    }
-                    MenuCommand::SelectAll => {
-                        ctx.input_mut(|input| {
-                            input.events.push(egui::Event::Key {
-                                key: egui::Key::A,
-                                physical_key: None,
-                                pressed: true,
-                                repeat: false,
-                                modifiers: egui::Modifiers::COMMAND,
-                            });
+        let app = &mut *self.app;
+        #[cfg(target_os = "macos")]
+        for command in spotifast::mac_menu::drain_commands() {
+            use spotifast::mac_menu::MenuCommand;
+            use spotifast::model::{Action, Dialog, Page};
+            let action = match command {
+                MenuCommand::PlayPause => Action::TogglePlay,
+                MenuCommand::Next => Action::Next,
+                MenuCommand::Previous => Action::Previous,
+                MenuCommand::SeekForward => Action::SeekBy(10_000),
+                MenuCommand::SeekBackward => Action::SeekBy(-10_000),
+                MenuCommand::ToggleShuffle => Action::ToggleShuffle,
+                MenuCommand::CycleRepeat => Action::CycleRepeat,
+                MenuCommand::VolumeUp => Action::VolumeBy(5),
+                MenuCommand::VolumeDown => Action::VolumeBy(-5),
+                MenuCommand::ToggleMute => Action::ToggleMute,
+                MenuCommand::Home => Action::Open(Page::Home),
+                MenuCommand::Search => Action::FocusSearch,
+                MenuCommand::LikedSongs => Action::Open(Page::LikedSongs),
+                MenuCommand::Sidebar => Action::ToggleSidebar,
+                MenuCommand::Queue => Action::ToggleQueuePanel,
+                MenuCommand::Settings => Action::Open(Page::Settings),
+                MenuCommand::CheckForUpdates => Action::CheckForUpdates,
+                MenuCommand::Shortcuts => Action::ShowDialog(Dialog::Shortcuts),
+                MenuCommand::Back => Action::Back,
+                MenuCommand::Forward => Action::Forward,
+                MenuCommand::OpenRepo => {
+                    ctx.open_url(egui::OpenUrl::new_tab("https://github.com/crmne/spotifast"));
+                    continue;
+                }
+                // Editing goes through egui, which owns the text field
+                // and the clipboard.
+                MenuCommand::Cut => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestCut);
+                    continue;
+                }
+                MenuCommand::Copy => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestCopy);
+                    continue;
+                }
+                MenuCommand::Paste => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                    continue;
+                }
+                MenuCommand::SelectAll => {
+                    ctx.input_mut(|input| {
+                        input.events.push(egui::Event::Key {
+                            key: egui::Key::A,
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers: egui::Modifiers::COMMAND,
                         });
-                        continue;
-                    }
-                };
+                    });
+                    continue;
+                }
+            };
+            app.actions.push(action);
+        }
+        #[cfg(windows)]
+        for command in self.thumbbar.drain_commands() {
+            if let Some(action) = command.action(&app.thumb_state(false)) {
                 app.actions.push(action);
             }
-            #[cfg(windows)]
-            for command in self.thumbbar.drain_commands() {
-                if let Some(action) = command.action(&app.thumb_state(false)) {
-                    app.actions.push(action);
-                }
-            }
-            app.background_frame(ctx);
-            #[cfg(windows)]
-            self.thumbbar
-                .sync(app.thumb_state(ctx.system_theme() != Some(egui::Theme::Light)));
         }
+        app.background_frame(ctx);
+        #[cfg(windows)]
+        self.thumbbar
+            .sync(app.thumb_state(ctx.system_theme() != Some(egui::Theme::Light)));
         #[cfg(feature = "demo")]
         self.drive_shot(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if let Some(app) = self.app.as_mut() {
-            app.frame_ui(ui);
-            if let Some(receipt) = app.update_receipt.take() {
-                std::thread::spawn(move || {
-                    if let Err(error) = spotifast::updates::install::acknowledge(&receipt) {
-                        log::error!("Could not confirm the update: {error:#}");
-                    }
-                });
-            }
-            #[cfg(windows)]
-            self.thumbbar
-                .sync(app.thumb_state(ui.ctx().system_theme() != Some(egui::Theme::Light)));
+        let app = &mut *self.app;
+        app.frame_ui(ui);
+        if let Some(receipt) = app.update_receipt.take() {
+            std::thread::spawn(move || {
+                if let Err(error) = receipt.acknowledge() {
+                    log::error!("Could not confirm the update: {error:#}");
+                }
+            });
         }
+        #[cfg(windows)]
+        self.thumbbar
+            .sync(app.thumb_state(ui.ctx().system_theme() != Some(egui::Theme::Light)));
     }
 
     /// The mini player's window is see-through where the skin leaves it
     /// out; the big window paints itself over eframe's own ground.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        if self
-            .app
-            .as_ref()
-            .is_some_and(|app| app.settings.winamp_window)
-        {
+        if self.app.settings.winamp_window {
             [0.0; 4]
         } else {
             egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
@@ -1460,17 +1331,17 @@ impl eframe::App for Shell {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        if let Some(app) = self.app.as_mut() {
-            app.save_state();
-        }
+        let app = &mut *self.app;
+        app.save_state();
     }
 }
 
+/// The toolbar goes before the window; the app then returns to the shell
+/// with the `Held` field.
+#[cfg(windows)]
 impl Drop for Shell {
     fn drop(&mut self) {
-        #[cfg(windows)]
         self.thumbbar.detach();
-        *self.slot.lock().unwrap_or_else(|p| p.into_inner()) = self.app.take();
     }
 }
 

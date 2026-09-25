@@ -25,7 +25,7 @@ fn an_unavailable_display_leaves_a_useful_log_without_a_console() {
 
     assert!(!output.status.success(), "the unavailable display opened");
     assert!(
-        log.contains(&format!("Starting Spotifast {}", env!("CARGO_PKG_VERSION"))),
+        log.contains(&format!("Starting spotifast {}", env!("CARGO_PKG_VERSION"))),
         "missing startup identity: {log}"
     );
     assert!(

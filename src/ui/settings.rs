@@ -721,9 +721,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let custom_titlebar = gettext(locale, "Custom title bar");
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
-            let detail = app
-                .custom_themes
-                .detail_in(locale, app.settings.custom_theme.as_deref());
+            let detail = theme::catalog_detail(
+                &app.custom_themes,
+                locale,
+                app.settings.custom_theme.as_deref(),
+            );
             if !detail.is_empty() {
                 detail
             } else if app.custom_themes.follows_omarchy() {
@@ -803,7 +805,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             .settings
                             .custom_theme
                             .as_deref()
-                            .map(|filename| theme::custom::label(filename).into())
+                            .map(|filename| fastframe_theme::display_name(filename).into())
                             .unwrap_or_else(|| app.settings.theme.label(locale));
                         let response = egui::ComboBox::from_id_salt("appearance_theme")
                             .selected_text(selected.as_ref())
@@ -829,7 +831,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                         .selectable_label(
                                             app.settings.custom_theme.as_deref()
                                                 == Some(theme.filename.as_str()),
-                                            theme::custom::label(&theme.filename),
+                                            fastframe_theme::display_name(&theme.filename),
                                         )
                                         .clicked()
                                     {
