@@ -432,6 +432,9 @@ play a focused song. Since 0.9.0, `Space` always plays or pauses
 the current song unless a text field has focus. In a playlist, album or Liked
 Songs, up and down arrows move focus between whole song rows in the displayed order and scroll them
 into view. Tab still reaches the artist links, Like and More controls.
+Arrow navigation selects only the destination song; hold `Shift` with up or
+down to extend or shrink the selection. `Delete` removes the selected songs
+from a playlist you can edit, just like **Remove from this playlist**.
 Since 0.10.0, `Ctrl+A` selects every song the list shows,
 `Ctrl+C` copies the selected songs' links one per line, and `Ctrl+V` adds
 the song links on the clipboard to the end of a playlist you can edit.
