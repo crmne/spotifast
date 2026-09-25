@@ -410,8 +410,9 @@ fn process_identity(stat: &str) -> Option<&str> {
 
 /// Replaces the installed app and returns the executable to relaunch. That
 /// is `prepared.installation.executable` on every platform except macOS,
-/// where the download can rename the executable inside the bundle; see
-/// `macos::replace`.
+/// where the download can rename the executable inside the bundle (see
+/// `macos::replace`), and a Windows installer, which installs
+/// `spotifast.exe` whatever name the app was running under.
 pub fn replace(prepared: &Prepared) -> Result<PathBuf> {
     ensure!(
         hash(&prepared.payload)? == prepared.sha256,
@@ -457,6 +458,14 @@ pub fn replace(prepared: &Prepared) -> Result<PathBuf> {
                 command.status()?.success(),
                 "The installer failed. See the update installer log."
             );
+            // The installer installs spotifast.exe whatever name this app was
+            // running under. An updater from before the rename relaunched
+            // 0.9.1 as fastpotify.exe; a copy under that name only carries
+            // that update through, and the next one relaunches the real one.
+            let installed = target.with_file_name("spotifast.exe");
+            if installed != *target && installed.is_file() {
+                return Ok(installed);
+            }
         }
     }
     Ok(target.clone())
@@ -757,6 +766,54 @@ mod tests {
         assert_eq!(fs::read(&target).unwrap(), b"new");
         assert_eq!(fs::read(stage.join("previous")).unwrap(), b"old");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// The installer installs `spotifast.exe`, and since 0.10.0 removes
+    /// `fastpotify.exe`, the name an older updater relaunched 0.9.1 under. A
+    /// stand-in does the same, whichever name the app was running as.
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_installer_update_relaunches_the_installed_executable() {
+        for running in ["fastpotify.exe", "spotifast.exe"] {
+            let directory = std::env::temp_dir().join(format!(
+                "fastpotify-installer-test-{}",
+                rand::random::<u64>()
+            ));
+            fs::create_dir(&directory).unwrap();
+            let target = directory.join(running);
+            fs::write(&target, b"old").unwrap();
+            let installation = Installation {
+                executable: target.clone(),
+                kind: Kind::WindowsInstaller,
+            };
+            let stage = staging(&installation).unwrap();
+            let payload = stage.join("setup.cmd");
+            fs::write(
+                &payload,
+                "@echo off\r\nif exist \"%~dp0..\\fastpotify.exe\" del \"%~dp0..\\fastpotify.exe\"\r\necho new> \"%~dp0..\\spotifast.exe\"\r\nexit /b 0\r\n",
+            )
+            .unwrap();
+            let prepared = Prepared {
+                installation,
+                directory: stage.clone(),
+                payload: payload.clone(),
+                sha256: hash(&payload).unwrap(),
+                version: "1.0.0".into(),
+            };
+            let launch = replace(&prepared).unwrap();
+            assert_eq!(
+                launch,
+                directory.join("spotifast.exe"),
+                "running as {running}"
+            );
+            assert!(
+                launch.is_file(),
+                "{} is not there to relaunch",
+                launch.display()
+            );
+            assert_eq!(fs::read(stage.join("previous")).unwrap(), b"old");
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[cfg(target_os = "macos")]

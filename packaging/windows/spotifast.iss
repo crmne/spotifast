@@ -76,6 +76,12 @@ Source: "{#Binary}"; DestDir: "{app}"; Flags: ignoreversion
 #if Version == "0.9.1"
 Source: "{#LegacyBinary}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "fastpotify-installer.txt"; DestDir: "{app}"; Flags: ignoreversion
+#else
+; The 0.9.1 updater relaunches the app under the name it was running as,
+; which is fastpotify.exe when an older updater installed 0.9.1. A copy under
+; that name lets its update finish; the update after it relaunches
+; spotifast.exe (see updates::install::replace).
+Source: "{#Binary}"; DestDir: "{app}"; DestName: "fastpotify.exe"; Flags: ignoreversion
 #endif
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
@@ -89,7 +95,6 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 Type: files; Name: "{autoprograms}\Fastpotify.lnk"
 Type: files; Name: "{autodesktop}\Fastpotify.lnk"
 #if Version != "0.9.1"
-Type: files; Name: "{app}\fastpotify.exe"
 Type: files; Name: "{app}\fastpotify-installer.txt"
 #endif
 
