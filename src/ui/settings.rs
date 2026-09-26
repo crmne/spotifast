@@ -59,6 +59,9 @@ impl<'a> RowText<'a> {
     }
 }
 
+/// The guide to writing a palette file for the themes folder.
+const THEMES_GUIDE_URL: &str = "https://spotifast.rocks/settings-and-files/#custom-themes";
+
 fn section_matches(needle: &str, title: &str, rows: &[RowText<'_>]) -> bool {
     let needle = needle.trim().to_lowercase();
     rows.iter().any(|row| row.matches(&needle, title))
@@ -714,6 +717,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
     let appearance = gettext(locale, "Appearance");
     let theme_title = gettext(locale, "Theme");
+    let theme_guide = gettext(locale, "How to make a theme");
+    let themes_folder = gettext(locale, "Open themes folder");
     let accent_from_art = gettext(locale, "Colour from album art");
     let sidebar_compact = gettext(locale, "Compact library sidebar");
     let tracklist_compact = gettext(locale, "Compact track list");
@@ -801,12 +806,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if section_matches(&needle, &appearance, &appearance_rows) {
         any_visible = true;
         section(ui, &palette, &appearance, |ui| {
-            filtered_row(
+            // Wide enough for the theme's two buttons side by side.
+            let theme_buttons_width = theme::soft_button_width(ui, &theme_guide)
+                + theme::soft_button_width(ui, &themes_folder)
+                + 6.0;
+            filtered_row_sized(
                 ui,
                 &palette,
                 &needle,
                 &appearance,
                 &appearance_rows[0],
+                theme_buttons_width,
                 |ui| {
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
                         let selected = app
@@ -857,16 +867,39 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             info.current_text_value = Some(selected.to_string());
                             info
                         });
-                        if theme::soft_button(
-                            ui,
-                            &palette,
-                            Some(Icon::ExternalLink),
-                            &gettext(locale, "Open themes folder"),
-                            false,
-                        )
-                        .clicked()
-                        {
-                            app.actions.push(Action::OpenThemesFolder);
+                        // The guide to writing a theme sits beside the folder
+                        // it goes in, and above it when both do not fit.
+                        let (guide, folder) = (&theme_guide, &themes_folder);
+                        let gap = 6.0;
+                        let mut buttons = |ui: &mut egui::Ui| {
+                            if theme::soft_button(ui, &palette, Some(Icon::Globe), guide, false)
+                                .clicked()
+                            {
+                                app.actions.push(Action::OpenUrl(THEMES_GUIDE_URL.into()));
+                            }
+                            if theme::soft_button(
+                                ui,
+                                &palette,
+                                Some(Icon::ExternalLink),
+                                folder,
+                                false,
+                            )
+                            .clicked()
+                            {
+                                app.actions.push(Action::OpenThemesFolder);
+                            }
+                        };
+                        let both = theme::soft_button_width(ui, guide)
+                            + theme::soft_button_width(ui, folder)
+                            + gap;
+                        if ui.available_width() >= both {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = gap;
+                                buttons(ui);
+                            });
+                        } else {
+                            ui.spacing_mut().item_spacing.y = gap;
+                            buttons(ui);
                         }
                     });
                 },

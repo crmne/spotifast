@@ -372,7 +372,8 @@ Light and custom choices are preserved when updating. The picker starts with
 **Follow system**, **Light**, and **Dark**, then a separator. **Omarchy** comes
 next when the integration is available, followed by the other local palettes.
 Themes change colors and keep the app's existing fonts.
-The **Open themes folder** icon button beside the picker creates the folder if
+**How to make a theme**, beside the picker, opens this section. The
+**Open themes folder** icon button beside the picker creates the folder if
 needed and opens it in your file
 manager, using the same button style as the Winamp skins folder.
 After adding or editing a JSON file on macOS or Windows, run

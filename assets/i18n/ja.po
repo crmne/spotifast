@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 15:42+0200\n"
+"POT-Creation-Date: 2026-09-26 15:55+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -364,7 +364,7 @@ msgstr "曲を再生すると歌詞が表示されます。"
 msgid "Couldn't fetch the lyrics: {error}"
 msgstr "歌詞を取得できませんでした：{error}"
 
-#: src/ui/lyrics.rs:142 src/ui/lyrics.rs:447 src/ui/settings.rs:367
+#: src/ui/lyrics.rs:142 src/ui/lyrics.rs:447 src/ui/settings.rs:370
 #: src/ui/login.rs:106
 msgid "Try again"
 msgstr "もう一度試す"
@@ -1063,32 +1063,32 @@ msgstr ""
 msgid "{track} Radio"
 msgstr "{track} のラジオ"
 
-#: src/ui/settings.rs:140 src/ui/keys.rs:285 src/ui/topbar.rs:406
+#: src/ui/settings.rs:143 src/ui/keys.rs:285 src/ui/topbar.rs:406
 #: src/ui/topbar.rs:436
 msgid "Settings"
 msgstr "設定"
 
-#: src/ui/settings.rs:154
+#: src/ui/settings.rs:157
 msgid "Search settings"
 msgstr "設定を検索"
 
-#: src/ui/settings.rs:170
+#: src/ui/settings.rs:173
 msgid "Open folder"
 msgstr "フォルダを開く"
 
-#: src/ui/settings.rs:182
+#: src/ui/settings.rs:185
 msgid "Account"
 msgstr "アカウント"
 
-#: src/ui/settings.rs:183 src/ui/topbar.rs:424
+#: src/ui/settings.rs:186 src/ui/topbar.rs:424
 msgid "Sign out"
 msgstr "ログアウト"
 
-#: src/ui/settings.rs:186
+#: src/ui/settings.rs:189
 msgid "Personal Spotify app"
 msgstr "個人用Spotifyアプリ"
 
-#: src/ui/settings.rs:189
+#: src/ui/settings.rs:192
 msgid ""
 "Use a personal Development Mode app for a separate API quota. The shared app "
 "stays active."
@@ -1096,217 +1096,217 @@ msgstr ""
 "個人用の開発モードアプリを使うと、専用のAPI割り当てを利用できます。共有アプリ"
 "も引き続き有効です。"
 
-#: src/ui/settings.rs:193
+#: src/ui/settings.rs:196
 msgid "Create an app"
 msgstr "アプリを作成"
 
-#: src/ui/settings.rs:196
+#: src/ui/settings.rs:199
 msgid "Create one for free in Spotify's developer dashboard."
 msgstr "Spotifyの開発者ダッシュボードで無料で作成できます。"
 
-#: src/ui/settings.rs:201
+#: src/ui/settings.rs:204
 msgid "Personal app ready"
 msgstr "個人用アプリの準備ができました"
 
-#: src/ui/settings.rs:204
+#: src/ui/settings.rs:207
 msgid "Supported requests use your app. Other requests use the shared app."
 msgstr ""
 "対応するリクエストにはあなたのアプリを使います。それ以外のリクエストには共有"
 "アプリを使います。"
 
-#: src/ui/settings.rs:209
+#: src/ui/settings.rs:212
 msgid "Authorize your personal app"
 msgstr "個人用アプリを承認"
 
-#: src/ui/settings.rs:212
+#: src/ui/settings.rs:215
 msgid "Spotify opens in your browser to verify the account."
 msgstr "アカウントを確認するため、ブラウザでSpotifyが開きます。"
 
-#: src/ui/settings.rs:217
+#: src/ui/settings.rs:220
 msgid "Remove personal app"
 msgstr "個人用アプリを削除"
 
-#: src/ui/settings.rs:218
+#: src/ui/settings.rs:221
 msgid "Shared access remains signed in."
 msgstr "共有アクセスはログインしたままになります。"
 
-#: src/ui/settings.rs:248
+#: src/ui/settings.rs:251
 msgid "Spotify Free, local playback needs Premium"
 msgstr "Spotify Free。ローカル再生にはPremiumが必要です"
 
 #. Translators: {username} is the Spotify account's user name.
-#: src/ui/settings.rs:262
+#: src/ui/settings.rs:265
 #, rust-format
 msgid "Connected as {username}"
 msgstr "{username}として接続中"
 
-#: src/ui/settings.rs:290
+#: src/ui/settings.rs:293
 msgid "Client ID"
 msgstr "クライアントID"
 
-#: src/ui/settings.rs:313
+#: src/ui/settings.rs:316
 msgid "Setup guide"
 msgstr "設定ガイド"
 
-#: src/ui/settings.rs:323 src/ui/settings.rs:339 src/ui/dialogs.rs:96
+#: src/ui/settings.rs:326 src/ui/settings.rs:342 src/ui/dialogs.rs:96
 msgid "Remove"
 msgstr "削除"
 
-#: src/ui/settings.rs:331
+#: src/ui/settings.rs:334
 msgid "Authorize"
 msgstr "承認"
 
-#: src/ui/settings.rs:350
+#: src/ui/settings.rs:353
 msgctxt "playback status"
 msgid "Ready"
 msgstr "準備完了"
 
-#: src/ui/settings.rs:351
+#: src/ui/settings.rs:354
 msgid "This computer is a Spotify Connect device."
 msgstr "このコンピューターはSpotify Connectデバイスです。"
 
-#: src/ui/settings.rs:355
+#: src/ui/settings.rs:358
 msgctxt "playback status"
 msgid "Setting up"
 msgstr "設定中"
 
-#: src/ui/settings.rs:356
+#: src/ui/settings.rs:359
 msgid "Finish authorizing in your browser."
 msgstr "ブラウザで承認を完了してください。"
 
-#: src/ui/settings.rs:360
+#: src/ui/settings.rs:363
 msgctxt "playback status"
 msgid "Connecting"
 msgstr "接続中"
 
-#: src/ui/settings.rs:361 src/ui/login.rs:97
+#: src/ui/settings.rs:364 src/ui/login.rs:97
 msgid "Connecting to Spotify…"
 msgstr "Spotifyに接続中…"
 
-#: src/ui/settings.rs:365
+#: src/ui/settings.rs:368
 msgctxt "playback status"
 msgid "Unavailable"
 msgstr "利用不可"
 
-#: src/ui/settings.rs:370
+#: src/ui/settings.rs:373
 msgctxt "playback status"
 msgid "Not set up"
 msgstr "未設定"
 
-#: src/ui/settings.rs:373
+#: src/ui/settings.rs:376
 msgid "Requires Spotify Premium and a one-time browser sign-in."
 msgstr "Spotify Premiumと、ブラウザでの1回のみのログインが必要です。"
 
-#: src/ui/settings.rs:375
+#: src/ui/settings.rs:378
 msgid "Enable playback here"
 msgstr "ここで再生を有効にする"
 
-#: src/ui/settings.rs:378
+#: src/ui/settings.rs:381
 msgid "Playback on this computer"
 msgstr "このコンピューターでの再生"
 
-#: src/ui/settings.rs:379
+#: src/ui/settings.rs:382
 msgid "Normalize volume"
 msgstr "音量を均一化"
 
-#: src/ui/settings.rs:380
+#: src/ui/settings.rs:383
 msgid "Autoplay"
 msgstr "自動再生"
 
-#: src/ui/settings.rs:381
+#: src/ui/settings.rs:384
 msgid "Gapless playback"
 msgstr "ギャップレス再生"
 
-#: src/ui/settings.rs:382
+#: src/ui/settings.rs:385
 msgid "Keep music playing when the window closes"
 msgstr "ウインドウを閉じても再生を続ける"
 
-#: src/ui/settings.rs:383
+#: src/ui/settings.rs:386
 msgid "Automatic update checks"
 msgstr "アップデートを自動確認"
 
-#: src/ui/settings.rs:384
+#: src/ui/settings.rs:387
 msgid "Audio cache"
 msgstr "音声キャッシュ"
 
-#: src/ui/settings.rs:385
+#: src/ui/settings.rs:388
 msgid "Apply and restart playback"
 msgstr "適用して再生を再起動"
 
-#: src/ui/settings.rs:386
+#: src/ui/settings.rs:389
 msgid "Restart local playback to apply these settings."
 msgstr "これらの設定を適用するには、ローカル再生を再起動してください。"
 
-#: src/ui/settings.rs:387
+#: src/ui/settings.rs:390
 msgid "Download updates automatically"
 msgstr "アップデートを自動ダウンロード"
 
 #. Translators: {status} is a playback state such as Ready or Not set up.
-#: src/ui/settings.rs:391
+#: src/ui/settings.rs:394
 #, rust-format
 msgid "Status: {status}"
 msgstr "状態：{status}"
 
-#: src/ui/settings.rs:395
+#: src/ui/settings.rs:398
 msgid "Device name"
 msgstr "デバイス名"
 
-#: src/ui/settings.rs:396
+#: src/ui/settings.rs:399
 msgid "How this computer appears in Spotify Connect."
 msgstr "Spotify Connectでのこのコンピューターの表示名です。"
 
-#: src/ui/settings.rs:399
+#: src/ui/settings.rs:402
 msgid "Audio quality"
 msgstr "音質"
 
-#: src/ui/settings.rs:400
+#: src/ui/settings.rs:403
 msgid "Higher bitrates use more data and cache space."
 msgstr "ビットレートが高いほど、通信量とキャッシュ容量が増えます。"
 
-#: src/ui/settings.rs:404
+#: src/ui/settings.rs:407
 msgid "Keep loud and quiet tracks at a similar level."
 msgstr "音量の大きい曲と小さい曲を同じくらいのレベルにそろえます。"
 
-#: src/ui/settings.rs:408
+#: src/ui/settings.rs:411
 msgid "Keep playing similar songs when your music ends."
 msgstr "音楽が終わったあとも似た曲を再生し続けます。"
 
-#: src/ui/settings.rs:412
+#: src/ui/settings.rs:415
 msgid "Play tracks without silence between them."
 msgstr "曲と曲の間に無音を入れずに再生します。"
 
-#: src/ui/settings.rs:419
+#: src/ui/settings.rs:422
 msgid ""
 "Spotifast hides to the system tray. Quit from the tray menu or with Ctrl+Q."
 msgstr ""
 "Spotifastはシステムトレイに隠れます。トレイメニューまたはCtrl+Qで終了できま"
 "す。"
 
-#: src/ui/settings.rs:423
+#: src/ui/settings.rs:426
 msgid ""
 "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
 msgstr ""
 "Spotifastはシステムトレイに隠れます。トレイメニューまたはCmd+Qで終了できま"
 "す。"
 
-#: src/ui/settings.rs:430
+#: src/ui/settings.rs:433
 msgid "Checks GitHub once a day. No personal data is sent."
 msgstr "1日に1回GitHubを確認します。個人データは送信されません。"
 
-#: src/ui/settings.rs:433
+#: src/ui/settings.rs:436
 msgid "Audio output"
 msgstr "音声出力"
 
-#: src/ui/settings.rs:436
+#: src/ui/settings.rs:439
 msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
 msgstr ""
 "PulseAudioはPipeWireにも対応しています。RodioはALSAと直接やり取りします。"
 
-#: src/ui/settings.rs:441
+#: src/ui/settings.rs:444
 msgid "Output buffer"
 msgstr "出力バッファ"
 
-#: src/ui/settings.rs:444
+#: src/ui/settings.rs:447
 msgid ""
 "More buffering can prevent clicks on busy computers. Less buffering makes "
 "controls respond sooner."
@@ -1314,115 +1314,123 @@ msgstr ""
 "バッファを増やすと、負荷の高いコンピューターでのノイズを防げます。減らすと、"
 "操作への反応が速くなります。"
 
-#: src/ui/settings.rs:450
+#: src/ui/settings.rs:453
 msgid "Save downloaded audio for later playback."
 msgstr "ダウンロードした音声を保存して、後の再生に使います。"
 
-#: src/ui/settings.rs:453
+#: src/ui/settings.rs:456
 msgid "Playback settings applied"
 msgstr "再生設定を適用しました"
 
-#: src/ui/settings.rs:458
+#: src/ui/settings.rs:461
 msgid "Downloads in the background. You choose when to restart."
 msgstr ""
 "バックグラウンドでダウンロードします。再起動のタイミングは自分で選べます。"
 
-#: src/ui/settings.rs:475
+#: src/ui/settings.rs:478
 msgid "Reconnect"
 msgstr "再接続"
 
-#: src/ui/settings.rs:507
+#: src/ui/settings.rs:510
 msgid "Normal · 96 kbps"
 msgstr "標準 · 96 kbps"
 
-#: src/ui/settings.rs:508
+#: src/ui/settings.rs:511
 msgid "High · 160 kbps"
 msgstr "高音質 · 160 kbps"
 
-#: src/ui/settings.rs:509
+#: src/ui/settings.rs:512
 msgid "Very high · 320 kbps"
 msgstr "最高音質 · 320 kbps"
 
-#: src/ui/settings.rs:708
+#: src/ui/settings.rs:711
 msgid "Playback settings applied."
 msgstr "再生設定を適用しました。"
 
-#: src/ui/settings.rs:715
+#: src/ui/settings.rs:718
 msgid "Appearance"
 msgstr "外観"
 
-#: src/ui/settings.rs:716
+#: src/ui/settings.rs:719
 msgid "Theme"
 msgstr "テーマ"
 
-#: src/ui/settings.rs:717
+#: src/ui/settings.rs:720
+msgid "How to make a theme"
+msgstr "テーマの作り方"
+
+#: src/ui/settings.rs:721
+msgid "Open themes folder"
+msgstr "テーマフォルダを開く"
+
+#: src/ui/settings.rs:722
 msgid "Colour from album art"
 msgstr "アルバムアートの色"
 
-#: src/ui/settings.rs:718
+#: src/ui/settings.rs:723
 msgid "Compact library sidebar"
 msgstr "コンパクトなライブラリサイドバー"
 
-#: src/ui/settings.rs:719
+#: src/ui/settings.rs:724
 msgid "Compact track list"
 msgstr "コンパクトな曲リスト"
 
-#: src/ui/settings.rs:720
+#: src/ui/settings.rs:725
 msgid "Middle-click autoscroll"
 msgstr "中クリックで自動スクロール"
 
-#: src/ui/settings.rs:721
+#: src/ui/settings.rs:726
 msgid "Custom title bar"
 msgstr "カスタムタイトルバー"
 
-#: src/ui/settings.rs:722
+#: src/ui/settings.rs:727
 msgid "Player bar visualizer"
 msgstr "プレイヤーバーのビジュアライザー"
 
-#: src/ui/settings.rs:733
+#: src/ui/settings.rs:738
 msgid "Follow system uses your Omarchy colours."
 msgstr "「システムに合わせる」ではOmarchyの色を使います。"
 
-#: src/ui/settings.rs:737
+#: src/ui/settings.rs:742
 msgid "Follow system uses your desktop's light or dark appearance."
 msgstr "「システムに合わせる」ではデスクトップのライト／ダーク設定を使います。"
 
-#: src/ui/settings.rs:742 src/ui/settings.rs:1820
+#: src/ui/settings.rs:747 src/ui/settings.rs:1853
 msgid "Language"
 msgstr "言語"
 
-#: src/ui/settings.rs:745
+#: src/ui/settings.rs:750
 msgid ""
 "System follows your computer's language. Untranslated text stays in English."
 msgstr ""
 "「システム」ではコンピューターの言語を使います。翻訳されていないテキストは英"
 "語で表示されます。"
 
-#: src/ui/settings.rs:752
+#: src/ui/settings.rs:757
 msgid "Use the current cover's colour on pages and the player bar."
 msgstr "現在のカバーの色をページとプレイヤーバーに使います。"
 
-#: src/ui/settings.rs:757
+#: src/ui/settings.rs:762
 msgid "Show names without covers in the sidebar."
 msgstr "サイドバーにカバーなしで名前を表示します。"
 
-#: src/ui/settings.rs:761
+#: src/ui/settings.rs:766
 msgid "Show each track on one line without a cover."
 msgstr "各曲をカバーなしで1行に表示します。"
 
-#: src/ui/settings.rs:764
+#: src/ui/settings.rs:769
 msgid "Interface zoom"
 msgstr "表示倍率"
 
-#: src/ui/settings.rs:768
+#: src/ui/settings.rs:773
 msgid "Ctrl+Plus and Ctrl+Minus work anywhere; Ctrl+0 resets."
 msgstr "Ctrl+プラスとCtrl+マイナスはどこでも使えます。Ctrl+0でリセットします。"
 
-#: src/ui/settings.rs:772
+#: src/ui/settings.rs:777
 msgid "Cmd+Plus and Cmd+Minus work anywhere; Cmd+0 resets."
 msgstr "Cmd+プラスとCmd+マイナスはどこでも使えます。Cmd+0でリセットします。"
 
-#: src/ui/settings.rs:781
+#: src/ui/settings.rs:786
 msgid ""
 "Middle-click a list, then move the pointer to scroll it. Off by default, "
 "because a middle click usually pastes on Linux."
@@ -1430,7 +1438,7 @@ msgstr ""
 "リストを中クリックし、ポインタを動かしてスクロールします。Linuxでは中クリック"
 "で貼り付けになることが多いため、既定ではオフです。"
 
-#: src/ui/settings.rs:789
+#: src/ui/settings.rs:794
 msgid ""
 "Draw Spotifast's own title bar and window buttons instead of the standard "
 "Windows ones."
@@ -1438,47 +1446,43 @@ msgstr ""
 "Windows標準のものではなく、Spotifast独自のタイトルバーとウインドウボタンを表"
 "示します。"
 
-#: src/ui/settings.rs:797
+#: src/ui/settings.rs:802
 msgid ""
 "Show the song moving behind the player bar's controls while it plays here."
 msgstr ""
 "このコンピューターで再生中の曲の動きを、プレイヤーバーの操作ボタンの背後に表"
 "示します。"
 
-#: src/ui/settings.rs:864
-msgid "Open themes folder"
-msgstr "テーマフォルダを開く"
-
-#: src/ui/settings.rs:904
+#: src/ui/settings.rs:937
 msgid "Off"
 msgstr "オフ"
 
-#: src/ui/settings.rs:905
+#: src/ui/settings.rs:938
 msgid "Spectrum"
 msgstr "スペクトラム"
 
-#: src/ui/settings.rs:906
+#: src/ui/settings.rs:939
 msgid "Waveform"
 msgstr "波形"
 
-#: src/ui/settings.rs:1063
+#: src/ui/settings.rs:1096
 msgid "Proxy"
 msgstr "プロキシ"
 
-#: src/ui/settings.rs:1065
+#: src/ui/settings.rs:1098
 msgid "Mode, host, port, username and password"
 msgstr "モード、ホスト、ポート、ユーザー名、パスワード"
 
-#: src/ui/settings.rs:1068
+#: src/ui/settings.rs:1101
 msgid "Off, System, HTTP or SOCKS5 proxy for network requests."
 msgstr "ネットワークリクエストのプロキシ：オフ、システム、HTTP、SOCKS5。"
 
-#: src/ui/settings.rs:1078
+#: src/ui/settings.rs:1111
 msgctxt "proxy"
 msgid "Mode"
 msgstr "モード"
 
-#: src/ui/settings.rs:1081
+#: src/ui/settings.rs:1114
 msgid ""
 "Off ignores environment variables. System uses them, and the OS proxy on "
 "macOS and Windows."
@@ -1486,35 +1490,35 @@ msgstr ""
 "「オフ」では環境変数を無視します。「システム」では環境変数と、macOSとWindows"
 "ではOSのプロキシを使います。"
 
-#: src/ui/settings.rs:1133 src/ui/login.rs:249
+#: src/ui/settings.rs:1166 src/ui/login.rs:249
 msgid "Apply settings"
 msgstr "設定を適用"
 
-#: src/ui/settings.rs:1145
+#: src/ui/settings.rs:1178
 msgid "Not using a proxy."
 msgstr "プロキシを使用していません。"
 
-#: src/ui/settings.rs:1146
+#: src/ui/settings.rs:1179
 msgid "Using the system proxy."
 msgstr "システムのプロキシを使用しています。"
 
-#: src/ui/settings.rs:1157
+#: src/ui/settings.rs:1190
 msgid "Winamp skins"
 msgstr "Winampスキン"
 
-#: src/ui/settings.rs:1158 src/ui/winamp/mod.rs:706 src/ui/winamp/mod.rs:852
+#: src/ui/settings.rs:1191 src/ui/winamp/mod.rs:706 src/ui/winamp/mod.rs:852
 msgid "Always on top"
 msgstr "常に手前に表示"
 
-#: src/ui/settings.rs:1159
+#: src/ui/settings.rs:1192
 msgid "Show Winamp in taskbar"
 msgstr "タスクバーにWinampを表示"
 
-#: src/ui/settings.rs:1162
+#: src/ui/settings.rs:1195
 msgid "Mini player"
 msgstr "ミニプレイヤー"
 
-#: src/ui/settings.rs:1166
+#: src/ui/settings.rs:1199
 msgid ""
 "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
 "return. Drop a skin on either window to add it."
@@ -1523,7 +1527,7 @@ msgstr ""
 "ゴをクリックします。スキンをどちらかのウインドウにドロップすると追加できま"
 "す。"
 
-#: src/ui/settings.rs:1170
+#: src/ui/settings.rs:1203
 msgid ""
 "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
 "return. Drop a skin on either window to add it."
@@ -1532,35 +1536,35 @@ msgstr ""
 "のロゴをクリックします。スキンをどちらかのウインドウにドロップすると追加でき"
 "ます。"
 
-#: src/ui/settings.rs:1176
+#: src/ui/settings.rs:1209
 msgid "Skin"
 msgstr "スキン"
 
 #. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1180
+#: src/ui/settings.rs:1213
 #, rust-format
 msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
 msgstr ""
 "インストール済みのスキンは{folder}にあります。Winamp Skin Museumでさらに見つ"
 "けられます。"
 
-#: src/ui/settings.rs:1185 src/ui/winamp/mod.rs:693
+#: src/ui/settings.rs:1218 src/ui/winamp/mod.rs:693
 msgid "Size"
 msgstr "サイズ"
 
-#: src/ui/settings.rs:1186
+#: src/ui/settings.rs:1219
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr "整数倍で拡大すると、スキンのピクセルがくっきり表示されます。"
 
-#: src/ui/settings.rs:1191
+#: src/ui/settings.rs:1224
 msgid "Keep the Winamp window above everything else."
 msgstr "Winampのウインドウを常にほかのウインドウより手前に表示します。"
 
-#: src/ui/settings.rs:1197 src/ui/winamp/mod.rs:716
+#: src/ui/settings.rs:1230 src/ui/winamp/mod.rs:716
 msgid "Show in taskbar"
 msgstr "タスクバーに表示"
 
-#: src/ui/settings.rs:1200
+#: src/ui/settings.rs:1233
 msgid ""
 "Keep a taskbar button for the mini player. The tray icon stays available "
 "when hidden."
@@ -1568,23 +1572,23 @@ msgstr ""
 "ミニプレイヤーのボタンをタスクバーに表示します。非表示にしてもトレイアイコン"
 "は使えます。"
 
-#: src/ui/settings.rs:1205
+#: src/ui/settings.rs:1238
 msgid "Installed skins"
 msgstr "インストール済みのスキン"
 
-#: src/ui/settings.rs:1218
+#: src/ui/settings.rs:1251
 msgid "Switch to it"
 msgstr "切り替える"
 
-#: src/ui/settings.rs:1231
+#: src/ui/settings.rs:1264
 msgid "Skin Museum"
 msgstr "Skin Museum"
 
-#: src/ui/settings.rs:1325
+#: src/ui/settings.rs:1358
 msgid "MilkDrop window"
 msgstr "MilkDropウインドウ"
 
-#: src/ui/settings.rs:1333
+#: src/ui/settings.rs:1366
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1594,7 +1598,7 @@ msgstr ""
 "Ctrl+Shift+K、またはミニプレイヤーのVメニューから開けます。?またはF1でショー"
 "トカットを表示します。"
 
-#: src/ui/settings.rs:1337
+#: src/ui/settings.rs:1370
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1604,12 +1608,12 @@ msgstr ""
 "またはミニプレイヤーのVメニューから開けます。?またはF1でショートカットを表示"
 "します。"
 
-#: src/ui/settings.rs:1343 src/ui/settings.rs:1558
+#: src/ui/settings.rs:1376 src/ui/settings.rs:1591
 msgid "Presets"
 msgstr "プリセット"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1348
+#: src/ui/settings.rs:1381
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -1619,7 +1623,7 @@ msgstr ""
 "空の状態で初めてMilkDropを開くと、Spotifastがプリセットをダウンロードします。"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1354
+#: src/ui/settings.rs:1387
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -1630,7 +1634,7 @@ msgstr ""
 "ドします。"
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1360
+#: src/ui/settings.rs:1393
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -1643,26 +1647,26 @@ msgstr[0] ""
 "い。フォルダが空の状態で初めてMilkDropを開くと、Spotifastがプリセットをダウン"
 "ロードします。"
 
-#: src/ui/settings.rs:1369
+#: src/ui/settings.rs:1402
 msgid "Time per preset"
 msgstr "プリセットごとの時間"
 
-#: src/ui/settings.rs:1372
+#: src/ui/settings.rs:1405
 msgid "How long each preset plays before the next fades in."
 msgstr "各プリセットを表示してから次のプリセットに切り替わるまでの時間です。"
 
-#: src/ui/settings.rs:1376
+#: src/ui/settings.rs:1409
 msgid "Frame rate"
 msgstr "フレームレート"
 
-#: src/ui/settings.rs:1380
+#: src/ui/settings.rs:1413
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr ""
 "レートを下げるとリソースの使用量が減ります。「無制限」ではできるだけ速く描画"
 "します。"
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:1385
+#: src/ui/settings.rs:1418
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -1671,49 +1675,49 @@ msgstr ""
 "お使いの画面のリフレッシュレートは{hz} Hzです。これより高くしても表示されるフ"
 "レームは増えません。「無制限」ではできるだけ速く描画します。"
 
-#: src/ui/settings.rs:1392
+#: src/ui/settings.rs:1425
 msgid "Resolution"
 msgstr "解像度"
 
-#: src/ui/settings.rs:1395
+#: src/ui/settings.rs:1428
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr "「1/2」と「1/4」はリソースの使用量を抑え、画像を拡大して表示します。"
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:1402
+#: src/ui/settings.rs:1435
 msgid "Get presets"
 msgstr "プリセットを取得"
 
-#: src/ui/settings.rs:1440
+#: src/ui/settings.rs:1473
 msgid "Fetching..."
 msgstr "取得中..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:1443
+#: src/ui/settings.rs:1476
 #, rust-format
 msgid "Get {pack}"
 msgstr "{pack}を取得"
 
-#: src/ui/settings.rs:1530
+#: src/ui/settings.rs:1563
 msgctxt "resolution"
 msgid "Full"
 msgstr "フル"
 
-#: src/ui/settings.rs:1531
+#: src/ui/settings.rs:1564
 msgctxt "resolution"
 msgid "Half"
 msgstr "1/2"
 
-#: src/ui/settings.rs:1532
+#: src/ui/settings.rs:1565
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "1/4"
 
-#: src/ui/settings.rs:1546
+#: src/ui/settings.rs:1579
 msgid "Equalizer"
 msgstr "イコライザー"
 
-#: src/ui/settings.rs:1552
+#: src/ui/settings.rs:1585
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
@@ -1722,100 +1726,100 @@ msgstr ""
 "響しません。"
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1560
+#: src/ui/settings.rs:1593
 msgid "Preamp"
 msgstr "プリアンプ"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:1562
+#: src/ui/settings.rs:1595
 msgid "Bands"
 msgstr "バンド"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1612
+#: src/ui/settings.rs:1645
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "Pre"
 
-#: src/ui/settings.rs:1629
+#: src/ui/settings.rs:1662
 msgid "Storage"
 msgstr "ストレージ"
 
-#: src/ui/settings.rs:1632
+#: src/ui/settings.rs:1665
 msgid "Artwork cache"
 msgstr "アートワークのキャッシュ"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:1634 src/ui/settings.rs:1640
+#: src/ui/settings.rs:1667 src/ui/settings.rs:1673
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "保存先：{folder}"
 
-#: src/ui/settings.rs:1646
+#: src/ui/settings.rs:1679
 msgid "Play history"
 msgstr "再生履歴"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:1650
+#: src/ui/settings.rs:1683
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr ""
 "ここで再生した曲は{file}に保存されます。このファイルがアップロードされること"
 "はありません。"
 
-#: src/ui/settings.rs:1655
+#: src/ui/settings.rs:1688
 msgid "Sign-in"
 msgstr "ログイン"
 
-#: src/ui/settings.rs:1658
+#: src/ui/settings.rs:1691
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr ""
 "ログイン情報は、利用可能な場合はシステムの資格情報ストアに保存されます。"
 
-#: src/ui/settings.rs:1670
+#: src/ui/settings.rs:1703
 msgid "Clear artwork"
 msgstr "アートワークを削除"
 
-#: src/ui/settings.rs:1684
+#: src/ui/settings.rs:1717
 msgid "Clear history"
 msgstr "履歴を消去"
 
-#: src/ui/settings.rs:1696 src/ui/show.rs:34
+#: src/ui/settings.rs:1729 src/ui/show.rs:34
 msgid "About"
 msgstr "このアプリについて"
 
-#: src/ui/settings.rs:1699
+#: src/ui/settings.rs:1732
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr "Rust、egui、librespotで作られています。Spotifyとは関係ありません。"
 
-#: src/ui/settings.rs:1701
+#: src/ui/settings.rs:1734
 msgid "Check for updates"
 msgstr "アップデートを確認"
 
-#: src/ui/settings.rs:1702
+#: src/ui/settings.rs:1735
 msgid "Checking…"
 msgstr "確認中…"
 
-#: src/ui/settings.rs:1703 src/ui/dialogs.rs:153 src/ui/keys.rs:295
+#: src/ui/settings.rs:1736 src/ui/dialogs.rs:153 src/ui/keys.rs:295
 #: src/ui/topbar.rs:414
 msgid "Keyboard shortcuts"
 msgstr "キーボードショートカット"
 
-#: src/ui/settings.rs:1704
+#: src/ui/settings.rs:1737
 msgid "Source code"
 msgstr "ソースコード"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:1776
+#: src/ui/settings.rs:1809
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "「{query}」に一致する設定はありません"
 
-#: src/ui/settings.rs:1777
+#: src/ui/settings.rs:1810
 msgid "Try fewer words, or check the spelling."
 msgstr "語句を減らすか、スペルを確認してください。"
 
-#: src/ui/settings.rs:1793
+#: src/ui/settings.rs:1826
 msgctxt "language"
 msgid "System"
 msgstr "システム"

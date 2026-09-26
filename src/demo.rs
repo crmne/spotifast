@@ -4411,6 +4411,35 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Beside the themes folder, a button opens the guide to writing a
+    /// theme.
+    #[test]
+    fn the_theme_row_links_to_the_guide_to_making_a_theme() {
+        // Only the page is drawn, so the click's action is collected and
+        // never opens a browser.
+        let (ctx, mut app) = accessible_app("theme-guide");
+        ctx.data_mut(|data| {
+            data.insert_temp(egui::Id::new("settings-filter"), "Appearance".to_string())
+        });
+        for _ in 0..3 {
+            view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        }
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        let guide = sidebar_text(&painted, "How to make a theme").center();
+        let folder = sidebar_text(&painted, "Open themes folder").center();
+        assert!((guide.y - folder.y).abs() < 1.0, "side by side");
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(guide, egui::PointerButton::Primary),
+            crate::ui::settings::show,
+        );
+        assert!(app.actions.iter().any(|action| matches!(action,
+            Action::OpenUrl(url) if url == "https://spotifast.rocks/settings-and-files/#custom-themes")));
+        app.backend.shutdown();
+    }
+
     #[test]
     fn custom_theme_picker_applies_the_clicked_palette_and_exposes_its_name_and_value() {
         let (ctx, mut app) = accessible_app("custom-theme-picker");
