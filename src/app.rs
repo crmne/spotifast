@@ -9843,6 +9843,8 @@ impl App {
                 levels,
                 is_episode: now.is_episode,
                 is_remote: !now.local,
+                shuffle: now.shuffle,
+                repeat: now.repeat,
             }
         });
         crate::notch::sync_state(enabled, is_background, track_info.as_ref());
