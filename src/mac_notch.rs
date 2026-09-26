@@ -230,31 +230,36 @@ fn update_play_button_ui(button: &NSButton, playing: bool) {
     setup_icon_button(
         button,
         symbol,
-        26.0,
-        0.4,
+        15.0,
+        0.5,
         fallback,
-        &NSFont::boldSystemFontOfSize(24.0),
+        &NSFont::boldSystemFontOfSize(15.0),
         label,
+    );
+    set_button_tint(
+        button,
+        &NSColor::colorWithRed_green_blue_alpha(0.06, 0.07, 0.08, 1.0),
     );
 }
 
-fn update_star_button_ui(button: &NSButton, saved: bool) {
+fn update_like_button_ui(button: &NSButton, saved: bool, accent: Option<[u8; 3]>) {
     let (symbol, fallback, label) = if saved {
-        ("star.fill", "★", "Remove from Your Library")
+        ("heart.fill", "\u{2665}", "Remove from Liked Songs")
     } else {
-        ("star", "☆", "Save to Your Library")
+        ("heart", "\u{2661}", "Save to Liked Songs")
     };
     setup_icon_button(
         button,
         symbol,
-        20.0,
+        18.0,
         0.2,
         fallback,
-        &NSFont::systemFontOfSize(22.0),
+        &NSFont::systemFontOfSize(20.0),
         label,
     );
     let tint = if saved {
-        NSColor::whiteColor()
+        let (r, g, b) = contrast_accent(accent.unwrap_or([30, 215, 96]));
+        NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
     } else {
         NSColor::colorWithWhite_alpha(1.0, 0.65)
     };
@@ -262,11 +267,72 @@ fn update_star_button_ui(button: &NSButton, saved: bool) {
 }
 
 fn update_device_button_ui(button: &NSButton, is_remote: bool, accent: Option<[u8; 3]>) {
+    let symbol = if is_remote {
+        "hifispeaker.fill"
+    } else {
+        "hifispeaker"
+    };
+    setup_icon_button(
+        button,
+        symbol,
+        17.0,
+        0.2,
+        "🔊",
+        &NSFont::systemFontOfSize(17.0),
+        "Connect to a device",
+    );
     let tint = if is_remote {
         let (r, g, b) = contrast_accent(accent.unwrap_or([30, 215, 96]));
         NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
     } else {
         NSColor::colorWithWhite_alpha(1.0, 0.65)
+    };
+    set_button_tint(button, &tint);
+}
+
+fn update_shuffle_button_ui(button: &NSButton, shuffle: bool, accent: Option<[u8; 3]>) {
+    setup_icon_button(
+        button,
+        "shuffle",
+        16.0,
+        0.2,
+        "🔀",
+        &NSFont::systemFontOfSize(16.0),
+        "Shuffle",
+    );
+    let tint = if shuffle {
+        let (r, g, b) = contrast_accent(accent.unwrap_or([30, 215, 96]));
+        NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
+    } else {
+        NSColor::colorWithWhite_alpha(1.0, 0.65)
+    };
+    set_button_tint(button, &tint);
+}
+
+fn update_repeat_button_ui(
+    button: &NSButton,
+    repeat: crate::player::RepeatMode,
+    accent: Option<[u8; 3]>,
+) {
+    let (symbol, fallback, label) = match repeat {
+        crate::player::RepeatMode::Off => ("repeat", "🔁", "Repeat"),
+        crate::player::RepeatMode::Context => ("repeat", "🔁", "Repeat one"),
+        crate::player::RepeatMode::Track => ("repeat.1", "🔂", "Repeat off"),
+    };
+    setup_icon_button(
+        button,
+        symbol,
+        16.0,
+        0.2,
+        fallback,
+        &NSFont::systemFontOfSize(16.0),
+        label,
+    );
+    let tint = if repeat == crate::player::RepeatMode::Off {
+        NSColor::colorWithWhite_alpha(1.0, 0.65)
+    } else {
+        let (r, g, b) = contrast_accent(accent.unwrap_or([30, 215, 96]));
+        NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
     };
     set_button_tint(button, &tint);
 }
@@ -302,8 +368,36 @@ define_class!(
             push_command(NotchCommand::Previous);
         }
 
-        #[unsafe(method(onStar:))]
-        fn on_star(&self, _sender: &NSObject) {
+        #[unsafe(method(onShuffle:))]
+        fn on_shuffle(&self, _sender: &NSObject) {
+            if let Ok(mut lock) = CONTROLLER.lock()
+                && let Some(ctrl) = lock.as_mut()
+                && let Some(track) = ctrl.track.as_mut()
+            {
+                track.shuffle = !track.shuffle;
+                let is_shuffle = track.shuffle;
+                let accent = track.accent;
+                update_shuffle_button_ui(&ctrl.shuffle_button, is_shuffle, accent);
+            }
+            push_command(NotchCommand::ToggleShuffle);
+        }
+
+        #[unsafe(method(onRepeat:))]
+        fn on_repeat(&self, _sender: &NSObject) {
+            if let Ok(mut lock) = CONTROLLER.lock()
+                && let Some(ctrl) = lock.as_mut()
+                && let Some(track) = ctrl.track.as_mut()
+            {
+                track.repeat = track.repeat.next();
+                let repeat_mode = track.repeat;
+                let accent = track.accent;
+                update_repeat_button_ui(&ctrl.repeat_button, repeat_mode, accent);
+            }
+            push_command(NotchCommand::CycleRepeat);
+        }
+
+        #[unsafe(method(onLike:))]
+        fn on_like(&self, _sender: &NSObject) {
             if let Ok(mut lock) = CONTROLLER.lock()
                 && let Some(ctrl) = lock.as_mut()
                 && let Some(track) = ctrl.track.as_mut()
@@ -311,8 +405,9 @@ define_class!(
             {
                 track.saved = !track.saved;
                 let is_saved = track.saved;
+                let accent = track.accent;
                 let uri = track.uri.clone();
-                update_star_button_ui(&ctrl.star_button, is_saved);
+                update_like_button_ui(&ctrl.like_button, is_saved, accent);
                 push_command(NotchCommand::ToggleSaved(uri));
             }
         }
@@ -389,6 +484,11 @@ define_class!(
             handle_canvas_mouse_down(self, event);
         }
 
+        #[unsafe(method(mouseDragged:))]
+        fn mouse_dragged(&self, event: &NSEvent) {
+            handle_canvas_mouse_dragged(self, event);
+        }
+
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, dirty_rect: NSRect) {
             handle_draw_canvas(self, dirty_rect);
@@ -414,10 +514,12 @@ struct NotchController {
     elapsed_field: Retained<NSTextField>,
     remaining_field: Retained<NSTextField>,
     art_view: Retained<NSImageView>,
-    star_button: Retained<NSButton>,
+    like_button: Retained<NSButton>,
+    shuffle_button: Retained<NSButton>,
     prev_button: Retained<NSButton>,
     play_button: Retained<NSButton>,
     next_button: Retained<NSButton>,
+    repeat_button: Retained<NSButton>,
     device_button: Retained<NSButton>,
     _action_handler: Retained<FastpotifyNotchActionHandler>,
     collapsed_frame: NSRect,
@@ -432,7 +534,6 @@ struct NotchController {
     pending_expand_at: Option<Instant>,
     pending_collapse_at: Option<Instant>,
     collapsing_until: Option<Instant>,
-    anim_phase: f64,
     /// When set, the card pulses / cross-fades to signal a track change.
     /// Cleared once the animation finishes.
     track_flash_until: Option<Instant>,
@@ -584,30 +685,43 @@ fn layout_card_subviews(ctrl: &NotchController, card_w: f64) {
         NSSize::new(text_w, 18.0),
     ));
 
-    let remaining_x = (card_w - 60.0).max(120.0);
+    let remaining_x = (card_w - 58.0).max(120.0);
     ctrl.remaining_field.setFrame(NSRect::new(
         NSPoint::new(remaining_x, 74.0),
-        NSSize::new(50.0, 16.0),
+        NSSize::new(44.0, 16.0),
     ));
 
-    let device_x = (card_w - 68.0).max(120.0);
+    let device_x = (card_w - 46.0).max(120.0);
     ctrl.device_button.setFrame(NSRect::new(
         NSPoint::new(device_x, 97.0),
-        NSSize::new(38.0, 38.0),
+        NSSize::new(30.0, 36.0),
+    ));
+
+    ctrl.like_button.setFrame(NSRect::new(
+        NSPoint::new(16.0, 97.0),
+        NSSize::new(30.0, 36.0),
     ));
 
     let center_x = card_w / 2.0;
+    ctrl.shuffle_button.setFrame(NSRect::new(
+        NSPoint::new(center_x - 108.0, 97.0),
+        NSSize::new(30.0, 36.0),
+    ));
     ctrl.prev_button.setFrame(NSRect::new(
-        NSPoint::new(center_x - 78.0, 95.0),
-        NSSize::new(42.0, 42.0),
+        NSPoint::new(center_x - 62.0, 97.0),
+        NSSize::new(30.0, 36.0),
     ));
     ctrl.play_button.setFrame(NSRect::new(
-        NSPoint::new(center_x - 22.0, 93.0),
-        NSSize::new(44.0, 44.0),
+        NSPoint::new(center_x - 18.0, 97.0),
+        NSSize::new(36.0, 36.0),
     ));
     ctrl.next_button.setFrame(NSRect::new(
-        NSPoint::new(center_x + 36.0, 95.0),
-        NSSize::new(42.0, 42.0),
+        NSPoint::new(center_x + 32.0, 97.0),
+        NSSize::new(30.0, 36.0),
+    ));
+    ctrl.repeat_button.setFrame(NSRect::new(
+        NSPoint::new(center_x + 78.0, 97.0),
+        NSSize::new(30.0, 36.0),
     ));
 }
 
@@ -703,21 +817,20 @@ pub fn init() {
     };
     card_view.setWantsLayer(true);
     card_view.setAlphaValue(0.0); // Starts hidden with smooth fade-in
-    set_view_corner_radius(&card_view, 28.0);
+    set_view_corner_radius(&card_view, 18.0);
     view.addSubview(&card_view);
 
     // 1. Native dark frosted glass vibrancy layer (Bottom layer)
-    // HUDWindow gives the same dark semi-transparent blur that iOS Control Centre
-    // uses for its cards: desktop content bleeds through the blur, but at a dark tint.
+    // HUDWindow gives the same dark semi-transparent blur that Spotifast uses for overlays.
     let visual_effect = NSVisualEffectView::initWithFrame(mtm.alloc(), card_bounds);
     visual_effect.setMaterial(NSVisualEffectMaterial::HUDWindow);
     visual_effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
     visual_effect.setState(NSVisualEffectState::Active);
     visual_effect.setWantsLayer(true);
-    set_view_corner_radius(&visual_effect, 28.0);
+    set_view_corner_radius(&visual_effect, 18.0);
     card_view.addSubview(&visual_effect);
 
-    // 2. Custom Canvas View: Drawn on top of visual effect (wavy progress bar, waveform, glass rim)
+    // 2. Custom Canvas View: Drawn on top of visual effect (seek bar, waveform, outline)
     let canvas_view: Retained<FastpotifyCanvasView> = unsafe {
         objc2::msg_send![mtm.alloc::<FastpotifyCanvasView>(), initWithFrame: card_bounds]
     };
@@ -733,13 +846,13 @@ pub fn init() {
     }
     card_view.addSubview(&canvas_view);
 
-    // 3. Album artwork (Left of card, 50x50 with 10pt rounded corners)
+    // 3. Album artwork (Left of card, 50x50 with 8pt rounded corners matching theme::RADIUS)
     let art_view = NSImageView::initWithFrame(
         mtm.alloc(),
         NSRect::new(NSPoint::new(16.0, 14.0), NSSize::new(50.0, 50.0)),
     );
     art_view.setWantsLayer(true);
-    set_view_corner_radius(&art_view, 10.0);
+    set_view_corner_radius(&art_view, 8.0);
     unsafe {
         let () = objc2::msg_send![&art_view, setImageScaling: 0usize];
         let label = objc2_foundation::ns_string!("Album artwork");
@@ -793,7 +906,7 @@ pub fn init() {
 
     let elapsed_field = NSTextField::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(10.0, 74.0), NSSize::new(48.0, 16.0)),
+        NSRect::new(NSPoint::new(14.0, 74.0), NSSize::new(42.0, 16.0)),
     );
     elapsed_field.setEditable(false);
     elapsed_field.setSelectable(false);
@@ -805,10 +918,10 @@ pub fn init() {
     card_view.addSubview(&elapsed_field);
 
     // 7. Remaining Time (Row 2, Right of progress bar)
-    let remaining_x = (card_w - 60.0).max(120.0);
+    let remaining_x = (card_w - 58.0).max(120.0);
     let remaining_field = NSTextField::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(remaining_x, 74.0), NSSize::new(50.0, 16.0)),
+        NSRect::new(NSPoint::new(remaining_x, 74.0), NSSize::new(44.0, 16.0)),
     );
     remaining_field.setEditable(false);
     remaining_field.setSelectable(false);
@@ -820,94 +933,118 @@ pub fn init() {
     remaining_field.setStringValue(&NSString::from_str("-0:00"));
     card_view.addSubview(&remaining_field);
 
-    // 8. Star / Favorite Button (Row 3, Leftmost)
-    let star_button = NSButton::initWithFrame(
+    // 8. Like / Save Button (Row 3, Leftmost)
+    let like_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(30.0, 97.0), NSSize::new(38.0, 38.0)),
+        NSRect::new(NSPoint::new(16.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    update_star_button_ui(&star_button, false);
+    update_like_button_ui(&like_button, false, None);
     attach_button_action(
-        &star_button,
+        &like_button,
         &action_handler,
-        sel!(onStar:),
+        sel!(onLike:),
         &NSColor::colorWithWhite_alpha(1.0, 0.65),
     );
-    card_view.addSubview(&star_button);
+    card_view.addSubview(&like_button);
 
-    // 9. Previous Button (Row 3)
     let center_x = card_w / 2.0;
+
+    // 9. Shuffle Button (Row 3, Center group)
+    let shuffle_button = NSButton::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(
+            NSPoint::new(center_x - 108.0, 97.0),
+            NSSize::new(30.0, 36.0),
+        ),
+    );
+    update_shuffle_button_ui(&shuffle_button, false, None);
+    attach_button_action(
+        &shuffle_button,
+        &action_handler,
+        sel!(onShuffle:),
+        &NSColor::colorWithWhite_alpha(1.0, 0.65),
+    );
+    card_view.addSubview(&shuffle_button);
+
+    // 10. Previous Button (Row 3, Center group)
     let prev_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(center_x - 78.0, 95.0), NSSize::new(42.0, 42.0)),
+        NSRect::new(NSPoint::new(center_x - 62.0, 97.0), NSSize::new(30.0, 36.0)),
     );
     setup_icon_button(
         &prev_button,
-        "backward.fill",
-        22.0,
+        "backward.end.fill",
+        18.0,
         0.3,
-        "◀◀",
-        &NSFont::boldSystemFontOfSize(20.0),
-        "Previous Track",
+        "\u{23EE}",
+        &NSFont::boldSystemFontOfSize(18.0),
+        "Previous",
     );
     attach_button_action(
         &prev_button,
         &action_handler,
         sel!(onPrev:),
-        &NSColor::whiteColor(),
+        &NSColor::colorWithWhite_alpha(1.0, 0.65),
     );
     card_view.addSubview(&prev_button);
 
-    // 10. Play / Pause Button (Row 3, Center)
+    // 11. Play / Pause Button (Row 3, Center)
     let play_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(center_x - 22.0, 93.0), NSSize::new(44.0, 44.0)),
+        NSRect::new(NSPoint::new(center_x - 18.0, 97.0), NSSize::new(36.0, 36.0)),
     );
     update_play_button_ui(&play_button, false);
     attach_button_action(
         &play_button,
         &action_handler,
         sel!(onPlayPause:),
-        &NSColor::whiteColor(),
+        &NSColor::colorWithRed_green_blue_alpha(0.06, 0.07, 0.08, 1.0),
     );
     card_view.addSubview(&play_button);
 
-    // 11. Next Button (Row 3)
+    // 12. Next Button (Row 3, Center group)
     let next_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(center_x + 36.0, 95.0), NSSize::new(42.0, 42.0)),
+        NSRect::new(NSPoint::new(center_x + 32.0, 97.0), NSSize::new(30.0, 36.0)),
     );
     setup_icon_button(
         &next_button,
-        "forward.fill",
-        22.0,
+        "forward.end.fill",
+        18.0,
         0.3,
-        "▶▶",
-        &NSFont::boldSystemFontOfSize(20.0),
-        "Next Track",
+        "\u{23ED}",
+        &NSFont::boldSystemFontOfSize(18.0),
+        "Next",
     );
     attach_button_action(
         &next_button,
         &action_handler,
         sel!(onNext:),
-        &NSColor::whiteColor(),
+        &NSColor::colorWithWhite_alpha(1.0, 0.65),
     );
     card_view.addSubview(&next_button);
 
-    // 12. Device / Connect Button (Row 3, Rightmost)
-    let device_x = (card_w - 68.0).max(120.0);
+    // 13. Repeat Button (Row 3, Center group)
+    let repeat_button = NSButton::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(center_x + 78.0, 97.0), NSSize::new(30.0, 36.0)),
+    );
+    update_repeat_button_ui(&repeat_button, crate::player::RepeatMode::Off, None);
+    attach_button_action(
+        &repeat_button,
+        &action_handler,
+        sel!(onRepeat:),
+        &NSColor::colorWithWhite_alpha(1.0, 0.65),
+    );
+    card_view.addSubview(&repeat_button);
+
+    // 14. Device / Connect Button (Row 3, Rightmost)
+    let device_x = (card_w - 46.0).max(120.0);
     let device_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(device_x, 97.0), NSSize::new(38.0, 38.0)),
+        NSRect::new(NSPoint::new(device_x, 97.0), NSSize::new(30.0, 36.0)),
     );
-    setup_icon_button(
-        &device_button,
-        "laptopcomputer",
-        20.0,
-        0.2,
-        "💻",
-        &NSFont::systemFontOfSize(20.0),
-        "Bring Spotifast to Front",
-    );
+    update_device_button_ui(&device_button, false, None);
     attach_button_action(
         &device_button,
         &action_handler,
@@ -927,10 +1064,12 @@ pub fn init() {
         elapsed_field,
         remaining_field,
         art_view,
-        star_button,
+        like_button,
+        shuffle_button,
         prev_button,
         play_button,
         next_button,
+        repeat_button,
         device_button,
         _action_handler: action_handler,
         collapsed_frame: frames.collapsed_window,
@@ -945,7 +1084,6 @@ pub fn init() {
         pending_expand_at: None,
         pending_collapse_at: None,
         collapsing_until: None,
-        anim_phase: 0.0,
         track_flash_until: None,
         pending_seek: None,
     };
@@ -1095,12 +1233,12 @@ fn handle_canvas_mouse_down(view: &FastpotifyCanvasView, event: &NSEvent) {
     {
         let card_w = ctrl.expanded_card_frame.size.width;
         let start_x = 60.0f64;
-        let end_x = (card_w - 62.0).max(start_x + 20.0);
+        let end_x = (card_w - 58.0).max(start_x + 20.0);
         let track_w = (end_x - start_x).max(1.0);
 
         // Check if clicked directly on the progress bar track
-        if local.y >= 68.0
-            && local.y <= 96.0
+        if local.y >= 70.0
+            && local.y <= 94.0
             && local.x >= (start_x - 4.0)
             && local.x <= (end_x + 4.0)
         {
@@ -1130,6 +1268,42 @@ fn handle_canvas_mouse_down(view: &FastpotifyCanvasView, event: &NSEvent) {
     push_command(NotchCommand::ShowWindow);
 }
 
+fn handle_canvas_mouse_dragged(view: &FastpotifyCanvasView, event: &NSEvent) {
+    let location = event.locationInWindow();
+    let local: NSPoint =
+        unsafe { objc2::msg_send![view, convertPoint: location, fromView: None::<&NSView>] };
+
+    if let Ok(mut lock) = CONTROLLER.lock()
+        && let Some(ctrl) = lock.as_mut()
+    {
+        let card_w = ctrl.expanded_card_frame.size.width;
+        let start_x = 60.0f64;
+        let end_x = (card_w - 58.0).max(start_x + 20.0);
+        let track_w = (end_x - start_x).max(1.0);
+
+        if local.y >= 68.0 && local.y <= 96.0 {
+            let ratio = ((local.x - start_x) / track_w).clamp(0.0, 1.0);
+            if let Some(track) = ctrl.track.as_mut() {
+                if track.duration_ms == 0 {
+                    return;
+                }
+                let seek_pos = (ratio * track.duration_ms as f64) as u32;
+                track.position_ms = seek_pos;
+                ctrl.pending_seek = Some((seek_pos, Instant::now()));
+                update_time_labels(
+                    &ctrl.canvas_view,
+                    &ctrl.elapsed_field,
+                    &ctrl.remaining_field,
+                    seek_pos,
+                    track.duration_ms,
+                );
+                ctrl.canvas_view.setNeedsDisplay(true);
+                push_command(NotchCommand::Seek(seek_pos));
+            }
+        }
+    }
+}
+
 fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
     let Ok(lock) = CONTROLLER.lock() else {
         return;
@@ -1142,29 +1316,33 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
     let card_h = 148.0f64;
     let card_rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(card_w, card_h));
 
-    // 1. Glass tint: a single uniform semi-opaque dark fill on top of the HUDWindow blur.
-    //    iOS Control Centre cards use exactly this pattern: no gradient, no border,
-    //    just a clean dark pill that lets the blurred desktop show through the system layer.
-    let base_path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(card_rect, 28.0, 28.0);
-    NSColor::colorWithRed_green_blue_alpha(0.0, 0.0, 0.0, 0.52).set();
+    // 1. Panel background: Subtle dark glass fill on top of HUDWindow blur.
+    //    Matches Spotifast's dark panel palette.panel (0x15, 0x18, 0x1c).
+    let base_path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(card_rect, 18.0, 18.0);
+    NSColor::colorWithRed_green_blue_alpha(0.08, 0.09, 0.11, 0.78).set();
     base_path.fill();
 
-    // Hairline top-edge specular sheen: the only decoration, 5% white across the top arc.
-    // Everything else (rim, inner bezel, colour-flash) is removed: clean edges like iOS.
-    let sheen_rect = NSRect::new(NSPoint::new(0.0, card_h - 26.0), NSSize::new(card_w, 26.0));
-    let sheen_path =
-        NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(sheen_rect, 28.0, 28.0);
-    NSColor::colorWithWhite_alpha(1.0, 0.05).set();
-    sheen_path.fill();
+    // 2. 1px crisp outline: Matches Spotifast's palette.outline (0x2a, 0x30, 0x38).
+    let border_rect = NSRect::new(
+        NSPoint::new(0.5, 0.5),
+        NSSize::new(card_w - 1.0, card_h - 1.0),
+    );
+    let border_path =
+        NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(border_rect, 18.0, 18.0);
+    NSColor::colorWithRed_green_blue_alpha(0.16, 0.19, 0.22, 0.75).set();
+    unsafe {
+        let () = objc2::msg_send![&border_path, setLineWidth: 1.0f64];
+    }
+    border_path.stroke();
 
-    // 2. Album artwork placeholder if absent or still loading in background
+    // 3. Album artwork placeholder if absent or still loading in background
     let has_art = unsafe {
         let img: Option<Retained<NSImage>> = objc2::msg_send![&*ctrl.art_view, image];
         img.is_some()
     };
     if !has_art {
         let art_rect = NSRect::new(NSPoint::new(16.0, 14.0), NSSize::new(50.0, 50.0));
-        let art_bg = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(art_rect, 10.0, 10.0);
+        let art_bg = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(art_rect, 8.0, 8.0);
         NSColor::colorWithWhite_alpha(0.18, 0.9).set();
         art_bg.fill();
 
@@ -1174,7 +1352,7 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
         accent.fill();
     }
 
-    // 3. Animated equalizer / waveform indicator (Row 1, Right)
+    // 4. Animated equalizer / waveform indicator (Row 1, Right)
     let wave_x = (card_w - 44.0).max(120.0);
     let wave_y = 22.0;
     let wave_h = 16.0;
@@ -1195,7 +1373,7 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
         .track
         .as_ref()
         .and_then(|t| t.accent)
-        .unwrap_or([106, 139, 156]); // Steel blue default
+        .unwrap_or([30, 215, 96]); // Spotify green default (0x1e, 0xd7, 0x60)
     let (ar, ag, ab) = contrast_accent(accent_rgb);
 
     NSColor::colorWithRed_green_blue_alpha(ar, ag, ab, 0.92).set();
@@ -1207,9 +1385,9 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
         bar_path.fill();
     }
 
-    // 4. Wavy / Dynamic Progress Bar (Row 2)
+    // 5. Seek Bar (Row 2) - Matches Spotifast player bar thin_slider (shape, height, colors, handle)
     let start_x = 60.0f64;
-    let end_x = (card_w - 62.0).max(start_x + 20.0);
+    let end_x = (card_w - 58.0).max(start_x + 20.0);
     let track_w = (end_x - start_x).max(1.0);
     let center_y = 82.0f64;
 
@@ -1236,75 +1414,42 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
     let played_w = track_w * ratio;
     let current_x = start_x + played_w;
 
-    // Unplayed portion: clean subtle gray capsule track
-    if current_x < end_x {
-        let unplayed_rect = NSRect::new(
-            NSPoint::new(current_x, center_y - 2.5),
-            NSSize::new((end_x - current_x).max(1.0), 5.0),
-        );
-        let unplayed_path =
-            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(unplayed_rect, 2.5, 2.5);
-        NSColor::colorWithWhite_alpha(1.0, 0.18).set();
-        unplayed_path.fill();
-    }
+    // Track: 4.0pt height, 2.0pt corner radius, white with 0.196 alpha (matching Color32::from_white_alpha(50))
+    let track_rect = NSRect::new(
+        NSPoint::new(start_x, center_y - 2.0),
+        NSSize::new(track_w, 4.0),
+    );
+    let track_path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(track_rect, 2.0, 2.0);
+    NSColor::colorWithWhite_alpha(1.0, 0.196).set();
+    track_path.fill();
 
-    // Played portion: Wavy squiggly wave when playing, sleek straight line when paused
+    // Progress fill: 4.0pt height, 2.0pt corner radius, palette.accent (track accent)
     if played_w > 0.0 {
+        let played_rect = NSRect::new(
+            NSPoint::new(start_x, center_y - 2.0),
+            NSSize::new(played_w.max(4.0).min(track_w), 4.0),
+        );
+        let played_path =
+            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(played_rect, 2.0, 2.0);
         NSColor::colorWithRed_green_blue_alpha(ar, ag, ab, 1.0).set();
+        played_path.fill();
 
-        if playing && played_w > 8.0 {
-            let wave_path = NSBezierPath::bezierPath();
-            let t = ctrl.anim_phase;
-            unsafe {
-                let () = objc2::msg_send![&wave_path, moveToPoint: NSPoint::new(start_x, center_y)];
-                let wavelength = 20.0f64;
-                let amplitude = 3.4f64;
-                let speed = t * 2.8f64;
-
-                let mut x = start_x;
-                while x < current_x {
-                    let damp_start = ((x - start_x) / 8.0).clamp(0.0, 1.0);
-                    let damp_end = ((current_x - x) / 8.0).clamp(0.0, 1.0);
-                    let damp = damp_start * damp_end;
-                    let phase = (x / wavelength) * 2.0 * std::f64::consts::PI - speed;
-                    let y = center_y + amplitude * damp * phase.sin();
-                    let () = objc2::msg_send![&wave_path, lineToPoint: NSPoint::new(x, y)];
-                    x += 1.0;
-                }
-                let () =
-                    objc2::msg_send![&wave_path, lineToPoint: NSPoint::new(current_x, center_y)];
-                let () = objc2::msg_send![&wave_path, setLineWidth: 4.2f64];
-                let () = objc2::msg_send![&wave_path, setLineCapStyle: 1usize]; // Round
-                let () = objc2::msg_send![&wave_path, setLineJoinStyle: 1usize]; // Round
-            }
-            wave_path.stroke();
-        } else {
-            // Straight capsule bar when paused
-            let played_rect = NSRect::new(
-                NSPoint::new(start_x, center_y - 2.5),
-                NSSize::new(played_w.max(5.0), 5.0),
-            );
-            let played_path =
-                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(played_rect, 2.5, 2.5);
-            played_path.fill();
-        }
-
-        // Glowing circular playhead thumb at current_x
+        // Handle (Thumb): 6.0pt radius (12.0pt diameter) solid white circle matching thin_slider
         let thumb_rect = NSRect::new(
-            NSPoint::new(current_x - 5.0, center_y - 5.0),
-            NSSize::new(10.0, 10.0),
+            NSPoint::new(current_x - 6.0, center_y - 6.0),
+            NSSize::new(12.0, 12.0),
         );
         let thumb_path = NSBezierPath::bezierPathWithOvalInRect(thumb_rect);
-        thumb_path.fill();
-
-        let inner_rect = NSRect::new(
-            NSPoint::new(current_x - 2.0, center_y - 2.0),
-            NSSize::new(4.0, 4.0),
-        );
-        let inner_path = NSBezierPath::bezierPathWithOvalInRect(inner_rect);
         NSColor::whiteColor().set();
-        inner_path.fill();
+        thumb_path.fill();
     }
+
+    // 6. Play button circular disc (Row 3, Center) - Matches Spotifast theme::circle_button (diameter 36.0)
+    let center_x = card_w / 2.0;
+    let disc_rect = NSRect::new(NSPoint::new(center_x - 18.0, 97.0), NSSize::new(36.0, 36.0));
+    let disc_path = NSBezierPath::bezierPathWithOvalInRect(disc_rect);
+    NSColor::colorWithRed_green_blue_alpha(0.95, 0.96, 0.97, 1.0).set(); // palette.text (#f2f4f6)
+    disc_path.fill();
 }
 
 pub fn is_active() -> bool {
@@ -1480,9 +1625,11 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
             );
 
             update_play_button_ui(&ctrl.play_button, t.playing);
-            update_star_button_ui(&ctrl.star_button, t.saved);
+            update_like_button_ui(&ctrl.like_button, t.saved, t.accent);
+            update_shuffle_button_ui(&ctrl.shuffle_button, t.shuffle, t.accent);
+            update_repeat_button_ui(&ctrl.repeat_button, t.repeat, t.accent);
             update_device_button_ui(&ctrl.device_button, t.is_remote, t.accent);
-            ctrl.star_button.setHidden(!can_toggle_saved(t.is_episode));
+            ctrl.like_button.setHidden(!can_toggle_saved(t.is_episode));
 
             update_artwork_path(ctrl, t.art_path.clone());
         } else {
@@ -1498,9 +1645,11 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
                 0,
             );
             update_play_button_ui(&ctrl.play_button, false);
-            update_star_button_ui(&ctrl.star_button, false);
+            update_like_button_ui(&ctrl.like_button, false, None);
+            update_shuffle_button_ui(&ctrl.shuffle_button, false, None);
+            update_repeat_button_ui(&ctrl.repeat_button, crate::player::RepeatMode::Off, None);
             update_device_button_ui(&ctrl.device_button, false, None);
-            ctrl.star_button.setHidden(false);
+            ctrl.like_button.setHidden(false);
             ctrl.art_view.setImage(None);
             ctrl.current_art_path = None;
         }
@@ -1520,7 +1669,7 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
         *cached = updated;
 
         if changes.episode_changed {
-            ctrl.star_button
+            ctrl.like_button
                 .setHidden(!can_toggle_saved(latest.is_episode));
         }
 
@@ -1532,8 +1681,18 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
             update_play_button_ui(&ctrl.play_button, latest.playing);
         }
 
-        if changes.saved_changed {
-            update_star_button_ui(&ctrl.star_button, latest.saved);
+        if changes.saved_changed || (latest.saved && changes.accent_changed) {
+            update_like_button_ui(&ctrl.like_button, latest.saved, latest.accent);
+        }
+
+        if changes.shuffle_changed || (latest.shuffle && changes.accent_changed) {
+            update_shuffle_button_ui(&ctrl.shuffle_button, latest.shuffle, latest.accent);
+        }
+
+        if changes.repeat_changed
+            || (latest.repeat != crate::player::RepeatMode::Off && changes.accent_changed)
+        {
+            update_repeat_button_ui(&ctrl.repeat_button, latest.repeat, latest.accent);
         }
 
         if changes.remote_changed || (latest.is_remote && changes.accent_changed) {
@@ -1566,11 +1725,6 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
         if changes.accent_changed {
             ctrl.canvas_view.setNeedsDisplay(true);
         }
-    }
-
-    if ctrl.expanded {
-        ctrl.anim_phase = (ctrl.anim_phase + 0.06) % (2000.0 * std::f64::consts::PI);
-        ctrl.canvas_view.setNeedsDisplay(true);
     }
 }
 

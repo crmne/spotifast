@@ -8,6 +8,8 @@ pub enum NotchCommand {
     ShowWindow,
     ToggleSaved(String),
     Seek(u32),
+    ToggleShuffle,
+    CycleRepeat,
 }
 
 impl NotchCommand {
@@ -19,6 +21,8 @@ impl NotchCommand {
             Self::ShowWindow => crate::model::Action::ShowWindow,
             Self::ToggleSaved(uri) => crate::model::Action::ToggleSaved(uri.clone()),
             Self::Seek(pos) => crate::model::Action::Seek(*pos),
+            Self::ToggleShuffle => crate::model::Action::ToggleShuffle,
+            Self::CycleRepeat => crate::model::Action::CycleRepeat,
         }
     }
 }
@@ -38,6 +42,8 @@ pub struct NotchTrackInfo {
     pub levels: [f32; 5],
     pub is_episode: bool,
     pub is_remote: bool,
+    pub shuffle: bool,
+    pub repeat: crate::player::RepeatMode,
 }
 
 /// Pure helper to determine whether the notch overlay window should be visible on screen.
@@ -146,6 +152,8 @@ pub struct IncrementalChanges {
     pub art_changed: bool,
     pub accent_changed: bool,
     pub remote_changed: bool,
+    pub shuffle_changed: bool,
+    pub repeat_changed: bool,
 }
 
 pub fn detect_incremental_changes(
@@ -161,6 +169,8 @@ pub fn detect_incremental_changes(
         art_changed: cached.art_path != latest.art_path,
         accent_changed: cached.accent != latest.accent,
         remote_changed: cached.is_remote != latest.is_remote,
+        shuffle_changed: cached.shuffle != latest.shuffle,
+        repeat_changed: cached.repeat != latest.repeat,
     }
 }
 
@@ -313,6 +323,8 @@ mod tests {
             levels: [0.1, 0.3, 0.5, 0.7, 0.9],
             is_episode: false,
             is_remote: false,
+            shuffle: false,
+            repeat: crate::player::RepeatMode::Off,
         };
         let b = a.clone();
         assert_eq!(a, b);
@@ -338,6 +350,14 @@ mod tests {
         assert!(matches!(
             NotchCommand::Seek(12345).action(),
             Action::Seek(12345)
+        ));
+        assert!(matches!(
+            NotchCommand::ToggleShuffle.action(),
+            Action::ToggleShuffle
+        ));
+        assert!(matches!(
+            NotchCommand::CycleRepeat.action(),
+            Action::CycleRepeat
         ));
     }
 
@@ -456,6 +476,8 @@ mod tests {
             levels: [0.0; 5],
             is_episode: false,
             is_remote: false,
+            shuffle: false,
+            repeat: crate::player::RepeatMode::Off,
         };
         let mut t2 = t1.clone();
 
@@ -511,6 +533,8 @@ mod tests {
             levels: [0.0; 5],
             is_episode: false,
             is_remote: false,
+            shuffle: false,
+            repeat: crate::player::RepeatMode::Off,
         };
 
         // Same second (10100 -> 10900) does not flag progress changed
@@ -528,6 +552,8 @@ mod tests {
                 art_changed: false,
                 accent_changed: false,
                 remote_changed: false,
+                shuffle_changed: false,
+                repeat_changed: false,
             }
         );
 
@@ -569,6 +595,16 @@ mod tests {
         t2 = t1.clone();
         t2.is_remote = true;
         assert!(detect_incremental_changes(&t1, &t2).remote_changed);
+
+        // Shuffle status updates
+        t2 = t1.clone();
+        t2.shuffle = true;
+        assert!(detect_incremental_changes(&t1, &t2).shuffle_changed);
+
+        // Repeat status updates
+        t2 = t1.clone();
+        t2.repeat = crate::player::RepeatMode::Context;
+        assert!(detect_incremental_changes(&t1, &t2).repeat_changed);
     }
 
     #[test]
