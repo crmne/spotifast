@@ -185,6 +185,11 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                 widgets::paint_vertical_gradient(ui, header, top, palette.window);
             }
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
+            // egui fades a scrolled page's edge into the panel's plain
+            // colour, which shows as a pale band over a cover's tint.
+            if tint.is_some() {
+                ui.spacing_mut().scroll.fade.strength = 0.0;
+            }
             topbar::show(app, ui);
             let page = app.page().clone();
             crate::autoscroll::show(

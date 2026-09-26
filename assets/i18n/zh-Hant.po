@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 19:10+0200\n"
+"POT-Creation-Date: 2026-09-26 19:14+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -294,7 +294,7 @@ msgstr "歌詞"
 msgid "Recent"
 msgstr "最近播放"
 
-#: src/ui/queue.rs:85 src/ui/lyrics.rs:71 src/ui/mod.rs:360
+#: src/ui/queue.rs:85 src/ui/lyrics.rs:71 src/ui/mod.rs:365
 msgid "Close"
 msgstr "關閉"
 
@@ -2502,15 +2502,15 @@ msgstr "Proxy 設定"
 msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr "Spotifast {version} • 與 Spotify 無關"
 
-#: src/ui/mod.rs:346
+#: src/ui/mod.rs:351
 msgid "Minimize"
 msgstr "最小化"
 
-#: src/ui/mod.rs:352
+#: src/ui/mod.rs:357
 msgid "Restore"
 msgstr "還原"
 
-#: src/ui/mod.rs:354
+#: src/ui/mod.rs:359
 msgid "Maximize"
 msgstr "最大化"
 
