@@ -181,6 +181,11 @@ pub struct LocalState {
     pub seek_sequence: u64,
     /// A newly loaded track, including another play of the same URI.
     pub track_sequence: u64,
+    /// Another play of the same track started, and its start position has
+    /// not arrived yet. The track looks unchanged, so the `Playing` or
+    /// `Paused` that brings the position counts as a seek for media
+    /// controls, which would otherwise count on past the end (#587).
+    pub replay_pending: bool,
 }
 
 /// What local playback was doing when its session ended, so the engine
@@ -751,6 +756,16 @@ fn set<T: PartialEq>(target: &mut T, value: T) -> bool {
     }
 }
 
+/// Reports a replay's start position as a seek, once.
+fn start_replay(state: &mut LocalState) -> bool {
+    if std::mem::take(&mut state.replay_pending) {
+        state.seek_sequence = state.seek_sequence.wrapping_add(1);
+        true
+    } else {
+        false
+    }
+}
+
 fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
     match event {
         PlayerEvent::Stopped { .. } => {
@@ -771,16 +786,17 @@ fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
             changed
         }
         PlayerEvent::Playing { position_ms, .. } => {
-            let mut changed = set(&mut state.playback, Playback::Playing);
-            changed |= set(&mut state.position_ms, position_ms);
+            set(&mut state.playback, Playback::Playing);
+            set(&mut state.position_ms, position_ms);
             state.position_at = Some(Instant::now());
-            changed || true
+            start_replay(state);
+            true
         }
         PlayerEvent::Paused { position_ms, .. } => {
             let mut changed = set(&mut state.playback, Playback::Paused);
             changed |= set(&mut state.position_ms, position_ms);
             changed |= set(&mut state.position_at, None);
-            changed
+            changed | start_replay(state)
         }
         PlayerEvent::PositionCorrection { position_ms, .. }
         | PlayerEvent::PositionChanged { position_ms, .. } => {
@@ -799,7 +815,12 @@ fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
             true
         }
         PlayerEvent::TrackChanged { audio_item } => {
-            state.track = Some(local_track(&audio_item));
+            let track = local_track(&audio_item);
+            state.replay_pending = state
+                .track
+                .as_ref()
+                .is_some_and(|previous| previous.uri == track.uri);
+            state.track = Some(track);
             state.error = None;
             // librespot emits this when a loaded track starts, including a
             // repeat whose URI and metadata are identical to the previous play.
@@ -1215,9 +1236,8 @@ mod tests {
         SpotifyUri::from_uri("spotify:track:14XWXWv5FoCbFzLksawpEe").unwrap()
     }
 
-    #[test]
-    fn each_loaded_track_has_a_new_history_sequence_but_seek_and_pause_do_not() {
-        let item = AudioItem {
+    fn interlude() -> AudioItem {
+        AudioItem {
             track_id: uri(),
             uri: uri().to_uri().unwrap(),
             files: Default::default(),
@@ -1236,7 +1256,12 @@ mod tests {
                 number: 1,
                 disc_number: 1,
             },
-        };
+        }
+    }
+
+    #[test]
+    fn each_loaded_track_has_a_new_history_sequence_but_seek_and_pause_do_not() {
+        let item = interlude();
         let mut state = LocalState::default();
         for sequence in [1, 2] {
             assert!(apply_event(
@@ -1274,6 +1299,67 @@ mod tests {
         }
     }
 
+    /// A track on repeat plays again with the same metadata, so only a
+    /// seek tells media controls that the position went back to the start
+    /// (#587). The position arrives with `Playing`, after `TrackChanged`.
+    #[test]
+    fn a_replay_of_the_same_track_reports_its_start_as_a_seek() {
+        let mut state = LocalState::default();
+        apply_event(
+            &mut state,
+            PlayerEvent::TrackChanged {
+                audio_item: Box::new(interlude()),
+            },
+        );
+        apply_event(
+            &mut state,
+            PlayerEvent::Playing {
+                play_request_id: 1,
+                track_id: uri(),
+                position_ms: 0,
+            },
+        );
+        let first_play = state.seek_sequence;
+        apply_event(
+            &mut state,
+            PlayerEvent::PositionChanged {
+                play_request_id: 1,
+                track_id: uri(),
+                position_ms: 39_900,
+            },
+        );
+
+        apply_event(
+            &mut state,
+            PlayerEvent::TrackChanged {
+                audio_item: Box::new(interlude()),
+            },
+        );
+        assert_eq!(
+            state.seek_sequence, first_play,
+            "the start position is not known yet"
+        );
+        apply_event(
+            &mut state,
+            PlayerEvent::Playing {
+                play_request_id: 2,
+                track_id: uri(),
+                position_ms: 0,
+            },
+        );
+        assert_eq!(state.seek_sequence, first_play + 1);
+        assert_eq!(state.position_ms, 0);
+
+        apply_event(
+            &mut state,
+            PlayerEvent::Paused {
+                play_request_id: 2,
+                track_id: uri(),
+                position_ms: 1_000,
+            },
+        );
+        assert_eq!(state.seek_sequence, first_play + 1, "reported once");
+    }
     #[test]
     fn position_interpolates_only_while_playing() {
         let mut state = LocalState {
