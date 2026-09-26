@@ -299,9 +299,10 @@ interactive Now Playing floating island under the notch when the main
 window is minimized, in the background, or closed to the tray.
 
 Hovering over the notch expands the widget with album artwork, title,
-artist, elapsed and remaining time, a wavy progress bar, and playback
-controls (play, pause, skip, save to library, and raise window). Scrubbing
-the progress bar seeks within the playing track.
+artist, elapsed and remaining time, a seek bar matching the player bar,
+and playback controls (shuffle, previous, play/pause disc, next, repeat,
+save to library, and Spotify Connect device). Scrubbing the seek bar seeks
+within the playing track.
 
 When music is paused, hovering still reveals the controls so you can
 resume playback directly from the notch.
