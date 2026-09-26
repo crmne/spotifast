@@ -539,6 +539,26 @@ pub enum ApiResponse {
     },
 }
 
+pub enum PlaylistCacheRows {
+    Replace(Vec<PlaylistItem>),
+    Append {
+        previous_rows: usize,
+        previous_offset: u32,
+        items: Vec<PlaylistItem>,
+    },
+}
+
+struct PlaylistCacheWrite {
+    path: std::path::PathBuf,
+    account_id: String,
+    id: String,
+    generation: u64,
+    snapshot: String,
+    rows: PlaylistCacheRows,
+    total: u32,
+    next_offset: Option<u32>,
+}
+
 pub enum Command {
     OpenThemesFolder,
     ProxyRestored {
@@ -676,8 +696,9 @@ pub enum Command {
     /// Remember a playlist prefix on disk under its snapshot.
     StorePlaylistCache {
         id: String,
+        generation: u64,
         snapshot: String,
-        items: Vec<PlaylistItem>,
+        rows: PlaylistCacheRows,
         total: u32,
         next_offset: Option<u32>,
     },
@@ -789,6 +810,13 @@ pub enum Event {
         id: String,
         generation: u64,
         cache: Option<PlaylistCache>,
+    },
+    PlaylistCacheStored {
+        account_id: String,
+        id: String,
+        generation: u64,
+        snapshot: String,
+        success: bool,
     },
     /// A user id resolved to a display name (`None` when nothing answers).
     UserName {
@@ -1530,6 +1558,12 @@ impl Worker {
     }
 
     async fn run(&mut self, mut commands: mpsc::UnboundedReceiver<Command>) {
+        let (cache_writes, cache_write_receiver) = mpsc::channel(1);
+        let cache_writer = tokio::spawn(store_playlist_caches(
+            cache_write_receiver,
+            self.events.clone(),
+            self.waker.clone(),
+        ));
         while let Some(command) = commands.recv().await {
             if self.restoring_proxy
                 && !matches!(
@@ -1857,13 +1891,50 @@ impl Worker {
                 }
                 Command::StorePlaylistCache {
                     id,
+                    generation,
                     snapshot,
-                    items,
+                    rows,
                     total,
                     next_offset,
                 } => {
-                    self.store_playlist_cache(id, snapshot, items, total, next_offset)
-                        .await
+                    if let Some(account) = self.api.account() {
+                        let account_id = account.as_str().to_string();
+                        let path = self
+                            .dirs
+                            .account_playlist_cache_dir(&account_id)
+                            .join(format!("{id}.json"));
+                        if let Err(error) = cache_writes.try_send(PlaylistCacheWrite {
+                            path,
+                            account_id,
+                            id,
+                            generation,
+                            snapshot,
+                            rows,
+                            total,
+                            next_offset,
+                        }) {
+                            let write = error.into_inner();
+                            log::warn!(
+                                "unable to queue playlist cache {}: writer unavailable",
+                                write.path.display()
+                            );
+                            self.emit(Event::PlaylistCacheStored {
+                                account_id: write.account_id,
+                                id: write.id,
+                                generation: write.generation,
+                                snapshot: write.snapshot,
+                                success: false,
+                            });
+                        }
+                    } else {
+                        self.emit(Event::PlaylistCacheStored {
+                            account_id: String::new(),
+                            id,
+                            generation,
+                            snapshot,
+                            success: false,
+                        });
+                    }
                 }
                 Command::UserNames(ids) => self.fetch_user_names(ids),
                 Command::LoadLikedSongsCache { generation } => {
@@ -1947,6 +2018,8 @@ impl Worker {
         if let Some(engine) = self.engine.take() {
             engine.shutdown();
         }
+        drop(cache_writes);
+        let _ = cache_writer.await;
     }
 
     // ---- Web API sign-in --------------------------------------------------
@@ -3073,22 +3146,26 @@ impl Worker {
             .join(format!("{id}.json"));
         let account_id = account.as_str().to_string();
         tokio::spawn(async move {
-            let cache = read_cached_playlist(path).await.ok().and_then(|cached| {
-                let total = cached
-                    .total
-                    .unwrap_or_else(|| cached.items.len().try_into().unwrap_or(u32::MAX));
-                if cached.items.len() > total as usize
-                    || cached.next_offset.is_some_and(|offset| offset > total)
-                {
-                    return None;
-                }
-                Some(PlaylistCache {
-                    snapshot: cached.snapshot,
-                    items: cached.items,
-                    total,
-                    next_offset: cached.next_offset,
-                })
-            });
+            let cache = read_playlist_cache(path)
+                .await
+                .ok()
+                .and_then(|(cached, appendable)| {
+                    let total = cached
+                        .total
+                        .unwrap_or_else(|| cached.items.len().try_into().unwrap_or(u32::MAX));
+                    if cached.items.len() > total as usize
+                        || cached.next_offset.is_some_and(|offset| offset > total)
+                    {
+                        return None;
+                    }
+                    Some(PlaylistCache {
+                        snapshot: cached.snapshot,
+                        items: cached.items,
+                        total,
+                        next_offset: cached.next_offset,
+                        appendable,
+                    })
+                });
             let _ = events.send(Event::PlaylistCache {
                 account_id,
                 id,
@@ -3097,32 +3174,6 @@ impl Worker {
             });
             waker.wake();
         });
-    }
-
-    async fn store_playlist_cache(
-        &self,
-        id: String,
-        snapshot: String,
-        items: Vec<PlaylistItem>,
-        total: u32,
-        next_offset: Option<u32>,
-    ) {
-        let Some(account) = self.api.account() else {
-            return;
-        };
-        let path = self
-            .dirs
-            .account_playlist_cache_dir(account.as_str())
-            .join(format!("{id}.json"));
-        let cached = CachedPlaylist {
-            snapshot,
-            items,
-            total: Some(total),
-            next_offset,
-        };
-        if let Err(error) = write_cached_playlist(path.clone(), cached).await {
-            log::warn!("unable to store playlist cache {}: {error}", path.display());
-        }
     }
 
     /// Ask Spotify who is behind each user id. Only the streaming session
@@ -3946,17 +3997,44 @@ struct CachedPlaylist {
     next_offset: Option<u32>,
 }
 
+#[cfg(test)]
 async fn read_cached_playlist(path: std::path::PathBuf) -> std::io::Result<CachedPlaylist> {
+    tokio::task::spawn_blocking(move || read_cached_playlist_file(&path))
+        .await
+        .map_err(std::io::Error::other)?
+}
+
+fn read_cached_playlist_file(path: &std::path::Path) -> std::io::Result<CachedPlaylist> {
+    let file = std::fs::File::open(path)?;
+    // Parse on the file worker without keeping the entire JSON alongside
+    // the deserialized playlist. Snapshot/count validation still follows.
+    serde_json::from_reader(std::io::BufReader::new(file)).map_err(std::io::Error::other)
+}
+
+async fn read_playlist_cache(path: std::path::PathBuf) -> std::io::Result<(CachedPlaylist, bool)> {
     tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(path)?;
-        // Parse on the file worker without keeping the entire JSON alongside
-        // the deserialized playlist. Snapshot/count validation still follows.
-        serde_json::from_reader(std::io::BufReader::new(file)).map_err(std::io::Error::other)
+        // A writer may have created a row file that its manifest does not yet
+        // reference. Hold the account lock through both reading and recovery.
+        let lock = playlist_cache_lock(&path);
+        if let Err(error) = &lock {
+            log::warn!("unable to lock playlist cache {}: {error}", path.display());
+        }
+        let cache = read_incremental_playlist_cache_file(&path)
+            .map(|cache| (cache, true))
+            // A missing or damaged new cache must not hide an older JSON cache.
+            .or_else(|_| read_cached_playlist_file(&path).map(|cache| (cache, false)));
+        if lock.is_ok()
+            && let Err(error) = cleanup_unreferenced_playlist_rows(&path)
+        {
+            log::warn!("unable to clean playlist cache {}: {error}", path.display());
+        }
+        cache
     })
     .await
     .map_err(std::io::Error::other)?
 }
 
+#[cfg(test)]
 async fn write_cached_playlist(
     path: std::path::PathBuf,
     cached: CachedPlaylist,
@@ -3968,6 +4046,7 @@ async fn write_cached_playlist(
         .map_err(std::io::Error::other)?
 }
 
+#[cfg(test)]
 fn write_cached_playlist_file(
     path: &std::path::Path,
     cached: &CachedPlaylist,
@@ -3990,6 +4069,361 @@ fn write_cached_playlist_file(
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+/// The manifest stays constant-sized as the row file grows. A reader only
+/// consumes `bytes`, so an interrupted append cannot become visible.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PlaylistCacheManifest {
+    version: u8,
+    snapshot: String,
+    data_file: u64,
+    bytes: u64,
+    rows: u32,
+    total: u32,
+    next_offset: Option<u32>,
+}
+
+fn playlist_manifest_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_extension("manifest.json")
+}
+
+fn playlist_data_path(path: &std::path::Path, data_file: u64) -> std::path::PathBuf {
+    path.with_extension(format!("rows.{data_file:016x}"))
+}
+
+fn playlist_cache_lock(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "playlist cache has no parent",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(parent.join(".playlist-cache.lock"))?;
+    file.lock()?;
+    Ok(file)
+}
+
+/// Recover row files from interrupted replacements. Run under the account
+/// lock so a new, unpublished row file cannot be mistaken for an orphan.
+fn cleanup_unreferenced_playlist_rows(path: &std::path::Path) -> std::io::Result<()> {
+    let current = match read_playlist_manifest(path) {
+        Ok(manifest) => Some(manifest.data_file),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "playlist cache has no parent",
+        )
+    })?;
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid playlist cache name",
+            )
+        })?;
+    let prefix = format!("{stem}.rows.");
+    for entry in std::fs::read_dir(parent)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(suffix) = name.to_str().and_then(|name| name.strip_prefix(&prefix)) else {
+            continue;
+        };
+        if suffix.len() != 16 || !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            continue;
+        }
+        let data_file = u64::from_str_radix(suffix, 16).map_err(std::io::Error::other)?;
+        if Some(data_file) == current {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(entry.path())
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!(
+                "unable to remove orphan playlist rows {}: {error}",
+                entry.path().display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn read_playlist_manifest(path: &std::path::Path) -> std::io::Result<PlaylistCacheManifest> {
+    let file = std::fs::File::open(playlist_manifest_path(path))?;
+    let manifest: PlaylistCacheManifest =
+        serde_json::from_reader(std::io::BufReader::new(file)).map_err(std::io::Error::other)?;
+    if manifest.version != 2
+        || manifest.rows > manifest.total
+        || manifest
+            .next_offset
+            .is_some_and(|offset| offset > manifest.total)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid playlist cache manifest",
+        ));
+    }
+    Ok(manifest)
+}
+
+fn read_incremental_playlist_cache_file(path: &std::path::Path) -> std::io::Result<CachedPlaylist> {
+    use std::io::Read;
+
+    let manifest = read_playlist_manifest(path)?;
+    let file = std::fs::File::open(playlist_data_path(path, manifest.data_file))?;
+    if file.metadata()?.len() < manifest.bytes {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "truncated playlist cache data",
+        ));
+    }
+    let reader = std::io::BufReader::new(file.take(manifest.bytes));
+    let mut items = Vec::new();
+    for block in serde_json::Deserializer::from_reader(reader).into_iter::<Vec<PlaylistItem>>() {
+        let block = block.map_err(std::io::Error::other)?;
+        if items.is_empty() {
+            items = block;
+        } else {
+            items.extend(block);
+        }
+        if items.len() > manifest.rows as usize {
+            break;
+        }
+    }
+    if items.len() != manifest.rows as usize {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "playlist cache row count does not match its manifest",
+        ));
+    }
+    Ok(CachedPlaylist {
+        snapshot: manifest.snapshot,
+        items,
+        total: Some(manifest.total),
+        next_offset: manifest.next_offset,
+    })
+}
+
+/// Keep writes in command order without making the command loop wait for disk.
+async fn store_playlist_caches(
+    mut writes: mpsc::Receiver<PlaylistCacheWrite>,
+    events: std::sync::mpsc::Sender<Event>,
+    waker: Waker,
+) {
+    while let Some(write) = writes.recv().await {
+        let PlaylistCacheWrite {
+            path,
+            account_id,
+            id,
+            generation,
+            snapshot,
+            rows,
+            total,
+            next_offset,
+        } = write;
+        let result = write_incremental_playlist_cache(
+            path.clone(),
+            snapshot.clone(),
+            rows,
+            total,
+            next_offset,
+        )
+        .await;
+        if let Err(error) = &result {
+            log::warn!("unable to store playlist cache {}: {error}", path.display());
+        }
+        let _ = events.send(Event::PlaylistCacheStored {
+            account_id,
+            id,
+            generation,
+            snapshot,
+            success: result.is_ok(),
+        });
+        waker.wake();
+    }
+}
+
+async fn write_incremental_playlist_cache(
+    path: std::path::PathBuf,
+    snapshot: String,
+    rows: PlaylistCacheRows,
+    total: u32,
+    next_offset: Option<u32>,
+) -> std::io::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        write_incremental_playlist_cache_file(&path, snapshot, rows, total, next_offset)
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
+fn write_incremental_playlist_cache_file(
+    path: &std::path::Path,
+    snapshot: String,
+    rows: PlaylistCacheRows,
+    total: u32,
+    next_offset: Option<u32>,
+) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind};
+
+    if next_offset.is_some_and(|offset| offset > total) {
+        return Err(Error::new(ErrorKind::InvalidInput, "offset exceeds total"));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let _lock = playlist_cache_lock(path)?;
+    match rows {
+        PlaylistCacheRows::Replace(items) => {
+            let count = u32::try_from(items.len())
+                .map_err(|_| Error::new(ErrorKind::InvalidInput, "too many playlist rows"))?;
+            if count > total {
+                return Err(Error::new(ErrorKind::InvalidInput, "rows exceed total"));
+            }
+            let (file, data_file) = create_playlist_data_file(path)?;
+            let data_path = playlist_data_path(path, data_file);
+            let result = (|| {
+                let bytes = write_playlist_block(file, &items)?;
+                write_playlist_manifest(
+                    path,
+                    &PlaylistCacheManifest {
+                        version: 2,
+                        snapshot,
+                        data_file,
+                        bytes,
+                        rows: count,
+                        total,
+                        next_offset,
+                    },
+                )
+            })();
+            if result.is_err() {
+                if let Err(error) = std::fs::remove_file(&data_path) {
+                    log::warn!(
+                        "unable to remove incomplete playlist rows {}: {error}",
+                        data_path.display()
+                    );
+                }
+            } else if let Err(error) = cleanup_unreferenced_playlist_rows(path) {
+                log::warn!("unable to clean playlist cache {}: {error}", path.display());
+            }
+            result
+        }
+        PlaylistCacheRows::Append {
+            previous_rows,
+            previous_offset,
+            items,
+        } => {
+            let mut manifest = read_playlist_manifest(path)?;
+            if manifest.snapshot != snapshot
+                || manifest.total != total
+                || manifest.rows as usize != previous_rows
+                || manifest.next_offset.unwrap_or(manifest.total) != previous_offset
+            {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "playlist cache changed before append",
+                ));
+            }
+            let added = u32::try_from(items.len())
+                .map_err(|_| Error::new(ErrorKind::InvalidInput, "too many playlist rows"))?;
+            let count = manifest
+                .rows
+                .checked_add(added)
+                .filter(|count| *count <= total)
+                .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "rows exceed total"))?;
+            let data_path = playlist_data_path(path, manifest.data_file);
+            let mut file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(data_path)?;
+            if file.metadata()?.len() < manifest.bytes {
+                return Err(Error::new(ErrorKind::UnexpectedEof, "truncated cache data"));
+            }
+            // Drop bytes from a write whose manifest was never published.
+            file.set_len(manifest.bytes)?;
+            use std::io::{Seek, SeekFrom};
+            file.seek(SeekFrom::Start(manifest.bytes))?;
+            let bytes = write_playlist_block(file, &items)?;
+            manifest.bytes = bytes;
+            manifest.rows = count;
+            manifest.next_offset = next_offset;
+            write_playlist_manifest(path, &manifest)
+        }
+    }
+}
+
+fn create_playlist_data_file(path: &std::path::Path) -> std::io::Result<(std::fs::File, u64)> {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    for attempt in 0..1024 {
+        let data_file = seed.wrapping_add(attempt);
+        let candidate = playlist_data_path(path, data_file);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(candidate)
+        {
+            Ok(file) => return Ok((file, data_file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "playlist cache data names exhausted",
+    ))
+}
+
+fn write_playlist_block(file: std::fs::File, items: &[PlaylistItem]) -> std::io::Result<u64> {
+    use std::io::Write;
+
+    let mut writer = std::io::BufWriter::new(file);
+    serde_json::to_writer(&mut writer, items).map_err(std::io::Error::other)?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    let file = writer.into_inner().map_err(|error| error.into_error())?;
+    // Publish the manifest only after its referenced bytes are durable.
+    file.sync_all()?;
+    Ok(file.metadata()?.len())
+}
+
+fn write_playlist_manifest(
+    path: &std::path::Path,
+    manifest: &PlaylistCacheManifest,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let target = playlist_manifest_path(path);
+    let temporary = target.with_extension("json.tmp");
+    let result = (|| {
+        let file = std::fs::File::create(&temporary)?;
+        let mut writer = std::io::BufWriter::new(file);
+        serde_json::to_writer(&mut writer, manifest).map_err(std::io::Error::other)?;
+        writer.flush()?;
+        writer
+            .into_inner()
+            .map_err(|error| error.into_error())?
+            .sync_all()?;
+        crate::util::replace_file(&temporary, &target)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
     }
     result
 }
@@ -4111,7 +4545,11 @@ mod album_type_lookup_tests {
 
 #[cfg(test)]
 mod playlist_cache_tests {
-    use super::{CachedPlaylist, read_cached_playlist, write_cached_playlist};
+    use super::{
+        CachedPlaylist, PlaylistCacheRows, playlist_data_path, playlist_manifest_path,
+        read_cached_playlist, read_incremental_playlist_cache_file, read_playlist_cache,
+        read_playlist_manifest, write_cached_playlist, write_incremental_playlist_cache_file,
+    };
     use crate::api::models::{PlayableItem, PlaylistItem, Track};
 
     #[test]
@@ -4122,6 +4560,218 @@ mod playlist_cache_tests {
         assert_eq!(cached.snapshot, "old");
         assert_eq!(cached.total, None);
         assert_eq!(cached.next_offset, None);
+    }
+
+    #[test]
+    fn incremental_checkpoints_append_only_new_rows_and_recover_from_failed_publication() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-playlist-cache-incremental-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let path = root.join("playlist.json");
+        let row = |uri: &str| PlaylistItem {
+            item: Some(PlayableItem::Track(Track {
+                uri: uri.into(),
+                ..Track::default()
+            })),
+            ..PlaylistItem::default()
+        };
+        let first = vec![row("spotify:track:one"), PlaylistItem::default()];
+        let added = row("spotify:track:three");
+        write_incremental_playlist_cache_file(
+            &path,
+            "same".into(),
+            PlaylistCacheRows::Replace(first.clone()),
+            100,
+            Some(50),
+        )
+        .unwrap();
+        let initial = read_playlist_manifest(&path).unwrap();
+        assert_eq!(initial.rows, 2);
+        assert_eq!(
+            initial.bytes as usize,
+            serde_json::to_vec(&first).unwrap().len() + 1
+        );
+
+        let append = || PlaylistCacheRows::Append {
+            previous_rows: 2,
+            previous_offset: 50,
+            items: vec![added.clone()],
+        };
+        let temporary = playlist_manifest_path(&path).with_extension("json.tmp");
+        std::fs::create_dir(&temporary).unwrap();
+        assert!(
+            write_incremental_playlist_cache_file(&path, "same".into(), append(), 100, Some(75))
+                .is_err()
+        );
+        assert_eq!(
+            read_incremental_playlist_cache_file(&path).unwrap().items,
+            first
+        );
+        assert_eq!(read_playlist_manifest(&path).unwrap().bytes, initial.bytes);
+        std::fs::remove_dir(&temporary).unwrap();
+
+        write_incremental_playlist_cache_file(&path, "same".into(), append(), 100, Some(75))
+            .unwrap();
+        let committed = read_playlist_manifest(&path).unwrap();
+        assert_eq!(committed.rows, 3);
+        assert_eq!(
+            committed.bytes - initial.bytes,
+            (serde_json::to_vec(std::slice::from_ref(&added))
+                .unwrap()
+                .len()
+                + 1) as u64,
+            "an append writes only its new block, including after a failed publication"
+        );
+        assert_eq!(
+            std::fs::metadata(playlist_data_path(&path, committed.data_file))
+                .unwrap()
+                .len(),
+            committed.bytes
+        );
+        let restored = read_incremental_playlist_cache_file(&path).unwrap();
+        assert_eq!(restored.items, [first, vec![added]].concat());
+        assert_eq!(restored.next_offset, Some(75));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn incremental_cache_replaces_changed_snapshot_and_keeps_legacy_reader() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-playlist-cache-migration-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let path = root.join("playlist.json");
+        write_cached_playlist(
+            path.clone(),
+            CachedPlaylist {
+                snapshot: "legacy".into(),
+                items: vec![PlaylistItem::default()],
+                total: Some(10),
+                next_offset: Some(5),
+            },
+        )
+        .await
+        .unwrap();
+        let (cached, appendable) = read_playlist_cache(path.clone()).await.unwrap();
+        assert_eq!(cached.snapshot, "legacy");
+        assert!(!appendable);
+
+        write_incremental_playlist_cache_file(
+            &path,
+            "new".into(),
+            PlaylistCacheRows::Replace(vec![PlaylistItem::default(); 2]),
+            10,
+            Some(5),
+        )
+        .unwrap();
+        let old_data = read_playlist_manifest(&path).unwrap().data_file;
+        let (cached, appendable) = read_playlist_cache(path.clone()).await.unwrap();
+        assert_eq!(cached.snapshot, "new");
+        assert!(appendable);
+        assert_eq!(
+            read_playlist_cache(path.clone())
+                .await
+                .unwrap()
+                .0
+                .items
+                .len(),
+            2
+        );
+
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(playlist_data_path(&path, old_data))
+            .unwrap()
+            .set_len(0)
+            .unwrap();
+        let (cached, appendable) = read_playlist_cache(path.clone()).await.unwrap();
+        assert_eq!(cached.snapshot, "legacy");
+        assert!(!appendable);
+
+        write_incremental_playlist_cache_file(
+            &path,
+            "newer".into(),
+            PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+            1,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            read_playlist_cache(path.clone()).await.unwrap().0.snapshot,
+            "newer"
+        );
+        assert!(!playlist_data_path(&path, old_data).exists());
+        assert_eq!(read_cached_playlist(path).await.unwrap().snapshot, "legacy");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn reopening_a_cache_removes_rows_left_by_an_interrupted_replacement() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-playlist-cache-orphan-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let path = root.join("playlist.json");
+        write_incremental_playlist_cache_file(
+            &path,
+            "current".into(),
+            PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+            1,
+            None,
+        )
+        .unwrap();
+        let current = read_playlist_manifest(&path).unwrap().data_file;
+        let orphan = playlist_data_path(&path, current.wrapping_add(1));
+        let blocked = playlist_data_path(&path, current.wrapping_add(2));
+        let recoverable = playlist_data_path(&path, current.wrapping_add(3));
+        let other_playlist = playlist_data_path(&root.join("other.json"), 1);
+        std::fs::write(&orphan, b"unfinished rows").unwrap();
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::write(&recoverable, b"unfinished rows").unwrap();
+        std::fs::write(&other_playlist, b"unrelated rows").unwrap();
+
+        let (cached, appendable) = read_playlist_cache(path.clone()).await.unwrap();
+        assert_eq!(cached.snapshot, "current");
+        assert!(appendable);
+        assert!(
+            !orphan.exists(),
+            "recovery must remove unreferenced row files"
+        );
+        assert!(playlist_data_path(&path, current).exists());
+        assert!(
+            !recoverable.exists(),
+            "one failed removal must not stop cleanup"
+        );
+        assert!(blocked.is_dir());
+        assert!(other_playlist.exists());
+        std::fs::remove_dir(&blocked).unwrap();
+
+        let before_manifest = root.join("cold.json");
+        let orphan = playlist_data_path(&before_manifest, 1);
+        std::fs::write(&orphan, b"unfinished first checkpoint").unwrap();
+        assert!(read_playlist_cache(before_manifest).await.is_err());
+        assert!(
+            !orphan.exists(),
+            "a crash before the first manifest is recoverable"
+        );
+
+        let orphan = playlist_data_path(&path, current.wrapping_add(1));
+        std::fs::write(&orphan, b"unfinished rows").unwrap();
+        write_incremental_playlist_cache_file(
+            &path,
+            "next".into(),
+            PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+            1,
+            None,
+        )
+        .unwrap();
+        assert!(!orphan.exists());
+        assert!(!playlist_data_path(&path, current).exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
@@ -4306,6 +4956,114 @@ fn playback_credentials(account: Option<AccountId>, access_token: String) -> Opt
 #[cfg(test)]
 mod authorization_tests {
     use super::*;
+
+    #[test]
+    fn playlist_cache_store_does_not_hold_up_the_command_loop() {
+        let (runtime, mut worker, events) = worker("playlist-cache-command-loop");
+        worker
+            .api
+            .install(ApiSource::Shared, AccountId::new("alice"))
+            .unwrap();
+        let path = worker
+            .dirs
+            .account_playlist_cache_dir("alice")
+            .join("mix.json");
+        let root = worker.dirs.cache.parent().unwrap().to_path_buf();
+        let lock = playlist_cache_lock(&path).unwrap();
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::StorePlaylistCache {
+                id: "mix".into(),
+                generation: 1,
+                snapshot: "old".into(),
+                rows: PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+                total: 1,
+                next_offset: None,
+            })
+            .unwrap();
+        commands
+            .send(Command::ConfigurePersonalWebApp(None))
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        let thread = std::thread::spawn(move || runtime.block_on(worker.run(receiver)));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let handled_next_command = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break false;
+            }
+            match events.recv_timeout(remaining) {
+                Ok(Event::WebApp { client_id: None }) => break true,
+                Ok(_) => continue,
+                Err(_) => break false,
+            }
+        };
+        drop(lock);
+        thread.join().unwrap();
+        assert!(
+            handled_next_command,
+            "a pending disk write blocked the command loop"
+        );
+        assert_eq!(read_playlist_manifest(&path).unwrap().snapshot, "old");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_cache_writer_rejects_excess_snapshots_without_blocking_commands() {
+        let (runtime, mut worker, events) = worker("playlist-cache-bounded-writes");
+        worker
+            .api
+            .install(ApiSource::Shared, AccountId::new("alice"))
+            .unwrap();
+        let path = worker
+            .dirs
+            .account_playlist_cache_dir("alice")
+            .join("mix.json");
+        let root = worker.dirs.cache.parent().unwrap().to_path_buf();
+        let lock = playlist_cache_lock(&path).unwrap();
+        let (commands, receiver) = mpsc::unbounded_channel();
+        for generation in 0..4 {
+            commands
+                .send(Command::StorePlaylistCache {
+                    id: "mix".into(),
+                    generation,
+                    snapshot: format!("snapshot-{generation}"),
+                    rows: PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+                    total: 1,
+                    next_offset: None,
+                })
+                .unwrap();
+        }
+        commands
+            .send(Command::ConfigurePersonalWebApp(None))
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        let thread = std::thread::spawn(move || runtime.block_on(worker.run(receiver)));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut rejected = 0;
+        let handled_next_command = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break false;
+            }
+            match events.recv_timeout(remaining) {
+                Ok(Event::PlaylistCacheStored { success: false, .. }) => rejected += 1,
+                Ok(Event::WebApp { client_id: None }) => break true,
+                Ok(_) => {}
+                Err(_) => break false,
+            }
+        };
+        drop(lock);
+        thread.join().unwrap();
+        assert!(
+            handled_next_command,
+            "cache writes blocked the command loop"
+        );
+        assert!(rejected >= 2, "only one write may wait behind the writer");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test(start_paused = true)]
     async fn engine_deadline_reaches_final_access_point_after_stalled_retries() {

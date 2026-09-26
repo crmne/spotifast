@@ -672,6 +672,14 @@ pub struct PlaylistPage {
     pub cache_checked: bool,
     /// The Spotify offset through which this snapshot is saved on disk.
     pub cache_saved_through: Option<u32>,
+    pub cache_saved_total: Option<u32>,
+    /// Number of rows in that checkpoint. Spotify offsets may skip positions.
+    pub cache_saved_rows: usize,
+    /// Identifies an in-flight checkpoint across generation resets until it completes.
+    /// One checkpoint at a time lets failed appends be retried safely.
+    pub cache_write_pending: Option<PlaylistCachePending>,
+    /// False when existing rows may have changed since the saved checkpoint.
+    pub cache_append_valid: bool,
     /// End of the prefix restored for this generation. An initial response
     /// below it is stale and must not replace the longer cached prefix.
     pub cache_restored_through: Option<u32>,
@@ -701,6 +709,17 @@ pub struct PlaylistCache {
     pub items: Vec<PlaylistItem>,
     pub total: u32,
     pub next_offset: Option<u32>,
+    /// The on-disk prefix can accept new blocks without a full rewrite.
+    pub appendable: bool,
+}
+
+pub struct PlaylistCachePending {
+    pub generation: u64,
+    pub snapshot: String,
+    pub through: u32,
+    pub rows: usize,
+    pub total: u32,
+    pub replacing: bool,
 }
 
 #[derive(Default)]
