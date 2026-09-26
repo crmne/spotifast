@@ -3641,6 +3641,126 @@ mod tests {
         }
     }
 
+    /// Typing in the playlist filter chooses the first match, so Enter adds
+    /// to it at once; Up and Down move the choice first.
+    #[test]
+    fn typing_in_the_playlist_filter_chooses_the_first_match() {
+        let (ctx, mut app) = accessible_app("playlist-filter-choice");
+        app.backend.set_offline(true);
+        let owner = app.user_id().unwrap().to_string();
+        let make = |id: &str, name: &str| Playlist {
+            id: id.into(),
+            uri: format!("spotify:playlist:{id}"),
+            name: name.into(),
+            owner: crate::api::models::Owner {
+                id: Some(owner.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.library.playlists = Loadable::Loaded(vec![
+            make("drive", "Night drive"),
+            make("day", "Daylight"),
+            make("walk", "Night walk"),
+            make("owls", "Night owls"),
+        ]);
+        let items = vec![PlayableItem::Track(track(0))];
+        let draw = |app: &mut App, query: &mut String, focus: bool, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                    if focus {
+                        field.request_focus();
+                    }
+                },
+            );
+            output.textures_delta.clear();
+        };
+        let added = |app: &App| match app.actions.as_slice() {
+            [crate::model::Action::AddToPlaylist { playlist_id, .. }] => Some(playlist_id.clone()),
+            [] => None,
+            other => panic!("expected one addition, got {other:?}"),
+        };
+        let key = |key| vec![keyboard(key, egui::Modifiers::NONE)];
+
+        // #given the filter has focus
+        let mut query = String::new();
+        draw(&mut app, &mut query, true, vec![]);
+
+        // #when a filter is typed and Enter pressed
+        draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![egui::Event::Text("night".into())],
+        );
+        draw(&mut app, &mut query, false, key(egui::Key::Enter));
+
+        // #then the first match is added
+        assert_eq!(added(&app).as_deref(), Some("drive"));
+
+        // #when Down moves the choice twice and Up once, past both ends
+        app.actions.clear();
+        let mut query = String::new();
+        draw(&mut app, &mut query, true, vec![]);
+        draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![egui::Event::Text("night".into())],
+        );
+        draw(&mut app, &mut query, false, key(egui::Key::ArrowUp));
+        for _ in 0..3 {
+            draw(&mut app, &mut query, false, key(egui::Key::ArrowDown));
+        }
+        draw(&mut app, &mut query, false, key(egui::Key::ArrowUp));
+        assert_eq!(query, "night", "the arrows do not edit the filter");
+        draw(&mut app, &mut query, false, key(egui::Key::Enter));
+
+        // #then the choice it reached is added
+        assert_eq!(added(&app).as_deref(), Some("walk"));
+
+        // #when the filter changes after a choice was moved
+        app.actions.clear();
+        let mut query = String::new();
+        draw(&mut app, &mut query, true, vec![]);
+        draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![egui::Event::Text("night".into())],
+        );
+        draw(&mut app, &mut query, false, key(egui::Key::ArrowDown));
+        draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![egui::Event::Text(" o".into())],
+        );
+        draw(&mut app, &mut query, false, key(egui::Key::Enter));
+
+        // #then the choice starts again at the first match
+        assert_eq!(added(&app).as_deref(), Some("owls"));
+
+        // #when Enter is pressed with nothing typed
+        app.actions.clear();
+        let mut query = String::new();
+        draw(&mut app, &mut query, true, vec![]);
+        draw(&mut app, &mut query, false, key(egui::Key::Enter));
+
+        // #then nothing is chosen for the listener
+        assert_eq!(added(&app), None);
+        app.backend.shutdown();
+    }
+
     #[test]
     fn playlist_submenu_keeps_typing_and_resets_after_the_parent_closes() {
         use egui::accesskit::{Action, Role};

@@ -50,7 +50,8 @@ You can rename it in Settings.
   Search, Library, and artist pages. Your own playlists include **Edit details**
   and **Delete**. Opening a menu does not start playback.
   In **Add to playlist**, type a playlist name to find it, or choose
-  **New playlist**. You can add one song or a selection.
+  **New playlist**. Typing chooses the first match, so `Enter` adds to it;
+  the up and down arrows choose another. You can add one song or a selection.
   If the playlist already contains the song, Spotifast asks before adding
   another copy.
 - **Spotify links open in Spotifast.** A `spotify:` link shared from another

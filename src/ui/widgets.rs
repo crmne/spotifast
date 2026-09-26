@@ -302,6 +302,20 @@ pub fn menu_item_enabled(
     label: &str,
     enabled: bool,
 ) -> bool {
+    menu_item_response(ui, palette, icon, label, enabled, false).1
+}
+
+/// A menu item that may be highlighted as the keyboard's choice, as the
+/// pointer would highlight it. Returns its response and whether it was
+/// clicked.
+fn menu_item_response(
+    ui: &mut Ui,
+    palette: &Palette,
+    icon: Option<Icon>,
+    label: &str,
+    enabled: bool,
+    highlighted: bool,
+) -> (egui::Response, bool) {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(
         vec2(width, 28.0),
@@ -312,7 +326,7 @@ pub fn menu_item_enabled(
         },
     );
     if ui.is_rect_visible(rect) {
-        if response.hovered() && enabled {
+        if (response.hovered() || highlighted) && enabled {
             ui.painter()
                 .rect_filled(rect, CornerRadius::same(6), palette.surface_hover);
         }
@@ -351,7 +365,12 @@ pub fn menu_item_enabled(
             .galley(crate::bidi::galley_pos(text_rect, &galley), galley, color);
     }
     response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && ui.is_enabled(), label)
+        let mut info =
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && ui.is_enabled(), label);
+        if highlighted {
+            info.selected = Some(true);
+        }
+        info
     });
     theme::focus_ring(ui, &response);
     if enabled {
@@ -361,7 +380,7 @@ pub fn menu_item_enabled(
     if clicked {
         ui.close();
     }
-    clicked
+    (response, clicked)
 }
 
 /// One entry in a popup menu that opens a child submenu.
@@ -608,15 +627,64 @@ pub(crate) fn playlist_picker(
     ui.set_min_width(220.0);
     ui.set_max_width(300.0);
     let width = ui.available_width();
+    let field_id = ui.make_persistent_id("playlist-filter");
+    let highlight_id = ui.make_persistent_id("playlist-highlight");
+    let playlists = app.editable_playlists();
+    let matching = |query: &str| {
+        let needle = query.trim().to_lowercase();
+        playlists
+            .iter()
+            .filter(move |(_, name)| name.to_lowercase().contains(&needle))
+            .count()
+    };
+    // The keyboard's choice among the matches, for the filter it was made
+    // under. Typing chooses the first match; Up and Down move the choice
+    // and Enter adds to it. The keys are taken before the field sees them.
+    // Like the filter itself, the choice lasts while the menu is drawn.
+    let frame = ui.ctx().cumulative_frame_nr();
+    let (mut highlighted, chosen_for) = ui
+        .data(|data| data.get_temp::<(u64, Option<usize>, String)>(highlight_id))
+        .filter(|(last_frame, _, _)| frame.saturating_sub(*last_frame) <= 1)
+        .map(|(_, highlighted, query)| (highlighted, query))
+        .unwrap_or_default();
+    let mut moved = false;
+    let mut enter = false;
+    if ui.memory(|memory| memory.has_focus(field_id)) {
+        let count = matching(query);
+        let (down, up, pressed) = ui.input_mut(|input| {
+            (
+                input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                highlighted.is_some_and(|index| index < count)
+                    && input.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+            )
+        });
+        enter = pressed;
+        if count > 0 && down + up > 0 {
+            moved = true;
+            let last = count - 1;
+            let mut index = highlighted.map(|index| index.min(last));
+            for _ in 0..down {
+                index = Some(index.map_or(0, |index| (index + 1).min(last)));
+            }
+            for _ in 0..up {
+                index = Some(index.map_or(last, |index| index.saturating_sub(1)));
+            }
+            highlighted = index;
+        }
+    }
     let field = search_field(
         ui,
         &palette,
         locale,
-        ui.make_persistent_id("playlist-filter"),
+        field_id,
         query,
         &gettext(locale, "Filter playlists"),
         width,
     );
+    if *query != chosen_for {
+        highlighted = (!query.trim().is_empty()).then_some(0);
+    }
     ui.add_space(4.0);
     if menu_item(
         ui,
@@ -632,11 +700,20 @@ pub(crate) fn playlist_picker(
     }
     menu_separator(ui, &palette);
     let needle = query.trim().to_lowercase();
-    let playlists = app.editable_playlists();
     let matches: Vec<_> = playlists
         .iter()
         .filter(|(_, name)| name.to_lowercase().contains(&needle))
         .collect();
+    highlighted = highlighted.filter(|index| *index < matches.len());
+    ui.data_mut(|data| data.insert_temp(highlight_id, (frame, highlighted, query.clone())));
+    if enter && let Some((id, name)) = highlighted.and_then(|index| matches.get(index)) {
+        app.actions.push(Action::AddToPlaylist {
+            playlist_id: id.clone(),
+            playlist_name: name.clone(),
+            items: items.to_vec(),
+        });
+        ui.close();
+    }
     if matches.is_empty() {
         theme::subtle(
             ui,
@@ -655,9 +732,15 @@ pub(crate) fn playlist_picker(
             .max_height(320.0),
         egui::Vec2b::new(false, true),
         |ui| {
-            for (id, name) in matches {
+            for (index, (id, name)) in matches.into_iter().enumerate() {
                 ui.push_id(id, |ui| {
-                    if menu_item(ui, &palette, Some(Icon::ListMusic), name) {
+                    let chosen = highlighted == Some(index);
+                    let (row, clicked) =
+                        menu_item_response(ui, &palette, Some(Icon::ListMusic), name, true, chosen);
+                    if chosen && moved {
+                        row.scroll_to_me(None);
+                    }
+                    if clicked {
                         app.actions.push(Action::AddToPlaylist {
                             playlist_id: id.clone(),
                             playlist_name: name.clone(),
