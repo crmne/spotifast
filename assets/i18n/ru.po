@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 18:22+0200\n"
+"POT-Creation-Date: 2026-09-26 18:51+0200\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Russian\n"
@@ -159,7 +159,7 @@ msgstr "Ничего не найдено."
 msgid "Sort by recently played"
 msgstr "Сортировать по недавно прослушанным"
 
-#: src/ui/sidebar.rs:1828 src/ui/player_bar.rs:625 src/ui/widgets.rs:956
+#: src/ui/sidebar.rs:1828 src/ui/player_bar.rs:654 src/ui/widgets.rs:956
 #: src/ui/widgets.rs:2349 src/ui/artist.rs:329 src/ui/collection.rs:214
 #: src/ui/home.rs:147 src/ui/search.rs:390 src/ui/show.rs:311
 msgid "Play"
@@ -225,77 +225,77 @@ msgstr "{name}, папка, развёрнута"
 msgid "Click to change the visualizer"
 msgstr "Нажмите, чтобы сменить визуализатор"
 
-#: src/ui/player_bar.rs:345 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
+#: src/ui/player_bar.rs:374 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
 msgid "Nothing playing"
 msgstr "Ничего не играет"
 
-#: src/ui/player_bar.rs:351 src/app.rs:7213
+#: src/ui/player_bar.rs:380 src/app.rs:7213
 msgid "Pick a song, album, or playlist"
 msgstr "Выбери трек, альбом или плейлист"
 
-#: src/ui/player_bar.rs:481 src/ui/widgets.rs:560 src/ui/widgets.rs:786
+#: src/ui/player_bar.rs:510 src/ui/widgets.rs:560 src/ui/widgets.rs:786
 #: src/ui/widgets.rs:1684
 msgid "Remove from Liked Songs"
 msgstr "Удалить из Любимых треков"
 
-#: src/ui/player_bar.rs:487 src/ui/widgets.rs:563 src/ui/widgets.rs:789
+#: src/ui/player_bar.rs:516 src/ui/widgets.rs:563 src/ui/widgets.rs:789
 #: src/ui/widgets.rs:1686
 msgid "Save to Liked Songs"
 msgstr "Сохранить в Любимые треки"
 
-#: src/ui/player_bar.rs:569 src/ui/player_bar.rs:576 src/ui/collection.rs:260
+#: src/ui/player_bar.rs:598 src/ui/player_bar.rs:605 src/ui/collection.rs:260
 msgid "Shuffle"
 msgstr "Перемешать"
 
-#: src/ui/player_bar.rs:590
+#: src/ui/player_bar.rs:619
 msgid "Previous"
 msgstr "Предыдущий"
 
-#: src/ui/player_bar.rs:623 src/ui/collection.rs:212
+#: src/ui/player_bar.rs:652 src/ui/collection.rs:212
 msgid "Pause"
 msgstr "Пауза"
 
-#: src/ui/player_bar.rs:641
+#: src/ui/player_bar.rs:670
 msgid "Next"
 msgstr "Следующий"
 
-#: src/ui/player_bar.rs:649
+#: src/ui/player_bar.rs:678
 msgid "Repeat"
 msgstr "Повтор"
 
-#: src/ui/player_bar.rs:653
+#: src/ui/player_bar.rs:682
 msgid "Repeat one"
 msgstr "Повторять один трек"
 
-#: src/ui/player_bar.rs:658
+#: src/ui/player_bar.rs:687
 msgid "Repeat off"
 msgstr "Выключить повтор"
 
-#: src/ui/player_bar.rs:719
+#: src/ui/player_bar.rs:748
 msgid "Playback position (%)"
 msgstr "Позиция воспроизведения (%)"
 
-#: src/ui/player_bar.rs:757
+#: src/ui/player_bar.rs:786
 msgid "Volume (%)"
 msgstr "Громкость (%)"
 
-#: src/ui/player_bar.rs:790
+#: src/ui/player_bar.rs:819
 msgid "Unmute"
 msgstr "Включить звук"
 
-#: src/ui/player_bar.rs:792
+#: src/ui/player_bar.rs:821
 msgid "Mute"
 msgstr "Выключить звук"
 
-#: src/ui/player_bar.rs:811 src/ui/devices.rs:193
+#: src/ui/player_bar.rs:840 src/ui/devices.rs:193
 msgid "Connect to a device"
 msgstr "Подключиться к устройству"
 
-#: src/ui/player_bar.rs:830 src/ui/queue.rs:23 src/ui/queue.rs:72
+#: src/ui/player_bar.rs:859 src/ui/queue.rs:23 src/ui/queue.rs:72
 msgid "Queue"
 msgstr "Очередь"
 
-#: src/ui/player_bar.rs:856 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
+#: src/ui/player_bar.rs:885 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
 msgid "Lyrics"
 msgstr "Текст песни"
 

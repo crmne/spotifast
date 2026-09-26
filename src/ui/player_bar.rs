@@ -154,20 +154,49 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
 
 /// The visualizer's two colours: the cover's own for the bass, and the same
 /// turned a sixth of the way round the colour wheel for the treble. Both
-/// are lifted so a dull cover still glows on a dark bar and deepened so it
-/// still shows on a light one.
+/// are made vivid, then kept to a band of brightness, so the words the bars
+/// pass behind always stand out: no lighter than [`DARK_CEILING`] under the
+/// dark theme's white text, no darker than [`LIGHT_FLOOR`] under the light
+/// theme's dark text.
 fn vis_colours(base: Color32, dark: bool) -> (Color32, Color32) {
     let mut low = egui::ecolor::Hsva::from(base);
     low.s = low.s.max(0.55);
-    low.v = if dark {
-        low.v.max(0.9)
-    } else {
-        low.v.min(0.75)
-    };
+    low.v = 1.0;
     low.a = 1.0;
     let mut high = low;
     high.h = (high.h + 1.0 / 6.0).fract();
-    (Color32::from(low), Color32::from(high))
+    let keep = |colour: egui::ecolor::Hsva| within_brightness(Color32::from(colour), dark);
+    (keep(low), keep(high))
+}
+
+/// The most luminance a visualizer colour has under the dark theme, and the
+/// least under the light theme, as relative luminance from 0 to 1.
+const DARK_CEILING: f32 = 0.35;
+const LIGHT_FLOOR: f32 = 0.5;
+
+/// `colour` with its hue kept and its brightness moved into the band the
+/// theme's text reads against: darkened towards black under a dark theme,
+/// lightened towards white under a light one.
+fn within_brightness(colour: Color32, dark: bool) -> Color32 {
+    let linear = egui::Rgba::from(colour);
+    let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
+    let adjusted = if dark && luminance > DARK_CEILING {
+        linear * (DARK_CEILING / luminance)
+    } else if !dark && luminance < LIGHT_FLOOR {
+        let toward_white = (LIGHT_FLOOR - luminance) / (1.0 - luminance).max(f32::EPSILON);
+        egui::Rgba::from_rgb(
+            linear.r() + (1.0 - linear.r()) * toward_white,
+            linear.g() + (1.0 - linear.g()) * toward_white,
+            linear.b() + (1.0 - linear.b()) * toward_white,
+        )
+    } else {
+        linear
+    };
+    Color32::from(egui::Rgba::from_rgb(
+        adjusted.r(),
+        adjusted.g(),
+        adjusted.b(),
+    ))
 }
 
 /// Adds a rectangle shaded from `top` to `bottom`.
@@ -969,5 +998,40 @@ mod player_bar_tint_tests {
 
         end_tint_session(&ctx);
         assert_eq!(frame(&ctx, 0.22, panel, None), panel);
+    }
+
+    /// However light or dark the cover, the visualizer's colours stay in the
+    /// band the theme's text reads against, and keep their hue.
+    #[test]
+    fn visualizer_colours_stay_behind_the_words() {
+        let luminance = |colour: Color32| {
+            let linear = egui::Rgba::from(colour);
+            0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b()
+        };
+        for base in [
+            Color32::from_rgb(255, 240, 80),
+            Color32::from_rgb(20, 30, 90),
+            Color32::WHITE,
+            Color32::BLACK,
+            Color32::from_rgb(30, 215, 96),
+        ] {
+            let (low, high) = vis_colours(base, true);
+            for colour in [low, high] {
+                assert!(
+                    luminance(colour) <= DARK_CEILING + 0.01,
+                    "{base:?} on dark: {colour:?}"
+                );
+            }
+            let (low, high) = vis_colours(base, false);
+            for colour in [low, high] {
+                assert!(
+                    luminance(colour) >= LIGHT_FLOOR - 0.01,
+                    "{base:?} on light: {colour:?}"
+                );
+            }
+        }
+        // A yellow cover stays yellow, only deeper.
+        let (low, _) = vis_colours(Color32::from_rgb(255, 240, 80), true);
+        assert!(low.r() > low.b() && low.g() > low.b(), "{low:?}");
     }
 }
