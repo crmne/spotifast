@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MacBook notch widget visual review</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: #111318; color: #f4f4f5; }
+    main { max-width: 1040px; margin: auto; padding: 24px; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    .meta { font-size: 13px; color: #8a929e; margin-bottom: 20px; }
+    .section-title { font-size: 15px; font-weight: 600; margin-top: 32px; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #a1aab7; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+    fieldset { display: flex; gap: 6px; border: 1px solid #3f4652; border-radius: 8px; padding: 6px 10px; margin: 0; }
+    legend { font-size: 11px; font-weight: 600; color: #8a929e; padding: 0 4px; }
+    button { border: 0; border-radius: 6px; padding: 8px 14px; background: #292e37; color: inherit; font-size: 13px; cursor: pointer; transition: all 0.15s ease; }
+    button:hover { background: #383e4a; }
+    button[aria-pressed="true"] { background: #1ed760; color: #07120a; font-weight: 600; }
+    img { display: block; max-width: 100%; height: auto; border: 1px solid #3f4652; border-radius: 8px; }
+    .image-viewer { background: #000; border: 1px solid #3f4652; border-radius: 10px; padding: 16px; display: flex; justify-content: center; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 12px; }
+    .card { background: #1a1e24; border: 1px solid #333a46; border-radius: 8px; padding: 14px; }
+    .card h3 { font-size: 14px; margin: 0 0 8px 0; color: #fff; }
+    .card p { font-size: 12px; color: #9aa2b0; margin: 0 0 12px 0; line-height: 1.4; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; background: #1e3a24; color: #4ade80; margin-left: 6px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>MacBook notch widget visual review</h1>
+    <div class="meta">macOS Sequoia &bull; Apple Silicon M2 &bull; Spotifast PR #528</div>
+
+    <div class="section-title">1. Settings Page: MacBook Notch Widget Toggle</div>
+    <div class="controls">
+      <fieldset aria-label="Revision">
+        <legend>Revision</legend>
+        <button data-group="revision" data-value="after" aria-pressed="true">After (Candidate)</button>
+        <button data-group="revision" data-value="before" aria-pressed="false">Before (Baseline)</button>
+      </fieldset>
+      <fieldset aria-label="Theme">
+        <legend>Theme</legend>
+        <button data-group="theme" data-value="dark" aria-pressed="true">Dark</button>
+        <button data-group="theme" data-value="light" aria-pressed="false">Light</button>
+      </fieldset>
+      <fieldset aria-label="Window size">
+        <legend>Window size</legend>
+        <button data-group="size" data-value="normal" aria-pressed="true">Normal (2400x2200)</button>
+        <button data-group="size" data-value="narrow" aria-pressed="false">Narrow (1280x3200)</button>
+      </fieldset>
+    </div>
+
+    <div class="image-viewer">
+      <img id="capture" src="after-dark-normal.png" alt="Candidate dark normal capture">
+    </div>
+
+    <div class="section-title">2. Authentic macOS Desktop Environment</div>
+    <div class="grid">
+      <div class="card">
+        <h3>Active Playback <span class="badge">Playing</span></h3>
+        <p>Full desktop view. When hovering the physical notch, track details expand with Spotifast thin_slider seek bar, white circular play disc, transport controls, and live post-EQ visualizer.</p>
+        <img src="desktop-expanded-playing.png" alt="Desktop playing view">
+      </div>
+      <div class="card">
+        <h3>Paused Playback <span class="badge">Paused</span></h3>
+        <p>When paused, the playhead freezes at its current position, play disc displays play glyph, and visualizer dots remain flatlined with zero FFT calculations.</p>
+        <img src="desktop-expanded-paused.png" alt="Desktop paused view">
+      </div>
+      <div class="card">
+        <h3>Main Window Focused <span class="badge">Idle</span></h3>
+        <p>When the Spotifast main window is focused, the overlay automatically conceals itself so the menu bar and active controls remain unobstructed.</p>
+        <img src="desktop-collapsed-settings.png" alt="Desktop collapsed view">
+      </div>
+    </div>
+
+    <div class="section-title">3. Notch Card Detail Crops</div>
+    <div class="grid">
+      <div class="card">
+        <h3>Collapsed State</h3>
+        <p>Resting state flush under physical notch. FFT audio analysis is strictly gated off (zero overhead).</p>
+        <img src="notch-collapsed.png" alt="Notch collapsed">
+      </div>
+      <div class="card">
+        <h3>Expanded State (Playing)</h3>
+        <p>Album art, track typography, Spotifast thin_slider seek bar, circular play disc, heart save button, and visualizer.</p>
+        <img src="notch-expanded.png" alt="Notch expanded playing">
+      </div>
+      <div class="card">
+        <h3>Paused State</h3>
+        <p>Immediate visual feedback when paused. Play glyph inside circular disc, flatline visualizer, and zero FFT passes.</p>
+        <img src="notch-paused.png" alt="Notch paused">
+      </div>
+      <div class="card">
+        <h3>Remote Playback (Spotify Connect)</h3>
+        <p>Active playback on remote Connect device. Displays track metadata with green speaker icon and flat visualizer.</p>
+        <img src="notch-remote.png" alt="Notch remote">
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const state = { revision: "after", theme: "dark", size: "normal" };
+    const capture = document.querySelector("#capture");
+    for (const button of document.querySelectorAll("button[data-group]")) {
+      button.addEventListener("click", () => {
+        const group = button.dataset.group;
+        state[group] = button.dataset.value;
+        for (const peer of document.querySelectorAll(`[data-group="${group}"]`)) {
+          peer.setAttribute("aria-pressed", peer === button ? "true" : "false");
+        }
+        capture.src = `${state.revision}-${state.theme}-${state.size}.png`;
+        capture.alt = `${state.revision} ${state.theme} ${state.size} capture`;
+      });
+    }
+  </script>
+</body>
+</html>
