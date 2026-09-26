@@ -296,6 +296,24 @@ The bar stays above the page. Library, Queue and Lyrics keep their full height.
 Hover to read the device name or available version; click to open the device
 picker or update window.
 
+## MacBook notch widget
+
+On macOS machines equipped with a display notch, Spotifast displays an
+interactive Now Playing floating island under the notch when the main
+window is minimized, in the background, or closed to the tray.
+
+Hovering over the notch expands the widget with album artwork, title,
+artist, elapsed and remaining time, a seek bar matching the player bar,
+and playback controls (shuffle, previous, play/pause disc, next, repeat,
+save to library, and Spotify Connect device). Scrubbing the seek bar seeks
+within the playing track.
+
+When music is paused, hovering still reveals the controls so you can
+resume playback directly from the notch.
+
+To turn off the notch overlay, uncheck **MacBook notch interactive widget** in
+Settings under **Playback on this computer**.
+
 ## Recent
 
 The queue panel's second tab combines Spotify's history with tracks played

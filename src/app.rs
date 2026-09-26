@@ -463,6 +463,8 @@ pub struct App {
     /// reports `VolumeChanged` asynchronously while position snapshots land
     /// every second, so a snapshot must not undo the change on its way past.
     pending_local_volume: Option<(u16, Instant)>,
+    /// A local seek position set here that the engine has not confirmed yet.
+    pending_local_position: Option<(u32, Instant)>,
     optimistic_playing: Option<(bool, Instant)>,
     /// Track shown immediately after a play or skip, until playback reports.
     intent_track: Option<TrackIntent>,
@@ -563,6 +565,8 @@ pub struct App {
     pub update_receipt: Option<fastframe_update::Receipt>,
     /// Winamp window state and active skin.
     pub winamp: crate::winamp::WinampState,
+    #[cfg(target_os = "macos")]
+    pub notch_analyser: crate::vis::Analyser,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -902,6 +906,7 @@ impl App {
             pending_remote_position: None,
             pending_remote_volume: None,
             pending_local_volume: None,
+            pending_local_position: None,
             optimistic_playing: None,
             intent_track: None,
             shuffle_wanted: session.shuffle_on,
@@ -959,6 +964,8 @@ impl App {
             update_restart_arguments: Vec::new(),
             update_receipt: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
+            #[cfg(target_os = "macos")]
+            notch_analyser: crate::vis::Analyser::default(),
         };
         app.local.volume = app.settings.volume;
         // What was played here is on disk and needs nothing from the
@@ -1447,7 +1454,18 @@ impl App {
                     .clone()
                     .or_else(|| track.art_url.clone()),
                 duration_ms: track.duration_ms,
-                position_ms: self.local.position_now(),
+                position_ms: match self.pending_local_position {
+                    Some((position, at)) if at.elapsed() < OPTIMISTIC_HOLD => {
+                        if self.local.playback == Playback::Playing {
+                            let elapsed = at.elapsed().as_millis() as u32;
+                            let limit = track.duration_ms.max(position);
+                            position.saturating_add(elapsed).min(limit)
+                        } else {
+                            position
+                        }
+                    }
+                    _ => self.local.position_now(),
+                },
                 playing,
                 loading: self.local.playback == Playback::Loading,
                 shuffle: self.shuffle_wanted,
@@ -2237,6 +2255,9 @@ impl App {
         if held_volume.is_none() && state.volume != self.settings.volume {
             self.settings.volume = state.volume;
             self.settings_dirty = true;
+        }
+        if state.seek_sequence != self.local.seek_sequence || track_changed {
+            self.pending_local_position = None;
         }
         if state.seek_sequence != self.local.seek_sequence
             && let Some(controls) = &self.media_controls
@@ -3277,6 +3298,14 @@ impl App {
                 MenuCommand::Previous => self.actions.push(Action::Previous),
                 _ => {}
             }
+        }
+    }
+
+    /// The MacBook notch widget items, read with or without a window.
+    #[cfg(target_os = "macos")]
+    fn handle_notch_commands(&mut self) {
+        for command in crate::notch::drain_commands() {
+            self.actions.push(command.action());
         }
     }
 
@@ -7215,7 +7244,10 @@ impl App {
             return;
         }
         match self.target() {
-            Target::Local => self.backend.player(PlayerCommand::Seek(position_ms)),
+            Target::Local => {
+                self.pending_local_position = Some((position_ms, Instant::now()));
+                self.backend.player(PlayerCommand::Seek(position_ms));
+            }
             Target::Remote(device_id) => {
                 self.pending_remote_position = Some((position_ms, Instant::now()));
                 self.backend.api(ApiRequest::Remote {
@@ -9559,6 +9591,8 @@ impl App {
         self.handle_tray();
         #[cfg(target_os = "macos")]
         self.handle_dock_menu();
+        #[cfg(target_os = "macos")]
+        self.handle_notch_commands();
         self.tick(ctx);
         self.note_listening();
         // MilkDrop runs in a child process and can outlive the main window.
@@ -9568,6 +9602,8 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
+        #[cfg(target_os = "macos")]
+        self.sync_notch_widget(ctx);
         self.schedule_next_pass(ctx);
     }
 
@@ -9634,6 +9670,97 @@ impl App {
             .record(crate::history::played_track(&now), jiff::Timestamp::now());
         self.plays.save(&self.dirs.history_file());
         self.rebuild_recents();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn sync_notch_widget(&mut self, _ctx: &egui::Context) {
+        let is_background = _ctx.input(|i| i.viewport().minimized.unwrap_or(false))
+            || self.window_hidden
+            || !_ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        let enabled = self.settings.mac_notch_widget;
+        let active = crate::notch::is_active();
+        let now_opt = self.now_playing();
+
+        let is_playing = now_opt.as_ref().is_some_and(|n| n.playing);
+        let is_local = now_opt.as_ref().is_some_and(|n| n.local);
+        let should_sample = crate::notch::should_sample_visualizer(
+            enabled,
+            is_background,
+            active,
+            is_playing,
+            is_local,
+        );
+
+        let levels = if should_sample {
+            let samples = self
+                .winamp
+                .tap
+                .window(crate::vis::FFT_SAMPLES, crate::vis::LAG);
+            let bars = self
+                .notch_analyser
+                .step(&samples, std::time::Instant::now());
+            let mut levels = [0.0f32; 5];
+            for (i, (range, scale)) in [
+                (0..4, 48.0f32),
+                (4..8, 48.0),
+                (8..12, 48.0),
+                (12..16, 48.0),
+                (16..19, 36.0),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let sum: f32 = bars[range].iter().map(|b| b.height as f32).sum();
+                levels[i] = (sum / scale).clamp(0.0, 1.0);
+            }
+            levels
+        } else {
+            if enabled {
+                self.notch_analyser.reset();
+            }
+            [0.0; 5]
+        };
+
+        let track_info = now_opt.map(|now| {
+            let art_path = now
+                .art_url
+                .as_deref()
+                .or(now.art_small.as_deref())
+                .and_then(|url| self.media_art_file(_ctx, url));
+            let artist = now
+                .artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let saved = self.is_saved(&now.uri).unwrap_or(false);
+            let tint = self.now_playing_tint().unwrap_or(self.palette.accent);
+            let accent = Some([tint.r(), tint.g(), tint.b()]);
+            crate::notch::NotchTrackInfo {
+                playing: now.playing,
+                title: now.title,
+                artist,
+                album: now.album_name,
+                duration_ms: now.duration_ms,
+                position_ms: now.position_ms,
+                art_path,
+                uri: now.uri,
+                saved,
+                accent,
+                levels,
+                is_episode: now.is_episode,
+                is_remote: !now.local,
+                shuffle: now.shuffle,
+                repeat: now.repeat,
+            }
+        });
+        crate::notch::sync_state(enabled, is_background, track_info.as_ref());
+        // Only schedule a fast repaint while the card is actively expanded or
+        // animating. Hover and state-change callbacks already call notch::wake()
+        // which triggers a repaint via the waker, so idle frames are not needed.
+        if enabled && active {
+            _ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        }
     }
 
     /// Keeps the current track in the window and taskbar title (#94).
@@ -17099,6 +17226,59 @@ mod tests {
             [Action::TogglePlay, Action::Next, Action::Previous]
         ));
         assert!(mac_menu::drain_dock_commands().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn notch_commands_become_playback_actions_without_a_window() {
+        use crate::notch::{self, NotchCommand};
+        let mut app = headless_app();
+        let _ = notch::drain_commands();
+        notch::push_command(NotchCommand::PlayPause);
+        notch::push_command(NotchCommand::Next);
+        notch::push_command(NotchCommand::Seek(45_000));
+        app.actions.clear();
+        app.handle_notch_commands();
+        assert!(matches!(
+            app.actions.as_slice(),
+            [Action::TogglePlay, Action::Next, Action::Seek(45_000)]
+        ));
+        assert!(notch::drain_commands().is_empty());
+    }
+
+    #[test]
+    fn optimistic_local_seek_holds_position_until_player_confirms_seek() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:test1234".into(),
+            title: "Test Track".into(),
+            duration_ms: 180_000,
+            ..Default::default()
+        });
+        app.local.position_ms = 10_000;
+        app.local.playback = Playback::Playing;
+        app.local.seek_sequence = 1;
+
+        assert!(app.now_playing().is_some_and(|n| n.position_ms >= 10_000));
+
+        app.seek(95_000);
+        assert_eq!(app.pending_local_position.map(|(pos, _)| pos), Some(95_000));
+
+        let now = app.now_playing().expect("now playing");
+        assert!(now.position_ms >= 95_000 && now.position_ms < 96_000);
+
+        let mut stale_state = app.local.clone();
+        stale_state.position_ms = 11_000;
+        app.handle_local(stale_state);
+        assert_eq!(app.pending_local_position.map(|(pos, _)| pos), Some(95_000));
+        assert!(app.now_playing().is_some_and(|n| n.position_ms >= 95_000));
+
+        let mut confirmed_state = app.local.clone();
+        confirmed_state.seek_sequence = 2;
+        confirmed_state.position_ms = 95_200;
+        app.handle_local(confirmed_state);
+        assert_eq!(app.pending_local_position, None);
+        assert_eq!(app.now_playing().map(|n| n.position_ms), Some(95_200));
     }
 
     fn seed_playlist(app: &mut App, id: &str) {

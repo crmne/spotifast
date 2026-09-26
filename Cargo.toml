@@ -152,13 +152,12 @@ souvlaki = { version = "0.8", default-features = false }
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 # The application menus and Dock menu (src/mac_menu.rs). "exception" lets
 # src/mac_touchbar_crash_guard.rs catch a specific AppKit Objective-C
-# exception instead of letting it abort the process.
 objc2 = { version = "0.6", features = ["exception"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSScreen", "NSColor", "NSImage", "NSImageView", "NSButton", "NSControl", "NSTrackingArea", "NSVisualEffectView", "NSTextField", "NSBezierPath", "NSFont", "NSAnimation", "NSAnimationContext"] }
 # NSAppleEventManager and NSAppleEventDescriptor carry the Spotify links
 # macOS hands an app registered for the scheme (src/mac_links.rs), and
 # NSRunLoop has the delayed perform the title bar uses (src/window.rs).
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSObjCRuntime", "NSRunLoop", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }
@@ -271,3 +270,4 @@ librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "669e00
 librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "669e004ec7a79e6eea0f87779efc69680793d3b7" }
 librespot-playback = { git = "https://github.com/crmne/librespot", rev = "669e004ec7a79e6eea0f87779efc69680793d3b7" }
 librespot-protocol = { git = "https://github.com/crmne/librespot", rev = "669e004ec7a79e6eea0f87779efc69680793d3b7" }
+

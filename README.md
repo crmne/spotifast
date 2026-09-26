@@ -236,7 +236,9 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   `spotifast next` and its siblings drive the running app from a terminal,
   a launcher, or a hotkey. On Windows, since 0.8.0, hover the taskbar button
   for Previous, Play/Pause, and Next under the window preview. On macOS,
-  right-click the Dock icon for Play/Pause, Next, and Previous.
+  right-click the Dock icon for Play/Pause, Next, and Previous, or hover
+  the notch on laptops with a notched display while Spotifast is in the
+  background to reveal playback controls and track details.
 
 ## Install
 

@@ -629,6 +629,10 @@ pub(crate) fn run() -> eframe::Result<()> {
                         spotifast::mac_menu::init();
                         let ctx = cc.egui_ctx.clone();
                         spotifast::mac_menu::set_waker(move || ctx.request_repaint());
+
+                        spotifast::notch::init();
+                        let ctx_notch = cc.egui_ctx.clone();
+                        spotifast::notch::set_waker(move || ctx_notch.request_repaint());
                     }
                     {
                         use raw_window_handle::HasDisplayHandle;

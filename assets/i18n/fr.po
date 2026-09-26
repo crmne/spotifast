@@ -1821,6 +1821,21 @@ msgctxt "language"
 msgid "System"
 msgstr "Système"
 
+#. Translators: Settings row heading for the macOS notch overlay feature (macOS only).
+#: src/ui/settings.rs:462
+msgid "MacBook notch widget"
+msgstr "Widget d’encoche MacBook"
+
+#. Translators: One-line description under the MacBook notch widget row in Settings (macOS only).
+#: src/ui/settings.rs:465
+msgid "Show interactive Now Playing widget when hovering over the notch."
+msgstr "Afficher le widget interactif En cours de lecture au survol de l’encoche."
+
+#. Translators: Label on the toggle switch that enables the macOS notch overlay (macOS only).
+#: src/ui/settings.rs:610
+msgid "MacBook notch interactive widget"
+msgstr "Widget interactif d’encoche MacBook"
+
 #: src/api/models.rs:256
 msgid "Single"
 msgstr "Single"
