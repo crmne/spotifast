@@ -222,6 +222,10 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
             gettext(locale, "Song list: copy the selected songs' links"),
         ),
         (
+            keys(platform_shortcut("Ctrl+X", "Cmd+X")),
+            gettext(locale, "Playlist: cut the selected songs"),
+        ),
+        (
             keys(platform_shortcut("Ctrl+V", "Cmd+V")),
             gettext(locale, "Playlist: add the pasted song links"),
         ),

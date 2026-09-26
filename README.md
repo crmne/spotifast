@@ -438,7 +438,8 @@ into view. Tab still reaches the artist links, Like and More controls.
 Since 0.10.0, `Ctrl+A` selects every song the list shows,
 `Ctrl+C` copies the selected songs' links one per line, and `Ctrl+V` adds
 the song links on the clipboard to the end of a playlist you can edit.
-A focused text field keeps these keys for its own text.
+`Ctrl+X` in a playlist you can edit copies the selected songs' links and
+removes the songs from it. A focused text field keeps these keys for its own text.
 Left and right arrows adjust a focused volume or seek
 slider. Windows testing with NVDA and accessibility for Winamp skins are
 still in progress.
@@ -460,6 +461,7 @@ still in progress.
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
 | `Ctrl+A` | Select every song in a playlist, album or Liked Songs |
 | `Ctrl+C` / `Ctrl+V` | Copy the selected songs' links / add copied song links to your playlist |
+| `Ctrl+X` | Copy the selected songs' links and remove the songs from your playlist |
 | `Ctrl+M` | Winamp mini player |
 | `Ctrl+Shift+K` | MilkDrop |
 | `Ctrl+,` | Settings |

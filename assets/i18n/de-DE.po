@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-25 15:14+0200\n"
+"POT-Creation-Date: 2026-09-26 12:26+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: German\n"
@@ -29,12 +29,12 @@ msgid "Play {name}"
 msgstr "{name} abspielen"
 
 #: src/ui/sidebar.rs:289 src/app.rs:2376 src/app.rs:15961
-#: src/ui/collection.rs:1630 src/ui/collection.rs:1807
+#: src/ui/collection.rs:1646 src/ui/collection.rs:1823
 msgid "Playlist"
 msgstr "Playlist"
 
 #: src/ui/sidebar.rs:299 src/app.rs:2350 src/app.rs:15966
-#: src/ui/collection.rs:1800 src/ui/home.rs:49 src/ui/keys.rs:249
+#: src/ui/collection.rs:1816 src/ui/home.rs:49 src/ui/keys.rs:253
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "Lieblingssongs"
@@ -74,12 +74,12 @@ msgstr "Ordner"
 msgid "Playlist • {owner}"
 msgstr "Playlist • {owner}"
 
-#: src/ui/sidebar.rs:810 src/i18n.rs:248 src/i18n.rs:251 src/ui/keys.rs:245
+#: src/ui/sidebar.rs:810 src/i18n.rs:248 src/i18n.rs:251 src/ui/keys.rs:249
 #: src/ui/topbar.rs:214
 msgid "Home"
 msgstr "Start"
 
-#: src/ui/sidebar.rs:821 src/app.rs:5875 src/ui/keys.rs:236
+#: src/ui/sidebar.rs:821 src/app.rs:5875 src/ui/keys.rs:240
 msgid "Search"
 msgstr "Suche"
 
@@ -183,7 +183,7 @@ msgstr[1] "Playlist • {count} Titel"
 #. Translators: Keep {count} exactly as written. It becomes a number of songs.
 #. Translators: Keep {count} exactly as written. It becomes the number of selected songs.
 #. Translators: {count} is a number of songs.
-#: src/i18n.rs:183 src/ui/widgets.rs:511 src/ui/collection.rs:1894
+#: src/i18n.rs:183 src/ui/widgets.rs:511 src/ui/collection.rs:1910
 #, rust-format
 msgid "{count} song"
 msgid_plural "{count} songs"
@@ -333,7 +333,7 @@ msgid "Next up"
 msgstr "Danach"
 
 #: src/ui/queue.rs:465 src/ui/queue.rs:498 src/ui/widgets.rs:2332
-#: src/ui/collection.rs:1006
+#: src/ui/collection.rs:1022
 msgid "Retry"
 msgstr "Erneut versuchen"
 
@@ -471,12 +471,12 @@ msgctxt "artist"
 msgid "Follow"
 msgstr "Folgen"
 
-#: src/ui/widgets.rs:907 src/ui/collection.rs:1678 src/ui/collection.rs:1700
+#: src/ui/widgets.rs:907 src/ui/collection.rs:1694 src/ui/collection.rs:1716
 #: src/ui/show.rs:169
 msgid "Remove from Your Library"
 msgstr "Aus deiner Bibliothek entfernen"
 
-#: src/ui/widgets.rs:908 src/ui/collection.rs:1677
+#: src/ui/widgets.rs:908 src/ui/collection.rs:1693
 msgid "Add to Your Library"
 msgstr "Zu deiner Bibliothek hinzufügen"
 
@@ -1076,7 +1076,7 @@ msgstr ""
 msgid "{track} Radio"
 msgstr "Radio zu {track}"
 
-#: src/ui/settings.rs:140 src/ui/keys.rs:281 src/ui/topbar.rs:406
+#: src/ui/settings.rs:140 src/ui/keys.rs:285 src/ui/topbar.rs:406
 #: src/ui/topbar.rs:436
 msgid "Settings"
 msgstr "Einstellungen"
@@ -1795,7 +1795,7 @@ msgstr "Nach Updates suchen"
 msgid "Checking…"
 msgstr "Wird geprüft…"
 
-#: src/ui/settings.rs:1640 src/ui/dialogs.rs:153 src/ui/keys.rs:291
+#: src/ui/settings.rs:1640 src/ui/dialogs.rs:153 src/ui/keys.rs:295
 #: src/ui/topbar.rs:414
 msgid "Keyboard shortcuts"
 msgstr "Tastenkürzel"
@@ -2012,29 +2012,29 @@ msgstr "Hier ist noch nichts"
 msgid "Added songs appear here."
 msgstr "Hier erscheinen hinzugefügte Songs."
 
-#: src/ui/collection.rs:1228 src/ui/home.rs:653
+#: src/ui/collection.rs:1244 src/ui/home.rs:653
 msgid "Your top songs"
 msgstr "Deine Top-Songs"
 
-#: src/ui/collection.rs:1237
+#: src/ui/collection.rs:1253
 msgid "Your most-played tracks from the last four weeks."
 msgstr "Deine meistgespielten Titel der letzten vier Wochen."
 
-#: src/ui/collection.rs:1626
+#: src/ui/collection.rs:1642
 msgid "Collaborative Playlist"
 msgstr "Gemeinsame Playlist"
 
-#: src/ui/collection.rs:1628
+#: src/ui/collection.rs:1644
 msgid "Public Playlist"
 msgstr "Öffentliche Playlist"
 
-#: src/ui/collection.rs:1699
+#: src/ui/collection.rs:1715
 msgid "Save to Your Library"
 msgstr "In deiner Bibliothek speichern"
 
 #. Translators: {count} is a number of songs and {duration} their total
 #. length, such as "2 hr 13 min".
-#: src/ui/collection.rs:1907
+#: src/ui/collection.rs:1923
 #, rust-format
 msgid "{count} song, {duration}"
 msgid_plural "{count} songs, {duration}"
@@ -2042,19 +2042,19 @@ msgstr[0] "{count} Song, {duration}"
 msgstr[1] "{count} Songs, {duration}"
 
 #. Translators: {name} is the name of someone who added songs to the playlist.
-#: src/ui/collection.rs:1921
+#: src/ui/collection.rs:1937
 #, rust-format
 msgid "with {name}"
 msgstr "mit {name}"
 
 #. Translators: {first} and {second} are names of people who added songs.
-#: src/ui/collection.rs:1925
+#: src/ui/collection.rs:1941
 #, rust-format
 msgid "with {first} and {second}"
 msgstr "mit {first} und {second}"
 
 #. Translators: {count} is how many other people added songs to the playlist.
-#: src/ui/collection.rs:1932
+#: src/ui/collection.rs:1948
 #, rust-format
 msgid "and {count} other"
 msgid_plural "and {count} others"
@@ -2403,83 +2403,87 @@ msgid "Song list: copy the selected songs' links"
 msgstr "Songliste: Links der ausgewählten Songs kopieren"
 
 #: src/ui/keys.rs:226
+msgid "Playlist: cut the selected songs"
+msgstr "Playlist: ausgewählte Songs ausschneiden"
+
+#: src/ui/keys.rs:230
 msgid "Playlist: add the pasted song links"
 msgstr "Playlist: eingefügte Songlinks hinzufügen"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:231
+#: src/ui/keys.rs:235
 msgid "Cmd+F  or  /"
 msgstr "Cmd+F  oder  /"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:234
+#: src/ui/keys.rs:238
 msgid "Ctrl+F  or  /"
 msgstr "Strg+F  oder  /"
 
-#: src/ui/keys.rs:240
+#: src/ui/keys.rs:244
 msgid "Show or hide the sidebar"
 msgstr "Seitenleiste ein- oder ausblenden"
 
-#: src/ui/keys.rs:242
+#: src/ui/keys.rs:246
 msgid "Back or forward"
 msgstr "Zurück oder vorwärts"
 
-#: src/ui/keys.rs:253
+#: src/ui/keys.rs:257
 msgid "Go to the playing artist"
 msgstr "Zum aktuellen Künstler"
 
-#: src/ui/keys.rs:257
+#: src/ui/keys.rs:261
 msgid "Go to the playing album"
 msgstr "Zum aktuellen Album"
 
-#: src/ui/keys.rs:259
+#: src/ui/keys.rs:263
 msgid "Winamp mini player"
 msgstr "Winamp-Mini-Player"
 
-#: src/ui/keys.rs:262
+#: src/ui/keys.rs:266
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop, unter dem Mini-Player"
 
 #. Translators: Keep the key name F. Translate "or" and "double-click".
-#: src/ui/keys.rs:266
+#: src/ui/keys.rs:270
 msgid "F  or  double-click"
 msgstr "F  oder  Doppelklick"
 
-#: src/ui/keys.rs:267
+#: src/ui/keys.rs:271
 msgid "MilkDrop: fill the screen"
 msgstr "MilkDrop: Vollbild"
 
-#: src/ui/keys.rs:269
+#: src/ui/keys.rs:273
 msgid "MilkDrop: next preset"
 msgstr "MilkDrop: nächstes Preset"
 
-#: src/ui/keys.rs:272
+#: src/ui/keys.rs:276
 msgid "MilkDrop: previous preset"
 msgstr "MilkDrop: vorheriges Preset"
 
-#: src/ui/keys.rs:274
+#: src/ui/keys.rs:278
 msgid "MilkDrop: keep this preset"
 msgstr "MilkDrop: dieses Preset behalten"
 
-#: src/ui/keys.rs:277
+#: src/ui/keys.rs:281
 msgid "MilkDrop: leave full screen, or close"
 msgstr "MilkDrop: Vollbild verlassen oder schließen"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:286
+#: src/ui/keys.rs:290
 msgid "Cmd+/ or ?"
 msgstr "Cmd+/ oder ?"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:289
+#: src/ui/keys.rs:293
 msgid "Ctrl+/ or ?"
 msgstr "Strg+/ oder ?"
 
-#: src/ui/keys.rs:295
+#: src/ui/keys.rs:299
 msgid "Close the window"
 msgstr "Fenster schließen"
 
-#: src/ui/keys.rs:297 src/ui/winamp/mod.rs:740
+#: src/ui/keys.rs:301 src/ui/winamp/mod.rs:740
 msgid "Quit"
 msgstr "Beenden"
 

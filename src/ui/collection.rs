@@ -880,9 +880,10 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     }
 }
 
-/// Select all, Copy and Paste on a song list. A focused text field keeps
-/// these keys for its own text, and an open dialog keeps them from the
-/// list behind it.
+/// Select all, Cut, Copy and Paste on a song list. Cut copies the picked
+/// songs and removes them from a playlist the account can edit. A focused
+/// text field keeps these keys for its own text, and an open dialog keeps
+/// them from the list behind it.
 fn list_shortcuts(
     ui: &egui::Ui,
     app: &mut App,
@@ -895,7 +896,7 @@ fn list_shortcuts(
     if ui.ctx().text_edit_focused() || app.dialog.is_some() {
         return;
     }
-    let paste_into = match &table.context {
+    let editable = match &table.context {
         RowContext::Context {
             editable_playlist: Some((id, _)),
             ..
@@ -906,23 +907,28 @@ fn list_shortcuts(
         } => Some(id.clone()),
         _ => None,
     };
-    let (select_all, copy, pasted) = ui.input_mut(|input| {
-        // The platform's Copy and Paste keys arrive as these events, not
-        // as key presses.
+    let (select_all, cut, copy, pasted) = ui.input_mut(|input| {
+        // The platform's Cut, Copy and Paste keys arrive as these events,
+        // not as key presses.
+        let cut = editable.is_some()
+            && !picked_songs.is_empty()
+            && input.events.contains(&egui::Event::Cut);
         let copy = !picked_songs.is_empty() && input.events.contains(&egui::Event::Copy);
-        let pasted = paste_into.as_ref().and_then(|_| {
+        let pasted = editable.as_ref().and_then(|_| {
             input.events.iter().find_map(|event| match event {
                 egui::Event::Paste(text) => Some(text.clone()),
                 _ => None,
             })
         });
         input.events.retain(|event| match event {
+            egui::Event::Cut => !cut,
             egui::Event::Copy => !copy,
             egui::Event::Paste(_) => pasted.is_none(),
             _ => true,
         });
         (
             input.consume_key(egui::Modifiers::COMMAND, egui::Key::A),
+            cut,
             copy,
             pasted,
         )
@@ -937,10 +943,20 @@ fn list_shortcuts(
             .collect();
         app.pick_rows(&table.page, view, all);
     }
-    if copy {
+    if let (true, Some(playlist_id)) = (cut, &editable) {
+        let uris = picked_songs
+            .iter()
+            .map(|song| song.uri().to_string())
+            .collect();
+        app.actions.push(Action::CopySongs(picked_songs));
+        app.actions.push(Action::RemoveFromPlaylist {
+            playlist_id: playlist_id.clone(),
+            uris,
+        });
+    } else if copy {
         app.actions.push(Action::CopySongs(picked_songs));
     }
-    if let (Some(playlist_id), Some(text)) = (paste_into, pasted) {
+    if let (Some(playlist_id), Some(text)) = (editable, pasted) {
         app.actions.push(Action::PasteSongs { playlist_id, text });
     }
 }
@@ -2824,6 +2840,65 @@ mod tests {
         table.frame(vec![egui::Event::Paste(links.into())]);
 
         // #then nothing is pasted into it
+        assert!(table.app.actions.is_empty());
+    }
+
+    /// Cut copies the picked songs and removes them from a playlist the
+    /// account can edit; elsewhere it does nothing to the list (#539).
+    #[test]
+    fn cut_copies_and_removes_songs_from_an_editable_playlist() {
+        let command = if cfg!(target_os = "macos") {
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND
+        } else {
+            egui::Modifiers::CTRL | egui::Modifiers::COMMAND
+        };
+        let select_all = vec![egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: command,
+        }];
+
+        // #given every song of an editable playlist is selected
+        let mut table = KeyboardTable::new();
+        table.editable = true;
+        table.frame(vec![]);
+        table.frame(select_all.clone());
+        table.app.actions.clear();
+
+        // #when the songs are cut
+        table.frame(vec![egui::Event::Cut]);
+
+        // #then they are copied and removed from the playlist
+        let every: Vec<String> = table
+            .items
+            .iter()
+            .map(|(item, _, _)| item.uri().to_string())
+            .collect();
+        match table.app.actions.as_slice() {
+            [
+                Action::CopySongs(copied),
+                Action::RemoveFromPlaylist { playlist_id, uris },
+            ] => {
+                let copied: Vec<String> =
+                    copied.iter().map(|item| item.uri().to_string()).collect();
+                assert_eq!(copied, every);
+                assert_eq!(playlist_id, "test");
+                assert_eq!(uris, &every);
+            }
+            other => panic!("expected a copy and a removal, got {other:?}"),
+        }
+
+        // #when the list is not an editable playlist
+        table.app.actions.clear();
+        table.editable = false;
+        table.frame(vec![]);
+        table.frame(select_all);
+        table.app.actions.clear();
+        table.frame(vec![egui::Event::Cut]);
+
+        // #then nothing is copied or removed
         assert!(table.app.actions.is_empty());
     }
 

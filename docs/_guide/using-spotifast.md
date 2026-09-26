@@ -79,6 +79,10 @@ once; links from elsewhere appear as soon as Spotify names the songs. Songs
 already in the playlist ask before being added twice, and links that are
 not songs, such as albums, are skipped.
 
+`Ctrl+X` (`Cmd+X`) in a playlist you can edit copies the selected songs'
+links the same way and removes the songs from the playlist, so `Ctrl+V` in
+another playlist moves them there.
+
 These keys edit the text instead while a search, filter or other text field
 has focus.
 
