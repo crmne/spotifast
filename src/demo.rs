@@ -5499,6 +5499,52 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The line being sung sits high in the lyrics, a fifth of the way
+    /// down, in the panel and in full screen, so the lines to come fill
+    /// the view.
+    #[test]
+    fn the_sung_line_sits_high_in_the_lyrics() {
+        for fullscreen in [false, true] {
+            let (ctx, mut app) = accessible_app(&format!("sung-line-{fullscreen}"));
+            app.show_lyrics_panel = true;
+            app.lyrics_fullscreen = Some(fullscreen);
+            app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+            app.lyrics_following = true;
+            let remote = app.remote.as_mut().unwrap();
+            remote.state.is_playing = false;
+            remote.state.progress_ms = Some(106_000);
+            let mut centre = None;
+            for frame in 0..60 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        time: Some(f64::from(frame) / 30.0),
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1280.0, 800.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| app.frame_ui(ui),
+                );
+                output.textures_delta.clear();
+                centre = output.shapes.iter().find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text)
+                        if text.galley.job.text == "Somewhere past the county line" =>
+                    {
+                        Some(text.pos.y + text.galley.size().y / 2.0)
+                    }
+                    _ => None,
+                });
+            }
+            let centre = centre.expect("the sung line is drawn");
+            assert!(
+                (60.0..320.0).contains(&centre),
+                "fullscreen {fullscreen}: the sung line is at {centre} of 800"
+            );
+            app.backend.shutdown();
+        }
+    }
+
     #[test]
     fn fullscreen_lyrics_highlight_preserves_line_layout() {
         let root =

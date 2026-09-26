@@ -11,6 +11,20 @@ use super::widgets;
 
 const LINE_SIZE: f32 = 19.0;
 const LINE_GAP: f32 = 10.0;
+/// Where the line being sung sits, as a fraction of the visible lyrics from
+/// the top: high up, so the lines to come fill most of the view.
+const SUNG_LINE_AT: f32 = 0.2;
+
+/// Scrolls so the middle of `line` sits `SUNG_LINE_AT` of the way down the
+/// visible lyrics.
+fn show_sung_line(ui: &egui::Ui, line: Rect, animation: Option<egui::style::ScrollAnimation>) {
+    let above = (ui.clip_rect().height() * SUNG_LINE_AT - line.height() / 2.0).max(0.0);
+    let target = Rect::from_min_max(pos2(line.left(), line.top() - above), line.max);
+    match animation {
+        Some(animation) => ui.scroll_to_rect_animation(target, Some(Align::Min), animation),
+        None => ui.scroll_to_rect(target, Some(Align::Min)),
+    }
+}
 /// How long a line takes to light up or fade.
 const LIGHT_UP_SECONDS: f32 = 0.22;
 
@@ -228,7 +242,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     app.lyrics_following = true;
                 }
                 if is_active && follow {
-                    ui.scroll_to_rect(rect, Some(Align::Center));
+                    show_sung_line(ui, rect, None);
                 }
                 ui.add_space(LINE_GAP);
             }
@@ -247,7 +261,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     Some(Align::Center),
                 );
             }
-            ui.add_space(60.0);
+            // Room for the last line to rise to where a sung line sits.
+            ui.add_space((ui.clip_rect().height() * (1.0 - SUNG_LINE_AT)).max(60.0));
         },
     );
     crate::autoscroll::lyrics(ui, scroll.id);
@@ -497,10 +512,15 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                     animation,
                 );
             }
-            let padding = if lyrics.synced {
-                (viewport.height() * 0.5 - size).max(12.0)
+            // Room for the first line to sit where a sung line sits, and for
+            // the last to rise to it.
+            let (padding, below) = if lyrics.synced {
+                (
+                    (viewport.height() * SUNG_LINE_AT - size).max(12.0),
+                    viewport.height() * (1.0 - SUNG_LINE_AT),
+                )
             } else {
-                12.0
+                (12.0, 60.0)
             };
             ui.add_space(padding);
             for (index, line) in lyrics.lines.iter().enumerate() {
@@ -555,7 +575,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                     app.actions.push(Action::FollowLyrics);
                 }
                 if is_active && follow {
-                    ui.scroll_to_rect_animation(rect, Some(Align::Center), animation);
+                    show_sung_line(ui, rect, Some(animation));
                 }
                 ui.add_space(27.0);
             }
@@ -575,7 +595,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                     animation,
                 );
             }
-            ui.add_space(padding.max(60.0));
+            ui.add_space(below.max(60.0));
         });
     // Scrolling by hand means the reader wants to look elsewhere; the
     // Follow button in the header picks the song back up.

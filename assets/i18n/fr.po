@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 15:33+0200\n"
+"POT-Creation-Date: 2026-09-26 15:36+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: French\n"
@@ -216,7 +216,7 @@ msgstr "{name}, dossier, réduit"
 msgid "{name}, folder, expanded"
 msgstr "{name}, dossier, développé"
 
-#: src/ui/player_bar.rs:331 src/ui/lyrics.rs:108 src/ui/lyrics.rs:412
+#: src/ui/player_bar.rs:331 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
 msgid "Nothing playing"
 msgstr "Aucune lecture en cours"
 
@@ -286,7 +286,7 @@ msgstr "Se connecter à un appareil"
 msgid "Queue"
 msgstr "File d’attente"
 
-#: src/ui/player_bar.rs:842 src/ui/lyrics.rs:46 src/ui/lyrics.rs:335
+#: src/ui/player_bar.rs:842 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
 msgid "Lyrics"
 msgstr "Paroles"
 
@@ -294,7 +294,7 @@ msgstr "Paroles"
 msgid "Recent"
 msgstr "Récents"
 
-#: src/ui/queue.rs:85 src/ui/lyrics.rs:57 src/ui/mod.rs:360
+#: src/ui/queue.rs:85 src/ui/lyrics.rs:71 src/ui/mod.rs:360
 msgid "Close"
 msgstr "Fermer"
 
@@ -349,47 +349,47 @@ msgstr "Les titres écoutés s’affichent ici."
 msgid "Load more"
 msgstr "Charger plus"
 
-#: src/ui/lyrics.rs:69
+#: src/ui/lyrics.rs:83
 msgid "Full screen lyrics"
 msgstr "Paroles en plein écran"
 
-#: src/ui/lyrics.rs:81 src/ui/lyrics.rs:358
+#: src/ui/lyrics.rs:95 src/ui/lyrics.rs:373
 msgctxt "lyrics"
 msgid "Follow"
 msgstr "Suivre"
 
-#: src/ui/lyrics.rs:109 src/ui/lyrics.rs:413
+#: src/ui/lyrics.rs:123 src/ui/lyrics.rs:428
 msgid "Play a song to see its lyrics."
 msgstr "Lancez un titre pour voir ses paroles."
 
 #. Translators: Keep {error} unchanged. It is the original failure detail.
-#: src/ui/lyrics.rs:122 src/ui/lyrics.rs:426
+#: src/ui/lyrics.rs:136 src/ui/lyrics.rs:441
 #, rust-format
 msgid "Couldn't fetch the lyrics: {error}"
 msgstr "Impossible de récupérer les paroles : {error}"
 
-#: src/ui/lyrics.rs:128 src/ui/lyrics.rs:432 src/ui/settings.rs:367
+#: src/ui/lyrics.rs:142 src/ui/lyrics.rs:447 src/ui/settings.rs:367
 #: src/ui/login.rs:106
 msgid "Try again"
 msgstr "Réessayer"
 
-#: src/ui/lyrics.rs:139 src/ui/lyrics.rs:443
+#: src/ui/lyrics.rs:153 src/ui/lyrics.rs:458
 msgid "No lyrics"
 msgstr "Aucune parole"
 
-#: src/ui/lyrics.rs:140 src/ui/lyrics.rs:444
+#: src/ui/lyrics.rs:154 src/ui/lyrics.rs:459
 msgid "No lyrics found for this track."
 msgstr "Aucune parole trouvée pour ce titre."
 
-#: src/ui/lyrics.rs:149 src/ui/lyrics.rs:453
+#: src/ui/lyrics.rs:163 src/ui/lyrics.rs:468
 msgid "Instrumental"
 msgstr "Instrumental"
 
-#: src/ui/lyrics.rs:150 src/ui/lyrics.rs:454
+#: src/ui/lyrics.rs:164 src/ui/lyrics.rs:469
 msgid "No timed lyrics for this track."
 msgstr "Aucune parole synchronisée pour ce titre."
 
-#: src/ui/lyrics.rs:346
+#: src/ui/lyrics.rs:361
 msgid "Leave full screen (Esc)"
 msgstr "Quitter le plein écran (Esc)"
 

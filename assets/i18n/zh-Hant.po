@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 15:33+0200\n"
+"POT-Creation-Date: 2026-09-26 15:36+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -212,7 +212,7 @@ msgstr "{name}，資料夾，已收合"
 msgid "{name}, folder, expanded"
 msgstr "{name}，資料夾，已展開"
 
-#: src/ui/player_bar.rs:331 src/ui/lyrics.rs:108 src/ui/lyrics.rs:412
+#: src/ui/player_bar.rs:331 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
 msgid "Nothing playing"
 msgstr "未在播放"
 
@@ -282,7 +282,7 @@ msgstr "連接至裝置"
 msgid "Queue"
 msgstr "待播清單"
 
-#: src/ui/player_bar.rs:842 src/ui/lyrics.rs:46 src/ui/lyrics.rs:335
+#: src/ui/player_bar.rs:842 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
 msgid "Lyrics"
 msgstr "歌詞"
 
@@ -290,7 +290,7 @@ msgstr "歌詞"
 msgid "Recent"
 msgstr "最近播放"
 
-#: src/ui/queue.rs:85 src/ui/lyrics.rs:57 src/ui/mod.rs:360
+#: src/ui/queue.rs:85 src/ui/lyrics.rs:71 src/ui/mod.rs:360
 msgid "Close"
 msgstr "關閉"
 
@@ -345,47 +345,47 @@ msgstr "播放過的歌曲會顯示在這裡。"
 msgid "Load more"
 msgstr "載入更多"
 
-#: src/ui/lyrics.rs:69
+#: src/ui/lyrics.rs:83
 msgid "Full screen lyrics"
 msgstr "全螢幕歌詞"
 
-#: src/ui/lyrics.rs:81 src/ui/lyrics.rs:358
+#: src/ui/lyrics.rs:95 src/ui/lyrics.rs:373
 msgctxt "lyrics"
 msgid "Follow"
 msgstr "跟隨"
 
-#: src/ui/lyrics.rs:109 src/ui/lyrics.rs:413
+#: src/ui/lyrics.rs:123 src/ui/lyrics.rs:428
 msgid "Play a song to see its lyrics."
 msgstr "播放歌曲以查看歌詞。"
 
 #. Translators: Keep {error} unchanged. It is the original failure detail.
-#: src/ui/lyrics.rs:122 src/ui/lyrics.rs:426
+#: src/ui/lyrics.rs:136 src/ui/lyrics.rs:441
 #, rust-format
 msgid "Couldn't fetch the lyrics: {error}"
 msgstr "無法取得歌詞：{error}"
 
-#: src/ui/lyrics.rs:128 src/ui/lyrics.rs:432 src/ui/settings.rs:367
+#: src/ui/lyrics.rs:142 src/ui/lyrics.rs:447 src/ui/settings.rs:367
 #: src/ui/login.rs:106
 msgid "Try again"
 msgstr "再試一次"
 
-#: src/ui/lyrics.rs:139 src/ui/lyrics.rs:443
+#: src/ui/lyrics.rs:153 src/ui/lyrics.rs:458
 msgid "No lyrics"
 msgstr "暫無歌詞"
 
-#: src/ui/lyrics.rs:140 src/ui/lyrics.rs:444
+#: src/ui/lyrics.rs:154 src/ui/lyrics.rs:459
 msgid "No lyrics found for this track."
 msgstr "未找到這首歌的歌詞。"
 
-#: src/ui/lyrics.rs:149 src/ui/lyrics.rs:453
+#: src/ui/lyrics.rs:163 src/ui/lyrics.rs:468
 msgid "Instrumental"
 msgstr "純音樂"
 
-#: src/ui/lyrics.rs:150 src/ui/lyrics.rs:454
+#: src/ui/lyrics.rs:164 src/ui/lyrics.rs:469
 msgid "No timed lyrics for this track."
 msgstr "這首歌沒有同步歌詞。"
 
-#: src/ui/lyrics.rs:346
+#: src/ui/lyrics.rs:361
 msgid "Leave full screen (Esc)"
 msgstr "退出全螢幕 (Esc)"
 
