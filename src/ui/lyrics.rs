@@ -282,8 +282,12 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             let rect = ui.max_rect();
             background(app, ui, rect);
-            let width = fullscreen_content_width(rect.width());
             let top = theme::titlebar_inset(ui.ctx()) + 24.0;
+            if app.now_playing().is_some() && rect.width() >= COVER_BESIDE_MIN_WIDTH {
+                with_cover(app, ui, rect, top);
+                return;
+            }
+            let width = fullscreen_content_width(rect.width());
             let region = Rect::from_min_max(
                 pos2(rect.center().x - width / 2.0, rect.top() + top),
                 pos2(rect.center().x + width / 2.0, rect.bottom()),
@@ -295,6 +299,143 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
             content.add_space(16.0);
             fullscreen_contents(app, &mut content);
         });
+}
+
+/// The widest the lyrics get beside the cover, so lines stay easy to read.
+const LYRICS_BESIDE_WIDTH: f32 = 640.0;
+
+/// The narrowest window that shows the cover beside the lyrics; narrower
+/// ones keep a single column with a small cover in the heading.
+const COVER_BESIDE_MIN_WIDTH: f32 = 900.0;
+
+/// Full screen with the cover large: beside the lyrics when there are
+/// words to follow, and alone in the middle when there are none, a calm
+/// view of what is playing.
+fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
+    let outer = Rect::from_min_max(
+        pos2(rect.left() + 48.0, rect.top() + top),
+        pos2(rect.right() - 48.0, rect.bottom() - 40.0),
+    );
+    let mut header = ui.new_child(UiBuilder::new().max_rect(outer));
+    fullscreen_header(app, &mut header);
+    let below = Rect::from_min_max(
+        pos2(outer.left(), header.min_rect().bottom() + 24.0),
+        outer.max,
+    );
+    // Only a song with nothing to read gets the cover alone; a failed fetch
+    // keeps its message and retry beside the cover.
+    let words = !matches!(
+        &app.lyrics,
+        Loadable::Loaded(None)
+            | Loadable::Loaded(Some(crate::lyrics::Lyrics {
+                instrumental: true,
+                ..
+            }))
+    );
+    if words {
+        // The cover and the lyrics are one group, centred in the window.
+        let gap = 64.0;
+        let side = (below.width() * 0.38)
+            .min(below.height() - 90.0)
+            .clamp(200.0, 520.0);
+        let lyrics_width = (below.width() - side - gap).min(LYRICS_BESIDE_WIDTH);
+        let left = below.center().x - (side + gap + lyrics_width) / 2.0;
+        let column = Rect::from_min_size(
+            pos2(left, below.center().y - (side + 90.0) / 2.0),
+            vec2(side, side + 90.0),
+        );
+        big_cover(app, ui, column, Align::Min);
+        let lyrics = Rect::from_min_max(
+            pos2(column.right() + gap, below.top()),
+            pos2(column.right() + gap + lyrics_width, below.bottom()),
+        );
+        let mut content = ui.new_child(UiBuilder::new().max_rect(lyrics));
+        fullscreen_contents(app, &mut content);
+    } else {
+        let side = (below.height() - 140.0)
+            .min(below.width() * 0.5)
+            .clamp(200.0, 560.0);
+        let column = Rect::from_center_size(below.center(), vec2(side, side + 90.0));
+        big_cover(app, ui, column, Align::Center);
+        // Why there are no words, quietly, under the song.
+        let (heading, detail) = if matches!(app.lyrics, Loadable::Loaded(Some(_))) {
+            (
+                gettext(app.locale, "Instrumental"),
+                gettext(app.locale, "No timed lyrics for this track."),
+            )
+        } else {
+            (
+                gettext(app.locale, "No lyrics"),
+                gettext(app.locale, "No lyrics found for this track."),
+            )
+        };
+        let heading = ui.painter().text(
+            pos2(column.center().x, column.bottom() + 8.0),
+            egui::Align2::CENTER_TOP,
+            heading,
+            theme::semibold(13.0),
+            Color32::from_gray(200),
+        );
+        ui.painter().text(
+            pos2(column.center().x, heading.bottom() + 4.0),
+            egui::Align2::CENTER_TOP,
+            detail,
+            theme::regular(13.0),
+            Color32::from_gray(170),
+        );
+    }
+}
+
+/// The playing song's cover filling the top of `column`, with its title and
+/// artists beneath, aligned to its left edge or centred.
+fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
+    let Some(now) = app.now_playing() else {
+        return;
+    };
+    let side = column.width();
+    let cover = Rect::from_min_size(column.min, vec2(side, side));
+    let radius = 10.0;
+    ui.painter().add(
+        egui::epaint::Shadow {
+            offset: [0, 18],
+            blur: 48,
+            spread: 0,
+            color: Color32::from_black_alpha(140),
+        }
+        .as_shape(cover, radius),
+    );
+    widgets::paint_cover(
+        ui,
+        &theme::Palette::dark(),
+        now.art_url.as_deref().or(now.art_small.as_deref()),
+        cover,
+        radius,
+        Icon::Music,
+        Some(app.backend.art()),
+    );
+    let words = Rect::from_min_max(pos2(column.left(), cover.bottom() + 18.0), column.max);
+    let mut text = ui.new_child(
+        UiBuilder::new()
+            .max_rect(words)
+            .layout(Layout::top_down(align)),
+    );
+    text.spacing_mut().item_spacing.y = 4.0;
+    text.add(
+        egui::Label::new(
+            egui::RichText::new(&now.title)
+                .font(theme::semibold(22.0))
+                .color(Color32::WHITE),
+        )
+        .truncate(),
+    );
+    text.add(
+        egui::Label::new(
+            egui::RichText::new(&now.subtitle)
+                .font(theme::regular(14.0))
+                .color(Color32::from_gray(225)),
+        )
+        .truncate(),
+    );
 }
 
 fn fullscreen_content_width(viewport_width: f32) -> f32 {

@@ -363,10 +363,13 @@ Choose the microphone button in the player bar, or press **L**, to open lyrics.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
 
-**In development, not included in 0.8.0:** the expand button opens lyrics in
-full screen. Press **Esc** or choose the shrink button to return to your previous
-window size. Full-screen lyrics scroll smoothly and highlight the playing line
-automatically. Scrolling by hand pauses following; choose **Follow** to resume.
+The expand button opens lyrics in full screen. Press **Esc** or choose the
+shrink button to return to your previous window size. Full-screen lyrics
+scroll smoothly and highlight the playing line automatically. Scrolling by
+hand pauses following; choose **Follow** to resume. Since 0.11.0, a wide
+window shows the song's cover beside the lyrics, the two centred together,
+and a song without words, such as an instrumental, shows just its cover in
+the middle of the screen.
 Since 0.10.0, quitting while lyrics are full screen no longer leaves
 the next launch stuck in full screen: the window returns to its previous size.
 

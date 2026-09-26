@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 18:51+0200\n"
+"POT-Creation-Date: 2026-09-26 18:56+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -220,7 +220,7 @@ msgstr "{name}, mapp, expanderad"
 msgid "Click to change the visualizer"
 msgstr "Klicka för att byta visualisering"
 
-#: src/ui/player_bar.rs:374 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
+#: src/ui/player_bar.rs:374 src/ui/lyrics.rs:122 src/ui/lyrics.rs:568
 msgid "Nothing playing"
 msgstr "Inget spelas"
 
@@ -290,7 +290,7 @@ msgstr "Anslut till en enhet"
 msgid "Queue"
 msgstr "Kö"
 
-#: src/ui/player_bar.rs:885 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
+#: src/ui/player_bar.rs:885 src/ui/lyrics.rs:60 src/ui/lyrics.rs:491
 msgid "Lyrics"
 msgstr "Låttext"
 
@@ -357,43 +357,43 @@ msgstr "Läs in fler"
 msgid "Full screen lyrics"
 msgstr "Låttext i helskärm"
 
-#: src/ui/lyrics.rs:95 src/ui/lyrics.rs:373
+#: src/ui/lyrics.rs:95 src/ui/lyrics.rs:514
 msgctxt "lyrics"
 msgid "Follow"
 msgstr "Följ"
 
-#: src/ui/lyrics.rs:123 src/ui/lyrics.rs:428
+#: src/ui/lyrics.rs:123 src/ui/lyrics.rs:569
 msgid "Play a song to see its lyrics."
 msgstr "Spela en låt för att se texten."
 
 #. Translators: Keep {error} unchanged. It is the original failure detail.
-#: src/ui/lyrics.rs:136 src/ui/lyrics.rs:441
+#: src/ui/lyrics.rs:136 src/ui/lyrics.rs:582
 #, rust-format
 msgid "Couldn't fetch the lyrics: {error}"
 msgstr "Kunde inte hämta låttexten: {error}"
 
-#: src/ui/lyrics.rs:142 src/ui/lyrics.rs:447 src/ui/settings.rs:370
+#: src/ui/lyrics.rs:142 src/ui/lyrics.rs:588 src/ui/settings.rs:370
 #: src/ui/login.rs:106
 msgid "Try again"
 msgstr "Försök igen"
 
-#: src/ui/lyrics.rs:153 src/ui/lyrics.rs:458
+#: src/ui/lyrics.rs:153 src/ui/lyrics.rs:368 src/ui/lyrics.rs:599
 msgid "No lyrics"
 msgstr "Ingen låttext"
 
-#: src/ui/lyrics.rs:154 src/ui/lyrics.rs:459
+#: src/ui/lyrics.rs:154 src/ui/lyrics.rs:369 src/ui/lyrics.rs:600
 msgid "No lyrics found for this track."
 msgstr "Ingen text hittades för den här låten."
 
-#: src/ui/lyrics.rs:163 src/ui/lyrics.rs:468
+#: src/ui/lyrics.rs:163 src/ui/lyrics.rs:363 src/ui/lyrics.rs:609
 msgid "Instrumental"
 msgstr "Instrumental"
 
-#: src/ui/lyrics.rs:164 src/ui/lyrics.rs:469
+#: src/ui/lyrics.rs:164 src/ui/lyrics.rs:364 src/ui/lyrics.rs:610
 msgid "No timed lyrics for this track."
 msgstr "Ingen synkroniserad text för den här låten."
 
-#: src/ui/lyrics.rs:361
+#: src/ui/lyrics.rs:502
 msgid "Leave full screen (Esc)"
 msgstr "Lämna helskärm (Esc)"
 

@@ -170,7 +170,8 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   to the viewed collection.
 - **Lyrics.** Follow synced lyrics in a side panel or full-screen view, or read
   unsynced lyrics when timestamps are unavailable. Full-screen lyrics scroll
-  smoothly and highlight the playing line automatically.
+  smoothly and highlight the playing line automatically, beside the song's
+  cover; a song without words shows just its cover.
 - **Resumes the last session.** On startup, the last song is paused where it
   stopped. Play resumes it, and the other playback controls work before it
   starts.

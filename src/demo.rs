@@ -1023,6 +1023,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     app.actions.push(Action::SetLyricsFullscreen(true));
                 }
             }
+            // Full-screen lyrics drawn in the window as it is, for shots at
+            // a chosen size, which a real full screen would override.
+            "lyrics-fullscreen-view" | "lyrics-fullscreen-instrumental" => {
+                app.lyrics_uri = app.now_playing().map(|now| now.uri);
+                let mut lyrics = sample_lyrics();
+                lyrics.instrumental = surface == "lyrics-fullscreen-instrumental";
+                app.lyrics = Loadable::Loaded(Some(lyrics));
+                app.lyrics_following = true;
+                app.show_lyrics_panel = true;
+                app.lyrics_fullscreen = Some(false);
+            }
             // Titles in scripts the interface font does not cover.
             "scripts" => {
                 let titles = [
@@ -5617,6 +5628,57 @@ mod tests {
                 (60.0..320.0).contains(&centre),
                 "fullscreen {fullscreen}: the sung line is at {centre} of 800"
             );
+            app.backend.shutdown();
+        }
+    }
+
+    /// Full screen puts the cover and the lyrics side by side as one centred
+    /// group, and a song without words gets its cover alone in the middle.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn full_screen_lyrics_show_the_cover_beside_the_words_or_alone() {
+        let find = |shapes: &[egui::epaint::ClippedShape], wanted: &str| {
+            shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == wanted => {
+                    Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                }
+                _ => None,
+            })
+        };
+        for (surface, words) in [
+            ("lyrics-fullscreen-view", true),
+            ("lyrics-fullscreen-instrumental", false),
+        ] {
+            let (ctx, mut app) = accessible_app(surface);
+            apply_flags(&mut app, None, Some(surface));
+            let mut shapes = Vec::new();
+            for frame in 0..30 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        time: Some(f64::from(frame) / 30.0),
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1600.0, 900.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| app.frame_ui(ui),
+                );
+                output.textures_delta.clear();
+                shapes = output.shapes;
+            }
+            let lyric = find(&shapes, "Somewhere past the county line");
+            let detail = find(&shapes, "No timed lyrics for this track.");
+            if words {
+                let lyric = lyric.expect("the words are drawn");
+                // Right of a cover that starts well in from the left edge.
+                assert!(lyric.left() > 600.0, "beside the cover: {lyric:?}");
+                assert!(lyric.left() < 1000.0, "the group is centred: {lyric:?}");
+            } else {
+                assert!(lyric.is_none());
+                let detail = detail.expect("why there are no words");
+                assert!((detail.center().x - 800.0).abs() < 2.0, "{detail:?}");
+            }
             app.backend.shutdown();
         }
     }
