@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 19:14+0200\n"
+"POT-Creation-Date: 2026-09-26 19:23+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -294,7 +294,7 @@ msgstr "歌詞"
 msgid "Recent"
 msgstr "履歴"
 
-#: src/ui/queue.rs:85 src/ui/lyrics.rs:71 src/ui/mod.rs:365
+#: src/ui/queue.rs:85 src/ui/lyrics.rs:71 src/ui/mod.rs:383
 msgid "Close"
 msgstr "閉じる"
 
@@ -2566,15 +2566,15 @@ msgstr "プロキシ設定"
 msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr "Spotifast {version} • Spotifyとは関係ありません"
 
-#: src/ui/mod.rs:351
+#: src/ui/mod.rs:369
 msgid "Minimize"
 msgstr "最小化"
 
-#: src/ui/mod.rs:357
+#: src/ui/mod.rs:375
 msgid "Restore"
 msgstr "元に戻す"
 
-#: src/ui/mod.rs:359
+#: src/ui/mod.rs:377
 msgid "Maximize"
 msgstr "最大化"
 

@@ -186,13 +186,12 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             }
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
             // egui fades a scrolled page's edge into the panel's plain
-            // colour, which shows as a pale band over a cover's tint.
-            if tint.is_some() {
-                ui.spacing_mut().scroll.fade.strength = 0.0;
-            }
+            // colour, which shows as a pale band over a cover's tint; the
+            // page casts a shadow under the header instead.
+            ui.spacing_mut().scroll.fade.strength = 0.0;
             topbar::show(app, ui);
             let page = app.page().clone();
-            crate::autoscroll::show(
+            let scroll = crate::autoscroll::show(
                 ui,
                 egui::ScrollArea::vertical()
                     .id_salt(("page", page.encode()))
@@ -227,7 +226,26 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                         });
                 },
             );
+            header_shadow(ui, scroll.inner_rect, scroll.state.offset.y, palette.dark);
         });
+}
+
+/// The shadow the header casts on a page scrolled under it, deepening over
+/// the first few points of scrolling. Dark in both themes, lighter over a
+/// light page.
+fn header_shadow(ui: &egui::Ui, page: Rect, scrolled: f32, dark: bool) {
+    let depth = (scrolled / 24.0).clamp(0.0, 1.0);
+    if depth <= 0.0 {
+        return;
+    }
+    let strength = if dark { 110.0 } else { 36.0 };
+    let rect = Rect::from_min_size(page.min, vec2(page.width(), 14.0));
+    widgets::paint_vertical_gradient(
+        ui,
+        rect,
+        egui::Color32::from_black_alpha((strength * depth) as u8),
+        egui::Color32::TRANSPARENT,
+    );
 }
 
 /// Makes `rect` drag the borderless window. Register it before child widgets so
@@ -601,6 +619,47 @@ mod window_chrome_tests {
                 resize_direction(window, position).map(|hit| hit.0),
                 expected
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The header casts a shadow only on a page scrolled under it, and it
+    /// is black in both themes, never the page's own colour.
+    #[test]
+    fn the_header_shadow_appears_once_the_page_scrolls() {
+        let ctx = egui::Context::default();
+        let page = Rect::from_min_size(egui::pos2(0.0, 80.0), vec2(800.0, 600.0));
+        let shadows = |scrolled: f32, dark: bool| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                header_shadow(ui, page, scrolled, dark);
+            });
+            output.textures_delta.clear();
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Mesh(mesh) => Some(mesh.vertices.clone()),
+                    _ => None,
+                })
+                .flatten()
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            shadows(0.0, true).is_empty(),
+            "nothing at the top of the page"
+        );
+        for dark in [true, false] {
+            let vertices = shadows(40.0, dark);
+            let top = vertices
+                .iter()
+                .find(|vertex| vertex.pos.y == page.top())
+                .expect("a shadow along the page's top edge");
+            assert!(top.color.a() > 0);
+            assert_eq!((top.color.r(), top.color.g(), top.color.b()), (0, 0, 0));
         }
     }
 }
