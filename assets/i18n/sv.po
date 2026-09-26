@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 17:06+0200\n"
+"POT-Creation-Date: 2026-09-26 17:03+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -28,12 +28,12 @@ msgstr "Pausa {name}"
 msgid "Play {name}"
 msgstr "Spela {name}"
 
-#: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16171
+#: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16175
 #: src/ui/collection.rs:1646 src/ui/collection.rs:1823
 msgid "Playlist"
 msgstr "Spellista"
 
-#: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16176
+#: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16180
 #: src/ui/collection.rs:1816 src/ui/home.rs:49 src/ui/keys.rs:253
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -158,7 +158,7 @@ msgstr "Inga träffar."
 msgid "Sort by recently played"
 msgstr "Sortera efter nyligen spelade"
 
-#: src/ui/sidebar.rs:1828 src/ui/player_bar.rs:612 src/ui/widgets.rs:956
+#: src/ui/sidebar.rs:1828 src/ui/player_bar.rs:625 src/ui/widgets.rs:956
 #: src/ui/widgets.rs:2349 src/ui/artist.rs:329 src/ui/collection.rs:214
 #: src/ui/home.rs:147 src/ui/search.rs:390 src/ui/show.rs:311
 msgid "Play"
@@ -216,77 +216,81 @@ msgstr "{name}, mapp, hopfälld"
 msgid "{name}, folder, expanded"
 msgstr "{name}, mapp, expanderad"
 
-#: src/ui/player_bar.rs:332 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
+#: src/ui/player_bar.rs:74
+msgid "Click to change the visualizer"
+msgstr "Klicka för att byta visualisering"
+
+#: src/ui/player_bar.rs:345 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
 msgid "Nothing playing"
 msgstr "Inget spelas"
 
-#: src/ui/player_bar.rs:338 src/app.rs:7213
+#: src/ui/player_bar.rs:351 src/app.rs:7213
 msgid "Pick a song, album, or playlist"
 msgstr "Välj en låt, ett album eller en spellista"
 
-#: src/ui/player_bar.rs:468 src/ui/widgets.rs:560 src/ui/widgets.rs:786
+#: src/ui/player_bar.rs:481 src/ui/widgets.rs:560 src/ui/widgets.rs:786
 #: src/ui/widgets.rs:1684
 msgid "Remove from Liked Songs"
 msgstr "Ta bort från Gillade låtar"
 
-#: src/ui/player_bar.rs:474 src/ui/widgets.rs:563 src/ui/widgets.rs:789
+#: src/ui/player_bar.rs:487 src/ui/widgets.rs:563 src/ui/widgets.rs:789
 #: src/ui/widgets.rs:1686
 msgid "Save to Liked Songs"
 msgstr "Spara i Gillade låtar"
 
-#: src/ui/player_bar.rs:556 src/ui/player_bar.rs:563 src/ui/collection.rs:260
+#: src/ui/player_bar.rs:569 src/ui/player_bar.rs:576 src/ui/collection.rs:260
 msgid "Shuffle"
 msgstr "Blanda"
 
-#: src/ui/player_bar.rs:577
+#: src/ui/player_bar.rs:590
 msgid "Previous"
 msgstr "Föregående"
 
-#: src/ui/player_bar.rs:610 src/ui/collection.rs:212
+#: src/ui/player_bar.rs:623 src/ui/collection.rs:212
 msgid "Pause"
 msgstr "Pausa"
 
-#: src/ui/player_bar.rs:628
+#: src/ui/player_bar.rs:641
 msgid "Next"
 msgstr "Nästa"
 
-#: src/ui/player_bar.rs:636
+#: src/ui/player_bar.rs:649
 msgid "Repeat"
 msgstr "Upprepa"
 
-#: src/ui/player_bar.rs:640
+#: src/ui/player_bar.rs:653
 msgid "Repeat one"
 msgstr "Upprepa en låt"
 
-#: src/ui/player_bar.rs:645
+#: src/ui/player_bar.rs:658
 msgid "Repeat off"
 msgstr "Stäng av upprepning"
 
-#: src/ui/player_bar.rs:706
+#: src/ui/player_bar.rs:719
 msgid "Playback position (%)"
 msgstr "Uppspelningsposition (%)"
 
-#: src/ui/player_bar.rs:744
+#: src/ui/player_bar.rs:757
 msgid "Volume (%)"
 msgstr "Volym (%)"
 
-#: src/ui/player_bar.rs:777
+#: src/ui/player_bar.rs:790
 msgid "Unmute"
 msgstr "Slå på ljudet"
 
-#: src/ui/player_bar.rs:779
+#: src/ui/player_bar.rs:792
 msgid "Mute"
 msgstr "Stäng av ljudet"
 
-#: src/ui/player_bar.rs:798 src/ui/devices.rs:193
+#: src/ui/player_bar.rs:811 src/ui/devices.rs:193
 msgid "Connect to a device"
 msgstr "Anslut till en enhet"
 
-#: src/ui/player_bar.rs:817 src/ui/queue.rs:23 src/ui/queue.rs:72
+#: src/ui/player_bar.rs:830 src/ui/queue.rs:23 src/ui/queue.rs:72
 msgid "Queue"
 msgstr "Kö"
 
-#: src/ui/player_bar.rs:843 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
+#: src/ui/player_bar.rs:856 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
 msgid "Lyrics"
 msgstr "Låttext"
 
@@ -557,7 +561,7 @@ msgstr "DATUM TILLAGD"
 msgid "Sort by duration"
 msgstr "Sortera efter längd"
 
-#: src/ui/widgets.rs:2400 src/app.rs:10117 src/ui/collection.rs:727
+#: src/ui/widgets.rs:2400 src/app.rs:10121 src/ui/collection.rs:727
 msgid "Loading…"
 msgstr "Läser in…"
 
@@ -725,7 +729,7 @@ msgid "Queue cleared"
 msgstr "Kön rensad"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:4398 src/app.rs:16161
+#: src/app.rs:4398 src/app.rs:16165
 #, rust-format
 msgid "Queue {date}"
 msgstr "Kö {date}"
@@ -988,61 +992,61 @@ msgstr "Rensade {size} MB omslagsbilder"
 msgid "Couldn't clear artwork: {error}"
 msgstr "Kunde inte rensa omslagsbilder: {error}"
 
-#: src/app.rs:9307
+#: src/app.rs:9311
 msgid "Downloading MilkDrop preset packs"
 msgstr "Laddar ned MilkDrop-förinställningspaket"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:9341
+#: src/app.rs:9345
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "Laddar ned förinställningar från {name}"
 
-#: src/app.rs:10229
+#: src/app.rs:10233
 msgid "Couldn't start playback"
 msgstr "Kunde inte starta uppspelningen"
 
-#: src/app.rs:10230
+#: src/app.rs:10234
 msgid "Couldn't pause"
 msgstr "Kunde inte pausa"
 
-#: src/app.rs:10231
+#: src/app.rs:10235
 msgid "Couldn't skip"
 msgstr "Kunde inte hoppa framåt"
 
-#: src/app.rs:10232
+#: src/app.rs:10236
 msgid "Couldn't go back"
 msgstr "Kunde inte gå tillbaka"
 
-#: src/app.rs:10233
+#: src/app.rs:10237
 msgid "Couldn't seek"
 msgstr "Kunde inte spola"
 
-#: src/app.rs:10234
+#: src/app.rs:10238
 msgid "Couldn't change the volume"
 msgstr "Kunde inte ändra volymen"
 
-#: src/app.rs:10235
+#: src/app.rs:10239
 msgid "Couldn't change shuffle"
 msgstr "Kunde inte ändra blandning"
 
-#: src/app.rs:10236
+#: src/app.rs:10240
 msgid "Couldn't change repeat"
 msgstr "Kunde inte ändra upprepning"
 
-#: src/app.rs:10277
+#: src/app.rs:10281
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify gör inte den här spellistans låtar tillgängliga för tredjepartsappar."
 
-#: src/app.rs:10407
+#: src/app.rs:10411
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "Spotify-inloggningen har gått ut. Logga in igen och försök sedan ladda upp "
 "omslaget igen."
 
-#: src/app.rs:10412
+#: src/app.rs:10416
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If using a personal app, reconnect "
@@ -1052,19 +1056,19 @@ msgstr ""
 "sedan in igen för att ge behörighet att ladda upp bilder. Om du använder en "
 "personlig app, anslut den också igen i Inställningar."
 
-#: src/app.rs:10416
+#: src/app.rs:10420
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotify avvisade bildens storlek. Välj en mindre bild."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:10419
+#: src/app.rs:10423
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Kunde inte ladda upp omslaget: {error}. Försök igen."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:16181 src/app/radio.rs:38
+#: src/app.rs:16185 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track}-radio"
@@ -1861,26 +1865,26 @@ msgstr "Avsnitt"
 msgid "Singles & EPs"
 msgstr "Singlar och EP"
 
-#: src/settings.rs:148
+#: src/settings.rs:160
 msgctxt "theme"
 msgid "Dark"
 msgstr "Mörkt"
 
-#: src/settings.rs:149
+#: src/settings.rs:161
 msgctxt "theme"
 msgid "Light"
 msgstr "Ljust"
 
-#: src/settings.rs:150
+#: src/settings.rs:162
 msgid "Follow system"
 msgstr "Följ systemet"
 
-#: src/settings.rs:176
+#: src/settings.rs:188
 msgctxt "proxy"
 msgid "Off"
 msgstr "Av"
 
-#: src/settings.rs:177
+#: src/settings.rs:189
 msgctxt "proxy"
 msgid "System"
 msgstr "System"

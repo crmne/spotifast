@@ -62,6 +62,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if visualizer(app, ui, behind, now.as_ref()) {
                 ui.ctx().request_repaint_after(VIS_FRAME);
             }
+            // Its empty space is the visualizer's control, as Winamp's
+            // visualizer was: a click moves to the next mode. The controls
+            // drawn after it take their own clicks.
+            let empty = ui
+                .interact(
+                    behind,
+                    ui.id().with("player-bar-visualizer"),
+                    Sense::click(),
+                )
+                .on_hover_text_at_pointer(gettext(app.locale, "Click to change the visualizer"));
+            if empty.clicked() {
+                app.actions.push(Action::CyclePlayerBarVis);
+            }
             ui.painter().hline(
                 rect.x_range(),
                 rect.top() + 0.5,

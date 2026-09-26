@@ -4196,6 +4196,50 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A click on the player bar's empty space moves the visualizer to its
+    /// next mode, and a click on a control does not.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn clicking_the_player_bars_empty_space_cycles_the_visualizer() {
+        let (ctx, mut app) = accessible_app("player-bar-cycle");
+        let draw = |app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+        };
+        draw(&mut app, vec![]);
+        // The margin at the bar's left edge, beside the cover.
+        let empty = egui::pos2(6.0, 796.0);
+        draw(&mut app, pointer_click(empty, egui::PointerButton::Primary));
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CyclePlayerBarVis))
+        );
+
+        // The play button, in the middle of the bar, is still the play button.
+        app.actions.clear();
+        let play = egui::pos2(640.0, 800.0 - crate::theme::PLAYER_BAR_HEIGHT / 2.0 - 10.0);
+        draw(&mut app, pointer_click(play, egui::PointerButton::Primary));
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CyclePlayerBarVis)),
+            "{:?}",
+            app.actions
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn loading_collections_keep_their_hero_layout() {
         fn playlist(app: &mut App, ui: &mut egui::Ui) {

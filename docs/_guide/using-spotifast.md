@@ -239,7 +239,9 @@ song, wherever the row sits.
 behind the player bar's controls: **Spectrum** draws glowing bars from bass
 to treble with peaks that hang and fall, and **Waveform** draws the sound's
 wave as a glowing line, both in colours drawn from the cover. It follows the equalizer, not the volume, and moves only while the
-song plays on this computer. It is off by default.
+song plays on this computer. It is off by default. Clicking the player
+bar's empty space switches it, as Winamp's visualizer did: off, then
+Spectrum, then Waveform, then off again.
 
 In **Settings > Appearance**, **Compact track list** puts each song on one
 line. In narrow lists, the added date follows the artist credits with a spaced

@@ -77,6 +77,18 @@ pub enum PlayerBarVis {
     Waveform,
 }
 
+impl PlayerBarVis {
+    /// The mode a click on the player bar moves to: spectrum, waveform,
+    /// then off, as Winamp's visualizer cycles.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Spectrum,
+            Self::Spectrum => Self::Waveform,
+            Self::Waveform => Self::Off,
+        }
+    }
+}
+
 /// Mini-player visualizer mode.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -1199,6 +1211,9 @@ mod tests {
         }
         let spectrum: Settings = serde_json::from_str(r#"{"player_bar_vis":"spectrum"}"#).unwrap();
         assert_eq!(spectrum.player_bar_vis, PlayerBarVis::Spectrum);
+        assert_eq!(PlayerBarVis::Off.next(), PlayerBarVis::Spectrum);
+        assert_eq!(PlayerBarVis::Spectrum.next(), PlayerBarVis::Waveform);
+        assert_eq!(PlayerBarVis::Waveform.next(), PlayerBarVis::Off);
     }
 
     #[test]
