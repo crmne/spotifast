@@ -1156,11 +1156,12 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let context_playing = app.believed_playing();
     let current_page = app.page().clone();
 
-    crate::autoscroll::show(
+    crate::ui::scroll::show(
         ui,
         egui::ScrollArea::vertical()
             .id_salt("sidebar-list")
             .auto_shrink([false, false]),
+        ("sidebar-list", filter as u8, sort as u8, needle.as_str()),
         egui::Vec2b::new(false, true),
         |ui| {
             if egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx())

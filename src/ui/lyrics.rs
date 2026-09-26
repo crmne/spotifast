@@ -155,16 +155,20 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     };
 
     let active = lyrics.active_line(now.position_ms);
-    let follow = app.lyrics_following && app.lyrics_line_shown != Some(active);
+    // Read the gesture before the elastic wrapper can consume its delta.
+    let manual_scroll = manually_scrolling(ui, ui.available_rect_before_wrap());
+    let following = app.lyrics_following && !manual_scroll;
+    let follow = following && app.lyrics_line_shown != Some(active);
     // The line being sung is bold and in the accent colour; every other
     // line is quiet, regular text, the same before and after it has been
     // sung. A line takes 220 ms to light up or fade, as in omarchy-lyrics.
     let quiet = palette.text.gamma_multiply(0.45);
-    let scroll = crate::autoscroll::show(
+    let scroll = crate::ui::scroll::show(
         ui,
         egui::ScrollArea::vertical()
             .id_salt("lyrics-scroll")
             .auto_shrink([false, false]),
+        ("lyrics-scroll", &now.uri),
         egui::Vec2b::new(false, true),
         |ui| {
             // Before the first line there is nothing to highlight, so the
@@ -234,7 +238,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             }
             // Words without timing can only be followed by the clock: sit
             // at the part of the text the song is probably at.
-            if app.lyrics_following && !lyrics.synced && now.duration_ms > 0 {
+            if following && !lyrics.synced && now.duration_ms > 0 {
                 let fraction =
                     (f64::from(now.position_ms) / f64::from(now.duration_ms)).clamp(0.0, 1.0);
                 let content = ui.min_rect();
@@ -253,10 +257,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     crate::autoscroll::lyrics(ui, scroll.id);
     // Scrolling by hand means the reader wants to look elsewhere; the
     // Follow button in the header picks the song back up.
-    if ui.rect_contains_pointer(scroll.inner_rect)
-        && ui.input(|input| input.smooth_scroll_delta.y != 0.0)
-    {
-        app.lyrics_following = false;
+    if manual_scroll && app.lyrics_following {
+        app.actions.push(Action::PauseLyricsFollow);
     }
     app.lyrics_line_shown = Some(active);
 }
@@ -285,6 +287,14 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
 fn fullscreen_content_width(viewport_width: f32) -> f32 {
     let available = (viewport_width - 48.0).max(0.0);
     (viewport_width * 0.72).clamp(400.0, 960.0).min(available)
+}
+
+fn manually_scrolling(ui: &egui::Ui, viewport: Rect) -> bool {
+    ui.rect_contains_pointer(viewport)
+        && ui.input(|input| {
+            input.smooth_scroll_delta.y != 0.0
+                || (input.pointer.primary_down() && input.pointer.delta().y != 0.0)
+        })
 }
 
 fn preferred_backdrop_art(small: Option<String>, large: Option<String>) -> Option<String> {
@@ -469,11 +479,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
         app.actions.push(Action::LyricsLineShown(active));
     }
     let viewport = ui.available_rect_before_wrap();
-    let manual_scroll = ui.rect_contains_pointer(viewport)
-        && ui.input(|input| {
-            input.smooth_scroll_delta.y != 0.0
-                || (input.pointer.primary_down() && input.pointer.delta().y != 0.0)
-        });
+    let manual_scroll = manually_scrolling(ui, viewport);
     let following = app.lyrics_following && !manual_scroll;
     let follow = following && app.lyrics_line_shown != Some(active);
     let animation = egui::style::ScrollAnimation::duration(0.45);
@@ -483,10 +489,14 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
     // A line takes 300 ms to light up or fade.
     let quiet = palette.text.gamma_multiply(0.68);
     ui.spacing_mut().scroll.fade.strength = 0.0;
-    egui::ScrollArea::vertical()
-        .id_salt(("fullscreen-lyrics-scroll", &now.uri))
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
+    let scroll = crate::ui::scroll::show(
+        ui,
+        egui::ScrollArea::vertical()
+            .id_salt(("fullscreen-lyrics-scroll", &now.uri))
+            .auto_shrink([false, false]),
+        ("fullscreen-lyrics-scroll", &now.uri),
+        egui::Vec2b::new(false, true),
+        |ui| {
             // Before the first line there is nothing to highlight, so the
             // panel sits at the top rather than wherever it was left.
             if follow && lyrics.synced && active.is_none() {
@@ -576,7 +586,9 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 );
             }
             ui.add_space(padding.max(60.0));
-        });
+        },
+    );
+    crate::autoscroll::lyrics(ui, scroll.id);
     // Scrolling by hand means the reader wants to look elsewhere; the
     // Follow button in the header picks the song back up.
     if manual_scroll && app.lyrics_following {
@@ -599,7 +611,51 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
 
 #[cfg(test)]
 mod tests {
-    use super::{fullscreen_content_width, preferred_backdrop_art};
+    use super::{fullscreen_content_width, manually_scrolling, preferred_backdrop_art};
+
+    #[test]
+    fn reading_at_the_end_pauses_follow_even_when_elastic_scroll_consumes_the_wheel() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 100.0));
+        let mut gesture_before = false;
+        let mut gesture_after = true;
+        for frame in 0..8 {
+            let input = egui::RawInput {
+                time: Some((frame + 1) as f64 * 0.016),
+                screen_rect: Some(screen),
+                events: vec![
+                    egui::Event::PointerMoved(egui::pos2(100.0, 50.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -40.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::default(),
+                    },
+                ],
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let viewport = ui.available_rect_before_wrap();
+                gesture_before = manually_scrolling(ui, viewport);
+                crate::ui::scroll::show(
+                    ui,
+                    egui::ScrollArea::vertical().auto_shrink([false, false]),
+                    "lyrics",
+                    egui::Vec2b::new(false, true),
+                    |ui| {
+                        ui.allocate_space(egui::vec2(150.0, 200.0));
+                    },
+                );
+                gesture_after = manually_scrolling(ui, viewport);
+            });
+            output.textures_delta.clear();
+        }
+        assert!(gesture_before, "the reader's gesture was missed");
+        assert!(
+            !gesture_after,
+            "the elastic scroll did not consume the delta"
+        );
+    }
 
     #[test]
     fn fullscreen_backdrop_prefers_small_art_with_large_art_as_fallback() {
