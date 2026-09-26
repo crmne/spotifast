@@ -277,6 +277,11 @@ pub struct App {
     #[cfg(any(test, feature = "demo"))]
     pub demo_windows_controls: bool,
     applied_dark: Option<bool>,
+    /// Reveals new colours from the middle of the window outwards.
+    theme_transition: fastframe_theme::Transition,
+    /// Whether colour changes are revealed. Tests that check which palette
+    /// applies, on a context that never draws, turn it off.
+    pub(crate) reveal_theme_changes: bool,
     pub custom_themes: theme::Catalog,
 
     pub auth: AuthStatus,
@@ -780,6 +785,8 @@ impl App {
             #[cfg(any(test, feature = "demo"))]
             demo_windows_controls: false,
             applied_dark: None,
+            theme_transition: fastframe_theme::Transition::default(),
+            reveal_theme_changes: true,
             auth: AuthStatus::Starting,
             user: None,
             local_device_id: None,
@@ -3236,6 +3243,17 @@ impl App {
             }
         });
         if self.applied_dark != Some(dark) || self.palette != palette {
+            // The first colours need no reveal, and the mini player's window
+            // is drawn by its skin.
+            if self.reveal_theme_changes
+                && self.applied_dark.is_some()
+                && !self.settings.winamp_window
+            {
+                self.theme_transition.begin(ctx);
+                if self.theme_transition.holding(ctx) {
+                    return;
+                }
+            }
             self.palette = palette;
             theme::apply(ctx, &self.palette);
             self.applied_dark = Some(dark);
@@ -9742,6 +9760,7 @@ impl App {
             // Close the window and keep the process running in the tray.
             self.hide_intent = true;
         }
+        self.theme_transition.paint(ctx);
         self.frame_now = None;
     }
 
@@ -14954,7 +14973,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("spotifast-{name}-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        App::new(
+        let mut app = App::new(
             &Waker::default(),
             AppDirs {
                 config: root.join("config"),
@@ -14967,7 +14986,46 @@ mod tests {
                 restore_sign_in: false,
                 tray: false,
             },
-        )
+        );
+        app.reveal_theme_changes = false;
+        app
+    }
+
+    /// A change of colours keeps the old ones until the window's picture of
+    /// them arrives, or a short wait passes without one, then applies.
+    #[test]
+    fn a_colour_change_waits_for_the_picture_of_the_old_colours() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("theme-reveal");
+        app.reveal_theme_changes = true;
+        let frame = |app: &mut App, time: f64| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| app.apply_theme(ui.ctx()),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        ctx.set_theme(egui::ThemePreference::Dark);
+        frame(&mut app, 0.0);
+        assert_eq!(app.palette, Palette::dark(), "the first colours at once");
+
+        ctx.set_theme(egui::ThemePreference::Light);
+        let output = frame(&mut app, 0.1);
+        assert_eq!(app.palette, Palette::dark(), "held for the picture");
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Screenshot(_)))
+        );
+        frame(&mut app, 0.2);
+        assert_eq!(app.palette, Palette::dark());
+        frame(&mut app, 0.5);
+        assert_eq!(app.palette, Palette::light(), "no picture came: apply");
     }
 
     #[test]

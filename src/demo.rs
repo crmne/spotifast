@@ -1133,6 +1133,8 @@ mod tests {
         );
         app.attach(&ctx);
         populate(&mut app);
+        // These frames never advance the clock or take pictures.
+        app.reveal_theme_changes = false;
         (ctx, app)
     }
 
@@ -5639,6 +5641,8 @@ mod tests {
         );
         app.attach(&ctx);
         populate(&mut app);
+        // These frames never advance the clock or take pictures.
+        app.reveal_theme_changes = false;
 
         let pages = [
             Page::Home,

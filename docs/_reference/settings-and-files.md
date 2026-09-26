@@ -380,6 +380,9 @@ After adding or editing a JSON file on macOS or Windows, run
 restarting playback. Since 0.10.2, Spotifast on Linux notices changes to the
 themes folder by itself.
 Choosing a built-in theme clears the custom selection.
+Since 0.10.3, whenever the colours change (a theme picked here, Omarchy
+switching themes, or the system going light or dark), the new colours open
+from the middle of the window outwards, as Omarchy's own theme change does.
 
 For example, `themes/gruvbox.json`:
 
