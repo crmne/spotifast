@@ -215,6 +215,9 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   ![The mini player wearing the built-in skin](docs/assets/images/winamp.png)
 - **Equalizer.** Winamp's ten bands and presets over the music played on
   this computer, in Settings and in the skin.
+- **A player bar that moves.** Since 0.10.3, **Player bar visualizer** in
+  Settings > Appearance draws a spectrum or the waveform of the playing song
+  behind the player bar, in the cover's colour. It is off by default.
 - **MilkDrop.** The visualiser, powered by
   [projectM](https://github.com/projectM-visualizer/projectm), runs in its own
   window and process. It supports fullscreen and automatically downloads more

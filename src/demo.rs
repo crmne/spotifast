@@ -652,6 +652,73 @@ fn sample_lyrics() -> crate::lyrics::Lyrics {
 }
 
 /// Applies `--demo-page` and `--demo-show`.
+/// Makes the displayed song this computer's playback, with that song's own
+/// metadata, so the player bar draws the same as without it.
+#[cfg(feature = "demo")]
+fn play_here(app: &mut App) {
+    app.local_ready = true;
+    let now = app.now_playing();
+    app.local.track = Some(crate::player::LocalTrack {
+        uri: now.as_ref().map(|now| now.uri.clone()).unwrap_or_default(),
+        title: now
+            .as_ref()
+            .map(|now| now.title.clone())
+            .unwrap_or_default(),
+        artists: now
+            .as_ref()
+            .map(|now| now.artists.clone())
+            .unwrap_or_default(),
+        album: now
+            .as_ref()
+            .map(|now| now.album_name.clone())
+            .unwrap_or_default(),
+        art_url: now.as_ref().and_then(|now| now.art_url.clone()),
+        art_small_url: now.as_ref().and_then(|now| now.art_small.clone()),
+        duration_ms: now.as_ref().map(|now| now.duration_ms).unwrap_or_default(),
+        is_episode: now.as_ref().is_some_and(|now| now.show_id.is_some()),
+    });
+    app.local.volume = app.settings.volume;
+}
+
+/// Half a second of stereo sound shaped like music: a bass line, a chord
+/// with its overtones, and noise that thins towards the treble as a mix
+/// does, the same every time.
+#[cfg(feature = "demo")]
+fn demo_sound() -> Vec<f64> {
+    let rate = f64::from(librespot_playback::SAMPLE_RATE);
+    let mut seed = 0x2545_f491_u32;
+    let mut white = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        f64::from(seed) / f64::from(u32::MAX) - 0.5
+    };
+    // Paul Kellet's economy filter turns white noise pink.
+    let (mut b0, mut b1, mut b2) = (0.0, 0.0, 0.0);
+    (0..librespot_playback::SAMPLE_RATE as usize / 2)
+        .flat_map(|index| {
+            let time = index as f64 / rate;
+            let tone =
+                |hertz: f64, level: f64| level * (time * hertz * std::f64::consts::TAU).sin();
+            let noise = white();
+            b0 = 0.99765 * b0 + noise * 0.099_046;
+            b1 = 0.963 * b1 + noise * 0.296_516_4;
+            b2 = 0.57 * b2 + noise * 1.052_691_3;
+            let pink = (b0 + b1 + b2 + noise * 0.1848) * 0.035;
+            let sample = tone(55.0, 0.3)
+                + tone(110.0, 0.16)
+                + tone(220.0, 0.1)
+                + tone(277.2, 0.08)
+                + tone(329.6, 0.08)
+                + tone(440.0, 0.05)
+                + tone(659.3, 0.04)
+                + tone(1318.5, 0.02)
+                + pink;
+            [sample, sample]
+        })
+        .collect()
+}
+
 #[cfg(feature = "demo")]
 pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     // Default screenshots to the main window regardless of saved settings.
@@ -694,28 +761,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 // the displayed track's own metadata rather than a bare
                 // default, so the player bar and top bar render the same
                 // as without this override.
-                app.local_ready = true;
-                let now = app.now_playing();
-                app.local.track = Some(crate::player::LocalTrack {
-                    uri: now.as_ref().map(|now| now.uri.clone()).unwrap_or_default(),
-                    title: now
-                        .as_ref()
-                        .map(|now| now.title.clone())
-                        .unwrap_or_default(),
-                    artists: now
-                        .as_ref()
-                        .map(|now| now.artists.clone())
-                        .unwrap_or_default(),
-                    album: now
-                        .as_ref()
-                        .map(|now| now.album_name.clone())
-                        .unwrap_or_default(),
-                    art_url: now.as_ref().and_then(|now| now.art_url.clone()),
-                    art_small_url: now.as_ref().and_then(|now| now.art_small.clone()),
-                    duration_ms: now.as_ref().map(|now| now.duration_ms).unwrap_or_default(),
-                    is_episode: now.as_ref().is_some_and(|now| now.show_id.is_some()),
-                });
+                play_here(app);
                 app.local.playback = crate::player::Playback::Paused;
+            }
+            "player-bar-spectrum" | "player-bar-waveform" => {
+                app.settings.player_bar_vis = if surface == "player-bar-spectrum" {
+                    crate::settings::PlayerBarVis::Spectrum
+                } else {
+                    crate::settings::PlayerBarVis::Waveform
+                };
+                play_here(app);
+                app.local.playback = crate::player::Playback::Playing;
+                app.winamp.tap.push(&demo_sound(), 1.0);
             }
             "recents" => {
                 app.show_queue_panel = true;
@@ -4060,6 +4117,80 @@ mod tests {
                 "{artist} is not drawn"
             );
         }
+        app.backend.shutdown();
+    }
+
+    /// The player bar's visualizer draws only when chosen and while the
+    /// song plays on this computer, and asks for frames only then.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_player_bar_visualizer_moves_only_when_chosen_and_playing() {
+        use crate::settings::PlayerBarVis;
+        let (ctx, mut app) = accessible_app("player-bar-vis");
+        let draw = |app: &mut App| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        // Both draw an untextured mesh; the waveform also strokes its line
+        // in many short runs.
+        let lines = |output: &egui::FullOutput| {
+            output
+                .shapes
+                .iter()
+                .filter(|shape| matches!(&shape.shape, egui::Shape::Path(_)))
+                .count()
+        };
+        let drawn = |output: &egui::FullOutput| {
+            output.shapes.iter().any(|shape| {
+                matches!(&shape.shape, egui::Shape::Mesh(mesh)
+                    if mesh.texture_id == egui::TextureId::default() && !mesh.vertices.is_empty())
+            })
+        };
+        let spectrum = |output: &egui::FullOutput| drawn(output) && lines(output) < 20;
+        let waveform = |output: &egui::FullOutput| drawn(output) && lines(output) >= 20;
+        let wants_frames = |output: &egui::FullOutput| {
+            output
+                .viewport_output
+                .get(&egui::ViewportId::ROOT)
+                .is_some_and(|viewport| {
+                    viewport.repaint_delay < std::time::Duration::from_millis(100)
+                })
+        };
+
+        // #given a song playing here with the spectrum chosen
+        apply_flags(&mut app, None, Some("player-bar-spectrum"));
+        draw(&mut app);
+        let output = draw(&mut app);
+        assert!(spectrum(&output), "the spectrum is drawn");
+        assert!(wants_frames(&output));
+
+        // #when the waveform is chosen
+        app.settings.player_bar_vis = PlayerBarVis::Waveform;
+        let output = draw(&mut app);
+        assert!(waveform(&output), "the waveform is drawn");
+        assert!(!spectrum(&output));
+
+        // #when it is turned off
+        app.settings.player_bar_vis = PlayerBarVis::Off;
+        let output = draw(&mut app);
+        assert!(!drawn(&output));
+        assert!(!wants_frames(&output), "nothing to animate");
+
+        // #when the song is paused
+        app.settings.player_bar_vis = PlayerBarVis::Waveform;
+        app.local.playback = crate::player::Playback::Paused;
+        let output = draw(&mut app);
+        assert!(!waveform(&output), "a paused song is still");
         app.backend.shutdown();
     }
 

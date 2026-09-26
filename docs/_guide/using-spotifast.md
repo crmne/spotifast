@@ -235,6 +235,12 @@ has no place in Spotify's playlist tree. Returning to **Local custom order**
 restores its saved position. Dragging a song onto Liked Songs still saves that
 song, wherever the row sits.
 
+**Player bar visualizer** in **Settings > Appearance** shows the song moving
+behind the player bar's controls: **Spectrum** draws glowing bars from bass
+to treble with peaks that hang and fall, and **Waveform** draws the sound's
+wave as a glowing line, both in colours drawn from the cover. It follows the equalizer, not the volume, and moves only while the
+song plays on this computer. It is off by default.
+
 In **Settings > Appearance**, **Compact track list** puts each song on one
 line. In narrow lists, the added date follows the artist credits with a spaced
 bullet; each artist name remains a separate link.

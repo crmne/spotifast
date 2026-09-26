@@ -563,6 +563,8 @@ pub struct App {
     pub update_receipt: Option<fastframe_update::Receipt>,
     /// Winamp window state and active skin.
     pub winamp: crate::winamp::WinampState,
+    /// The spectrum behind the player bar, when that is chosen.
+    pub player_bar_analyser: crate::vis::WideAnalyser,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -959,6 +961,7 @@ impl App {
             update_restart_arguments: Vec::new(),
             update_receipt: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
+            player_bar_analyser: crate::vis::WideAnalyser::default(),
         };
         app.local.volume = app.settings.volume;
         // What was played here is on disk and needs nothing from the
