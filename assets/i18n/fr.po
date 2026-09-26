@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 22:10+0200\n"
+"POT-Creation-Date: 2026-09-26 18:16-0400\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: French\n"
@@ -29,12 +29,12 @@ msgid "Play {name}"
 msgstr "Lire {name}"
 
 #: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16226
-#: src/ui/collection.rs:1646 src/ui/collection.rs:1823
+#: src/ui/collection.rs:1685 src/ui/collection.rs:1862
 msgid "Playlist"
 msgstr "Playlist"
 
 #: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16231
-#: src/ui/collection.rs:1816 src/ui/home.rs:49 src/ui/keys.rs:253
+#: src/ui/collection.rs:1855 src/ui/home.rs:49 src/ui/keys.rs:258
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "Titres likés"
@@ -74,12 +74,12 @@ msgstr "Dossier"
 msgid "Playlist • {owner}"
 msgstr "Playlist • {owner}"
 
-#: src/ui/sidebar.rs:810 src/i18n.rs:248 src/i18n.rs:251 src/ui/keys.rs:249
+#: src/ui/sidebar.rs:810 src/i18n.rs:248 src/i18n.rs:251 src/ui/keys.rs:254
 #: src/ui/topbar.rs:214
 msgid "Home"
 msgstr "Accueil"
 
-#: src/ui/sidebar.rs:821 src/app.rs:5931 src/ui/keys.rs:240
+#: src/ui/sidebar.rs:821 src/app.rs:5931 src/ui/keys.rs:245
 msgid "Search"
 msgstr "Rechercher"
 
@@ -183,7 +183,7 @@ msgstr[1] "Playlist • {count} titres"
 #. Translators: Keep {count} exactly as written. It becomes a number of songs.
 #. Translators: Keep {count} exactly as written. It becomes the number of selected songs.
 #. Translators: {count} is a number of songs.
-#: src/i18n.rs:183 src/ui/widgets.rs:530 src/ui/collection.rs:1910
+#: src/i18n.rs:183 src/ui/widgets.rs:530 src/ui/collection.rs:1949
 #, rust-format
 msgid "{count} song"
 msgid_plural "{count} songs"
@@ -337,7 +337,7 @@ msgid "Next up"
 msgstr "Ensuite"
 
 #: src/ui/queue.rs:465 src/ui/queue.rs:498 src/ui/widgets.rs:2415
-#: src/ui/collection.rs:1022
+#: src/ui/collection.rs:1061
 msgid "Retry"
 msgstr "Réessayer"
 
@@ -394,7 +394,7 @@ msgid "No timed lyrics for this track."
 msgstr "Aucune parole synchronisée pour ce titre."
 
 #: src/ui/lyrics.rs:376 src/ui/widgets.rs:2400 src/app.rs:10141
-#: src/ui/collection.rs:727
+#: src/ui/collection.rs:728
 msgid "Loading…"
 msgstr "Chargement…"
 
@@ -406,7 +406,7 @@ msgstr "Quitter le plein écran (Esc)"
 msgid "Add to queue"
 msgstr "Ajouter à la file d’attente"
 
-#: src/ui/widgets.rs:579 src/ui/widgets.rs:850
+#: src/ui/widgets.rs:579 src/ui/widgets.rs:850 src/ui/keys.rs:220
 msgid "Remove from this playlist"
 msgstr "Retirer de cette playlist"
 
@@ -480,12 +480,12 @@ msgctxt "artist"
 msgid "Follow"
 msgstr "S’abonner"
 
-#: src/ui/widgets.rs:990 src/ui/collection.rs:1694 src/ui/collection.rs:1716
+#: src/ui/widgets.rs:990 src/ui/collection.rs:1733 src/ui/collection.rs:1755
 #: src/ui/show.rs:169
 msgid "Remove from Your Library"
 msgstr "Retirer de votre bibliothèque"
 
-#: src/ui/widgets.rs:991 src/ui/collection.rs:1693
+#: src/ui/widgets.rs:991 src/ui/collection.rs:1732
 msgid "Add to Your Library"
 msgstr "Ajouter à votre bibliothèque"
 
@@ -1079,7 +1079,7 @@ msgstr "Impossible d’envoyer la couverture : {error}. Réessayez."
 msgid "{track} Radio"
 msgstr "Radio de {track}"
 
-#: src/ui/settings.rs:143 src/ui/keys.rs:285 src/ui/topbar.rs:406
+#: src/ui/settings.rs:143 src/ui/keys.rs:290 src/ui/topbar.rs:406
 #: src/ui/topbar.rs:436
 msgid "Settings"
 msgstr "Paramètres"
@@ -1840,7 +1840,7 @@ msgstr "Rechercher des mises à jour"
 msgid "Checking…"
 msgstr "Vérification…"
 
-#: src/ui/settings.rs:1761 src/ui/dialogs.rs:153 src/ui/keys.rs:295
+#: src/ui/settings.rs:1761 src/ui/dialogs.rs:153 src/ui/keys.rs:300
 #: src/ui/topbar.rs:414
 msgid "Keyboard shortcuts"
 msgstr "Raccourcis clavier"
@@ -2046,41 +2046,41 @@ msgstr "Actualiser"
 msgid "Filter"
 msgstr "Filtrer"
 
-#: src/ui/collection.rs:721 src/ui/collection.rs:747
+#: src/ui/collection.rs:722 src/ui/collection.rs:748
 msgid "Unavailable"
 msgstr "Indisponible"
 
-#: src/ui/collection.rs:863
+#: src/ui/collection.rs:875
 msgid "Nothing here yet"
 msgstr "Rien pour l’instant"
 
-#: src/ui/collection.rs:864
+#: src/ui/collection.rs:876
 msgid "Added songs appear here."
 msgstr "Les titres ajoutés s’affichent ici."
 
-#: src/ui/collection.rs:1244 src/ui/home.rs:653
+#: src/ui/collection.rs:1283 src/ui/home.rs:653
 msgid "Your top songs"
 msgstr "Vos titres préférés"
 
-#: src/ui/collection.rs:1253
+#: src/ui/collection.rs:1292
 msgid "Your most-played tracks from the last four weeks."
 msgstr "Vos titres les plus écoutés ces quatre dernières semaines."
 
-#: src/ui/collection.rs:1642
+#: src/ui/collection.rs:1681
 msgid "Collaborative Playlist"
 msgstr "Playlist collaborative"
 
-#: src/ui/collection.rs:1644
+#: src/ui/collection.rs:1683
 msgid "Public Playlist"
 msgstr "Playlist publique"
 
-#: src/ui/collection.rs:1715
+#: src/ui/collection.rs:1754
 msgid "Save to Your Library"
 msgstr "Enregistrer dans votre bibliothèque"
 
 #. Translators: {count} is a number of songs and {duration} their total
 #. length, such as "2 hr 13 min".
-#: src/ui/collection.rs:1923
+#: src/ui/collection.rs:1962
 #, rust-format
 msgid "{count} song, {duration}"
 msgid_plural "{count} songs, {duration}"
@@ -2088,19 +2088,19 @@ msgstr[0] "{count} titre, {duration}"
 msgstr[1] "{count} titres, {duration}"
 
 #. Translators: {name} is the name of someone who added songs to the playlist.
-#: src/ui/collection.rs:1937
+#: src/ui/collection.rs:1976
 #, rust-format
 msgid "with {name}"
 msgstr "avec {name}"
 
 #. Translators: {first} and {second} are names of people who added songs.
-#: src/ui/collection.rs:1941
+#: src/ui/collection.rs:1980
 #, rust-format
 msgid "with {first} and {second}"
 msgstr "avec {first} et {second}"
 
 #. Translators: {count} is how many other people added songs to the playlist.
-#: src/ui/collection.rs:1948
+#: src/ui/collection.rs:1987
 #, rust-format
 msgid "and {count} other"
 msgid_plural "and {count} others"
@@ -2443,95 +2443,99 @@ msgid "Lyrics: leave full screen"
 msgstr "Paroles : quitter le plein écran"
 
 #: src/ui/keys.rs:218
+msgid "Song list: extend or shrink the selection"
+msgstr "Liste des titres : étendre ou réduire la sélection"
+
+#: src/ui/keys.rs:223
 msgid "Song list: select all"
 msgstr "Liste de titres : tout sélectionner"
 
-#: src/ui/keys.rs:222
+#: src/ui/keys.rs:227
 msgid "Song list: copy the selected songs' links"
 msgstr "Liste de titres : copier les liens des titres sélectionnés"
 
-#: src/ui/keys.rs:226
+#: src/ui/keys.rs:231
 msgid "Playlist: cut the selected songs"
 msgstr "Playlist : couper les titres sélectionnés"
 
-#: src/ui/keys.rs:230
+#: src/ui/keys.rs:235
 msgid "Playlist: add the pasted song links"
 msgstr "Playlist : ajouter les liens de titres collés"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:235
+#: src/ui/keys.rs:240
 msgid "Cmd+F  or  /"
 msgstr "Cmd+F  ou  /"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:238
+#: src/ui/keys.rs:243
 msgid "Ctrl+F  or  /"
 msgstr "Ctrl+F  ou  /"
 
-#: src/ui/keys.rs:244
+#: src/ui/keys.rs:249
 msgid "Show or hide the sidebar"
 msgstr "Afficher ou masquer la barre latérale"
 
-#: src/ui/keys.rs:246
+#: src/ui/keys.rs:251
 msgid "Back or forward"
 msgstr "Retour ou avance"
 
-#: src/ui/keys.rs:257
+#: src/ui/keys.rs:262
 msgid "Go to the playing artist"
 msgstr "Accéder à l’artiste en cours"
 
-#: src/ui/keys.rs:261
+#: src/ui/keys.rs:266
 msgid "Go to the playing album"
 msgstr "Accéder à l’album en cours"
 
-#: src/ui/keys.rs:263
+#: src/ui/keys.rs:268
 msgid "Winamp mini player"
 msgstr "Mini-lecteur Winamp"
 
-#: src/ui/keys.rs:266
+#: src/ui/keys.rs:271
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop, sous le mini-lecteur"
 
 #. Translators: Keep the key name F. Translate "or" and "double-click".
-#: src/ui/keys.rs:270
+#: src/ui/keys.rs:275
 msgid "F  or  double-click"
 msgstr "F  ou  double-clic"
 
-#: src/ui/keys.rs:271
+#: src/ui/keys.rs:276
 msgid "MilkDrop: fill the screen"
 msgstr "MilkDrop : remplir l’écran"
 
-#: src/ui/keys.rs:273
+#: src/ui/keys.rs:278
 msgid "MilkDrop: next preset"
 msgstr "MilkDrop : preset suivant"
 
-#: src/ui/keys.rs:276
+#: src/ui/keys.rs:281
 msgid "MilkDrop: previous preset"
 msgstr "MilkDrop : preset précédent"
 
-#: src/ui/keys.rs:278
+#: src/ui/keys.rs:283
 msgid "MilkDrop: keep this preset"
 msgstr "MilkDrop : garder ce preset"
 
-#: src/ui/keys.rs:281
+#: src/ui/keys.rs:286
 msgid "MilkDrop: leave full screen, or close"
 msgstr "MilkDrop : quitter le plein écran ou fermer"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:290
+#: src/ui/keys.rs:295
 msgid "Cmd+/ or ?"
 msgstr "Cmd+/ ou ?"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:293
+#: src/ui/keys.rs:298
 msgid "Ctrl+/ or ?"
 msgstr "Ctrl+/ ou ?"
 
-#: src/ui/keys.rs:299
+#: src/ui/keys.rs:304
 msgid "Close the window"
 msgstr "Fermer la fenêtre"
 
-#: src/ui/keys.rs:301 src/ui/winamp/mod.rs:740
+#: src/ui/keys.rs:306 src/ui/winamp/mod.rs:740
 msgid "Quit"
 msgstr "Quitter"
 
@@ -3152,11 +3156,10 @@ msgstr "Bon après-midi"
 msgid "Good evening"
 msgstr "Bonsoir"
 
-#: src/window.rs:11
-msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
-msgstr ""
-"Sous Wayland, utilisez le raccourci ou la règle de fenêtre « Garder au-"
-"dessus » de votre bureau."
+#~ msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
+#~ msgstr ""
+#~ "Sous Wayland, utilisez le raccourci ou la règle de fenêtre « Garder au-"
+#~ "dessus » de votre bureau."
 
 #~ msgid "Enable lyrics motion"
 #~ msgstr "Activer les animations des paroles"

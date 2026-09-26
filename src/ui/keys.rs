@@ -214,6 +214,11 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
         (keys("L"), gettext(locale, "Show the lyrics")),
         (keys("Esc"), gettext(locale, "Lyrics: leave full screen")),
         (
+            keys("Shift+↑  /  Shift+↓"),
+            gettext(locale, "Song list: extend or shrink the selection"),
+        ),
+        (keys("Delete"), gettext(locale, "Remove from this playlist")),
+        (
             keys(platform_shortcut("Ctrl+A", "Cmd+A")),
             gettext(locale, "Song list: select all"),
         ),

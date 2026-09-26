@@ -660,12 +660,13 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 })
             })
     });
-    // Selection uses display indices. Clear it when sorting, filtering, or row
-    // count changes.
+    // Selection uses display indices. Clear it when the view or items change,
+    // including a refresh that replaces songs without changing the row count.
     let view = format!(
-        "{sort:?}|{needle}|{}|{}",
+        "{sort:?}|{needle}|{}|{}|{}",
         entry.visible.len(),
-        table.row_offset
+        table.row_offset,
+        table.items_revision
     );
     let item_index = |row: usize| -> Option<usize> {
         if let Some(page) = finite {
@@ -2645,6 +2646,7 @@ mod tests {
         filter: String,
         height: f32,
         editable: bool,
+        items_revision: u64,
     }
 
     impl KeyboardTable {
@@ -2659,6 +2661,7 @@ mod tests {
                 filter: String::new(),
                 height: 600.0,
                 editable: false,
+                items_revision: 0,
             }
         }
 
@@ -2705,7 +2708,7 @@ mod tests {
                                 error: None,
                                 can_load_more: false,
                                 filter: &self.filter,
-                                items_revision: 0,
+                                items_revision: self.items_revision,
                             },
                         );
                     });
@@ -3108,6 +3111,62 @@ mod tests {
             .ctx
             .memory_mut(|memory| memory.request_focus(egui::Id::new("keyboard-filter")));
         table.frame(vec![]);
+        table.key(egui::Key::Delete);
+        assert!(table.app.actions.is_empty());
+    }
+
+    #[test]
+    fn delete_does_not_remove_replacement_rows_after_a_refresh() {
+        let mut table = KeyboardTable::new();
+        table.editable = true;
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowDown);
+        assert!(
+            table
+                .app
+                .picked_rows(&Page::Playlist("test".into()))
+                .is_some()
+        );
+        table.items.swap(1, 2);
+        table.items_revision += 1;
+        table.key(egui::Key::Delete);
+        assert!(
+            table
+                .app
+                .picked_rows(&Page::Playlist("test".into()))
+                .is_none()
+        );
+        assert!(table.app.actions.is_empty());
+    }
+
+    #[test]
+    fn delete_leaves_the_playlist_alone_while_a_row_menu_is_open() {
+        let mut table = KeyboardTable::new();
+        table.editable = true;
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowDown);
+        let tree = table.frame(vec![]);
+        let bounds = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == tree.focus)
+            .unwrap()
+            .1
+            .bounds()
+            .unwrap();
+        let pos = pos2(bounds.x0 as f32 + 180.0, bounds.y0 as f32 + 8.0);
+        for pressed in [true, false] {
+            table.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(egui::Popup::is_any_open(&table.ctx));
         table.key(egui::Key::Delete);
         assert!(table.app.actions.is_empty());
     }
