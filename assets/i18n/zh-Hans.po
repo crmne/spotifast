@@ -1747,17 +1747,17 @@ msgstr "系统"
 #. Translators: Settings row heading for the macOS notch overlay feature (macOS only).
 #: src/ui/settings.rs:462
 msgid "MacBook notch widget"
-msgstr ""
+msgstr "MacBook刘海小组件"
 
 #. Translators: One-line description under the MacBook notch widget row in Settings (macOS only).
 #: src/ui/settings.rs:465
 msgid "Show interactive Now Playing widget when hovering over the notch."
-msgstr ""
+msgstr "悬停在刘海区域时显示交互式“正在播放”小组件。"
 
 #. Translators: Label on the toggle switch that enables the macOS notch overlay (macOS only).
 #: src/ui/settings.rs:610
 msgid "MacBook notch interactive widget"
-msgstr ""
+msgstr "MacBook刘海交互式小组件"
 
 #: src/api/models.rs:256
 msgid "Single"

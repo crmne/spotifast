@@ -461,6 +461,8 @@ pub struct App {
     /// reports `VolumeChanged` asynchronously while position snapshots land
     /// every second, so a snapshot must not undo the change on its way past.
     pending_local_volume: Option<(u16, Instant)>,
+    /// A local seek position set here that the engine has not confirmed yet.
+    pending_local_position: Option<(u32, Instant)>,
     optimistic_playing: Option<(bool, Instant)>,
     /// Track shown immediately after a play or skip, until playback reports.
     intent_track: Option<TrackIntent>,
@@ -901,6 +903,7 @@ impl App {
             pending_remote_position: None,
             pending_remote_volume: None,
             pending_local_volume: None,
+            pending_local_position: None,
             optimistic_playing: None,
             intent_track: None,
             shuffle_wanted: session.shuffle_on,
@@ -1448,7 +1451,18 @@ impl App {
                     .clone()
                     .or_else(|| track.art_url.clone()),
                 duration_ms: track.duration_ms,
-                position_ms: self.local.position_now(),
+                position_ms: match self.pending_local_position {
+                    Some((position, at)) if at.elapsed() < OPTIMISTIC_HOLD => {
+                        if self.local.playback == Playback::Playing {
+                            let elapsed = at.elapsed().as_millis() as u32;
+                            let limit = track.duration_ms.max(position);
+                            position.saturating_add(elapsed).min(limit)
+                        } else {
+                            position
+                        }
+                    }
+                    _ => self.local.position_now(),
+                },
                 playing,
                 loading: self.local.playback == Playback::Loading,
                 shuffle: self.shuffle_wanted,
@@ -2223,6 +2237,9 @@ impl App {
         if held_volume.is_none() && state.volume != self.settings.volume {
             self.settings.volume = state.volume;
             self.settings_dirty = true;
+        }
+        if state.seek_sequence != self.local.seek_sequence || track_changed {
+            self.pending_local_position = None;
         }
         if state.seek_sequence != self.local.seek_sequence
             && let Some(controls) = &self.media_controls
@@ -3263,6 +3280,14 @@ impl App {
                 MenuCommand::Previous => self.actions.push(Action::Previous),
                 _ => {}
             }
+        }
+    }
+
+    /// The MacBook notch widget items, read with or without a window.
+    #[cfg(target_os = "macos")]
+    fn handle_notch_commands(&mut self) {
+        for command in crate::notch::drain_commands() {
+            self.actions.push(command.action());
         }
     }
 
@@ -7076,7 +7101,10 @@ impl App {
             return;
         }
         match self.target() {
-            Target::Local => self.backend.player(PlayerCommand::Seek(position_ms)),
+            Target::Local => {
+                self.pending_local_position = Some((position_ms, Instant::now()));
+                self.backend.player(PlayerCommand::Seek(position_ms));
+            }
             Target::Remote(device_id) => {
                 self.pending_remote_position = Some((position_ms, Instant::now()));
                 self.backend.api(ApiRequest::Remote {
@@ -9416,6 +9444,8 @@ impl App {
         self.handle_tray();
         #[cfg(target_os = "macos")]
         self.handle_dock_menu();
+        #[cfg(target_os = "macos")]
+        self.handle_notch_commands();
         self.tick(ctx);
         self.note_listening();
         // MilkDrop runs in a child process and can outlive the main window.
@@ -17045,6 +17075,59 @@ mod tests {
             [Action::TogglePlay, Action::Next, Action::Previous]
         ));
         assert!(mac_menu::drain_dock_commands().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn notch_commands_become_playback_actions_without_a_window() {
+        use crate::notch::{self, NotchCommand};
+        let mut app = headless_app();
+        let _ = notch::drain_commands();
+        notch::push_command(NotchCommand::PlayPause);
+        notch::push_command(NotchCommand::Next);
+        notch::push_command(NotchCommand::Seek(45_000));
+        app.actions.clear();
+        app.handle_notch_commands();
+        assert!(matches!(
+            app.actions.as_slice(),
+            [Action::TogglePlay, Action::Next, Action::Seek(45_000)]
+        ));
+        assert!(notch::drain_commands().is_empty());
+    }
+
+    #[test]
+    fn optimistic_local_seek_holds_position_until_player_confirms_seek() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:test1234".into(),
+            title: "Test Track".into(),
+            duration_ms: 180_000,
+            ..Default::default()
+        });
+        app.local.position_ms = 10_000;
+        app.local.playback = Playback::Playing;
+        app.local.seek_sequence = 1;
+
+        assert!(app.now_playing().is_some_and(|n| n.position_ms >= 10_000));
+
+        app.seek(95_000);
+        assert_eq!(app.pending_local_position.map(|(pos, _)| pos), Some(95_000));
+
+        let now = app.now_playing().expect("now playing");
+        assert!(now.position_ms >= 95_000 && now.position_ms < 96_000);
+
+        let mut stale_state = app.local.clone();
+        stale_state.position_ms = 11_000;
+        app.handle_local(stale_state);
+        assert_eq!(app.pending_local_position.map(|(pos, _)| pos), Some(95_000));
+        assert!(app.now_playing().is_some_and(|n| n.position_ms >= 95_000));
+
+        let mut confirmed_state = app.local.clone();
+        confirmed_state.seek_sequence = 2;
+        confirmed_state.position_ms = 95_200;
+        app.handle_local(confirmed_state);
+        assert_eq!(app.pending_local_position, None);
+        assert_eq!(app.now_playing().map(|n| n.position_ms), Some(95_200));
     }
 
     fn seed_playlist(app: &mut App, id: &str) {

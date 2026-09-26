@@ -1295,10 +1295,6 @@ impl eframe::App for Shell {
             };
             app.actions.push(action);
         }
-        #[cfg(target_os = "macos")]
-        for command in spotifast::notch::drain_commands() {
-            app.actions.push(command.action());
-        }
         #[cfg(windows)]
         for command in self.thumbbar.drain_commands() {
             if let Some(action) = command.action(&app.thumb_state(false)) {

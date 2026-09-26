@@ -407,6 +407,7 @@ struct NotchController {
     window: Retained<NSWindow>,
     _view: Retained<FastpotifyNotchView>,
     card_view: Retained<FastpotifyCardView>,
+    visual_effect: Retained<NSVisualEffectView>,
     canvas_view: Retained<FastpotifyCanvasView>,
     title_field: Retained<NSTextField>,
     artist_field: Retained<NSTextField>,
@@ -414,9 +415,9 @@ struct NotchController {
     remaining_field: Retained<NSTextField>,
     art_view: Retained<NSImageView>,
     star_button: Retained<NSButton>,
-    _prev_button: Retained<NSButton>,
+    prev_button: Retained<NSButton>,
     play_button: Retained<NSButton>,
-    _next_button: Retained<NSButton>,
+    next_button: Retained<NSButton>,
     device_button: Retained<NSButton>,
     _action_handler: Retained<FastpotifyNotchActionHandler>,
     collapsed_frame: NSRect,
@@ -435,6 +436,7 @@ struct NotchController {
     /// When set, the card pulses / cross-fades to signal a track change.
     /// Cleared once the animation finishes.
     track_flash_until: Option<Instant>,
+    pending_seek: Option<(u32, Instant)>,
 }
 
 unsafe impl Send for NotchController {}
@@ -567,6 +569,48 @@ fn update_time_labels(
     }
 }
 
+fn layout_card_subviews(ctrl: &NotchController, card_w: f64) {
+    let card_bounds = NSRect::new(NSPoint::ZERO, NSSize::new(card_w, 148.0));
+    ctrl.visual_effect.setFrame(card_bounds);
+    ctrl.canvas_view.setFrame(card_bounds);
+
+    let text_w = (card_w - 76.0 - 54.0).max(60.0);
+    ctrl.title_field.setFrame(NSRect::new(
+        NSPoint::new(76.0, 16.0),
+        NSSize::new(text_w, 20.0),
+    ));
+    ctrl.artist_field.setFrame(NSRect::new(
+        NSPoint::new(76.0, 38.0),
+        NSSize::new(text_w, 18.0),
+    ));
+
+    let remaining_x = (card_w - 60.0).max(120.0);
+    ctrl.remaining_field.setFrame(NSRect::new(
+        NSPoint::new(remaining_x, 74.0),
+        NSSize::new(50.0, 16.0),
+    ));
+
+    let device_x = (card_w - 68.0).max(120.0);
+    ctrl.device_button.setFrame(NSRect::new(
+        NSPoint::new(device_x, 97.0),
+        NSSize::new(38.0, 38.0),
+    ));
+
+    let center_x = card_w / 2.0;
+    ctrl.prev_button.setFrame(NSRect::new(
+        NSPoint::new(center_x - 78.0, 95.0),
+        NSSize::new(42.0, 42.0),
+    ));
+    ctrl.play_button.setFrame(NSRect::new(
+        NSPoint::new(center_x - 22.0, 93.0),
+        NSSize::new(44.0, 44.0),
+    ));
+    ctrl.next_button.setFrame(NSRect::new(
+        NSPoint::new(center_x + 36.0, 95.0),
+        NSSize::new(42.0, 42.0),
+    ));
+}
+
 fn update_geometry_with_frames(ctrl: &mut NotchController, frames: &NotchFrames) {
     let changed = (ctrl.collapsed_frame.origin.x - frames.collapsed_window.origin.x).abs() > 0.5
         || (ctrl.collapsed_frame.origin.y - frames.collapsed_window.origin.y).abs() > 0.5
@@ -584,6 +628,7 @@ fn update_geometry_with_frames(ctrl: &mut NotchController, frames: &NotchFrames)
         };
         ctrl.window.setFrame_display(win_frame, false);
         ctrl.card_view.setFrame(card_frame);
+        layout_card_subviews(ctrl, frames.expanded_card.size.width);
     }
 }
 
@@ -648,7 +693,7 @@ pub fn init() {
     let action_handler: Retained<FastpotifyNotchActionHandler> =
         unsafe { objc2::msg_send![mtm.alloc::<FastpotifyNotchActionHandler>(), init] };
 
-    let card_w = 400.0;
+    let card_w = frames.expanded_card.size.width;
     let card_h = 148.0;
     let card_bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(card_w, card_h));
 
@@ -704,9 +749,10 @@ pub fn init() {
     card_view.addSubview(&art_view);
 
     // 4. Track Title (Row 1, Bold White, Tail Truncation)
+    let text_w = (card_w - 76.0 - 54.0).max(60.0);
     let title_field = NSTextField::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(76.0, 16.0), NSSize::new(264.0, 20.0)),
+        NSRect::new(NSPoint::new(76.0, 16.0), NSSize::new(text_w, 20.0)),
     );
     title_field.setEditable(false);
     title_field.setSelectable(false);
@@ -720,7 +766,7 @@ pub fn init() {
     // 5. Artist Name (Row 1, Secondary Gray, Tail Truncation)
     let artist_field = NSTextField::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(76.0, 38.0), NSSize::new(264.0, 18.0)),
+        NSRect::new(NSPoint::new(76.0, 38.0), NSSize::new(text_w, 18.0)),
     );
     artist_field.setEditable(false);
     artist_field.setSelectable(false);
@@ -759,9 +805,10 @@ pub fn init() {
     card_view.addSubview(&elapsed_field);
 
     // 7. Remaining Time (Row 2, Right of progress bar)
+    let remaining_x = (card_w - 60.0).max(120.0);
     let remaining_field = NSTextField::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(340.0, 74.0), NSSize::new(50.0, 16.0)),
+        NSRect::new(NSPoint::new(remaining_x, 74.0), NSSize::new(50.0, 16.0)),
     );
     remaining_field.setEditable(false);
     remaining_field.setSelectable(false);
@@ -788,9 +835,10 @@ pub fn init() {
     card_view.addSubview(&star_button);
 
     // 9. Previous Button (Row 3)
+    let center_x = card_w / 2.0;
     let prev_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(122.0, 95.0), NSSize::new(42.0, 42.0)),
+        NSRect::new(NSPoint::new(center_x - 78.0, 95.0), NSSize::new(42.0, 42.0)),
     );
     setup_icon_button(
         &prev_button,
@@ -812,7 +860,7 @@ pub fn init() {
     // 10. Play / Pause Button (Row 3, Center)
     let play_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(178.0, 93.0), NSSize::new(44.0, 44.0)),
+        NSRect::new(NSPoint::new(center_x - 22.0, 93.0), NSSize::new(44.0, 44.0)),
     );
     update_play_button_ui(&play_button, false);
     attach_button_action(
@@ -826,7 +874,7 @@ pub fn init() {
     // 11. Next Button (Row 3)
     let next_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(236.0, 95.0), NSSize::new(42.0, 42.0)),
+        NSRect::new(NSPoint::new(center_x + 36.0, 95.0), NSSize::new(42.0, 42.0)),
     );
     setup_icon_button(
         &next_button,
@@ -846,9 +894,10 @@ pub fn init() {
     card_view.addSubview(&next_button);
 
     // 12. Device / Connect Button (Row 3, Rightmost)
+    let device_x = (card_w - 68.0).max(120.0);
     let device_button = NSButton::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(332.0, 97.0), NSSize::new(38.0, 38.0)),
+        NSRect::new(NSPoint::new(device_x, 97.0), NSSize::new(38.0, 38.0)),
     );
     setup_icon_button(
         &device_button,
@@ -871,6 +920,7 @@ pub fn init() {
         window,
         _view: view,
         card_view,
+        visual_effect,
         canvas_view,
         title_field,
         artist_field,
@@ -878,9 +928,9 @@ pub fn init() {
         remaining_field,
         art_view,
         star_button,
-        _prev_button: prev_button,
+        prev_button,
         play_button,
-        _next_button: next_button,
+        next_button,
         device_button,
         _action_handler: action_handler,
         collapsed_frame: frames.collapsed_window,
@@ -897,6 +947,7 @@ pub fn init() {
         collapsing_until: None,
         anim_phase: 0.0,
         track_flash_until: None,
+        pending_seek: None,
     };
 
     if let Ok(mut lock) = CONTROLLER.lock() {
@@ -1039,28 +1090,39 @@ fn handle_canvas_mouse_down(view: &FastpotifyCanvasView, event: &NSEvent) {
     let local: NSPoint =
         unsafe { objc2::msg_send![view, convertPoint: location, fromView: None::<&NSView>] };
 
-    // Check if clicked directly on the progress bar track (x: 56..342, y: 68..96)
-    if local.y >= 68.0 && local.y <= 96.0 && local.x >= 56.0 && local.x <= 342.0 {
-        let ratio = ((local.x - 60.0) / 278.0).clamp(0.0, 1.0);
-        if let Ok(mut lock) = CONTROLLER.lock()
-            && let Some(ctrl) = lock.as_mut()
-            && let Some(track) = ctrl.track.as_mut()
+    if let Ok(mut lock) = CONTROLLER.lock()
+        && let Some(ctrl) = lock.as_mut()
+    {
+        let card_w = ctrl.expanded_card_frame.size.width;
+        let start_x = 60.0f64;
+        let end_x = (card_w - 62.0).max(start_x + 20.0);
+        let track_w = (end_x - start_x).max(1.0);
+
+        // Check if clicked directly on the progress bar track
+        if local.y >= 68.0
+            && local.y <= 96.0
+            && local.x >= (start_x - 4.0)
+            && local.x <= (end_x + 4.0)
         {
-            if track.duration_ms == 0 {
+            let ratio = ((local.x - start_x) / track_w).clamp(0.0, 1.0);
+            if let Some(track) = ctrl.track.as_mut() {
+                if track.duration_ms == 0 {
+                    return;
+                }
+                let seek_pos = (ratio * track.duration_ms as f64) as u32;
+                track.position_ms = seek_pos;
+                ctrl.pending_seek = Some((seek_pos, Instant::now()));
+                update_time_labels(
+                    &ctrl.canvas_view,
+                    &ctrl.elapsed_field,
+                    &ctrl.remaining_field,
+                    seek_pos,
+                    track.duration_ms,
+                );
+                ctrl.canvas_view.setNeedsDisplay(true);
+                push_command(NotchCommand::Seek(seek_pos));
                 return;
             }
-            let seek_pos = (ratio * track.duration_ms as f64) as u32;
-            track.position_ms = seek_pos;
-            update_time_labels(
-                &ctrl.canvas_view,
-                &ctrl.elapsed_field,
-                &ctrl.remaining_field,
-                seek_pos,
-                track.duration_ms,
-            );
-            ctrl.canvas_view.setNeedsDisplay(true);
-            push_command(NotchCommand::Seek(seek_pos));
-            return;
         }
     }
 
@@ -1076,7 +1138,7 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
         return;
     };
 
-    let card_w = 400.0f64;
+    let card_w = ctrl.expanded_card_frame.size.width;
     let card_h = 148.0f64;
     let card_rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(card_w, card_h));
 
@@ -1113,7 +1175,7 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
     }
 
     // 3. Animated equalizer / waveform indicator (Row 1, Right)
-    let wave_x = 356.0;
+    let wave_x = (card_w - 44.0).max(120.0);
     let wave_y = 22.0;
     let wave_h = 16.0;
     let playing = ctrl.track.as_ref().is_some_and(|t| t.playing);
@@ -1147,14 +1209,25 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
 
     // 4. Wavy / Dynamic Progress Bar (Row 2)
     let start_x = 60.0f64;
-    let end_x = 338.0f64;
-    let track_w = end_x - start_x; // 278.0 pt
+    let end_x = (card_w - 62.0).max(start_x + 20.0);
+    let track_w = (end_x - start_x).max(1.0);
     let center_y = 82.0f64;
 
     let (duration_ms, position_ms) = if let Some(track) = &ctrl.track {
+        let pos = if let Some((seek_pos, at)) = ctrl.pending_seek {
+            if at.elapsed() > std::time::Duration::from_millis(2000)
+                || (track.position_ms as i64 - seek_pos as i64).abs() < 1200
+            {
+                track.position_ms
+            } else {
+                seek_pos
+            }
+        } else {
+            track.position_ms
+        };
         (
             track.duration_ms.max(1) as f64,
-            track.position_ms.min(track.duration_ms) as f64,
+            pos.min(track.duration_ms) as f64,
         )
     } else {
         (1.0, 0.0)
@@ -1355,6 +1428,7 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
     // Update track metadata
     let track_changed = crate::notch::is_track_metadata_different(ctrl.track.as_ref(), track);
     if track_changed {
+        ctrl.pending_seek = None;
         // Premium Dynamic Island-style content transition:
         // Phase 1: fade old content out (120 ms crisp)
         // Phase 2: swap values while hidden, start art cross-dissolve
@@ -1433,7 +1507,17 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
         ctrl.canvas_view.setNeedsDisplay(true);
     } else if let (Some(cached), Some(latest)) = (ctrl.track.as_mut(), track) {
         let changes = crate::notch::detect_incremental_changes(cached, latest);
-        *cached = latest.clone();
+        let mut updated = latest.clone();
+        if let Some((seek_pos, at)) = ctrl.pending_seek {
+            if at.elapsed() <= std::time::Duration::from_millis(2000)
+                && (latest.position_ms as i64 - seek_pos as i64).abs() >= 1200
+            {
+                updated.position_ms = seek_pos;
+            } else {
+                ctrl.pending_seek = None;
+            }
+        }
+        *cached = updated;
 
         if changes.episode_changed {
             ctrl.star_button
@@ -1457,11 +1541,23 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
         }
 
         if changes.progress_changed || changes.duration_changed {
+            let pos = if let Some((seek_pos, at)) = ctrl.pending_seek {
+                if at.elapsed() > std::time::Duration::from_millis(2000)
+                    || (latest.position_ms as i64 - seek_pos as i64).abs() < 1200
+                {
+                    ctrl.pending_seek = None;
+                    latest.position_ms
+                } else {
+                    seek_pos
+                }
+            } else {
+                latest.position_ms
+            };
             update_time_labels(
                 &ctrl.canvas_view,
                 &ctrl.elapsed_field,
                 &ctrl.remaining_field,
-                latest.position_ms,
+                pos,
                 latest.duration_ms,
             );
             ctrl.canvas_view.setNeedsDisplay(true);
