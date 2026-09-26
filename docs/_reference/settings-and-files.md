@@ -233,7 +233,7 @@ main fields are:
 | `custom_theme_cache` | absent | Last accepted custom palette; preserves appearance if its file is missing or invalid |
 | `system_theme_cache` | absent | Last accepted Omarchy palette for Follow system; retained across restarts |
 | `accent_from_art` | `true` | Tint pages with album art |
-| `player_bar_vis` | `off` | Since 0.10.3: what moves behind the player bar while a song plays on this computer: `off`, `spectrum` or `waveform` |
+| `player_bar_vis` | `off` | Since 0.11.0: what moves behind the player bar while a song plays on this computer: `off`, `spectrum` or `waveform` |
 | `library_sort` | `{}` | Per-section Library order overrides, since 0.8.0: `library`, `recently_played`, `name`, `recently_added`, `local`, or `spotify`, where supported |
 | `sidebar_order` | `[]` | Saved local playlist arrangement, including an unpinned Liked Songs, retained when another sort is selected |
 | `pinned_contexts` | `[]` | Local Library pin order; Liked Songs uses `spotifast:liked-songs`, a local key never sent to Spotify |
@@ -246,7 +246,7 @@ main fields are:
 | `winamp_show_taskbar` | `true` | Windows since 0.8.0, and Linux X11 sessions: show the Winamp window's taskbar button; the main window always keeps its button. Wayland and macOS ignore it |
 | `custom_titlebar` | `false` | Windows only, since 0.10.0: draw Spotifast's own title bar and window buttons instead of the standard Windows ones |
 | `skin` | none | File or folder name in the skins folder; blank uses the built-in skin |
-| `random_skin` | `false` | Since 0.10.3: pick a different skin (built-in or installed) each time the mini player opens; `skin` holds the one picked |
+| `random_skin` | `false` | Since 0.11.0: pick a different skin (built-in or installed) each time the mini player opens; `skin` holds the one picked |
 | `skin_scale` | by display | Screen pixels per skin pixel, 1 to 4 |
 | `winamp_on_top` | `false` | Keep the mini player above other windows |
 | `vis` | `bars` | The mini player's visualiser: `bars`, `scope`, or `off` |
@@ -361,7 +361,7 @@ refresh in the background.
 
 ## Custom themes
 
-Since 0.10.3, Spotifast puts eight palettes in the `themes` folder beside
+Since 0.11.0, Spotifast puts eight palettes in the `themes` folder beside
 `settings.json` the first time it starts: Catppuccin, Catppuccin Latte,
 Nord, Ristretto, Rose Pine, Rose Pine Dawn, Rose Pine Moon and Tokyo
 Night. They are ordinary palette files: read them to see how a theme is
@@ -391,7 +391,7 @@ After adding or editing a JSON file on macOS or Windows, run
 restarting playback. Since 0.10.2, Spotifast on Linux notices changes to the
 themes folder by itself.
 Choosing a built-in theme clears the custom selection.
-Since 0.10.3, whenever the colours change (a theme picked here, Omarchy
+Since 0.11.0, whenever the colours change (a theme picked here, Omarchy
 switching themes, or the system going light or dark), the new colours open
 from the middle of the window outwards, as Omarchy's own theme change does.
 

@@ -216,7 +216,7 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   ![The mini player wearing the built-in skin](docs/assets/images/winamp.png)
 - **Equalizer.** Winamp's ten bands and presets over the music played on
   this computer, in Settings and in the skin.
-- **A player bar that moves.** Since 0.10.3, **Player bar visualizer** in
+- **A player bar that moves.** Since 0.11.0, **Player bar visualizer** in
   Settings > Appearance draws a spectrum or the waveform of the playing song
   behind the player bar, in the cover's colour. It is off by default;
   click the bar's empty space to switch between spectrum, waveform and off.
@@ -552,7 +552,7 @@ Since 0.8.0, you can hide Made for you and Recommended for you
 from Home through JSON preferences; see
 [Home shelves](docs/_reference/settings-and-files.md#home-shelves).
 Custom JSON palettes go in a `themes` folder beside `settings.json`.
-Since 0.10.3, eight palettes (Catppuccin, Nord, Rose Pine, Tokyo Night and
+Since 0.11.0, eight palettes (Catppuccin, Nord, Rose Pine, Tokyo Night and
 others) are put there on first start, as files to use, change or delete.
 Select them in Appearance; `spotifast reload-themes` loads additions and updates
 without interrupting playback. See [custom themes and Omarchy integration](docs/_reference/settings-and-files.md#custom-themes).

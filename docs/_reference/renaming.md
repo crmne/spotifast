@@ -84,11 +84,11 @@ executable and bundle ID retain the names older updaters validate, and its
 disk image includes their hidden compatibility bundle. The 0.9.1 updater
 accepts the Spotifast executable and bundle ID used afterward, while retaining
 version, signature and signing-team checks. Updating preserves an existing
-installation's chosen bundle location; from 0.10.3, an app still called
+installation's chosen bundle location; from 0.11.0, an app still called
 `Fastpotify.app` comes back from its next update as `Spotifast.app` in the
 same folder.
 
-From 0.10.3, every automatic update also moves a copy that still runs under
+From 0.11.0, every automatic update also moves a copy that still runs under
 the old name onto the new one. A Windows installation that starts as
 `fastpotify.exe` comes back as `spotifast.exe`, and the old file is removed.
 Updates begun by 0.10.2 or earlier still relaunch `fastpotify.exe`, so the
