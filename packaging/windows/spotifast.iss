@@ -73,6 +73,13 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "{#Binary}"; DestDir: "{app}"; Flags: ignoreversion
+#if Version != "0.9.1"
+; Updaters up to 0.10.2 relaunch the executable they were started from, so
+; an update begun as fastpotify.exe needs that file to come back (#582). The
+; app deletes the copy once it starts as spotifast.exe with no update running,
+; and later updaters relaunch spotifast.exe themselves.
+Source: "{#Binary}"; DestDir: "{app}"; DestName: "fastpotify.exe"; Flags: ignoreversion
+#endif
 #if Version == "0.9.1"
 Source: "{#LegacyBinary}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "fastpotify-installer.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -89,7 +96,6 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 Type: files; Name: "{autoprograms}\Fastpotify.lnk"
 Type: files; Name: "{autodesktop}\Fastpotify.lnk"
 #if Version != "0.9.1"
-Type: files; Name: "{app}\fastpotify.exe"
 Type: files; Name: "{app}\fastpotify-installer.txt"
 #endif
 

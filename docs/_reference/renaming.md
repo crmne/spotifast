@@ -84,7 +84,21 @@ executable and bundle ID retain the names older updaters validate, and its
 disk image includes their hidden compatibility bundle. The 0.9.1 updater
 accepts the Spotifast executable and bundle ID used afterward, while retaining
 version, signature and signing-team checks. Updating preserves an existing
-installation's chosen bundle location.
+installation's chosen bundle location; from 0.10.3, an app still called
+`Fastpotify.app` comes back from its next update as `Spotifast.app` in the
+same folder.
+
+From 0.10.3, every automatic update also moves a copy that still runs under
+the old name onto the new one. A Windows installation that starts as
+`fastpotify.exe` comes back as `spotifast.exe`, and the old file is removed.
+Updates begun by 0.10.2 or earlier still relaunch `fastpotify.exe`, so the
+installer keeps a copy under that name for them, and the app removes it the
+next time it starts as `spotifast.exe`. A portable copy named `fastpotify` is
+updated as `spotifast` beside it; on Linux the old name stays as a link to
+the new file, so scripts that name it keep working. Shortcuts that start the
+old file are pointed at the new one: Start menu, Startup, desktop and taskbar
+shortcuts on Windows, and desktop entries and command links in your home
+folder on Linux. Scripts are left alone.
 
 Windows keeps the installer GUID so an upgrade remains the same installed
 application. Fresh installs use `Programs\Spotifast`; upgrades preserve the
