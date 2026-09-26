@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 17:37+0200\n"
+"POT-Creation-Date: 2026-09-26 18:22+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Simplified Chinese\n"
@@ -28,12 +28,12 @@ msgstr "暂停 {name}"
 msgid "Play {name}"
 msgstr "播放 {name}"
 
-#: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16175
+#: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16226
 #: src/ui/collection.rs:1646 src/ui/collection.rs:1823
 msgid "Playlist"
 msgstr "歌单"
 
-#: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16180
+#: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16231
 #: src/ui/collection.rs:1816 src/ui/home.rs:49 src/ui/keys.rs:253
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -556,7 +556,7 @@ msgstr "添加日期"
 msgid "Sort by duration"
 msgstr "按时长排序"
 
-#: src/ui/widgets.rs:2400 src/app.rs:10121 src/ui/collection.rs:727
+#: src/ui/widgets.rs:2400 src/app.rs:10141 src/ui/collection.rs:727
 msgid "Loading…"
 msgstr "加载中…"
 
@@ -716,7 +716,7 @@ msgid "Queue cleared"
 msgstr "播放队列已清空"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:4398 src/app.rs:16165
+#: src/app.rs:4398 src/app.rs:16216
 #, rust-format
 msgid "Queue {date}"
 msgstr "队列 {date}"
@@ -970,58 +970,58 @@ msgstr "已清除 {size} MB 封面图片"
 msgid "Couldn't clear artwork: {error}"
 msgstr "无法清除封面图片：{error}"
 
-#: src/app.rs:9311
+#: src/app.rs:9331
 msgid "Downloading MilkDrop preset packs"
 msgstr "正在下载 MilkDrop 预设包"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:9345
+#: src/app.rs:9365
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "正在下载 {name} 预设"
 
-#: src/app.rs:10233
+#: src/app.rs:10253
 msgid "Couldn't start playback"
 msgstr "无法开始播放"
 
-#: src/app.rs:10234
+#: src/app.rs:10254
 msgid "Couldn't pause"
 msgstr "无法暂停"
 
-#: src/app.rs:10235
+#: src/app.rs:10255
 msgid "Couldn't skip"
 msgstr "无法跳过"
 
-#: src/app.rs:10236
+#: src/app.rs:10256
 msgid "Couldn't go back"
 msgstr "无法返回上一首"
 
-#: src/app.rs:10237
+#: src/app.rs:10257
 msgid "Couldn't seek"
 msgstr "无法调整播放进度"
 
-#: src/app.rs:10238
+#: src/app.rs:10258
 msgid "Couldn't change the volume"
 msgstr "无法调整音量"
 
-#: src/app.rs:10239
+#: src/app.rs:10259
 msgid "Couldn't change shuffle"
 msgstr "无法切换随机播放"
 
-#: src/app.rs:10240
+#: src/app.rs:10260
 msgid "Couldn't change repeat"
 msgstr "无法切换循环模式"
 
-#: src/app.rs:10281
+#: src/app.rs:10301
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr "Spotify 不向第三方应用提供此歌单中的歌曲。"
 
-#: src/app.rs:10411
+#: src/app.rs:10431
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr "Spotify 登录已过期。请重新登录，然后重试上传封面。"
 
-#: src/app.rs:10416
+#: src/app.rs:10436
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If using a personal app, reconnect "
@@ -1030,19 +1030,19 @@ msgstr ""
 "Spotify 拒绝了此封面。请确认你是歌单的所有者，然后重新登录以授予上传图片的权"
 "限。如果使用个人应用，也请在设置中重新连接它。"
 
-#: src/app.rs:10420
+#: src/app.rs:10440
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotify 拒绝了此图片尺寸，请选择更小的图片。"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:10423
+#: src/app.rs:10443
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "无法上传封面：{error}。请重试。"
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:16185 src/app/radio.rs:38
+#: src/app.rs:16236 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track} 电台"
@@ -1367,7 +1367,7 @@ msgstr "“跟随系统”会使用你的 Omarchy 配色。"
 msgid "Follow system uses your desktop's light or dark appearance."
 msgstr "“跟随系统”会使用桌面的浅色或深色外观。"
 
-#: src/ui/settings.rs:747 src/ui/settings.rs:1853
+#: src/ui/settings.rs:747 src/ui/settings.rs:1878
 msgid "Language"
 msgstr "语言"
 
@@ -1544,11 +1544,21 @@ msgstr "切换到此皮肤"
 msgid "Skin Museum"
 msgstr "Skin Museum"
 
-#: src/ui/settings.rs:1358
+#: src/ui/settings.rs:1290
+msgid "Random"
+msgstr "随机"
+
+#: src/ui/settings.rs:1329
+#, rust-format
+msgid ""
+"Now showing {skin}. Another one is picked each time the mini player opens."
+msgstr "当前皮肤：{skin}。每次打开迷你播放器都会换一个。"
+
+#: src/ui/settings.rs:1383
 msgid "MilkDrop window"
 msgstr "MilkDrop 窗口"
 
-#: src/ui/settings.rs:1366
+#: src/ui/settings.rs:1391
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1557,7 +1567,7 @@ msgstr ""
 "用于本地播放的 projectM 可视化效果。可在此处、顶部栏、按 Ctrl+Shift+K 或通过"
 "迷你播放器的 V 菜单打开。按 ? 或 F1 查看快捷键。"
 
-#: src/ui/settings.rs:1370
+#: src/ui/settings.rs:1395
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1566,12 +1576,12 @@ msgstr ""
 "用于本地播放的 projectM 可视化效果。可在此处、顶部栏、按 Cmd+Shift+K 或通过迷"
 "你播放器的 V 菜单打开。按 ? 或 F1 查看快捷键。"
 
-#: src/ui/settings.rs:1376 src/ui/settings.rs:1591
+#: src/ui/settings.rs:1401 src/ui/settings.rs:1616
 msgid "Presets"
 msgstr "预设"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1381
+#: src/ui/settings.rs:1406
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -1581,7 +1591,7 @@ msgstr ""
 "件夹为空，Spotifast 会下载预设。"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1387
+#: src/ui/settings.rs:1412
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -1591,7 +1601,7 @@ msgstr ""
 "件夹为空，Spotifast 会下载预设。"
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1393
+#: src/ui/settings.rs:1418
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -1603,24 +1613,24 @@ msgstr[0] ""
 "{folder} 中有 {count} 个预设。请将 .milk 文件添加到此处。首次打开 MilkDrop 时"
 "如果文件夹为空，Spotifast 会下载预设。"
 
-#: src/ui/settings.rs:1402
+#: src/ui/settings.rs:1427
 msgid "Time per preset"
 msgstr "每个预设的时长"
 
-#: src/ui/settings.rs:1405
+#: src/ui/settings.rs:1430
 msgid "How long each preset plays before the next fades in."
 msgstr "每个预设播放多长时间后淡入下一个。"
 
-#: src/ui/settings.rs:1409
+#: src/ui/settings.rs:1434
 msgid "Frame rate"
 msgstr "帧率"
 
-#: src/ui/settings.rs:1413
+#: src/ui/settings.rs:1438
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr "帧率越低占用资源越少。“不限制”会尽可能快地绘制。"
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:1418
+#: src/ui/settings.rs:1443
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -1629,146 +1639,146 @@ msgstr ""
 "你的屏幕刷新率为 {hz} Hz，更高的帧率不会增加可见帧数。“不限制”会尽可能快地绘"
 "制。"
 
-#: src/ui/settings.rs:1425
+#: src/ui/settings.rs:1450
 msgid "Resolution"
 msgstr "分辨率"
 
-#: src/ui/settings.rs:1428
+#: src/ui/settings.rs:1453
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr "“一半”和“四分之一”占用资源更少，并会将图像放大显示。"
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:1435
+#: src/ui/settings.rs:1460
 msgid "Get presets"
 msgstr "获取预设"
 
-#: src/ui/settings.rs:1473
+#: src/ui/settings.rs:1498
 msgid "Fetching..."
 msgstr "正在获取..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:1476
+#: src/ui/settings.rs:1501
 #, rust-format
 msgid "Get {pack}"
 msgstr "获取 {pack}"
 
-#: src/ui/settings.rs:1563
+#: src/ui/settings.rs:1588
 msgctxt "resolution"
 msgid "Full"
 msgstr "完整"
 
-#: src/ui/settings.rs:1564
+#: src/ui/settings.rs:1589
 msgctxt "resolution"
 msgid "Half"
 msgstr "一半"
 
-#: src/ui/settings.rs:1565
+#: src/ui/settings.rs:1590
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "四分之一"
 
-#: src/ui/settings.rs:1579
+#: src/ui/settings.rs:1604
 msgid "Equalizer"
 msgstr "均衡器"
 
-#: src/ui/settings.rs:1585
+#: src/ui/settings.rs:1610
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
 msgstr "用于这台电脑上播放的十段均衡器，不影响其他设备。"
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1593
+#: src/ui/settings.rs:1618
 msgid "Preamp"
 msgstr "前置放大"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:1595
+#: src/ui/settings.rs:1620
 msgid "Bands"
 msgstr "频段"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1645
+#: src/ui/settings.rs:1670
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "前置"
 
-#: src/ui/settings.rs:1662
+#: src/ui/settings.rs:1687
 msgid "Storage"
 msgstr "存储"
 
-#: src/ui/settings.rs:1665
+#: src/ui/settings.rs:1690
 msgid "Artwork cache"
 msgstr "封面图片缓存"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:1667 src/ui/settings.rs:1673
+#: src/ui/settings.rs:1692 src/ui/settings.rs:1698
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "存储于 {folder}"
 
-#: src/ui/settings.rs:1679
+#: src/ui/settings.rs:1704
 msgid "Play history"
 msgstr "播放记录"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:1683
+#: src/ui/settings.rs:1708
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr "在此播放的歌曲会保存在 {file} 中。此文件永远不会上传。"
 
-#: src/ui/settings.rs:1688
+#: src/ui/settings.rs:1713
 msgid "Sign-in"
 msgstr "登录"
 
-#: src/ui/settings.rs:1691
+#: src/ui/settings.rs:1716
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr "登录信息会在可用时保存在系统凭据存储中。"
 
-#: src/ui/settings.rs:1703
+#: src/ui/settings.rs:1728
 msgid "Clear artwork"
 msgstr "清除封面图片"
 
-#: src/ui/settings.rs:1717
+#: src/ui/settings.rs:1742
 msgid "Clear history"
 msgstr "清除记录"
 
-#: src/ui/settings.rs:1729 src/ui/show.rs:34
+#: src/ui/settings.rs:1754 src/ui/show.rs:34
 msgid "About"
 msgstr "关于"
 
-#: src/ui/settings.rs:1732
+#: src/ui/settings.rs:1757
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr "使用 Rust、egui 和 librespot 构建。与 Spotify 无关。"
 
-#: src/ui/settings.rs:1734
+#: src/ui/settings.rs:1759
 msgid "Check for updates"
 msgstr "检查更新"
 
-#: src/ui/settings.rs:1735
+#: src/ui/settings.rs:1760
 msgid "Checking…"
 msgstr "正在检查…"
 
-#: src/ui/settings.rs:1736 src/ui/dialogs.rs:153 src/ui/keys.rs:295
+#: src/ui/settings.rs:1761 src/ui/dialogs.rs:153 src/ui/keys.rs:295
 #: src/ui/topbar.rs:414
 msgid "Keyboard shortcuts"
 msgstr "键盘快捷键"
 
-#: src/ui/settings.rs:1737
+#: src/ui/settings.rs:1762
 msgid "Source code"
 msgstr "源代码"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:1809
+#: src/ui/settings.rs:1834
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "没有与“{query}”相关的设置"
 
-#: src/ui/settings.rs:1810
+#: src/ui/settings.rs:1835
 msgid "Try fewer words, or check the spelling."
 msgstr "请减少字词，或检查拼写。"
 
-#: src/ui/settings.rs:1826
+#: src/ui/settings.rs:1851
 msgctxt "language"
 msgid "System"
 msgstr "系统"

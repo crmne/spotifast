@@ -9157,6 +9157,21 @@ impl App {
                 // `main` opens the other kind where each was last.
                 if self.settings.winamp_window {
                     self.winamp.remember_position();
+                } else if self.settings.random_skin {
+                    self.winamp.refresh_choices(&self.dirs.skins_dir());
+                    let candidates: Vec<Option<String>> = std::iter::once(None)
+                        .chain(
+                            self.winamp
+                                .choices
+                                .iter()
+                                .map(|choice| Some(choice.name.clone())),
+                        )
+                        .collect();
+                    self.settings.skin = crate::winamp::pick_another(
+                        &candidates,
+                        &self.settings.skin,
+                        &mut rand::rng(),
+                    );
                 }
                 self.session_window_size = self.last_window_size.or(self.session_window_size);
                 self.session_window_pos = self.last_window_pos.or(self.session_window_pos);
@@ -9167,6 +9182,11 @@ impl App {
             }
             Action::SetSkin(name) => {
                 self.settings.skin = name;
+                self.settings.random_skin = false;
+                self.settings_dirty = true;
+            }
+            Action::SetRandomSkin(random) => {
+                self.settings.random_skin = random;
                 self.settings_dirty = true;
             }
             Action::InstallSkin(path) => {
@@ -14993,6 +15013,37 @@ mod tests {
         );
         app.reveal_theme_changes = false;
         app
+    }
+
+    /// With Random on, each switch to the mini player shows a skin other
+    /// than the last one, and choosing a skin turns Random off.
+    #[test]
+    fn a_random_skin_changes_each_time_the_mini_player_opens() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("random-skin");
+        let skins = app.dirs.skins_dir();
+        std::fs::create_dir_all(&skins).unwrap();
+        for name in ["A.wsz", "B.wsz"] {
+            std::fs::write(skins.join(name), b"skin").unwrap();
+        }
+        app.apply(Action::SetRandomSkin(true), &ctx);
+        for _ in 0..6 {
+            let before = app.settings.skin.clone();
+            app.settings.winamp_window = false;
+            app.switch_intent = false;
+            app.apply(Action::ToggleWinampWindow, &ctx);
+            assert!(app.settings.winamp_window);
+            assert_ne!(app.settings.skin, before, "never the same twice in a row");
+        }
+        app.apply(Action::SetSkin(Some("B.wsz".into())), &ctx);
+        assert!(!app.settings.random_skin);
+        app.settings.winamp_window = false;
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        assert_eq!(
+            app.settings.skin.as_deref(),
+            Some("B.wsz"),
+            "a chosen skin stays"
+        );
     }
 
     /// A change of colours keeps the old ones until the window's picture of

@@ -1134,6 +1134,8 @@ pub enum Action {
     /// Windows: draw Spotifast's own title bar instead of the standard one.
     SetCustomTitlebar(bool),
     OpenSkinsFolder,
+    /// Pick a different skin each time the mini player opens.
+    SetRandomSkin(bool),
     /// Cycle bars, scope, and off.
     CycleVisualiser,
     /// A click on the player bar's empty space: spectrum, waveform, off.

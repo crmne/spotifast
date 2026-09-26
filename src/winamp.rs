@@ -359,6 +359,23 @@ fn has_main_bitmap(folder: &Path) -> bool {
     })
 }
 
+/// A skin other than `current`, at random, from `candidates` (`None` is the
+/// built-in skin). With nothing else to pick, `current` stays.
+pub fn pick_another(
+    candidates: &[Option<String>],
+    current: &Option<String>,
+    rng: &mut impl rand::Rng,
+) -> Option<String> {
+    let others: Vec<&Option<String>> = candidates
+        .iter()
+        .filter(|candidate| *candidate != current)
+        .collect();
+    if others.is_empty() {
+        return current.clone();
+    }
+    others[rng.random_range(0..others.len())].clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,5 +460,26 @@ mod tests {
         assert!(list_skins(Path::new("/nonexistent/skins")).is_empty());
         assert!(is_skin_file(Path::new("/tmp/x.WSZ")));
         assert!(!is_skin_file(Path::new("/tmp/x.bmp")));
+    }
+
+    /// Random never repeats the skin it replaces, reaches every other one,
+    /// and keeps the only skin there is.
+    #[test]
+    fn a_random_skin_is_never_the_one_it_replaces() {
+        let candidates = [None, Some("A.wsz".to_owned()), Some("B".to_owned())];
+        let mut rng = rand::rng();
+        let current = Some("A.wsz".to_owned());
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            let picked = pick_another(&candidates, &current, &mut rng);
+            assert_ne!(picked, current);
+            seen.insert(picked);
+        }
+        assert_eq!(seen.len(), 2, "both others are reachable");
+        assert_eq!(pick_another(&[None], &None, &mut rng), None);
+        assert_eq!(
+            pick_another(&[], &Some("gone".into()), &mut rng),
+            Some("gone".into())
+        );
     }
 }

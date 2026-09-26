@@ -18,6 +18,10 @@ the shortcut again, to return to the main window.
 Drop a `.wsz` file on either window to install and use it. Settings lists the
 installed skins and can open the skins folder.
 
+Choose **Random**, first in that list, to get a different skin each time you
+switch to the mini player, never the same one twice in a row. Settings says
+which skin it picked, and choosing a skin yourself turns Random off.
+
 You can also use an unpacked skin folder. Spotifast finds skin files inside
 its subfolders, up to eight folders deep, so you do not need to move them all
 into one folder.

@@ -321,6 +321,9 @@ pub struct Settings {
     pub custom_titlebar: bool,
     /// Skin file or folder name. `None` selects the built-in skin.
     pub skin: Option<String>,
+    /// Pick a different skin each time the mini player opens; `skin` holds
+    /// the one picked.
+    pub random_skin: bool,
     /// Screen pixels per skin pixel; `None` picks double size for the
     /// display.
     pub skin_scale: Option<u8>,
@@ -455,6 +458,7 @@ impl Default for Settings {
             winamp_show_taskbar: true,
             custom_titlebar: false,
             skin: None,
+            random_skin: false,
             skin_scale: None,
             winamp_on_top: false,
             vis: VisMode::default(),
@@ -1214,6 +1218,13 @@ mod tests {
         assert_eq!(PlayerBarVis::Off.next(), PlayerBarVis::Spectrum);
         assert_eq!(PlayerBarVis::Spectrum.next(), PlayerBarVis::Waveform);
         assert_eq!(PlayerBarVis::Waveform.next(), PlayerBarVis::Off);
+    }
+
+    #[test]
+    fn older_settings_keep_the_chosen_skin() {
+        let settings: Settings = serde_json::from_str(r#"{"skin":"A.wsz"}"#).unwrap();
+        assert!(!settings.random_skin);
+        assert_eq!(settings.skin.as_deref(), Some("A.wsz"));
     }
 
     #[test]

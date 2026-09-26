@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 17:37+0200\n"
+"POT-Creation-Date: 2026-09-26 18:22+0200\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: European Portuguese\n"
@@ -28,12 +28,12 @@ msgstr "Pausar {name}"
 msgid "Play {name}"
 msgstr "Reproduzir {name}"
 
-#: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16175
+#: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16226
 #: src/ui/collection.rs:1646 src/ui/collection.rs:1823
 msgid "Playlist"
 msgstr "Playlist"
 
-#: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16180
+#: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16231
 #: src/ui/collection.rs:1816 src/ui/home.rs:49 src/ui/keys.rs:253
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -561,7 +561,7 @@ msgstr "DATA DE ADIÇÃO"
 msgid "Sort by duration"
 msgstr "Ordenar por duração"
 
-#: src/ui/widgets.rs:2400 src/app.rs:10121 src/ui/collection.rs:727
+#: src/ui/widgets.rs:2400 src/app.rs:10141 src/ui/collection.rs:727
 msgid "Loading…"
 msgstr "A carregar…"
 
@@ -730,7 +730,7 @@ msgid "Queue cleared"
 msgstr "Fila limpa"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:4398 src/app.rs:16165
+#: src/app.rs:4398 src/app.rs:16216
 #, rust-format
 msgid "Queue {date}"
 msgstr "Fila {date}"
@@ -995,61 +995,61 @@ msgstr "{size} MB de capas apagados"
 msgid "Couldn't clear artwork: {error}"
 msgstr "Não foi possível apagar as capas: {error}"
 
-#: src/app.rs:9311
+#: src/app.rs:9331
 msgid "Downloading MilkDrop preset packs"
 msgstr "A transferir pacotes de predefinições do MilkDrop"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:9345
+#: src/app.rs:9365
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "A transferir as predefinições {name}"
 
-#: src/app.rs:10233
+#: src/app.rs:10253
 msgid "Couldn't start playback"
 msgstr "Não foi possível iniciar a reprodução"
 
-#: src/app.rs:10234
+#: src/app.rs:10254
 msgid "Couldn't pause"
 msgstr "Não foi possível pausar"
 
-#: src/app.rs:10235
+#: src/app.rs:10255
 msgid "Couldn't skip"
 msgstr "Não foi possível avançar"
 
-#: src/app.rs:10236
+#: src/app.rs:10256
 msgid "Couldn't go back"
 msgstr "Não foi possível voltar"
 
-#: src/app.rs:10237
+#: src/app.rs:10257
 msgid "Couldn't seek"
 msgstr "Não foi possível mudar a posição"
 
-#: src/app.rs:10238
+#: src/app.rs:10258
 msgid "Couldn't change the volume"
 msgstr "Não foi possível alterar o volume"
 
-#: src/app.rs:10239
+#: src/app.rs:10259
 msgid "Couldn't change shuffle"
 msgstr "Não foi possível alterar a ordem aleatória"
 
-#: src/app.rs:10240
+#: src/app.rs:10260
 msgid "Couldn't change repeat"
 msgstr "Não foi possível alterar a repetição"
 
-#: src/app.rs:10281
+#: src/app.rs:10301
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "O Spotify não disponibiliza as músicas desta playlist a apps de terceiros."
 
-#: src/app.rs:10411
+#: src/app.rs:10431
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "A sessão do Spotify expirou. Inicia sessão novamente e volta a tentar "
 "carregar a capa."
 
-#: src/app.rs:10416
+#: src/app.rs:10436
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If using a personal app, reconnect "
@@ -1059,20 +1059,20 @@ msgstr ""
 "novamente para dar permissão de carregamento de imagens. Se usas uma app "
 "pessoal, volta também a ligá-la nas Definições."
 
-#: src/app.rs:10420
+#: src/app.rs:10440
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr ""
 "O Spotify rejeitou o tamanho da imagem. Escolhe uma imagem mais pequena."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:10423
+#: src/app.rs:10443
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Não foi possível carregar a capa: {error}. Tenta novamente."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:16185 src/app/radio.rs:38
+#: src/app.rs:16236 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Rádio de {track}"
@@ -1409,7 +1409,7 @@ msgid "Follow system uses your desktop's light or dark appearance."
 msgstr ""
 "Seguir o sistema usa o aspeto claro ou escuro do teu ambiente de trabalho."
 
-#: src/ui/settings.rs:747 src/ui/settings.rs:1853
+#: src/ui/settings.rs:747 src/ui/settings.rs:1878
 msgid "Language"
 msgstr "Idioma"
 
@@ -1596,11 +1596,21 @@ msgstr "Mudar para esta"
 msgid "Skin Museum"
 msgstr "Skin Museum"
 
-#: src/ui/settings.rs:1358
+#: src/ui/settings.rs:1290
+msgid "Random"
+msgstr "Aleatório"
+
+#: src/ui/settings.rs:1329
+#, rust-format
+msgid ""
+"Now showing {skin}. Another one is picked each time the mini player opens."
+msgstr "Em uso: {skin}. É escolhida outra sempre que o minileitor abre."
+
+#: src/ui/settings.rs:1383
 msgid "MilkDrop window"
 msgstr "Janela do MilkDrop"
 
-#: src/ui/settings.rs:1366
+#: src/ui/settings.rs:1391
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1610,7 +1620,7 @@ msgstr ""
 "superior, com Ctrl+Shift+K ou no menu V do minileitor. Prime ? ou F1 para "
 "ver os atalhos."
 
-#: src/ui/settings.rs:1370
+#: src/ui/settings.rs:1395
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1620,12 +1630,12 @@ msgstr ""
 "superior, com Cmd+Shift+K ou no menu V do minileitor. Prime ? ou F1 para ver "
 "os atalhos."
 
-#: src/ui/settings.rs:1376 src/ui/settings.rs:1591
+#: src/ui/settings.rs:1401 src/ui/settings.rs:1616
 msgid "Presets"
 msgstr "Predefinições"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1381
+#: src/ui/settings.rs:1406
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -1636,7 +1646,7 @@ msgstr ""
 "vazia."
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1387
+#: src/ui/settings.rs:1412
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -1647,7 +1657,7 @@ msgstr ""
 "vazia."
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1393
+#: src/ui/settings.rs:1418
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -1664,27 +1674,27 @@ msgstr[1] ""
 "Spotifast transfere predefinições quando o MilkDrop abre pela primeira vez "
 "com a pasta vazia."
 
-#: src/ui/settings.rs:1402
+#: src/ui/settings.rs:1427
 msgid "Time per preset"
 msgstr "Tempo por predefinição"
 
-#: src/ui/settings.rs:1405
+#: src/ui/settings.rs:1430
 msgid "How long each preset plays before the next fades in."
 msgstr ""
 "Quanto tempo cada predefinição dura antes da transição para a seguinte."
 
-#: src/ui/settings.rs:1409
+#: src/ui/settings.rs:1434
 msgid "Frame rate"
 msgstr "Taxa de fotogramas"
 
-#: src/ui/settings.rs:1413
+#: src/ui/settings.rs:1438
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr ""
 "Taxas mais baixas usam menos recursos. Sem limite desenha o mais depressa "
 "possível."
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:1418
+#: src/ui/settings.rs:1443
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -1693,49 +1703,49 @@ msgstr ""
 "O teu ecrã atualiza a {hz} Hz. Taxas mais altas não acrescentam fotogramas "
 "visíveis. Sem limite desenha o mais depressa possível."
 
-#: src/ui/settings.rs:1425
+#: src/ui/settings.rs:1450
 msgid "Resolution"
 msgstr "Resolução"
 
-#: src/ui/settings.rs:1428
+#: src/ui/settings.rs:1453
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr "Metade e Um quarto usam menos recursos e voltam a ampliar a imagem."
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:1435
+#: src/ui/settings.rs:1460
 msgid "Get presets"
 msgstr "Obter predefinições"
 
-#: src/ui/settings.rs:1473
+#: src/ui/settings.rs:1498
 msgid "Fetching..."
 msgstr "A obter..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:1476
+#: src/ui/settings.rs:1501
 #, rust-format
 msgid "Get {pack}"
 msgstr "Obter {pack}"
 
-#: src/ui/settings.rs:1563
+#: src/ui/settings.rs:1588
 msgctxt "resolution"
 msgid "Full"
 msgstr "Completa"
 
-#: src/ui/settings.rs:1564
+#: src/ui/settings.rs:1589
 msgctxt "resolution"
 msgid "Half"
 msgstr "Metade"
 
-#: src/ui/settings.rs:1565
+#: src/ui/settings.rs:1590
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "Um quarto"
 
-#: src/ui/settings.rs:1579
+#: src/ui/settings.rs:1604
 msgid "Equalizer"
 msgstr "Equalizador"
 
-#: src/ui/settings.rs:1585
+#: src/ui/settings.rs:1610
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
@@ -1744,100 +1754,100 @@ msgstr ""
 "outros dispositivos."
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1593
+#: src/ui/settings.rs:1618
 msgid "Preamp"
 msgstr "Pré-amplificador"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:1595
+#: src/ui/settings.rs:1620
 msgid "Bands"
 msgstr "Bandas"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1645
+#: src/ui/settings.rs:1670
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "Pré"
 
-#: src/ui/settings.rs:1662
+#: src/ui/settings.rs:1687
 msgid "Storage"
 msgstr "Armazenamento"
 
-#: src/ui/settings.rs:1665
+#: src/ui/settings.rs:1690
 msgid "Artwork cache"
 msgstr "Cache de capas"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:1667 src/ui/settings.rs:1673
+#: src/ui/settings.rs:1692 src/ui/settings.rs:1698
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "Guardado em {folder}"
 
-#: src/ui/settings.rs:1679
+#: src/ui/settings.rs:1704
 msgid "Play history"
 msgstr "Histórico de reprodução"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:1683
+#: src/ui/settings.rs:1708
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr ""
 "As faixas reproduzidas aqui ficam em {file}. Este ficheiro nunca é enviado."
 
-#: src/ui/settings.rs:1688
+#: src/ui/settings.rs:1713
 msgid "Sign-in"
 msgstr "Início de sessão"
 
-#: src/ui/settings.rs:1691
+#: src/ui/settings.rs:1716
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr ""
 "As sessões são guardadas no armazenamento de credenciais do sistema, quando "
 "disponível."
 
-#: src/ui/settings.rs:1703
+#: src/ui/settings.rs:1728
 msgid "Clear artwork"
 msgstr "Apagar capas"
 
-#: src/ui/settings.rs:1717
+#: src/ui/settings.rs:1742
 msgid "Clear history"
 msgstr "Apagar histórico"
 
-#: src/ui/settings.rs:1729 src/ui/show.rs:34
+#: src/ui/settings.rs:1754 src/ui/show.rs:34
 msgid "About"
 msgstr "Acerca de"
 
-#: src/ui/settings.rs:1732
+#: src/ui/settings.rs:1757
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr "Feito com Rust, egui e librespot. Sem afiliação ao Spotify."
 
-#: src/ui/settings.rs:1734
+#: src/ui/settings.rs:1759
 msgid "Check for updates"
 msgstr "Procurar atualizações"
 
-#: src/ui/settings.rs:1735
+#: src/ui/settings.rs:1760
 msgid "Checking…"
 msgstr "A verificar…"
 
-#: src/ui/settings.rs:1736 src/ui/dialogs.rs:153 src/ui/keys.rs:295
+#: src/ui/settings.rs:1761 src/ui/dialogs.rs:153 src/ui/keys.rs:295
 #: src/ui/topbar.rs:414
 msgid "Keyboard shortcuts"
 msgstr "Atalhos de teclado"
 
-#: src/ui/settings.rs:1737
+#: src/ui/settings.rs:1762
 msgid "Source code"
 msgstr "Código-fonte"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:1809
+#: src/ui/settings.rs:1834
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "Nenhuma definição para “{query}”"
 
-#: src/ui/settings.rs:1810
+#: src/ui/settings.rs:1835
 msgid "Try fewer words, or check the spelling."
 msgstr "Experimenta menos palavras ou verifica a ortografia."
 
-#: src/ui/settings.rs:1826
+#: src/ui/settings.rs:1851
 msgctxt "language"
 msgid "System"
 msgstr "Sistema"
