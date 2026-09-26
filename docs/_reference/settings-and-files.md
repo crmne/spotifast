@@ -361,8 +361,9 @@ refresh in the background.
 ## Custom themes
 
 Create a `themes` folder beside `settings.json` and put JSON files in it.
-Run `spotifast reload-themes` if the app is already open, then select the
-filename under **Settings → Appearance → Theme**.
+Run `spotifast reload-themes` if the app is already open, then select it
+under **Settings → Appearance → Theme**, where it is listed by its filename
+without `.json`.
 The default is **Follow system**. It uses your desktop’s light/dark appearance,
 or the current Omarchy palette on an Omarchy desktop. On Linux,
 the light/dark appearance comes from the desktop portal's `color-scheme`

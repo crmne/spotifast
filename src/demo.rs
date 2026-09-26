@@ -4478,8 +4478,9 @@ mod tests {
         };
         assert!(menu_y("Follow system") < menu_y("Light"));
         assert!(menu_y("Light") < menu_y("Dark"));
-        assert!(menu_y("Dark") < menu_y("local.json"));
-        let custom = sidebar_text(&painted, "local.json").center();
+        // Listed by name, without `.json`.
+        assert!(menu_y("Dark") < menu_y("local"));
+        let custom = sidebar_text(&painted, "local").center();
         view_frame(
             &ctx,
             &mut app,
@@ -4501,7 +4502,7 @@ mod tests {
             .find(|(node_id, _)| *node_id == id)
             .unwrap()
             .1;
-        assert_eq!(node.value(), Some("local.json"));
+        assert_eq!(node.value(), Some("local"), "read out as shown");
         app.backend.shutdown();
     }
 
