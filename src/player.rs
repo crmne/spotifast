@@ -318,7 +318,7 @@ pub struct Engine {
 /// puts half the slider below -30 dB and every level anyone wants in its top
 /// quarter. The cubic curve reaches -16 dB at the middle and -7 dB at three
 /// quarters, spreading the useful range across the slider.
-pub(crate) const VOLUME_CURVE: VolumeCtrl = VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE);
+const VOLUME_CURVE: VolumeCtrl = VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE);
 
 impl Engine {
     pub(crate) fn credentials(&self) -> Option<Credentials> {
@@ -502,11 +502,13 @@ impl Engine {
         &self.device_id
     }
 
-    /// The mixer this engine plays through. It holds the level being heard,
-    /// including what a remote client or a slider drag set, and keeps it
-    /// after the session behind the engine has gone.
-    pub(crate) fn mixer(&self) -> Arc<dyn Mixer> {
-        Arc::clone(&self.mixer)
+    /// What this engine is heard at, kept past the engine itself: the next
+    /// engine starts there.
+    pub(crate) fn heard(&self) -> Heard {
+        Heard {
+            state: Arc::clone(&self.state),
+            mixer: Arc::clone(&self.mixer),
+        }
     }
 
     /// Whether Spotify classifies this album as an EP in its internal metadata.
@@ -813,6 +815,46 @@ fn volume_report(reported: u16, noted: u16, mixer: &dyn Mixer) -> VolumeReport {
     } else {
         VolumeReport::Stale {
             tell: holds(noted).then_some(noted),
+        }
+    }
+}
+
+/// What an engine is heard at, for the engine that replaces it.
+#[derive(Clone)]
+pub(crate) struct Heard {
+    state: Arc<Mutex<LocalState>>,
+    mixer: Arc<dyn Mixer>,
+}
+
+impl Heard {
+    /// The level set last, exactly, while the mixer still holds it; the
+    /// mixer's read-back, one step low at times, once a remote client moved
+    /// the mixer past it.
+    pub(crate) fn level(&self) -> u16 {
+        let noted = self.state.lock().unwrap_or_else(|p| p.into_inner()).volume;
+        match volume_report(noted, noted, self.mixer.as_ref()) {
+            VolumeReport::Heard => noted,
+            VolumeReport::Stale { .. } => self.mixer.volume(),
+        }
+    }
+
+    /// An engine heard at `volume`, for tests that have no engine.
+    #[cfg(test)]
+    pub(crate) fn at(volume: u16) -> Self {
+        use librespot_playback::mixer::softmixer::SoftMixer;
+
+        let mixer = SoftMixer::open(MixerConfig {
+            volume_ctrl: VOLUME_CURVE,
+            ..MixerConfig::default()
+        })
+        .expect("the soft mixer");
+        mixer.set_volume(volume);
+        Self {
+            state: Arc::new(Mutex::new(LocalState {
+                volume,
+                ..LocalState::default()
+            })),
+            mixer: Arc::new(mixer),
         }
     }
 }
@@ -1801,5 +1843,18 @@ mod tests {
         harness.task.await.unwrap();
 
         assert_eq!(*harness.told.lock().unwrap(), vec![set_here]);
+    }
+
+    /// The next engine starts at the level set last, exactly, unless a
+    /// remote client moved the mixer since; then at what the mixer reads
+    /// back.
+    #[test]
+    fn an_engine_is_heard_at_the_level_set_last_unless_the_mixer_moved_on() {
+        let set_here = 3276;
+        let from_the_phone = 20000;
+        let heard = Heard::at(set_here);
+        assert_eq!(heard.level(), set_here);
+        heard.mixer.set_volume(from_the_phone);
+        assert_eq!(heard.level(), heard.mixer.volume());
     }
 }
