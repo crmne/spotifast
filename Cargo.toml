@@ -43,25 +43,25 @@ egui_extras = { version = "0.36", features = ["image", "svg"] }
 # The shared foundation of Spotifast, ZapFast, RekordFlash and TonePush
 # (crmne/fastframe). Every crate comes from the same revision; move them
 # together.
-fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
-fastframe-icons = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
-fastframe-theme = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
+fastframe-icons = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
+fastframe-theme = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
 # Catalogs compiled from PO files at build time (see build.rs) and the
 # system's preferred languages. No libintl or runtime catalog parsing.
-fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
+fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
 # The log file for bug reports and the panic log (env_logger underneath).
-fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
+fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
 # The tray item, so closing the window can keep the music playing:
 # StatusNotifier on Linux, the notification area on Windows, the menu bar
 # on macOS.
-fastframe-tray = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
+fastframe-tray = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
 # Keeps the app running without a window around eframe::run_native.
-fastframe-shell = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
+fastframe-shell = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
 # The macOS title-bar double-click setting (does nothing elsewhere).
-fastframe-macos = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4" }
+fastframe-macos = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5" }
 # Self-update from GitHub releases, on the reqwest client below.
-fastframe-update = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4", features = ["reqwest"] }
+fastframe-update = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5", features = ["reqwest"] }
 # Reading installed fonts for MilkDrop's overlays, the Winamp playlist's
 # pixel text, and the playlist face. skrifa is the parser epaint already
 # rasterizes with, and the version has to track epaint's or the binary
@@ -183,7 +183,7 @@ x11rb = { version = "0.13", default-features = false }
 [build-dependencies]
 # Drops unfinished PO entries and compiles catalog text and gettext plural
 # expressions to Rust. Ordinary builds do not need gettext tools.
-fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.1.4", features = ["build"] }
+fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.1.5", features = ["build"] }
 
 [dev-dependencies]
 # Checks that every catalog covers the template and keeps its placeholders.

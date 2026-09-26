@@ -360,7 +360,15 @@ refresh in the background.
 
 ## Custom themes
 
-Create a `themes` folder beside `settings.json` and put JSON files in it.
+Since 0.10.3, Spotifast puts eight palettes in the `themes` folder beside
+`settings.json` the first time it starts: Catppuccin, Catppuccin Latte,
+Nord, Ristretto, Rose Pine, Rose Pine Dawn, Rose Pine Moon and Tokyo
+Night. They are ordinary palette files: read them to see how a theme is
+written, change them, or delete the ones you do not want. Spotifast never
+rewrites them, and a deleted one stays deleted; `.installed-palettes` in
+the folder records which it has already put there.
+
+To make your own, add JSON files to the `themes` folder.
 Run `spotifast reload-themes` if the app is already open, then select it
 under **Settings → Appearance → Theme**, where it is listed by its filename
 without `.json`.

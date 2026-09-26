@@ -142,9 +142,10 @@ fn desktop_themes_allowed(themes: &std::path::Path) -> bool {
     themes != crate::paths::AppDirs::legacy().config.join("themes")
 }
 
-/// Adds the desktop's palettes to a normal launch: Omarchy's on Linux, with
-/// the packaged template and hook installed for the user. The shared
-/// palettes fastframe-theme carries stay out of Spotifast's picker.
+/// Adds the desktop's palettes to a normal launch: the eight shared palettes,
+/// installed into the themes folder as files on the first launch, and
+/// Omarchy's on Linux, with the packaged template and hook installed for the
+/// user.
 pub fn enable_desktop_themes(catalog: &mut Catalog, themes: &std::path::Path) {
     if !desktop_themes_allowed(themes) {
         return;
@@ -154,7 +155,7 @@ pub fn enable_desktop_themes(catalog: &mut Catalog, themes: &std::path::Path) {
     catalog.enable_desktop_themes(fastframe_theme::DesktopThemes {
         slug: "spotifast",
         omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"),
-        presets: false,
+        presets: true,
     });
 }
 

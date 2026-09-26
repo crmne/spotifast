@@ -551,6 +551,8 @@ Since 0.8.0, you can hide Made for you and Recommended for you
 from Home through JSON preferences; see
 [Home shelves](docs/_reference/settings-and-files.md#home-shelves).
 Custom JSON palettes go in a `themes` folder beside `settings.json`.
+Since 0.10.3, eight palettes (Catppuccin, Nord, Rose Pine, Tokyo Night and
+others) are put there on first start, as files to use, change or delete.
 Select them in Appearance; `spotifast reload-themes` loads additions and updates
 without interrupting playback. See [custom themes and Omarchy integration](docs/_reference/settings-and-files.md#custom-themes).
 New installations default to **Follow system**. On an Omarchy desktop every

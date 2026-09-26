@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 17:03+0200\n"
+"POT-Creation-Date: 2026-09-26 17:16+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -1840,27 +1840,27 @@ msgctxt "proxy"
 msgid "System"
 msgstr "系統"
 
-#: src/theme.rs:172
+#: src/theme.rs:173
 msgid "Loading local themes…"
 msgstr "正在載入本機主題…"
 
-#: src/theme.rs:175
+#: src/theme.rs:176
 msgid ""
 "The selected theme is unavailable. Keeping the last usable appearance. See "
 "the log for details."
 msgstr "無法使用所選主題，將保留上次可用的外觀。詳情請查看記錄檔。"
 
-#: src/theme.rs:179
+#: src/theme.rs:180
 msgid "The themes folder could not be read. See the log for details."
 msgstr "無法讀取主題資料夾，詳情請查看記錄檔。"
 
-#: src/theme.rs:183
+#: src/theme.rs:184
 msgid ""
 "The themes folder has more than 512 entries. Keep fewer files there to list "
 "the custom palettes."
 msgstr "主題資料夾中的項目超過 512 個。請減少其中的檔案，才能列出自訂色盤。"
 
-#: src/theme.rs:187
+#: src/theme.rs:188
 msgid ""
 "Only 128 custom palettes can be listed. Keep fewer JSON files in the themes "
 "folder to see the rest."
@@ -1868,13 +1868,13 @@ msgstr ""
 "最多只能列出 128 個自訂色盤。請減少主題資料夾中的 JSON 檔案，才能看到其餘色"
 "盤。"
 
-#: src/theme.rs:191
+#: src/theme.rs:192
 msgid ""
 "The Omarchy palette could not be loaded. Keeping the last usable appearance. "
 "See the log for details."
 msgstr "無法載入 Omarchy 調色盤，將保留上次可用的外觀。詳情請查看記錄檔。"
 
-#: src/theme.rs:195
+#: src/theme.rs:196
 msgid ""
 "Custom themes could not be loaded. Run spotifast reload-themes to try again."
 msgstr "無法載入自訂主題。請執行 spotifast reload-themes 再試一次。"

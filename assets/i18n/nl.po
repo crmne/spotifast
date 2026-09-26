@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 17:03+0200\n"
+"POT-Creation-Date: 2026-09-26 17:16+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Dutch\n"
@@ -1903,11 +1903,11 @@ msgctxt "proxy"
 msgid "System"
 msgstr "Systeem"
 
-#: src/theme.rs:172
+#: src/theme.rs:173
 msgid "Loading local themes…"
 msgstr "Lokale thema's laden…"
 
-#: src/theme.rs:175
+#: src/theme.rs:176
 msgid ""
 "The selected theme is unavailable. Keeping the last usable appearance. See "
 "the log for details."
@@ -1915,11 +1915,11 @@ msgstr ""
 "Het gekozen thema is niet beschikbaar. De laatste bruikbare weergave blijft "
 "actief. Zie het logboek voor details."
 
-#: src/theme.rs:179
+#: src/theme.rs:180
 msgid "The themes folder could not be read. See the log for details."
 msgstr "De themamap kan niet worden gelezen. Zie het logboek voor details."
 
-#: src/theme.rs:183
+#: src/theme.rs:184
 msgid ""
 "The themes folder has more than 512 entries. Keep fewer files there to list "
 "the custom palettes."
@@ -1927,7 +1927,7 @@ msgstr ""
 "De themamap bevat meer dan 512 items. Houd er minder bestanden om de "
 "aangepaste paletten te tonen."
 
-#: src/theme.rs:187
+#: src/theme.rs:188
 msgid ""
 "Only 128 custom palettes can be listed. Keep fewer JSON files in the themes "
 "folder to see the rest."
@@ -1935,7 +1935,7 @@ msgstr ""
 "Er kunnen maar 128 aangepaste paletten worden getoond. Houd minder JSON-"
 "bestanden in de themamap om de rest te zien."
 
-#: src/theme.rs:191
+#: src/theme.rs:192
 msgid ""
 "The Omarchy palette could not be loaded. Keeping the last usable appearance. "
 "See the log for details."
@@ -1943,7 +1943,7 @@ msgstr ""
 "Het Omarchy-kleurenpalet kon niet worden geladen. De laatste bruikbare "
 "weergave blijft actief. Zie het logboek voor details."
 
-#: src/theme.rs:195
+#: src/theme.rs:196
 msgid ""
 "Custom themes could not be loaded. Run spotifast reload-themes to try again."
 msgstr ""
