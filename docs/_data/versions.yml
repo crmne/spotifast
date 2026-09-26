@@ -1,7 +1,7 @@
-current: v0.10.2
+current: v0.11.0
 items:
-  - id: v0.10.2
-    title: v0.10.2
+  - id: v0.11.0
+    title: v0.11.0
     url: /download/
   - title: Changelog
     url: https://github.com/crmne/spotifast/releases
