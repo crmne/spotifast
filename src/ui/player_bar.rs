@@ -31,6 +31,8 @@ const PEAK_GAP: f32 = 2.0;
 const WAVE_LAYERS: [(f32, f32); 3] = [(9.0, 0.06), (4.0, 0.16), (1.6, 0.85)];
 const WAVE_FILL_ALPHA: f32 = 0.14;
 const WAVE_ECHO_ALPHA: f32 = 0.18;
+/// How much more strongly the visualizer paints over a light bar.
+const LIGHT_STRENGTH: f32 = 1.5;
 /// The gap between spectrum bars.
 const SPECTRUM_GAP: f32 = 2.0;
 /// How often a moving visualizer is drawn: sixty times a second, as the
@@ -116,10 +118,11 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
     use crate::vis;
     let mode = app.settings.player_bar_vis;
     let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
-    let (low, high) = vis_colours(
-        app.now_playing_tint().unwrap_or(app.palette.accent),
-        ui.visuals().dark_mode,
-    );
+    let dark = ui.visuals().dark_mode;
+    let (low, high) = vis_colours(app.now_playing_tint().unwrap_or(app.palette.accent), dark);
+    // Over a light bar the same colour paints more strongly, or white
+    // would wash it out.
+    let strength = if dark { 1.0 } else { LIGHT_STRENGTH };
     let painter = ui.painter().with_clip_rect(rect);
     match mode {
         PlayerBarVis::Off => false,
@@ -136,7 +139,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
                 .player_bar_analyser
                 .step(&samples, std::time::Instant::now());
             let peaks = app.player_bar_analyser.peaks();
-            spectrum(&painter, rect, &levels, &peaks, low, high);
+            spectrum(&painter, rect, &levels, &peaks, (low, high), strength);
             sounding || !app.player_bar_analyser.settled()
         }
         PlayerBarVis::Waveform => {
@@ -146,7 +149,13 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
             // Winamp's scope with a column every eight points or so.
             let count = (rect.width() / 8.0).clamp(75.0, 320.0) as usize;
             let samples = app.winamp.tap.window(count * vis::SCOPE_STEP, vis::LAG);
-            waveform(&painter, rect, &vis::scope_line(&samples, count), low, high);
+            waveform(
+                &painter,
+                rect,
+                &vis::scope_line(&samples, count),
+                (low, high),
+                strength,
+            );
             true
         }
     }
@@ -170,18 +179,22 @@ fn vis_colours(base: Color32, dark: bool) -> (Color32, Color32) {
 }
 
 /// The most luminance a visualizer colour has under the dark theme, and the
-/// least under the light theme, as relative luminance from 0 to 1.
+/// band it is kept in under the light theme, as relative luminance from 0
+/// to 1. On white the colour must be dark enough to show at all yet light
+/// enough that dark words stay clear over it.
 const DARK_CEILING: f32 = 0.35;
-const LIGHT_FLOOR: f32 = 0.5;
+const LIGHT_FLOOR: f32 = 0.2;
+const LIGHT_CEILING: f32 = 0.4;
 
 /// `colour` with its hue kept and its brightness moved into the band the
-/// theme's text reads against: darkened towards black under a dark theme,
-/// lightened towards white under a light one.
+/// theme's text reads against: darkened towards black when too light,
+/// lightened towards white when too dark.
 fn within_brightness(colour: Color32, dark: bool) -> Color32 {
     let linear = egui::Rgba::from(colour);
     let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
-    let adjusted = if dark && luminance > DARK_CEILING {
-        linear * (DARK_CEILING / luminance)
+    let ceiling = if dark { DARK_CEILING } else { LIGHT_CEILING };
+    let adjusted = if luminance > ceiling {
+        linear * (ceiling / luminance)
     } else if !dark && luminance < LIGHT_FLOOR {
         let toward_white = (LIGHT_FLOOR - luminance) / (1.0 - luminance).max(f32::EPSILON);
         egui::Rgba::from_rgb(
@@ -218,8 +231,8 @@ fn spectrum(
     rect: Rect,
     levels: &[f32],
     peaks: &[f32],
-    low: Color32,
-    high: Color32,
+    (low, high): (Color32, Color32),
+    strength: f32,
 ) {
     let bands = levels.len() as f32;
     let width = (rect.width() - SPECTRUM_GAP * (bands - 1.0)) / bands;
@@ -235,7 +248,7 @@ fn spectrum(
         &mut mesh,
         pulse,
         Color32::TRANSPARENT,
-        low.gamma_multiply(PULSE_ALPHA * bass * bass),
+        low.gamma_multiply(PULSE_ALPHA * strength * bass * bass),
     );
 
     for (index, (level, peak)) in levels.iter().zip(peaks).enumerate() {
@@ -251,10 +264,10 @@ fn spectrum(
             shaded(
                 &mut mesh,
                 bar.expand2(vec2(SPECTRUM_GAP, 3.0)),
-                colour.gamma_multiply(GLOW_ALPHA * 0.3),
-                colour.gamma_multiply(GLOW_ALPHA),
+                colour.gamma_multiply(GLOW_ALPHA * strength * 0.3),
+                colour.gamma_multiply(GLOW_ALPHA * strength),
             );
-            let (foot, top) = SPECTRUM_ALPHA;
+            let (foot, top) = (SPECTRUM_ALPHA.0 * strength, SPECTRUM_ALPHA.1 * strength);
             shaded(
                 &mut mesh,
                 bar,
@@ -279,7 +292,13 @@ fn spectrum(
 /// The wave as a neon line in layers of glow, swept from the bass colour to
 /// the treble colour, over a faint shading down to the midline and a dim
 /// mirrored echo.
-fn waveform(painter: &egui::Painter, rect: Rect, trace: &[f32], low: Color32, high: Color32) {
+fn waveform(
+    painter: &egui::Painter,
+    rect: Rect,
+    trace: &[f32],
+    (low, high): (Color32, Color32),
+    strength: f32,
+) {
     if trace.len() < 2 {
         return;
     }
@@ -293,7 +312,7 @@ fn waveform(painter: &egui::Painter, rect: Rect, trace: &[f32], low: Color32, hi
     // The shading between the wave and the midline.
     let mut mesh = egui::Mesh::default();
     for index in 0..trace.len() - 1 {
-        let colour = colour_at(index).gamma_multiply(WAVE_FILL_ALPHA);
+        let colour = colour_at(index).gamma_multiply(WAVE_FILL_ALPHA * strength);
         let base = mesh.vertices.len() as u32;
         mesh.colored_vertex(point(index, trace[index]), colour);
         mesh.colored_vertex(point(index + 1, trace[index + 1]), colour);
@@ -1025,7 +1044,7 @@ mod player_bar_tint_tests {
             let (low, high) = vis_colours(base, false);
             for colour in [low, high] {
                 assert!(
-                    luminance(colour) >= LIGHT_FLOOR - 0.01,
+                    (LIGHT_FLOOR - 0.01..=LIGHT_CEILING + 0.01).contains(&luminance(colour)),
                     "{base:?} on light: {colour:?}"
                 );
             }
