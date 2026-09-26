@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 15:55+0200\n"
+"POT-Creation-Date: 2026-09-26 17:06+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -158,7 +158,7 @@ msgstr "Inga träffar."
 msgid "Sort by recently played"
 msgstr "Sortera efter nyligen spelade"
 
-#: src/ui/sidebar.rs:1828 src/ui/player_bar.rs:611 src/ui/widgets.rs:956
+#: src/ui/sidebar.rs:1828 src/ui/player_bar.rs:612 src/ui/widgets.rs:956
 #: src/ui/widgets.rs:2349 src/ui/artist.rs:329 src/ui/collection.rs:214
 #: src/ui/home.rs:147 src/ui/search.rs:390 src/ui/show.rs:311
 msgid "Play"
@@ -216,77 +216,77 @@ msgstr "{name}, mapp, hopfälld"
 msgid "{name}, folder, expanded"
 msgstr "{name}, mapp, expanderad"
 
-#: src/ui/player_bar.rs:331 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
+#: src/ui/player_bar.rs:332 src/ui/lyrics.rs:122 src/ui/lyrics.rs:427
 msgid "Nothing playing"
 msgstr "Inget spelas"
 
-#: src/ui/player_bar.rs:337 src/app.rs:7213
+#: src/ui/player_bar.rs:338 src/app.rs:7213
 msgid "Pick a song, album, or playlist"
 msgstr "Välj en låt, ett album eller en spellista"
 
-#: src/ui/player_bar.rs:467 src/ui/widgets.rs:560 src/ui/widgets.rs:786
+#: src/ui/player_bar.rs:468 src/ui/widgets.rs:560 src/ui/widgets.rs:786
 #: src/ui/widgets.rs:1684
 msgid "Remove from Liked Songs"
 msgstr "Ta bort från Gillade låtar"
 
-#: src/ui/player_bar.rs:473 src/ui/widgets.rs:563 src/ui/widgets.rs:789
+#: src/ui/player_bar.rs:474 src/ui/widgets.rs:563 src/ui/widgets.rs:789
 #: src/ui/widgets.rs:1686
 msgid "Save to Liked Songs"
 msgstr "Spara i Gillade låtar"
 
-#: src/ui/player_bar.rs:555 src/ui/player_bar.rs:562 src/ui/collection.rs:260
+#: src/ui/player_bar.rs:556 src/ui/player_bar.rs:563 src/ui/collection.rs:260
 msgid "Shuffle"
 msgstr "Blanda"
 
-#: src/ui/player_bar.rs:576
+#: src/ui/player_bar.rs:577
 msgid "Previous"
 msgstr "Föregående"
 
-#: src/ui/player_bar.rs:609 src/ui/collection.rs:212
+#: src/ui/player_bar.rs:610 src/ui/collection.rs:212
 msgid "Pause"
 msgstr "Pausa"
 
-#: src/ui/player_bar.rs:627
+#: src/ui/player_bar.rs:628
 msgid "Next"
 msgstr "Nästa"
 
-#: src/ui/player_bar.rs:635
+#: src/ui/player_bar.rs:636
 msgid "Repeat"
 msgstr "Upprepa"
 
-#: src/ui/player_bar.rs:639
+#: src/ui/player_bar.rs:640
 msgid "Repeat one"
 msgstr "Upprepa en låt"
 
-#: src/ui/player_bar.rs:644
+#: src/ui/player_bar.rs:645
 msgid "Repeat off"
 msgstr "Stäng av upprepning"
 
-#: src/ui/player_bar.rs:705
+#: src/ui/player_bar.rs:706
 msgid "Playback position (%)"
 msgstr "Uppspelningsposition (%)"
 
-#: src/ui/player_bar.rs:743
+#: src/ui/player_bar.rs:744
 msgid "Volume (%)"
 msgstr "Volym (%)"
 
-#: src/ui/player_bar.rs:776
+#: src/ui/player_bar.rs:777
 msgid "Unmute"
 msgstr "Slå på ljudet"
 
-#: src/ui/player_bar.rs:778
+#: src/ui/player_bar.rs:779
 msgid "Mute"
 msgstr "Stäng av ljudet"
 
-#: src/ui/player_bar.rs:797 src/ui/devices.rs:193
+#: src/ui/player_bar.rs:798 src/ui/devices.rs:193
 msgid "Connect to a device"
 msgstr "Anslut till en enhet"
 
-#: src/ui/player_bar.rs:816 src/ui/queue.rs:23 src/ui/queue.rs:72
+#: src/ui/player_bar.rs:817 src/ui/queue.rs:23 src/ui/queue.rs:72
 msgid "Queue"
 msgstr "Kö"
 
-#: src/ui/player_bar.rs:842 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
+#: src/ui/player_bar.rs:843 src/ui/lyrics.rs:60 src/ui/lyrics.rs:350
 msgid "Lyrics"
 msgstr "Låttext"
 

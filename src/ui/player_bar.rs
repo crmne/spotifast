@@ -130,9 +130,10 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
             if !sounding {
                 return false;
             }
-            let samples = app.winamp.tap.window(vis::TRACE_SAMPLES, vis::LAG);
-            let count = (rect.width() / 3.0).clamp(64.0, 480.0) as usize;
-            waveform(&painter, rect, &vis::trace(&samples, count), low, high);
+            // Winamp's scope with a column every eight points or so.
+            let count = (rect.width() / 8.0).clamp(75.0, 320.0) as usize;
+            let samples = app.winamp.tap.window(count * vis::SCOPE_STEP, vis::LAG);
+            waveform(&painter, rect, &vis::scope_line(&samples, count), low, high);
             true
         }
     }
@@ -240,7 +241,7 @@ fn waveform(painter: &egui::Painter, rect: Rect, trace: &[f32], low: Color32, hi
     if trace.len() < 2 {
         return;
     }
-    let reach = rect.height() * 0.42;
+    let reach = rect.height() * 0.46;
     let step = rect.width() / (trace.len() - 1) as f32;
     let midline = rect.center().y;
     let point =

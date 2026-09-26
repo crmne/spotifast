@@ -618,34 +618,22 @@ impl WideAnalyser {
     }
 }
 
-/// Samples the player bar's waveform reads.
-pub const TRACE_SAMPLES: usize = 2048;
-
-/// The player bar's waveform: `points` values from -1 to 1 across a
-/// stretch of `samples` that starts where the wave rises through zero, so
-/// a steady tone stands still instead of sliding sideways.
-pub fn trace(samples: &[f32], points: usize) -> Vec<f32> {
-    if points == 0 {
-        return Vec::new();
-    }
-    let span = samples.len() / 2;
-    let start = (1..span)
-        .find(|&index| samples[index - 1] < 0.0 && samples[index] >= 0.0)
-        .unwrap_or(0);
-    let stretch = &samples[start..(start + span).min(samples.len())];
+/// The player bar's waveform: Winamp's scope, every seventh sample with
+/// nothing smoothed or lined up, so it trembles as Winamp's does, for
+/// `points` columns instead of seventy-five. Each value runs from -1 to 1
+/// across the bar's height; like Winamp's, whose sixteen rows span half of
+/// full scale, anything louder than half full scale reaches the edge.
+pub fn scope_line(samples: &[f32], points: usize) -> Vec<f32> {
     (0..points)
         .map(|point| {
-            let from = point * stretch.len() / points;
-            let to = ((point + 1) * stretch.len() / points).max(from + 1);
-            let chunk = &stretch[from.min(stretch.len())..to.min(stretch.len())];
-            if chunk.is_empty() {
-                0.0
-            } else {
-                (chunk.iter().sum::<f32>() / chunk.len() as f32).clamp(-1.0, 1.0)
-            }
+            let sample = samples.get(point * SCOPE_STEP).copied().unwrap_or(0.0);
+            (sample * 2.0).clamp(-1.0, 1.0)
         })
         .collect()
 }
+
+/// Winamp's scope reads every seventh sample.
+pub const SCOPE_STEP: usize = 7;
 
 #[cfg(test)]
 mod tests {
@@ -858,19 +846,16 @@ mod tests {
         assert_eq!(full_scale(0.0, false), None, "silence has no ceiling");
     }
 
+    /// The waveform reads Winamp's every seventh sample, at double gain,
+    /// and clips at the edges as Winamp's rows do.
     #[test]
-    fn the_trace_starts_on_a_rising_zero_crossing() {
-        // A quarter period in, the wave is at its crest.
-        let wave: Vec<f32> = sine(441.0, 0.5, TRACE_SAMPLES).split_off(25);
-        let points = trace(&wave, 64);
-        assert_eq!(points.len(), 64);
-        // Each point averages its share of the samples, so the first sits
-        // just above the crossing.
-        assert!((0.0..0.25).contains(&points[0]), "{}", points[0]);
-        assert!(points[1] > points[0], "rising");
-        assert!(points.iter().all(|point| point.abs() <= 0.5));
-        assert_eq!(trace(&[0.0; 100], 8), vec![0.0; 8]);
-        assert!(trace(&wave, 0).is_empty());
+    fn the_scope_line_reads_every_seventh_sample() {
+        let samples: Vec<f32> = (0..70).map(|i| i as f32 / 100.0).collect();
+        let line = scope_line(&samples, 10);
+        assert_eq!(line.len(), 10);
+        assert!((line[1] - 0.14).abs() < 1e-6, "{}", line[1]);
+        assert_eq!(scope_line(&[0.9, -0.9], 1), vec![1.0]);
+        assert_eq!(scope_line(&[], 3), vec![0.0; 3], "silence past the end");
     }
 
     /// A peak cap hangs where the band last reached, then falls after it.
