@@ -50,7 +50,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         window_resize(ui);
         return;
     }
-    if cfg!(target_os = "macos") {
+    if titlebar_spans_window(cfg!(target_os = "macos"), crate::window::custom_titlebar()) {
         titlebar_drag(
             ui,
             Rect::from_min_size(
@@ -253,6 +253,12 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
     {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
+}
+
+/// Without a native title bar, the top of every panel drags the window, not
+/// only the page's top bar.
+const fn titlebar_spans_window(on_macos: bool, custom_titlebar: bool) -> bool {
+    on_macos || custom_titlebar
 }
 
 const WINDOW_RESIZE_BORDER: f32 = 5.0;
@@ -518,6 +524,13 @@ mod window_chrome_tests {
         assert!(!window_resize_enabled(true, false, true));
         assert!(!window_resize_enabled(true, true, false));
         assert!(!window_resize_enabled(false, false, false));
+    }
+
+    #[test]
+    fn the_side_panels_drag_a_window_without_a_native_title_bar() {
+        assert!(titlebar_spans_window(true, false));
+        assert!(titlebar_spans_window(false, true));
+        assert!(!titlebar_spans_window(false, false));
     }
 
     #[test]
