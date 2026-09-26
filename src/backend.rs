@@ -26,7 +26,9 @@ use crate::http::Http;
 use crate::images::{ArtLoader, accent_color};
 use crate::model::PlaylistCache;
 use crate::paths::AppDirs;
-use crate::player::{Engine, EngineConfig, EngineEvent, LocalState, PlaybackResume, PlayerCommand};
+use crate::player::{
+    Engine, EngineConfig, EngineEvent, Heard, LocalState, PlaybackResume, PlayerCommand,
+};
 use crate::session_reads;
 use crate::settings::ProxyConfig;
 
@@ -1305,6 +1307,10 @@ struct Worker {
     commands: mpsc::UnboundedSender<Command>,
     waker: Waker,
     engine: Option<Arc<Engine>>,
+    /// What the engine is heard at, so the engine that replaces it starts
+    /// there. `engine_config` alone knows only the level the app launched
+    /// with.
+    heard: Option<Heard>,
     /// A rootlist fetch asked for before the engine existed, to run once it
     /// does. The rootlist carries invitation edit permissions, which no
     /// other request reports.
@@ -1374,6 +1380,7 @@ impl Worker {
             commands,
             waker,
             engine: None,
+            heard: None,
             rootlist_pending: false,
             album_type_lookup: AlbumTypeLookup::default(),
             audiobook_lookup: BTreeSet::new(),
@@ -2388,6 +2395,7 @@ impl Worker {
         self.album_type_lookup.reset_session();
         self.audiobook_lookup.clear();
         self.radio_waiting.clear();
+        self.carry_volume();
         if let Some(engine) = self.engine.take() {
             engine.shutdown();
         }
@@ -2505,9 +2513,23 @@ impl Worker {
         self.replace_engine();
     }
 
+    /// Keeps the level being heard for the next engine, and lets what the
+    /// engine was heard at go with it, so a level from an engine that is
+    /// gone never overrides a setting that arrives after it.
+    fn carry_volume(&mut self) {
+        if let Some(heard) = self.heard.take() {
+            self.engine_config.initial_volume = heard.level();
+        }
+    }
+
+    /// Takes the engine down and keeps what its replacement picks up: the
+    /// playback, and the level being heard. A session that drops on its own
+    /// comes back at the level it was heard at, not at the level the app
+    /// launched with.
     fn take_engine_for_resume(&mut self) {
         self.resume_verify = None;
         self.album_type_lookup.requeue_active_for_new_engine();
+        self.carry_volume();
         if let Some(engine) = self.engine.take() {
             self.resume = engine.resume_point();
             engine.shutdown();
@@ -2708,6 +2730,7 @@ impl Worker {
                 }
                 let device_id = engine.device_id().to_string();
                 let engine = Arc::new(engine);
+                self.heard = Some(engine.heard());
                 if let Some(spec) = self.resume.take() {
                     // Delay resume until Spirc finishes registering. An early
                     // load can return 400 and leave playback stopped. Verify
@@ -2738,6 +2761,7 @@ impl Worker {
         self.premium = premium;
         if premium == Some(false) {
             self.album_type_lookup.clear_engine_work();
+            self.carry_volume();
             if let Some(engine) = self.engine.take() {
                 engine.shutdown();
             }
@@ -4430,6 +4454,52 @@ mod authorization_tests {
         });
         assert_eq!(worker.waiting_for_proxy.len(), 1);
         assert_eq!(worker.engine_config.proxy, ProxyConfig::Off);
+    }
+
+    /// A session that drops on its own comes back at the level being heard,
+    /// exactly, not at the level the app launched with. Music turned down
+    /// to 5% after launch used to come back at the previous session's 80%.
+    #[test]
+    fn a_dropped_session_comes_back_at_the_level_being_heard() {
+        let (runtime, mut worker, _) = worker("reconnect-volume");
+        worker.signed_in = true;
+        worker.engine_config.initial_volume = crate::app::percent_to_volume(80);
+        worker.heard = Some(Heard::at(crate::app::percent_to_volume(5)));
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::Reconnect).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), worker.run(receiver))
+                .await
+                .unwrap();
+        });
+        assert_eq!(
+            worker.engine_config.initial_volume,
+            crate::app::percent_to_volume(5),
+            "the next engine must start where the last one was heard"
+        );
+        assert!(
+            worker.heard.is_none(),
+            "what was heard goes with its engine"
+        );
+    }
+
+    /// Signing out takes the engine down outside the reconnect path. The
+    /// engine that playback is enabled with afterwards starts where the last
+    /// one was heard as well.
+    #[test]
+    fn signing_out_keeps_the_level_being_heard_for_the_next_engine() {
+        let (runtime, mut worker, _) = worker("sign-out-volume");
+        let _entered = runtime.enter();
+        worker.signed_in = true;
+        worker.engine_config.initial_volume = crate::app::percent_to_volume(80);
+        worker.heard = Some(Heard::at(crate::app::percent_to_volume(5)));
+        worker.sign_out();
+        assert_eq!(
+            worker.engine_config.initial_volume,
+            crate::app::percent_to_volume(5)
+        );
+        assert!(worker.heard.is_none());
     }
 
     #[test]

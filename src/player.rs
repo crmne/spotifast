@@ -33,7 +33,7 @@ use librespot_metadata::{
 use librespot_playback::{
     audio_backend::{self, Sink},
     config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
-    mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
+    mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter, mappings::MappedCtrl},
     player::{Player, PlayerEvent},
 };
 use sha1::{Digest, Sha1};
@@ -309,7 +309,16 @@ pub struct Engine {
     interrupted: Arc<Mutex<Option<Interrupted>>>,
     shutting_down: Arc<std::sync::atomic::AtomicBool>,
     audio: Arc<AudioControl>,
+    /// When the slider last moved without being released. Connect is told
+    /// where the slider ends up, not every level on the way.
+    previewed: Arc<Mutex<Option<Instant>>>,
 }
+
+/// The volume curve. librespot's default spans 60 dB logarithmically, which
+/// puts half the slider below -30 dB and every level anyone wants in its top
+/// quarter. The cubic curve reaches -16 dB at the middle and -7 dB at three
+/// quarters, spreading the useful range across the slider.
+const VOLUME_CURVE: VolumeCtrl = VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE);
 
 impl Engine {
     pub(crate) fn credentials(&self) -> Option<Credentials> {
@@ -346,12 +355,8 @@ impl Engine {
 
         let mixer_builder =
             mixer::find(Some("softvol")).ok_or_else(|| anyhow!("soft volume mixer missing"))?;
-        // librespot's default curve spans 60 dB logarithmically, which puts
-        // half the slider below -30 dB and every level anyone wants in its
-        // top quarter. The cubic curve reaches -16 dB at the middle and -7 dB
-        // at three quarters, spreading the useful range across the slider.
         let mixer = mixer_builder(MixerConfig {
-            volume_ctrl: VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE),
+            volume_ctrl: VOLUME_CURVE,
             ..MixerConfig::default()
         })
         .context("unable to create the mixer")?;
@@ -371,13 +376,8 @@ impl Engine {
             Arc::clone(&audio),
         );
         let player = Player::new(player_config, session.clone(), volume, sink_builder);
+        // Taken before Connect comes up, so its first events wait here.
         let events = player.get_player_event_channel();
-        tokio::spawn(run_events(
-            events,
-            Arc::clone(&state),
-            Arc::clone(&notify),
-            Arc::clone(&audio),
-        ));
 
         let connect_config = ConnectConfig {
             name: config.device_name.clone(),
@@ -396,6 +396,29 @@ impl Engine {
         )
         .await
         .context("unable to connect to Spotify")?;
+        let spirc = Arc::new(spirc);
+        // Tells Connect the level heard when its report is stale; see
+        // `run_events`.
+        let reassert: Reassert = {
+            let spirc = Arc::clone(&spirc);
+            Box::new(move |volume| {
+                if let Err(error) = spirc.set_volume(volume) {
+                    log::warn!("could not tell Connect the volume: {error}");
+                }
+            })
+        };
+        let previewed: Arc<Mutex<Option<Instant>>> = Arc::default();
+        tokio::spawn(run_events(
+            events,
+            Arc::clone(&state),
+            Arc::clone(&notify),
+            Arc::clone(&audio),
+            VolumeSync {
+                mixer: Arc::clone(&mixer),
+                previewed: Arc::clone(&previewed),
+                reassert,
+            },
+        ));
 
         {
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
@@ -430,7 +453,7 @@ impl Engine {
 
         Ok(Self {
             player,
-            spirc: Arc::new(spirc),
+            spirc,
             session,
             mixer,
             device_id,
@@ -438,7 +461,26 @@ impl Engine {
             interrupted,
             shutting_down,
             audio,
+            previewed,
         })
+    }
+
+    /// Applies a level set here to the mixer and the state at once, so no
+    /// snapshot tells a level the mixer does not hold. Connect is told on
+    /// release, not while the slider is still moving.
+    ///
+    /// All of it under the state lock, which `run_events` holds while it
+    /// compares a report with the mixer and answers it, so an answer never
+    /// overtakes a level set here.
+    fn note_volume(&self, volume: u16, preview: bool) -> Result<()> {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        self.mixer.set_volume(volume);
+        state.volume = volume;
+        *self.previewed.lock().unwrap_or_else(|p| p.into_inner()) = preview.then(Instant::now);
+        if !preview {
+            self.spirc.set_volume(volume)?;
+        }
+        Ok(())
     }
 
     /// Playback state to resume after replacing this engine.
@@ -458,6 +500,15 @@ impl Engine {
 
     pub fn device_id(&self) -> &str {
         &self.device_id
+    }
+
+    /// What this engine is heard at, kept past the engine itself: the next
+    /// engine starts there.
+    pub(crate) fn heard(&self) -> Heard {
+        Heard {
+            state: Arc::clone(&self.state),
+            mixer: Arc::clone(&self.mixer),
+        }
     }
 
     /// Whether Spotify classifies this album as an EP in its internal metadata.
@@ -581,11 +632,8 @@ impl Engine {
             PlayerCommand::ClearQueue => spirc.clear_queue()?,
             PlayerCommand::AddToQueue(uri) => spirc.add_to_queue(uri)?,
             PlayerCommand::Seek(position_ms) => spirc.set_position_ms(position_ms)?,
-            PlayerCommand::Volume(volume) => {
-                self.mixer.set_volume(volume);
-                spirc.set_volume(volume)?;
-            }
-            PlayerCommand::VolumePreview(volume) => self.mixer.set_volume(volume),
+            PlayerCommand::Volume(volume) => self.note_volume(volume, false)?,
+            PlayerCommand::VolumePreview(volume) => self.note_volume(volume, true)?,
             PlayerCommand::Shuffle(enabled) => spirc.shuffle(enabled)?,
             PlayerCommand::Repeat(mode) => match mode {
                 RepeatMode::Off => {
@@ -707,11 +755,116 @@ fn sink_builder(
     )
 }
 
+/// Tells Spotify Connect the volume this side holds.
+type Reassert = Box<dyn Fn(u16) + Send>;
+
+/// What keeps Connect's idea of the volume in step with what is heard.
+struct VolumeSync {
+    mixer: Arc<dyn Mixer>,
+    previewed: Arc<Mutex<Option<Instant>>>,
+    reassert: Reassert,
+}
+
+impl VolumeSync {
+    /// Whether the slider still counts as moving.
+    fn dragging(&self) -> bool {
+        self.previewed
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some_and(|at| at.elapsed() < PREVIEW_HOLD)
+    }
+}
+
+/// How long the slider counts as still moving after its last preview. A
+/// drag previews every frame; a second without one is a drag that ended
+/// without a release, say with the pointer lost to another window.
+const PREVIEW_HOLD: Duration = Duration::from_secs(1);
+
+/// What a volume report from Connect is, against the mixer.
+#[derive(Debug, PartialEq)]
+enum VolumeReport {
+    /// The level being heard.
+    Heard,
+    /// Not the level being heard. `tell` is what Connect is told instead:
+    /// the state's level while the mixer holds it, and nothing when the
+    /// mixer holds a level neither knows, which is a remote change on its
+    /// way with a report of its own behind it.
+    Stale { tell: Option<u16> },
+}
+
+/// Compares `reported`, Connect's level, with the mixer; `noted` is the
+/// state's.
+///
+/// Spirc drops a volume set while the Connect device is inactive, keeps the
+/// level it started with, and reports that level when the device activates.
+/// The mixer is set directly and is what is heard, so it decides. This is a
+/// shim for the fork's Spirc; it goes once Spirc takes the volume of an
+/// inactive device.
+///
+/// A report is compared as the attenuation the curve maps it to, which is
+/// exactly what the soft mixer, the only mixer this engine opens, stores;
+/// not as the mixer's read-back. `volume()` inverts the curve and
+/// truncates, so a level set exactly can read back one step low, and
+/// comparing read-backs would call every such echo stale and send Connect
+/// one step down each time.
+fn volume_report(reported: u16, noted: u16, mixer: &dyn Mixer) -> VolumeReport {
+    let held = mixer.get_soft_volume().attenuation_factor().to_bits();
+    let holds = |candidate: u16| VOLUME_CURVE.to_mapped(candidate).to_bits() == held;
+    if holds(reported) {
+        VolumeReport::Heard
+    } else {
+        VolumeReport::Stale {
+            tell: holds(noted).then_some(noted),
+        }
+    }
+}
+
+/// What an engine is heard at, for the engine that replaces it.
+#[derive(Clone)]
+pub(crate) struct Heard {
+    state: Arc<Mutex<LocalState>>,
+    mixer: Arc<dyn Mixer>,
+}
+
+impl Heard {
+    /// The level set last, exactly, while the mixer still holds it; the
+    /// mixer's read-back, one step low at times, once a remote client moved
+    /// the mixer past it.
+    pub(crate) fn level(&self) -> u16 {
+        let noted = self.state.lock().unwrap_or_else(|p| p.into_inner()).volume;
+        match volume_report(noted, noted, self.mixer.as_ref()) {
+            VolumeReport::Heard => noted,
+            VolumeReport::Stale { .. } => self.mixer.volume(),
+        }
+    }
+
+    /// An engine heard at `volume`, for tests that have no engine.
+    #[cfg(test)]
+    pub(crate) fn at(volume: u16) -> Self {
+        use librespot_playback::mixer::softmixer::SoftMixer;
+
+        let mixer = SoftMixer::open(MixerConfig {
+            volume_ctrl: VOLUME_CURVE,
+            ..MixerConfig::default()
+        })
+        .expect("the soft mixer");
+        mixer.set_volume(volume);
+        Self {
+            state: Arc::new(Mutex::new(LocalState {
+                volume,
+                ..LocalState::default()
+            })),
+            mixer: Arc::new(mixer),
+        }
+    }
+}
+
 async fn run_events(
     mut events: tokio::sync::mpsc::UnboundedReceiver<PlayerEvent>,
     state: Arc<Mutex<LocalState>>,
     notify: Notify,
     audio: Arc<AudioControl>,
+    sync: VolumeSync,
 ) {
     let mut play_request_id = None;
     while let Some(event) = events.recv().await {
@@ -729,11 +882,43 @@ async fn run_events(
         }
         audio.handle_player_event(&event);
         let snapshot = {
+            // Held through the answer, so a level set meanwhile (under the
+            // same lock) lands at Connect after it.
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
-            if apply_event(&mut current, event) {
-                Some(current.clone())
-            } else {
-                None
+            let report = match &event {
+                PlayerEvent::VolumeChanged { volume } => Some((
+                    *volume,
+                    volume_report(*volume, current.volume, sync.mixer.as_ref()),
+                )),
+                _ => None,
+            };
+            match report {
+                Some((volume, VolumeReport::Stale { tell })) => {
+                    // Connect reports the level it kept, not the one set
+                    // here while it was inactive. What is heard is right, so
+                    // this report goes nowhere and Connect is told the level
+                    // heard; its report of that level then comes through in
+                    // this one's place. During a drag nothing is told: the
+                    // release tells Connect where the slider ends up.
+                    log::debug!("Connect reports volume {volume}, not the level heard");
+                    if let Some(level) = tell
+                        && !sync.dragging()
+                    {
+                        (sync.reassert)(level);
+                    }
+                    None
+                }
+                Some((volume, VolumeReport::Heard))
+                    if volume != current.volume && sync.dragging() =>
+                {
+                    // A level that landed in the mixer behind the hand, an
+                    // answer sent before the drag began or a remote change:
+                    // the hand wins until it lets go.
+                    sync.mixer.set_volume(current.volume);
+                    None
+                }
+                // Heard, or not a volume report at all: folded into the state.
+                _ => apply_event(&mut current, event).then(|| current.clone()),
             }
         };
         if let Some(snapshot) = snapshot {
@@ -1422,5 +1607,254 @@ mod tests {
         state.playback = Playback::Playing;
         state.track = None;
         assert!(state.interrupted().is_none());
+    }
+
+    fn soft_mixer_at(volume: u16) -> Arc<dyn Mixer> {
+        use librespot_playback::mixer::softmixer::SoftMixer;
+
+        let mixer = SoftMixer::open(MixerConfig {
+            volume_ctrl: VOLUME_CURVE,
+            ..MixerConfig::default()
+        })
+        .expect("the soft mixer");
+        mixer.set_volume(volume);
+        Arc::new(mixer)
+    }
+
+    /// Connect's report is the level heard when it maps to the level the
+    /// mixer holds. Any other level is stale, and Connect gets told the
+    /// level set here, exactly, as long as the mixer holds it.
+    #[test]
+    fn a_connect_volume_report_is_stale_when_the_mixer_holds_another_level() {
+        let set_here = 3276;
+        let started_with = 45874;
+        let mixer = soft_mixer_at(set_here);
+        assert_eq!(
+            volume_report(set_here, set_here, mixer.as_ref()),
+            VolumeReport::Heard
+        );
+        assert_eq!(
+            volume_report(started_with, set_here, mixer.as_ref()),
+            VolumeReport::Stale {
+                tell: Some(set_here)
+            }
+        );
+        // A state behind the mixer, as when a remote level landed in the
+        // mixer before the echo of the level set here was seen, is not what
+        // Connect gets told; the remote level's own report follows.
+        assert_eq!(
+            volume_report(started_with, 12345, mixer.as_ref()),
+            VolumeReport::Stale { tell: None }
+        );
+    }
+
+    /// A level Connect echoes after being set is never stale, although the
+    /// mixer reads thousands of levels back one step low.
+    #[test]
+    fn every_level_connect_echoes_after_being_set_is_heard() {
+        let mixer = soft_mixer_at(0);
+        let mut read_back_low = 0u32;
+        for level in 0..=u16::MAX {
+            mixer.set_volume(level);
+            assert_eq!(
+                volume_report(level, level, mixer.as_ref()),
+                VolumeReport::Heard,
+                "{level}"
+            );
+            read_back_low += u32::from(mixer.volume() != level);
+        }
+        assert!(
+            read_back_low > 1000,
+            "the read-back the comparison guards against never came up"
+        );
+    }
+
+    /// `run_events` with Connect played by a stub that, like Spirc, sets the
+    /// mixer to what it is told.
+    struct VolumeHarness {
+        sender: tokio::sync::mpsc::UnboundedSender<PlayerEvent>,
+        task: tokio::task::JoinHandle<()>,
+        mixer: Arc<dyn Mixer>,
+        state: Arc<Mutex<LocalState>>,
+        snapshots: Arc<Mutex<Vec<u16>>>,
+        told: Arc<Mutex<Vec<u16>>>,
+    }
+
+    /// The engine after `note_volume(set_here)`, with the slider last
+    /// previewed at `previewed`.
+    fn volume_harness(set_here: u16, previewed: Option<Instant>) -> VolumeHarness {
+        let mixer = soft_mixer_at(set_here);
+        let state = Arc::new(Mutex::new(LocalState {
+            volume: set_here,
+            ..LocalState::default()
+        }));
+        let snapshots: Arc<Mutex<Vec<u16>>> = Arc::default();
+        let notify: Notify = {
+            let snapshots = Arc::clone(&snapshots);
+            Arc::new(move |event: EngineEvent| {
+                if let EngineEvent::State(snapshot) = event {
+                    snapshots.lock().unwrap().push(snapshot.volume);
+                }
+            })
+        };
+        let told: Arc<Mutex<Vec<u16>>> = Arc::default();
+        let reassert: Reassert = {
+            let told = Arc::clone(&told);
+            let mixer = Arc::clone(&mixer);
+            Box::new(move |volume| {
+                mixer.set_volume(volume);
+                told.lock().unwrap().push(volume);
+            })
+        };
+        let (sender, events) = tokio::sync::mpsc::unbounded_channel();
+        let task = tokio::spawn(run_events(
+            events,
+            Arc::clone(&state),
+            notify,
+            AudioControl::new(crate::sink::DEFAULT_BUFFER_MS),
+            VolumeSync {
+                mixer: Arc::clone(&mixer),
+                previewed: Arc::new(Mutex::new(previewed)),
+                reassert,
+            },
+        ));
+        VolumeHarness {
+            sender,
+            task,
+            mixer,
+            state,
+            snapshots,
+            told,
+        }
+    }
+
+    fn client_changed() -> PlayerEvent {
+        PlayerEvent::SessionClientChanged {
+            client_id: "id".into(),
+            client_name: "Spotifast".into(),
+            client_brand_name: String::new(),
+            client_model_name: String::new(),
+        }
+    }
+
+    fn loading() -> PlayerEvent {
+        PlayerEvent::Loading {
+            play_request_id: 1,
+            track_id: uri(),
+            position_ms: 0,
+        }
+    }
+
+    fn volume_changed(volume: u16) -> PlayerEvent {
+        PlayerEvent::VolumeChanged { volume }
+    }
+
+    /// The level set here while Connect was inactive is what every snapshot
+    /// tells and what Connect is told, exactly. Connect's stale report on
+    /// activation reaches nobody.
+    #[tokio::test]
+    async fn a_stale_connect_volume_report_gives_way_to_what_is_heard() {
+        let set_here = 3276;
+        let started_with = 45874;
+        let harness = volume_harness(set_here, None);
+        // Activation announces the client and reports the level Connect
+        // started with, the track loads, and Connect echoes the level it
+        // was told.
+        harness.sender.send(client_changed()).unwrap();
+        harness.sender.send(volume_changed(started_with)).unwrap();
+        harness.sender.send(loading()).unwrap();
+        harness.sender.send(volume_changed(set_here)).unwrap();
+        drop(harness.sender);
+        harness.task.await.unwrap();
+
+        assert_eq!(*harness.told.lock().unwrap(), vec![set_here]);
+        assert_eq!(
+            *harness.snapshots.lock().unwrap(),
+            vec![set_here, set_here],
+            "the client and the load, at the level set here; the echo adds nothing"
+        );
+        assert_eq!(harness.state.lock().unwrap().volume, set_here);
+    }
+
+    /// A report of the level the mixer holds, as after a phone set it, is
+    /// what is heard and comes through.
+    #[tokio::test]
+    async fn a_connect_volume_report_of_the_level_heard_comes_through() {
+        let from_the_phone = 20000;
+        let harness = volume_harness(3276, None);
+        harness.mixer.set_volume(from_the_phone);
+        harness.sender.send(volume_changed(from_the_phone)).unwrap();
+        drop(harness.sender);
+        harness.task.await.unwrap();
+
+        assert!(harness.told.lock().unwrap().is_empty());
+        assert_eq!(*harness.snapshots.lock().unwrap(), vec![from_the_phone]);
+        assert_eq!(harness.state.lock().unwrap().volume, from_the_phone);
+    }
+
+    /// While the slider moves, Connect hears where it ends up, on release,
+    /// not the mixer's passing level in answer to a stale report.
+    #[tokio::test]
+    async fn a_stale_report_during_a_drag_tells_connect_nothing() {
+        let set_here = 3276;
+        let harness = volume_harness(set_here, Some(Instant::now()));
+        harness.sender.send(volume_changed(45874)).unwrap();
+        drop(harness.sender);
+        harness.task.await.unwrap();
+
+        assert!(harness.told.lock().unwrap().is_empty());
+        assert!(harness.snapshots.lock().unwrap().is_empty());
+        assert_eq!(harness.state.lock().unwrap().volume, set_here);
+    }
+
+    /// A level that lands in the mixer behind the hand, an answer sent
+    /// before the drag began or a remote change, gives way to the hand
+    /// until it lets go.
+    #[tokio::test]
+    async fn the_hand_wins_over_a_level_that_lands_during_a_drag() {
+        let dragged_to = 3276;
+        let told_before = 45874;
+        let harness = volume_harness(dragged_to, Some(Instant::now()));
+        // Spirc sets the mixer to the answer, then reports it.
+        harness.mixer.set_volume(told_before);
+        harness.sender.send(volume_changed(told_before)).unwrap();
+        drop(harness.sender);
+        harness.task.await.unwrap();
+
+        assert_eq!(
+            volume_report(dragged_to, dragged_to, harness.mixer.as_ref()),
+            VolumeReport::Heard,
+            "the mixer is back at the hand's level"
+        );
+        assert!(harness.told.lock().unwrap().is_empty());
+        assert!(harness.snapshots.lock().unwrap().is_empty());
+        assert_eq!(harness.state.lock().unwrap().volume, dragged_to);
+    }
+
+    /// A drag that ended without a release, say with the pointer lost to
+    /// another window, does not keep Connect in the dark for good.
+    #[tokio::test]
+    async fn a_stale_report_after_a_drag_petered_out_tells_connect() {
+        let set_here = 3276;
+        let long_ago = Instant::now() - PREVIEW_HOLD * 2;
+        let harness = volume_harness(set_here, Some(long_ago));
+        harness.sender.send(volume_changed(45874)).unwrap();
+        drop(harness.sender);
+        harness.task.await.unwrap();
+
+        assert_eq!(*harness.told.lock().unwrap(), vec![set_here]);
+    }
+
+    /// The next engine starts at the level set last, exactly, unless a
+    /// remote client moved the mixer since; then at what the mixer reads
+    /// back.
+    #[test]
+    fn an_engine_is_heard_at_the_level_set_last_unless_the_mixer_moved_on() {
+        let set_here = 3276;
+        let from_the_phone = 20000;
+        let heard = Heard::at(set_here);
+        assert_eq!(heard.level(), set_here);
+        heard.mixer.set_volume(from_the_phone);
+        assert_eq!(heard.level(), heard.mixer.volume());
     }
 }
