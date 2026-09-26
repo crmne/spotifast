@@ -311,6 +311,12 @@ pub struct Engine {
     audio: Arc<AudioControl>,
 }
 
+/// The volume curve. librespot's default spans 60 dB logarithmically, which
+/// puts half the slider below -30 dB and every level anyone wants in its top
+/// quarter. The cubic curve reaches -16 dB at the middle and -7 dB at three
+/// quarters, spreading the useful range across the slider.
+pub(crate) const VOLUME_CURVE: VolumeCtrl = VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE);
+
 impl Engine {
     pub(crate) fn credentials(&self) -> Option<Credentials> {
         self.session.cache().and_then(|cache| cache.credentials())
@@ -346,12 +352,8 @@ impl Engine {
 
         let mixer_builder =
             mixer::find(Some("softvol")).ok_or_else(|| anyhow!("soft volume mixer missing"))?;
-        // librespot's default curve spans 60 dB logarithmically, which puts
-        // half the slider below -30 dB and every level anyone wants in its
-        // top quarter. The cubic curve reaches -16 dB at the middle and -7 dB
-        // at three quarters, spreading the useful range across the slider.
         let mixer = mixer_builder(MixerConfig {
-            volume_ctrl: VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE),
+            volume_ctrl: VOLUME_CURVE,
             ..MixerConfig::default()
         })
         .context("unable to create the mixer")?;
@@ -458,6 +460,13 @@ impl Engine {
 
     pub fn device_id(&self) -> &str {
         &self.device_id
+    }
+
+    /// The mixer this engine plays through. It holds the level being heard,
+    /// including what a remote client or a slider drag set, and keeps it
+    /// after the session behind the engine has gone.
+    pub(crate) fn mixer(&self) -> Arc<dyn Mixer> {
+        Arc::clone(&self.mixer)
     }
 
     /// Whether Spotify classifies this album as an EP in its internal metadata.

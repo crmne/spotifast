@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use librespot_core::authentication::Credentials;
+use librespot_playback::mixer::Mixer;
 use tokio::sync::{mpsc, watch};
 
 use crate::api::models::*;
@@ -1305,6 +1306,10 @@ struct Worker {
     commands: mpsc::UnboundedSender<Command>,
     waker: Waker,
     engine: Option<Arc<Engine>>,
+    /// The engine's mixer, so the engine that replaces it starts at the
+    /// level being heard. `engine_config` alone knows only the level the
+    /// app launched with.
+    mixer: Option<Arc<dyn Mixer>>,
     /// A rootlist fetch asked for before the engine existed, to run once it
     /// does. The rootlist carries invitation edit permissions, which no
     /// other request reports.
@@ -1374,6 +1379,7 @@ impl Worker {
             commands,
             waker,
             engine: None,
+            mixer: None,
             rootlist_pending: false,
             album_type_lookup: AlbumTypeLookup::default(),
             audiobook_lookup: BTreeSet::new(),
@@ -2388,6 +2394,7 @@ impl Worker {
         self.album_type_lookup.reset_session();
         self.audiobook_lookup.clear();
         self.radio_waiting.clear();
+        self.carry_volume();
         if let Some(engine) = self.engine.take() {
             engine.shutdown();
         }
@@ -2505,9 +2512,23 @@ impl Worker {
         self.replace_engine();
     }
 
+    /// Keeps the level being heard for the next engine, and lets the mixer
+    /// go with the engine it belonged to, so a level from an engine that is
+    /// gone never overrides a setting that arrives after it.
+    fn carry_volume(&mut self) {
+        if let Some(mixer) = self.mixer.take() {
+            self.engine_config.initial_volume = mixer.volume();
+        }
+    }
+
+    /// Takes the engine down and keeps what its replacement picks up: the
+    /// playback, and the level being heard. A session that drops on its own
+    /// comes back at the level it was heard at, not at the level the app
+    /// launched with.
     fn take_engine_for_resume(&mut self) {
         self.resume_verify = None;
         self.album_type_lookup.requeue_active_for_new_engine();
+        self.carry_volume();
         if let Some(engine) = self.engine.take() {
             self.resume = engine.resume_point();
             engine.shutdown();
@@ -2708,6 +2729,7 @@ impl Worker {
                 }
                 let device_id = engine.device_id().to_string();
                 let engine = Arc::new(engine);
+                self.mixer = Some(engine.mixer());
                 if let Some(spec) = self.resume.take() {
                     // Delay resume until Spirc finishes registering. An early
                     // load can return 400 and leave playback stopped. Verify
@@ -2738,6 +2760,7 @@ impl Worker {
         self.premium = premium;
         if premium == Some(false) {
             self.album_type_lookup.clear_engine_work();
+            self.carry_volume();
             if let Some(engine) = self.engine.take() {
                 engine.shutdown();
             }
@@ -4430,6 +4453,62 @@ mod authorization_tests {
         });
         assert_eq!(worker.waiting_for_proxy.len(), 1);
         assert_eq!(worker.engine_config.proxy, ProxyConfig::Off);
+    }
+
+    /// The soft mixer an engine plays through, at a level.
+    fn mixer_at(percent: u8) -> Arc<dyn Mixer> {
+        use librespot_playback::mixer::{MixerConfig, softmixer::SoftMixer};
+
+        let mixer = SoftMixer::open(MixerConfig {
+            volume_ctrl: crate::player::VOLUME_CURVE,
+            ..MixerConfig::default()
+        })
+        .expect("the soft mixer");
+        mixer.set_volume(crate::app::percent_to_volume(percent));
+        Arc::new(mixer)
+    }
+
+    /// A session that drops on its own comes back at the level being heard,
+    /// not at the level the app launched with. Music turned down to 5% after
+    /// launch used to come back at the previous session's 80%.
+    #[test]
+    fn a_dropped_session_comes_back_at_the_level_being_heard() {
+        let (runtime, mut worker, _) = worker("reconnect-volume");
+        worker.signed_in = true;
+        worker.engine_config.initial_volume = crate::app::percent_to_volume(80);
+        worker.mixer = Some(mixer_at(5));
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::Reconnect).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), worker.run(receiver))
+                .await
+                .unwrap();
+        });
+        assert_eq!(
+            crate::app::volume_to_percent(worker.engine_config.initial_volume),
+            5,
+            "the next engine must start where the last one was heard"
+        );
+        assert!(worker.mixer.is_none(), "the mixer goes with its engine");
+    }
+
+    /// Signing out takes the engine down outside the reconnect path. The
+    /// engine that playback is enabled with afterwards starts where the last
+    /// one was heard as well.
+    #[test]
+    fn signing_out_keeps_the_level_being_heard_for_the_next_engine() {
+        let (runtime, mut worker, _) = worker("sign-out-volume");
+        let _entered = runtime.enter();
+        worker.signed_in = true;
+        worker.engine_config.initial_volume = crate::app::percent_to_volume(80);
+        worker.mixer = Some(mixer_at(5));
+        worker.sign_out();
+        assert_eq!(
+            crate::app::volume_to_percent(worker.engine_config.initial_volume),
+            5
+        );
+        assert!(worker.mixer.is_none());
     }
 
     #[test]

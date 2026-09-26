@@ -184,7 +184,8 @@ AUR and Homebrew packages now use the Spotifast name. See [rename compatibility]
   the old cached song from racing to its end and causing an extra skip.
 - **Reconnects keep the queue.** Since 0.9.0, recovering an
   interrupted local playback session restores its playlist position,
-  queued songs, shuffle order, and Repeat mode.
+  queued songs, shuffle order, and Repeat mode, and comes back at the
+  volume being heard.
 - **Light and dark**, or follow the system.
 - **Native window behaviour.** On macOS, double-click the top bar to use the
   Fill, Zoom, Minimise or Do Nothing action selected in Desktop & Dock.
