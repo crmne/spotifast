@@ -155,6 +155,8 @@ pub fn enable_desktop_themes(catalog: &mut Catalog, themes: &std::path::Path) {
     catalog.enable_desktop_themes(fastframe_theme::DesktopThemes {
         slug: "spotifast",
         omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"),
+        // The template has not changed since it first shipped.
+        omarchy_previous_templates: &[],
         presets: true,
     });
 }

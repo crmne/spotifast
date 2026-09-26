@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 17:16+0200\n"
+"POT-Creation-Date: 2026-09-26 17:37+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -1889,11 +1889,11 @@ msgctxt "proxy"
 msgid "System"
 msgstr "System"
 
-#: src/theme.rs:173
+#: src/theme.rs:175
 msgid "Loading local themes…"
 msgstr "Läser in lokala teman…"
 
-#: src/theme.rs:176
+#: src/theme.rs:178
 msgid ""
 "The selected theme is unavailable. Keeping the last usable appearance. See "
 "the log for details."
@@ -1901,11 +1901,11 @@ msgstr ""
 "Det valda temat är inte tillgängligt. Det senaste användbara utseendet "
 "behålls. Se loggen för detaljer."
 
-#: src/theme.rs:180
+#: src/theme.rs:182
 msgid "The themes folder could not be read. See the log for details."
 msgstr "Temamappen kunde inte läsas. Se loggen för detaljer."
 
-#: src/theme.rs:184
+#: src/theme.rs:186
 msgid ""
 "The themes folder has more than 512 entries. Keep fewer files there to list "
 "the custom palettes."
@@ -1913,7 +1913,7 @@ msgstr ""
 "Temamappen har fler än 512 poster. Ha färre filer där för att visa de "
 "anpassade paletterna."
 
-#: src/theme.rs:188
+#: src/theme.rs:190
 msgid ""
 "Only 128 custom palettes can be listed. Keep fewer JSON files in the themes "
 "folder to see the rest."
@@ -1921,7 +1921,7 @@ msgstr ""
 "Bara 128 anpassade paletter kan visas. Ha färre JSON-filer i temamappen för "
 "att se resten."
 
-#: src/theme.rs:192
+#: src/theme.rs:194
 msgid ""
 "The Omarchy palette could not be loaded. Keeping the last usable appearance. "
 "See the log for details."
@@ -1929,7 +1929,7 @@ msgstr ""
 "Omarchy-paletten kunde inte läsas in. Det senaste användbara utseendet "
 "behålls. Se loggen för detaljer."
 
-#: src/theme.rs:196
+#: src/theme.rs:198
 msgid ""
 "Custom themes could not be loaded. Run spotifast reload-themes to try again."
 msgstr ""

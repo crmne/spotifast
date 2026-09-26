@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 17:16+0200\n"
+"POT-Creation-Date: 2026-09-26 17:37+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: German\n"
@@ -1913,11 +1913,11 @@ msgctxt "proxy"
 msgid "System"
 msgstr "System"
 
-#: src/theme.rs:173
+#: src/theme.rs:175
 msgid "Loading local themes…"
 msgstr "Lokale Designs werden geladen…"
 
-#: src/theme.rs:176
+#: src/theme.rs:178
 msgid ""
 "The selected theme is unavailable. Keeping the last usable appearance. See "
 "the log for details."
@@ -1925,12 +1925,12 @@ msgstr ""
 "Das ausgewählte Design ist nicht verfügbar. Die letzte nutzbare Darstellung "
 "bleibt aktiv. Details stehen im Protokoll."
 
-#: src/theme.rs:180
+#: src/theme.rs:182
 msgid "The themes folder could not be read. See the log for details."
 msgstr ""
 "Der Designordner konnte nicht gelesen werden. Details stehen im Protokoll."
 
-#: src/theme.rs:184
+#: src/theme.rs:186
 msgid ""
 "The themes folder has more than 512 entries. Keep fewer files there to list "
 "the custom palettes."
@@ -1938,7 +1938,7 @@ msgstr ""
 "Der Designordner enthält mehr als 512 Einträge. Lege dort weniger Dateien "
 "ab, damit die eigenen Paletten aufgelistet werden."
 
-#: src/theme.rs:188
+#: src/theme.rs:190
 msgid ""
 "Only 128 custom palettes can be listed. Keep fewer JSON files in the themes "
 "folder to see the rest."
@@ -1946,7 +1946,7 @@ msgstr ""
 "Es können nur 128 eigene Paletten aufgelistet werden. Lege weniger JSON-"
 "Dateien in den Designordner, um den Rest zu sehen."
 
-#: src/theme.rs:192
+#: src/theme.rs:194
 msgid ""
 "The Omarchy palette could not be loaded. Keeping the last usable appearance. "
 "See the log for details."
@@ -1954,7 +1954,7 @@ msgstr ""
 "Die Omarchy-Farbpalette konnte nicht geladen werden. Die letzte nutzbare "
 "Darstellung bleibt aktiv. Details stehen im Protokoll."
 
-#: src/theme.rs:196
+#: src/theme.rs:198
 msgid ""
 "Custom themes could not be loaded. Run spotifast reload-themes to try again."
 msgstr ""
