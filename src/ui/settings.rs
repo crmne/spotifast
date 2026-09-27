@@ -102,6 +102,38 @@ fn filtered_row_sized(
     }
 }
 
+/// A horizontal slider styled like the rest of the settings controls:
+/// pill-shaped value button, accent progress fill, and matching typography.
+fn setting_slider(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    slider: egui::Slider<'_>,
+) -> egui::Response {
+    ui.scope(|ui| {
+        let style = ui.style_mut();
+        let pill = CornerRadius::same(14);
+        for widget in [
+            &mut style.visuals.widgets.inactive,
+            &mut style.visuals.widgets.hovered,
+            &mut style.visuals.widgets.active,
+            &mut style.visuals.widgets.open,
+        ] {
+            widget.corner_radius = pill;
+        }
+        style.visuals.widgets.inactive.bg_fill = palette.surface;
+        style.visuals.widgets.hovered.bg_fill = palette.surface_hover;
+        style.visuals.widgets.active.bg_fill = palette.surface_active;
+        style.visuals.selection.bg_fill = palette.accent;
+        style.visuals.slider_trailing_fill = true;
+        style
+            .text_styles
+            .insert(egui::TextStyle::Button, theme::medium(13.0));
+        style.spacing.button_padding = Vec2::new(12.0, 6.0);
+        ui.add(slider)
+    })
+    .inner
+}
+
 /// Forget the search text, so a flow that lands on a specific row (like
 /// the Personal App setup) always finds that row visible and focusable.
 pub(crate) fn clear_search(ctx: &egui::Context) {
@@ -1527,7 +1559,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 let slider = egui::Slider::new(&mut seconds, 2..=300)
                     .logarithmic(true)
                     .suffix(" s");
-                if ui.add(slider).changed() {
+                if setting_slider(ui, &palette, slider).changed() {
                     app.actions.push(Action::SetMilkdropSeconds(seconds));
                 }
             });
@@ -1574,7 +1606,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             .min_by_key(|(_, rate)| rate.abs_diff(wanted))
                             .map(|(index, _)| index as f64)
                     });
-                if ui.add(slider).changed()
+                if setting_slider(ui, &palette, slider).changed()
                     && let Some(rate) = stops.get(at)
                 {
                     app.actions.push(Action::SetMilkdropFps(*rate));
@@ -2061,5 +2093,20 @@ mod tests {
             "Playback on this computer",
             &rows
         ));
+    }
+
+    #[test]
+    fn setting_slider_renders_with_pill_style() {
+        let ctx = egui::Context::default();
+        let palette = crate::theme::Palette::dark();
+        crate::theme::install(&ctx);
+        crate::theme::apply(&ctx, &palette);
+        let mut value = 42.0f32;
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let slider = egui::Slider::new(&mut value, 0.0..=100.0);
+            let response = super::setting_slider(ui, &palette, slider);
+            assert!(response.rect.is_positive());
+        });
+        output.textures_delta.clear();
     }
 }
