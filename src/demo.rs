@@ -2687,6 +2687,51 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// #596: clearing the global search from another page empties the field
+    /// without leaving that page.
+    #[test]
+    fn clearing_the_global_search_stays_on_the_current_page() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("global-search-clear");
+        app.open(Page::Home);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!app.search.query.is_empty());
+        let clear = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.label() == Some("Clear")
+                    && node.role() == Role::Button
+                    && node.bounds().is_some_and(|bounds| bounds.y1 < 80.0)
+            })
+            .expect("Clear beside the global search")
+            .0;
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(clear, AccessibleAction::Click, None)],
+        );
+        for _ in 0..3 {
+            accessible_frame(&ctx, &mut app, vec![]);
+        }
+        assert!(app.search.query.is_empty());
+        assert!(
+            matches!(app.page(), Page::Home),
+            "clearing must not open the search page"
+        );
+        assert!(
+            ctx.memory(|memory| memory.has_focus(egui::Id::new("global-search"))),
+            "the field stays ready for the next query"
+        );
+        // Typing a new query still goes to the search page.
+        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("Rework".into())]);
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(app.search.query, "Rework");
+        assert!(matches!(app.page(), Page::Search));
+        app.backend.shutdown();
+    }
+
     #[test]
     fn settings_search_filters_rows_clearing_and_empty_state() {
         use egui::accesskit::{Action as AccessibleAction, Role};

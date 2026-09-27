@@ -304,12 +304,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 app.search.focus_requested = false;
                 response.request_focus();
             }
-            if response.gained_focus() && !matches!(app.page(), Page::Search) {
+            // Clear empties the field and hands it focus in the same frame.
+            // Neither should leave the page: only typing a query does.
+            let cleared = app.search.query.is_empty() && !before.is_empty();
+            if response.gained_focus() && !cleared && !matches!(app.page(), Page::Search) {
                 app.actions.push(Action::Open(Page::Search));
             }
             if app.search.query != before {
                 app.search.typed_at = Some(std::time::Instant::now());
-                if !matches!(app.page(), Page::Search) {
+                if !cleared && !matches!(app.page(), Page::Search) {
                     app.actions.push(Action::Open(Page::Search));
                 }
             }
