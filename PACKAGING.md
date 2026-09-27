@@ -169,28 +169,30 @@ In addition to the standard Inno Setup installer (`spotifast.iss`), Windows
 packages can be built as a modern MSIX package or a unified multi-architecture
 bundle (`.msixbundle`) through `packaging/windows/build-msix.ps1`.
 
-Visual assets (including high-DPI tiles and unplated transparent taskbar icons
-for Windows 11) are generated dynamically from `packaging/macos/icon-1024.png`
-during the build through `packaging/windows/msix/generate-assets.ps1`, so no
-redundant image files are kept in the repository.
+Visual assets (including high-DPI tiles and unplated transparent taskbar icons)
+are generated dynamically from `packaging/macos/icon-1024.png` during the build
+through `packaging/windows/msix/generate-assets.ps1`, so no redundant image files
+are kept in the repository.
 
 By default, running `build-msix.ps1` resolves both `x86_64` and `aarch64` binaries,
-packages both `.msix` files, and creates the unified `.msixbundle` installer:
+packages both `.msix` files, and creates the unified `.msixbundle` installer.
+The package version is resolved automatically from `Cargo.toml` or `GITHUB_REF_NAME`
+(pass `-Version <version>` to override):
 
 ```powershell
-pwsh packaging\windows\build-msix.ps1 -Version 0.11.0
+pwsh packaging\windows\build-msix.ps1
 ```
 
 To package a single architecture into `.msix` (for example, for target-specific CI jobs):
 
 ```powershell
-pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 -Arch aarch64 -Binary dist\spotifast.exe
+pwsh packaging\windows\build-msix.ps1 -Arch aarch64 -Binary dist\spotifast.exe
 ```
 
 To create the universal `.msixbundle` from explicit binary paths:
 
 ```powershell
-pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 `
+pwsh packaging\windows\build-msix.ps1 `
     -X64Binary target\x86_64-pc-windows-msvc\release\spotifast.exe `
     -Arm64Binary target\aarch64-pc-windows-msvc\release\spotifast.exe
 ```
@@ -214,7 +216,7 @@ open source developers have multiple options:
    without hardware tokens. Pass Trusted Signing credentials to `build-msix.ps1`:
 
    ```powershell
-   pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 -Bundle `
+   pwsh packaging\windows\build-msix.ps1 `
        -TrustedSigningEndpoint "https://eus.codesigning.azure.net" `
        -TrustedSigningAccount "Spotifast" `
        -TrustedSigningProfile "SpotifastOpenSource"

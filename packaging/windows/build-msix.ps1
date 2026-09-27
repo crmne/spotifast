@@ -13,14 +13,22 @@
     Trusted Signing.
 
 .EXAMPLE
-    # Build a single-architecture MSIX package (unsigned):
-    .\packaging\windows\build-msix.ps1 -Version 0.11.0 -Arch aarch64 -Binary .\target\aarch64-pc-windows-msvc\release\spotifast.exe
+    # Build a universal multi-architecture bundle (version auto-detected from Cargo.toml):
+    .\packaging\windows\build-msix.ps1
 
 .EXAMPLE
-    # Build a universal multi-architecture bundle (.msixbundle) containing both x64 and arm64:
-    .\packaging\windows\build-msix.ps1 -Version 0.11.0 -Bundle `
+    # Build a single-architecture MSIX package (unsigned):
+    .\packaging\windows\build-msix.ps1 -Arch aarch64 -Binary .\dist\spotifast.exe
+
+.EXAMPLE
+    # Build a universal bundle with explicit binaries:
+    .\packaging\windows\build-msix.ps1 -Bundle `
         -X64Binary .\target\x86_64-pc-windows-msvc\release\spotifast.exe `
         -Arm64Binary .\target\aarch64-pc-windows-msvc\release\spotifast.exe
+
+.EXAMPLE
+    # Build with an explicit version override:
+    .\packaging\windows\build-msix.ps1 -Version 1.2.3
 
 .EXAMPLE
     # Test unpacked installation locally without signing (Developer Mode):
@@ -97,7 +105,7 @@ function Find-SdkTool {
 
 $makeappx = Find-SdkTool "makeappx.exe"
 if (-not $makeappx) {
-    throw "makeappx.exe not found. Please install the Windows 10/11 SDK."
+    throw "makeappx.exe not found. Please install the Windows SDK."
 }
 
 $signtool = Find-SdkTool "signtool.exe"
