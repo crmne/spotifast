@@ -5,7 +5,10 @@
 //! decisions. A slow or absent session bus therefore cannot stall audio or
 //! the window.
 
+use std::cell::Cell;
+use std::future::Future;
 use std::sync::mpsc::{Receiver, Sender};
+use std::task::{Context, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,7 +22,7 @@ const PLAYING_POSITION_INTERVAL: Duration = Duration::from_millis(1000);
 const TRACK_OBJECT_PATH_PREFIX: &str = "/rocks/spotifast/Track/";
 
 enum Update {
-    State(MediaState),
+    State(MediaState, bool),
     Seeked(u32),
 }
 
@@ -27,6 +30,10 @@ pub struct MediaService {
     updates: tokio_mpsc::UnboundedSender<Update>,
     commands: Receiver<MediaCommand>,
     published: Option<MediaState>,
+    /// A client set the volume, and the bus now holds its level rather than
+    /// the interface's. The next update republishes whatever the interface
+    /// settled on, even when that is the level it already had.
+    volume_requested: Cell<bool>,
     last_position_update: Instant,
 }
 
@@ -61,21 +68,31 @@ impl MediaService {
             updates,
             commands,
             published: None,
+            volume_requested: Cell::new(false),
             last_position_update: Instant::now() - PLAYING_POSITION_INTERVAL,
         }
     }
 
     pub fn drain_commands(&self) -> Vec<MediaCommand> {
-        self.commands.try_iter().collect()
+        let commands: Vec<MediaCommand> = self.commands.try_iter().collect();
+        if commands
+            .iter()
+            .any(|command| matches!(command, MediaCommand::SetVolume(_)))
+        {
+            self.volume_requested.set(true);
+        }
+        commands
     }
 
     /// Publishes structural changes immediately; the position once a second
     /// while playing, since clients interpolate between updates.
     pub fn update(&mut self, state: MediaState) {
-        let structural = self
-            .published
-            .as_ref()
-            .is_none_or(|published| !same_except_position(published, &state));
+        let volume_requested = self.volume_requested.take();
+        let structural = volume_requested
+            || self
+                .published
+                .as_ref()
+                .is_none_or(|published| !same_except_position(published, &state));
         let position_due = state.playback != Playback::Playing
             || self.last_position_update.elapsed() >= PLAYING_POSITION_INTERVAL;
         let position_changed = self
@@ -85,7 +102,11 @@ impl MediaService {
         if !structural && (!position_changed || !position_due) {
             return;
         }
-        if self.updates.send(Update::State(state.clone())).is_ok() {
+        if self
+            .updates
+            .send(Update::State(state.clone(), volume_requested))
+            .is_ok()
+        {
             self.published = Some(state);
             self.last_position_update = Instant::now();
         }
@@ -179,7 +200,11 @@ async fn run(
     }
     {
         let send = send.clone();
-        player.connect_set_volume(move |_, volume| send(MediaCommand::SetVolume(volume)));
+        player.connect_set_volume(move |player, volume| {
+            let volume = volume.clamp(0.0, 1.0);
+            hold_volume(player, volume);
+            send(MediaCommand::SetVolume(volume));
+        });
     }
     {
         let send = send.clone();
@@ -216,7 +241,7 @@ async fn run(
                 Update::Seeked(position_ms) => {
                     let _ = player.seeked(Time::from_millis(position_ms as i64)).await;
                 }
-                Update::State(state) => {
+                Update::State(state, volume_requested) => {
                     let previous = published.as_ref();
                     if previous.is_none_or(|p| p.playback != state.playback) {
                         let _ = player
@@ -227,7 +252,9 @@ async fn run(
                         let _ = player.set_metadata(metadata(state.track.as_ref())).await;
                         let _ = player.set_can_seek(state.track.is_some()).await;
                     }
-                    if previous.is_none_or(|p| (p.volume - state.volume).abs() >= 0.005) {
+                    if volume_requested
+                        || previous.is_none_or(|p| (p.volume - state.volume).abs() >= 0.005)
+                    {
                         let _ = player.set_volume(state.volume).await;
                     }
                     if previous.is_none_or(|p| p.shuffle != state.shuffle) {
@@ -247,6 +274,11 @@ async fn run(
         _ = apply => {}
     }
     Ok(())
+}
+
+fn hold_volume(player: &Player, volume: f64) {
+    let update = std::pin::pin!(player.set_volume(volume));
+    let _ = update.poll(&mut Context::from_waker(Waker::noop()));
 }
 
 fn playback_status(playback: Playback) -> PlaybackStatus {
@@ -347,6 +379,123 @@ mod tests {
             desktop_entry_for(Some(""), true),
             "rocks.spotifast.Spotifast"
         );
+    }
+
+    #[test]
+    fn a_volume_request_republishes_the_level_even_when_unchanged() {
+        let (updates, mut update_rx) = tokio_mpsc::unbounded_channel();
+        let (command_tx, commands) = std::sync::mpsc::channel();
+        let mut service = MediaService {
+            updates,
+            commands,
+            published: None,
+            volume_requested: Cell::new(false),
+            last_position_update: Instant::now(),
+        };
+        let state = MediaState {
+            volume: 0.75,
+            ..MediaState::default()
+        };
+        service.update(state.clone());
+        assert!(matches!(update_rx.try_recv(), Ok(Update::State(_, false))));
+        service.update(state.clone());
+        assert!(update_rx.try_recv().is_err());
+
+        // The client asked for a level the interface already had (or
+        // rounded to it): the bus holds the client's copy until told again.
+        command_tx.send(MediaCommand::SetVolume(0.753)).unwrap();
+        assert_eq!(
+            service.drain_commands(),
+            vec![MediaCommand::SetVolume(0.753)]
+        );
+        service.update(state.clone());
+        assert!(matches!(update_rx.try_recv(), Ok(Update::State(_, true))));
+        service.update(state);
+        assert!(update_rx.try_recv().is_err());
+    }
+
+    /// Plasma steps its wheel from the last `PropertiesChanged` it heard, so
+    /// the one zbus sends for a volume write must carry the new level, not
+    /// the level from before the interface got around to it.
+    #[test]
+    fn a_volume_write_is_answered_with_the_new_level_on_a_private_bus() {
+        use std::time::Duration;
+        use zbus::zvariant::{OwnedValue, Value};
+        const CHILD: &str = "SPOTIFAST_VOLUME_PRIVATE_BUS";
+        const NAME: &str =
+            "media_controls::tests::a_volume_write_is_answered_with_the_new_level_on_a_private_bus";
+        if std::env::var_os(CHILD).is_none() {
+            let root = std::env::temp_dir().join(format!(
+                "spotifast-volume-bus-{:016x}",
+                rand::random::<u64>()
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let config = root.join("session.conf");
+            std::fs::write(&config, r#"<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context="default"><allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>"#).unwrap();
+            let result = std::process::Command::new("dbus-run-session")
+                .arg("--config-file")
+                .arg(config)
+                .arg("--")
+                .arg(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        let mut service = MediaService::spawn(|| {});
+        service.update(MediaState {
+            volume: 0.65,
+            ..MediaState::default()
+        });
+        let client = zbus::blocking::connection::Builder::session()
+            .unwrap()
+            .method_timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let properties = zbus::blocking::fdo::PropertiesProxy::builder(&client)
+            .destination("org.mpris.MediaPlayer2.spotifast")
+            .unwrap()
+            .path("/org/mpris/MediaPlayer2")
+            .unwrap()
+            .build()
+            .unwrap();
+        let player = zbus::names::InterfaceName::try_from("org.mpris.MediaPlayer2.Player").unwrap();
+        let volume = || -> Option<f64> {
+            let value: OwnedValue = properties.get(player.clone(), "Volume").ok()?;
+            f64::try_from(value).ok()
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while volume() != Some(0.65) {
+            assert!(
+                Instant::now() < deadline,
+                "MPRIS did not publish the volume"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut changes = properties.receive_properties_changed().unwrap();
+
+        // The interface never drains the request here, as if it had not
+        // drawn its next frame yet.
+        properties
+            .set(player.clone(), "Volume", Value::from(0.7))
+            .unwrap();
+        let change = changes.next().unwrap();
+        let args = change.args().unwrap();
+        let heard = args
+            .changed_properties()
+            .get("Volume")
+            .map(|value| f64::try_from(value).unwrap());
+        assert_eq!(heard, Some(0.7));
+        assert_eq!(volume(), Some(0.7));
+        assert_eq!(service.drain_commands(), vec![MediaCommand::SetVolume(0.7)]);
     }
 
     #[test]
