@@ -6,9 +6,7 @@
 //! the window.
 
 use std::cell::Cell;
-use std::future::Future;
 use std::sync::mpsc::{Receiver, Sender};
-use std::task::{Context, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -150,6 +148,9 @@ async fn run(
         .build()
         .await?;
 
+    // A client's volume write is published from the loop below, so its
+    // `PropertiesChanged` is awaited to completion rather than dropped.
+    let (hold_tx, mut hold_rx) = tokio_mpsc::unbounded_channel::<f64>();
     let send = {
         let commands = commands.clone();
         let wake = wake.clone();
@@ -200,9 +201,12 @@ async fn run(
     }
     {
         let send = send.clone();
-        player.connect_set_volume(move |player, volume| {
+        player.connect_set_volume(move |_, volume| {
+            if volume.is_nan() {
+                return;
+            }
             let volume = volume.clamp(0.0, 1.0);
-            hold_volume(player, volume);
+            let _ = hold_tx.send(volume);
             send(MediaCommand::SetVolume(volume));
         });
     }
@@ -236,7 +240,18 @@ async fn run(
     let server = player.run();
     let apply = async {
         let mut published: Option<MediaState> = None;
-        while let Some(update) = updates.recv().await {
+        loop {
+            // A held level goes out before any update the interface queued
+            // after it, so the interface's settled level is the last word.
+            let update = tokio::select! {
+                biased;
+                Some(volume) = hold_rx.recv() => {
+                    let _ = player.set_volume(volume).await;
+                    continue;
+                }
+                update = updates.recv() => update,
+            };
+            let Some(update) = update else { break };
             match update {
                 Update::Seeked(position_ms) => {
                     let _ = player.seeked(Time::from_millis(position_ms as i64)).await;
@@ -274,11 +289,6 @@ async fn run(
         _ = apply => {}
     }
     Ok(())
-}
-
-fn hold_volume(player: &Player, volume: f64) {
-    let update = std::pin::pin!(player.set_volume(volume));
-    let _ = update.poll(&mut Context::from_waker(Waker::noop()));
 }
 
 fn playback_status(playback: Playback) -> PlaybackStatus {
