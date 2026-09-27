@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 18:16-0400\n"
+"POT-Creation-Date: 2026-09-27 00:49-0400\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -29,12 +29,12 @@ msgid "Play {name}"
 msgstr "播放 {name}"
 
 #: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16226
-#: src/ui/collection.rs:1685 src/ui/collection.rs:1862
+#: src/ui/collection.rs:1688 src/ui/collection.rs:1865
 msgid "Playlist"
 msgstr "播放清單"
 
 #: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16231
-#: src/ui/collection.rs:1855 src/ui/home.rs:49 src/ui/keys.rs:258
+#: src/ui/collection.rs:1858 src/ui/home.rs:49 src/ui/keys.rs:258
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "已按讚的歌曲"
@@ -182,7 +182,7 @@ msgstr[0] "播放清單 • {count} 首歌曲"
 #. Translators: Keep {count} exactly as written. It becomes a number of songs.
 #. Translators: Keep {count} exactly as written. It becomes the number of selected songs.
 #. Translators: {count} is a number of songs.
-#: src/i18n.rs:183 src/ui/widgets.rs:530 src/ui/collection.rs:1949
+#: src/i18n.rs:183 src/ui/widgets.rs:530 src/ui/collection.rs:1952
 #, rust-format
 msgid "{count} song"
 msgid_plural "{count} songs"
@@ -333,7 +333,7 @@ msgid "Next up"
 msgstr "後續曲目"
 
 #: src/ui/queue.rs:465 src/ui/queue.rs:498 src/ui/widgets.rs:2415
-#: src/ui/collection.rs:1061
+#: src/ui/collection.rs:1064
 msgid "Retry"
 msgstr "重試"
 
@@ -476,12 +476,12 @@ msgctxt "artist"
 msgid "Follow"
 msgstr "追蹤"
 
-#: src/ui/widgets.rs:990 src/ui/collection.rs:1733 src/ui/collection.rs:1755
+#: src/ui/widgets.rs:990 src/ui/collection.rs:1736 src/ui/collection.rs:1758
 #: src/ui/show.rs:169
 msgid "Remove from Your Library"
 msgstr "從你的音樂庫中移除"
 
-#: src/ui/widgets.rs:991 src/ui/collection.rs:1732
+#: src/ui/widgets.rs:991 src/ui/collection.rs:1735
 msgid "Add to Your Library"
 msgstr "加入你的音樂庫"
 
@@ -1971,48 +1971,48 @@ msgstr "這裡還沒有內容"
 msgid "Added songs appear here."
 msgstr "加入的歌曲會顯示在這裡。"
 
-#: src/ui/collection.rs:1283 src/ui/home.rs:653
+#: src/ui/collection.rs:1286 src/ui/home.rs:653
 msgid "Your top songs"
 msgstr "你的熱門歌曲"
 
-#: src/ui/collection.rs:1292
+#: src/ui/collection.rs:1295
 msgid "Your most-played tracks from the last four weeks."
 msgstr "過去四週你最常播放的歌曲。"
 
-#: src/ui/collection.rs:1681
+#: src/ui/collection.rs:1684
 msgid "Collaborative Playlist"
 msgstr "協作播放清單"
 
-#: src/ui/collection.rs:1683
+#: src/ui/collection.rs:1686
 msgid "Public Playlist"
 msgstr "公開播放清單"
 
-#: src/ui/collection.rs:1754
+#: src/ui/collection.rs:1757
 msgid "Save to Your Library"
 msgstr "儲存至你的音樂庫"
 
 #. Translators: {count} is a number of songs and {duration} their total
 #. length, such as "2 hr 13 min".
-#: src/ui/collection.rs:1962
+#: src/ui/collection.rs:1965
 #, rust-format
 msgid "{count} song, {duration}"
 msgid_plural "{count} songs, {duration}"
 msgstr[0] "{count} 首歌曲，{duration}"
 
 #. Translators: {name} is the name of someone who added songs to the playlist.
-#: src/ui/collection.rs:1976
+#: src/ui/collection.rs:1979
 #, rust-format
 msgid "with {name}"
 msgstr "與 {name} 合作"
 
 #. Translators: {first} and {second} are names of people who added songs.
-#: src/ui/collection.rs:1980
+#: src/ui/collection.rs:1983
 #, rust-format
 msgid "with {first} and {second}"
 msgstr "與 {first} 和 {second} 合作"
 
 #. Translators: {count} is how many other people added songs to the playlist.
-#: src/ui/collection.rs:1987
+#: src/ui/collection.rs:1990
 #, rust-format
 msgid "and {count} other"
 msgid_plural "and {count} others"
@@ -3041,8 +3041,9 @@ msgstr "午安"
 msgid "Good evening"
 msgstr "晚安"
 
-#~ msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
-#~ msgstr "在 Wayland 上，請使用桌面環境的「最上層顯示」快捷鍵或視窗規則。"
+#: src/window.rs:12
+msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
+msgstr "在 Wayland 上，請使用桌面環境的「最上層顯示」快捷鍵或視窗規則。"
 
 #~ msgid "Enable lyrics motion"
 #~ msgstr "啟用歌詞動畫"

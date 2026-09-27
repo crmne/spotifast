@@ -6,7 +6,8 @@
 /// Why a Wayland window cannot be kept above others from the app, and what
 /// to do instead.
 pub fn on_top_unavailable(locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
-    crate::i18n::gettext(
+    use crate::i18n::gettext;
+    gettext(
         locale,
         "On Wayland, use your desktop's Keep Above shortcut or window rule.",
     )

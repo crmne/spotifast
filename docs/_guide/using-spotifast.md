@@ -187,8 +187,8 @@ links and each row's Like and More controls.
 Arrow navigation selects only the destination song. Hold `Shift` with up or
 down to extend or shrink the selection from its anchor. Press `Delete` to
 remove selected songs from a playlist you can edit, just like **Remove from
-this playlist**. Text fields, dialogs and open menus keep Delete from acting
-on the list.
+this playlist**. On macOS, both `Delete` and `Fn+Delete` work. Text fields,
+dialogs and open menus keep Delete from acting on the list.
 
 Left and right arrows adjust a focused volume slider by five percentage
 points, or the seek slider by one percent of the song. Screen readers can

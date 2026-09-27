@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 18:16-0400\n"
+"POT-Creation-Date: 2026-09-27 00:49-0400\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: European Portuguese\n"
@@ -29,12 +29,12 @@ msgid "Play {name}"
 msgstr "Reproduzir {name}"
 
 #: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16226
-#: src/ui/collection.rs:1685 src/ui/collection.rs:1862
+#: src/ui/collection.rs:1688 src/ui/collection.rs:1865
 msgid "Playlist"
 msgstr "Playlist"
 
 #: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16231
-#: src/ui/collection.rs:1855 src/ui/home.rs:49 src/ui/keys.rs:258
+#: src/ui/collection.rs:1858 src/ui/home.rs:49 src/ui/keys.rs:258
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "Músicas de que gostas"
@@ -183,7 +183,7 @@ msgstr[1] "Playlist • {count} músicas"
 #. Translators: Keep {count} exactly as written. It becomes a number of songs.
 #. Translators: Keep {count} exactly as written. It becomes the number of selected songs.
 #. Translators: {count} is a number of songs.
-#: src/i18n.rs:183 src/ui/widgets.rs:530 src/ui/collection.rs:1949
+#: src/i18n.rs:183 src/ui/widgets.rs:530 src/ui/collection.rs:1952
 #, rust-format
 msgid "{count} song"
 msgid_plural "{count} songs"
@@ -337,7 +337,7 @@ msgid "Next up"
 msgstr "Depois"
 
 #: src/ui/queue.rs:465 src/ui/queue.rs:498 src/ui/widgets.rs:2415
-#: src/ui/collection.rs:1061
+#: src/ui/collection.rs:1064
 msgid "Retry"
 msgstr "Tentar novamente"
 
@@ -480,12 +480,12 @@ msgctxt "artist"
 msgid "Follow"
 msgstr "Seguir"
 
-#: src/ui/widgets.rs:990 src/ui/collection.rs:1733 src/ui/collection.rs:1755
+#: src/ui/widgets.rs:990 src/ui/collection.rs:1736 src/ui/collection.rs:1758
 #: src/ui/show.rs:169
 msgid "Remove from Your Library"
 msgstr "Remover da tua biblioteca"
 
-#: src/ui/widgets.rs:991 src/ui/collection.rs:1732
+#: src/ui/widgets.rs:991 src/ui/collection.rs:1735
 msgid "Add to Your Library"
 msgstr "Adicionar à tua biblioteca"
 
@@ -2046,29 +2046,29 @@ msgstr "Ainda não há nada aqui"
 msgid "Added songs appear here."
 msgstr "As músicas adicionadas aparecem aqui."
 
-#: src/ui/collection.rs:1283 src/ui/home.rs:653
+#: src/ui/collection.rs:1286 src/ui/home.rs:653
 msgid "Your top songs"
 msgstr "As tuas músicas mais ouvidas"
 
-#: src/ui/collection.rs:1292
+#: src/ui/collection.rs:1295
 msgid "Your most-played tracks from the last four weeks."
 msgstr "As tuas faixas mais ouvidas nas últimas quatro semanas."
 
-#: src/ui/collection.rs:1681
+#: src/ui/collection.rs:1684
 msgid "Collaborative Playlist"
 msgstr "Playlist colaborativa"
 
-#: src/ui/collection.rs:1683
+#: src/ui/collection.rs:1686
 msgid "Public Playlist"
 msgstr "Playlist pública"
 
-#: src/ui/collection.rs:1754
+#: src/ui/collection.rs:1757
 msgid "Save to Your Library"
 msgstr "Guardar na tua biblioteca"
 
 #. Translators: {count} is a number of songs and {duration} their total
 #. length, such as "2 hr 13 min".
-#: src/ui/collection.rs:1962
+#: src/ui/collection.rs:1965
 #, rust-format
 msgid "{count} song, {duration}"
 msgid_plural "{count} songs, {duration}"
@@ -2076,19 +2076,19 @@ msgstr[0] "{count} música, {duration}"
 msgstr[1] "{count} músicas, {duration}"
 
 #. Translators: {name} is the name of someone who added songs to the playlist.
-#: src/ui/collection.rs:1976
+#: src/ui/collection.rs:1979
 #, rust-format
 msgid "with {name}"
 msgstr "com {name}"
 
 #. Translators: {first} and {second} are names of people who added songs.
-#: src/ui/collection.rs:1980
+#: src/ui/collection.rs:1983
 #, rust-format
 msgid "with {first} and {second}"
 msgstr "com {first} e {second}"
 
 #. Translators: {count} is how many other people added songs to the playlist.
-#: src/ui/collection.rs:1987
+#: src/ui/collection.rs:1990
 #, rust-format
 msgid "and {count} other"
 msgid_plural "and {count} others"
@@ -3135,10 +3135,11 @@ msgstr "Boa tarde"
 msgid "Good evening"
 msgstr "Boa noite"
 
-#~ msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
-#~ msgstr ""
-#~ "No Wayland, usa o atalho ou a regra de janela “Manter acima” do teu "
-#~ "ambiente de trabalho."
+#: src/window.rs:12
+msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
+msgstr ""
+"No Wayland, usa o atalho ou a regra de janela “Manter acima” do teu ambiente "
+"de trabalho."
 
 #~ msgid "Enable lyrics motion"
 #~ msgstr "Ativar movimento da letra"

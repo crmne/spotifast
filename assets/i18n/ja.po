@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 18:16-0400\n"
+"POT-Creation-Date: 2026-09-27 00:49-0400\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -29,12 +29,12 @@ msgid "Play {name}"
 msgstr "{name}を再生"
 
 #: src/ui/sidebar.rs:289 src/app.rs:2404 src/app.rs:16226
-#: src/ui/collection.rs:1685 src/ui/collection.rs:1862
+#: src/ui/collection.rs:1688 src/ui/collection.rs:1865
 msgid "Playlist"
 msgstr "プレイリスト"
 
 #: src/ui/sidebar.rs:299 src/app.rs:2378 src/app.rs:16231
-#: src/ui/collection.rs:1855 src/ui/home.rs:49 src/ui/keys.rs:258
+#: src/ui/collection.rs:1858 src/ui/home.rs:49 src/ui/keys.rs:258
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "お気に入りの曲"
@@ -182,7 +182,7 @@ msgstr[0] "プレイリスト • {count}曲"
 #. Translators: Keep {count} exactly as written. It becomes a number of songs.
 #. Translators: Keep {count} exactly as written. It becomes the number of selected songs.
 #. Translators: {count} is a number of songs.
-#: src/i18n.rs:183 src/ui/widgets.rs:530 src/ui/collection.rs:1949
+#: src/i18n.rs:183 src/ui/widgets.rs:530 src/ui/collection.rs:1952
 #, rust-format
 msgid "{count} song"
 msgid_plural "{count} songs"
@@ -333,7 +333,7 @@ msgid "Next up"
 msgstr "このあと再生"
 
 #: src/ui/queue.rs:465 src/ui/queue.rs:498 src/ui/widgets.rs:2415
-#: src/ui/collection.rs:1061
+#: src/ui/collection.rs:1064
 msgid "Retry"
 msgstr "再試行"
 
@@ -476,12 +476,12 @@ msgctxt "artist"
 msgid "Follow"
 msgstr "フォロー"
 
-#: src/ui/widgets.rs:990 src/ui/collection.rs:1733 src/ui/collection.rs:1755
+#: src/ui/widgets.rs:990 src/ui/collection.rs:1736 src/ui/collection.rs:1758
 #: src/ui/show.rs:169
 msgid "Remove from Your Library"
 msgstr "マイライブラリから削除"
 
-#: src/ui/widgets.rs:991 src/ui/collection.rs:1732
+#: src/ui/widgets.rs:991 src/ui/collection.rs:1735
 msgid "Add to Your Library"
 msgstr "マイライブラリに追加"
 
@@ -2031,48 +2031,48 @@ msgstr "まだ何もありません"
 msgid "Added songs appear here."
 msgstr "追加した曲がここに表示されます。"
 
-#: src/ui/collection.rs:1283 src/ui/home.rs:653
+#: src/ui/collection.rs:1286 src/ui/home.rs:653
 msgid "Your top songs"
 msgstr "あなたのトップソング"
 
-#: src/ui/collection.rs:1292
+#: src/ui/collection.rs:1295
 msgid "Your most-played tracks from the last four weeks."
 msgstr "過去4週間でよく再生した曲です。"
 
-#: src/ui/collection.rs:1681
+#: src/ui/collection.rs:1684
 msgid "Collaborative Playlist"
 msgstr "コラボプレイリスト"
 
-#: src/ui/collection.rs:1683
+#: src/ui/collection.rs:1686
 msgid "Public Playlist"
 msgstr "公開プレイリスト"
 
-#: src/ui/collection.rs:1754
+#: src/ui/collection.rs:1757
 msgid "Save to Your Library"
 msgstr "マイライブラリに保存"
 
 #. Translators: {count} is a number of songs and {duration} their total
 #. length, such as "2 hr 13 min".
-#: src/ui/collection.rs:1962
+#: src/ui/collection.rs:1965
 #, rust-format
 msgid "{count} song, {duration}"
 msgid_plural "{count} songs, {duration}"
 msgstr[0] "{count}曲、{duration}"
 
 #. Translators: {name} is the name of someone who added songs to the playlist.
-#: src/ui/collection.rs:1976
+#: src/ui/collection.rs:1979
 #, rust-format
 msgid "with {name}"
 msgstr "{name}と共同"
 
 #. Translators: {first} and {second} are names of people who added songs.
-#: src/ui/collection.rs:1980
+#: src/ui/collection.rs:1983
 #, rust-format
 msgid "with {first} and {second}"
 msgstr "{first}、{second}と共同"
 
 #. Translators: {count} is how many other people added songs to the playlist.
-#: src/ui/collection.rs:1987
+#: src/ui/collection.rs:1990
 #, rust-format
 msgid "and {count} other"
 msgid_plural "and {count} others"
@@ -3107,10 +3107,11 @@ msgstr "こんにちは"
 msgid "Good evening"
 msgstr "こんばんは"
 
-#~ msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
-#~ msgstr ""
-#~ "Waylandでは、デスクトップの「常に手前に表示」ショートカットかウインドウ"
-#~ "ルールを使ってください。"
+#: src/window.rs:12
+msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
+msgstr ""
+"Waylandでは、デスクトップの「常に手前に表示」ショートカットかウインドウルール"
+"を使ってください。"
 
 #~ msgid "Enable lyrics motion"
 #~ msgstr "歌詞の動きを有効にする"

@@ -946,7 +946,10 @@ fn list_shortcuts(
             cut,
             copy,
             pasted,
-            can_delete && input.consume_key(egui::Modifiers::NONE, egui::Key::Delete),
+            can_delete
+                && (input.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
+                    || (cfg!(target_os = "macos")
+                        && input.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))),
         )
     });
     if select_all {
@@ -3116,6 +3119,38 @@ mod tests {
     }
 
     #[test]
+    fn backspace_removes_playlist_songs_only_on_macos_and_respects_editing_guards() {
+        let mut table = KeyboardTable::new();
+        table.editable = true;
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowDown);
+        table.modified_key(egui::Key::ArrowDown, egui::Modifiers::SHIFT);
+        table.key(egui::Key::Backspace);
+        if cfg!(target_os = "macos") {
+            assert!(matches!(table.app.actions.as_slice(),
+                [Action::RemoveFromPlaylist { playlist_id, uris }]
+                    if playlist_id == "test" && uris == &["spotify:track:t_1", "spotify:track:t_2"]));
+        } else {
+            assert!(table.app.actions.is_empty());
+        }
+        table.app.actions.clear();
+        table.editable = false;
+        table.key(egui::Key::Backspace);
+        assert!(table.app.actions.is_empty());
+        table.editable = true;
+        table.app.dialog = Some(Dialog::Shortcuts);
+        table.key(egui::Key::Backspace);
+        assert!(table.app.actions.is_empty());
+        table.app.dialog = None;
+        table
+            .ctx
+            .memory_mut(|memory| memory.request_focus(egui::Id::new("keyboard-filter")));
+        table.frame(vec![]);
+        table.key(egui::Key::Backspace);
+        assert!(table.app.actions.is_empty());
+    }
+
+    #[test]
     fn delete_does_not_remove_replacement_rows_after_a_refresh() {
         let mut table = KeyboardTable::new();
         table.editable = true;
@@ -3167,6 +3202,8 @@ mod tests {
             ]);
         }
         assert!(egui::Popup::is_any_open(&table.ctx));
+        table.key(egui::Key::Backspace);
+        assert!(table.app.actions.is_empty());
         table.key(egui::Key::Delete);
         assert!(table.app.actions.is_empty());
     }
