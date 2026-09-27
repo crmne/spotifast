@@ -591,6 +591,8 @@ pub enum Command {
     SignOut,
     /// Authorize local playback on this computer (a separate browser grant).
     AuthorizePlayback,
+    /// Request elevated Windows Firewall rule creation.
+    AllowWindowsFirewall,
     /// Reload the engine config (audio settings changed).
     RestartEngine(EngineConfig),
     /// Rebuild the HTTP client. Restart local playback only when its HTTP
@@ -846,6 +848,10 @@ pub enum Event {
         generation: u64,
         cache: Option<crate::liked::Cache>,
     },
+    /// Windows Defender Firewall rule prompt is needed on startup.
+    FirewallPromptNeeded,
+    /// Result of attempting to add the Windows Firewall rule.
+    FirewallResult(Result<(), String>),
 }
 
 /// The state of playback on this computer, independent of Web API sign-in.
@@ -1564,6 +1570,17 @@ impl Worker {
             self.events.clone(),
             self.waker.clone(),
         ));
+        #[cfg(windows)]
+        {
+            let events = self.events.clone();
+            let waker = self.waker.clone();
+            tokio::task::spawn_blocking(move || {
+                if !crate::firewall::is_allowed() {
+                    let _ = events.send(Event::FirewallPromptNeeded);
+                    waker.wake();
+                }
+            });
+        }
         while let Some(command) = commands.recv().await {
             if self.restoring_proxy
                 && !matches!(
@@ -1678,6 +1695,15 @@ impl Worker {
                 }
                 Command::SignOut => self.sign_out(),
                 Command::AuthorizePlayback => self.authorize_playback(),
+                Command::AllowWindowsFirewall => {
+                    let events = self.events.clone();
+                    let waker = self.waker.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let result = crate::firewall::request_access();
+                        let _ = events.send(Event::FirewallResult(result));
+                        waker.wake();
+                    });
+                }
                 Command::RestartEngine(mut config) => {
                     // Audio settings must not revert a proxy change whose UI
                     // acknowledgement was still in flight when this was clicked.

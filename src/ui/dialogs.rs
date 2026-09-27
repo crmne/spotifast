@@ -224,6 +224,44 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }
                     });
                 }
+                Dialog::WindowsFirewall => {
+                    theme::text(
+                        ui,
+                        gettext(locale, "Allow Spotifast in Windows Firewall"),
+                        theme::bold(20.0),
+                        palette.text,
+                    );
+                    ui.add_space(8.0);
+                    for text in [
+                        gettext(
+                            locale,
+                            "Spotifast needs an inbound Windows Firewall rule for Spotify Connect discovery, local playback, and sign-in callbacks.",
+                        ),
+                        gettext(
+                            locale,
+                            "Allowing access now prevents connection drops and authorization browser timeouts.",
+                        ),
+                    ] {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(text)
+                                    .font(theme::regular(14.0))
+                                    .color(palette.secondary),
+                            )
+                            .wrap(),
+                        );
+                        ui.add_space(8.0);
+                    }
+                    ui.add_space(12.0);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if theme::pill_button(ui, &palette, &gettext(locale, "Allow access"), true).clicked() {
+                            app.actions.push(Action::AllowWindowsFirewall);
+                        }
+                        if theme::pill_button(ui, &palette, &gettext(locale, "Later"), false).clicked() {
+                            app.actions.push(Action::CloseDialog);
+                        }
+                    });
+                }
             }
         });
     app.dialog_rect = Some(response.response.rect);

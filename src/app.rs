@@ -1972,6 +1972,26 @@ impl App {
                     Err(error) => log::debug!("album type unavailable for {uri}: {error}"),
                 },
                 Event::WebApp { client_id } => self.web_app = client_id,
+                Event::FirewallPromptNeeded => {
+                    if self.dialog.is_none() {
+                        self.dialog = Some(Dialog::WindowsFirewall);
+                    }
+                }
+                Event::FirewallResult(result) => match result {
+                    Ok(()) => {
+                        self.toast(gettext(
+                            self.locale,
+                            "Windows Firewall rule added for Spotifast.",
+                        ));
+                    }
+                    Err(error) => {
+                        self.toast_error(format!(
+                            "{}: {}",
+                            gettext(self.locale, "Couldn't configure Windows Firewall"),
+                            error
+                        ));
+                    }
+                },
                 Event::UpdateSupport(result) => {
                     if result.is_ok()
                         && self.settings.download_updates_automatically
@@ -8668,6 +8688,10 @@ impl App {
                     self.settings_dirty = true;
                 }
                 self.dialog = None;
+            }
+            Action::AllowWindowsFirewall => {
+                self.dialog = None;
+                self.backend.send(Command::AllowWindowsFirewall);
             }
             Action::CreatePlaylist {
                 name,
@@ -17375,6 +17399,25 @@ mod tests {
         });
         app.request_album_types([&ep]);
         assert_eq!(app.backend.take_album_type_requests(), vec![vec![ep.uri]]);
+    }
+
+    #[test]
+    fn firewall_events_and_action_open_and_close_dialog() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+
+        assert!(app.dialog.is_none());
+        app.handle_backend_events(vec![Event::FirewallPromptNeeded]);
+        assert!(matches!(app.dialog, Some(Dialog::WindowsFirewall)));
+
+        app.apply(Action::AllowWindowsFirewall, &ctx);
+        assert!(app.dialog.is_none());
+
+        app.handle_backend_events(vec![Event::FirewallResult(Ok(()))]);
+        assert!(!app.toasts.is_empty());
+
+        app.handle_backend_events(vec![Event::FirewallResult(Err("access denied".into()))]);
+        assert!(!app.toasts.is_empty());
     }
 
     #[test]

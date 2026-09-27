@@ -12,6 +12,7 @@ pub mod credentials;
 #[cfg(any(test, feature = "demo"))]
 pub mod demo;
 pub mod eq;
+pub mod firewall;
 pub mod history;
 pub mod http;
 pub mod i18n;

@@ -897,6 +897,8 @@ pub enum Dialog {
     PremiumNeeded,
     /// Introduce personal Spotify apps to eligible listeners once.
     PersonalAppIntro,
+    /// Prompt for Windows Firewall rule on startup.
+    WindowsFirewall,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1177,6 +1179,8 @@ pub enum Action {
     /// Fetch one of projectM's preset packs into the folder, by its place
     /// in the list.
     DownloadMilkdropPack(usize),
+    /// Request elevated Windows Firewall rule creation.
+    AllowWindowsFirewall,
     Quit,
 }
 
