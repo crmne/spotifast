@@ -174,17 +174,23 @@ for Windows 11) are generated dynamically from `packaging/macos/icon-1024.png`
 during the build through `packaging/windows/msix/generate-assets.ps1`, so no
 redundant image files are kept in the repository.
 
-To package an architecture into `.msix`:
+By default, running `build-msix.ps1` resolves both `x86_64` and `aarch64` binaries,
+packages both `.msix` files, and creates the unified `.msixbundle` installer:
+
+```powershell
+pwsh packaging\windows\build-msix.ps1 -Version 0.11.0
+```
+
+To package a single architecture into `.msix` (for example, for target-specific CI jobs):
 
 ```powershell
 pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 -Arch aarch64 -Binary dist\spotifast.exe
 ```
 
-To create a single universal `.msixbundle` containing both x64 and arm64 payloads
-(Windows will automatically extract and install the matching architecture):
+To create the universal `.msixbundle` from explicit binary paths:
 
 ```powershell
-pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 -Bundle `
+pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 `
     -X64Binary target\x86_64-pc-windows-msvc\release\spotifast.exe `
     -Arm64Binary target\aarch64-pc-windows-msvc\release\spotifast.exe
 ```

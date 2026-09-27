@@ -274,65 +274,76 @@ function Sign-Package {
     Write-Host "==> No signing credentials provided. Package is produced unsigned."
 }
 
-# 6. Execution Flow
+# 6. Locate or Compile Binaries
+function Resolve-TargetBinary {
+    param(
+        [string]$TargetArch,
+        [string]$ExplicitBinary
+    )
+
+    if ($ExplicitBinary) {
+        if (-not (Test-Path $ExplicitBinary)) {
+            throw "Specified binary not found: $ExplicitBinary"
+        }
+        return (Resolve-Path $ExplicitBinary).Path
+    }
+
+    $rustArch = if ($TargetArch -match 'arm|aarch64') { "aarch64" } else { "x86_64" }
+    $triplet = "$rustArch-pc-windows-msvc"
+
+    $searchPaths = @(
+        (Join-Path $repoRoot "target\$triplet\release\spotifast.exe"),
+        (Join-Path $repoRoot "target\release\spotifast.exe"),
+        (Join-Path $repoRoot "dist\spotifast.exe")
+    )
+    if ($env:CARGO_TARGET_DIR) {
+        $searchPaths += (Join-Path $env:CARGO_TARGET_DIR "$triplet\release\spotifast.exe")
+        $searchPaths += (Join-Path $env:CARGO_TARGET_DIR "release\spotifast.exe")
+    }
+    # Common local workspace build outputs
+    $searchPaths += (Join-Path $repoRoot "..\RustBuilds\$triplet\release\spotifast.exe")
+    $searchPaths += (Join-Path $repoRoot "..\RustBuilds\release\spotifast.exe")
+
+    foreach ($path in $searchPaths) {
+        if (Test-Path $path) {
+            return (Resolve-Path $path).Path
+        }
+    }
+
+    # Attempt to build via cargo if cargo is available
+    $cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
+    if ($cargoCmd) {
+        Write-Host "==> Binary for $rustArch not found in build directories. Building with cargo ($triplet)..."
+        $cargoArgs = @("build", "--release", "--target", $triplet)
+        if ($rustArch -eq "aarch64" -and (-not ($env:PROCESSOR_ARCHITECTURE -match 'ARM64'))) {
+            $cargoArgs += "--no-default-features"
+        }
+        & cargo @cargoArgs
+        foreach ($path in $searchPaths) {
+            if (Test-Path $path) {
+                return (Resolve-Path $path).Path
+            }
+        }
+    }
+
+    return $null
+}
+
+# 7. Execution Flow
 $builtPackages = @()
+$isSingleArch = [bool]$Arch -or [bool]$Binary -or [bool]$Register
 
-if ($Bundle -or ($X64Binary -and $Arm64Binary)) {
-    Write-Host "==> Building universal multi-architecture bundle (x64 + arm64)..."
-    $bundleStageDir = Join-Path $absOutputDir "msix-bundle-stage"
-    $buildStageDir = Join-Path $absOutputDir "msix-bundle-build-stage"
-    if (Test-Path $bundleStageDir) { Remove-Item -Recurse -Force $bundleStageDir }
-    if (Test-Path $buildStageDir) { Remove-Item -Recurse -Force $buildStageDir }
-    New-Item -ItemType Directory -Path $bundleStageDir -Force | Out-Null
-    New-Item -ItemType Directory -Path $buildStageDir -Force | Out-Null
-
-    if (-not $X64Binary) {
-        $X64Binary = Join-Path $repoRoot "target\x86_64-pc-windows-msvc\release\spotifast.exe"
-    }
-    if (-not $Arm64Binary) {
-        $Arm64Binary = Join-Path $repoRoot "target\aarch64-pc-windows-msvc\release\spotifast.exe"
-    }
-
-    $pkgX64 = Build-SingleMsix -TargetArch "x86_64" -TargetBinary $X64Binary -DestinationDir $bundleStageDir -StageParentDir $buildStageDir
-    $pkgArm64 = Build-SingleMsix -TargetArch "aarch64" -TargetBinary $Arm64Binary -DestinationDir $bundleStageDir -StageParentDir $buildStageDir
-
-    # Move individual MSIX packages to OutputDir as well
-    $finalX64Path = Join-Path $absOutputDir (Split-Path $pkgX64.Path -Leaf)
-    $finalArm64Path = Join-Path $absOutputDir (Split-Path $pkgArm64.Path -Leaf)
-    Copy-Item $pkgX64.Path $finalX64Path -Force
-    Copy-Item $pkgArm64.Path $finalArm64Path -Force
-
-    $builtPackages += $finalX64Path
-    $builtPackages += $finalArm64Path
-
-    # Create the unified .msixbundle
-    $bundleFileName = "spotifast-v$Version-windows-universal.msixbundle"
-    $bundlePath = Join-Path $absOutputDir $bundleFileName
-
-    Write-Host "==> Creating universal bundle: $bundlePath"
-    & $makeappx bundle /v /o /bv $quadVersion /d $bundleStageDir /p $bundlePath
-    if ($LASTEXITCODE -ne 0) {
-        throw "makeappx bundle failed with exit code $LASTEXITCODE"
-    }
-
-    Sign-Package -FilePath $bundlePath
-    $builtPackages += $bundlePath
-
-    if (-not $KeepStage) {
-        Remove-Item -Recurse -Force $bundleStageDir -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force $buildStageDir -ErrorAction SilentlyContinue
-    }
-} else {
-    # Single architecture build
+if ($isSingleArch -and (-not $Bundle)) {
+    # Single architecture build explicitly requested
     if (-not $Arch) {
         $Arch = if ($env:PROCESSOR_ARCHITECTURE -match 'ARM64') { "aarch64" } else { "x86_64" }
     }
-    if (-not $Binary) {
-        $rustArch = if ($Arch -match 'arm|aarch64') { "aarch64" } else { "x86_64" }
-        $Binary = Join-Path $repoRoot "target\$rustArch-pc-windows-msvc\release\spotifast.exe"
+    $targetBin = Resolve-TargetBinary -TargetArch $Arch -ExplicitBinary $Binary
+    if (-not $targetBin) {
+        throw "Could not find or build binary for $Arch."
     }
 
-    $pkg = Build-SingleMsix -TargetArch $Arch -TargetBinary $Binary -DestinationDir $absOutputDir
+    $pkg = Build-SingleMsix -TargetArch $Arch -TargetBinary $targetBin -DestinationDir $absOutputDir
     Sign-Package -FilePath $pkg.Path
     $builtPackages += $pkg.Path
 
@@ -342,6 +353,64 @@ if ($Bundle -or ($X64Binary -and $Arm64Binary)) {
         Write-Host "==> Spotifast registered successfully in the Start menu."
     } elseif (-not $KeepStage) {
         Remove-Item -Recurse -Force $pkg.StageDir -ErrorAction SilentlyContinue
+    }
+} else {
+    # Default mode: Universal multi-architecture bundle (x64 + arm64)
+    Write-Host "==> Building universal dual-architecture bundle (x64 + arm64)..."
+    $x64Bin = Resolve-TargetBinary -TargetArch "x86_64" -ExplicitBinary $X64Binary
+    $arm64Bin = Resolve-TargetBinary -TargetArch "aarch64" -ExplicitBinary $Arm64Binary
+
+    if (-not $x64Bin -and -not $arm64Bin) {
+        throw "Could not find or build binaries for either x86_64 or aarch64."
+    }
+
+    if (-not $x64Bin -or -not $arm64Bin) {
+        $availableArch = if ($arm64Bin) { "aarch64" } else { "x86_64" }
+        $availableBin = if ($arm64Bin) { $arm64Bin } else { $x64Bin }
+        Write-Warning "Only the $availableArch binary is available ($availableBin). The universal bundle requires both x64 and arm64 binaries. Packaging single $availableArch MSIX..."
+        $pkg = Build-SingleMsix -TargetArch $availableArch -TargetBinary $availableBin -DestinationDir $absOutputDir
+        Sign-Package -FilePath $pkg.Path
+        $builtPackages += $pkg.Path
+        if (-not $KeepStage) {
+            Remove-Item -Recurse -Force $pkg.StageDir -ErrorAction SilentlyContinue
+        }
+    } else {
+        $bundleStageDir = Join-Path $absOutputDir "msix-bundle-stage"
+        $buildStageDir = Join-Path $absOutputDir "msix-bundle-build-stage"
+        if (Test-Path $bundleStageDir) { Remove-Item -Recurse -Force $bundleStageDir }
+        if (Test-Path $buildStageDir) { Remove-Item -Recurse -Force $buildStageDir }
+        New-Item -ItemType Directory -Path $bundleStageDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $buildStageDir -Force | Out-Null
+
+        $pkgX64 = Build-SingleMsix -TargetArch "x86_64" -TargetBinary $x64Bin -DestinationDir $bundleStageDir -StageParentDir $buildStageDir
+        $pkgArm64 = Build-SingleMsix -TargetArch "aarch64" -TargetBinary $arm64Bin -DestinationDir $bundleStageDir -StageParentDir $buildStageDir
+
+        # Move individual MSIX packages to OutputDir as well
+        $finalX64Path = Join-Path $absOutputDir (Split-Path $pkgX64.Path -Leaf)
+        $finalArm64Path = Join-Path $absOutputDir (Split-Path $pkgArm64.Path -Leaf)
+        Copy-Item $pkgX64.Path $finalX64Path -Force
+        Copy-Item $pkgArm64.Path $finalArm64Path -Force
+
+        $builtPackages += $finalX64Path
+        $builtPackages += $finalArm64Path
+
+        # Create the unified .msixbundle
+        $bundleFileName = "spotifast-v$Version-windows-universal.msixbundle"
+        $bundlePath = Join-Path $absOutputDir $bundleFileName
+
+        Write-Host "==> Creating universal bundle: $bundlePath"
+        & $makeappx bundle /v /o /bv $quadVersion /d $bundleStageDir /p $bundlePath
+        if ($LASTEXITCODE -ne 0) {
+            throw "makeappx bundle failed with exit code $LASTEXITCODE"
+        }
+
+        Sign-Package -FilePath $bundlePath
+        $builtPackages += $bundlePath
+
+        if (-not $KeepStage) {
+            Remove-Item -Recurse -Force $bundleStageDir -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force $buildStageDir -ErrorAction SilentlyContinue
+        }
     }
 }
 
