@@ -163,6 +163,67 @@ native-packages build \
 Secret configuration applies to future builds. Existing published DMGs retain
 their original signatures; this setup does not replace release assets.
 
+## Windows MSIX and universal bundle
+
+In addition to the standard Inno Setup installer (`spotifast.iss`), Windows
+packages can be built as a modern MSIX package or a unified multi-architecture
+bundle (`.msixbundle`) through `packaging/windows/build-msix.ps1`.
+
+Visual assets (including high-DPI tiles and unplated transparent taskbar icons
+for Windows 11) are generated dynamically from `packaging/macos/icon-1024.png`
+during the build through `packaging/windows/msix/generate-assets.ps1`, so no
+redundant image files are kept in the repository.
+
+To package an architecture into `.msix`:
+
+```powershell
+pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 -Arch aarch64 -Binary dist\spotifast.exe
+```
+
+To create a single universal `.msixbundle` containing both x64 and arm64 payloads
+(Windows will automatically extract and install the matching architecture):
+
+```powershell
+pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 -Bundle `
+    -X64Binary target\x86_64-pc-windows-msvc\release\spotifast.exe `
+    -Arm64Binary target\aarch64-pc-windows-msvc\release\spotifast.exe
+```
+
+### Code signing options for MSIX
+
+Double-click installation of `.msix` or `.msixbundle` packages outside Developer
+Mode requires a valid signature. According to [Microsoft's code signing guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options),
+open source developers have multiple options:
+
+1. **Microsoft Store (Free, recommended):** Submitting the MSIX package to the
+   Microsoft Store through Partner Center is free. Microsoft automatically
+   re-signs the package with trusted Microsoft roots upon ingestion, providing
+   instant SmartScreen trust and automatic background updates without requiring
+   any certificate purchase or renewal.
+2. **SignPath Foundation (Free for open source):** For distributing packages
+   outside the Store, SignPath Foundation provides free code signing certificates
+   and automated signing pipelines for qualifying open-source projects.
+3. **Microsoft Azure Artifact Signing (formerly Trusted Signing):** Microsoft
+   also offers cloud-based signing (~$9.99/month) for non-Store distribution
+   without hardware tokens. Pass Trusted Signing credentials to `build-msix.ps1`:
+
+   ```powershell
+   pwsh packaging\windows\build-msix.ps1 -Version 0.11.0 -Bundle `
+       -TrustedSigningEndpoint "https://eus.codesigning.azure.net" `
+       -TrustedSigningAccount "Spotifast" `
+       -TrustedSigningProfile "SpotifastOpenSource"
+   ```
+
+4. **Traditional certificate:** Standard PFX files can be passed via
+   `-CertificatePath` and `-CertificatePassword`.
+
+For local development and testing, an unsigned package can be registered directly
+in Windows Developer Mode without any certificates or administrator rights:
+
+```powershell
+pwsh packaging\windows\build-msix.ps1 -Arch aarch64 -Binary dist\spotifast.exe -Register
+```
+
 `packaging/release-names.py DIST TAG` prepares the public `spotifast-` names
 and checksums. Through 0.9.1 it also creates byte-identical compatibility
 downloads; later versions reject old-named downloads. The 0.9.1 portable
