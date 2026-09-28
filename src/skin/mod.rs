@@ -258,7 +258,7 @@ impl Skin {
 }
 
 /// Bound traversal of a selected unpacked skin folder.
-const MAX_SKIN_DEPTH: usize = 8;
+pub(crate) const MAX_SKIN_DEPTH: usize = 8;
 
 /// Whether a file inside a skin is one this reader looks at, so cursors,
 /// readmes, and the equalizer's bitmaps are never inflated.

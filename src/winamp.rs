@@ -4,7 +4,7 @@
 //! skin is immediately available. `App::tick` keeps the loaded skin in sync
 //! with settings.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -350,13 +350,30 @@ pub fn list_skins(folder: &Path) -> Vec<SkinChoice> {
     skins
 }
 
+/// Whether an unpacked skin has a main window bitmap, looked for the way
+/// [`Skin::from_dir`] reads one: in nested folders too, down to the same
+/// depth, without following links.
 fn has_main_bitmap(folder: &Path) -> bool {
-    std::fs::read_dir(folder).is_ok_and(|entries| {
-        entries.flatten().any(|entry| {
-            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            name == "main.bmp" || name == "main.png"
-        })
-    })
+    let mut folders = VecDeque::from([(folder.to_path_buf(), 0)]);
+    while let Some((folder, depth)) = folders.pop_front() {
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() && depth < crate::skin::MAX_SKIN_DEPTH {
+                folders.push_back((entry.path(), depth + 1));
+            } else if kind.is_file() {
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                if name == "main.bmp" || name == "main.png" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// A skin other than `current`, at random, from `candidates` (`None` is the
@@ -442,6 +459,26 @@ mod tests {
         let names: Vec<String> = list_skins(&dir).into_iter().map(|skin| skin.name).collect();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(names, ["base.wsz", "Unpacked", "Zaxon.WSZ"]);
+    }
+
+    /// A skin unpacked with its files a folder or more down, as Extract All
+    /// leaves an archive that keeps them in a folder, is listed: the reader
+    /// finds them there, down to the same depth.
+    #[test]
+    fn a_skin_unpacked_into_nested_folders_is_listed() {
+        let dir = temp_dir("nested-skins");
+        let inner = dir.join("Extracted").join("Some Skin");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(inner.join("MAIN.BMP"), b"").unwrap();
+        let mut too_deep = dir.join("Too deep");
+        for _ in 0..=crate::skin::MAX_SKIN_DEPTH {
+            too_deep = too_deep.join("nested");
+        }
+        std::fs::create_dir_all(&too_deep).unwrap();
+        std::fs::write(too_deep.join("main.bmp"), b"").unwrap();
+        let names: Vec<String> = list_skins(&dir).into_iter().map(|skin| skin.name).collect();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(names, ["Extracted"]);
     }
 
     #[test]
