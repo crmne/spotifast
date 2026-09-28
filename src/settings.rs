@@ -565,11 +565,14 @@ impl Settings {
     pub fn load(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(text) => {
-                let mut settings = serde_json::from_str(&text).unwrap_or_else(|error| {
+                // A file edited in Notepad or Windows PowerShell can start with
+                // a byte order mark, which JSON does not allow.
+                let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+                let mut settings = serde_json::from_str(text).unwrap_or_else(|error| {
                     log::warn!("settings at {} are unreadable: {error}", path.display());
                     Self::default()
                 });
-                settings.migrate_proxy(&text);
+                settings.migrate_proxy(text);
                 if settings.device_name == "Fastpotify" {
                     settings.device_name = "Spotifast".into();
                 }
@@ -1076,6 +1079,25 @@ mod tests {
         assert!(old.home.made_for_you.visible);
         assert!(old.home.recommendations.visible);
         assert_eq!(old.volume, 12345);
+    }
+
+    /// Notepad and Windows PowerShell can save UTF-8 with a byte order mark.
+    /// A file edited that way, as the Home shelves guide asks, is still read
+    /// rather than dropped as unreadable and replaced with the defaults.
+    #[test]
+    fn a_settings_file_saved_with_a_byte_order_mark_keeps_its_preferences() {
+        let dir = std::env::temp_dir().join(format!("spotifast-bom-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            "\u{feff}{\"volume\":12345,\"home\":{\"made_for_you\":{\"visible\":false}}}",
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(settings.volume, 12345);
+        assert!(!settings.home.made_for_you.visible);
     }
 
     #[test]
