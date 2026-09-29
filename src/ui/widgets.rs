@@ -2360,6 +2360,87 @@ pub fn card(
     }
 }
 
+const SHELF_EDGE_EPSILON: f32 = 1.0;
+
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
+enum ShelfDirection {
+    Previous,
+    #[default]
+    Next,
+}
+
+impl ShelfDirection {
+    fn delta(self, viewport_width: f32) -> f32 {
+        match self {
+            Self::Previous => viewport_width,
+            Self::Next => -viewport_width,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ShelfNavigation {
+    offset: f32,
+    viewport_width: f32,
+    content_width: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ShelfMetrics {
+    navigation: ShelfNavigation,
+    viewport: Rect,
+}
+
+fn shelf_button(
+    ui: &mut Ui,
+    palette: &Palette,
+    rect: Rect,
+    id: egui::Id,
+    icon: Icon,
+    label: &str,
+) -> egui::Response {
+    let response = ui.interact(rect, id, Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    if ui.is_rect_visible(rect) {
+        let fill = if response.hovered() || response.has_focus() {
+            palette.surface_hover
+        } else {
+            palette.surface
+        };
+        ui.painter()
+            .circle_filled(rect.center(), rect.width() / 2.0, fill);
+        let color = if response.hovered() || response.has_focus() {
+            palette.text
+        } else {
+            palette.secondary
+        };
+        theme::paint_icon(ui, icon, rect, 20.0, color);
+    }
+    theme::focus_ring(ui, &response);
+    response.on_hover_text(label)
+}
+
+impl ShelfNavigation {
+    fn for_metrics(offset: f32, viewport_width: f32, content_width: f32) -> Self {
+        Self {
+            offset,
+            viewport_width,
+            content_width,
+        }
+    }
+
+    fn can_move(self, direction: ShelfDirection) -> bool {
+        match direction {
+            ShelfDirection::Previous => self.offset > SHELF_EDGE_EPSILON,
+            ShelfDirection::Next => {
+                self.offset + self.viewport_width < self.content_width - SHELF_EDGE_EPSILON
+            }
+        }
+    }
+}
+
 /// A horizontal shelf of cards with a title.
 pub fn shelf(
     ui: &mut Ui,
@@ -2368,12 +2449,26 @@ pub fn shelf(
     title: &str,
     add_contents: impl FnOnce(&mut Ui),
 ) {
+    let metrics_id = ui.make_persistent_id(("shelf-metrics", id));
+    let pending_id = ui.make_persistent_id(("shelf-pending", id));
+    let metrics: Option<ShelfMetrics> = ui.data(|data| data.get_temp(metrics_id));
+    if let Some(direction) = ui.data_mut(|data| data.remove_temp::<ShelfDirection>(pending_id))
+        && let Some(metrics) = metrics
+    {
+        ui.scroll_with_delta(vec2(
+            direction.delta(metrics.navigation.viewport_width),
+            0.0,
+        ));
+    }
     ui.add_space(8.0);
     theme::section_title(ui, palette, title);
     ui.add_space(4.0);
-    crate::autoscroll::show(
+    let output = crate::autoscroll::show(
         ui,
-        egui::ScrollArea::horizontal().id_salt(id),
+        egui::ScrollArea::horizontal()
+            .id_salt(id)
+            .animated(true)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden),
         egui::Vec2b::new(true, false),
         |ui| {
             ui.horizontal(|ui| {
@@ -2382,6 +2477,44 @@ pub fn shelf(
             });
         },
     );
+    let metrics = ShelfMetrics {
+        navigation: ShelfNavigation::for_metrics(
+            output.state.offset.x,
+            output.inner_rect.width(),
+            output.content_size.x,
+        ),
+        viewport: output.inner_rect,
+    };
+    ui.data_mut(|data| data.insert_temp(metrics_id, metrics));
+    let edge = 28.0;
+    let y = metrics.viewport.top() + (output.content_size.y - edge) / 2.0;
+    for (direction, icon, rect) in [
+        (
+            ShelfDirection::Previous,
+            Icon::ChevronLeft,
+            Rect::from_min_size(pos2(metrics.viewport.left() + 4.0, y), Vec2::splat(edge)),
+        ),
+        (
+            ShelfDirection::Next,
+            Icon::ChevronRight,
+            Rect::from_min_size(
+                pos2(metrics.viewport.right() - edge - 4.0, y),
+                Vec2::splat(edge),
+            ),
+        ),
+    ] {
+        if metrics.navigation.can_move(direction) {
+            let label = match direction {
+                ShelfDirection::Previous => "Previous cards",
+                ShelfDirection::Next => "Next cards",
+            };
+            let button_id = ui.make_persistent_id(("shelf-button", id, direction));
+            if shelf_button(ui, palette, rect, button_id, icon, label).clicked() {
+                ui.data_mut(|data| data.insert_temp(pending_id, direction));
+                ui.ctx().request_repaint();
+            }
+        }
+    }
     ui.add_space(12.0);
 }
 
@@ -3052,6 +3185,134 @@ mod tests {
     use crate::model::{Action, Page};
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn shelf_navigation_only_offers_directions_with_hidden_cards() {
+        let start = ShelfNavigation::for_metrics(0.0, 500.0, 1_200.0);
+        assert!(!start.can_move(ShelfDirection::Previous));
+        assert!(start.can_move(ShelfDirection::Next));
+
+        let middle = ShelfNavigation::for_metrics(350.0, 500.0, 1_200.0);
+        assert!(middle.can_move(ShelfDirection::Previous));
+        assert!(middle.can_move(ShelfDirection::Next));
+
+        let end = ShelfNavigation::for_metrics(700.0, 500.0, 1_200.0);
+        assert!(end.can_move(ShelfDirection::Previous));
+        assert!(!end.can_move(ShelfDirection::Next));
+    }
+
+    #[test]
+    fn shelf_navigation_moves_by_one_viewport() {
+        assert_eq!(ShelfDirection::Next.delta(500.0), -500.0);
+        assert_eq!(ShelfDirection::Previous.delta(500.0), 500.0);
+    }
+
+    #[test]
+    fn an_overflowing_shelf_offers_a_next_button() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let frame = || {
+            ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(500.0, 360.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    shelf(ui, &Palette::dark(), "overflow", "Shelf", |ui| {
+                        for _ in 0..6 {
+                            ui.allocate_space(vec2(CARD_WIDTH, 180.0));
+                        }
+                    });
+                },
+            )
+        };
+        frame().textures_delta.clear();
+        let mut output = frame();
+        output.textures_delta.clear();
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("accessibility tree");
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Next cards")),
+            "an overflowing shelf must expose a next button"
+        );
+    }
+
+    #[test]
+    fn shelf_next_button_centers_on_its_cards() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let mut cards = None;
+        let mut frame = || {
+            ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(500.0, 600.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    shelf(ui, &Palette::dark(), "centering", "Shelf", |ui| {
+                        for _ in 0..6 {
+                            let (_, rect) = ui.allocate_space(vec2(CARD_WIDTH, 180.0));
+                            cards = Some(cards.map_or(rect, |cards: Rect| cards.union(rect)));
+                        }
+                    });
+                },
+            )
+        };
+        frame().textures_delta.clear();
+        let mut output = frame();
+        output.textures_delta.clear();
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("accessibility tree");
+        let button = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Next cards"))
+            .and_then(|(_, node)| node.bounds())
+            .expect("next button bounds");
+
+        assert!(
+            (((button.y0 + button.y1) as f32 / 2.0 - cards.expect("card bounds").center().y).abs()
+                < 1.0),
+            "the next button must be vertically centered on its cards"
+        );
+    }
+
+    #[test]
+    fn shelf_controls_do_not_change_the_following_layout() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let mut last_card_bottom = 0.0;
+        let mut below_shelf_top = 0.0;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(500.0, 360.0))),
+                ..Default::default()
+            },
+            |ui| {
+                shelf(ui, &Palette::dark(), "layout", "Shelf", |ui| {
+                    for _ in 0..6 {
+                        let (_, rect) = ui.allocate_space(vec2(CARD_WIDTH, 180.0));
+                        last_card_bottom = rect.bottom();
+                    }
+                });
+                below_shelf_top = ui.button("Below shelf").rect.top();
+            },
+        );
+        output.textures_delta.clear();
+
+        assert!(
+            below_shelf_top >= last_card_bottom,
+            "the next section must start below the shelf cards"
+        );
+    }
 
     #[test]
     fn editing_a_proxy_endpoint_clears_its_password_but_password_entry_is_preserved() {
