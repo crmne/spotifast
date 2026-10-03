@@ -13,3 +13,4 @@ docs/.bundle/
 /.cache/
 
 /dist/
+/packaging/windows/msix/Assets/

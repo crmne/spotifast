@@ -234,11 +234,56 @@ jobs:
           path: "*.flatpak"
           if-no-files-found: error
 
+  # Universal MSIX bundle built from both Windows architecture binaries.
+  # Optional: a failure here does not block the release, matching Flatpak.
+  windows-msix:
+    name: Windows MSIX bundle
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: x86_64-pc-windows-msvc
+          path: dist/x86_64
+      - uses: actions/download-artifact@v7
+        with:
+          name: aarch64-pc-windows-msvc
+          path: dist/aarch64
+      - name: Extract binaries
+        shell: pwsh
+        run: |
+          Expand-Archive "dist\x86_64\spotifast-$env:GITHUB_REF_NAME-x86_64-pc-windows-msvc.zip" -DestinationPath dist\x86_64\unpacked
+          Expand-Archive "dist\aarch64\spotifast-$env:GITHUB_REF_NAME-aarch64-pc-windows-msvc.zip" -DestinationPath dist\aarch64\unpacked
+      - name: Build MSIX bundle
+        shell: pwsh
+        run: |
+          $ver = $env:GITHUB_REF_NAME.TrimStart("v")
+          $x64 = (Get-ChildItem dist\x86_64\unpacked -Recurse -Filter spotifast.exe | Select-Object -First 1).FullName
+          $arm64 = (Get-ChildItem dist\aarch64\unpacked -Recurse -Filter spotifast.exe | Select-Object -First 1).FullName
+          pwsh packaging\windows\build-msix.ps1 `
+            -Version $ver `
+            -X64Binary $x64 `
+            -Arm64Binary $arm64 `
+            -OutputDir dist `
+            -NoSign
+      - name: Validate bundle
+        shell: pwsh
+        run: |
+          $bundle = Get-ChildItem dist -Filter *.msixbundle | Select-Object -First 1
+          if (-not $bundle) { throw "No .msixbundle found in dist/" }
+          Write-Host "Bundle: $($bundle.FullName) ($([math]::Round($bundle.Length / 1MB, 1)) MB)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-msix
+          path: dist/*.msixbundle
+          if-no-files-found: error
+
   publish:
     name: GitHub release
-    # The bundle is welcome but not required: a Flatpak failure must not
-    # hold the release.
-    needs: [build, macos, flatpak]
+    # Flatpak and MSIX bundle are welcome but not required: failures there
+    # must not hold the release.
+    needs: [build, macos, flatpak, windows-msix]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.macos.result == 'success' }}
     runs-on: ubuntu-latest
     # Publishing waits for the maintainer's approval, and only this job can
