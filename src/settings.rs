@@ -318,8 +318,8 @@ pub struct Settings {
     pub winamp_window: bool,
     /// Windows and X11: keep a taskbar button while the Winamp window is visible.
     pub winamp_show_taskbar: bool,
-    /// Windows: draw Spotifast's own title bar and window buttons instead of
-    /// the standard Windows frame.
+    /// Windows and Linux: draw Spotifast's own title bar and window buttons
+    /// instead of the desktop frame.
     pub custom_titlebar: bool,
     /// Skin file or folder name. `None` selects the built-in skin.
     pub skin: Option<String>,

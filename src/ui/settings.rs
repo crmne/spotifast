@@ -804,6 +804,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let tracklist_compact = gettext(locale, "Compact track list");
     let middle_click = gettext(locale, "Middle-click autoscroll");
     let custom_titlebar = gettext(locale, "Custom title bar");
+    let show_custom_titlebar = cfg!(target_os = "linux") || app.windows_controls_visible();
     let player_bar_vis = gettext(locale, "Player bar visualizer");
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
@@ -871,10 +872,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             custom_titlebar.clone(),
             gettext(
                 locale,
-                "Draw Spotifast's own title bar and window buttons instead of the standard Windows ones.",
+                "Draw Spotifast's own title bar and window buttons instead of the desktop's.",
             ),
         )
-        .when(app.windows_controls_visible()),
+        .when(show_custom_titlebar),
         RowText::new(
             player_bar_vis.clone(),
             gettext(
@@ -1155,7 +1156,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     },
                 );
             }
-            if app.windows_controls_visible() {
+            if show_custom_titlebar {
                 filtered_row(
                     ui,
                     &palette,

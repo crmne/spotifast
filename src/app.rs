@@ -11279,7 +11279,10 @@ mod tests {
         app.apply(Action::SetCustomTitlebar(true), &ctx);
         assert!(app.settings.custom_titlebar);
         assert!(app.switch_intent, "the main window is replaced");
-        assert_eq!(crate::window::custom_titlebar(), cfg!(windows));
+        assert_eq!(
+            crate::window::custom_titlebar(),
+            cfg!(any(windows, target_os = "linux"))
+        );
 
         app.switch_intent = false;
         app.apply(Action::SetCustomTitlebar(true), &ctx);
