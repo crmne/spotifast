@@ -1457,11 +1457,9 @@ msgstr ""
 
 #: src/ui/settings.rs:853
 msgid ""
-"Draw Spotifast's own title bar and window buttons instead of the standard "
-"Windows ones."
+"Draw Spotifast's own title bar and window buttons instead of the desktop's."
 msgstr ""
-"Windows標準のものではなく、Spotifast独自のタイトルバーとウインドウボタンを表"
-"示します。"
+"デスクトップ環境のものではなく、Spotifast独自のタイトルバーとウインドウボタンを表示します。"
 
 #: src/ui/settings.rs:861
 msgid ""

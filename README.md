@@ -201,7 +201,8 @@ everyday use, and connection details.
   Since 0.9.0, switching to the mini player preserves the main
   window's size even if its native close takes another frame.
   On Windows, since 0.10.0, the main window uses the standard
-  Windows title bar. **Settings → Appearance → Custom title bar** switches to
+  Windows title bar. On Windows and Linux,
+  **Settings → Appearance → Custom title bar** switches to
   Spotifast's own title bar and window buttons.
   On Windows, since 0.8.0, a mini player saved on a disconnected monitor
   starts at a default position on the current desktop.

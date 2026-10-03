@@ -435,6 +435,8 @@ pub(crate) fn run() -> eframe::Result<()> {
     if let Some(name) = cli.device_name {
         settings.device_name = name;
     }
+    #[cfg(target_os = "linux")]
+    spotifast::window::init_linux_window_controls();
     spotifast::window::set_custom_titlebar(settings.custom_titlebar);
     // Colour emoji: the fonts are found off this thread. A demo capture
     // draws every picture in the frame that shows it.
