@@ -466,7 +466,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let floating_art = app.settings.sidebar_grid && expanded_art;
     // The traffic lights float over the top-left of the sidebar now, so the
     // first nav row has to start below them.
-    let top = 12 + theme::titlebar_inset(ui.ctx()) as i8;
+    let top = 12
+        + theme::titlebar_inset(ui.ctx()) as i8
+        + super::linux_left_controls_inset(ui.ctx()) as i8;
     let beside = if app.show_queue_panel || app.show_lyrics_panel {
         theme::SIDE_PANEL_MIN_WIDTH
     } else {
