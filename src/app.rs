@@ -10604,6 +10604,77 @@ mod tests {
         assert_eq!(app.autoscroll.active(), on);
     }
 
+    /// A press on a link or a button inside a row starts autoscroll like
+    /// one on the row itself: none of them uses the middle button.
+    #[test]
+    fn middle_clicking_a_link_or_button_in_a_playlist_row_autoscrolls() {
+        use egui::accesskit::Role;
+        let on = crate::autoscroll::enabled(true);
+        fn draw(
+            ctx: &egui::Context,
+            app: &mut App,
+            time: u32,
+            events: Vec<egui::Event>,
+        ) -> egui::accesskit::TreeUpdate {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(time as f64 / 60.0),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        }
+        for (role, label) in [
+            (Role::Link, None),
+            (Role::Button, Some("Save to Liked Songs")),
+            (Role::Button, Some("More")),
+        ] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut app = test_app("autoscroll-row-controls");
+            app.attach(&ctx);
+            crate::demo::populate(&mut app);
+            app.settings.middle_click_autoscroll = true;
+            app.open(Page::Playlist("pl1".into()));
+            draw(&ctx, &mut app, 0, vec![]);
+            let tree = draw(&ctx, &mut app, 1, vec![]);
+            let control = tree
+                .nodes
+                .iter()
+                .filter_map(|(_, node)| Some((node, node.bounds()?)))
+                .find(|(node, rect)| {
+                    node.role() == role
+                        && label.is_none_or(|label| node.label() == Some(label))
+                        && rect.x0 > 300.0
+                        && rect.y0 > 300.0
+                        && rect.y1 < 650.0
+                })
+                .map(|(_, rect)| egui::pos2(rect.x0 as f32 + 4.0, (rect.y0 + rect.y1) as f32 / 2.0))
+                .unwrap_or_else(|| panic!("a visible {role:?} {label:?} in a row"));
+            draw(&ctx, &mut app, 2, vec![egui::Event::PointerMoved(control)]);
+            draw(
+                &ctx,
+                &mut app,
+                3,
+                vec![egui::Event::PointerButton {
+                    pos: control,
+                    button: egui::PointerButton::Middle,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            assert_eq!(app.autoscroll.active(), on, "{role:?} {label:?}");
+            app.backend.shutdown();
+        }
+    }
+
     #[test]
     fn autoscroll_updates_the_real_lyrics_and_skinned_playlist_without_changing_playback() {
         for (skinned, chosen) in [(false, false), (true, false), (false, true), (true, true)] {

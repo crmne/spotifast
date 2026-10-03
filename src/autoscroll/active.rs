@@ -1,14 +1,21 @@
 //! Middle-click scrolling belongs to the list where it starts.
 //!
-//! Views identify scrolling areas and eligible row/background responses. The
-//! application resolves those observations after drawing and changes only the
-//! owning egui scroll state. Moving over another pane never transfers the gesture.
+//! Views report their scrolling areas. The application resolves the press
+//! after drawing and changes only the owning egui scroll state. Moving over
+//! another pane never transfers the gesture. Speed, dead zone, cursor and the
+//! hold-or-click choice follow Chromium's middle-click autoscroll.
 
 use egui::{Context, Id, LayerId, Pos2, Rect, Response, ScrollArea, Ui, Vec2, ViewportId};
 
 const FRAME_ID: &str = "spotifast-autoscroll-frame";
-const DEAD_ZONE: f32 = 12.0;
-const SPEED: f32 = 6.0;
+/// Points the pointer may move on each axis before that axis scrolls.
+const DEAD_ZONE: f32 = 15.0;
+/// Chromium's speed is `distance ^ 2.2 * 0.000008` per fling unit, and its
+/// fixed-velocity fling advances 5000 units a second.
+const EXPONENT: f32 = 2.2;
+const MULTIPLIER: f32 = 0.000_008 * 5000.0;
+/// The longest step one frame may take, so a stalled frame cannot jump.
+const MAX_STEP: f64 = 0.1;
 
 #[derive(Clone, Copy, Default)]
 struct Input {
@@ -16,8 +23,9 @@ struct Input {
     focused: bool,
     pointer: Option<Pos2>,
     middle: bool,
+    released: bool,
     cancel: bool,
-    dt: f32,
+    time: f64,
 }
 
 impl Input {
@@ -28,13 +36,14 @@ impl Input {
             focused: input.focused,
             pointer: input.pointer.hover_pos(),
             middle: input.pointer.button_pressed(egui::PointerButton::Middle),
+            released: input.pointer.any_released(),
             cancel: input.pointer.any_pressed()
                 || input.key_pressed(egui::Key::Escape)
                 || input
                     .events
                     .iter()
                     .any(|event| matches!(event, egui::Event::MouseWheel { .. })),
-            dt: input.stable_dt.clamp(0.0, 0.05),
+            time: input.time,
         })
     }
 }
@@ -57,19 +66,29 @@ struct Area {
     state: egui::scroll_area::State,
 }
 
-#[derive(Clone, Copy)]
-struct Candidate {
-    viewport: ViewportId,
-    layer: LayerId,
-    position: Pos2,
-}
-
 #[derive(Clone, Default)]
 struct Observations {
     enabled: bool,
     root: Input,
     areas: Vec<Area>,
-    candidates: Vec<Candidate>,
+    /// Rows that drag only with the primary button, pressed this frame.
+    rows: Vec<Id>,
+}
+
+impl Observations {
+    fn released(&self) -> bool {
+        self.root.released || self.areas.iter().any(|area| area.input.released)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    /// The middle button is down and the pointer is still in the dead zone.
+    Pressed,
+    /// The pointer left the dead zone with the button down: releasing stops.
+    Held,
+    /// The button came up inside the dead zone: the next click stops.
+    Toggled,
 }
 
 #[derive(Clone, Copy)]
@@ -78,6 +97,13 @@ struct Active {
     viewport: ViewportId,
     anchor: Pos2,
     offset: Vec2,
+    /// The previous frame's time. egui's `stable_dt` is only a frame-rate
+    /// prediction when nothing asked for an immediate repaint, which is the
+    /// usual case here, so the elapsed time is measured instead.
+    time: f64,
+    /// Kept while the pointer is outside the window, as in Chromium.
+    velocity: Vec2,
+    mode: Mode,
 }
 
 #[derive(Default)]
@@ -135,8 +161,7 @@ impl Autoscroll {
                 Observations {
                     enabled,
                     root,
-                    areas: Vec::new(),
-                    candidates: Vec::new(),
+                    ..Default::default()
                 },
             )
         });
@@ -169,121 +194,173 @@ impl Autoscroll {
                 self.active = None;
                 return Outcome::owned();
             };
+            if let Some(pointer) = owner.input.pointer {
+                active.velocity = scroll_velocity(pointer - active.anchor);
+            }
+            if active.mode == Mode::Pressed && active.velocity != Vec2::ZERO {
+                active.mode = Mode::Held;
+            }
+            if frame.released() {
+                match active.mode {
+                    Mode::Pressed => active.mode = Mode::Toggled,
+                    Mode::Held => {
+                        self.active = None;
+                        return Outcome::owned();
+                    }
+                    Mode::Toggled => {}
+                }
+            }
             if frame.root.cancel || frame.areas.iter().any(|area| area.input.cancel) {
                 self.active = None;
                 return Outcome::owned();
             }
             let mut outcome = Outcome::owned();
-            if let Some(pointer) = owner.input.pointer {
-                let mut distance = pointer - active.anchor;
-                if owner.max.x <= 0.0 {
-                    distance.x = 0.0;
+            let dt = (owner.input.time - active.time).clamp(0.0, MAX_STEP) as f32;
+            active.time = owner.input.time;
+            let mut velocity = active.velocity;
+            if owner.max.x <= 0.0 {
+                velocity.x = 0.0;
+            }
+            if owner.max.y <= 0.0 {
+                velocity.y = 0.0;
+            }
+            let offset = (active.offset + velocity * dt).clamp(Vec2::ZERO, owner.max);
+            let mut state = owner.state;
+            state.offset = offset;
+            match owner.kind {
+                Kind::Ordinary | Kind::Lyrics => state.store(ctx, owner.id),
+                Kind::Playlist { row_points } => {
+                    outcome.playlist_scroll = Some((offset.y / row_points).floor() as usize)
                 }
-                if owner.max.y <= 0.0 {
-                    distance.y = 0.0;
-                }
-                let length = distance.length();
-                let delta = if length <= DEAD_ZONE {
-                    Vec2::ZERO
-                } else {
-                    distance / length * (length - DEAD_ZONE) * SPEED * owner.input.dt
-                };
-                let offset = (active.offset + delta).clamp(Vec2::ZERO, owner.max);
-                let mut state = owner.state;
-                state.offset = offset;
-                match owner.kind {
-                    Kind::Ordinary | Kind::Lyrics => state.store(ctx, owner.id),
-                    Kind::Playlist { row_points } => {
-                        outcome.playlist_scroll = Some((offset.y / row_points).floor() as usize)
-                    }
-                }
-                if offset != active.offset {
-                    // egui subtracts one predicted frame from this delay. Ask
-                    // for two frames, as the skinned visualiser does, so the
-                    // app's uncapped renderer does not spin while scrolling.
-                    ctx.request_repaint_after(std::time::Duration::from_micros(33_334));
-                }
-                active.offset = offset;
-                if owner.input.viewport == ctx.viewport_id() {
-                    ctx.set_cursor_icon(egui::CursorIcon::AllScroll);
-                }
+            }
+            if offset != active.offset {
+                // egui subtracts one predicted frame from this delay. Ask
+                // for two frames, as the skinned visualiser does, so the
+                // app's uncapped renderer does not spin while scrolling.
+                ctx.request_repaint_after(std::time::Duration::from_micros(33_334));
+            }
+            active.offset = offset;
+            if owner.input.viewport == ctx.viewport_id() {
+                ctx.set_cursor_icon(cursor(velocity, owner.max));
             }
             self.active = Some(active);
             return outcome;
         }
-        for candidate in frame.candidates {
-            // Nested areas finish first. A shelf owns its gesture if it can
-            // scroll; otherwise its enclosing page may own the same row.
-            if let Some(owner) = frame.areas.iter().find(|area| {
-                area.input.viewport == candidate.viewport
-                    && area.layer == candidate.layer
-                    && area.input.focused
-                    && area.max != Vec2::ZERO
-                    && area.rect.contains(candidate.position)
-            }) {
-                self.active = Some(Active {
-                    id: owner.id,
-                    viewport: candidate.viewport,
-                    anchor: candidate.position,
-                    offset: owner.state.offset,
-                });
-                ctx.set_cursor_icon(egui::CursorIcon::AllScroll);
-                return Outcome {
-                    scrolling: true,
-                    stop_following_lyrics: matches!(owner.kind, Kind::Lyrics),
-                    playlist_scroll: None,
-                };
-            }
+        let Some(position) = frame.root.pointer.filter(|_| frame.root.middle) else {
+            return Outcome::default();
+        };
+        // Only the top layer under the press may own it, so a menu or dialog
+        // keeps the list beneath it still.
+        let layer = ctx
+            .layer_id_at(position)
+            .unwrap_or_else(LayerId::background);
+        if claimed(ctx, &frame, layer, position) {
+            return Outcome::default();
         }
-        Outcome::default()
+        // Nested areas finish first. A shelf owns its gesture if it can
+        // scroll; otherwise its enclosing page may own the same press.
+        let Some(owner) = frame.areas.iter().find(|area| {
+            area.input.viewport == frame.root.viewport
+                && area.layer == layer
+                && area.input.focused
+                && area.max != Vec2::ZERO
+                && area.rect.contains(position)
+        }) else {
+            return Outcome::default();
+        };
+        self.active = Some(Active {
+            id: owner.id,
+            viewport: frame.root.viewport,
+            anchor: position,
+            offset: owner.state.offset,
+            time: owner.input.time,
+            velocity: Vec2::ZERO,
+            mode: if frame.released() {
+                Mode::Toggled
+            } else {
+                Mode::Pressed
+            },
+        });
+        ctx.set_cursor_icon(cursor(Vec2::ZERO, owner.max));
+        Outcome {
+            scrolling: true,
+            stop_following_lyrics: matches!(owner.kind, Kind::Lyrics),
+            playlist_scroll: None,
+        }
     }
 }
 
-/// Mark a list row as eligible. Buttons and text fields deliberately do not
-/// call this, so their own hit target prevents the background from arming.
-pub fn row(ui: &Ui, response: &Response) {
-    if !response.hovered() {
-        return;
-    }
-    let input = Input::read(ui.ctx());
-    if input.middle
-        && input.focused
-        && response.hovered()
-        && let Some(position) = input.pointer
-    {
-        // egui can report a containing background as hovered as well as its
-        // child button. Only the most specific interactive hit may claim the
-        // press. In particular, a text field must keep middle-click paste.
-        let hits = ui.ctx().interaction_snapshot(|snapshot| {
-            snapshot
-                .contains_pointer
-                .iter()
-                .copied()
-                .collect::<Vec<_>>()
-        });
-        if hits
-            .into_iter()
-            .filter_map(|id| ui.ctx().read_response(id))
-            .any(|hit| {
-                hit.id != response.id
-                    && hit.enabled()
-                    && hit.sense.interactive()
-                    && hit.layer_id == response.layer_id
-                    && hit.interact_rect.contains(position)
-                    && hit.interact_rect.area() < response.interact_rect.area()
-            })
-        {
-            return;
+/// Whether a widget under the press keeps it: a text field, for middle-click
+/// paste, or anything that drags with any button, such as a slider, a scroll
+/// bar or a panel edge. List rows drag only with the primary button.
+fn claimed(ctx: &Context, frame: &Observations, layer: LayerId, position: Pos2) -> bool {
+    let hits = ctx.interaction_snapshot(|snapshot| {
+        snapshot
+            .contains_pointer
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+    });
+    hits.into_iter()
+        .filter_map(|id| ctx.read_response(id))
+        .any(|hit| {
+            hit.enabled()
+                && hit.layer_id == layer
+                && hit.interact_rect.contains(position)
+                && (egui::text_edit::TextEditState::load(ctx, hit.id).is_some()
+                    || (hit.sense.senses_drag()
+                        && !frame.rows.contains(&hit.id)
+                        // A touch screen lets the area itself drag to scroll.
+                        && !frame.areas.iter().any(|area| hit.id == area.id.with("area"))))
+        })
+}
+
+/// Chromium's autoscroll velocity, in points per second, for the pointer's
+/// offset from the anchor. Each axis has its own dead zone.
+fn scroll_velocity(distance: Vec2) -> Vec2 {
+    let axis = |distance: f32| {
+        if distance.abs() <= DEAD_ZONE {
+            0.0
+        } else {
+            distance.signum() * distance.abs().powf(EXPONENT) * MULTIPLIER
         }
+    };
+    Vec2::new(axis(distance.x), axis(distance.y))
+}
+
+/// Chromium's cursors on Linux: the four-way arrows until the list moves,
+/// then the direction it is moving in, along the axes it can scroll.
+fn cursor(velocity: Vec2, max: Vec2) -> egui::CursorIcon {
+    use egui::CursorIcon::*;
+    let sign = |velocity: f32, scrolls: bool| {
+        if scrolls && velocity != 0.0 {
+            velocity.signum() as i8
+        } else {
+            0
+        }
+    };
+    match (sign(velocity.x, max.x > 0.0), sign(velocity.y, max.y > 0.0)) {
+        (1, -1) => ResizeNorthEast,
+        (-1, -1) => ResizeNorthWest,
+        (0, -1) => ResizeNorth,
+        (1, 1) => ResizeSouthEast,
+        (-1, 1) => ResizeSouthWest,
+        (0, 1) => ResizeSouth,
+        (1, 0) => ResizeEast,
+        (-1, 0) => ResizeWest,
+        _ => AllScroll,
+    }
+}
+
+/// Let a middle press on a list row start autoscroll. Rows sense dragging
+/// for drag and drop with the primary button; without this, the press would
+/// belong to them like a slider's.
+pub fn row(ui: &Ui, response: &Response) {
+    if ui.input(|input| input.pointer.button_pressed(egui::PointerButton::Middle)) {
         ui.ctx().data_mut(|data| {
-            let frame = data.get_temp_mut_or_default::<Observations>(Id::new(FRAME_ID));
-            if frame.enabled {
-                frame.candidates.push(Candidate {
-                    viewport: input.viewport,
-                    layer: ui.layer_id(),
-                    position,
-                });
-            }
+            data.get_temp_mut_or_default::<Observations>(Id::new(FRAME_ID))
+                .rows
+                .push(response.id)
         });
     }
 }
@@ -302,17 +379,7 @@ pub fn show<R>(
     });
     let layer = ui.layer_id();
     let clip = ui.clip_rect();
-    let output = area.show(ui, |ui| {
-        if enabled {
-            let background = ui.interact(
-                ui.clip_rect().intersect(ui.max_rect()),
-                ui.id().with("autoscroll-background"),
-                egui::Sense::click(),
-            );
-            row(ui, &background);
-        }
-        contents(ui)
-    });
+    let output = area.show(ui, contents);
     if enabled {
         let max = (output.content_size - output.inner_rect.size()).max(Vec2::ZERO) * axes.to_vec2();
         let observation = Area {
@@ -360,8 +427,6 @@ pub fn playlist(ui: &mut Ui, rect: Rect, offset: usize, maximum: usize, row_poin
     }
     let rect = rect.intersect(ui.clip_rect());
     let id = ui.id().with("autoscroll-winamp-playlist");
-    let background = ui.interact(rect, id.with("background"), egui::Sense::click());
-    row(ui, &background);
     let mut state = egui::scroll_area::State::default();
     state.offset = egui::vec2(0.0, offset as f32 * row_points);
     let area = Area {

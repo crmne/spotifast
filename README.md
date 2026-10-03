@@ -468,7 +468,8 @@ still in progress.
 On macOS, `Cmd` replaces `Ctrl`.
 
 On Windows, since 0.8.0, middle-click a scrolling list and move the pointer to
-autoscroll. Click, press Esc, use the wheel or switch windows to stop.
+autoscroll, or hold the middle button while moving and release it to stop.
+Otherwise click, press Esc, use the wheel or switch windows to stop.
 It works automatically on Windows. On Linux, turn on **Middle-click
 autoscroll** under **Settings > Appearance**; it is off by default because a
 middle click usually pastes there. See [autoscroll](docs/_guide/using-spotifast.md#middle-click-autoscroll).
