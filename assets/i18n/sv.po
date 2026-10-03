@@ -1467,11 +1467,10 @@ msgstr ""
 
 #: src/ui/settings.rs:874
 msgid ""
-"Draw Spotifast's own title bar and window buttons instead of the standard "
-"Windows ones."
+"Draw Spotifast's own title bar and window buttons instead of the desktop's."
 msgstr ""
-"Rita Spotifasts egen namnlist och fönsterknappar i stället för Windows "
-"standardknappar."
+"Rita Spotifasts egen namnlist och fönsterknappar i stället för "
+"skrivbordsmiljöns."
 
 #: src/ui/settings.rs:882
 msgid ""
