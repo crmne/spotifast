@@ -1,5 +1,4 @@
-closing: auto
-duplicates: close
+extends: crmne/github-automation:triage/account.yml
 followups: selective
 
 report_bots:
@@ -84,12 +83,3 @@ instructions: |
   Address the latest human update and account for checks already tried. Do not
   repeat an answered question or a completed diagnostic step. If a bot replied
   most recently, only a useful new related-issue link warrants another comment.
-
-# github-automation: the account's board and pull request triage
-pull_requests:
-  reviews: 'off'
-  out_of_scope: close
-
-board:
-  project: https://github.com/users/crmne/projects/1
-  assign_urgent_to: crmne
