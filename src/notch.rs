@@ -39,7 +39,6 @@ pub struct NotchTrackInfo {
     pub uri: String,
     pub saved: bool,
     pub accent: Option<[u8; 3]>,
-    pub levels: [f32; 5],
     pub is_episode: bool,
     pub is_remote: bool,
     pub shuffle: bool,
@@ -96,19 +95,6 @@ pub fn is_controller_active(
     is_collapsing: bool,
 ) -> bool {
     is_expanded || has_pending_expand || has_pending_collapse || is_collapsing
-}
-
-/// Pure helper to determine whether the post-equalizer visualizer should sample audio and compute FFT.
-/// Visualizer audio tap is only sampled when the widget is enabled, the main window is not in foreground,
-/// the notch overlay is active (expanded or animating), playback is actively running, and audio is local.
-pub fn should_sample_visualizer(
-    enabled: bool,
-    is_background: bool,
-    is_active: bool,
-    is_playing: bool,
-    is_local: bool,
-) -> bool {
-    enabled && is_background && is_active && is_playing && is_local
 }
 
 /// Pure helper to determine if incoming track metadata differs from cached track metadata.
@@ -320,7 +306,6 @@ mod tests {
             uri: "spotify:track:test".into(),
             saved: false,
             accent: Some([30, 215, 96]),
-            levels: [0.1, 0.3, 0.5, 0.7, 0.9],
             is_episode: false,
             is_remote: false,
             shuffle: false,
@@ -473,7 +458,6 @@ mod tests {
             uri: "spotify:track:a".into(),
             saved: false,
             accent: Some([20, 30, 40]),
-            levels: [0.0; 5],
             is_episode: false,
             is_remote: false,
             shuffle: false,
@@ -530,7 +514,6 @@ mod tests {
             uri: "spotify:track:s".into(),
             saved: false,
             accent: None,
-            levels: [0.0; 5],
             is_episode: false,
             is_remote: false,
             shuffle: false,
@@ -605,70 +588,5 @@ mod tests {
         t2 = t1.clone();
         t2.repeat = crate::player::RepeatMode::Context;
         assert!(detect_incremental_changes(&t1, &t2).repeat_changed);
-    }
-
-    #[test]
-    fn should_sample_visualizer_state_and_transition_rules() {
-        // Active in background with local playback: samples FFT
-        assert!(should_sample_visualizer(true, true, true, true, true));
-
-        // When main window is in foreground: zero FFT sampling
-        assert!(!should_sample_visualizer(true, false, true, true, true));
-
-        // When collapsed or inactive in background: zero FFT sampling (zero collapsed overhead)
-        assert!(!should_sample_visualizer(true, true, false, true, true));
-
-        // When playback is paused: zero FFT sampling
-        assert!(!should_sample_visualizer(true, true, true, false, true));
-
-        // When playback is remote (Spotify Connect): zero FFT sampling (flat honest baseline)
-        assert!(!should_sample_visualizer(true, true, true, true, false));
-
-        // When widget is disabled in Settings: zero FFT sampling
-        assert!(!should_sample_visualizer(false, true, true, true, true));
-
-        // Transition: collapsed -> hover expand -> active
-        let mut is_active = false;
-        assert!(!should_sample_visualizer(true, true, is_active, true, true));
-        is_active = true;
-        assert!(should_sample_visualizer(true, true, is_active, true, true));
-
-        // Transition: active -> collapse completes -> inactive
-        is_active = false;
-        assert!(!should_sample_visualizer(true, true, is_active, true, true));
-
-        // Transition: background -> foreground window focus
-        let mut in_background = true;
-        assert!(should_sample_visualizer(
-            true,
-            in_background,
-            true,
-            true,
-            true
-        ));
-        in_background = false;
-        assert!(!should_sample_visualizer(
-            true,
-            in_background,
-            true,
-            true,
-            true
-        ));
-
-        // Transition: playing locally -> paused or switched to remote device
-        let mut is_playing = true;
-        let mut is_local = true;
-        assert!(should_sample_visualizer(
-            true, true, true, is_playing, is_local
-        ));
-        is_playing = false;
-        assert!(!should_sample_visualizer(
-            true, true, true, is_playing, is_local
-        ));
-        is_playing = true;
-        is_local = false;
-        assert!(!should_sample_visualizer(
-            true, true, true, is_playing, is_local
-        ));
     }
 }

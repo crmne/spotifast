@@ -8,4 +8,4 @@ crate=$(cargo metadata --format-version 1 --locked |
     grep -o '"manifest_path":"[^"]*fastframe-i18n/Cargo.toml"' | head -n1 |
     sed 's/^"manifest_path":"//; s/Cargo.toml"$//')
 exec bash "$crate/scripts/update-translations.sh" --package Spotifast --domain spotifast \
-    --bugs 'https://github.com/crmne/spotifast/issues/new?template=translation.yml' "$@"
+    --bugs 'https://github.com/crmne/spotifast/issues/new?template=translation.yml' --keyword gettext "$@"

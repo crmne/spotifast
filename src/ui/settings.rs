@@ -669,7 +669,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 if widgets::switch(
                     ui,
                     &palette,
-                    &gettext(locale, "MacBook notch interactive widget"),
+                    &gettext(locale, "MacBook notch widget"),
                     &mut app.settings.mac_notch_widget,
                 )
                 .changed()

@@ -142,38 +142,157 @@ extern "C" fn on_hover_timer_fired(context: *mut std::ffi::c_void) {
     }));
 }
 
-fn sf_symbol(
-    name: &str,
-    point_size: f64,
-    weight: f64,
-    accessibility_description: Option<&str>,
-) -> Option<Retained<NSImage>> {
-    let name_str = NSString::from_str(name);
-    let desc_ns = accessibility_description.map(NSString::from_str);
-    unsafe {
-        let img_cls = objc2::runtime::AnyClass::get(c"NSImage")?;
-        let base_img: Option<Retained<NSImage>> = objc2::msg_send![
-            img_cls,
-            imageWithSystemSymbolName: &*name_str,
-            accessibilityDescription: desc_ns.as_deref()
-        ];
-        let img = base_img?;
-        if let Some(cfg_cls) = objc2::runtime::AnyClass::get(c"NSImageSymbolConfiguration") {
-            let config: Option<Retained<NSObject>> = objc2::msg_send![
-                cfg_cls,
-                configurationWithPointSize: point_size,
-                weight: weight
-            ];
-            if let Some(cfg) = config {
-                let sized_img: Option<Retained<NSImage>> = objc2::msg_send![
-                    &*img,
-                    imageWithSymbolConfiguration: &*cfg
-                ];
-                return sized_img.or(Some(img));
-            }
-        }
-        Some(img)
+fn inter_font(size: f64, bold: bool) -> Retained<NSFont> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGDataProviderCreateWithData(
+            info: *mut std::ffi::c_void,
+            data: *const u8,
+            size: usize,
+            release_data: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize)>,
+        ) -> *mut std::ffi::c_void;
+        fn CGFontCreateWithDataProvider(provider: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        fn CFRelease(cf: *mut std::ffi::c_void);
     }
+
+    #[link(name = "CoreText", kind = "framework")]
+    unsafe extern "C" {
+        fn CTFontCreateWithGraphicsFont(
+            graphics_font: *mut std::ffi::c_void,
+            size: f64,
+            matrix: *const std::ffi::c_void,
+            attributes: *const std::ffi::c_void,
+        ) -> *mut NSFont;
+        fn CTFontCreateCopyWithSymbolicTraits(
+            current_font: *mut NSFont,
+            size: f64,
+            matrix: *const std::ffi::c_void,
+            sym_trait_value: u32,
+            sym_trait_mask: u32,
+        ) -> *mut NSFont;
+    }
+
+    unsafe {
+        let provider = CGDataProviderCreateWithData(
+            std::ptr::null_mut(),
+            fastframe_fonts::INTER.as_ptr(),
+            fastframe_fonts::INTER.len(),
+            None,
+        );
+        if provider.is_null() {
+            return if bold {
+                NSFont::boldSystemFontOfSize(size)
+            } else {
+                NSFont::systemFontOfSize(size)
+            };
+        }
+        let cg_font = CGFontCreateWithDataProvider(provider);
+        CFRelease(provider);
+        if cg_font.is_null() {
+            return if bold {
+                NSFont::boldSystemFontOfSize(size)
+            } else {
+                NSFont::systemFontOfSize(size)
+            };
+        }
+
+        let font_ptr =
+            CTFontCreateWithGraphicsFont(cg_font, size, std::ptr::null(), std::ptr::null());
+        CFRelease(cg_font);
+        if font_ptr.is_null() {
+            return if bold {
+                NSFont::boldSystemFontOfSize(size)
+            } else {
+                NSFont::systemFontOfSize(size)
+            };
+        }
+
+        if bold {
+            let bold_ptr = CTFontCreateCopyWithSymbolicTraits(
+                font_ptr,
+                size,
+                std::ptr::null(),
+                1 << 1, // kCTFontTraitBold
+                1 << 1,
+            );
+            CFRelease(font_ptr as *mut std::ffi::c_void);
+            if !bold_ptr.is_null()
+                && let Some(retained) = Retained::from_raw(bold_ptr)
+            {
+                return retained;
+            }
+            NSFont::boldSystemFontOfSize(size)
+        } else {
+            if let Some(retained) = Retained::from_raw(font_ptr) {
+                return retained;
+            }
+            NSFont::systemFontOfSize(size)
+        }
+    }
+}
+
+fn load_svg_icon(mtm: MainThreadMarker, svg_bytes: &[u8], size: f64) -> Retained<NSImage> {
+    let ns_data = NSData::with_bytes(svg_bytes);
+    let img = NSImage::initWithData(mtm.alloc(), &ns_data).expect("Embedded Lucide SVG must parse");
+    unsafe {
+        let () = objc2::msg_send![&*img, setTemplate: true];
+        let () = objc2::msg_send![&*img, setSize: NSSize::new(size, size)];
+    }
+    img
+}
+
+struct NotchIcons {
+    heart: Retained<NSImage>,
+    heart_filled: Retained<NSImage>,
+    skip_back: Retained<NSImage>,
+    skip_forward: Retained<NSImage>,
+    play_filled: Retained<NSImage>,
+    pause_filled: Retained<NSImage>,
+    shuffle: Retained<NSImage>,
+    repeat: Retained<NSImage>,
+    repeat_1: Retained<NSImage>,
+    speaker: Retained<NSImage>,
+}
+
+impl NotchIcons {
+    fn new(mtm: MainThreadMarker) -> Self {
+        Self {
+            heart: load_svg_icon(mtm, include_bytes!("../assets/icons/heart.svg"), 18.0),
+            heart_filled: load_svg_icon(
+                mtm,
+                include_bytes!("../assets/icons/heart-filled.svg"),
+                18.0,
+            ),
+            skip_back: load_svg_icon(mtm, include_bytes!("../assets/icons/skip-back.svg"), 18.0),
+            skip_forward: load_svg_icon(
+                mtm,
+                include_bytes!("../assets/icons/skip-forward.svg"),
+                18.0,
+            ),
+            play_filled: load_svg_icon(
+                mtm,
+                include_bytes!("../assets/icons/play-filled.svg"),
+                16.0,
+            ),
+            pause_filled: load_svg_icon(
+                mtm,
+                include_bytes!("../assets/icons/pause-filled.svg"),
+                16.0,
+            ),
+            shuffle: load_svg_icon(mtm, include_bytes!("../assets/icons/shuffle.svg"), 16.0),
+            repeat: load_svg_icon(mtm, include_bytes!("../assets/icons/repeat.svg"), 16.0),
+            repeat_1: load_svg_icon(mtm, include_bytes!("../assets/icons/repeat-1.svg"), 16.0),
+            speaker: load_svg_icon(mtm, include_bytes!("../assets/icons/speaker.svg"), 16.0),
+        }
+    }
+}
+
+fn green_accent() -> Retained<NSColor> {
+    NSColor::colorWithRed_green_blue_alpha(30.0 / 255.0, 215.0 / 255.0, 96.0 / 255.0, 1.0)
+}
+
+fn inactive_button_tint() -> Retained<NSColor> {
+    NSColor::colorWithWhite_alpha(1.0, 0.70)
 }
 
 fn set_button_accessibility_label(button: &NSButton, label: &str) {
@@ -189,7 +308,7 @@ fn set_button_tint(button: &NSButton, tint: &NSColor) {
 
 fn attach_button_action(
     button: &NSButton,
-    target: &FastpotifyNotchActionHandler,
+    target: &SpotifastNotchActionHandler,
     action: objc2::runtime::Sel,
     tint: &NSColor,
 ) {
@@ -200,150 +319,81 @@ fn attach_button_action(
     }
 }
 
-fn setup_icon_button(
-    button: &NSButton,
-    symbol: &str,
-    point_size: f64,
-    weight: f64,
-    fallback: &str,
-    font: &NSFont,
-    accessibility: &str,
-) {
+fn setup_svg_button(button: &NSButton, image: &NSImage, accessibility: &str) {
     button.setBordered(false);
-    if let Some(img) = sf_symbol(symbol, point_size, weight, Some(accessibility)) {
-        button.setImage(Some(&img));
-        button.setTitle(&NSString::from_str(""));
-    } else {
-        button.setImage(None);
-        button.setTitle(&NSString::from_str(fallback));
-        button.setFont(Some(font));
-    }
+    button.setImage(Some(image));
+    button.setTitle(&NSString::from_str(""));
     set_button_accessibility_label(button, accessibility);
 }
 
-fn update_play_button_ui(button: &NSButton, playing: bool) {
-    let (symbol, fallback, label) = if playing {
-        ("pause.fill", "\u{275A}\u{275A}", "Pause")
+fn update_play_button_ui(button: &NSButton, icons: &NotchIcons, playing: bool) {
+    let (img, label) = if playing {
+        (&icons.pause_filled, "Pause")
     } else {
-        ("play.fill", "\u{25B6}", "Play")
+        (&icons.play_filled, "Play")
     };
-    setup_icon_button(
-        button,
-        symbol,
-        15.0,
-        0.5,
-        fallback,
-        &NSFont::boldSystemFontOfSize(15.0),
-        label,
-    );
+    setup_svg_button(button, img, label);
     set_button_tint(
         button,
         &NSColor::colorWithRed_green_blue_alpha(0.06, 0.07, 0.08, 1.0),
     );
 }
 
-fn update_like_button_ui(button: &NSButton, saved: bool, accent: Option<[u8; 3]>) {
-    let (symbol, fallback, label) = if saved {
-        ("heart.fill", "\u{2665}", "Remove from Liked Songs")
+fn update_like_button_ui(button: &NSButton, icons: &NotchIcons, saved: bool) {
+    let (img, tint, label) = if saved {
+        (
+            &icons.heart_filled,
+            green_accent(),
+            "Remove from Liked Songs",
+        )
     } else {
-        ("heart", "\u{2661}", "Save to Liked Songs")
+        (&icons.heart, inactive_button_tint(), "Save to Liked Songs")
     };
-    setup_icon_button(
-        button,
-        symbol,
-        18.0,
-        0.2,
-        fallback,
-        &NSFont::systemFontOfSize(20.0),
-        label,
-    );
-    let tint = if saved {
-        let (r, g, b) = contrast_accent(accent.unwrap_or([30, 215, 96]));
-        NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
-    } else {
-        NSColor::colorWithWhite_alpha(1.0, 0.65)
-    };
+    setup_svg_button(button, img, label);
     set_button_tint(button, &tint);
 }
 
-fn update_device_button_ui(button: &NSButton, is_remote: bool, accent: Option<[u8; 3]>) {
-    let symbol = if is_remote {
-        "hifispeaker.fill"
-    } else {
-        "hifispeaker"
-    };
-    setup_icon_button(
-        button,
-        symbol,
-        17.0,
-        0.2,
-        "🔊",
-        &NSFont::systemFontOfSize(17.0),
-        "Connect to a device",
-    );
+fn update_device_button_ui(button: &NSButton, icons: &NotchIcons, is_remote: bool) {
     let tint = if is_remote {
-        let (r, g, b) = contrast_accent(accent.unwrap_or([30, 215, 96]));
-        NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
+        green_accent()
     } else {
-        NSColor::colorWithWhite_alpha(1.0, 0.65)
+        inactive_button_tint()
     };
+    setup_svg_button(button, &icons.speaker, "Connect to a device");
     set_button_tint(button, &tint);
 }
 
-fn update_shuffle_button_ui(button: &NSButton, shuffle: bool, accent: Option<[u8; 3]>) {
-    setup_icon_button(
-        button,
-        "shuffle",
-        16.0,
-        0.2,
-        "🔀",
-        &NSFont::systemFontOfSize(16.0),
-        "Shuffle",
-    );
+fn update_shuffle_button_ui(button: &NSButton, icons: &NotchIcons, shuffle: bool) {
     let tint = if shuffle {
-        let (r, g, b) = contrast_accent(accent.unwrap_or([30, 215, 96]));
-        NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
+        green_accent()
     } else {
-        NSColor::colorWithWhite_alpha(1.0, 0.65)
+        inactive_button_tint()
     };
+    setup_svg_button(button, &icons.shuffle, "Shuffle");
     set_button_tint(button, &tint);
 }
 
 fn update_repeat_button_ui(
     button: &NSButton,
+    icons: &NotchIcons,
     repeat: crate::player::RepeatMode,
-    accent: Option<[u8; 3]>,
 ) {
-    let (symbol, fallback, label) = match repeat {
-        crate::player::RepeatMode::Off => ("repeat", "🔁", "Repeat"),
-        crate::player::RepeatMode::Context => ("repeat", "🔁", "Repeat one"),
-        crate::player::RepeatMode::Track => ("repeat.1", "🔂", "Repeat off"),
+    let (img, tint, label) = match repeat {
+        crate::player::RepeatMode::Off => (&icons.repeat, inactive_button_tint(), "Repeat"),
+        crate::player::RepeatMode::Context => (&icons.repeat, green_accent(), "Repeat one"),
+        crate::player::RepeatMode::Track => (&icons.repeat_1, green_accent(), "Repeat off"),
     };
-    setup_icon_button(
-        button,
-        symbol,
-        16.0,
-        0.2,
-        fallback,
-        &NSFont::systemFontOfSize(16.0),
-        label,
-    );
-    let tint = if repeat == crate::player::RepeatMode::Off {
-        NSColor::colorWithWhite_alpha(1.0, 0.65)
-    } else {
-        let (r, g, b) = contrast_accent(accent.unwrap_or([30, 215, 96]));
-        NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
-    };
+    setup_svg_button(button, img, label);
     set_button_tint(button, &tint);
 }
 
 define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[name = "FastpotifyNotchActionHandler"]
-    pub struct FastpotifyNotchActionHandler;
+    #[name = "SpotifastNotchActionHandler"]
+    pub struct SpotifastNotchActionHandler;
 
-    impl FastpotifyNotchActionHandler {
+    impl SpotifastNotchActionHandler {
         #[unsafe(method(onPlayPause:))]
         fn on_play_pause(&self, _sender: &NSObject) {
             if let Ok(mut lock) = CONTROLLER.lock()
@@ -352,7 +402,7 @@ define_class!(
             {
                 track.playing = !track.playing;
                 let is_playing = track.playing;
-                update_play_button_ui(&ctrl.play_button, is_playing);
+                update_play_button_ui(&ctrl.play_button, &ctrl.icons, is_playing);
                 ctrl.canvas_view.setNeedsDisplay(true);
             }
             push_command(NotchCommand::PlayPause);
@@ -376,8 +426,7 @@ define_class!(
             {
                 track.shuffle = !track.shuffle;
                 let is_shuffle = track.shuffle;
-                let accent = track.accent;
-                update_shuffle_button_ui(&ctrl.shuffle_button, is_shuffle, accent);
+                update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, is_shuffle);
             }
             push_command(NotchCommand::ToggleShuffle);
         }
@@ -390,8 +439,7 @@ define_class!(
             {
                 track.repeat = track.repeat.next();
                 let repeat_mode = track.repeat;
-                let accent = track.accent;
-                update_repeat_button_ui(&ctrl.repeat_button, repeat_mode, accent);
+                update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, repeat_mode);
             }
             push_command(NotchCommand::CycleRepeat);
         }
@@ -405,9 +453,8 @@ define_class!(
             {
                 track.saved = !track.saved;
                 let is_saved = track.saved;
-                let accent = track.accent;
                 let uri = track.uri.clone();
-                update_like_button_ui(&ctrl.like_button, is_saved, accent);
+                update_like_button_ui(&ctrl.like_button, &ctrl.icons, is_saved);
                 push_command(NotchCommand::ToggleSaved(uri));
             }
         }
@@ -422,10 +469,10 @@ define_class!(
 define_class!(
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
-    #[name = "FastpotifyNotchView"]
-    pub struct FastpotifyNotchView;
+    #[name = "SpotifastNotchView"]
+    pub struct SpotifastNotchView;
 
-    impl FastpotifyNotchView {
+    impl SpotifastNotchView {
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
@@ -451,10 +498,10 @@ define_class!(
 define_class!(
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
-    #[name = "FastpotifyCardView"]
-    pub struct FastpotifyCardView;
+    #[name = "SpotifastCardView"]
+    pub struct SpotifastCardView;
 
-    impl FastpotifyCardView {
+    impl SpotifastCardView {
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
@@ -470,10 +517,10 @@ define_class!(
 define_class!(
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
-    #[name = "FastpotifyCanvasView"]
-    pub struct FastpotifyCanvasView;
+    #[name = "SpotifastCanvasView"]
+    pub struct SpotifastCanvasView;
 
-    impl FastpotifyCanvasView {
+    impl SpotifastCanvasView {
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
@@ -505,14 +552,14 @@ struct NotchFrames {
 
 struct NotchController {
     window: Retained<NSWindow>,
-    _view: Retained<FastpotifyNotchView>,
-    card_view: Retained<FastpotifyCardView>,
+    _view: Retained<SpotifastNotchView>,
+    card_view: Retained<SpotifastCardView>,
     visual_effect: Retained<NSVisualEffectView>,
-    canvas_view: Retained<FastpotifyCanvasView>,
+    canvas_view: Retained<SpotifastCanvasView>,
     title_field: Retained<NSTextField>,
     artist_field: Retained<NSTextField>,
     elapsed_field: Retained<NSTextField>,
-    remaining_field: Retained<NSTextField>,
+    duration_field: Retained<NSTextField>,
     art_view: Retained<NSImageView>,
     like_button: Retained<NSButton>,
     shuffle_button: Retained<NSButton>,
@@ -521,7 +568,8 @@ struct NotchController {
     next_button: Retained<NSButton>,
     repeat_button: Retained<NSButton>,
     device_button: Retained<NSButton>,
-    _action_handler: Retained<FastpotifyNotchActionHandler>,
+    icons: NotchIcons,
+    _action_handler: Retained<SpotifastNotchActionHandler>,
     collapsed_frame: NSRect,
     expanded_frame: NSRect,
     collapsed_card_frame: NSRect,
@@ -541,24 +589,6 @@ struct NotchController {
 }
 
 unsafe impl Send for NotchController {}
-
-fn contrast_accent(color: [u8; 3]) -> (f64, f64, f64) {
-    let mut r = color[0] as f64 / 255.0;
-    let mut g = color[1] as f64 / 255.0;
-    let mut b = color[2] as f64 / 255.0;
-    let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    if lum < 0.08 {
-        // Fallback for near-black album artwork to vibrant Spotify green
-        return (0.118, 0.843, 0.376);
-    }
-    if lum < 0.42 {
-        let factor = 0.42 / lum;
-        r = (r * factor).min(1.0);
-        g = (g * factor).min(1.0);
-        b = (b * factor).min(1.0);
-    }
-    (r, g, b)
-}
 
 fn set_view_corner_radius(view: &NSView, radius: f64) {
     unsafe {
@@ -650,21 +680,17 @@ fn compute_frames(mtm: MainThreadMarker) -> Option<NotchFrames> {
 }
 
 fn update_time_labels(
-    canvas_view: &FastpotifyCanvasView,
+    canvas_view: &SpotifastCanvasView,
     elapsed_field: &NSTextField,
-    remaining_field: &NSTextField,
+    duration_field: &NSTextField,
     position_ms: u32,
     duration_ms: u32,
 ) {
     let elapsed = crate::util::format_duration_ms(position_ms);
-    let remaining_ms = duration_ms.saturating_sub(position_ms);
-    let remaining = format!("-{}", crate::util::format_duration_ms(remaining_ms));
+    let total = crate::util::format_duration_ms(duration_ms);
     elapsed_field.setStringValue(&NSString::from_str(&elapsed));
-    remaining_field.setStringValue(&NSString::from_str(&remaining));
-    let val = NSString::from_str(&format!(
-        "{elapsed} of {}",
-        crate::util::format_duration_ms(duration_ms)
-    ));
+    duration_field.setStringValue(&NSString::from_str(&total));
+    let val = NSString::from_str(&format!("{elapsed} of {total}"));
     unsafe {
         let () = objc2::msg_send![canvas_view, setAccessibilityValue: &*val];
     }
@@ -675,7 +701,7 @@ fn layout_card_subviews(ctrl: &NotchController, card_w: f64) {
     ctrl.visual_effect.setFrame(card_bounds);
     ctrl.canvas_view.setFrame(card_bounds);
 
-    let text_w = (card_w - 76.0 - 54.0).max(60.0);
+    let text_w = (card_w - 76.0 - 16.0).max(60.0);
     ctrl.title_field.setFrame(NSRect::new(
         NSPoint::new(76.0, 16.0),
         NSSize::new(text_w, 20.0),
@@ -685,9 +711,9 @@ fn layout_card_subviews(ctrl: &NotchController, card_w: f64) {
         NSSize::new(text_w, 18.0),
     ));
 
-    let remaining_x = (card_w - 58.0).max(120.0);
-    ctrl.remaining_field.setFrame(NSRect::new(
-        NSPoint::new(remaining_x, 74.0),
+    let duration_x = (card_w - 58.0).max(120.0);
+    ctrl.duration_field.setFrame(NSRect::new(
+        NSPoint::new(duration_x, 74.0),
         NSSize::new(44.0, 16.0),
     ));
 
@@ -784,9 +810,9 @@ pub fn init() {
             | NSWindowCollectionBehavior::IgnoresCycle,
     );
 
-    let view: Retained<FastpotifyNotchView> = unsafe {
+    let view: Retained<SpotifastNotchView> = unsafe {
         let view_frame = NSRect::new(NSPoint::ZERO, frames.collapsed_window.size);
-        objc2::msg_send![mtm.alloc::<FastpotifyNotchView>(), initWithFrame: view_frame]
+        objc2::msg_send![mtm.alloc::<SpotifastNotchView>(), initWithFrame: view_frame]
     };
 
     let options = NSTrackingAreaOptions::MouseEnteredAndExited
@@ -804,16 +830,16 @@ pub fn init() {
     view.addTrackingArea(&tracking_area);
     window.setContentView(Some(&view));
 
-    let action_handler: Retained<FastpotifyNotchActionHandler> =
-        unsafe { objc2::msg_send![mtm.alloc::<FastpotifyNotchActionHandler>(), init] };
+    let action_handler: Retained<SpotifastNotchActionHandler> =
+        unsafe { objc2::msg_send![mtm.alloc::<SpotifastNotchActionHandler>(), init] };
 
     let card_w = frames.expanded_card.size.width;
     let card_h = 148.0;
     let card_bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(card_w, card_h));
 
     // Outer container view for the card
-    let card_view: Retained<FastpotifyCardView> = unsafe {
-        objc2::msg_send![mtm.alloc::<FastpotifyCardView>(), initWithFrame: frames.collapsed_card]
+    let card_view: Retained<SpotifastCardView> = unsafe {
+        objc2::msg_send![mtm.alloc::<SpotifastCardView>(), initWithFrame: frames.collapsed_card]
     };
     card_view.setWantsLayer(true);
     card_view.setAlphaValue(0.0); // Starts hidden with smooth fade-in
@@ -831,9 +857,8 @@ pub fn init() {
     card_view.addSubview(&visual_effect);
 
     // 2. Custom Canvas View: Drawn on top of visual effect (seek bar, waveform, outline)
-    let canvas_view: Retained<FastpotifyCanvasView> = unsafe {
-        objc2::msg_send![mtm.alloc::<FastpotifyCanvasView>(), initWithFrame: card_bounds]
-    };
+    let canvas_view: Retained<SpotifastCanvasView> =
+        unsafe { objc2::msg_send![mtm.alloc::<SpotifastCanvasView>(), initWithFrame: card_bounds] };
     canvas_view.setWantsLayer(true);
     // Mark the canvas with an accessible slider role so VoiceOver announces the progress
     // bar as "Playback Position, slider" and offers arrow-key seek to keyboard users.
@@ -861,8 +886,13 @@ pub fn init() {
     }
     card_view.addSubview(&art_view);
 
+    let icons = NotchIcons::new(mtm);
+    let title_font = inter_font(14.5, true);
+    let artist_font = inter_font(12.5, false);
+    let time_font = inter_font(11.0, false);
+
     // 4. Track Title (Row 1, Bold White, Tail Truncation)
-    let text_w = (card_w - 76.0 - 54.0).max(60.0);
+    let text_w = (card_w - 76.0 - 16.0).max(60.0);
     let title_field = NSTextField::initWithFrame(
         mtm.alloc(),
         NSRect::new(NSPoint::new(76.0, 16.0), NSSize::new(text_w, 20.0)),
@@ -872,7 +902,7 @@ pub fn init() {
     title_field.setBordered(false);
     title_field.setDrawsBackground(false);
     title_field.setTextColor(Some(&NSColor::whiteColor()));
-    title_field.setFont(Some(&NSFont::boldSystemFontOfSize(14.5)));
+    title_field.setFont(Some(&title_font));
     configure_single_line_label(&title_field);
     card_view.addSubview(&title_field);
 
@@ -886,24 +916,11 @@ pub fn init() {
     artist_field.setBordered(false);
     artist_field.setDrawsBackground(false);
     artist_field.setTextColor(Some(&NSColor::colorWithWhite_alpha(1.0, 0.65)));
-    artist_field.setFont(Some(&NSFont::systemFontOfSize(12.5)));
+    artist_field.setFont(Some(&artist_font));
     configure_single_line_label(&artist_field);
     card_view.addSubview(&artist_field);
 
-    // 6. Elapsed and Remaining Time Fields (Row 2, Tabular monospaced digits to eliminate jitter)
-    let time_font: Option<Retained<NSFont>> = unsafe {
-        let font_cls = objc2::runtime::AnyClass::get(c"NSFont");
-        font_cls.and_then(|cls| {
-            objc2::msg_send![
-                cls,
-                monospacedDigitSystemFontOfSize: 11.0f64,
-                weight: 0.0f64
-            ]
-        })
-    };
-    let default_font = NSFont::systemFontOfSize(11.0);
-    let time_font_ref = time_font.as_deref().unwrap_or(&default_font);
-
+    // 6. Elapsed and Total Duration Fields (Row 2)
     let elapsed_field = NSTextField::initWithFrame(
         mtm.alloc(),
         NSRect::new(NSPoint::new(14.0, 74.0), NSSize::new(42.0, 16.0)),
@@ -913,37 +930,37 @@ pub fn init() {
     elapsed_field.setBordered(false);
     elapsed_field.setDrawsBackground(false);
     elapsed_field.setTextColor(Some(&NSColor::colorWithWhite_alpha(1.0, 0.60)));
-    elapsed_field.setFont(Some(time_font_ref));
+    elapsed_field.setFont(Some(&time_font));
     elapsed_field.setStringValue(&NSString::from_str("0:00"));
     card_view.addSubview(&elapsed_field);
 
-    // 7. Remaining Time (Row 2, Right of progress bar)
-    let remaining_x = (card_w - 58.0).max(120.0);
-    let remaining_field = NSTextField::initWithFrame(
+    // 7. Total Duration (Row 2, Right of progress bar)
+    let duration_x = (card_w - 58.0).max(120.0);
+    let duration_field = NSTextField::initWithFrame(
         mtm.alloc(),
-        NSRect::new(NSPoint::new(remaining_x, 74.0), NSSize::new(44.0, 16.0)),
+        NSRect::new(NSPoint::new(duration_x, 74.0), NSSize::new(44.0, 16.0)),
     );
-    remaining_field.setEditable(false);
-    remaining_field.setSelectable(false);
-    remaining_field.setBordered(false);
-    remaining_field.setDrawsBackground(false);
-    remaining_field.setTextColor(Some(&NSColor::colorWithWhite_alpha(1.0, 0.60)));
-    remaining_field.setFont(Some(time_font_ref));
-    let () = unsafe { objc2::msg_send![&remaining_field, setAlignment: 1isize] }; // Right alignment
-    remaining_field.setStringValue(&NSString::from_str("-0:00"));
-    card_view.addSubview(&remaining_field);
+    duration_field.setEditable(false);
+    duration_field.setSelectable(false);
+    duration_field.setBordered(false);
+    duration_field.setDrawsBackground(false);
+    duration_field.setTextColor(Some(&NSColor::colorWithWhite_alpha(1.0, 0.60)));
+    duration_field.setFont(Some(&time_font));
+    let () = unsafe { objc2::msg_send![&duration_field, setAlignment: 1isize] }; // Right alignment
+    duration_field.setStringValue(&NSString::from_str("0:00"));
+    card_view.addSubview(&duration_field);
 
     // 8. Like / Save Button (Row 3, Leftmost)
     let like_button = NSButton::initWithFrame(
         mtm.alloc(),
         NSRect::new(NSPoint::new(16.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    update_like_button_ui(&like_button, false, None);
+    update_like_button_ui(&like_button, &icons, false);
     attach_button_action(
         &like_button,
         &action_handler,
         sel!(onLike:),
-        &NSColor::colorWithWhite_alpha(1.0, 0.65),
+        &inactive_button_tint(),
     );
     card_view.addSubview(&like_button);
 
@@ -957,12 +974,12 @@ pub fn init() {
             NSSize::new(30.0, 36.0),
         ),
     );
-    update_shuffle_button_ui(&shuffle_button, false, None);
+    update_shuffle_button_ui(&shuffle_button, &icons, false);
     attach_button_action(
         &shuffle_button,
         &action_handler,
         sel!(onShuffle:),
-        &NSColor::colorWithWhite_alpha(1.0, 0.65),
+        &inactive_button_tint(),
     );
     card_view.addSubview(&shuffle_button);
 
@@ -971,20 +988,12 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(center_x - 62.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    setup_icon_button(
-        &prev_button,
-        "backward.end.fill",
-        18.0,
-        0.3,
-        "\u{23EE}",
-        &NSFont::boldSystemFontOfSize(18.0),
-        "Previous",
-    );
+    setup_svg_button(&prev_button, &icons.skip_back, "Previous");
     attach_button_action(
         &prev_button,
         &action_handler,
         sel!(onPrev:),
-        &NSColor::colorWithWhite_alpha(1.0, 0.65),
+        &inactive_button_tint(),
     );
     card_view.addSubview(&prev_button);
 
@@ -993,7 +1002,7 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(center_x - 18.0, 97.0), NSSize::new(36.0, 36.0)),
     );
-    update_play_button_ui(&play_button, false);
+    update_play_button_ui(&play_button, &icons, false);
     attach_button_action(
         &play_button,
         &action_handler,
@@ -1007,20 +1016,12 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(center_x + 32.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    setup_icon_button(
-        &next_button,
-        "forward.end.fill",
-        18.0,
-        0.3,
-        "\u{23ED}",
-        &NSFont::boldSystemFontOfSize(18.0),
-        "Next",
-    );
+    setup_svg_button(&next_button, &icons.skip_forward, "Next");
     attach_button_action(
         &next_button,
         &action_handler,
         sel!(onNext:),
-        &NSColor::colorWithWhite_alpha(1.0, 0.65),
+        &inactive_button_tint(),
     );
     card_view.addSubview(&next_button);
 
@@ -1029,12 +1030,12 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(center_x + 78.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    update_repeat_button_ui(&repeat_button, crate::player::RepeatMode::Off, None);
+    update_repeat_button_ui(&repeat_button, &icons, crate::player::RepeatMode::Off);
     attach_button_action(
         &repeat_button,
         &action_handler,
         sel!(onRepeat:),
-        &NSColor::colorWithWhite_alpha(1.0, 0.65),
+        &inactive_button_tint(),
     );
     card_view.addSubview(&repeat_button);
 
@@ -1044,12 +1045,12 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(device_x, 97.0), NSSize::new(30.0, 36.0)),
     );
-    update_device_button_ui(&device_button, false, None);
+    update_device_button_ui(&device_button, &icons, false);
     attach_button_action(
         &device_button,
         &action_handler,
         sel!(onDevice:),
-        &NSColor::colorWithWhite_alpha(1.0, 0.65),
+        &inactive_button_tint(),
     );
     card_view.addSubview(&device_button);
 
@@ -1062,7 +1063,7 @@ pub fn init() {
         title_field,
         artist_field,
         elapsed_field,
-        remaining_field,
+        duration_field,
         art_view,
         like_button,
         shuffle_button,
@@ -1071,6 +1072,7 @@ pub fn init() {
         next_button,
         repeat_button,
         device_button,
+        icons,
         _action_handler: action_handler,
         collapsed_frame: frames.collapsed_window,
         expanded_frame: frames.expanded_window,
@@ -1223,7 +1225,7 @@ fn handle_mouse_exited() {
     }
 }
 
-fn handle_canvas_mouse_down(view: &FastpotifyCanvasView, event: &NSEvent) {
+fn handle_canvas_mouse_down(view: &SpotifastCanvasView, event: &NSEvent) {
     let location = event.locationInWindow();
     let local: NSPoint =
         unsafe { objc2::msg_send![view, convertPoint: location, fromView: None::<&NSView>] };
@@ -1253,7 +1255,7 @@ fn handle_canvas_mouse_down(view: &FastpotifyCanvasView, event: &NSEvent) {
                 update_time_labels(
                     &ctrl.canvas_view,
                     &ctrl.elapsed_field,
-                    &ctrl.remaining_field,
+                    &ctrl.duration_field,
                     seek_pos,
                     track.duration_ms,
                 );
@@ -1268,7 +1270,7 @@ fn handle_canvas_mouse_down(view: &FastpotifyCanvasView, event: &NSEvent) {
     push_command(NotchCommand::ShowWindow);
 }
 
-fn handle_canvas_mouse_dragged(view: &FastpotifyCanvasView, event: &NSEvent) {
+fn handle_canvas_mouse_dragged(view: &SpotifastCanvasView, event: &NSEvent) {
     let location = event.locationInWindow();
     let local: NSPoint =
         unsafe { objc2::msg_send![view, convertPoint: location, fromView: None::<&NSView>] };
@@ -1293,7 +1295,7 @@ fn handle_canvas_mouse_dragged(view: &FastpotifyCanvasView, event: &NSEvent) {
                 update_time_labels(
                     &ctrl.canvas_view,
                     &ctrl.elapsed_field,
-                    &ctrl.remaining_field,
+                    &ctrl.duration_field,
                     seek_pos,
                     track.duration_ms,
                 );
@@ -1304,7 +1306,7 @@ fn handle_canvas_mouse_dragged(view: &FastpotifyCanvasView, event: &NSEvent) {
     }
 }
 
-fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
+fn handle_draw_canvas(_view: &SpotifastCanvasView, _dirty: NSRect) {
     let Ok(lock) = CONTROLLER.lock() else {
         return;
     };
@@ -1352,40 +1354,7 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
         accent.fill();
     }
 
-    // 4. Animated equalizer / waveform indicator (Row 1, Right)
-    let wave_x = (card_w - 44.0).max(120.0);
-    let wave_y = 22.0;
-    let wave_h = 16.0;
-    let playing = ctrl.track.as_ref().is_some_and(|t| t.playing);
-
-    let mut bar_heights = [3.0; 5];
-    if playing
-        && let Some(levels) = ctrl.track.as_ref().map(|t| t.levels)
-        && levels.iter().any(|&v| v > 0.01)
-    {
-        for (i, &v) in levels.iter().enumerate() {
-            bar_heights[i] = 3.0 + 12.0 * (v as f64).clamp(0.0, 1.0);
-        }
-    }
-
-    // Album art accent color with luminance-boosted contrast
-    let accent_rgb = ctrl
-        .track
-        .as_ref()
-        .and_then(|t| t.accent)
-        .unwrap_or([30, 215, 96]); // Spotify green default (0x1e, 0xd7, 0x60)
-    let (ar, ag, ab) = contrast_accent(accent_rgb);
-
-    NSColor::colorWithRed_green_blue_alpha(ar, ag, ab, 0.92).set();
-    for (i, &bh) in bar_heights.iter().enumerate() {
-        let bx = wave_x + i as f64 * 4.8;
-        let by = wave_y + (wave_h - bh);
-        let bar_rect = NSRect::new(NSPoint::new(bx, by), NSSize::new(3.0, bh));
-        let bar_path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(bar_rect, 1.5, 1.5);
-        bar_path.fill();
-    }
-
-    // 5. Seek Bar (Row 2) - Matches Spotifast player bar thin_slider (shape, height, colors, handle)
+    // 4. Seek Bar (Row 2) - Matches Spotifast player bar thin_slider (shape, height, colors, handle)
     let start_x = 60.0f64;
     let end_x = (card_w - 58.0).max(start_x + 20.0);
     let track_w = (end_x - start_x).max(1.0);
@@ -1414,37 +1383,37 @@ fn handle_draw_canvas(_view: &FastpotifyCanvasView, _dirty: NSRect) {
     let played_w = track_w * ratio;
     let current_x = start_x + played_w;
 
-    // Track: 4.0pt height, 2.0pt corner radius, white with 0.196 alpha (matching Color32::from_white_alpha(50))
+    // Track: 4.0pt height, 2.0pt corner radius, white with 0.20 alpha
     let track_rect = NSRect::new(
         NSPoint::new(start_x, center_y - 2.0),
         NSSize::new(track_w, 4.0),
     );
     let track_path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(track_rect, 2.0, 2.0);
-    NSColor::colorWithWhite_alpha(1.0, 0.196).set();
+    NSColor::colorWithWhite_alpha(1.0, 0.20).set();
     track_path.fill();
 
-    // Progress fill: 4.0pt height, 2.0pt corner radius, palette.accent (track accent)
+    // Progress fill: 4.0pt height, 2.0pt corner radius, solid white fill
     if played_w > 0.0 {
         let played_rect = NSRect::new(
             NSPoint::new(start_x, center_y - 2.0),
-            NSSize::new(played_w.max(4.0).min(track_w), 4.0),
+            NSSize::new(played_w.min(track_w), 4.0),
         );
         let played_path =
             NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(played_rect, 2.0, 2.0);
-        NSColor::colorWithRed_green_blue_alpha(ar, ag, ab, 1.0).set();
-        played_path.fill();
-
-        // Handle (Thumb): 6.0pt radius (12.0pt diameter) solid white circle matching thin_slider
-        let thumb_rect = NSRect::new(
-            NSPoint::new(current_x - 6.0, center_y - 6.0),
-            NSSize::new(12.0, 12.0),
-        );
-        let thumb_path = NSBezierPath::bezierPathWithOvalInRect(thumb_rect);
         NSColor::whiteColor().set();
-        thumb_path.fill();
+        played_path.fill();
     }
 
-    // 6. Play button circular disc (Row 3, Center) - Matches Spotifast theme::circle_button (diameter 36.0)
+    // Handle (Thumb): 6.0pt radius (12.0pt diameter) solid white circle drawn unconditionally at current_x
+    let thumb_rect = NSRect::new(
+        NSPoint::new(current_x - 6.0, center_y - 6.0),
+        NSSize::new(12.0, 12.0),
+    );
+    let thumb_path = NSBezierPath::bezierPathWithOvalInRect(thumb_rect);
+    NSColor::whiteColor().set();
+    thumb_path.fill();
+
+    // 5. Play button circular disc (Row 3, Center) - Matches Spotifast theme::circle_button (diameter 36.0)
     let center_x = card_w / 2.0;
     let disc_rect = NSRect::new(NSPoint::new(center_x - 18.0, 97.0), NSSize::new(36.0, 36.0));
     let disc_path = NSBezierPath::bezierPathWithOvalInRect(disc_rect);
@@ -1619,16 +1588,16 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
             update_time_labels(
                 &ctrl.canvas_view,
                 &ctrl.elapsed_field,
-                &ctrl.remaining_field,
+                &ctrl.duration_field,
                 t.position_ms,
                 t.duration_ms,
             );
 
-            update_play_button_ui(&ctrl.play_button, t.playing);
-            update_like_button_ui(&ctrl.like_button, t.saved, t.accent);
-            update_shuffle_button_ui(&ctrl.shuffle_button, t.shuffle, t.accent);
-            update_repeat_button_ui(&ctrl.repeat_button, t.repeat, t.accent);
-            update_device_button_ui(&ctrl.device_button, t.is_remote, t.accent);
+            update_play_button_ui(&ctrl.play_button, &ctrl.icons, t.playing);
+            update_like_button_ui(&ctrl.like_button, &ctrl.icons, t.saved);
+            update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, t.shuffle);
+            update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, t.repeat);
+            update_device_button_ui(&ctrl.device_button, &ctrl.icons, t.is_remote);
             ctrl.like_button.setHidden(!can_toggle_saved(t.is_episode));
 
             update_artwork_path(ctrl, t.art_path.clone());
@@ -1640,15 +1609,19 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
             update_time_labels(
                 &ctrl.canvas_view,
                 &ctrl.elapsed_field,
-                &ctrl.remaining_field,
+                &ctrl.duration_field,
                 0,
                 0,
             );
-            update_play_button_ui(&ctrl.play_button, false);
-            update_like_button_ui(&ctrl.like_button, false, None);
-            update_shuffle_button_ui(&ctrl.shuffle_button, false, None);
-            update_repeat_button_ui(&ctrl.repeat_button, crate::player::RepeatMode::Off, None);
-            update_device_button_ui(&ctrl.device_button, false, None);
+            update_play_button_ui(&ctrl.play_button, &ctrl.icons, false);
+            update_like_button_ui(&ctrl.like_button, &ctrl.icons, false);
+            update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, false);
+            update_repeat_button_ui(
+                &ctrl.repeat_button,
+                &ctrl.icons,
+                crate::player::RepeatMode::Off,
+            );
+            update_device_button_ui(&ctrl.device_button, &ctrl.icons, false);
             ctrl.like_button.setHidden(false);
             ctrl.art_view.setImage(None);
             ctrl.current_art_path = None;
@@ -1678,25 +1651,23 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
         }
 
         if changes.play_changed {
-            update_play_button_ui(&ctrl.play_button, latest.playing);
+            update_play_button_ui(&ctrl.play_button, &ctrl.icons, latest.playing);
         }
 
-        if changes.saved_changed || (latest.saved && changes.accent_changed) {
-            update_like_button_ui(&ctrl.like_button, latest.saved, latest.accent);
+        if changes.saved_changed {
+            update_like_button_ui(&ctrl.like_button, &ctrl.icons, latest.saved);
         }
 
-        if changes.shuffle_changed || (latest.shuffle && changes.accent_changed) {
-            update_shuffle_button_ui(&ctrl.shuffle_button, latest.shuffle, latest.accent);
+        if changes.shuffle_changed {
+            update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, latest.shuffle);
         }
 
-        if changes.repeat_changed
-            || (latest.repeat != crate::player::RepeatMode::Off && changes.accent_changed)
-        {
-            update_repeat_button_ui(&ctrl.repeat_button, latest.repeat, latest.accent);
+        if changes.repeat_changed {
+            update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, latest.repeat);
         }
 
-        if changes.remote_changed || (latest.is_remote && changes.accent_changed) {
-            update_device_button_ui(&ctrl.device_button, latest.is_remote, latest.accent);
+        if changes.remote_changed {
+            update_device_button_ui(&ctrl.device_button, &ctrl.icons, latest.is_remote);
         }
 
         if changes.progress_changed || changes.duration_changed {
@@ -1715,7 +1686,7 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
             update_time_labels(
                 &ctrl.canvas_view,
                 &ctrl.elapsed_field,
-                &ctrl.remaining_field,
+                &ctrl.duration_field,
                 pos,
                 latest.duration_ms,
             );
@@ -1733,33 +1704,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn contrast_accent_dark_fallback() {
-        // Pure black must fall back to vibrant Spotify green
-        let (r, g, b) = contrast_accent([0, 0, 0]);
-        assert_eq!((r, g, b), (0.118, 0.843, 0.376));
+    fn test_inter_font_and_icons() {
+        let regular = inter_font(14.0, false);
+        assert!(!regular.fontName().to_string().is_empty());
 
-        // Near black also falls back to Spotify green
-        let (r, g, b) = contrast_accent([10, 10, 10]);
-        assert_eq!((r, g, b), (0.118, 0.843, 0.376));
-    }
+        let bold = inter_font(14.0, true);
+        assert!(!bold.fontName().to_string().is_empty());
 
-    #[test]
-    fn contrast_accent_boosts_low_luminance() {
-        // Medium dark color gets luminance boosted to at least 0.42
-        let (r, g, b) = contrast_accent([30, 40, 50]);
-        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        assert!(
-            lum >= 0.419,
-            "Luminance should be boosted to at least 0.42, got {lum}"
-        );
-    }
-
-    #[test]
-    fn contrast_accent_preserves_bright_colors() {
-        // Bright color is preserved without modification
-        let (r, g, b) = contrast_accent([200, 220, 240]);
-        assert!((r - 200.0 / 255.0).abs() < 1e-6);
-        assert!((g - 220.0 / 255.0).abs() < 1e-6);
-        assert!((b - 240.0 / 255.0).abs() < 1e-6);
+        let mtm = unsafe { objc2_foundation::MainThreadMarker::new_unchecked() };
+        let icons = NotchIcons::new(mtm);
+        assert!(icons.heart.isTemplate());
+        assert!(icons.heart_filled.isTemplate());
+        assert!(icons.skip_back.isTemplate());
+        assert!(icons.skip_forward.isTemplate());
+        assert!(icons.play_filled.isTemplate());
+        assert!(icons.pause_filled.isTemplate());
+        assert!(icons.shuffle.isTemplate());
+        assert!(icons.repeat.isTemplate());
+        assert!(icons.repeat_1.isTemplate());
+        assert!(icons.speaker.isTemplate());
     }
 }

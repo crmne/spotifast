@@ -449,7 +449,7 @@ impl Default for Settings {
             personal_app_intro_seen: false,
             playback_authorized: false,
             keep_playing_in_background: true,
-            mac_notch_widget: true,
+            mac_notch_widget: false,
             check_for_updates: true,
             download_updates_automatically: false,
             pinned_contexts: Vec::new(),
@@ -982,14 +982,14 @@ mod tests {
     }
 
     #[test]
-    fn mac_notch_widget_defaults_to_true_when_absent_and_round_trips_false() {
+    fn mac_notch_widget_defaults_to_false_when_absent_and_round_trips_true() {
         let empty: Settings = serde_json::from_str("{}").unwrap();
-        assert!(empty.mac_notch_widget);
-        let disabled: Settings = serde_json::from_str(r#"{"mac_notch_widget": false}"#).unwrap();
-        assert!(!disabled.mac_notch_widget);
-        let encoded = serde_json::to_string(&disabled).unwrap();
+        assert!(!empty.mac_notch_widget);
+        let enabled: Settings = serde_json::from_str(r#"{"mac_notch_widget": true}"#).unwrap();
+        assert!(enabled.mac_notch_widget);
+        let encoded = serde_json::to_string(&enabled).unwrap();
         let decoded: Settings = serde_json::from_str(&encoded).unwrap();
-        assert!(!decoded.mac_notch_widget);
+        assert!(decoded.mac_notch_widget);
     }
 
     #[test]

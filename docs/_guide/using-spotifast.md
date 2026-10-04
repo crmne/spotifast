@@ -330,7 +330,7 @@ within the playing track.
 When music is paused, hovering still reveals the controls so you can
 resume playback directly from the notch.
 
-To turn off the notch overlay, uncheck **MacBook notch interactive widget** in
+To turn on the notch overlay, check **MacBook notch widget** in
 Settings under **Playback on this computer**.
 
 ## Recent

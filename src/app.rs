@@ -564,8 +564,6 @@ pub struct App {
     pub winamp: crate::winamp::WinampState,
     /// The spectrum behind the player bar, when that is chosen.
     pub player_bar_analyser: crate::vis::WideAnalyser,
-    #[cfg(target_os = "macos")]
-    pub notch_analyser: crate::vis::Analyser,
 }
 
 /// How many plays the Home shelf asks for: it shows sixteen cards.
@@ -950,8 +948,6 @@ impl App {
             update_receipt: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
             player_bar_analyser: crate::vis::WideAnalyser::default(),
-            #[cfg(target_os = "macos")]
-            notch_analyser: crate::vis::Analyser::default(),
         };
         app.local.volume = app.settings.volume;
         // What was played here is on disk and needs nothing from the
@@ -9774,46 +9770,6 @@ impl App {
         let active = crate::notch::is_active();
         let now_opt = self.now_playing();
 
-        let is_playing = now_opt.as_ref().is_some_and(|n| n.playing);
-        let is_local = now_opt.as_ref().is_some_and(|n| n.local);
-        let should_sample = crate::notch::should_sample_visualizer(
-            enabled,
-            is_background,
-            active,
-            is_playing,
-            is_local,
-        );
-
-        let levels = if should_sample {
-            let samples = self
-                .winamp
-                .tap
-                .window(crate::vis::FFT_SAMPLES, crate::vis::LAG);
-            let bars = self
-                .notch_analyser
-                .step(&samples, std::time::Instant::now());
-            let mut levels = [0.0f32; 5];
-            for (i, (range, scale)) in [
-                (0..4, 48.0f32),
-                (4..8, 48.0),
-                (8..12, 48.0),
-                (12..16, 48.0),
-                (16..19, 36.0),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                let sum: f32 = bars[range].iter().map(|b| b.height as f32).sum();
-                levels[i] = (sum / scale).clamp(0.0, 1.0);
-            }
-            levels
-        } else {
-            if enabled {
-                self.notch_analyser.reset();
-            }
-            [0.0; 5]
-        };
-
         let track_info = now_opt.map(|now| {
             let art_path = now
                 .art_url
@@ -9840,7 +9796,6 @@ impl App {
                 uri: now.uri,
                 saved,
                 accent,
-                levels,
                 is_episode: now.is_episode,
                 is_remote: !now.local,
                 shuffle: now.shuffle,
