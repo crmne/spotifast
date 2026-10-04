@@ -9158,8 +9158,12 @@ mod tests {
         );
         let actions = std::mem::take(&mut app.actions);
         assert!(
-            matches!(actions.as_slice(), [Action::Open(Page::Radio(opened))] if opened == &seed),
+            matches!(actions.as_slice(), [Action::OpenSongRadio { uri, .. }] if uri == &seed),
             "the menu opens the song's radio: {actions:?}"
+        );
+        assert!(
+            app.track_cache.is_empty(),
+            "the menu leaves the cache to the action, applied after drawing"
         );
         for action in actions {
             app.apply(action, &ctx);
@@ -9174,6 +9178,51 @@ mod tests {
             app.radio_pages[&seed].name,
             Some(format!("{} Radio", song.name)),
             "the page keeps the name"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A song already cached from an album's song list, which comes without
+    /// the album, takes the row's album for the radio's cover, while what
+    /// the cache already knows is kept.
+    #[test]
+    fn song_radio_takes_the_rows_album_art_for_a_cached_song() {
+        let (ctx, mut app) = accessible_app("song-radio-album-art");
+        let song = app
+            .library
+            .liked
+            .items
+            .last()
+            .expect("a liked song")
+            .track
+            .clone();
+        assert!(
+            song.album.as_ref().is_some_and(|a| !a.images.is_empty()),
+            "the demo's liked song has album art"
+        );
+        let seed = song.uri.clone();
+        let id = crate::util::uri_id(&seed).expect("a track id").to_owned();
+        let mut cached = song.clone();
+        cached.album = None;
+        cached.name = "Cached name".into();
+        app.track_cache.clear();
+        app.track_cache.insert(id.clone(), cached);
+        app.apply(
+            Action::OpenSongRadio {
+                uri: seed.clone(),
+                track: Box::new(song.clone()),
+            },
+            &ctx,
+        );
+        assert_eq!(app.page(), &Page::Radio(seed.clone()));
+        assert_eq!(
+            app.radio_images(&seed),
+            song.album.as_ref().unwrap().images,
+            "the cover comes from the row's album"
+        );
+        assert_eq!(
+            app.track_cache[&id].name, "Cached name",
+            "the cached song is kept"
         );
         app.backend.shutdown();
     }
