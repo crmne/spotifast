@@ -905,7 +905,7 @@ pub fn item_menu(
                 Some(Icon::Radio),
                 &gettext(locale, "Go to song radio"),
             ) {
-                app.actions.push(Action::Open(Page::Radio(uri.clone())));
+                app.open_song_radio(&uri, track);
             }
             let artists: Vec<&ArtistRef> = track
                 .artists
