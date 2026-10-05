@@ -35,9 +35,11 @@ const WAVE_ECHO_ALPHA: f32 = 0.18;
 const LIGHT_STRENGTH: f32 = 1.5;
 /// The gap between spectrum bars.
 const SPECTRUM_GAP: f32 = 2.0;
-/// How often a moving visualizer is drawn: sixty times a second, as the
-/// mini player's.
-const VIS_FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
+/// How often a moving visualizer is drawn: thirty times a second. Each
+/// frame redraws the whole window, and a faint backdrop moves smoothly
+/// enough at half the mini player's rate; its bars fall by the clock, so
+/// they keep their speed.
+const VIS_FRAME: std::time::Duration = std::time::Duration::from_micros(33_333);
 
 /// Forget this bar's animation session while the sign-in screen is shown.
 pub(crate) fn end_tint_session(ctx: &egui::Context) {
@@ -62,7 +64,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
             if visualizer(app, ui, behind, now.as_ref()) {
-                ui.ctx().request_repaint_after(VIS_FRAME);
+                super::pace_frames(ui.ctx(), ui.id().with("player-bar-vis-frame"), VIS_FRAME);
             }
             // Its empty space is the visualizer's control, as Winamp's
             // visualizer was: a click moves to the next mode. The controls
@@ -119,7 +121,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 /// Draws the chosen spectrum or waveform of the song playing on this
 /// computer across `rect`, in colours drawn from the cover. It reads the
 /// same post-equalizer, pre-volume sound as the mini player's visualizer,
-/// so the volume never moves it. Returns whether it is still moving.
+/// so the volume never moves it. Returns whether it is still moving: a
+/// silence that leaves nothing standing asks for no frames, and the pass
+/// that playback schedules anyway brings it back with the sound.
 fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>) -> bool {
     use crate::settings::PlayerBarVis;
     use crate::vis;
@@ -147,7 +151,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
                 .step(&samples, std::time::Instant::now());
             let peaks = app.player_bar_analyser.peaks();
             spectrum(&painter, rect, &levels, &peaks, (low, high), strength);
-            sounding || !app.player_bar_analyser.settled()
+            !app.player_bar_analyser.settled()
         }
         PlayerBarVis::Waveform => {
             if !sounding {
@@ -156,6 +160,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
             // Winamp's scope with a column every eight points or so.
             let count = (rect.width() / 8.0).clamp(75.0, 320.0) as usize;
             let samples = app.winamp.tap.window(count * vis::SCOPE_STEP, vis::LAG);
+            let silent = samples.iter().all(|sample| *sample == 0.0);
             waveform(
                 &painter,
                 rect,
@@ -163,7 +168,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
                 (low, high),
                 strength,
             );
-            true
+            !silent
         }
     }
 }

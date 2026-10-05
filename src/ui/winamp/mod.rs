@@ -379,11 +379,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         playlist::show(app, &mut below, now.as_ref(), focused);
     }
 
-    // egui subtracts one predicted frame from delayed repaints; the display
-    // supplies it, through the vsync swap or, on Wayland, the compositor's
-    // frame callback that eframe waits for.
+    // Sixty a second whatever the display's rate: see `pace_frames`.
     if vis_moving {
-        ctx.request_repaint_after(VIS_FRAME);
+        super::pace_frames(&ctx, Id::new("winamp-vis-frame"), VIS_FRAME);
     } else if now.is_some() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }

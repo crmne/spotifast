@@ -4531,6 +4531,16 @@ mod tests {
         let output = draw(&mut app);
         assert!(waveform(&output), "the waveform is drawn");
         assert!(!spectrum(&output));
+        assert!(wants_frames(&output));
+
+        // #when the song is silent and the spectrum has come to rest
+        app.winamp.tap.clear();
+        let output = draw(&mut app);
+        assert!(!wants_frames(&output), "a flat line needs no frames");
+        app.settings.player_bar_vis = PlayerBarVis::Spectrum;
+        app.player_bar_analyser = Default::default();
+        let output = draw(&mut app);
+        assert!(!wants_frames(&output), "nothing standing needs no frames");
 
         // #when it is turned off
         app.settings.player_bar_vis = PlayerBarVis::Off;
