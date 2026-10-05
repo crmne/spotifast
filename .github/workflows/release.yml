@@ -29,12 +29,16 @@ jobs:
             target: aarch64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-          # Cross-compiled from x64: the MSVC arm64 linker ships with the
-          # runner's Visual Studio. projectm-sys only knows how to build
-          # libprojectM for x64 there, so this build goes without MilkDrop.
-          - os: windows-latest
+            vcpkg-triplet: x64-windows-static
+            msvc-arch: x64
+            pe-machine: 8664 machine \(x64\)
+          # A native arm64 runner, as for Linux: the binary is built, checked
+          # and started on the processor it ships for, MilkDrop included.
+          - os: windows-11-arm
             target: aarch64-pc-windows-msvc
-            features: --no-default-features
+            vcpkg-triplet: arm64-windows-static
+            msvc-arch: arm64
+            pe-machine: AA64 machine \(ARM64\)
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -53,14 +57,18 @@ jobs:
       # against vcpkg's static-CRT triplet, matching .cargo/config.toml.
       - name: GLEW for libprojectM
         if: runner.os == 'Windows' && matrix.features == ''
-        run: vcpkg install glew:x64-windows-static
+        run: vcpkg install glew:${{ matrix.vcpkg-triplet }}
       # projectm-sys asks CMake for the Visual Studio generator, which the
       # runner image no longer satisfies; Ninja inside the MSVC environment
       # builds the same thing without caring which Visual Studio is on. Both
       # Windows jobs also use dumpbin below to inspect the finished binary.
+      # The action sets up x64 tools unless told otherwise, which on the arm64
+      # runner would compile under emulation.
       - name: MSVC environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc-arch }}
       # No compiler cache: published binaries never build from outputs
       # restored from an Actions cache.
       - run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features }}
@@ -75,6 +83,14 @@ jobs:
           $imports = & dumpbin /dependents $binary | Out-String
           $runtime = $imports | Select-String -Pattern 'MSVCP[0-9_]*\.dll|VCRUNTIME[0-9_]*\.dll'
           if ($runtime) { throw "Spotifast imports an MSVC runtime:`n$runtime" }
+          # The updater picks its download by the running executable's
+          # architecture, so a binary of the wrong one under this name would
+          # keep every copy installed from it on the wrong architecture.
+          $headers = & dumpbin /headers $binary | Out-String
+          if ($headers -notmatch '${{ matrix.pe-machine }}') { throw "$binary is not built for ${{ matrix.target }}:`n$headers" }
+          # Each Windows build runs on its own processor: start it once.
+          $version = (& $binary --version | Out-String).Trim()
+          if ($version -notmatch '^spotifast \d+\.\d+\.\d+') { throw "Unexpected --version output: $version" }
 
       - name: Package
         shell: bash

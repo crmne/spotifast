@@ -4742,7 +4742,7 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 [[package]]
 name = "projectm-sys"
 version = "1.2.3"
-source = "git+https://github.com/crmne/projectm-rs?branch=respect-cmake-generator#454f38c50a968b13028ab6716d33647b3e99388c"
+source = "git+https://github.com/dennisgr7/projectm-rs?rev=1ef6df1c20247a3a5800c625e46262330f93bbd6#1ef6df1c20247a3a5800c625e46262330f93bbd6"
 dependencies = [
  "bindgen",
  "cmake",

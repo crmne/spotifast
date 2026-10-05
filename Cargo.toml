@@ -267,8 +267,9 @@ epaint_default_fonts = { git = "https://github.com/crmne/egui", rev = "ba6790fe7
 winit = { git = "https://github.com/crmne/winit", rev = "ed7caa9023f10b397f5b6ec8284a840cbd8a6f65" }
 # projectm-sys 1.2.2 hardcodes the Visual Studio 17 2022 CMake generator,
 # which GitHub's windows-latest images no longer carry; the fork lets an
-# explicit CMAKE_GENERATOR win. Drop when upstream takes the change.
-projectm-sys = { git = "https://github.com/crmne/projectm-rs", branch = "respect-cmake-generator" }
+# explicit CMAKE_GENERATOR win, and asks vcpkg for the target's architecture
+# so libprojectM links for Windows on ARM. Drop when upstream takes the change.
+projectm-sys = { git = "https://github.com/dennisgr7/projectm-rs", rev = "1ef6df1c20247a3a5800c625e46262330f93bbd6" }
 # hyper-proxy2's unreleased rustls 0.23 update plus our upstream provider
 # compatibility fix. Drop this fork when a release includes both changes.
 hyper-proxy2 = { git = "https://github.com/crmne/hyper-proxy2", rev = "efca4811371ddae81c06be168de54194938d70b1" }

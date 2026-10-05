@@ -12,8 +12,8 @@ the top-bar visualiser button, Ctrl+Shift+K, Settings, or the mini player's
   <source src="/assets/images/milkdrop.mp4" type="video/mp4">
 </video>
 
-MilkDrop is included on Linux and macOS, and in the Windows download for
-Intel or AMD PCs. It is not included in the Windows on ARM download.
+MilkDrop is included on Linux, macOS and Windows, on Intel, AMD and ARM
+PCs alike.
 
 ## The window
 
