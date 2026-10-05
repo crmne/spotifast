@@ -2868,6 +2868,7 @@ impl Worker {
                 .and_then(crate::zeroconf::resolve_receivers)
             {
                 Ok(receivers) => {
+                    crate::sonos::remember(&receivers);
                     let _ = events.send(Event::Receivers(receivers));
                     waker.wake();
                 }
@@ -3471,6 +3472,12 @@ async fn handle(
         observe_playlists(api, &response);
         return (response, None);
     }
+    if let Some(engine) = engine
+        && let Some(response) = over_connect(engine, &request).await
+    {
+        log::debug!("Spotify route operation={operation:?} source=connect");
+        return (response, None);
+    }
     let selected = api.client_for(operation).await;
     let expired = std::cell::Cell::new(None);
     macro_rules! routed {
@@ -3870,7 +3877,87 @@ async fn handle(
         }
     };
     observe_playlists(api, &response);
+    match &response {
+        ApiResponse::Devices(Ok(devices)) => crate::sonos::observe_devices(devices),
+        ApiResponse::PlaybackState {
+            result: Ok(state), ..
+        } => crate::sonos::observe_playing(state.as_ref().and_then(|state| state.device.as_ref())),
+        _ => {}
+    }
     (response, expired.get())
+}
+
+/// Player commands for a device the Web API refuses (a Sonos, say) go over
+/// the session's Connect state service instead. `None` leaves the request
+/// to the Web API. See [`crate::sonos`].
+async fn over_connect(engine: &Engine, request: &ApiRequest) -> Option<ApiResponse> {
+    let session = engine.session();
+    Some(match request {
+        ApiRequest::Remote {
+            action,
+            device_id,
+            play,
+            position_ms,
+            percent,
+            flag,
+            repeat,
+        } => {
+            let to = crate::sonos::restricted_target(device_id.as_deref())?;
+            if *action == RemoteAction::Play {
+                crate::sonos::wake(session, &to).await;
+            }
+            let result = match crate::sonos::command_body(
+                *action,
+                play.as_ref(),
+                *position_ms,
+                *flag,
+                repeat,
+            ) {
+                Some(body) => crate::sonos::command(session, &to, &body).await,
+                None => crate::sonos::set_volume(session, &to, *percent).await,
+            };
+            ApiResponse::Remote {
+                action: *action,
+                result,
+            }
+        }
+        ApiRequest::ShufflePlay { device_id, play } => {
+            let to = crate::sonos::restricted_target(device_id.as_deref())?;
+            crate::sonos::wake(session, &to).await;
+            let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "")?;
+            let start = crate::sonos::command_body(RemoteAction::Play, Some(play), 0, false, "")?;
+            let result = match crate::sonos::command(session, &to, &start).await {
+                Ok(()) => crate::sonos::command(session, &to, &shuffle).await,
+                Err(error) => Err(error),
+            };
+            ApiResponse::Remote {
+                action: RemoteAction::Play,
+                result,
+            }
+        }
+        ApiRequest::Transfer { device_id, .. } => {
+            crate::sonos::restricted_target(Some(device_id))?;
+            ApiResponse::Transferred {
+                result: crate::sonos::transfer(session, device_id).await,
+                device_id: device_id.clone(),
+            }
+        }
+        ApiRequest::AddToQueue {
+            uri,
+            device_id,
+            label,
+        } => {
+            let to = crate::sonos::restricted_target(device_id.as_deref())?;
+            let body = serde_json::json!({
+                "command": { "endpoint": "add_to_queue", "track": { "uri": uri } }
+            });
+            ApiResponse::QueueAdded {
+                result: crate::sonos::command(session, &to, &body).await,
+                label: label.clone(),
+            }
+        }
+        _ => return None,
+    })
 }
 
 /// Whether a session signed in as `username` answers for the Web API's

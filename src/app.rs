@@ -1538,9 +1538,11 @@ impl App {
             shuffle: self.shuffle_wanted,
             repeat: RepeatMode::from_api(&remote.state.repeat_state),
             volume_percent: volume,
-            can_control: device.is_none_or(|device| !device.is_restricted),
+            // A restricted device is driven over the playback session's
+            // Connect link instead, see `crate::sonos`.
+            can_control: device.is_none_or(|device| !device.is_restricted || self.local_ready),
             can_set_volume: device.is_none_or(|device| {
-                !device.is_restricted && device.supports_volume != Some(false)
+                (!device.is_restricted || self.local_ready) && device.supports_volume != Some(false)
             }),
             is_episode,
             resuming: false,
@@ -4882,6 +4884,7 @@ impl App {
                             }
                         }
                         if let Some(selected) = &self.selected_device
+                            && crate::sonos::speaker(selected).is_none()
                             && !self
                                 .devices
                                 .iter()
