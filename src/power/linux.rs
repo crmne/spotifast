@@ -147,7 +147,7 @@ fn inhibit(manager: &Proxy<'_>) -> Option<zbus::zvariant::OwnedFd> {
             &(
                 "sleep",
                 "Spotifast",
-                "Saves the session before sleeping",
+                "Saves the session and pauses before sleeping",
                 "delay",
             ),
         )

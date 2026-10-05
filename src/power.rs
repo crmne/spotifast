@@ -56,7 +56,7 @@ impl Default for Conditions {
 /// Something the system is about to do, or has just done.
 #[derive(Debug)]
 pub enum Event {
-    /// The system is about to sleep. Save, then [`Ack::done`].
+    /// The system is about to sleep. Save and pause, then [`Ack::done`].
     Suspending(Ack),
     /// The system woke up.
     Resumed,
@@ -83,6 +83,12 @@ impl Ack {
         let (done, ring) = &*self.0;
         *done.lock().unwrap_or_else(PoisonError::into_inner) = true;
         ring.notify_all();
+    }
+
+    /// Whether the app has answered.
+    #[cfg(test)]
+    pub fn is_done(&self) -> bool {
+        *self.0.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Waits until [`done`](Self::done) or `timeout`, whichever is first.
@@ -133,10 +139,20 @@ const SUSPEND_ACK: Duration = Duration::from_millis(1500);
 const END_SESSION_ACK: Duration = Duration::from_secs(3);
 
 /// What the readers write and the app reads.
+/// Run by the reader itself as the system is about to sleep.
+#[cfg(any(target_os = "windows", target_os = "linux", test))]
+type Hook = Box<dyn Fn() + Send + Sync>;
+
 struct Shared {
     conditions: Mutex<Conditions>,
     events: Mutex<Vec<Event>>,
     wake: Box<dyn Fn() + Send + Sync>,
+    #[cfg(any(target_os = "windows", target_os = "linux", test))]
+    on_suspending: Mutex<Option<Hook>>,
+    /// When the system last said it was going to sleep, by the wall clock,
+    /// which keeps counting through it.
+    #[cfg(any(target_os = "windows", target_os = "linux", test))]
+    suspended_at: Mutex<Option<std::time::SystemTime>>,
 }
 
 impl Shared {
@@ -145,6 +161,10 @@ impl Shared {
             conditions: Mutex::new(Conditions::default()),
             events: Mutex::new(Vec::new()),
             wake: Box::new(wake),
+            #[cfg(any(target_os = "windows", target_os = "linux", test))]
+            on_suspending: Mutex::new(None),
+            #[cfg(any(target_os = "windows", target_os = "linux", test))]
+            suspended_at: Mutex::new(None),
         }
     }
 
@@ -174,12 +194,43 @@ impl Shared {
         (self.wake)();
     }
 
+    #[cfg(any(target_os = "windows", target_os = "linux", test))]
+    fn take_suspended_at(&self) -> Option<std::time::SystemTime> {
+        self.suspended_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
+    /// No reader here says when the system sleeps.
+    #[cfg(not(any(target_os = "windows", target_os = "linux", test)))]
+    fn take_suspended_at(&self) -> Option<std::time::SystemTime> {
+        None
+    }
+
     /// Queues the event `make` builds and waits up to `timeout` for the app
     /// to answer it.
     #[cfg(any(target_os = "windows", target_os = "linux", test))]
     fn push_and_wait(&self, make: impl FnOnce(Ack) -> Event, timeout: Duration) {
         let ack = Ack::default();
-        self.push(make(ack.clone()));
+        let event = make(ack.clone());
+        if matches!(event, Event::Suspending(_)) {
+            // The app's logic pass may not run in time while the display
+            // goes off, so the time is taken here, and what cannot wait for
+            // it (pausing the music) starts here too.
+            *self
+                .suspended_at
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(std::time::SystemTime::now());
+            if let Some(hook) = &*self
+                .on_suspending
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+            {
+                hook();
+            }
+        }
+        self.push(event);
         if !ack.wait(timeout) {
             log::warn!("power and session: the app did not answer within {timeout:?}");
         }
@@ -253,6 +304,30 @@ impl Power {
             .conditions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Has the reader run `hook` itself as the system is about to sleep,
+    /// before the app's logic pass gets to the event, which it may not do
+    /// in time while the display goes off. For work that must not wait,
+    /// such as pausing the music.
+    pub fn on_suspending(&self, hook: impl Fn() + Send + Sync + 'static) {
+        #[cfg(any(target_os = "windows", target_os = "linux", test))]
+        {
+            *self
+                .shared
+                .on_suspending
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(Box::new(hook));
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux", test)))]
+        let _ = hook;
+    }
+
+    /// When the system last said it was going to sleep, taken once. The
+    /// reader notes it as the system says so, however late the app's logic
+    /// pass reads the event.
+    pub fn take_suspended_at(&self) -> Option<std::time::SystemTime> {
+        self.shared.take_suspended_at()
     }
 
     /// The events since the last call, oldest first.
@@ -384,6 +459,28 @@ mod tests {
             .shared
             .push_and_wait(Event::EndingSession, Duration::from_millis(30));
         assert!(started.elapsed() >= Duration::from_millis(25), "gave up");
+    }
+
+    /// The reader starts what must not wait for the app, and notes when the
+    /// system went to sleep, before it waits for the answer; a session that
+    /// is ending runs neither.
+    #[test]
+    fn going_to_sleep_starts_at_once_on_the_reader() {
+        let power = Power::fixed(Conditions::default());
+        let paused = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let count = Arc::clone(&paused);
+        power.on_suspending(move || {
+            count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        });
+        let quick = Duration::from_millis(10);
+        power.shared.push_and_wait(Event::EndingSession, quick);
+        assert_eq!(paused.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert!(power.take_suspended_at().is_none());
+
+        power.shared.push_and_wait(Event::Suspending, quick);
+        assert_eq!(paused.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert!(power.take_suspended_at().is_some());
+        assert!(power.take_suspended_at().is_none(), "taken once");
     }
 
     #[test]

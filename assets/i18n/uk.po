@@ -3191,6 +3191,10 @@ msgstr ""
 "У Wayland використовуйте комбінацію клавіш або правило вікна «Поверх інших» "
 "вашого робочого середовища."
 
+#: src/app.rs:2315
+msgid "No internet connection"
+msgstr "Немає з’єднання з інтернетом"
+
 #: src/window.rs:32
 msgid "Spotifast cannot open its window"
 msgstr "Spotifast не може відкрити своє вікно"

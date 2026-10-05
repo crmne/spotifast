@@ -3178,6 +3178,10 @@ msgstr ""
 "Nutze unter Wayland das Tastenkürzel „Immer im Vordergrund“ oder eine "
 "Fensterregel deines Desktops."
 
+#: src/app.rs:2315
+msgid "No internet connection"
+msgstr "Keine Internetverbindung"
+
 #: src/window.rs:32
 msgid "Spotifast cannot open its window"
 msgstr "Spotifast kann sein Fenster nicht öffnen"
