@@ -7,7 +7,8 @@ Rust with [egui](https://github.com/emilk/egui). It plays music through
 It runs on Linux, macOS, and Windows.
 
 Switching songs clears held audio from the previous song, including during
-a silent intro. Natural track transitions remain gapless.
+a silent intro. Natural track transitions remain gapless. The player bar's
+volume slider responds on press, without waiting for pointer movement.
 
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast.

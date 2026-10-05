@@ -2572,7 +2572,8 @@ pub fn thin_slider(
         .interact_pointer_pos()
         .map(|pos| ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0));
     let mut event = SliderEvent::None;
-    if (response.drag_started() || response.dragged())
+    // Preview on press, before egui's click-or-drag movement threshold.
+    if (response.is_pointer_button_down_on() || response.drag_started() || response.dragged())
         && let Some(v) = pointer_value
     {
         ui.data_mut(|data| data.insert_temp(id, v));
@@ -2585,6 +2586,7 @@ pub fn thin_slider(
     } else if response.clicked()
         && let Some(v) = pointer_value
     {
+        ui.data_mut(|data| data.remove::<f32>(id));
         event = SliderEvent::Committed(v);
     }
     if let Some(step) = wheel_step
@@ -3432,6 +3434,53 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    #[test]
+    fn thin_slider_responds_on_press_and_commits_without_movement() {
+        for enabled in [true, false] {
+            let ctx = egui::Context::default();
+            let id = egui::Id::new("press-slider");
+            let size = vec2(300.0, 100.0);
+            let clip = Rect::from_min_size(pos2(0.0, 0.0), size);
+            let frame = |events| {
+                let mut event = SliderEvent::None;
+                run_on(&ctx, size, clip, events, |ui| {
+                    ui.add_enabled_ui(enabled, |ui| {
+                        event =
+                            thin_slider(ui, &Palette::dark(), id, "Volume", 0.2, 100.0, Some(0.05));
+                    });
+                });
+                event
+            };
+            frame(Vec::new());
+            let rect = ctx.read_response(id).unwrap().rect;
+            let pos = pos2(rect.left() + rect.width() * 0.75, rect.center().y);
+            let button = |pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            let pressed = frame(vec![egui::Event::PointerMoved(pos), button(true)]);
+            if enabled {
+                assert!(
+                    matches!(pressed, SliderEvent::Dragging(v) if (v - 0.75).abs() < 0.001),
+                    "the initial press must preview volume without any mouse movement"
+                );
+            } else {
+                assert!(matches!(pressed, SliderEvent::None));
+            }
+            let released = frame(vec![button(false)]);
+            if enabled {
+                assert!(matches!(released, SliderEvent::Committed(v) if (v - 0.75).abs() < 0.001));
+                assert!(ctx.data(|data| data.get_temp::<f32>(id)).is_none());
+                // A quick click can arrive entirely within one frame.
+                let clicked = frame(vec![button(true), button(false)]);
+                assert!(matches!(clicked, SliderEvent::Committed(v) if (v - 0.75).abs() < 0.001));
+            } else {
+                assert!(matches!(released, SliderEvent::None));
+            }
+        }
+    }
     fn run(size: Vec2, clip: Rect, events: Vec<egui::Event>, f: impl FnMut(&mut Ui)) {
         run_on(&egui::Context::default(), size, clip, events, f);
     }
