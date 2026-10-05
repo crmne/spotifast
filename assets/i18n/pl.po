@@ -3182,6 +3182,14 @@ msgstr ""
 "W Wayland użyj skrótu lub reguły okna „Zawsze na wierzchu” w swoim "
 "środowisku."
 
+#: src/window.rs:32
+msgid "Spotifast cannot open its window"
+msgstr "Spotifast nie może otworzyć okna"
+
+#: src/window.rs:35
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr "W systemie Windows na ARM OpenGL, którego Spotifast używa do rysowania, pochodzi z pakietu OpenCL, OpenGL & Vulkan Compatibility Pack firmy Microsoft. Otworzyć jego stronę w Microsoft Store, aby go zainstalować lub naprawić?"
+
 #~ msgid "MacBook notch interactive widget"
 #~ msgstr "Interaktywny widżet wycięcia w MacBooku"
 

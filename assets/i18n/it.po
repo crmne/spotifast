@@ -3170,6 +3170,14 @@ msgstr ""
 "Su Wayland, usa la scorciatoia o la regola della finestra “Mantieni sopra” "
 "del tuo desktop."
 
+#: src/window.rs:32
+msgid "Spotifast cannot open its window"
+msgstr "Spotifast non riesce ad aprire la finestra"
+
+#: src/window.rs:35
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr "Su Windows on ARM, l’OpenGL con cui Spotifast disegna proviene dall’OpenCL, OpenGL & Vulkan Compatibility Pack di Microsoft. Aprire la sua pagina nel Microsoft Store per installarlo o ripararlo?"
+
 #~ msgid "MacBook notch interactive widget"
 #~ msgstr "Widget interattivo per la tacca del MacBook"
 

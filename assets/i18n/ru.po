@@ -3177,6 +3177,14 @@ msgstr ""
 "В Wayland используй сочетание клавиш или правило окна «Поверх других окон» "
 "своего окружения."
 
+#: src/window.rs:32
+msgid "Spotifast cannot open its window"
+msgstr "Spotifast не может открыть окно"
+
+#: src/window.rs:35
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr "В Windows на ARM OpenGL, с помощью которого рисует Spotifast, предоставляет пакет Microsoft OpenCL, OpenGL & Vulkan Compatibility Pack. Открыть его страницу в Microsoft Store, чтобы установить или восстановить его?"
+
 #~ msgid "MacBook notch interactive widget"
 #~ msgstr "Интерактивный виджет для выреза MacBook"
 

@@ -3163,3 +3163,11 @@ msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
 msgstr ""
 "Wayland'de masaüstünüzün \"Üstte Tut\" kısayolunu veya pencere kuralını "
 "kullanın."
+
+#: src/window.rs:32
+msgid "Spotifast cannot open its window"
+msgstr "Spotifast penceresini açamıyor"
+
+#: src/window.rs:35
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr "ARM üzerinde Windows'ta Spotifast'in çizim için kullandığı OpenGL, Microsoft'un OpenCL, OpenGL & Vulkan Compatibility Pack paketinden gelir. Yüklemek veya onarmak için Microsoft Store sayfası açılsın mı?"

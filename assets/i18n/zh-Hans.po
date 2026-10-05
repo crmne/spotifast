@@ -3056,6 +3056,14 @@ msgstr "晚上好"
 msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
 msgstr "在 Wayland 上，请使用桌面环境的“保持在最上层”快捷键或窗口规则。"
 
+#: src/window.rs:32
+msgid "Spotifast cannot open its window"
+msgstr "Spotifast 无法打开窗口"
+
+#: src/window.rs:35
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr "在 ARM 版 Windows 上，Spotifast 用于绘制界面的 OpenGL 由 Microsoft 的 OpenCL, OpenGL & Vulkan Compatibility Pack 提供。要打开其 Microsoft Store 页面以安装或修复吗？"
+
 #~ msgid "MacBook notch interactive widget"
 #~ msgstr "MacBook刘海交互式小组件"
 

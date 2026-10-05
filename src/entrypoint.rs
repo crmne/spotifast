@@ -550,6 +550,8 @@ pub(crate) fn run() -> eframe::Result<()> {
             #[cfg(feature = "demo")]
             let creator_shot = shot.clone();
             let mini = lease.peek(MiniWindow::wanted);
+            #[cfg(all(windows, target_arch = "aarch64"))]
+            let locale = lease.peek(|app| app.locale);
             #[cfg(feature = "demo")]
             let options = {
                 let options = native_options(
@@ -652,7 +654,18 @@ pub(crate) fn run() -> eframe::Result<()> {
                     }))
                 }),
             )
-            .inspect_err(|error| log::error!("Native window failed: {error}"))
+            .inspect_err(|error| {
+                log::error!("Native window failed: {error}");
+                #[cfg(all(windows, target_arch = "aarch64"))]
+                if matches!(
+                    error,
+                    eframe::Error::Glutin(_)
+                        | eframe::Error::NoGlutinConfigs(..)
+                        | eframe::Error::OpenGL(_)
+                ) {
+                    spotifast::window::report_missing_opengl(locale);
+                }
+            })
         })
 }
 

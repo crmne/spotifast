@@ -3134,6 +3134,14 @@ msgstr ""
 "Waylandでは、デスクトップの「常に手前に表示」ショートカットかウインドウルール"
 "を使ってください。"
 
+#: src/window.rs:32
+msgid "Spotifast cannot open its window"
+msgstr "Spotifast のウィンドウを開けません"
+
+#: src/window.rs:35
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr "Windows on ARM では、Spotifast の描画に使う OpenGL は Microsoft の OpenCL, OpenGL & Vulkan Compatibility Pack から提供されます。インストールまたは修復するために Microsoft Store のページを開きますか？"
+
 #~ msgid "MacBook notch interactive widget"
 #~ msgstr "MacBookノッチ対話型ウィジェット"
 
