@@ -32,6 +32,8 @@ use fastframe_now_playing::{
 
 const REMOTE_POLL_ACTIVE: Duration = Duration::from_secs(4);
 const REMOTE_POLL_IDLE: Duration = Duration::from_secs(20);
+/// With nobody able to see the window and nothing playing anywhere.
+const REMOTE_POLL_UNSEEN: Duration = Duration::from_secs(30);
 const REMOTE_FRESH: Duration = Duration::from_secs(45);
 const DEVICES_FRESH: Duration = Duration::from_secs(12);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
@@ -794,7 +796,7 @@ impl App {
             local_playback: LocalPlayback::Unavailable,
             local: LocalState::default(),
             remote: None,
-            remote_polled_at: Instant::now() - REMOTE_POLL_IDLE,
+            remote_polled_at: Instant::now() - REMOTE_POLL_UNSEEN,
             remote_poll_pending: false,
             remote_poll_seq: 0,
             session_dirty: false,
@@ -2792,10 +2794,7 @@ impl App {
         }
 
         if self.is_connected() && !self.offline {
-            let interval = match self.target() {
-                Target::Local if self.local.is_active() => REMOTE_POLL_IDLE,
-                _ => REMOTE_POLL_ACTIVE,
-            };
+            let interval = self.connected_repaint_interval();
             if !self.remote_poll_pending && self.remote_polled_at.elapsed() >= interval {
                 self.poll_remote(false);
             }
@@ -6270,8 +6269,11 @@ impl App {
         }
     }
 
+    /// Makes the next poll due within 700 ms, whatever the interval: it
+    /// counts back from the longest one, so a window hidden meanwhile does
+    /// not put a follow-up poll off.
     fn poll_remote_soon(&mut self) {
-        self.remote_polled_at = Instant::now() - REMOTE_POLL_IDLE + Duration::from_millis(700);
+        self.remote_polled_at = Instant::now() - REMOTE_POLL_UNSEEN + Duration::from_millis(700);
     }
 
     // ---- navigation ------------------------------------------------------------
@@ -9991,9 +9993,15 @@ impl App {
     /// the UI deadline. While a track is playing, the 250ms progress refresh
     /// still wins, so the saving is idle-local frames: 4s -> 20s, 80% fewer
     /// wakeups when paused on this device.
+    ///
+    /// With nobody able to see the window and nothing playing anywhere, the
+    /// poll only keeps a hidden device list fresh, so it runs every 30s.
     fn connected_repaint_interval(&self) -> Duration {
+        let unseen = self.budget == crate::power::Budget::Background
+            && !self.now_playing().is_some_and(|now| now.playing);
         match self.target() {
             Target::Local if self.local.is_active() => REMOTE_POLL_IDLE,
+            _ if unseen => REMOTE_POLL_UNSEEN,
             _ => REMOTE_POLL_ACTIVE,
         }
     }
@@ -18070,6 +18078,31 @@ mod tests {
             REMOTE_POLL_IDLE,
             "paused local UI wait is 20s (already the API interval); 4s was only a tighter wake-up"
         );
+    }
+
+    /// Nobody can see the window and nothing plays: the poll slows to 30s.
+    /// Music playing anywhere keeps it at its usual pace, for the media
+    /// controls.
+    #[test]
+    fn an_unseen_idle_window_polls_less_often() {
+        let mut app = headless_app();
+        app.budget = crate::power::Budget::Background;
+        assert_eq!(app.connected_repaint_interval(), REMOTE_POLL_UNSEEN);
+        app.budget = crate::power::Budget::Saver;
+        assert_eq!(app.connected_repaint_interval(), REMOTE_POLL_ACTIVE);
+    }
+
+    /// A poll asked for soon, after a transfer or a remote command, stays
+    /// soon while nobody can see the window.
+    #[test]
+    fn a_poll_asked_for_soon_is_not_put_off_while_unseen() {
+        let mut app = headless_app();
+        app.budget = crate::power::Budget::Background;
+        app.poll_remote_soon();
+        let due_in = app
+            .connected_repaint_interval()
+            .saturating_sub(app.remote_polled_at.elapsed());
+        assert!(due_in <= Duration::from_millis(700), "due in {due_in:?}");
     }
 
     #[test]
