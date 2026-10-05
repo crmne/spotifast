@@ -81,6 +81,11 @@ librespot provides:
   computer.
 - Shuffle, repeat, seek, and volume.
 - Songs and podcast episodes.
+- **Local files**: MP3, MP4, M4P, and FLAC files in the folders set in
+  Settings play when a playlist reaches them on this computer, and from the
+  Local Files page in the library. Spotify cannot describe these files to
+  other devices, so they play on this computer only; a queue or device
+  transfer skips them there.
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 
@@ -102,9 +107,6 @@ The Web API and librespot do not provide these features:
 - **Lossless audio.** librespot does not receive lossless streams. Spotifast
   will reconsider this if librespot gains lawful support, but it will not
   bypass Spotify's DRM.
-- **Local files.** librespot only streams Spotify's catalogue. It cannot fetch
-  audio for a `spotify:local:` entry. Playing files from disk would require a
-  separate player. See [issue #3](https://github.com/crmne/spotifast/issues/3).
 - **Audiobooks.** librespot does not play them. Spotify lists some
   audiobooks among saved shows; since 0.10.0, Spotifast asks the
   librespot session which ones and leaves them out of the Podcasts shelf.

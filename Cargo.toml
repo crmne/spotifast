@@ -126,6 +126,17 @@ protobuf = "3"
 # build aborts on panic, so it is left out. rodio supplies the mixer and the
 # queue only; fastframe-audio below owns the device stream.
 rodio = { version = "0.21", default-features = false }
+# Local-files indexing: symphonia is already in the tree via rodio and
+# librespot-playback, and librespot's own local-file lookup uses symphonia
+# for tags + duration. We must derive `spotify:local:` URIs byte-for-byte the
+# same way librespot does, so we use the same probe stack rather than a second
+# metadata reader. Format features are minimal: mp3 + flac + isomp4 (covers
+# .mp3, .flac, .mp4, .m4p). No codec/decoding features are needed because we
+# only read metadata and frame counts.
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "isomp4"] }
+# librespot's `spotify:local:` URI key percent-encodes tag fields with the
+# url crate's serializer; matching it byte-for-byte takes the same encoder.
+form_urlencoded = "1"
 # `socks` is SOCKS5 proxy support for the Web API, artwork, lyrics, and
 # update checks. HTTP proxies work without it. `system-proxy` reads the OS
 # proxy on macOS and Windows when the mode is System; Linux uses environment

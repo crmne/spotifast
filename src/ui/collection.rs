@@ -177,21 +177,30 @@ pub fn actions_row(
     let locale = app.locale;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
-        if let Some(uri) = &actions.play_uri {
-            let now_playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
-                && app.believed_playing();
+        // A page with no Spotify context of its own, Local Files, still gets
+        // the big Play button from its view alone; it cannot pause this way,
+        // because nothing identifies the page as the playing context.
+        if actions.play_uri.is_some() || actions.view.is_some() {
+            let uri = actions.play_uri.as_deref();
+            let now_playing_here = uri.is_some_and(|uri| {
+                app.playing_context_uri().as_deref() == Some(uri) && app.believed_playing()
+            });
             let is_filtered = filter.as_ref().is_some_and(|f| !f.trim().is_empty());
             // A radio is mixed afresh each time Spotify is asked, so it
-            // always plays the songs on screen.
+            // always plays the songs on screen. A page without a context URI
+            // has nothing but its view to play.
             let play_view = actions.view.is_some()
-                && (!app.playing_context_shuffle() || is_filtered || actions.save_radio.is_some());
+                && (uri.is_none()
+                    || !app.playing_context_shuffle()
+                    || is_filtered
+                    || actions.save_radio.is_some());
             let can_start = actions.view.as_ref().is_none_or(|uris| !uris.is_empty());
             let icon = if now_playing_here {
                 Icon::PauseFilled
             } else {
                 Icon::PlayFilled
             };
-            if app.play_pending(uri) {
+            if uri.is_some_and(|uri| app.play_pending(uri)) {
                 theme::circle_spinner(
                     ui,
                     56.0,
@@ -224,20 +233,27 @@ pub fn actions_row(
                 } else if let Some(uris) = actions.view.clone()
                     && play_view
                 {
-                    app.actions.push(Action::PlayFromRow {
-                        context: RowContext::View {
-                            uris: Arc::clone(&uris),
-                            context_uri: uri.clone(),
-                            // Header playback needs no edit rights; row
-                            // menus carry theirs via the table conversion.
-                            editable_playlist: None,
-                        },
-                        uri: String::new(),
-                        index: 0,
-                    });
-                } else {
+                    match uri {
+                        Some(uri) => app.actions.push(Action::PlayFromRow {
+                            context: RowContext::View {
+                                uris: Arc::clone(&uris),
+                                context_uri: uri.to_string(),
+                                // Header playback needs no edit rights; row
+                                // menus carry theirs via the table conversion.
+                                editable_playlist: None,
+                            },
+                            uri: String::new(),
+                            index: 0,
+                        }),
+                        None => app.actions.push(Action::PlayFromRow {
+                            context: RowContext::Uris(Arc::clone(&uris)),
+                            uri: String::new(),
+                            index: 0,
+                        }),
+                    }
+                } else if let Some(uri) = uri {
                     app.actions.push(Action::PlayContext {
-                        uri: uri.clone(),
+                        uri: uri.to_string(),
                         offset_uri: None,
                         offset_index: None,
                     });
@@ -403,6 +419,9 @@ pub struct TableCache {
     pub needle: String,
     pub items_revision: u64,
     pub user_names_revision: u64,
+    /// Whether local-file rows were playable when the view was built, so a
+    /// device switch or folder change rebuilds it.
+    pub local_playable: bool,
     pub visible: Arc<[usize]>,
     pub view_uris: Option<Arc<[String]>>,
     /// Playback positions for visible rows; unavailable rows have no position.
@@ -494,11 +513,14 @@ pub fn prepare_table_view(
     let cache_id = egui::Id::new("table-view-cache").with(page);
     let cached = ui.data(|d| d.get_temp::<Arc<TableCache>>(cache_id));
 
+    let local_playable = !app.settings.local_folders.is_empty()
+        && !matches!(app.target(), crate::app::Target::Remote(Some(_)));
     let is_valid = cached.as_ref().is_some_and(|c| {
         c.sort == sort
             && c.needle == needle
             && c.items_revision == items_revision
             && c.user_names_revision == app.user_names_revision
+            && c.local_playable == local_playable
     });
 
     if let Some(entry) = cached.filter(|_| is_valid) {
@@ -510,7 +532,7 @@ pub fn prepare_table_view(
             let mut uris = Vec::new();
             for &index in &visible {
                 let item = &items[index].0;
-                view_positions.push(widgets::row_playable(item).then(|| {
+                view_positions.push(widgets::row_playable_here(app, item).then(|| {
                     let position = uris.len();
                     uris.push(item.uri().to_string());
                     position
@@ -523,6 +545,7 @@ pub fn prepare_table_view(
             needle: needle.to_string(),
             items_revision,
             user_names_revision: app.user_names_revision,
+            local_playable,
             visible: visible.into(),
             view_uris,
             view_positions: view_positions.into(),
@@ -1951,6 +1974,178 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
     );
 }
 
+pub fn local_files(app: &mut App, ui: &mut egui::Ui) {
+    let locale = app.locale;
+    let palette = app.palette;
+    let title = gettext(locale, "Local Files");
+    if app.settings.local_folders.is_empty() {
+        hero(
+            app,
+            ui,
+            Hero {
+                images: HeroImages::default(),
+                liked: false,
+                kind: gettext(locale, "Collection"),
+                title: &title,
+                description: None,
+                byline: Vec::new(),
+                round: false,
+            },
+        );
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::Music,
+            &title,
+            &gettext(
+                locale,
+                "Choose folders in Settings and their MP3, MP4, M4P and FLAC files appear here.",
+            ),
+        );
+        if theme::soft_button(
+            ui,
+            &palette,
+            Some(Icon::Settings),
+            &gettext(locale, "Open Settings"),
+            false,
+        )
+        .clicked()
+        {
+            app.actions.push(Action::Open(Page::Settings));
+        }
+        return;
+    }
+    let revision = app.local_files_revision;
+    let files = app.local_index.clone().unwrap_or_default();
+    let items = cached_table_items(app, Page::LocalFiles, 0, revision, 0, || {
+        files
+            .files
+            .iter()
+            .map(|file| {
+                (
+                    PlayableItem::Track(crate::api::models::Track {
+                        id: None,
+                        name: file.title.clone(),
+                        uri: file.uri.clone(),
+                        duration_ms: file.duration_ms,
+                        is_local: true,
+                        artists: if file.artist.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![crate::api::models::ArtistRef {
+                                id: None,
+                                name: file.artist.clone(),
+                                uri: None,
+                            }]
+                        },
+                        album: if file.album.is_empty() {
+                            None
+                        } else {
+                            Some(crate::api::models::Album {
+                                name: file.album.clone(),
+                                ..Default::default()
+                            })
+                        },
+                        ..Default::default()
+                    }),
+                    None,
+                    None,
+                )
+            })
+            .collect()
+    });
+    let total = u32::try_from(items.len()).unwrap_or(u32::MAX);
+    let count_text = if app.local_files_scanning && items.is_empty() {
+        gettext(locale, "Scanning…").into_owned()
+    } else {
+        songs_and_duration(locale, total, total_duration(&items))
+    };
+    hero(
+        app,
+        ui,
+        Hero {
+            images: HeroImages::default(),
+            liked: false,
+            kind: gettext(locale, "Collection"),
+            title: &title,
+            description: None,
+            byline: vec![(count_text, None)],
+            round: false,
+        },
+    );
+    let filter_id = egui::Id::new("local-files-filter");
+    let mut filter = ui
+        .data(|data| data.get_temp::<String>(filter_id))
+        .unwrap_or_default();
+    let needle = filter.trim().to_lowercase();
+    let sort = app.table_sorts.get(&Page::LocalFiles).copied();
+    let table_view =
+        prepare_table_view(ui, app, &Page::LocalFiles, &items, &needle, sort, revision);
+    let uris: Arc<[String]> = items
+        .iter()
+        .map(|(item, _, _)| item.uri().to_string())
+        .collect::<Vec<_>>()
+        .into();
+    let view = Some(match table_view.view_uris.as_ref() {
+        Some(view_uris) => Arc::clone(view_uris),
+        None => Arc::clone(&uris),
+    });
+    actions_row(
+        app,
+        ui,
+        Actions {
+            play_uri: None,
+            view,
+            saved: None,
+            saved_icons: (Icon::Heart, Icon::HeartFilled),
+            saved_tooltips: Default::default(),
+            owned_playlist: None,
+            reload: None,
+            name: &title,
+            save_radio: None,
+        },
+        Some(&mut filter),
+    );
+    ui.data_mut(|data| data.insert_temp(filter_id, filter.clone()));
+    if let Some(0) = app.local_files_count
+        && items.is_empty()
+        && !app.local_files_scanning
+    {
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::Music,
+            &gettext(locale, "No audio files found"),
+            &gettext(
+                locale,
+                "None of the chosen folders holds an MP3, MP4, M4P or FLAC file.",
+            ),
+        );
+        return;
+    }
+    let loading = app.local_files_scanning && items.is_empty();
+    table(
+        app,
+        ui,
+        Table {
+            items: &items,
+            row_offset: 0,
+            pagination: None,
+            context: RowContext::Uris(uris),
+            show_album: true,
+            show_cover: true,
+            show_added: false,
+            show_added_by: false,
+            page: Page::LocalFiles,
+            loading,
+            error: None,
+            can_load_more: false,
+            filter: &filter,
+            items_revision: revision,
+        },
+    );
+}
+
 /// `1,234 songs` in a playlist, album or Liked Songs byline.
 fn song_count(locale: Locale, count: u32) -> String {
     ngettext(
@@ -2548,6 +2743,7 @@ mod tests {
             needle: "desp".to_string(),
             items_revision: 5,
             user_names_revision: 2,
+            local_playable: false,
             visible: Arc::new([2]),
             view_uris: Some(Arc::new(["spotify:track:t_2".to_string()])),
             view_positions: Arc::new([Some(0)]),

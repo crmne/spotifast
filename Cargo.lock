@@ -2692,7 +2692,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -5868,6 +5868,7 @@ dependencies = [
  "fastframe-tray",
  "fastframe-update",
  "flate2",
+ "form_urlencoded",
  "glutin",
  "glutin-winit",
  "hmac 0.12.1",
@@ -5903,6 +5904,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "skrifa",
+ "symphonia",
  "thiserror 2.0.20",
  "tiny-skia",
  "tokio",
@@ -5971,6 +5973,7 @@ dependencies = [
  "symphonia-bundle-mp3",
  "symphonia-codec-vorbis",
  "symphonia-core",
+ "symphonia-format-isomp4",
  "symphonia-format-ogg",
  "symphonia-metadata",
 ]
@@ -6021,6 +6024,19 @@ dependencies = [
  "bytemuck",
  "lazy_static",
  "log",
+]
+
+[[package]]
+name = "symphonia-format-isomp4"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "243739585d11f81daf8dac8d9f3d18cc7898f6c09a259675fc364b382c30e0a5"
+dependencies = [
+ "encoding_rs",
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+ "symphonia-utils-xiph",
 ]
 
 [[package]]

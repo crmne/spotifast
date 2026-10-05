@@ -23,6 +23,10 @@ current release.
 - **Settings and history.** Settings, window positions, recent plays, the
   last session, skins, themes and MilkDrop presets live in the config
   directory.
+- **Local files.** The audio files you point Spotifast at are read from disk
+  and played locally. The index of their tags lives in the state directory as
+  `local-files-index.json`. Nothing about them is sent anywhere; Spotify
+  learns only the `spotify:local:` URIs a playlist already held.
 - **Caches.** Downloaded audio, artwork, lyrics and library metadata live in
   the cache directory and can be deleted at any time.
 - **Log.** `spotifast.log` records errors and diagnostics. It stays on your

@@ -795,6 +795,140 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
     }
 
+    let local_files = gettext(locale, "Local files");
+    let folders_row = gettext(locale, "Local file folders");
+    let music_library = gettext(locale, "Music Library");
+    let downloads = gettext(locale, "Downloads");
+    let rescan_row = gettext(locale, "Rescan folders");
+    let scan_detail = if app.local_files_scanning {
+        gettext(locale, "Scanning…").to_string()
+    } else if let Some(count) = app.local_files_count {
+        ngettext(
+            locale,
+            // Translators: {count} is the number of indexed local files.
+            "{count} file indexed",
+            "{count} files indexed",
+            count as u32,
+        )
+        .replace("{count}", &count.to_string())
+    } else {
+        gettext(locale, "Not scanned yet.").to_string()
+    };
+    let local_rows = [
+        RowText::new(
+            folders_row.clone(),
+            gettext(
+                locale,
+                "MP3, MP4, M4P and FLAC files in these folders can play in your playlists and from Local Files.",
+            ),
+        ),
+        RowText::new(music_library.clone(), ""),
+        RowText::new(downloads.clone(), ""),
+        RowText::new(
+            rescan_row.clone(),
+            gettext(
+                locale,
+                "Read the folders again to pick up new, changed, or removed files.",
+            ),
+        ),
+    ];
+    if section_matches(&needle, &local_files, &local_rows) {
+        any_visible = true;
+        section(ui, &palette, &local_files, |ui| {
+            filtered_row(ui, &palette, &needle, &local_files, &local_rows[0], |ui| {
+                if theme::soft_button(
+                    ui,
+                    &palette,
+                    Some(Icon::Plus),
+                    &gettext(locale, "Add folder"),
+                    false,
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::AddLocalFolder);
+                }
+            });
+            // Quick picks for the folders this computer's OS keeps music in
+            // by default. They hold no state of their own: a switch adds or
+            // removes the path from the folder list, so the one list still
+            // drives the scan, and a folder a quick pick covers stops showing
+            // its own row so the two never fight over it.
+            let mut picks: Vec<(usize, std::borrow::Cow<'_, str>, std::path::PathBuf)> = Vec::new();
+            if let Some(user_dirs) = directories::UserDirs::new() {
+                for (row_index, label, dir) in [
+                    (1usize, music_library.clone(), user_dirs.audio_dir()),
+                    (2, downloads.clone(), user_dirs.download_dir()),
+                ] {
+                    let Some(dir) = dir else { continue };
+                    if picks.iter().any(|(_, _, seen)| seen.as_path() == dir) {
+                        continue;
+                    }
+                    picks.push((row_index, label, dir.to_path_buf()));
+                }
+            }
+            for (row_index, label, dir) in &picks {
+                if !local_rows[*row_index].matches(&needle, &local_files) {
+                    continue;
+                }
+                let mut on = app
+                    .settings
+                    .local_folders
+                    .iter()
+                    .any(|folder| std::path::Path::new(folder) == dir.as_path());
+                ui.horizontal(|ui| {
+                    ui.add_space(20.0);
+                    theme::text(ui, label.as_ref(), theme::regular(14.0), palette.secondary);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if widgets::switch(ui, &palette, label.as_ref(), &mut on).changed() {
+                            app.settings.toggle_local_folder(dir);
+                            changed = true;
+                            app.actions.push(Action::RestartEngine);
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+            }
+            if local_rows[0].matches(&needle, &local_files) {
+                for (index, folder) in app.settings.local_folders.clone().iter().enumerate() {
+                    if picks
+                        .iter()
+                        .any(|(_, _, dir)| std::path::Path::new(folder) == dir.as_path())
+                    {
+                        continue;
+                    }
+                    ui.horizontal(|ui| {
+                        ui.add_space(20.0);
+                        theme::text(ui, folder, theme::regular(14.0), palette.secondary);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if theme::soft_button(
+                                ui,
+                                &palette,
+                                Some(Icon::Trash),
+                                &gettext(locale, "Remove"),
+                                false,
+                            )
+                            .clicked()
+                            {
+                                app.settings.local_folders.remove(index);
+                                changed = true;
+                                app.actions.push(Action::RestartEngine);
+                            }
+                        });
+                    });
+                    ui.add_space(4.0);
+                }
+            }
+            filtered_row(ui, &palette, &needle, &local_files, &local_rows[3], |ui| {
+                let enabled = !app.settings.local_folders.is_empty() && !app.local_files_scanning;
+                if theme::pill_button(ui, &palette, &gettext(locale, "Rescan"), enabled).clicked() {
+                    app.actions.push(Action::RescanLocalFiles);
+                }
+                ui.add_space(6.0);
+                theme::subtle(ui, &palette, &scan_detail);
+            });
+        });
+    }
+
     let appearance = gettext(locale, "Appearance");
     let theme_title = gettext(locale, "Theme");
     let theme_guide = gettext(locale, "How to make a theme");

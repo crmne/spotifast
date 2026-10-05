@@ -39,6 +39,8 @@ impl Entry {
     fn ordering_key(&self) -> &str {
         if self.liked {
             LIKED_SONGS_KEY
+        } else if self.page == Page::LocalFiles {
+            crate::settings::LOCAL_FILES_KEY
         } else {
             &self.uri
         }
@@ -321,6 +323,37 @@ fn liked_entry(app: &App) -> Entry {
         depth: 0,
         added_at: None,
     }
+}
+
+/// The Local Files row, present only once folders are set in Settings. It
+/// has no Spotify URI, so the play affordances that need one stay off.
+fn local_files_entry(app: &App) -> Option<Entry> {
+    if app.settings.local_folders.is_empty() {
+        return None;
+    }
+    let count = app
+        .local_files_count
+        .map(|count| u32::try_from(count).unwrap_or(u32::MAX));
+    Some(Entry {
+        image: None,
+        grid_image: None,
+        name: gettext(app.locale, "Local Files").into_owned(),
+        subtitle: count.map_or_else(
+            || gettext(app.locale, "Local Files").into_owned(),
+            |count| app.locale.song_count(count),
+        ),
+        grid_subtitle: count.map_or_else(String::new, |count| app.locale.song_count(count)),
+        page: Page::LocalFiles,
+        uri: String::new(),
+        round: false,
+        liked: false,
+        owned: false,
+        editable: false,
+        playlist_index: None,
+        folder: None,
+        depth: 0,
+        added_at: None,
+    })
 }
 
 pub(crate) fn selected_sort(app: &App, shelf: Filter) -> LibrarySort {
@@ -1035,6 +1068,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
             let liked = liked_entry(app);
             if needle.is_empty() || liked.name.to_lowercase().contains(&needle) {
                 entries.push(liked);
+            }
+            if let Some(local) = local_files_entry(app)
+                && (needle.is_empty() || local.name.to_lowercase().contains(&needle))
+            {
+                entries.push(local);
             }
             let show_folders = sort == LibrarySort::Spotify && needle.is_empty();
             if show_folders {

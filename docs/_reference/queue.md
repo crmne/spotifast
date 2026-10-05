@@ -37,8 +37,11 @@ never becomes the beginning. This keeps the full Spotify playlist context;
 the app does not replace it with a shortened list of loaded songs. A request
 waiting for local playback to reconnect keeps the song chosen at the click.
 
-Sorted and filtered views omit unavailable songs and local files from their
-playback requests. The displayed rows keep their positions, and selecting a
+Sorted and filtered views omit unavailable songs from their playback
+requests. Local files are omitted too, except when playback would run on
+this computer and local folders are set in Settings: then local rows join
+the request in displayed order. The displayed rows keep their positions,
+and selecting a
 repeated song starts that occurrence. A filtered playlist or Liked Songs view
 plays its matching songs in displayed order, including duplicates. An empty or entirely
 unplayable view disables Play instead of starting the unfiltered context.
@@ -71,6 +74,12 @@ not consume a queue row or restore an older queue saved on this computer.
    the songs you queued earlier and before the playlist's songs. Queue
    the same song twice and it plays twice. A double-click only counts
    once.
+
+   A local file queued on this computer goes straight to its player;
+   Spotify's queue never learns it, so its row stays until the song starts
+   or the file cannot load. Another device, or Spotify itself, cannot reach
+   the file: queueing there is refused instead of adding a row that would
+   never play.
 
    Since 0.9.0, an album's **Add to queue** adds its playable songs
    in album order, including repeated songs. This also works for singles and

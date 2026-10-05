@@ -55,6 +55,10 @@ pub struct EngineConfig {
     pub volume_dir: PathBuf,
     pub audio_cache_dir: Option<PathBuf>,
     pub audio_cache_limit: Option<u64>,
+    /// Folders scanned for local files, matched to `spotify:local:` URIs by
+    /// librespot's lookup, which is built when the player is created: folder
+    /// changes apply through an engine restart.
+    pub local_folders: Vec<PathBuf>,
     /// Output buffer length in milliseconds.
     pub buffer_ms: u32,
     pub tap: Arc<AudioTap>,
@@ -153,6 +157,9 @@ pub struct LocalTrack {
     pub art_small_url: Option<String>,
     pub duration_ms: u32,
     pub is_episode: bool,
+    /// The file a `spotify:local:` track plays from, for embedded cover art.
+    /// `None` for every Spotify item.
+    pub local_path: Option<PathBuf>,
 }
 
 impl LocalTrack {
@@ -346,6 +353,7 @@ impl Engine {
             // the tap can undo it for the visualisers: they show the music,
             // not the loudness housekeeping.
             normalisation_report: Some(Arc::clone(&normalisation_factor)),
+            local_file_directories: config.local_folders.clone(),
             ..PlayerConfig::default()
         };
 
@@ -560,7 +568,19 @@ impl Engine {
     }
 
     pub fn resume_point(&self) -> Option<PlaybackResume> {
-        if let Some(snapshot) = self.spirc.disconnected_playback() {
+        // A file from this computer is unknown to Spotify's servers, so a
+        // Connect snapshot that names it cannot be restored there (the
+        // server's connect-state write answers 400). Pick the file up with a
+        // plain load at its position instead, the same way playback of it
+        // started.
+        let playing_is_local = self
+            .state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .track
+            .as_ref()
+            .is_some_and(|track| uri_is_local_file(&track.uri));
+        if !playing_is_local && let Some(snapshot) = self.spirc.disconnected_playback() {
             return Some(PlaybackResume::Session(snapshot));
         }
         self.interrupted().map(|interrupted| {
@@ -653,6 +673,11 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+/// Whether a URI names a file on this computer rather than a Spotify item.
+fn uri_is_local_file(uri: &str) -> bool {
+    uri.starts_with("spotify:local:")
 }
 
 fn command_interrupts_audio(state: &LocalState, command: &PlayerCommand) -> bool {
@@ -919,7 +944,7 @@ fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
 }
 
 fn local_track(item: &AudioItem) -> LocalTrack {
-    let (artists, album, is_episode) = match &item.unique_fields {
+    let (artists, album, is_episode, local_path) = match &item.unique_fields {
         UniqueFields::Track { artists, album, .. } => (
             artists
                 .iter()
@@ -937,6 +962,7 @@ fn local_track(item: &AudioItem) -> LocalTrack {
                 .collect(),
             album.clone(),
             false,
+            None,
         ),
         UniqueFields::Episode { show_name, .. } => (
             vec![ArtistRef {
@@ -945,8 +971,14 @@ fn local_track(item: &AudioItem) -> LocalTrack {
             }],
             show_name.clone(),
             true,
+            None,
         ),
-        UniqueFields::Local { artists, album, .. } => (
+        UniqueFields::Local {
+            artists,
+            album,
+            path,
+            ..
+        } => (
             artists
                 .iter()
                 .map(|name| ArtistRef {
@@ -956,6 +988,7 @@ fn local_track(item: &AudioItem) -> LocalTrack {
                 .collect(),
             album.clone().unwrap_or_default(),
             false,
+            Some(path.clone()),
         ),
     };
     let mut covers: Vec<_> = item.covers.iter().collect();
@@ -976,6 +1009,7 @@ fn local_track(item: &AudioItem) -> LocalTrack {
         art_small_url,
         duration_ms: item.duration_ms,
         is_episode,
+        local_path,
     }
 }
 
@@ -1539,6 +1573,7 @@ mod tests {
             volume_dir: PathBuf::new(),
             audio_cache_dir: None,
             audio_cache_limit: None,
+            local_folders: Vec::new(),
             proxy: crate::settings::ProxyConfig::Off,
         };
         let id = config.device_id();
@@ -1579,5 +1614,17 @@ mod tests {
     fn an_engine_is_heard_at_the_level_set_last() {
         let set_here = 3276;
         assert_eq!(Heard::at(set_here).level(), set_here);
+    }
+
+    /// A track from this computer's disk cannot ride a Connect session
+    /// restore: the server's connect-state write rejects local URIs, so the
+    /// engine picks them back up with a plain load instead.
+    #[test]
+    fn local_files_are_classified_for_resume() {
+        assert!(uri_is_local_file("spotify:local:Artist:Album:Song:180"));
+        // A playlist entry can carry nothing but a duration.
+        assert!(uri_is_local_file("spotify:local::::112"));
+        assert!(!uri_is_local_file("spotify:track:5x6p9"));
+        assert!(!uri_is_local_file("spotify:episode:x"));
     }
 }

@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 /// Local Library identity only. Never sent to Spotify as a context URI.
 pub const LIKED_SONGS_KEY: &str = "spotifast:liked-songs";
 
+/// Local Files identity in the sidebar, like [`LIKED_SONGS_KEY`]. It sorts
+/// and pins, but is never sent to Spotify as a context URI.
+pub const LOCAL_FILES_KEY: &str = "spotifast:local-files";
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LibraryShelf {
@@ -312,6 +316,10 @@ pub struct Settings {
     /// Explicit order per Library shelf. Missing shelves keep their previous
     /// behaviour; selecting another order never deletes the local arrangement.
     pub library_sort: std::collections::BTreeMap<LibraryShelf, LibrarySort>,
+    /// Folders to scan for `spotify:local:` audio files. Older settings without
+    /// this key keep an empty list and leave local-files indexing disabled.
+    #[serde(default)]
+    pub local_folders: Vec<String>,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
     /// The Winamp window is open.
@@ -456,6 +464,7 @@ impl Default for Settings {
             liked_songs_pinned: true,
             sidebar_order: Vec::new(),
             library_sort: std::collections::BTreeMap::new(),
+            local_folders: Vec::new(),
             zoom: 1.0,
             winamp_window: false,
             winamp_show_taskbar: true,
@@ -499,6 +508,23 @@ fn default_buffer_ms() -> u32 {
 }
 
 impl Settings {
+    /// Adds `path` to the local file folders when it is not there, or removes
+    /// it when it is. The settings UI's quick picks (Music Library, Downloads)
+    /// are switches over this one list. Comparison goes through `Path`, so a
+    /// stored path with a trailing separator still counts as the same folder.
+    pub fn toggle_local_folder(&mut self, path: &std::path::Path) {
+        let position = self
+            .local_folders
+            .iter()
+            .position(|folder| std::path::Path::new(folder) == path);
+        match position {
+            Some(index) => {
+                self.local_folders.remove(index);
+            }
+            None => self.local_folders.push(path.to_string_lossy().into_owned()),
+        }
+    }
+
     pub(crate) fn cached_palette(&self) -> Option<crate::theme::Palette> {
         let theme = if self.custom_theme.is_some() {
             self.custom_theme_cache.as_ref()
@@ -1203,6 +1229,45 @@ mod tests {
         assert_eq!(PlayerBarVis::Off.next(), PlayerBarVis::Spectrum);
         assert_eq!(PlayerBarVis::Spectrum.next(), PlayerBarVis::Waveform);
         assert_eq!(PlayerBarVis::Waveform.next(), PlayerBarVis::Off);
+    }
+
+    #[test]
+    fn toggle_local_folder_adds_removes_and_matches_by_path() {
+        use std::path::Path;
+        let mut settings = Settings::default();
+        let music = Path::new(if cfg!(windows) {
+            r"C:\Users\Me\Music"
+        } else {
+            "/home/me/Music"
+        });
+        settings.toggle_local_folder(music);
+        assert_eq!(
+            settings.local_folders,
+            vec![music.to_string_lossy().into_owned()]
+        );
+        settings.toggle_local_folder(music);
+        assert!(settings.local_folders.is_empty());
+        // A stored path with a trailing separator is still the same folder.
+        settings.local_folders = vec![format!(
+            "{}{}",
+            music.to_string_lossy(),
+            std::path::MAIN_SEPARATOR
+        )];
+        settings.toggle_local_folder(music);
+        assert!(settings.local_folders.is_empty());
+    }
+
+    #[test]
+    fn local_folders_default_to_empty_and_round_trip() {
+        let older: Settings = serde_json::from_str("{}").unwrap();
+        assert!(older.local_folders.is_empty());
+        let settings = Settings {
+            local_folders: vec!["/home/user/Music".into(), "/media/music".into()],
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.local_folders, settings.local_folders);
     }
 
     #[test]
