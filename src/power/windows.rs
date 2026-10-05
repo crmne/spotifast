@@ -351,6 +351,127 @@ unsafe extern "system" fn on_network(context: *const c_void, hint: NL_NETWORK_CO
     });
 }
 
+/// What to do with the process's power throttling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Throttle {
+    /// Write this: on is EcoQoS, off hands the choice back to the system.
+    Write(bool),
+    /// Already as wanted.
+    Leave,
+    /// Someone else manages it (the Task Manager's efficiency mode, say):
+    /// stop touching it for the rest of the run.
+    GiveUp,
+}
+
+/// Decides, from what the app last wrote (`None`: nothing yet), the current
+/// setting (`None`: not controlled, the system decides) and whether the
+/// process runs at idle priority, how to get to `want`.
+fn throttle(written: Option<bool>, current: Option<bool>, idle: bool, want: bool) -> Throttle {
+    let expected = match written {
+        None => None,
+        Some(true) => Some(true),
+        Some(false) => None,
+    };
+    if idle || current != expected {
+        Throttle::GiveUp
+    } else if written.unwrap_or(false) == want {
+        Throttle::Leave
+    } else {
+        Throttle::Write(want)
+    }
+}
+
+/// Puts the process under EcoQoS while nobody can see its window, so the
+/// work it still does runs on efficient cores at efficient clocks. Microsoft
+/// asks not to throttle a window in the foreground. The audio thread keeps
+/// its place through MMCSS (fastframe-audio).
+/// <https://learn.microsoft.com/en-us/windows/win32/procthread/quality-of-service>
+#[derive(Debug, Default)]
+pub(super) struct EcoQos {
+    written: Option<bool>,
+    given_up: bool,
+}
+
+impl EcoQos {
+    pub(super) fn set(&mut self, eco: bool) {
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentProcess, GetPriorityClass, GetProcessInformation, IDLE_PRIORITY_CLASS,
+            PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetProcessInformation,
+        };
+        if self.given_up {
+            return;
+        }
+        let size = std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32;
+        let mut state = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ControlMask: 0,
+            StateMask: 0,
+        };
+        // SAFETY: the pseudo-handle needs no closing, and `state` is a valid
+        // PROCESS_POWER_THROTTLING_STATE of the size given.
+        let (read, idle) = unsafe {
+            let process = GetCurrentProcess();
+            let read = GetProcessInformation(
+                process,
+                ProcessPowerThrottling,
+                (&raw mut state).cast(),
+                size,
+            );
+            (read != 0, GetPriorityClass(process) == IDLE_PRIORITY_CLASS)
+        };
+        // A read or a write that fails gives nothing up: the next change
+        // tries again, so a process left under EcoQoS by a failed hand-back
+        // does not stay there in the foreground. Only someone else managing
+        // the setting makes the app stop touching it.
+        if !read {
+            log::debug!(
+                "power throttling unreadable: {}",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+        let speed = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+        let current = (state.ControlMask & speed != 0).then_some(state.StateMask & speed != 0);
+        match throttle(self.written, current, idle, eco) {
+            Throttle::Leave => {}
+            Throttle::GiveUp => {
+                log::info!("power throttling is managed elsewhere; leaving it alone");
+                self.given_up = true;
+            }
+            Throttle::Write(eco) => {
+                let mask = if eco { speed } else { 0 };
+                let state = PROCESS_POWER_THROTTLING_STATE {
+                    Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                    ControlMask: mask,
+                    StateMask: mask,
+                };
+                // SAFETY: as above.
+                let written = unsafe {
+                    SetProcessInformation(
+                        GetCurrentProcess(),
+                        ProcessPowerThrottling,
+                        (&raw const state).cast(),
+                        size,
+                    )
+                };
+                if written != 0 {
+                    log::info!(
+                        "power throttling (EcoQoS): {}",
+                        if eco { "on" } else { "off" }
+                    );
+                    self.written = Some(eco);
+                } else {
+                    log::debug!(
+                        "power throttling not written: {}",
+                        std::io::Error::last_os_error()
+                    );
+                }
+            }
+        }
+    }
+}
+
 thread_local! {
     /// The app's side, for the session window's procedure on its thread.
     static SESSION: RefCell<Option<Arc<Shared>>> = const { RefCell::new(None) };
@@ -596,6 +717,34 @@ mod tests {
         let mut roaming = hint(NetworkConnectivityLevelHintInternetAccess, unrestricted);
         roaming.Roaming = true;
         assert_eq!(network(&roaming), (true, true));
+    }
+
+    #[test]
+    fn eco_qos_follows_the_window_unless_someone_else_set_it() {
+        // Nothing written yet, the system decides: write what is wanted.
+        assert_eq!(throttle(None, None, false, true), Throttle::Write(true));
+        assert_eq!(throttle(None, None, false, false), Throttle::Leave);
+        // As last written: write only a change.
+        assert_eq!(
+            throttle(Some(true), Some(true), false, false),
+            Throttle::Write(false)
+        );
+        assert_eq!(
+            throttle(Some(true), Some(true), false, true),
+            Throttle::Leave
+        );
+        assert_eq!(
+            throttle(Some(false), None, false, true),
+            Throttle::Write(true)
+        );
+        // Changed behind the app's back, or efficiency mode: hands off.
+        assert_eq!(throttle(None, Some(true), false, true), Throttle::GiveUp);
+        assert_eq!(
+            throttle(Some(false), Some(true), false, false),
+            Throttle::GiveUp
+        );
+        assert_eq!(throttle(Some(true), None, false, true), Throttle::GiveUp);
+        assert_eq!(throttle(None, None, true, true), Throttle::GiveUp);
     }
 
     /// Whether nobody can see the session after each change in turn.

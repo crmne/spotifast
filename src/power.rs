@@ -191,6 +191,8 @@ pub struct Power {
     shared: Arc<Shared>,
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     _reader: Option<Reader>,
+    #[cfg(target_os = "windows")]
+    eco_qos: windows::EcoQos,
 }
 
 #[cfg(target_os = "linux")]
@@ -210,6 +212,8 @@ impl Power {
             _reader: Reader::start(Arc::clone(&shared))
                 .inspect_err(|error| log::warn!("power and session state unavailable: {error}"))
                 .ok(),
+            #[cfg(target_os = "windows")]
+            eco_qos: windows::EcoQos::default(),
             shared,
         }
     }
@@ -225,7 +229,21 @@ impl Power {
             shared,
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             _reader: None,
+            #[cfg(target_os = "windows")]
+            eco_qos: windows::EcoQos::default(),
         }
+    }
+
+    /// Tells the system whether the app runs where nobody can see it, so
+    /// the work it still does can run on efficient cores (EcoQoS on
+    /// Windows). Only a watching `Power` touches the process.
+    pub fn set_background(&mut self, background: bool) {
+        #[cfg(target_os = "windows")]
+        if self._reader.is_some() {
+            self.eco_qos.set(background);
+        }
+        #[cfg(not(target_os = "windows"))]
+        let _ = background;
     }
 
     /// The latest conditions.
