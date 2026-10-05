@@ -37,6 +37,8 @@ const DEVICES_FRESH: Duration = Duration::from_secs(12);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 /// How old the saved resume point may grow while music plays.
 const SESSION_REFRESH: Duration = Duration::from_secs(30);
+/// The longest the app sleeps in the tray with nothing due.
+const HEADLESS_SLEEP: Duration = Duration::from_secs(2);
 /// How far into a song Previous restarts it rather than stepping back,
 /// matching what librespot does during playback.
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
@@ -622,7 +624,7 @@ impl fastframe_shell::Resident for App {
         } else if self.wants_show {
             Headless::Show
         } else {
-            Headless::Wait
+            self.headless_wait()
         }
     }
 
@@ -9738,15 +9740,44 @@ impl App {
     /// hidden, minimised or occluded window but still runs its logic, so
     /// a hidden window keeps polling and keeps media controls current.
     fn schedule_next_pass(&self, ctx: &egui::Context) {
-        let playing = self.now_playing().is_some_and(|now| now.playing);
-        if playing {
-            ctx.request_repaint_after(Duration::from_millis(250));
+        if let Some(due) = self.next_pass() {
+            ctx.request_repaint_after(due);
         }
-        if self.any_play_pending() {
-            ctx.request_repaint_after(Duration::from_millis(120));
+    }
+
+    /// The soonest that playback, a pending play or polling needs the logic
+    /// to run again, if any of them does.
+    fn next_pass(&self) -> Option<Duration> {
+        let playing = self
+            .now_playing()
+            .is_some_and(|now| now.playing)
+            .then_some(Duration::from_millis(250));
+        let pending = self
+            .any_play_pending()
+            .then_some(Duration::from_millis(120));
+        let polling = self
+            .is_connected()
+            .then(|| self.connected_repaint_interval());
+        [playing, pending, polling].into_iter().flatten().min()
+    }
+
+    /// How long the headless loop may sleep after this tick: until the next
+    /// pass is due, and never longer than `HEADLESS_SLEEP`, which keeps the
+    /// timers in `tick` (saving, eviction, update checks) running. MilkDrop's
+    /// window outlives the main one and is polled every tick. Tray clicks,
+    /// media keys and backend events wake the loop at once.
+    fn headless_wait(&self) -> fastframe_shell::Headless {
+        use fastframe_shell::{HEADLESS_TICK, Headless};
+        if self.settings.milkdrop_open {
+            return Headless::Wait;
         }
-        if self.is_connected() {
-            ctx.request_repaint_after(self.connected_repaint_interval());
+        let wait = self
+            .next_pass()
+            .map_or(HEADLESS_SLEEP, |due| due.min(HEADLESS_SLEEP));
+        if wait <= HEADLESS_TICK {
+            Headless::Wait
+        } else {
+            Headless::WaitFor(wait)
         }
     }
 
@@ -15439,6 +15470,29 @@ mod tests {
         assert_eq!(app.closed(), Closed::Quit, "Quit from the tray wins");
     }
 
+    /// In the tray the app sleeps as long as nothing is due: until the next
+    /// progress update while music plays, and a short tick while a play is
+    /// pending or MilkDrop's window is open.
+    #[test]
+    fn the_tray_sleeps_until_something_is_due() {
+        use fastframe_shell::Headless;
+        let mut app = headless_app();
+        assert_eq!(app.headless_wait(), Headless::WaitFor(HEADLESS_SLEEP));
+
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        assert_eq!(
+            app.headless_wait(),
+            Headless::WaitFor(Duration::from_millis(250))
+        );
+
+        app.settings.milkdrop_open = true;
+        assert_eq!(app.headless_wait(), Headless::Wait);
+    }
+
     /// Quit wins over everything, a switch between the main window and the
     /// mini player reopens at once, and closing to the tray runs headless
     /// until Show or Quit.
@@ -15457,7 +15511,11 @@ mod tests {
         app.quit_requested = false;
         Resident::window_gone(&mut app);
         assert!(app.window_hidden && !app.hide_intent);
-        assert_eq!(app.headless_frame(&ctx), Headless::Wait);
+        assert_eq!(
+            app.headless_frame(&ctx),
+            Headless::WaitFor(HEADLESS_SLEEP),
+            "nothing due: a long sleep that a wake cuts short"
+        );
         app.wants_show = true;
         assert_eq!(app.headless_frame(&ctx), Headless::Show);
         app.quit_requested = true;
