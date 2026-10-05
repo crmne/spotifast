@@ -2931,7 +2931,7 @@ impl App {
         let size = self.settings.milkdrop_size;
         let pos = self.milkdrop_pos;
         let fullscreen = self.settings.milkdrop_fullscreen;
-        let fps = self.settings.milkdrop_fps;
+        let fps = crate::power::milkdrop_fps(self.power.conditions(), self.settings.milkdrop_fps);
         let seconds = self.settings.milkdrop_seconds;
         let scale = self.settings.milkdrop_scale.max(1);
         // Track metadata shown when the song changes.

@@ -123,6 +123,21 @@ pub fn budget(conditions: Conditions, window_shown: bool, focused: bool) -> Budg
     }
 }
 
+/// MilkDrop's frame rate within `conditions`, from the user's `fps` (0 is
+/// unlimited): at most 30 while saving energy, and one a second while
+/// nobody can see any window (the display off or the session locked).
+/// MilkDrop has a window of its own, so the main window's state does not
+/// count; its own window being covered or minimised is MilkDrop's to notice.
+pub fn milkdrop_fps(conditions: Conditions, fps: u32) -> u32 {
+    if conditions.display_off || conditions.locked {
+        1
+    } else if conditions.saver && (fps == 0 || fps > 30) {
+        30
+    } else {
+        fps
+    }
+}
+
 /// How long a reader waits for the app to save before the system sleeps.
 /// Windows gives a suspend callback about two seconds.
 #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -346,6 +361,25 @@ mod tests {
             Budget::Normal,
             "battery alone is not a request to save"
         );
+    }
+
+    #[test]
+    fn milkdrop_slows_down_with_the_system_not_the_main_window() {
+        let normal = Conditions::default();
+        assert_eq!(milkdrop_fps(normal, 60), 60);
+        assert_eq!(milkdrop_fps(normal, 0), 0, "unlimited stays unlimited");
+        let saving = Conditions {
+            saver: true,
+            ..normal
+        };
+        assert_eq!(milkdrop_fps(saving, 60), 30);
+        assert_eq!(milkdrop_fps(saving, 0), 30);
+        assert_eq!(milkdrop_fps(saving, 24), 24);
+        let dark = Conditions {
+            display_off: true,
+            ..normal
+        };
+        assert_eq!(milkdrop_fps(dark, 60), 1);
     }
 
     #[test]
