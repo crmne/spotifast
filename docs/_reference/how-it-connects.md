@@ -129,7 +129,11 @@ current-track pickup.
   album, and length to [lrclib.net](https://lrclib.net). It also checks
   api.github.com once a day for updates. You can turn off automatic checks in
   Settings, or request one there at any time. On macOS, **Check for Updates**
-  is also in the application menu.
+  is also in the application menu. On a connection the system reports as
+  metered (Windows), the daily check, automatic downloads, and the large cover
+  the media controls show wait for one that is not; a check by hand still
+  runs. The daily check and automatic downloads also wait while the system
+  reports no internet connection.
 
   On Windows, macOS, and Linux, downloading an update fetches release metadata and
   `checksums.txt` from the project's GitHub release, then the matching binary
