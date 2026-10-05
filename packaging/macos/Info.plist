@@ -13,6 +13,7 @@
     <key>LSMinimumSystemVersion</key><string>11.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
     <key>NSLocalNetworkUsageDescription</key><string>Find Spotify Connect speakers on your local network.</string>
     <key>NSBonjourServices</key>
     <array>
