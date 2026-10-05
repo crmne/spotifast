@@ -47,10 +47,13 @@ const QUEUE_LIMIT: usize = 12;
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Length of each side of an interrupted-track fade.
-const INTERRUPT_FADE: Duration = Duration::from_millis(10);
+const INTERRUPT_FADE: Duration = Duration::from_millis(50);
 
-/// How long Play takes to come up, and Pause to go down.
-const TRANSPORT_FADE: Duration = Duration::from_millis(250);
+/// How long Play takes to come up, and Pause and Stop to go down.
+const TRANSPORT_FADE: Duration = Duration::from_millis(50);
+
+/// Smooths slider and mute changes at the device's sample rate.
+const VOLUME_RAMP: Duration = Duration::from_millis(30);
 
 /// Default Windows device buffer length in milliseconds.
 ///
@@ -399,6 +402,7 @@ pub struct RodioSink {
 
 struct Output {
     device: fastframe_audio::Output<MixerRender>,
+    volume: Arc<AtomicU32>,
     /// Where a mixer made for a new stream format waits for this thread.
     made: MixerSlot,
     mixer: rodio::mixer::Mixer,
@@ -492,6 +496,34 @@ type MadeMixer = (rodio::mixer::Mixer, u32);
 
 type MixerSlot = Arc<Mutex<Option<MadeMixer>>>;
 
+/// A linear gain ramp, shared by every channel of an output frame.
+#[derive(Default)]
+struct VolumeRamp {
+    current: f32,
+    target: f32,
+    remaining: u32,
+    sample_rate: u32,
+}
+
+impl VolumeRamp {
+    fn next_gain(&mut self, target: f32, sample_rate: u32) -> f32 {
+        if target != self.target || sample_rate != self.sample_rate {
+            self.target = target;
+            self.sample_rate = sample_rate;
+            self.remaining = fade_frames(sample_rate, VOLUME_RAMP);
+        }
+        let gain = self.current;
+        if self.remaining > 0 {
+            self.current += (self.target - self.current) / self.remaining as f32;
+            self.remaining -= 1;
+            if self.remaining == 0 {
+                self.current = self.target;
+            }
+        }
+        gain
+    }
+}
+
 /// Fills the device from rodio's mixer, or with silence before there is one.
 ///
 /// fastframe-audio configures it on the sink's thread whenever it opens a
@@ -499,6 +531,8 @@ type MixerSlot = Arc<Mutex<Option<MadeMixer>>>;
 /// reopen on another device carries on from the same sample; another rate or
 /// channel count gets a new mixer, which waits in `made` for the sink.
 struct MixerRender {
+    volume: Arc<AtomicU32>,
+    ramp: VolumeRamp,
     source: Option<rodio::mixer::MixerSource>,
     format: (u32, u16),
     made: MixerSlot,
@@ -521,8 +555,12 @@ impl Render for MixerRender {
     fn render(&mut self, out: &mut [f32]) {
         match &mut self.source {
             Some(source) => {
-                for sample in out {
-                    *sample = source.next().unwrap_or(0.0);
+                let target = f32::from_bits(self.volume.load(Ordering::Relaxed));
+                for frame in out.chunks_mut(usize::from(self.format.1).max(1)) {
+                    let gain = self.ramp.next_gain(target, self.format.0);
+                    for sample in frame {
+                        *sample = source.next().unwrap_or(0.0) * gain;
+                    }
                 }
             }
             None => out.fill(0.0),
@@ -555,7 +593,7 @@ impl RodioSink {
         if let Some(output) = &self.output
             && factor != self.applied_volume
         {
-            output.sink.set_volume(factor);
+            output.volume.store(factor.to_bits(), Ordering::Relaxed);
             self.applied_volume = factor;
         }
     }
@@ -620,7 +658,7 @@ impl Sink for RodioSink {
         if let Some(output) = &mut self.output {
             // The drain below plays the queue out, so the ramp is cut to
             // what is in it. During steady playback that is the whole
-            // 250 ms; just after a seek or a track change it is whatever has
+            // 50 ms; just after a seek or a track change it is whatever has
             // been decoded since.
             output.transport.fade_out_over(output.queued.frames());
             let deadline = Instant::now() + DRAIN_TIMEOUT;
@@ -786,7 +824,10 @@ fn open_output(
     control: &AudioControl,
 ) -> Result<Output, OpenError> {
     let made = MixerSlot::default();
+    let volume = Arc::new(AtomicU32::new(0.0f32.to_bits()));
     let render = MixerRender {
+        volume: Arc::clone(&volume),
+        ramp: VolumeRamp::default(),
         source: None,
         format: (0, 0),
         made: Arc::clone(&made),
@@ -801,6 +842,7 @@ fn open_output(
         .ok_or(OpenError::NoDevice)?;
     let mut output = Output {
         device,
+        volume,
         made,
         sink: Arc::new(rodio::Sink::connect_new(&mixer)),
         mixer: mixer.clone(),
@@ -821,6 +863,77 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
+    #[test]
+    fn volume_changes_take_thirty_ms_at_each_output_rate() {
+        for rate in [44_100, 48_000, 96_000] {
+            let frames = rate * 30 / 1_000;
+            let mut ramp = VolumeRamp::default();
+            for target in [1.0, 0.25, 0.0, 0.8] {
+                let start = ramp.current;
+                for frame in 0..frames {
+                    let gain = ramp.next_gain(target, rate);
+                    let expected = start + (target - start) * frame as f32 / frames as f32;
+                    assert!((gain - expected).abs() < 0.0001);
+                }
+                assert_eq!(ramp.next_gain(target, rate), target);
+                assert_eq!(ramp.remaining, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn retargeting_volume_continues_from_the_current_gain() {
+        let mut ramp = VolumeRamp::default();
+        for _ in 0..480 {
+            ramp.next_gain(1.0, 48_000);
+        }
+        let current = ramp.current;
+        assert!(current > 0.0 && current < 1.0);
+        assert_eq!(ramp.next_gain(0.0, 48_000), current);
+        for _ in 1..1440 {
+            ramp.next_gain(0.0, 48_000);
+        }
+        assert_eq!(ramp.next_gain(0.0, 48_000), 0.0);
+    }
+
+    #[test]
+    fn rendered_volume_is_stereo_linked_and_spans_callbacks() {
+        let volume = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let made = MixerSlot::default();
+        let mut render = MixerRender {
+            volume: Arc::clone(&volume),
+            ramp: VolumeRamp::default(),
+            source: None,
+            format: (0, 0),
+            made: Arc::clone(&made),
+        };
+        render.configure(48_000, 2);
+        let (mixer, _) = made.lock().unwrap().take().unwrap();
+        mixer.add(rodio::buffer::SamplesBuffer::new(
+            2,
+            48_000,
+            vec![1.0; 10_000],
+        ));
+        let mut rising = Vec::new();
+        for _ in 0..6 {
+            let mut block = [0.0; 480];
+            render.render(&mut block);
+            rising.extend(block);
+        }
+        assert_eq!(rising[0], 0.0);
+        assert!(rising.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(rising.chunks_exact(2).all(|pair| pair[0] == pair[1]));
+        let mut settled = [0.0; 2];
+        render.render(&mut settled);
+        assert_eq!(settled, [1.0; 2]);
+        volume.store(0.0f32.to_bits(), Ordering::Relaxed);
+        let mut falling = vec![0.0; 2882];
+        render.render(&mut falling);
+        assert_eq!(falling[0], 1.0);
+        assert_eq!(&falling[2880..], &[0.0; 2]);
+        assert!(falling.windows(2).all(|pair| pair[0] >= pair[1]));
+        assert!(falling.chunks_exact(2).all(|pair| pair[0] == pair[1]));
+    }
     /// The buffer setting reaches the device on Windows only (#88), and a
     /// settings file with a wild number in it still opens a stream: the
     /// range is the range whoever wrote the file thought of.
@@ -860,6 +973,8 @@ mod tests {
     fn only_a_new_format_makes_a_new_mixer() {
         let made = MixerSlot::default();
         let mut render = MixerRender {
+            volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+            ramp: VolumeRamp::default(),
             source: None,
             format: (0, 0),
             made: Arc::clone(&made),
@@ -1266,7 +1381,7 @@ mod tests {
 
     #[test]
     fn a_short_queue_still_gets_a_whole_ramp() {
-        let left = 60;
+        let left = 20;
         assert!(left < fade_frames(RATE, TRANSPORT_FADE));
 
         let transport = Envelope::open(RATE, TRANSPORT_FADE);

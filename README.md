@@ -9,6 +9,8 @@ It runs on Linux, macOS, and Windows.
 Switching songs clears held audio from the previous song, including during
 a silent intro. Natural track transitions remain gapless. The player bar's
 volume slider responds on press, without waiting for pointer movement.
+The default audio output smooths volume changes over 30 ms and uses 50 ms
+fades for explicit song changes and stopping.
 
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast.

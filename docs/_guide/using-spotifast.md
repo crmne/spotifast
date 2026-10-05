@@ -193,7 +193,10 @@ this playlist**. On macOS, both `Delete` and `Fn+Delete` work. Text fields,
 dialogs and open menus keep Delete from acting on the list.
 
 Pressing the player bar's volume slider updates local volume immediately,
-without needing to move the pointer. Remote volume is sent on release.
+without needing to move the pointer. The default local audio output smooths
+volume and mute changes over 30 ms. Explicit song changes fade out and in over
+50 ms each; play, pause, and stop also use 50 ms ramps. Natural transitions stay gapless.
+Remote volume is sent on release.
 The seek slider previews the position on press and seeks on release.
 
 Left and right arrows adjust a focused volume slider by five percentage
