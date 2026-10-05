@@ -10,7 +10,7 @@
 //! paused player costs no audio work (#636), follows the system's default
 //! output and reopens after a failure. rodio's mixer and queue fill it.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -42,6 +42,16 @@ type Opener = fn(Option<&str>, u32, &AudioControl) -> Result<Output, OpenError>;
 
 /// Maximum queued rodio chunks before `write` blocks, about 200 ms of audio.
 const QUEUE_LIMIT: usize = 12;
+
+/// How much of a full queue rodio plays before `write` is woken to top it
+/// up. librespot's packets hold 4 to 13 ms of sound, so polling every 10 ms
+/// (or waking for every packet) kept the decoder thread awake about 100
+/// times a second; this wakes it about 30 times.
+const REFILL: Duration = Duration::from_millis(20);
+
+/// Longest `write` waits for rodio before it looks at the device again: a
+/// stream that has failed finishes no chunk to wake it.
+const QUEUE_WAIT: Duration = Duration::from_millis(50);
 
 /// Maximum time `stop` waits for the queue to drain.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -183,6 +193,9 @@ impl AudioControl {
 struct Queued {
     appended: AtomicU64,
     consumed: AtomicU64,
+    /// While `write` waits for room, the queued level at or below which it
+    /// is woken; zero while nothing waits.
+    wake_at: AtomicU64,
 }
 
 impl Queued {
@@ -190,6 +203,7 @@ impl Queued {
         Arc::new(Self {
             appended: AtomicU64::new(0),
             consumed: AtomicU64::new(0),
+            wake_at: AtomicU64::new(0),
         })
     }
 
@@ -198,6 +212,36 @@ impl Queued {
         self.appended
             .load(Ordering::Relaxed)
             .saturating_sub(self.consumed.load(Ordering::Relaxed))
+    }
+
+    /// Sleeps the writer until rodio has played `refill` frames of what is
+    /// queued, or `QUEUE_WAIT` has passed.
+    fn wait_for_room(&self, refill: u64) {
+        let wake_at = self.frames().saturating_sub(refill).max(1);
+        self.wake_at.store(wake_at, Ordering::Relaxed);
+        // Pairs with the fence in `drained`: either the chunk that reaches
+        // the level sees it, or this sees that chunk already gone.
+        fence(Ordering::SeqCst);
+        if self.frames() > wake_at {
+            thread::park_timeout(QUEUE_WAIT);
+        }
+        self.wake_at.store(0, Ordering::Relaxed);
+    }
+
+    /// rodio has finished with a chunk: wakes `writer` once the queue has
+    /// drained to the level it waits for, and only then.
+    fn drained(&self, writer: &thread::Thread) {
+        fence(Ordering::SeqCst);
+        let wake_at = self.wake_at.load(Ordering::Relaxed);
+        if wake_at != 0
+            && self.frames() <= wake_at
+            && self
+                .wake_at
+                .compare_exchange(wake_at, 0, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            writer.unpark();
+        }
     }
 }
 
@@ -313,6 +357,9 @@ struct TransitionSource {
     remaining: u32,
     channel: usize,
     gain: f32,
+    /// The thread that queued this chunk, which may be waiting in `write`
+    /// for room.
+    writer: thread::Thread,
 }
 
 impl TransitionSource {
@@ -331,6 +378,7 @@ impl TransitionSource {
             remaining: frames,
             channel: 0,
             gain: 1.0,
+            writer: thread::current(),
         }
     }
 }
@@ -339,10 +387,14 @@ impl Drop for TransitionSource {
     /// rodio drops whole sources on `stop`, which every track change does, so
     /// a chunk can end without being played. Settling up here is what stops
     /// the count drifting away from the queue it is meant to describe.
+    ///
+    /// rodio drops a chunk once it has taken it out of the sink's count, so
+    /// this is also where a writer waiting for room learns of it.
     fn drop(&mut self) {
         self.queued
             .consumed
             .fetch_add(u64::from(self.remaining), Ordering::Relaxed);
+        self.queued.drained(&self.writer);
     }
 }
 
@@ -746,14 +798,16 @@ impl Sink for RodioSink {
         output.fed = true;
         output.last_write = Some(now);
         // Let rodio drain a little; without this the whole track would be
-        // decoded into memory at once.
+        // decoded into memory at once. A full queue sleeps until rodio has
+        // played `REFILL` of it, then is topped up in one go.
+        let refill = u64::from(output.sample_rate) * REFILL.as_millis() as u64 / 1_000;
         while output.sink.len() > QUEUE_LIMIT {
             if output.failed() {
                 let message = "The audio output stopped working".to_string();
                 (self.on_error)(message.clone());
                 return Err(SinkError::OnWrite(message));
             }
-            thread::sleep(Duration::from_millis(10));
+            output.queued.wait_for_room(refill);
         }
         Ok(())
     }
@@ -1430,5 +1484,45 @@ mod tests {
 
         drop(chunk(40, &interrupt, &transport, &queued));
         assert_eq!(queued.frames(), 0);
+    }
+
+    /// A writer waiting for room sleeps through the chunks that leave the
+    /// queue above its level, and the one that reaches it wakes the writer,
+    /// once. Polling instead woke the decoder thread every 10 ms.
+    #[test]
+    fn a_waiting_writer_wakes_once_the_queue_has_drained_enough() {
+        let queued = Queued::new();
+        let (interrupt, transport) = wide_open();
+        let mut chunks: Vec<_> = (0..4)
+            .map(|_| chunk(10, &interrupt, &transport, &queued))
+            .collect();
+        queued.wake_at.store(20, Ordering::SeqCst);
+
+        drop(chunks.remove(0));
+        assert_eq!(queued.frames(), 30);
+        assert_eq!(queued.wake_at.load(Ordering::SeqCst), 20, "still asleep");
+
+        drop(chunks.remove(0));
+        assert_eq!(queued.wake_at.load(Ordering::SeqCst), 0, "woken, once");
+        // The chunks were queued from this thread, so the wake is its own:
+        // the token is waiting, and parking returns at once.
+        let started = Instant::now();
+        thread::park_timeout(Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(1));
+
+        drop(chunks);
+        assert_eq!(queued.frames(), 0);
+    }
+
+    /// A stream that has stopped consuming finishes no chunk, so the wait
+    /// gives up by itself and `write` gets to look at the device.
+    #[test]
+    fn waiting_for_room_gives_up_when_nothing_plays() {
+        let queued = Queued::new();
+        queued.appended.store(1_000, Ordering::SeqCst);
+        let started = Instant::now();
+        queued.wait_for_room(100);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(queued.wake_at.load(Ordering::SeqCst), 0);
     }
 }
