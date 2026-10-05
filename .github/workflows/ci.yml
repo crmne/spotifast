@@ -65,11 +65,13 @@ jobs:
       CMAKE_GENERATOR: Ninja
     # A cold mbx cache on Windows (projectM through cmake) needs about 30
     # minutes before the action saves the cache; warm runs take far less.
-    timeout-minutes: 60
+    # The arm64 runner has four cores and needs longer from cold.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # windows-11-arm is the only place the Windows on ARM build is tested.
+        os: [ubuntu-latest, macos-latest, windows-latest, windows-11-arm]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -83,15 +85,19 @@ jobs:
       # against vcpkg's static-CRT triplet, matching .cargo/config.toml.
       - name: GLEW for libprojectM
         if: runner.os == 'Windows'
-        run: vcpkg install glew:x64-windows-static
+        run: vcpkg install glew:${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}-windows-static
       # projectm-sys asks CMake for the Visual Studio generator, which the
       # runner image no longer satisfies; Ninja inside the MSVC environment
       # builds the same thing without caring which Visual Studio is on. The
       # generator is job-level env, since a GITHUB_ENV write never reached
       # the build script.
+      # Native tools on each runner: the action's default is x64, which on
+      # the arm64 runner would compile under emulation.
       - name: MSVC environment for libprojectM
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
       - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: test-v1
@@ -117,6 +123,9 @@ jobs:
           $imports = & dumpbin /dependents target\debug\spotifast.exe | Out-String
           $runtime = $imports | Select-String -Pattern 'MSVCP[0-9_]*\.dll|VCRUNTIME[0-9_]*\.dll'
           if ($runtime) { throw "Spotifast imports an MSVC runtime:`n$runtime" }
+          $machine = if ($env:RUNNER_ARCH -eq 'ARM64') { 'AA64 machine \(ARM64\)' } else { '8664 machine \(x64\)' }
+          $headers = & dumpbin /headers target\debug\spotifast.exe | Out-String
+          if ($headers -notmatch $machine) { throw "spotifast.exe is not built for $env:RUNNER_ARCH`:`n$headers" }
 
       - name: Windows installer syntax and renamed inputs
         if: runner.os == 'Windows'
@@ -125,7 +134,8 @@ jobs:
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
-          & $iscc "/DVersion=$version" /DArch=x86_64 "/DBinary=$PWD\target\debug\spotifast.exe" "/DOutputDir=$env:RUNNER_TEMP\spotifast-installer-check" packaging\windows\spotifast.iss
+          $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
+          & $iscc "/DVersion=$version" "/DArch=$arch" "/DBinary=$PWD\target\debug\spotifast.exe" "/DOutputDir=$env:RUNNER_TEMP\spotifast-installer-check" packaging\windows\spotifast.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: macOS bundle identity and helper startup
