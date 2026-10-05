@@ -273,6 +273,12 @@ projectm-sys = { git = "https://github.com/dennisgr7/projectm-rs", rev = "1ef6df
 # hyper-proxy2's unreleased rustls 0.23 update plus our upstream provider
 # compatibility fix. Drop this fork when a release includes both changes.
 hyper-proxy2 = { git = "https://github.com/crmne/hyper-proxy2", rev = "efca4811371ddae81c06be168de54194938d70b1" }
+# cpal 0.18.2 plus a WASAPI fix: a paused stream stops waiting on the audio
+# event, which another app playing on the same device keeps signalling every
+# 10 ms, so a paused Spotifast no longer wakes 100 times a second. fastframe-
+# audio takes cpal from crates.io, so the patch reaches it. Proposed upstream
+# to RustAudio/cpal; drop it when a release includes the change.
+cpal = { git = "https://github.com/dennisgr7/cpal", rev = "7d5f8267a4d03b5b182c40fdece05c5734201fda" }
 # librespot 0.8.0 plus the small patches Spotifast needs: queue controls,
 # normalisation-factor reporting for the visualisers, and a distinct event
 # when Spotify refuses an audio key, bounded socket setup with DNS address
