@@ -75,6 +75,7 @@ pub struct AudioControl {
     target: Mutex<AudioTarget>,
     waiting_for_track: AtomicBool,
     reset_output: AtomicBool,
+    reset_processing: AtomicBool,
     buffer_ms: u32,
 }
 
@@ -90,6 +91,7 @@ impl AudioControl {
             target: Mutex::new(AudioTarget::default()),
             waiting_for_track: AtomicBool::new(false),
             reset_output: AtomicBool::new(false),
+            reset_processing: AtomicBool::new(false),
             buffer_ms: buffer_ms.clamp(*BUFFER_MS_RANGE.start(), *BUFFER_MS_RANGE.end()),
         })
     }
@@ -105,6 +107,7 @@ impl AudioControl {
                     sink.stop();
                 }
                 self.reset_output.store(true, Ordering::SeqCst);
+                self.reset_processing.store(true, Ordering::SeqCst);
                 // Previous can rewind the current track after interrupting
                 // it. Release that gate, but never close it for a seek:
                 // the decoder is already sending audio from the new position.
@@ -138,6 +141,7 @@ impl AudioControl {
             sink.stop();
         }
         self.reset_output.store(true, Ordering::SeqCst);
+        self.reset_processing.store(true, Ordering::SeqCst);
     }
 
     /// Opens the write gate once librespot has left the old decoder behind.
@@ -152,6 +156,12 @@ impl AudioControl {
 
     fn waiting_for_track(&self) -> bool {
         self.waiting_for_track.load(Ordering::SeqCst)
+    }
+
+    /// The processing wrapper owns a separate reset from the output queue.
+    /// Keep it pending while old decoder packets are still being discarded.
+    pub(crate) fn take_processing_reset(&self) -> bool {
+        !self.waiting_for_track() && self.reset_processing.swap(false, Ordering::SeqCst)
     }
 
     fn take_reset(&self) -> bool {

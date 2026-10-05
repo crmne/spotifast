@@ -6,6 +6,9 @@ Rust with [egui](https://github.com/emilk/egui). It plays music through
 100–250 MB of RAM, starts in well under a second, and has no browser engine.
 It runs on Linux, macOS, and Windows.
 
+Switching songs clears held audio from the previous song, including during
+a silent intro. Natural track transitions remain gapless.
+
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast.
 
