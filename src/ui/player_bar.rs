@@ -35,9 +35,6 @@ const WAVE_ECHO_ALPHA: f32 = 0.18;
 const LIGHT_STRENGTH: f32 = 1.5;
 /// The gap between spectrum bars.
 const SPECTRUM_GAP: f32 = 2.0;
-/// How often a moving visualizer is drawn: sixty times a second, as the
-/// mini player's.
-const VIS_FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
 
 /// Forget this bar's animation session while the sign-in screen is shown.
 pub(crate) fn end_tint_session(ctx: &egui::Context) {
@@ -62,7 +59,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
             if visualizer(app, ui, behind, now.as_ref()) {
-                ui.ctx().request_repaint_after(VIS_FRAME);
+                theme::visualiser_frame(ui.ctx(), app.budget);
             }
             // Its empty space is the visualizer's control, as Winamp's
             // visualizer was: a click moves to the next mode. The controls

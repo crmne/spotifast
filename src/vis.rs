@@ -41,6 +41,8 @@ const PEAK_FALLOFF: f32 = 1.1;
 /// changed how quickly the bars fell; a frame that comes sooner than
 /// this shows the bars where they were.
 pub const STEP: Duration = Duration::from_micros(16_667);
+/// The most steps one frame catches up on.
+const CATCH_UP: u128 = 2;
 /// Converts the tap's channel mean to Winamp's channel sum.
 const CHANNEL_SUM: f32 = 2.0;
 /// Winamp's own scale on every magnitude.
@@ -376,13 +378,17 @@ impl Analyser {
     /// One frame: the spectrum of `samples` (512 of them, mono, -1 to 1)
     /// moves the bars, and the bars are returned.
     pub fn step(&mut self, samples: &[f32], now: Instant) -> [Bar; BARS] {
-        // Keep the step's own beat when frames come a little early or late,
-        // and never owe more than one step after a long gap.
+        // Keep the step's own beat when frames come a little early or late.
+        // Frames at half rate (a window out of focus, or saving energy) owe
+        // two steps, so the bars fall as fast as at full rate; after a long
+        // gap no more than that is owed.
         let due = self.last_step.map_or(now, |last| last + STEP);
         if now + Duration::from_millis(1) < due {
             return self.bars;
         }
-        self.last_step = Some(due.max(now - STEP));
+        let behind = now.saturating_duration_since(due).as_nanos() / STEP.as_nanos();
+        let owed = (1 + behind).min(CATCH_UP) as u32;
+        self.last_step = Some((due + STEP * (owed - 1)).max(now - STEP));
         self.wave.fill(0.0);
         for (slot, sample) in self.wave.iter_mut().zip(samples.iter()) {
             *slot = sample * CHANNEL_SUM;
@@ -397,22 +403,26 @@ impl Analyser {
                     / 4.0;
             // Winamp kept the target as a whole number of rows.
             let target = sound.min(MAX_HEIGHT).trunc();
-            let falloff = &mut self.falloff[bar];
-            *falloff -= FALLOFF;
-            if *falloff <= target {
-                *falloff = target;
+            let mut peak_row = 0;
+            for _ in 0..owed {
+                let falloff = &mut self.falloff[bar];
+                *falloff -= FALLOFF;
+                if *falloff <= target {
+                    *falloff = target;
+                }
+                let peak = &mut self.peaks[bar];
+                if *peak <= (*falloff * 256.0).round() as i32 {
+                    *peak = (*falloff * 256.0) as i32;
+                    self.peak_speed[bar] = 3.0;
+                }
+                peak_row = *peak / 256;
+                *peak -= self.peak_speed[bar].round() as i32;
+                self.peak_speed[bar] *= PEAK_FALLOFF;
+                if *peak <= 0 {
+                    *peak = 0;
+                }
             }
-            let peak = &mut self.peaks[bar];
-            if *peak <= (*falloff * 256.0).round() as i32 {
-                *peak = (*falloff * 256.0) as i32;
-                self.peak_speed[bar] = 3.0;
-            }
-            let peak_row = *peak / 256;
-            *peak -= self.peak_speed[bar].round() as i32;
-            self.peak_speed[bar] *= PEAK_FALLOFF;
-            if *peak <= 0 {
-                *peak = 0;
-            }
+            let falloff = self.falloff[bar];
             slot.height = falloff.round() as u8;
             slot.peak = (peak_row >= 1).then_some((peak_row + 1) as u8);
         }
@@ -825,6 +835,44 @@ mod tests {
                 .iter()
                 .zip(bars.iter())
                 .any(|(after, before)| after.height < before.height)
+        );
+    }
+
+    /// Frames at half rate (out of focus, or saving energy) move the bars as
+    /// far as two frames at full rate, and a long gap owes no more than that.
+    #[test]
+    fn half_rate_frames_fall_as_fast_as_full_rate() {
+        let loud = sine(1000.0, 0.5, FFT_SAMPLES);
+        let silence = vec![0.0; FFT_SAMPLES];
+        let start = Instant::now();
+        let mut full = Analyser::default();
+        let mut half = Analyser::default();
+        full.step(&loud, start);
+        half.step(&loud, start);
+        let mut at_full = Vec::new();
+        for frame in 1..=8 {
+            at_full = full.step(&silence, start + STEP * frame).to_vec();
+        }
+        let mut at_half = Vec::new();
+        for frame in 1..=4 {
+            at_half = half.step(&silence, start + STEP * (2 * frame)).to_vec();
+        }
+        assert_eq!(
+            at_half.iter().map(|bar| bar.height).collect::<Vec<_>>(),
+            at_full.iter().map(|bar| bar.height).collect::<Vec<_>>()
+        );
+
+        let mut gap = Analyser::default();
+        let first = gap.step(&loud, start);
+        let after = gap.step(&silence, start + Duration::from_secs(5));
+        let fell: Vec<_> = first
+            .iter()
+            .zip(after.iter())
+            .map(|(before, after)| f32::from(before.height) - f32::from(after.height))
+            .collect();
+        assert!(
+            fell.iter().all(|rows| *rows <= 2.0 * FALLOFF + 1.0),
+            "a long gap moved the bars more than two steps: {fell:?}"
         );
     }
 
