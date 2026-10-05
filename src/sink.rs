@@ -53,6 +53,42 @@ const REFILL: Duration = Duration::from_millis(20);
 /// stream that has failed finishes no chunk to wake it.
 const QUEUE_WAIT: Duration = Duration::from_millis(50);
 
+/// How long a full queue may go without rodio finishing a chunk before the
+/// output counts as stuck. A few times the longest device buffer.
+const STALL: Duration = Duration::from_secs(2);
+
+/// Watches a waiting writer's queue for an output that stopped playing.
+struct Stall {
+    consumed: u64,
+    since: Instant,
+    seen: Instant,
+}
+
+impl Stall {
+    fn new(consumed: u64, now: Instant) -> Self {
+        Self {
+            consumed,
+            since: now,
+            seen: now,
+        }
+    }
+
+    /// Notes how far rodio has got; true once it has not moved for `STALL`.
+    fn observe(&mut self, consumed: u64, now: Instant) -> bool {
+        // No wait lasts anywhere near `STALL`, so a gap that long is time
+        // this thread did not run: the system slept or suspended the app,
+        // and the output had no chance to play either. On Windows `Instant`
+        // counts that time.
+        let asleep = now.duration_since(self.seen) >= STALL;
+        self.seen = now;
+        if consumed != self.consumed || asleep {
+            *self = Self::new(consumed, now);
+            return false;
+        }
+        now.duration_since(self.since) >= STALL
+    }
+}
+
 /// Maximum time `stop` waits for the queue to drain.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -212,6 +248,11 @@ impl Queued {
         self.appended
             .load(Ordering::Relaxed)
             .saturating_sub(self.consumed.load(Ordering::Relaxed))
+    }
+
+    /// The frames rodio has finished with so far.
+    fn consumed(&self) -> u64 {
+        self.consumed.load(Ordering::Relaxed)
     }
 
     /// Sleeps the writer until rodio has played `refill` frames of what is
@@ -801,14 +842,43 @@ impl Sink for RodioSink {
         // decoded into memory at once. A full queue sleeps until rodio has
         // played `REFILL` of it, then is topped up in one go.
         let refill = u64::from(output.sample_rate) * REFILL.as_millis() as u64 / 1_000;
+        let mut stall = Stall::new(output.queued.consumed(), Instant::now());
+        let mut stalled = false;
         while output.sink.len() > QUEUE_LIMIT {
             if output.failed() {
-                let message = "The audio output stopped working".to_string();
-                (self.on_error)(message.clone());
-                return Err(SinkError::OnWrite(message));
+                // Headphones that connect, a new default output or a device
+                // that went away: move to the output to use now and carry on
+                // instead of stopping the music. Only an output that will not
+                // open stops it.
+                match output.run(&self.control) {
+                    Ok(replaced) if !output.failed() => {
+                        if replaced {
+                            self.applied_volume = -1.0;
+                        }
+                        stall = Stall::new(output.queued.consumed(), Instant::now());
+                        continue;
+                    }
+                    Ok(_) | Err(_) => {
+                        let message = "The audio output stopped working".to_string();
+                        (self.on_error)(message.clone());
+                        return Err(SinkError::OnWrite(message));
+                    }
+                }
+            }
+            if stall.observe(output.queued.consumed(), Instant::now()) {
+                stalled = true;
+                break;
             }
             output.queued.wait_for_room(refill);
         }
+        if stalled {
+            // A stream can stop asking for sound without reporting an error,
+            // and then nothing would ever make room. Start it over.
+            log::warn!("the audio output stopped playing for {STALL:?}; opening it again");
+            self.output = None;
+            self.ensure_open()?;
+        }
+        self.apply_volume();
         Ok(())
     }
 }
@@ -1512,6 +1582,34 @@ mod tests {
 
         drop(chunks);
         assert_eq!(queued.frames(), 0);
+    }
+
+    /// An output whose queue keeps moving is never stuck however long the
+    /// wait; one that finishes nothing for `STALL` is, and the clock starts
+    /// over each time it moves.
+    #[test]
+    fn only_an_output_that_stops_playing_counts_as_stuck() {
+        let start = Instant::now();
+        let mut stall = Stall::new(0, start);
+        assert!(!stall.observe(0, start + STALL / 2));
+        assert!(!stall.observe(441, start + STALL), "it moved");
+        assert!(!stall.observe(441, start + STALL + STALL / 2));
+        assert!(stall.observe(441, start + STALL * 2), "nothing for STALL");
+        assert!(!stall.observe(882, start + STALL * 3), "moving again");
+    }
+
+    /// The time a sleeping system stood still is not the output's fault:
+    /// waking up starts the count again, and only an output that then
+    /// finishes nothing for `STALL` is stuck.
+    #[test]
+    fn a_system_that_slept_is_not_a_stuck_output() {
+        let start = Instant::now();
+        let woke = start + Duration::from_secs(7);
+        let mut stall = Stall::new(0, start);
+        assert!(!stall.observe(0, start + QUEUE_WAIT));
+        assert!(!stall.observe(0, woke), "asleep, not stuck");
+        assert!(!stall.observe(0, woke + STALL / 2));
+        assert!(stall.observe(0, woke + STALL), "stuck after waking");
     }
 
     /// A stream that has stopped consuming finishes no chunk, so the wait
