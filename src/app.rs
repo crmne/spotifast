@@ -9696,7 +9696,21 @@ impl App {
         self.sync_window_title(ctx);
         #[cfg(target_os = "macos")]
         self.sync_notch_widget(ctx);
+        let close_requested = ctx.input(|input| input.viewport().close_requested());
+        self.note_close_request(close_requested, self.hides_to_tray());
         self.schedule_next_pass(ctx);
+    }
+
+    /// Closing the window keeps the process running in the tray when the
+    /// tray is shown and the setting asks for it.
+    ///
+    /// This runs with the logic, not the drawing: eframe runs only the logic
+    /// of a minimised window, and a close decided while drawing let closing a
+    /// minimised window quit the app instead.
+    fn note_close_request(&mut self, close_requested: bool, hides_to_tray: bool) {
+        if close_requested && !self.quit_requested && !self.switch_intent && hides_to_tray {
+            self.hide_intent = true;
+        }
     }
 
     /// Asks for the next pass that playback, pending plays and polling need.
@@ -9906,14 +9920,6 @@ impl App {
 
         if !self.toasts.is_empty() {
             ctx.request_repaint_after(TOAST_FRAME);
-        }
-        if ctx.input(|input| input.viewport().close_requested())
-            && !self.quit_requested
-            && !self.switch_intent
-            && self.hides_to_tray()
-        {
-            // Close the window and keep the process running in the tray.
-            self.hide_intent = true;
         }
         self.theme_transition.paint(ctx);
         self.frame_now = None;
@@ -15365,6 +15371,27 @@ mod tests {
     ) {
         app.custom_themes = theme::Catalog::preview(theme.into_iter().collect(), follows);
         app.adopt_custom_themes(ctx);
+    }
+
+    /// Closing hides to the tray only when the tray can take the app, and
+    /// never overrides a quit or a switch between windows. The decision runs
+    /// in the logic pass, so it also holds for a minimised window, whose
+    /// drawing eframe skips.
+    #[test]
+    fn a_close_request_hides_to_the_tray_from_the_logic_pass() {
+        use fastframe_shell::{Closed, Resident};
+        let mut app = headless_app();
+        app.note_close_request(true, false);
+        assert_eq!(app.closed(), Closed::Quit, "no tray to hide to");
+        app.note_close_request(false, true);
+        assert_eq!(app.closed(), Closed::Quit, "nothing asked to close");
+        app.note_close_request(true, true);
+        assert_eq!(app.closed(), Closed::Hide);
+
+        let mut app = headless_app();
+        app.quit_requested = true;
+        app.note_close_request(true, true);
+        assert_eq!(app.closed(), Closed::Quit, "Quit from the tray wins");
     }
 
     /// Quit wins over everything, a switch between the main window and the
