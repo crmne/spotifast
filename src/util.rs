@@ -529,6 +529,25 @@ mod tests {
         ] {
             assert_eq!(format_relative_date(Locale::Turkish, added, now), expected);
         }
+        assert_eq!(
+            format_date(Locale::Ukrainian, "2024-01-05"),
+            "5 січ. 2024 р."
+        );
+        assert_eq!(format_date(Locale::Ukrainian, "2024-09"), "вер. 2024 р.");
+        assert_eq!(format_total_ms(Locale::Ukrainian, 7_980_000), "2 год 13 хв");
+        assert_eq!(format_episode_ms(Locale::Ukrainian, 2_280_000), "38 хв");
+        for (added, expected) in [
+            ("2026-08-31T11:59:59Z", "1 секунду тому"),
+            ("2026-08-31T11:58:00Z", "2 хвилини тому"),
+            ("2026-08-31T07:00:00Z", "5 годин тому"),
+            ("2026-08-30T12:00:00Z", "1 день тому"),
+            ("2026-08-17T12:00:00Z", "2 тижні тому"),
+        ] {
+            assert_eq!(
+                format_relative_date(Locale::Ukrainian, added, now),
+                expected
+            );
+        }
     }
 
     #[test]
