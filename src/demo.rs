@@ -616,6 +616,52 @@ pub fn populate(app: &mut App) {
             app.track_cache.insert(id.clone(), track.clone());
         }
     }
+
+    // Local files: one configured folder whose scan already wrote an index,
+    // so the sidebar entry, the Local Files page and Settings all render the
+    // populated state. The paths and tags are sample data; nothing is read.
+    app.settings.local_folders = vec!["C:\\Music".into()];
+    let local_files: Vec<crate::localfiles::LocalFile> = [
+        ("Aurelia Crane", "Lantern Season", "Cavern Plaza", 213_000),
+        ("Aurelia Crane", "Lantern Season", "Paper Orchard", 187_000),
+        ("Aurelia Crane", "Lantern Season", "Ember Waltz", 151_000),
+        ("Aurelia Crane", "Lantern Season", "Foglight Row", 226_000),
+        ("Marlow Finch", "Salt & Static", "Harbour Light", 204_000),
+        ("Marlow Finch", "Salt & Static", "Copper Moon", 172_000),
+        ("Marlow Finch", "Salt & Static", "Anchors Away", 246_000),
+        (
+            "Marlow Finch",
+            "Low Tide Letters",
+            "September Lines",
+            193_000,
+        ),
+        ("Pale Lanterns", "Night Bus Home", "Terminus", 268_000),
+        (
+            "Pale Lanterns",
+            "Night Bus Home",
+            "Last Stop Lullaby",
+            182_000,
+        ),
+    ]
+    .into_iter()
+    .map(|(artist, album, title, duration_ms)| {
+        let path = std::path::PathBuf::from(format!("C:\\Music\\{album}\\{title}.flac"));
+        crate::localfiles::LocalFile {
+            path: path.clone(),
+            title: title.into(),
+            artist: artist.into(),
+            album: album.into(),
+            duration_ms,
+            mtime: 1_749_000_000,
+            size: 24_000_000,
+            uri: crate::localfiles::local_uri(artist, album, title, u64::from(duration_ms / 1000)),
+        }
+    })
+    .collect();
+    app.local_files_count = Some(local_files.len());
+    app.local_index = Some(std::sync::Arc::new(crate::localfiles::Index::from_files(
+        local_files,
+    )));
 }
 
 /// Words to go with the sample track, timed so that the one being sung
@@ -676,6 +722,7 @@ fn play_here(app: &mut App) {
         art_small_url: now.as_ref().and_then(|now| now.art_small.clone()),
         duration_ms: now.as_ref().map(|now| now.duration_ms).unwrap_or_default(),
         is_episode: now.as_ref().is_some_and(|now| now.show_id.is_some()),
+        local_path: None,
     });
     app.local.volume = app.settings.volume;
     // Where the displayed song was, so the player bar shows the same time.
@@ -2945,6 +2992,68 @@ mod tests {
                 "{label} is hidden when nothing matches"
             );
         }
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn local_files_quick_picks_cover_the_os_music_folders() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        // The picks come from the operating system; on a bare machine with no
+        // known music folders there is simply nothing to show.
+        let Some(user_dirs) = directories::UserDirs::new() else {
+            return;
+        };
+        let picks: Vec<(&str, std::path::PathBuf)> = [
+            ("Music Library", user_dirs.audio_dir()),
+            ("Downloads", user_dirs.download_dir()),
+        ]
+        .into_iter()
+        .filter_map(|(label, dir)| dir.map(|dir| (label, dir.to_path_buf())))
+        .collect();
+        if picks.is_empty() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("local-quick-picks");
+        app.open(Page::Settings);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        // Each known folder shows as a switch, off until it is picked.
+        let toggle = accessible_node(&tree, picks[0].0, Role::CheckBox);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(toggle, AccessibleAction::Click, None)],
+        );
+        assert!(
+            app.settings
+                .local_folders
+                .iter()
+                .any(|folder| std::path::Path::new(folder) == picks[0].1),
+            "switching the pick on adds its folder"
+        );
+        // Switching it back off removes the folder again, and no folder
+        // row duplicates what the switch now manages.
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(
+            tree.nodes
+                .iter()
+                .filter(|(_, node)| node.label() == Some(picks[0].0))
+                .count(),
+            1,
+            "the quick pick is the only row for its folder"
+        );
+        let toggle = accessible_node(&tree, picks[0].0, Role::CheckBox);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(toggle, AccessibleAction::Click, None)],
+        );
+        assert!(
+            app.settings
+                .local_folders
+                .iter()
+                .all(|folder| std::path::Path::new(folder) != picks[0].1),
+            "switching the pick off removes its folder"
+        );
         app.backend.shutdown();
     }
 
@@ -6234,6 +6343,7 @@ mod tests {
             Page::TopSongs,
             Page::Search,
             Page::LikedSongs,
+            Page::LocalFiles,
             Page::Albums,
             Page::Artists,
             Page::Podcasts,
@@ -7833,6 +7943,9 @@ mod tests {
         );
         app.attach(&ctx);
         populate(&mut app);
+        // The demo's Local Files entry would shift the row sweep this test
+        // drives by pixel, so hide it here and assert playlist order alone.
+        app.settings.local_folders.clear();
         assert!(app.settings.pinned_contexts.is_empty());
         assert!(app.settings.sidebar_order.is_empty());
         for _ in 0..3 {

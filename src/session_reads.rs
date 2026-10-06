@@ -408,22 +408,37 @@ fn local_track(id: &SpotifyUri, uri: String) -> Option<PlayableItem> {
     };
     Some(PlayableItem::Track(Track {
         uri,
-        name: track_title.clone(),
+        name: decode_local_part(track_title),
         duration_ms: u32::try_from(duration.as_millis()).unwrap_or(u32::MAX),
-        artists: non_empty(artist)
+        artists: non_empty(&decode_local_part(artist))
             .map(|name| ArtistRef {
                 name,
                 ..Default::default()
             })
             .into_iter()
             .collect(),
-        album: non_empty(album_title).map(|name| Album {
-            name,
-            ..Default::default()
-        }),
+        album: {
+            let name = decode_local_part(album_title);
+            non_empty(&name).map(|name| Album {
+                name,
+                ..Default::default()
+            })
+        },
         is_local: true,
         ..Default::default()
     }))
+}
+
+/// One piece of a `spotify:local:` URI as the tag text it encodes. The
+/// pieces are form-encoded: spaces are `+`, other bytes percent-encoded.
+fn decode_local_part(part: &str) -> String {
+    if !part.contains(['+', '%']) {
+        return part.to_string();
+    }
+    let plus = part.replace('+', " ");
+    percent_encoding::percent_decode_str(&plus)
+        .decode_utf8()
+        .map_or_else(|_| part.to_string(), |text| text.into_owned())
 }
 
 /// Track and episode details for the given URIs, in one batched request.
@@ -769,6 +784,27 @@ mod tests {
         );
         assert_eq!(track.duration_ms, 180_000);
         assert_eq!(track.uri, "spotify:local:Artist:Album:Song:180");
+
+        // The URI pieces carry form-encoded tag text; the row decodes them
+        // for display.
+        let encoded = item(
+            &row(
+                "spotify:local:David+Wise:A+Monkey%27s+Island:Cavern+Plaza:213",
+                "",
+                0,
+            ),
+            &playables(),
+        );
+        let Some(PlayableItem::Track(encoded)) = encoded.item else {
+            panic!("a local file is a track");
+        };
+        assert_eq!(encoded.name, "Cavern Plaza");
+        assert_eq!(encoded.artist_names(), "David Wise");
+        assert_eq!(
+            encoded.album.map(|album| album.name).as_deref(),
+            Some("A Monkey's Island")
+        );
+        assert_eq!(encoded.duration_ms, 213_000);
     }
 
     #[test]

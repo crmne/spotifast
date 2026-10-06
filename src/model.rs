@@ -112,6 +112,8 @@ pub enum Page {
     TopSongs,
     Search,
     LikedSongs,
+    /// The audio files in the local folders set in Settings.
+    LocalFiles,
     Albums,
     Artists,
     Podcasts,
@@ -134,6 +136,7 @@ impl Page {
             Page::TopSongs => "top-songs".into(),
             Page::Search => "search".into(),
             Page::LikedSongs => "liked".into(),
+            Page::LocalFiles => "local-files".into(),
             Page::Albums => "albums".into(),
             Page::Artists => "artists".into(),
             Page::Podcasts => "podcasts".into(),
@@ -154,6 +157,7 @@ impl Page {
             "top-songs" => Page::TopSongs,
             "search" => Page::Search,
             "liked" => Page::LikedSongs,
+            "local-files" => Page::LocalFiles,
             "albums" => Page::Albums,
             "artists" => Page::Artists,
             "podcasts" => Page::Podcasts,
@@ -1111,6 +1115,10 @@ pub enum Action {
         playlist_order: Option<Vec<String>>,
     },
     RestartEngine,
+    /// Pick a folder to scan for local files, then apply it.
+    AddLocalFolder,
+    /// Rebuild the local-files index from the configured folders.
+    RescanLocalFiles,
     /// Rebuild the HTTP client with the proxy in settings. Local playback
     /// restarts only when its HTTP proxy changed.
     ApplyProxy,

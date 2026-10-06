@@ -22,6 +22,7 @@ Spotifast follows each platform's conventions. On Linux:
 | Legacy playback credential | `~/.local/state/spotifast/credentials/` | Removed after migration or sign-out |
 | Proxy password | System credential store | Clear the password and apply the manual proxy settings |
 | Legacy proxy password | `~/.local/state/spotifast/proxy_password` | Removed after protected migration |
+| Local files index | `~/.local/state/spotifast/local-files-index.json` | Yes, rescan the folders in Settings |
 | Last session | `~/.local/state/spotifast/session.json` | Yes |
 | Play history | `~/.local/state/spotifast/history.json` | Yes |
 | Audio cache | `~/.cache/spotifast/audio/` | Always |

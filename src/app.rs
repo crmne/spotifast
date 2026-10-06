@@ -339,6 +339,16 @@ pub struct App {
     /// What the window's title bar says, as last set.
     window_title: String,
 
+    /// The local-files index, loaded after the first scan reports back.
+    pub local_index: Option<std::sync::Arc<crate::localfiles::Index>>,
+    /// A folder scan is running.
+    pub local_files_scanning: bool,
+    /// How many files the last finished scan indexed, for the settings text.
+    pub local_files_count: Option<usize>,
+    /// Bumped when a scan result replaces the index, so cached table rows
+    /// for the Local Files page rebuild.
+    pub local_files_revision: u64,
+
     pub library: Library,
     liked_songs: crate::liked::LikedSongs,
     liked_recheck_at: Option<Instant>,
@@ -926,6 +936,10 @@ impl App {
             resume_queue: session.last_added_queue.clone(),
             manual_queue: Vec::new(),
             pending_queue_adds: Vec::new(),
+            local_index: None,
+            local_files_scanning: false,
+            local_files_count: None,
+            local_files_revision: 0,
             pending_album_queues: HashMap::new(),
             pending_queue_batches: HashMap::new(),
             album_queue_serial: 0,
@@ -1858,6 +1872,39 @@ impl App {
                     }
                 }
                 Event::Local(state) => self.handle_local(*state),
+                Event::LocalFilesIndex { result } => {
+                    self.local_files_scanning = false;
+                    match result {
+                        Ok(count) => {
+                            self.local_files_count = Some(count);
+                            self.local_index =
+                                crate::localfiles::load(&crate::localfiles::index_path(&self.dirs))
+                                    .map(std::sync::Arc::new);
+                            self.local_files_revision += 1;
+                        }
+                        Err(error) => {
+                            self.toast_error(format!(
+                                "{}: {error}",
+                                gettext(self.locale, "Couldn't scan the local file folders")
+                            ));
+                        }
+                    }
+                }
+                Event::LocalFolderChosen { result } => {
+                    if let Some(folder) = result {
+                        let folder = folder.to_string_lossy().into_owned();
+                        if !self.settings.local_folders.contains(&folder) {
+                            self.settings.local_folders.push(folder);
+                            self.mark_settings_dirty();
+                            // The engine builds its local-file lookup when
+                            // the player starts, so a new folder needs one.
+                            // The action also saves settings and rescans.
+                            self.actions.push(Action::RestartEngine);
+                        } else {
+                            self.toast(gettext(self.locale, "That folder is already listed."));
+                        }
+                    }
+                }
                 Event::Api(response) => self.handle_api(*response),
                 Event::Accent { url, color } => {
                     self.accent_pending.remove(&url);
@@ -2161,7 +2208,7 @@ impl App {
                 || match page {
                     Page::Playlist(id) => self.playlist_pages.contains_key(id),
                     Page::Album(id) => self.album_pages.contains_key(id),
-                    Page::LikedSongs | Page::TopSongs => true,
+                    Page::LikedSongs | Page::LocalFiles | Page::TopSongs => true,
                     _ => false,
                 }
         });
@@ -2253,11 +2300,26 @@ impl App {
             && self.local.error.as_deref() != Some(error.as_str())
         {
             self.toast_error(engine_error_text(self.locale, error));
-            // One unavailable track is Spotify's catalogue; several in a
-            // row is the session's audio-key service gone bad, which
-            // leaves librespot feeding the decoder encrypted bytes and
-            // skipping through the whole album. A fresh session cures it.
-            if error.starts_with("This item isn't available") {
+            let unavailable_uri = error.strip_prefix("This item isn't available: ");
+            if let Some(uri) = unavailable_uri.filter(|uri| uri.starts_with("spotify:local:")) {
+                // A queued local file that fails to load never becomes the
+                // playing track, so nothing else would take its row back.
+                self.manual_queue.retain(|queued| queued != uri);
+                self.pending_queue_adds
+                    .retain(|addition| addition.item.uri() != uri);
+                if let Loadable::Loaded(queue) = &mut self.queue {
+                    queue.queue.retain(|item| item.uri() != uri);
+                }
+                self.session_dirty = true;
+            } else if error.starts_with("This item isn't available") {
+                // One unavailable track is Spotify's catalogue; several in a
+                // row is the session's audio-key service gone bad, which
+                // leaves librespot feeding the decoder encrypted bytes and
+                // skipping through the whole album. A fresh session cures it.
+                // An unavailable local file does not count: the file itself
+                // keeps the engine from playing it (gone, unreadable, or
+                // audio it cannot decode), and reconnecting fixes none of
+                // that, it only churns the session Spotify just restored.
                 let now = Instant::now();
                 self.unavailable_at
                     .retain(|at| now.duration_since(*at) < Duration::from_secs(20));
@@ -2613,6 +2675,12 @@ impl App {
             if now.local && self.resume_track.as_deref() == Some(now.uri.as_str()) {
                 for uri in queued {
                     self.manual_queue.push(uri.clone());
+                    // The Web API cannot describe a local file to any
+                    // device; the engine takes it straight.
+                    if uri.starts_with("spotify:local:") {
+                        self.backend.player(PlayerCommand::AddToQueue(uri));
+                        continue;
+                    }
                     self.backend.api(ApiRequest::AddToQueue {
                         uri,
                         device_id: self.local_device_id.clone(),
@@ -3621,6 +3689,17 @@ impl App {
             Page::TopSongs => self.load_top_songs(false),
             Page::Search => {}
             Page::LikedSongs => self.ensure_liked_songs(),
+            Page::LocalFiles => {
+                // The index is disk local; scan once when nothing is known
+                // yet. A repeat pass comes from Rescan in Settings.
+                if self.local_index.is_none()
+                    && !self.local_files_scanning
+                    && !self.settings.local_folders.is_empty()
+                {
+                    self.local_files_scanning = true;
+                    self.backend.send(crate::backend::Command::LocalFilesScan);
+                }
+            }
             Page::Albums => {
                 if !self.library.albums.loaded_once {
                     self.load_more(Page::Albums);
@@ -6696,7 +6775,9 @@ impl App {
     /// Start a playlist at its first available row, not an unspecified place
     /// in the player's resolved context. A loaded range from the middle is
     /// not the playlist's beginning; without its prefix, request position zero.
-    fn playlist_start(&self, id: &str) -> (Option<String>, Option<u32>) {
+    /// `allow_local` lets a local file open the playlist, which only this
+    /// computer's player can honour.
+    fn playlist_start(&self, id: &str, allow_local: bool) -> (Option<String>, Option<u32>) {
         let first = self
             .playlist_pages
             .get(id)
@@ -6704,10 +6785,16 @@ impl App {
             .and_then(|page| {
                 page.items.items.iter().find_map(|row| {
                     let item = row.playable()?;
-                    if row.is_local
-                        || item.uri().is_empty()
-                        || matches!(item, PlayableItem::Track(track)
-                            if track.is_local || track.is_playable == Some(false))
+                    if item.uri().is_empty() {
+                        return None;
+                    }
+                    let local = matches!(item, PlayableItem::Track(track) if track.is_local)
+                        || row.is_local;
+                    if local {
+                        return allow_local.then(|| item.uri().to_string());
+                    }
+                    if matches!(item, PlayableItem::Track(track)
+                            if track.is_playable == Some(false))
                     {
                         return None;
                     }
@@ -6742,7 +6829,10 @@ impl App {
             if shuffle {
                 (request.offset_uri, request.offset_position) = self.shuffle_start(context);
             } else if let Some(id) = context.strip_prefix("spotify:playlist:") {
-                (request.offset_uri, request.offset_position) = self.playlist_start(id);
+                let allow_local = !self.settings.local_folders.is_empty()
+                    && !matches!(self.target(), Target::Remote(Some(_)));
+                (request.offset_uri, request.offset_position) =
+                    self.playlist_start(id, allow_local);
             }
         }
         let mut keys: Vec<String> = Vec::new();
@@ -6767,7 +6857,10 @@ impl App {
             }
             None => {}
         }
-        let expected_track = keys.iter().find(|key| key.contains(":track:")).cloned();
+        let expected_track = keys
+            .iter()
+            .find(|key| key.contains(":track:") || key.starts_with("spotify:local:"))
+            .cloned();
         if let Some(uri) = expected_track {
             if let Some(context) = &request.context_uri {
                 self.cache_track_from_context(context, &uri);
@@ -6807,6 +6900,7 @@ impl App {
             }
             Target::Remote(Some(device_id)) => {
                 self.queued_play = None;
+                strip_local_for_remote(&mut request);
                 if shuffle {
                     self.backend.api(ApiRequest::ShufflePlay {
                         device_id: Some(device_id),
@@ -7644,7 +7738,10 @@ impl App {
     fn resync_local_queue(&mut self) {
         self.backend.player(PlayerCommand::ClearQueue);
         for uri in self.manual_queue.clone() {
-            if uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:") {
+            if uri.starts_with("spotify:track:")
+                || uri.starts_with("spotify:episode:")
+                || uri.starts_with("spotify:local:")
+            {
                 self.backend.player(PlayerCommand::AddToQueue(uri));
             }
         }
@@ -7664,15 +7761,27 @@ impl App {
     /// `announce` is false when a batch should produce one toast.
     fn queue_one(&mut self, uri: String, label: String, announce: bool) {
         let pending_start = self.pending_queue_adds.len();
+        let local_file = uri.starts_with("spotify:local:");
+        let engine_here = self.local.is_active() && matches!(self.target(), Target::Local);
+        // Another device, or Spotify's own queue, cannot reach the files on
+        // this computer. Queue a local file only on the engine here.
+        if local_file && !engine_here {
+            self.toast(gettext(
+                self.locale,
+                "Local files play on this computer only",
+            ));
+            return;
+        }
         self.show_queued_song(&uri, &label);
         if announce {
             // Translators: {name} is a song, episode, album, or playlist name.
             self.toast(gettext(self.locale, "{name} added to queue").replace("{name}", &label));
         }
-        // Queue tracks and episodes directly on the active local engine.
-        // Other targets and item types use the Web API.
-        let track_like = uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:");
-        if track_like && self.local.is_active() && matches!(self.target(), Target::Local) {
+        // Queue tracks, episodes and local files directly on the active
+        // local engine. Other targets use the Web API.
+        let engine_playable =
+            local_file || uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:");
+        if engine_playable && engine_here {
             self.backend.player(PlayerCommand::AddToQueue(uri));
             self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
             return;
@@ -7856,8 +7965,22 @@ impl App {
         if !self.pending_queue_batches.is_empty() {
             return;
         }
-        self.pending_queue_adds
-            .retain(|addition| addition.at.elapsed() < Duration::from_secs(30));
+        let engine_here = matches!(self.target(), Target::Local) && self.local.is_active();
+        self.pending_queue_adds.retain(|addition| {
+            // Spotify's queue answer can never confirm a local file queued
+            // on this computer's player. Its row stays until the track
+            // starts, the queue is cleared, or the file fails to load.
+            if engine_here
+                && addition.item.uri().starts_with("spotify:local:")
+                && self
+                    .manual_queue
+                    .iter()
+                    .any(|uri| uri == addition.item.uri())
+            {
+                return true;
+            }
+            addition.at.elapsed() < Duration::from_secs(30)
+        });
     }
 
     /// Restores pending additions missing from a stale fetched queue.
@@ -9124,6 +9247,23 @@ impl App {
                 if self.local_ready {
                     self.toast(gettext(self.locale, "Restarting local playback"));
                 }
+                // The engine's local-file lookup is built with the player,
+                // so an engine restart is the moment a folder change can
+                // take effect; refresh the index with it. With no folders
+                // left, the scan writes an empty index.
+                if !self.local_files_scanning {
+                    self.local_files_scanning = true;
+                    self.backend.send(Command::LocalFilesScan);
+                }
+            }
+            Action::AddLocalFolder => {
+                self.backend.choose_local_folder();
+            }
+            Action::RescanLocalFiles => {
+                if !self.local_files_scanning {
+                    self.local_files_scanning = true;
+                    self.backend.send(Command::LocalFilesScan);
+                }
             }
             Action::ShowWindow => {
                 if self.window_hidden {
@@ -10190,6 +10330,11 @@ pub fn engine_config(
         volume_dir: dirs.volume_dir(),
         audio_cache_dir: settings.audio_cache.then(|| dirs.audio_cache_dir()),
         audio_cache_limit: Some(settings.audio_cache_mb.max(64) * 1024 * 1024),
+        local_folders: settings
+            .local_folders
+            .iter()
+            .map(std::path::PathBuf::from)
+            .collect(),
         proxy,
     }
 }
@@ -10327,6 +10472,25 @@ fn is_made_for_you(name: &str, term: &str) -> bool {
 /// its own rather than a list of one: Spotify resolves a track's URI as a
 /// context, and a context with a URI is what librespot's autoplay carries
 /// on from when it ends, the way one song from a search does in Spotify.
+/// Another device cannot play this computer's local files: they leave the
+/// list, and the chosen row's position slides back over them. A local start
+/// named by URI has no remote place to name, so the list starts at its
+/// first song instead.
+fn strip_local_for_remote(request: &mut PlayRequest) {
+    let is_local = |uri: &str| uri.starts_with("spotify:local:");
+    if request.offset_uri.as_deref().is_some_and(is_local) {
+        request.offset_uri = None;
+    }
+    if let Some(position) = request.offset_position {
+        let skipped = request.uris[..(position as usize).min(request.uris.len())]
+            .iter()
+            .filter(|uri| is_local(uri))
+            .count() as u32;
+        request.offset_position = Some(position.saturating_sub(skipped));
+    }
+    request.uris.retain(|uri| !is_local(uri));
+}
+
 fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
     let single_song = request.context_uri.is_none()
         && request.uris.len() == 1
@@ -10374,6 +10538,10 @@ fn autoplay_seed(
         return None;
     }
     let track = before.track.as_ref()?;
+    if track.uri.starts_with("spotify:local:") {
+        // Spotify computes no autoplay station for a local file.
+        return None;
+    }
     if list?.last() != Some(&track.uri) || track.duration_ms == 0 {
         return None;
     }
@@ -19548,7 +19716,7 @@ mod tests {
                 app.receive_playlist_cache("alice", "mix", 0, cache);
             }
             assert_eq!(
-                app.playlist_start("mix"),
+                app.playlist_start("mix", false),
                 (None, Some(0)),
                 "a matching revision cannot make a cache with the wrong count authoritative"
             );
@@ -19564,7 +19732,7 @@ mod tests {
                 }),
             });
             assert_eq!(
-                app.playlist_start("mix"),
+                app.playlist_start("mix", false),
                 (Some("spotify:track:right".into()), None)
             );
             assert_eq!(app.playlist_pages["mix"].items.items.len(), 3);
@@ -21178,9 +21346,13 @@ mod tests {
                     );
                     assert_eq!(request.offset_position, Some(0));
                 } else {
+                    // The demo configures a local-files folder and playback
+                    // targets this computer, so the local row plays too and,
+                    // sorted by title, is the first available row.
                     assert_eq!(
                         request.uris,
                         vec![
+                            "spotify:local:Artist:Album:Song:180",
                             "spotify:track:first",
                             "spotify:track:first",
                             "spotify:track:other"
@@ -21192,7 +21364,14 @@ mod tests {
                         "playback starts at the first playable row"
                     );
                 }
-                assert_eq!(app.now_playing().unwrap().uri, "spotify:track:first");
+                let want_now = if filtered {
+                    "spotify:track:first"
+                } else {
+                    // The local row is playable on this computer, and sorted
+                    // by title it is the first available row.
+                    "spotify:local:Artist:Album:Song:180"
+                };
+                assert_eq!(app.now_playing().unwrap().uri, want_now);
                 let mut settled = ctx.run_ui(
                     egui::RawInput {
                         screen_rect: Some(egui::Rect::from_min_size(
@@ -21252,17 +21431,21 @@ mod tests {
                     },
                 );
                 output.textures_delta.clear();
+                // The playable list is [local?, first, first, other?]: the
+                // second duplicate sits at index 1 in a filtered view, and
+                // at 2 unfiltered, after the playable local row.
+                let second_index = if filtered { 1 } else { 2 };
                 assert!(
-                    app.actions
-                        .iter()
-                        .any(|action| matches!(action, Action::PlayFromRow { index: 1, .. })),
+                    app.actions.iter().any(
+                        |action| matches!(action, Action::PlayFromRow { index, .. } if *index == second_index)
+                    ),
                     "second occurrence action: {:?}",
                     app.actions
                 );
                 app.apply_actions(&ctx);
                 assert_eq!(
                     app.queued_play.as_ref().unwrap().offset_position,
-                    Some(1),
+                    Some(second_index),
                     "selecting the second duplicate keeps its occurrence in the playable list"
                 );
                 app.backend.shutdown();
@@ -21553,6 +21736,195 @@ mod tests {
         let request = app.queued_play.as_ref().unwrap();
         assert_eq!(request.offset_uri, None);
         assert_eq!(request.offset_position, None);
+    }
+
+    #[test]
+    fn playlist_start_skips_or_keeps_local_rows_by_playability() {
+        let mut app = headless_app();
+        let mut local = cached_playlist_row("spotify:local:Artist:Album:Song:180");
+        local.is_local = true;
+        app.playlist_pages.insert(
+            "playlist".into(),
+            PlaylistPage {
+                items: PagedList {
+                    items: vec![local, cached_playlist_row("spotify:track:playable")],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            app.playlist_start("playlist", false),
+            (Some("spotify:track:playable".into()), None),
+            "without local folders (or for a remote target) the lead local row is skipped"
+        );
+        assert_eq!(
+            app.playlist_start("playlist", true),
+            (Some("spotify:local:Artist:Album:Song:180".into()), None),
+            "local playback here can start at a local row"
+        );
+    }
+
+    #[test]
+    fn remote_play_strips_local_files_and_slides_the_offset() {
+        let uris = |list: &[&str]| list.iter().map(|uri| uri.to_string()).collect::<Vec<_>>();
+        let mut request = PlayRequest::tracks(uris(&[
+            "spotify:track:a",
+            "spotify:local:Artist:Album:Song:180",
+            "spotify:track:b",
+            "spotify:local:Artist:Album:Other:200",
+            "spotify:track:c",
+        ]))
+        .starting_at_index(3);
+        strip_local_for_remote(&mut request);
+        assert_eq!(
+            request.uris,
+            uris(&["spotify:track:a", "spotify:track:b", "spotify:track:c"])
+        );
+        assert_eq!(
+            request.offset_position,
+            Some(2),
+            "the two removed local rows before the choice slide it back"
+        );
+
+        let mut request = PlayRequest::tracks(uris(&[
+            "spotify:local:Artist:Album:Song:180",
+            "spotify:track:a",
+        ]))
+        .starting_at_uri("spotify:local:Artist:Album:Song:180");
+        strip_local_for_remote(&mut request);
+        assert_eq!(request.uris, uris(&["spotify:track:a"]));
+        assert_eq!(request.offset_uri, None, "a removed start leaves no offset");
+    }
+
+    #[test]
+    fn queueing_a_local_file_elsewhere_is_refused() {
+        let mut app = headless_app();
+        assert!(
+            !(app.local.is_active() && matches!(app.target(), Target::Local)),
+            "the headless app has no local engine queue"
+        );
+        app.queue_one(
+            "spotify:local:Artist:Album:Song:180".into(),
+            "Song".into(),
+            true,
+        );
+        assert!(app.manual_queue.is_empty(), "nothing reached the queue");
+        assert_eq!(
+            app.toasts.last().map(|toast| toast.message.as_str()),
+            Some("Local files play on this computer only")
+        );
+    }
+
+    #[test]
+    fn queueing_a_local_file_here_goes_straight_to_the_engine() {
+        let local_uri = "spotify:local:Artist:Album:Song:180";
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:ctx1"]);
+        assert!(
+            app.queue_locally_reorderable(),
+            "the local engine is the target"
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::AddToQueue {
+                uri: local_uri.into(),
+                label: "Song".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.take_player_commands(),
+            [PlayerCommand::AddToQueue(local_uri.into())],
+            "the engine on this computer receives the file directly"
+        );
+        assert!(
+            app.backend.take_queue_requests().is_empty(),
+            "Spotify's queue never learns the file"
+        );
+        assert_eq!(app.manual_queue, [local_uri.to_string()]);
+        assert!(
+            app.pending_queue_adds
+                .iter()
+                .any(|addition| addition.item.uri() == local_uri),
+            "the row stays pending: no Web API answer can ever confirm it"
+        );
+    }
+
+    #[test]
+    fn a_missing_local_file_leaves_every_queue_list() {
+        let local_uri = "spotify:local:Artist:Album:Song:180";
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:ctx1"]);
+        app.apply(
+            Action::AddToQueue {
+                uri: local_uri.into(),
+                label: "Song".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(app.manual_queue, [local_uri.to_string()]);
+
+        // The file is gone when the engine reaches it: librespot skips ahead
+        // on its own, and the row that can never start must go too.
+        let mut state = app.local.clone();
+        state.error = Some(format!("This item isn't available: {local_uri}"));
+        app.handle_local(state);
+        assert!(app.manual_queue.is_empty());
+        assert!(
+            app.pending_queue_adds
+                .iter()
+                .all(|addition| addition.item.uri() != local_uri)
+        );
+        assert!(
+            !queue_uris(&app).1.contains(&local_uri.to_string()),
+            "the displayed queue drops the file that cannot load"
+        );
+    }
+
+    #[test]
+    fn unavailable_local_files_do_not_trigger_a_reconnect() {
+        let mut app = headless_app();
+        for i in 0..4 {
+            let seconds = 100 + i;
+            let mut state = app.local.clone();
+            state.error = Some(format!(
+                "This item isn't available: spotify:local:Artist{i}:Album:Song{i}:{seconds}"
+            ));
+            app.handle_local(state);
+        }
+        assert_eq!(
+            app.backend.reconnect_request_count(),
+            0,
+            "a file on this computer that will not play is not a session problem"
+        );
+    }
+
+    #[test]
+    fn repeated_unavailable_remote_tracks_still_trigger_a_reconnect() {
+        let mut app = headless_app();
+        for i in 0..3 {
+            let mut state = app.local.clone();
+            state.error = Some(format!("This item isn't available: spotify:track:gone{i}"));
+            app.handle_local(state);
+        }
+        assert_eq!(
+            app.backend.reconnect_request_count(),
+            1,
+            "several remote failures in a row still mean the audio-key service is bad"
+        );
     }
 
     #[test]

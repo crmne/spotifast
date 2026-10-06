@@ -114,8 +114,9 @@ When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.
 
-Sorted and filtered views omit unavailable songs and local files from playback.
-The rows stay visible, and selecting a repeated song starts that occurrence. Filtering a playlist or Liked Songs plays only the matching songs,
+Sorted and filtered views omit unavailable songs from playback. Local files
+join the request only when they can play on this computer: when playback
+runs here and local folders are set in Settings. The rows stay visible, and selecting a repeated song starts that occurrence. Filtering a playlist or Liked Songs plays only the matching songs,
 including repeated entries. Play is disabled when the view has no playable
 songs; it never falls back to the unfiltered playlist in that case. Clearing
 the filter restores the original view. Existing Shuffle behavior is unchanged.
@@ -142,6 +143,21 @@ Double-click a playlist, Liked Songs, album, artist, or podcast row in the
 Library sidebar to start playing it. A single click still opens the row's page.
 Pointing at a row's cover art also shows a play button, but only when the
 sidebar is not in compact mode.
+
+## Local files
+
+Point Spotifast at folders of MP3, MP4, M4P, or FLAC files in **Settings**
+under **Local files**: the **Music Library** and **Downloads** switches cover
+the folders your operating system keeps music in, and **Add folder** adds any
+other. The **Local Files** page then appears in Your Library,
+listing what those folders hold, sorted and filtered like any collection. Its
+songs play on this computer: in a playlist that already lists them, from the
+page's Play button, or queued from here. Playing on another device, or asking
+Spotify's own queue for them, skips them there because those files never leave
+this computer. Changing the folder list or pressing **Rescan** re-reads it;
+the index lives in the state directory as `local-files-index.json`. A file
+only appears once the player can read its tags and decode its audio, which
+today means 44.1 kHz stereo; the rest stay out of the list.
 
 ## Search from a launcher
 

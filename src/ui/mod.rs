@@ -301,6 +301,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                                 Page::TopSongs => collection::top_songs(app, ui),
                                 Page::Search => search::show(app, ui),
                                 Page::LikedSongs => collection::liked(app, ui),
+                                Page::LocalFiles => collection::local_files(app, ui),
                                 Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {
                                     library::show(app, ui, page)
                                 }
