@@ -419,47 +419,70 @@ fn saved_time(value: Option<&str>) -> Option<i64> {
         .map(|time| time.as_millisecond())
 }
 
+/// Build the ranks once per frame, keeping the first occurrence just as
+/// `position` did. Searching the whole order from a sort comparator makes
+/// scrolling a large library quadratic even when only visible rows are drawn.
+fn first_ranks<'a>(
+    keys: impl Iterator<Item = &'a str>,
+) -> std::collections::HashMap<&'a str, usize> {
+    let mut ranks = std::collections::HashMap::new();
+    for (rank, key) in keys.enumerate() {
+        ranks.entry(key).or_insert(rank);
+    }
+    ranks
+}
+
 fn order_entries(app: &App, shelf: Filter, sort: LibrarySort, entries: &mut [Entry]) {
     match sort {
         LibrarySort::Name => {
             entries.sort_by_cached_key(|entry| (entry.name.to_lowercase(), entry.uri.clone()))
         }
-        LibrarySort::RecentlyPlayed => entries.sort_by_key(|entry| {
-            app.recent_contexts
-                .iter()
-                .position(|held| {
-                    if entry.liked {
-                        app.user_id()
-                            .is_some_and(|id| held == &format!("spotify:user:{id}:collection"))
-                    } else {
-                        held == &entry.uri
-                    }
-                })
-                .unwrap_or(usize::MAX)
-        }),
+        LibrarySort::RecentlyPlayed => {
+            let ranks = first_ranks(app.recent_contexts.iter().map(String::as_str));
+            let liked_uri = app
+                .user_id()
+                .map(|id| format!("spotify:user:{id}:collection"));
+            entries.sort_by_cached_key(|entry| {
+                let key = if entry.liked {
+                    liked_uri.as_deref()
+                } else {
+                    Some(entry.uri.as_str())
+                };
+                key.and_then(|key| ranks.get(key))
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
+        }
         LibrarySort::RecentlyAdded => entries
             .sort_by_key(|entry| (entry.added_at.is_none(), std::cmp::Reverse(entry.added_at))),
-        LibrarySort::Local => entries.sort_by_key(|entry| {
-            match app
-                .settings
-                .sidebar_order
-                .iter()
-                .position(|held| held == entry.ordering_key())
-            {
-                Some(rank) => (1, rank),
+        LibrarySort::Local => {
+            let ranks = first_ranks(app.settings.sidebar_order.iter().map(String::as_str));
+            entries.sort_by_cached_key(|entry| match ranks.get(entry.ordering_key()) {
+                Some(&rank) => (1, rank),
                 None => (0, entry.playlist_index.unwrap_or(0)),
-            }
-        }),
+            });
+        }
         LibrarySort::Spotify if !entries.iter().any(|entry| entry.folder.is_some()) => {
-            entries.sort_by_key(|entry| (entry.liked, app.rootlist.iter().position(|row| matches!(row, crate::player::RootlistEntry::Playlist(uri) if uri == &entry.uri)).unwrap_or(usize::MAX)));
+            let ranks = first_ranks(app.rootlist.iter().filter_map(|row| match row {
+                crate::player::RootlistEntry::Playlist(uri) => Some(uri.as_str()),
+                _ => None,
+            }));
+            entries.sort_by_cached_key(|entry| {
+                (
+                    entry.liked,
+                    ranks.get(entry.uri.as_str()).copied().unwrap_or(usize::MAX),
+                )
+            });
         }
         LibrarySort::Spotify => entries.sort_by_key(|entry| entry.liked),
         LibrarySort::Library => {}
     }
     let pins = app.settings.library_pins();
-    entries.sort_by_key(|entry| {
-        pins.iter()
-            .position(|held| held == entry.ordering_key())
+    let ranks = first_ranks(pins.iter().map(String::as_str));
+    entries.sort_by_cached_key(|entry| {
+        ranks
+            .get(entry.ordering_key())
+            .copied()
             .unwrap_or(usize::MAX)
     });
     if shelf == Filter::Playlists {
@@ -2212,6 +2235,37 @@ mod ordering_tests {
         app.settings.pinned_contexts = vec![uri("a")];
         order_entries(&app, Filter::Playlists, LibrarySort::Name, &mut entries);
         assert_eq!(ids(&entries), ["a", "b", "c", "d"]);
+        assert_eq!(ids(&rows(&app)), ["a", "b", "c", "d"]);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn ranked_sorts_keep_first_duplicate_and_stable_order_for_missing_entries() {
+        use crate::player::RootlistEntry;
+
+        let mut app = app("ranked-sorts");
+        app.settings.liked_songs_pinned = false;
+        app.settings.pinned_contexts.clear();
+        app.recent_contexts = ["c", "a", "c"].map(uri).to_vec();
+        app.settings.sidebar_order = ["c", "a", "c"].map(uri).to_vec();
+        app.rootlist = ["c", "a", "c"]
+            .map(|id| RootlistEntry::Playlist(uri(id)))
+            .to_vec();
+
+        for (sort, expected) in [
+            (LibrarySort::RecentlyPlayed, ["c", "a", "b", "d"]),
+            (LibrarySort::Local, ["b", "d", "c", "a"]),
+            (LibrarySort::Spotify, ["c", "a", "b", "d"]),
+        ] {
+            let mut entries = rows(&app);
+            order_entries(&app, Filter::Playlists, sort, &mut entries);
+            assert_eq!(ids(&entries), expected, "{sort:?}");
+        }
+
+        app.settings.pinned_contexts = ["c", "a", "c"].map(uri).to_vec();
+        let mut entries = rows(&app);
+        order_entries(&app, Filter::Playlists, LibrarySort::Library, &mut entries);
+        assert_eq!(ids(&entries), ["c", "a", "b", "d"]);
         assert_eq!(ids(&rows(&app)), ["a", "b", "c", "d"]);
         app.backend.shutdown();
     }
