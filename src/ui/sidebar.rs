@@ -2118,6 +2118,8 @@ mod ordering_tests {
     use crate::api::models::Playlist;
     use crate::settings::Settings;
 
+    /// Create an isolated demo application with deliberately nonalphabetical rows
+    /// and known recent plays so ordering tests can distinguish each sort mode.
     fn app(name: &str) -> App {
         let root =
             std::env::temp_dir().join(format!("spotifast-order-{name}-{}", std::process::id()));
@@ -2156,16 +2158,21 @@ mod ordering_tests {
         app
     }
 
+    /// Drain queued UI actions through the real handler before checking the
+    /// resulting saved order, pin state, or filter preference.
     fn apply_actions(app: &mut App) {
         for action in std::mem::take(&mut app.actions) {
             app.apply(action, &egui::Context::default());
         }
     }
 
+    /// Give a fixture playlist the same URI key used by rootlist order and pins.
     fn uri(id: &str) -> String {
         format!("spotify:playlist:{id}")
     }
 
+    /// Project every fixture playlist as a flat row, retaining its library index
+    /// and leaving ownership and edit permissions disabled for ordering-only tests.
     fn rows(app: &App) -> Vec<Entry> {
         app.library
             .playlists
@@ -2177,6 +2184,8 @@ mod ordering_tests {
             .collect()
     }
 
+    /// Extract compact playlist IDs in display order for assertions.
+    /// Liked Songs has an empty URI, so its position is represented by an empty ID.
     fn ids(entries: &[Entry]) -> Vec<&str> {
         entries
             .iter()
