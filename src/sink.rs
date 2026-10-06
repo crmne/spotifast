@@ -922,7 +922,13 @@ mod tests {
         }
         assert_eq!(rising[0], 0.0);
         assert!(rising.windows(2).all(|pair| pair[0] <= pair[1]));
-        assert!(rising.chunks_exact(2).all(|pair| pair[0] == pair[1]));
+        assert!(
+            rising
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .all(|pair| pair[0] == pair[1])
+        );
         let mut settled = [0.0; 2];
         render.render(&mut settled);
         assert_eq!(settled, [1.0; 2]);
@@ -932,7 +938,13 @@ mod tests {
         assert_eq!(falling[0], 1.0);
         assert_eq!(&falling[2880..], &[0.0; 2]);
         assert!(falling.windows(2).all(|pair| pair[0] >= pair[1]));
-        assert!(falling.chunks_exact(2).all(|pair| pair[0] == pair[1]));
+        assert!(
+            falling
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .all(|pair| pair[0] == pair[1])
+        );
     }
     /// The buffer setting reaches the device on Windows only (#88), and a
     /// settings file with a wild number in it still opens a stream: the
