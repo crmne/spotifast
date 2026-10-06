@@ -432,6 +432,9 @@ fn first_ranks<'a>(
     ranks
 }
 
+/// Applies the selected library order, then places pins first in their saved
+/// order. New playlists precede a saved local arrangement, and pinned playlists
+/// are shown at the top level rather than inside their folders.
 fn order_entries(app: &App, shelf: Filter, sort: LibrarySort, entries: &mut [Entry]) {
     match sort {
         LibrarySort::Name => {
@@ -2239,6 +2242,8 @@ mod ordering_tests {
         app.backend.shutdown();
     }
 
+    /// Duplicate saved keys keep their first rank, while rows absent from
+    /// the saved order keep their relative positions without changing source data.
     #[test]
     fn ranked_sorts_keep_first_duplicate_and_stable_order_for_missing_entries() {
         use crate::player::RootlistEntry;
