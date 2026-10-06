@@ -192,6 +192,14 @@ remove selected songs from a playlist you can edit, just like **Remove from
 this playlist**. On macOS, both `Delete` and `Fn+Delete` work. Text fields,
 dialogs and open menus keep Delete from acting on the list.
 
+Press and hold the player bar's volume slider to update local volume without
+moving the pointer. Remote volume is sent on release. The seek slider previews
+on press and seeks on release.
+
+The default local output smooths volume and mute changes over 30 ms. Explicit
+track changes and play/pause/stop use nominal 50 ms fades. Stopping can shorten
+the fade to the queued audio. Natural track transitions remain gapless.
+
 Left and right arrows adjust a focused volume slider by five percentage
 points, or the seek slider by one percent of the song. Screen readers can
 also read and set these sliders' values. `Ctrl+F` (`Cmd+F` on macOS) focuses

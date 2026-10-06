@@ -42,6 +42,11 @@ retain their queue for gapless playback. The seek still waits for librespot to
 find and fetch the requested audio, and sound already handed to the device
 cannot be recalled. Seeking adds no Web API request or full-track download.
 
+Explicit track replacements and confirmed seeks also clear the equalizer's
+filter history and the limiter's eight milliseconds of held audio. This keeps
+a fragment of the previous song out of a replacement's silent intro. Natural
+track transitions and pause/resume retain that history.
+
 Since 0.8.0, requests that need a grant still being
 verified wait for it instead of showing "not signed in". Sign-out cancels
 pending requests, and their late results cannot undo a new sign-in. If Spotify
