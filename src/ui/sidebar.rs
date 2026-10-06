@@ -344,6 +344,7 @@ pub(crate) fn selected_sort(app: &App, shelf: Filter) -> LibrarySort {
     }
 }
 
+/// Offer only the sort modes supported by this shelf and queue the selected change.
 fn sort_menu(app: &mut App, ui: &mut egui::Ui, shelf: Filter, selected: LibrarySort) {
     let locale = app.locale;
     let labels = [
@@ -879,6 +880,8 @@ fn nav_row(
     response
 }
 
+/// Draw Library navigation, shelf controls, search, and the visible rows.
+/// Playlist ownership and text filters are applied before ordering and pin placement.
 fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let palette = app.palette;
     let page = app.page().clone();
@@ -2181,6 +2184,8 @@ mod ordering_tests {
             .collect()
     }
 
+    /// Build a mixed library with two owned playlists, a foreign collaborative
+    /// playlist, and an unknown owner, retaining their original library indices.
     fn ownership_app(name: &str) -> App {
         let mut app = app(name);
         let id = app.user_id().unwrap().to_string();
@@ -2193,6 +2198,8 @@ mod ordering_tests {
         app
     }
 
+    /// Run the production playlist projection and ordering together so assertions
+    /// observe the same filtered, sorted, and pinned rows as the sidebar.
     fn projected(app: &App, needle: &str) -> Vec<Entry> {
         let mut entries = Vec::new();
         playlist_rows(
@@ -2210,6 +2217,8 @@ mod ordering_tests {
         entries
     }
 
+    /// Verify that ownership filtering composes with search and pins while
+    /// retaining source indices, sort selection, and the saved local arrangement.
     #[test]
     fn by_you_uses_account_ownership_and_composes_with_search_sort_and_pins() {
         let mut app = ownership_app("by-you");
@@ -2259,6 +2268,8 @@ mod ordering_tests {
         app.backend.shutdown();
     }
 
+    /// Ensure changing accounts reevaluates ownership and that missing or empty
+    /// account identities never match playlists whose owners are unknown.
     #[test]
     fn by_you_rechecks_ownership_after_account_changes_and_keeps_missing_owners_out() {
         let mut app = ownership_app("by-you-account");
@@ -2272,6 +2283,8 @@ mod ordering_tests {
         app.backend.shutdown();
     }
 
+    /// Ensure the flat owned view reveals matching rows inside collapsed folders
+    /// and disabling it restores the tree without changing folder expansion state.
     #[test]
     fn by_you_reveals_owned_playlists_in_collapsed_folders_and_restores_the_tree() {
         use crate::player::RootlistEntry;
@@ -2316,6 +2329,8 @@ mod ordering_tests {
         app.backend.shutdown();
     }
 
+    /// Verify indexed Spotify ordering uses the first duplicate rootlist entry,
+    /// keeps unlisted playlists visible, and applies pins without rewriting data.
     #[test]
     fn flat_by_you_spotify_order_keeps_first_occurrences_missing_rows_and_pins() {
         use crate::player::RootlistEntry;
@@ -2356,6 +2371,8 @@ mod ordering_tests {
         app.backend.shutdown();
     }
 
+    /// Check that pre-filter settings load with By You disabled and an enabled
+    /// preference survives serialization without requiring a settings migration.
     #[test]
     fn by_you_defaults_off_in_older_settings_and_round_trips() {
         let mut settings: Settings = serde_json::from_str("{}").unwrap();

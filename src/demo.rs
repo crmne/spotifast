@@ -748,6 +748,8 @@ fn demo_sound() -> Vec<f64> {
         .collect()
 }
 
+/// Select sample pages and UI states for deterministic, unauthenticated demos.
+/// The By You fixtures cover owned rows and an intentionally unmatched search.
 #[cfg(feature = "demo")]
 pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     // Default screenshots to the main window regardless of saved settings.
@@ -1501,6 +1503,8 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Drive By You through accessible button actions, verify owned rows remain
+    /// visible, and confirm switching shelves preserves the remembered choice.
     #[test]
     fn by_you_sidebar_filter_can_be_toggled_and_survives_shelf_switches() {
         use egui::accesskit::{Action as AccessibleAction, Role};

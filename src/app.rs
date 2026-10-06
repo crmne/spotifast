@@ -8241,6 +8241,8 @@ impl App {
         }
     }
 
+    /// Apply one queued UI action after drawing, updating optimistic local state
+    /// and scheduling any backend work or preference persistence it requires.
     pub(crate) fn apply(&mut self, action: Action, ctx: &egui::Context) {
         if matches!(
             &action,

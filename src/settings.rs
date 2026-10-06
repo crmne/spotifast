@@ -414,6 +414,8 @@ impl std::fmt::Debug for Settings {
 }
 
 impl Default for Settings {
+    /// Supply the initial preferences and defaults for fields absent from older
+    /// settings files, including an inactive playlist ownership filter.
     fn default() -> Self {
         Self {
             device_name: "Spotifast".to_string(),
