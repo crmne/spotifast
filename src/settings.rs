@@ -312,6 +312,8 @@ pub struct Settings {
     /// Explicit order per Library shelf. Missing shelves keep their previous
     /// behaviour; selecting another order never deletes the local arrangement.
     pub library_sort: std::collections::BTreeMap<LibraryShelf, LibrarySort>,
+    /// Show only playlists owned by the signed-in account in the playlist shelf.
+    pub library_by_you: bool,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
     /// The Winamp window is open.
@@ -456,6 +458,7 @@ impl Default for Settings {
             liked_songs_pinned: true,
             sidebar_order: Vec::new(),
             library_sort: std::collections::BTreeMap::new(),
+            library_by_you: false,
             zoom: 1.0,
             winamp_window: false,
             winamp_show_taskbar: true,

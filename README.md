@@ -45,6 +45,7 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | Feature | What you can do |
 |---|---|
 | **Library and search** | Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own. |
+| **By You** | In Library → Playlists, show playlists you own alongside Liked Songs. Search and sorting still apply. |
 | **Spotify Connect** | Play on this computer or control playback on your other devices. |
 | **Themes** | Choose light, dark, system appearance, or custom colours. On Omarchy, follow your desktop theme. |
 | **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings. |

@@ -368,7 +368,6 @@ fn sort_menu(app: &mut App, ui: &mut egui::Ui, shelf: Filter, selected: LibraryS
         .find(|(sort, _)| *sort == selected)
         .expect("sort label")
         .1;
-    ui.add_space(4.0);
     let response = ui.add(
         egui::Button::image_and_text(
             Icon::ChevronDown.image(app.palette.text, 15.0),
@@ -664,6 +663,37 @@ fn paint_expanded_art(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
             app.actions.push(Action::Open(Page::Album(id)));
         } else if let Some(id) = show_id {
             app.actions.push(Action::Open(Page::Show(id)));
+        }
+    }
+}
+
+/// Project the playlist shelf without changing its saved order or pins.
+/// Ownership filtering is flat, like text search, so matching playlists in
+/// collapsed folders remain reachable. Liked Songs belongs to the account.
+fn playlist_rows(app: &App, sort: LibrarySort, needle: &str, entries: &mut Vec<Entry>) {
+    let liked = liked_entry(app);
+    if needle.is_empty() || liked.name.to_lowercase().contains(needle) {
+        entries.push(liked);
+    }
+    let user_id = app.user_id().filter(|id| !id.is_empty());
+    if sort == LibrarySort::Spotify && needle.is_empty() && !app.settings.library_by_you {
+        folder_rows(app, user_id.unwrap_or(""), entries);
+    } else if let Some(playlists) = app.library.playlists.get() {
+        for (index, playlist) in playlists.iter().enumerate() {
+            if app.settings.library_by_you && !user_id.is_some_and(|id| playlist.owned_by(id)) {
+                continue;
+            }
+            if !needle.is_empty() && !playlist.name.to_lowercase().contains(needle) {
+                continue;
+            }
+            entries.push(playlist_entry(
+                app.locale,
+                playlist,
+                index,
+                user_id.unwrap_or(""),
+                app.can_edit_playlist(playlist),
+                0,
+            ));
         }
     }
 }
@@ -996,7 +1026,27 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
         }
     });
     let sort = selected_sort(app, filter);
-    sort_menu(app, ui, filter, sort);
+    ui.add_space(4.0);
+    ui.horizontal_wrapped(|ui| {
+        sort_menu(app, ui, filter, sort);
+        if filter == Filter::Playlists {
+            // Translators: Library filter for playlists created by the signed-in user.
+            let label = gettext(locale, "By You");
+            let by_you = app.settings.library_by_you;
+            let response = theme::soft_button(ui, &palette, None, &label, by_you);
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    by_you,
+                    &*label,
+                )
+            });
+            if response.clicked() {
+                app.actions.push(Action::SetLibraryByYou(!by_you));
+            }
+        }
+    });
     ui.data_mut(|data| {
         data.insert_temp(filter_id, filter);
         data.insert_temp(show_search_id, show_search);
@@ -1051,38 +1101,15 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     }
 
     let needle = app.library.filter.trim().to_lowercase();
-    let user_id = app.user_id().unwrap_or("").to_string();
     let mut entries: Vec<Entry> = Vec::new();
     let mut loading = false;
     let mut error: Option<String> = None;
     let mut more_page: Option<Page> = None;
     match filter {
         Filter::Playlists => {
-            let liked = liked_entry(app);
-            if needle.is_empty() || liked.name.to_lowercase().contains(&needle) {
-                entries.push(liked);
-            }
-            let show_folders = sort == LibrarySort::Spotify && needle.is_empty();
-            if show_folders {
-                folder_rows(app, &user_id, &mut entries);
-            }
+            playlist_rows(app, sort, &needle, &mut entries);
             match &app.library.playlists {
-                Loadable::Loaded(_) if show_folders => {}
-                Loadable::Loaded(playlists) => {
-                    for (index, playlist) in playlists.iter().enumerate() {
-                        if !needle.is_empty() && !playlist.name.to_lowercase().contains(&needle) {
-                            continue;
-                        }
-                        entries.push(playlist_entry(
-                            locale,
-                            playlist,
-                            index,
-                            &user_id,
-                            app.can_edit_playlist(playlist),
-                            0,
-                        ));
-                    }
-                }
+                Loadable::Loaded(_) => {}
                 Loadable::Loading | Loadable::NotLoaded => loading = true,
                 Loadable::Failed(message) => error = Some(message.clone()),
             }
@@ -2152,6 +2179,151 @@ mod ordering_tests {
             .iter()
             .map(|entry| entry.uri.rsplit(':').next().unwrap())
             .collect()
+    }
+
+    fn ownership_app(name: &str) -> App {
+        let mut app = app(name);
+        let id = app.user_id().unwrap().to_string();
+        let playlists = app.library.playlists.get_mut().unwrap();
+        playlists[0].owner.id = Some(id.clone());
+        playlists[1].owner.id = Some("someone-else".into());
+        playlists[1].collaborative = true;
+        playlists[2].owner.id = Some(id);
+        // The last playlist has no known owner.
+        app
+    }
+
+    fn projected(app: &App, needle: &str) -> Vec<Entry> {
+        let mut entries = Vec::new();
+        playlist_rows(
+            app,
+            selected_sort(app, Filter::Playlists),
+            needle,
+            &mut entries,
+        );
+        order_entries(
+            app,
+            Filter::Playlists,
+            selected_sort(app, Filter::Playlists),
+            &mut entries,
+        );
+        entries
+    }
+
+    #[test]
+    fn by_you_uses_account_ownership_and_composes_with_search_sort_and_pins() {
+        let mut app = ownership_app("by-you");
+        app.settings.sidebar_order = [uri("b"), uri("c"), uri("a"), uri("d")].to_vec();
+        app.settings.pinned_contexts = [uri("b"), uri("a")].to_vec();
+        app.apply(Action::SetLibraryByYou(true), &egui::Context::default());
+        let entries = projected(&app, "");
+        assert!(entries.iter().any(|entry| entry.liked));
+        assert_eq!(
+            ids(&entries)
+                .into_iter()
+                .filter(|id| !id.is_empty())
+                .collect::<Vec<_>>(),
+            ["a", "c"]
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.uri == uri("c"))
+                .unwrap()
+                .playlist_index,
+            Some(2)
+        );
+        assert_eq!(ids(&projected(&app, "alpha")), ["c"]);
+        assert!(projected(&app, "no match").is_empty());
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Name);
+        assert_eq!(ids(&projected(&app, "alpha")), ["c"]);
+        app.settings.pinned_contexts.clear();
+        let named = projected(&app, "");
+        assert_eq!(
+            named
+                .iter()
+                .filter(|entry| !entry.liked)
+                .map(|entry| entry.uri.as_str())
+                .collect::<Vec<_>>(),
+            [uri("c"), uri("a")]
+        );
+        app.apply(Action::SetLibraryByYou(false), &egui::Context::default());
+        assert_eq!(projected(&app, "").len(), 5);
+        assert_eq!(
+            app.settings.sidebar_order,
+            [uri("b"), uri("c"), uri("a"), uri("d")]
+        );
+        assert_eq!(selected_sort(&app, Filter::Playlists), LibrarySort::Name);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn by_you_rechecks_ownership_after_account_changes_and_keeps_missing_owners_out() {
+        let mut app = ownership_app("by-you-account");
+        app.settings.library_by_you = true;
+        app.user.as_mut().unwrap().id = "someone-else".into();
+        assert_eq!(ids(&projected(&app, "alpha")), ["b"]);
+        app.user = None;
+        assert!(projected(&app, "").iter().all(|entry| entry.liked));
+        app.library.playlists.get_mut().unwrap()[3].owner.id = Some(String::new());
+        assert!(projected(&app, "beta").is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn by_you_reveals_owned_playlists_in_collapsed_folders_and_restores_the_tree() {
+        use crate::player::RootlistEntry;
+        let mut app = ownership_app("by-you-folders");
+        app.rootlist = vec![
+            RootlistEntry::FolderStart {
+                id: "folder".into(),
+                name: "Folder".into(),
+            },
+            RootlistEntry::Playlist(uri("c")),
+            RootlistEntry::FolderEnd,
+        ];
+        app.collapsed_folders = vec!["folder".into()];
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Spotify);
+        assert!(
+            projected(&app, "")
+                .iter()
+                .any(|entry| entry.folder.is_some())
+        );
+        assert!(
+            !projected(&app, "")
+                .iter()
+                .any(|entry| entry.uri == uri("c"))
+        );
+        app.settings.library_by_you = true;
+        let entries = projected(&app, "");
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.folder.is_none() && entry.depth == 0)
+        );
+        assert!(entries.iter().any(|entry| entry.uri == uri("c")));
+        app.settings.library_by_you = false;
+        assert!(
+            projected(&app, "")
+                .iter()
+                .any(|entry| entry.folder.is_some())
+        );
+        assert_eq!(app.collapsed_folders, ["folder"]);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn by_you_defaults_off_in_older_settings_and_round_trips() {
+        let mut settings: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!settings.library_by_you);
+        settings.library_by_you = true;
+        let restored: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert!(restored.library_by_you);
     }
 
     #[test]

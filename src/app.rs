@@ -9044,6 +9044,10 @@ impl App {
                     });
                 }
             }
+            Action::SetLibraryByYou(by_you) => {
+                self.settings.library_by_you = by_you;
+                self.mark_settings_dirty();
+            }
             Action::SetLibrarySort { shelf, sort } => {
                 if sort.supports(shelf) {
                     self.settings.library_sort.insert(shelf, sort);
