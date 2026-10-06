@@ -3170,15 +3170,23 @@ impl Worker {
             // Liked Songs, and other contexts Spotify keeps no continuation
             // for, answer nothing here. A song from inside the context always
             // has a station, so ask for that one instead of giving up.
-            let mut result = engine
-                .autoplay_tracks(&context_uri)
-                .await
-                .map_err(|error| format!("{error:#}"));
+            let mut result =
+                match tokio::time::timeout(RADIO_TIMEOUT, engine.autoplay_tracks(&context_uri))
+                    .await
+                {
+                    Ok(result) => result.map_err(|error| format!("{error:#}")),
+                    Err(_) => Err(format!(
+                        "autoplay context: no answer within {}s",
+                        RADIO_TIMEOUT.as_secs()
+                    )),
+                };
             if (result.as_ref().is_ok_and(Vec::is_empty) || result.is_err())
                 && let Some(seed) = seed_track
             {
                 log::info!("smart shuffle: no continuation for {context_uri}; seeding from {seed}");
-                if let Ok(tracks) = engine.autoplay_tracks(&seed).await {
+                if let Ok(Ok(tracks)) =
+                    tokio::time::timeout(RADIO_TIMEOUT, engine.autoplay_tracks(&seed)).await
+                {
                     result = Ok(tracks);
                 }
             }

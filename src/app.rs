@@ -496,6 +496,11 @@ pub struct App {
     smart_playing: bool,
     /// Rows woven in by smart shuffle, so the queue can mark them.
     pub smart_rows: HashSet<String>,
+    /// Where the woven order plays from: the context it was taken out of,
+    /// or `None` when it came from a plain list. Only rows from that play
+    /// order carry the mark, so the same song sitting in another visible
+    /// collection stays plain.
+    pub smart_context: Option<String>,
     /// When tracks recently came up unavailable, to spot a key-service
     /// cascade and reconnect once instead of skipping through an album.
     unavailable_at: Vec<Instant>,
@@ -920,6 +925,7 @@ impl App {
             smart_tracks: Vec::new(),
             smart_playing: false,
             smart_rows: HashSet::new(),
+            smart_context: None,
             unavailable_at: Vec::new(),
             last_unavailable_reconnect: None,
             premium_notice_shown: false,
@@ -6798,12 +6804,18 @@ impl App {
         let picks = match result {
             Ok(picks) if !picks.is_empty() => picks,
             Ok(_) => {
-                self.toast("Smart shuffle: Spotify had nothing to add");
+                self.toast(gettext(
+                    self.locale,
+                    "Smart shuffle: Spotify had nothing to add",
+                ));
                 Vec::new()
             }
             Err(error) => {
                 log::warn!("smart shuffle recommendations unavailable: {error}");
-                self.toast("Smart shuffle: couldn't reach Spotify's suggestions");
+                self.toast(gettext(
+                    self.locale,
+                    "Smart shuffle: couldn't reach Spotify's suggestions",
+                ));
                 Vec::new()
             }
         };
@@ -6834,6 +6846,16 @@ impl App {
         // starts first; otherwise choose a random starting track.
         let mut request = request;
         self.queue_shuffle_pending = None;
+        if !self.smart_playing {
+            // A play that is not the woven order invalidates a question still
+            // in flight: a late answer must never replace what the user
+            // started after it, and the mark goes with the order it belonged
+            // to.
+            self.smart_pending = None;
+            self.smart_tracks.clear();
+            self.smart_rows.clear();
+            self.smart_context = None;
+        }
         if shuffle_first {
             self.shuffle_wanted = true;
             self.shuffle_set_at = Some(Instant::now());
@@ -6897,6 +6919,7 @@ impl App {
                 self.smart_tracks = uris;
                 self.smart_pending = Some(ask.clone());
                 self.smart_rows.clear();
+                self.smart_context = request.context_uri.clone();
                 self.backend.send(Command::SmartShuffle {
                     context_uri: ask,
                     seed_track: seed,
@@ -6968,7 +6991,18 @@ impl App {
                 let mut load = local_load(&request, shuffle);
                 load.repeat = Some(self.local.repeat);
                 self.local_list = load.context_uri.is_none().then(|| load.uris.clone());
-                let shuffle_after = shuffle && load.shuffle.is_none() && !load.uris.is_empty();
+                let shuffle_after = shuffle
+                    && load.shuffle.is_none()
+                    && !load.uris.is_empty()
+                    && !self.smart_playing;
+                // The woven order is already the play order: librespot must
+                // not shuffle it again, or the suggestions lose the positions
+                // they were woven into. The shuffle report that follows the
+                // load must not turn the button off while the intent is
+                // fresh either.
+                if self.smart_playing {
+                    self.shuffle_set_at = Some(Instant::now());
+                }
                 self.backend.player(PlayerCommand::Load(load));
                 if shuffle_after {
                     self.backend.player(PlayerCommand::Shuffle(true));
