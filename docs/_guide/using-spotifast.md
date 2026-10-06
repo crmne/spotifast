@@ -63,7 +63,8 @@ the row highlight without an extra outline.
 
 Dragging an unselected row copies just that song. Reordering within a
 playlist still moves one song at a time. Several selected songs dropped back
-into their own playlist are left where they are, so they are never added twice.
+between the rows of their own open playlist stay where they are. Dropped on
+that playlist in the sidebar, they ask before being added again.
 
 ## Copying and pasting songs
 
