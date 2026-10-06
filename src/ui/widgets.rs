@@ -1281,6 +1281,13 @@ fn track_row_contents(
     // Start a sidebar drag only after egui's drag threshold.
     if row.item.is_track() && response.drag_started_by(egui::PointerButton::Primary) {
         let items = dragged_items(row.item, row.picked, row.picked_songs);
+        let source_playlist = match row.context {
+            RowContext::Context {
+                editable_playlist: Some((id, _)),
+                ..
+            } => Some(id.clone()),
+            _ => None,
+        };
         // Keep the source index for moves within an editable playlist, or
         // within the manually queued section while it can be rewritten.
         let from = (items.len() == 1)
@@ -1305,6 +1312,7 @@ fn track_row_contents(
                 image: preview.image(64).map(str::to_string),
                 items,
                 from,
+                source_playlist,
             },
         );
     }
@@ -3811,6 +3819,7 @@ mod tests {
                 }),
             ],
             from: None,
+            source_playlist: None,
         };
         assert_eq!(drag_label(Locale::English, &track), "Kora Panna + 1 more");
     }

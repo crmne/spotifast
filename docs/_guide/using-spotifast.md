@@ -62,7 +62,8 @@ Selected rows have a translucent neutral highlight. Keyboard focus uses
 the row highlight without an extra outline.
 
 Dragging an unselected row copies just that song. Reordering within a
-playlist still moves one song at a time.
+playlist still moves one song at a time. Several selected songs dropped back
+into their own playlist are left where they are, so they are never added twice.
 
 ## Copying and pasting songs
 

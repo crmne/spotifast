@@ -846,6 +846,10 @@ pub struct DragTrack {
     pub items: Vec<PlayableItem>,
     /// Source playlist ID and row index for moves within an editable playlist.
     pub from: Option<(String, u32)>,
+    /// The editable playlist the rows were dragged from, however many there
+    /// are. Several rows have no `from`, and dropping them back into their
+    /// own playlist must not add copies of them (#669).
+    pub source_playlist: Option<String>,
 }
 
 /// Where the playing songs come from, as the queue's header names it.

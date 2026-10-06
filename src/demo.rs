@@ -2446,6 +2446,7 @@ mod tests {
                 image: None,
                 items: vec![song],
                 from: None,
+                source_playlist: None,
             },
         );
         release(&mut app, pos);
@@ -2508,6 +2509,7 @@ mod tests {
                     ..Default::default()
                 })],
                 from: None,
+                source_playlist: None,
             },
         );
         let run = |app: &mut App, events| {
@@ -6454,6 +6456,7 @@ mod tests {
                     image: None,
                     items: dragged.clone(),
                     from: None,
+                    source_playlist: None,
                 },
             );
             frame_events(&ctx, &mut app, vec![egui::Event::PointerMoved(pos)]);
@@ -8193,7 +8196,13 @@ mod tests {
     #[test]
     fn playlist_drop_targets_cover_empty_lists_and_preserve_editing_boundaries() {
         for mode in [
-            "foreign", "empty", "multiple", "readonly", "sorted", "filtered",
+            "foreign",
+            "empty",
+            "multiple",
+            "own-multiple",
+            "readonly",
+            "sorted",
+            "filtered",
         ] {
             let (ctx, mut app) = accessible_app(&format!("playlist-drop-target-{mode}"));
             let mut target = track(0);
@@ -8275,7 +8284,12 @@ mod tests {
                 },
             );
             let dragged =
-                app.queue.get().unwrap().queue[..if mode == "multiple" { 2 } else { 1 }].to_vec();
+                app.queue.get().unwrap().queue[..if matches!(mode, "multiple" | "own-multiple") {
+                    2
+                } else {
+                    1
+                }]
+                    .to_vec();
             let expected: Vec<_> = dragged.iter().map(|item| item.uri().to_string()).collect();
             egui::DragAndDrop::set_payload(
                 &ctx,
@@ -8284,6 +8298,11 @@ mod tests {
                     image: None,
                     items: dragged,
                     from: (mode == "foreign").then(|| ("pl2".into(), 5)),
+                    source_playlist: match mode {
+                        "foreign" => Some("pl2".into()),
+                        "own-multiple" => Some("pl1".into()),
+                        _ => None,
+                    },
                 },
             );
             draw(
@@ -8632,6 +8651,7 @@ mod tests {
                 ..Default::default()
             })],
             from: Some(("pl1".into(), from as u32)),
+            source_playlist: Some("pl1".into()),
         };
 
         // Sweep the held row down the page; above the table nothing

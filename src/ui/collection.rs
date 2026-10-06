@@ -639,8 +639,13 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     // Calculate the nearest drop slot from fixed row height because virtualized
     // rows are not all available during drawing.
     let list_top = ui.cursor().top();
-    let move_slot = move_playlist.as_ref().and_then(|_| {
-        egui::DragAndDrop::payload::<DragTrack>(ui.ctx())?;
+    let move_slot = move_playlist.as_ref().and_then(|playlist_id| {
+        let held = egui::DragAndDrop::payload::<DragTrack>(ui.ctx())?;
+        // Several rows from this playlist have no single source index to
+        // move, and inserting them would add copies, so refuse the drop.
+        if held.from.is_none() && held.source_playlist.as_ref() == Some(playlist_id) {
+            return None;
+        }
         if !ui.rect_contains_pointer(ui.clip_rect()) {
             return None;
         }
