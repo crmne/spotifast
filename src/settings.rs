@@ -67,6 +67,10 @@ pub struct HomeSettings {
     pub recommendations: HomeShelfSettings,
 }
 
+/// How many frames a second the player bar's visualizer draws unless
+/// chosen otherwise.
+pub const PLAYER_BAR_VIS_FPS: u32 = 60;
+
 /// What moves behind the player bar's controls.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -264,6 +268,9 @@ pub struct Settings {
     pub accent_from_art: bool,
     /// A spectrum or waveform of the playing song behind the player bar.
     pub player_bar_vis: PlayerBarVis,
+    /// How many frames a second the player bar's visualizer draws; 0 is as
+    /// many as the screen shows. Each frame redraws the whole window.
+    pub player_bar_vis_fps: u32,
     /// Last local volume, 0..=65535.
     pub volume: u16,
     /// Whether the library sidebar is visible.
@@ -432,6 +439,7 @@ impl Default for Settings {
             home: HomeSettings::default(),
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
+            player_bar_vis_fps: PLAYER_BAR_VIS_FPS,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_visible: true,
             art_expanded: false,
@@ -1203,6 +1211,23 @@ mod tests {
         assert_eq!(PlayerBarVis::Off.next(), PlayerBarVis::Spectrum);
         assert_eq!(PlayerBarVis::Spectrum.next(), PlayerBarVis::Waveform);
         assert_eq!(PlayerBarVis::Waveform.next(), PlayerBarVis::Off);
+    }
+
+    /// The player bar's visualizer draws sixty frames a second until a
+    /// rate is chosen, older settings files included, and keeps the rate.
+    #[test]
+    fn the_player_bar_visualizer_frame_rate_defaults_and_round_trips() {
+        let settings: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.player_bar_vis_fps, super::PLAYER_BAR_VIS_FPS);
+        for fps in [30, 144, 0] {
+            let settings = Settings {
+                player_bar_vis_fps: fps,
+                ..Settings::default()
+            };
+            let json = serde_json::to_string(&settings).unwrap();
+            let restored: Settings = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored.player_bar_vis_fps, fps);
+        }
     }
 
     #[test]

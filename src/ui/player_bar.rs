@@ -35,11 +35,6 @@ const WAVE_ECHO_ALPHA: f32 = 0.18;
 const LIGHT_STRENGTH: f32 = 1.5;
 /// The gap between spectrum bars.
 const SPECTRUM_GAP: f32 = 2.0;
-/// How often a moving visualizer is drawn: thirty times a second. Each
-/// frame redraws the whole window, and a faint backdrop moves smoothly
-/// enough at half the mini player's rate; its bars fall by the clock, so
-/// they keep their speed.
-const VIS_FRAME: std::time::Duration = std::time::Duration::from_micros(33_333);
 
 /// Forget this bar's animation session while the sign-in screen is shown.
 pub(crate) fn end_tint_session(ctx: &egui::Context) {
@@ -64,7 +59,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
             if visualizer(app, ui, behind, now.as_ref()) {
-                super::pace_frames(ui.ctx(), ui.id().with("player-bar-vis-frame"), VIS_FRAME);
+                match vis_frame(app.settings.player_bar_vis_fps) {
+                    Some(frame) => {
+                        super::pace_frames(ui.ctx(), ui.id().with("player-bar-vis-frame"), frame)
+                    }
+                    None => ui.ctx().request_repaint(),
+                }
             }
             // Its empty space is the visualizer's control, as Winamp's
             // visualizer was: a click moves to the next mode. The controls
@@ -116,6 +116,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             );
             extras(app, &mut right_ui, now.as_ref());
         });
+}
+
+/// How long a moving visualizer waits between frames at `fps` frames a
+/// second, or `None` to draw every frame the screen shows. Each frame
+/// redraws the whole window, so the rate is what the visualizer costs; its
+/// bars fall by the clock, so they keep their speed at any rate.
+fn vis_frame(fps: u32) -> Option<std::time::Duration> {
+    if fps == 0 {
+        return None;
+    }
+    let range = crate::milkdrop::FPS_RANGE;
+    let fps = fps.clamp(*range.start(), *range.end());
+    Some(std::time::Duration::from_secs_f64(1.0 / f64::from(fps)))
 }
 
 /// Draws the chosen spectrum or waveform of the song playing on this
@@ -1082,5 +1095,21 @@ mod player_bar_tint_tests {
         // A yellow cover stays yellow, only deeper.
         let (low, _) = vis_colours(Color32::from_rgb(255, 240, 80), true);
         assert!(low.r() > low.b() && low.g() > low.b(), "{low:?}");
+    }
+}
+
+#[cfg(test)]
+mod vis_frame_tests {
+    use super::vis_frame;
+    use std::time::Duration;
+
+    /// The chosen rate sets the wait between frames, held to the range the
+    /// dial offers, and uncapped draws every frame the screen shows.
+    #[test]
+    fn the_visualizer_waits_by_its_chosen_rate() {
+        assert_eq!(vis_frame(60), Some(Duration::from_secs_f64(1.0 / 60.0)));
+        assert_eq!(vis_frame(30), Some(Duration::from_secs_f64(1.0 / 30.0)));
+        assert_eq!(vis_frame(1), Some(Duration::from_secs_f64(1.0 / 10.0)));
+        assert_eq!(vis_frame(0), None);
     }
 }
