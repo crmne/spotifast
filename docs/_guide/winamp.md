@@ -73,10 +73,11 @@ drag the lower-right corner to resize the window. Use X or **PL** to close it.
 - **SEL** selects rows.
 - **MISC** opens song, artist, and album pages.
 - **LIST OPTS** starts one of your playlists or saves the queue as a new one.
-- **REM → Remove all** clears your queued songs when this computer is playing.
+- **REM → Remove selected** takes the selected songs you queued out of the
+  queue, and **REM → Remove all** clears every song you queued. Both work when
+  this computer is playing. Songs from the playing album or playlist stay.
 
-Spotify does not let third-party apps remove one song from the queue. Notices
-from the main window scroll through the mini player's text display.
+Notices from the main window scroll through the mini player's text display.
 
 ## Equalizer
 

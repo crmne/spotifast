@@ -336,6 +336,9 @@ pub struct App {
     /// When a local reorder or positional insert last landed, used to
     /// reject a fetch whose queued rows still show the pre-move order.
     queue_reorder_pending: Option<Instant>,
+    /// Songs taken out of Playing next one by one, and when, used to
+    /// reject a fetch that still has one right after the queued rows.
+    queue_removed: Option<(std::collections::HashSet<String>, Instant)>,
     /// What the window's title bar says, as last set.
     window_title: String,
 
@@ -809,6 +812,7 @@ impl App {
             queue_cleared: None,
             queue_shuffle_pending: None,
             queue_reorder_pending: None,
+            queue_removed: None,
             window_title: String::new(),
             library: Library::default(),
             liked_songs: crate::liked::LikedSongs::default(),
@@ -2139,6 +2143,7 @@ impl App {
         self.queue = Loadable::NotLoaded;
         self.queue_shuffle_pending = None;
         self.queue_reorder_pending = None;
+        self.queue_removed = None;
         self.devices.clear();
         self.control_devices_stale = true;
         self.devices_fetched_at = None;
@@ -4331,6 +4336,77 @@ impl App {
         self.queue_locally_reorderable() && self.queued_rows_len() > 0
     }
 
+    /// Whether the queue row at `index` is one of the manually queued
+    /// songs the active local queue lets the user take out.
+    pub fn can_remove_from_queue(&self, index: usize) -> bool {
+        self.queue_locally_reorderable() && index < self.queued_rows_len()
+    }
+
+    /// Takes the chosen rows out of Playing next. Neither the Web API nor
+    /// librespot can remove one queued song, so like a move this rewrites
+    /// the local engine's queue, and only that one. A row whose index no
+    /// longer holds its song is left alone.
+    fn remove_from_queue(&mut self, rows: Vec<(usize, String)>) {
+        if !self.queue_locally_reorderable() {
+            return;
+        }
+        let queued_len = self.queued_rows_len();
+        let Loadable::Loaded(queue) = &self.queue else {
+            return;
+        };
+        let mut indexes: Vec<usize> = rows
+            .into_iter()
+            .filter(|(index, uri)| {
+                *index < queued_len
+                    && queue
+                        .queue
+                        .get(*index)
+                        .is_some_and(|item| item.uri() == uri)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        indexes.sort_unstable();
+        indexes.dedup();
+        let mut removed = std::collections::HashSet::new();
+        // From the bottom up, so the rows still to go keep their indexes.
+        for index in indexes.into_iter().rev() {
+            let Loadable::Loaded(queue) = &mut self.queue else {
+                return;
+            };
+            let uri = queue.queue[index].uri().to_string();
+            // Copies of one song are interchangeable: the shown row's
+            // occurrence among the queued rows is the same occurrence in
+            // `manual_queue`, whatever order Spotify last reported.
+            let occurrence = queue.queue[..index]
+                .iter()
+                .filter(|item| item.uri() == uri)
+                .count();
+            let Some(manual) = self
+                .manual_queue
+                .iter()
+                .enumerate()
+                .filter(|(_, queued)| **queued == uri)
+                .nth(occurrence)
+                .map(|(manual, _)| manual)
+            else {
+                continue;
+            };
+            queue.queue.remove(index);
+            self.remove_manual_queue_row(manual);
+            removed.insert(uri);
+        }
+        if removed.is_empty() {
+            return;
+        }
+        if let Some((earlier, at)) = self.queue_removed.take()
+            && at.elapsed() < PLAYBACK_HOLD
+        {
+            removed.extend(earlier);
+        }
+        self.queue_removed = Some((removed, Instant::now()));
+        self.resync_local_queue();
+    }
+
     /// Clears manually queued tracks while keeping the context's upcoming rows.
     fn clear_queue(&mut self) {
         if !matches!(self.target(), Target::Local) {
@@ -4544,6 +4620,18 @@ impl App {
                 .take(self.manual_queue.len())
                 .map(|item| item.uri())
                 .eq(self.manual_queue.iter().map(String::as_str))
+        {
+            return true;
+        }
+        // A removed song still right after the queued rows means the
+        // removal has not landed yet: the prefix alone cannot tell, since
+        // taking out the last queued row leaves the rest of it unchanged.
+        if let Some((removed, at)) = &self.queue_removed
+            && at.elapsed() < PLAYBACK_HOLD
+            && fetched
+                .queue
+                .get(self.manual_queue.len())
+                .is_some_and(|item| removed.contains(item.uri()))
         {
             return true;
         }
@@ -5010,6 +5098,7 @@ impl App {
                     self.queue_cleared = None;
                     self.queue_shuffle_pending = None;
                     self.queue_reorder_pending = None;
+                    self.queue_removed = None;
                 }
                 self.queue = Loadable::from_result(result);
                 self.reconcile_pending_queue();
@@ -8481,6 +8570,7 @@ impl App {
                 self.session_dirty = true;
                 self.resync_local_queue();
             }
+            Action::RemoveFromQueue { rows } => self.remove_from_queue(rows),
             Action::InsertInQueue { items, position } => {
                 if !self.queue_locally_reorderable() {
                     let songs = items
@@ -14193,6 +14283,128 @@ mod tests {
             ],
             "the rows must match the order sent to the engine"
         );
+    }
+
+    /// Remove from queue takes out the chosen row only: other copies of
+    /// the song stay, and so does the context after Playing next (#721).
+    #[test]
+    fn removing_a_queued_row_takes_only_that_row() {
+        let mut app = app_with_local_manual_queue();
+        app.manual_queue = vec![
+            "spotify:track:a".into(),
+            "spotify:track:b".into(),
+            "spotify:track:a".into(),
+        ];
+        // Spotify's accepted answer lists the queued rows in another order.
+        app.queue = loaded_queue(
+            "spotify:track:playing",
+            &[
+                "spotify:track:a",
+                "spotify:track:a",
+                "spotify:track:b",
+                "spotify:track:ctx",
+            ],
+        );
+        app.pending_queue_adds = vec![PendingQueueAdd {
+            item: queued_song("spotify:track:a"),
+            at: Instant::now(),
+            manual_index: 2,
+            write: None,
+        }];
+        let ctx = egui::Context::default();
+        // A Next up row, and an index that no longer holds its song, stay.
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![
+                    (3, "spotify:track:ctx".into()),
+                    (0, "spotify:track:b".into()),
+                ],
+            },
+            &ctx,
+        );
+        assert_eq!(app.manual_queue.len(), 3);
+        assert_eq!(queue_uris(&app).1.len(), 4);
+
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![(2, "spotify:track:b".into())],
+            },
+            &ctx,
+        );
+        assert_eq!(app.manual_queue, ["spotify:track:a", "spotify:track:a"]);
+        assert_eq!(
+            queue_uris(&app).1,
+            ["spotify:track:a", "spotify:track:a", "spotify:track:ctx"]
+        );
+        assert_eq!(app.queued_rows_len(), 2);
+        assert_eq!(
+            app.pending_queue_adds[0].manual_index, 1,
+            "a pending addition must still name its own copy"
+        );
+    }
+
+    /// Taking out the last queued row leaves the rest of Playing next as
+    /// it was, so a lagging answer that still has the song after them
+    /// must not bring it back (#721).
+    #[test]
+    fn stale_queue_response_after_removal_does_not_bring_the_song_back() {
+        let mut app = app_with_local_manual_queue();
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![(2, "spotify:track:c".into())],
+            },
+            &ctx,
+        );
+        let removed = ["spotify:track:a", "spotify:track:b", "spotify:track:ctx"];
+        assert_eq!(queue_uris(&app).1, removed);
+
+        let answer = |app: &mut App, rows: &[&str]| {
+            app.refresh_queue(true);
+            let seq = app.queue_seq;
+            app.handle_api(ApiResponse::Queue {
+                seq,
+                result: Ok(Queue {
+                    currently_playing: Some(queued_song("spotify:track:playing")),
+                    queue: rows.iter().map(|uri| queued_song(uri)).collect(),
+                }),
+            });
+        };
+        answer(
+            &mut app,
+            &[
+                "spotify:track:a",
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:ctx",
+            ],
+        );
+        assert_eq!(queue_uris(&app).1, removed, "the song must stay removed");
+        assert_eq!(app.queue_stale_retries, 1);
+
+        answer(&mut app, &removed);
+        assert!(app.queue_removed.is_none());
+        assert_eq!(queue_uris(&app).1, removed);
+        assert_eq!(app.queued_rows_len(), 2);
+    }
+
+    /// Another device's queue cannot be rewritten, so its rows stay rather
+    /// than vanish and come back with the next answer.
+    #[test]
+    fn removing_from_another_devices_queue_changes_nothing() {
+        let mut app = app_with_local_manual_queue();
+        app.local_ready = false;
+        app.selected_device = Some("phone".into());
+        assert!(!app.can_remove_from_queue(0));
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![(0, "spotify:track:a".into())],
+            },
+            &ctx,
+        );
+        assert_eq!(app.manual_queue.len(), 3);
+        assert_eq!(queue_uris(&app).1.len(), 4);
     }
 
     /// Inserting a dropped song into "Playing next" must keep every earlier

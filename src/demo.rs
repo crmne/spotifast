@@ -7135,6 +7135,92 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Right-clicking a song under Playing next offers to take it out of
+    /// the queue, and doing so removes that row; a Next up row, which
+    /// plays from the context, offers no such entry (#721).
+    #[test]
+    fn a_queued_rows_menu_removes_it_from_the_queue() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("queue-remove");
+        app.show_queue_panel = true;
+        let uris = seed_queued_songs(&mut app);
+        for _ in 0..3 {
+            frame_events(&ctx, &mut app, vec![]);
+        }
+        // The queue panel's own row: some of its songs are also on the
+        // page behind it, and the panel opens against the right edge.
+        let row_center = |tree: &egui::accesskit::TreeUpdate, name: &str| {
+            let prefix = format!("Play {name},");
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == Role::Button
+                        && node.label().is_some_and(|text| text.starts_with(&prefix))
+                        && node
+                            .bounds()
+                            .is_some_and(|bounds| bounds.x0 >= 900.0 && bounds.y1 <= 800.0)
+                })
+                .unwrap_or_else(|| panic!("missing queue row {name}"))
+                .1
+                .bounds()
+                .unwrap();
+            egui::pos2(
+                ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                ((bounds.y0 + bounds.y1) / 2.0) as f32,
+            )
+        };
+        let has_remove = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Remove from queue"))
+        };
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let next_up = row_center(&tree, "Otomo");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(next_up, egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Add to queue", Role::Button);
+        assert!(!has_remove(&tree), "a Next up row cannot be removed");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+        );
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let queued = row_center(&tree, "Queued 1");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(queued, egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let remove = accessible_node(&tree, "Remove from queue", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(
+                remove,
+                egui::accesskit::Action::Click,
+                None,
+            )],
+        );
+        assert_eq!(app.manual_queue, [uris[0].clone(), uris[2].clone()]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree.nodes.iter().any(|(_, node)| node
+                .label()
+                .is_some_and(|text| text.starts_with("Play Queued 1,"))),
+            "the removed row leaves the queue at once"
+        );
+        app.backend.shutdown();
+    }
+
     /// If the playing song advances (consuming the front queued row) while a
     /// queued row is mid-drag, the drop must still act on the song that was
     /// actually picked up, not on whatever now sits at the drag's recorded
