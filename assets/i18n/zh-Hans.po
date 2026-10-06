@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-06 11:26-0400\n"
+"POT-Creation-Date: 2026-10-06 12:22-0400\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Simplified Chinese\n"
@@ -64,116 +64,116 @@ msgstr "本地自定义顺序"
 msgid "Spotify custom order"
 msgstr "Spotify 自定义顺序"
 
-#: src/ui/sidebar.rs:701
+#: src/ui/sidebar.rs:718
 msgid "Folder"
 msgstr "文件夹"
 
 #. Translators: {owner} is the name of the playlist's owner.
-#: src/ui/sidebar.rs:809 src/ui/search.rs:214
+#: src/ui/sidebar.rs:826 src/ui/search.rs:214
 #, rust-format
 msgid "Playlist • {owner}"
 msgstr "歌单 • {owner}"
 
-#: src/ui/sidebar.rs:865 src/i18n.rs:255 src/i18n.rs:258 src/ui/keys.rs:254
+#: src/ui/sidebar.rs:882 src/i18n.rs:255 src/i18n.rs:258 src/ui/keys.rs:254
 #: src/ui/topbar.rs:243
 msgid "Home"
 msgstr "首页"
 
-#: src/ui/sidebar.rs:876 src/app.rs:5942 src/ui/keys.rs:245
+#: src/ui/sidebar.rs:893 src/app.rs:5942 src/ui/keys.rs:245
 msgid "Search"
 msgstr "搜索"
 
-#: src/ui/sidebar.rs:915
+#: src/ui/sidebar.rs:932
 msgid "Hide sidebar (Ctrl+B)"
 msgstr "隐藏侧边栏 (Ctrl+B)"
 
-#: src/ui/sidebar.rs:916
+#: src/ui/sidebar.rs:933
 msgid "Hide sidebar (Cmd+B)"
 msgstr "隐藏侧边栏 (Cmd+B)"
 
-#: src/ui/sidebar.rs:925
+#: src/ui/sidebar.rs:942
 msgid "Show as list"
 msgstr "显示为列表"
 
-#: src/ui/sidebar.rs:927
+#: src/ui/sidebar.rs:944
 msgid "Show as grid"
 msgstr "显示为网格"
 
-#: src/ui/sidebar.rs:940
+#: src/ui/sidebar.rs:957
 msgid "Create a playlist"
 msgstr "创建歌单"
 
-#: src/ui/sidebar.rs:956
+#: src/ui/sidebar.rs:973
 msgid "Search Your Library"
 msgstr "搜索音乐库"
 
-#: src/ui/sidebar.rs:972
+#: src/ui/sidebar.rs:989
 msgid "Library"
 msgstr "音乐库"
 
-#: src/ui/sidebar.rs:992 src/app.rs:5915 src/model.rs:636 src/ui/search.rs:647
+#: src/ui/sidebar.rs:1009 src/app.rs:5915 src/model.rs:636 src/ui/search.rs:647
 msgid "Playlists"
 msgstr "歌单"
 
-#: src/ui/sidebar.rs:993 src/model.rs:635 src/model.rs:749 src/ui/library.rs:17
-#: src/ui/search.rs:575
+#: src/ui/sidebar.rs:1010 src/model.rs:635 src/model.rs:749
+#: src/ui/library.rs:17 src/ui/search.rs:575
 msgid "Albums"
 msgstr "专辑"
 
-#: src/ui/sidebar.rs:994 src/model.rs:634 src/ui/library.rs:22
+#: src/ui/sidebar.rs:1011 src/model.rs:634 src/ui/library.rs:22
 #: src/ui/search.rs:508
 msgid "Artists"
 msgstr "艺人"
 
-#: src/ui/sidebar.rs:995 src/model.rs:637 src/ui/library.rs:27
+#: src/ui/sidebar.rs:1012 src/model.rs:637 src/ui/library.rs:27
 #: src/ui/search.rs:697
 msgid "Podcasts"
 msgstr "播客"
 
 #. Translators: Library filter for playlists created by the signed-in user.
-#: src/ui/sidebar.rs:1008
+#: src/ui/sidebar.rs:1025
 msgid "By You"
 msgstr "由你创建"
 
-#: src/ui/sidebar.rs:1036
+#: src/ui/sidebar.rs:1053
 msgid "Search in Your Library"
 msgstr "在音乐库中搜索"
 
-#: src/ui/sidebar.rs:1141 src/app.rs:2435 src/ui/artist.rs:203
+#: src/ui/sidebar.rs:1158 src/app.rs:2435 src/ui/artist.rs:203
 #: src/ui/artist.rs:311 src/ui/home.rs:563 src/ui/library.rs:100
 #: src/ui/search.rs:145 src/ui/search.rs:472 src/ui/winamp/playlist.rs:729
 msgid "Artist"
 msgstr "艺人"
 
 #. Translators: {publisher} is the podcast's publisher.
-#: src/ui/sidebar.rs:1177 src/ui/search.rs:239
+#: src/ui/sidebar.rs:1194 src/ui/search.rs:239
 #, rust-format
 msgid "Podcast • {publisher}"
 msgstr "播客 • {publisher}"
 
-#: src/ui/sidebar.rs:1235
+#: src/ui/sidebar.rs:1252
 msgid "Nothing here yet."
 msgstr "这里还没有内容。"
 
-#: src/ui/sidebar.rs:1237
+#: src/ui/sidebar.rs:1254
 msgid "No matches."
 msgstr "没有匹配项。"
 
-#: src/ui/sidebar.rs:1864
+#: src/ui/sidebar.rs:1881
 msgid "Sort by recently played"
 msgstr "按最近播放排序"
 
-#: src/ui/sidebar.rs:1885 src/ui/player_bar.rs:681 src/ui/widgets.rs:997
+#: src/ui/sidebar.rs:1902 src/ui/player_bar.rs:681 src/ui/widgets.rs:997
 #: src/ui/artist.rs:341 src/ui/collection.rs:214 src/ui/search.rs:390
 #: src/ui/show.rs:311
 msgid "Play"
 msgstr "播放"
 
-#: src/ui/sidebar.rs:1903
+#: src/ui/sidebar.rs:1920
 msgid "Unpin"
 msgstr "取消置顶"
 
-#: src/ui/sidebar.rs:1905
+#: src/ui/sidebar.rs:1922
 msgid "Pin to top"
 msgstr "置顶"
 

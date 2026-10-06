@@ -2317,6 +2317,46 @@ mod ordering_tests {
     }
 
     #[test]
+    fn flat_by_you_spotify_order_keeps_first_occurrences_missing_rows_and_pins() {
+        use crate::player::RootlistEntry;
+        let mut app = ownership_app("by-you-rootlist-index");
+        let owner = app.user_id().unwrap().to_string();
+        app.library.playlists.get_mut().unwrap()[3].owner.id = Some(owner);
+        app.settings.library_by_you = true;
+        app.settings.liked_songs_pinned = false;
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Spotify);
+        app.rootlist = vec![
+            RootlistEntry::FolderStart {
+                id: "folder".into(),
+                name: "Folder".into(),
+            },
+            RootlistEntry::Playlist(uri("c")),
+            RootlistEntry::Playlist(uri("b")),
+            RootlistEntry::FolderEnd,
+            RootlistEntry::Playlist(uri("a")),
+            RootlistEntry::Playlist(uri("c")),
+        ];
+        let rootlist = app.rootlist.clone();
+        assert_eq!(ids(&projected(&app, "")), ["c", "a", "d", ""]);
+        app.settings.pinned_contexts = vec![uri("a")];
+        assert_eq!(ids(&projected(&app, "")), ["a", "c", "d", ""]);
+        assert_eq!(app.rootlist, rootlist);
+        assert_eq!(
+            app.library
+                .playlists
+                .get()
+                .unwrap()
+                .iter()
+                .map(|p| p.id.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b", "c", "d"]
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn by_you_defaults_off_in_older_settings_and_round_trips() {
         let mut settings: Settings = serde_json::from_str("{}").unwrap();
         assert!(!settings.library_by_you);
