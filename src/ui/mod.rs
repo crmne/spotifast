@@ -260,18 +260,21 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
         .frame(Frame::new().fill(palette.window))
         .show(ui, |ui| {
             let rect = ui.max_rect();
-            if let Some(tint) = tint {
-                let strength = if matches!(
-                    app.page(),
-                    Page::Home | Page::Search | Page::Settings | Page::Queue
-                ) {
-                    0.45
-                } else {
-                    0.85
-                };
-                let top = blend(palette.window, tint, strength);
-                let header = Rect::from_min_size(rect.min, vec2(rect.width(), 340.0));
-                widgets::paint_vertical_gradient(ui, header, top, palette.window);
+            let page = app.page().clone();
+            let overview = matches!(
+                page,
+                Page::Home | Page::Search | Page::Settings | Page::Queue
+            );
+            // The wash belongs to the page's hero, so it scrolls away with
+            // it. The page's offset is known once it has been laid out, so
+            // the previous frame's serves.
+            let scrolled_id = Id::new(("page-scrolled", page.encode()));
+            let scrolled = ui
+                .ctx()
+                .data(|data| data.get_temp::<f32>(scrolled_id))
+                .unwrap_or(0.0);
+            if let Some((top, bottom)) = header_wash(&palette, overview, tint) {
+                widgets::paint_vertical_gradient(ui, header_rect(rect, scrolled), top, bottom);
             }
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
             // egui fades a scrolled page's edge into the panel's plain
@@ -279,7 +282,6 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             // page casts a shadow under the header instead.
             ui.spacing_mut().scroll.fade.strength = 0.0;
             topbar::show(app, ui);
-            let page = app.page().clone();
             let scroll = crate::autoscroll::show(
                 ui,
                 egui::ScrollArea::vertical()
@@ -315,8 +317,35 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                         });
                 },
             );
+            ui.ctx()
+                .data_mut(|data| data.insert_temp(scrolled_id, scroll.state.offset.y));
             header_shadow(ui, scroll.inner_rect, scroll.state.offset.y, palette.dark);
         });
+}
+
+/// The gradient behind a page's header, top to bottom: the art's colour
+/// blended into the window, stronger on a cover's own page than on an
+/// overview, or else the palette's `tint` fading out, whose alpha is its
+/// strength. `None` leaves the plain window.
+fn header_wash(
+    palette: &theme::Palette,
+    overview: bool,
+    art: Option<Color32>,
+) -> Option<(Color32, Color32)> {
+    if let Some(art) = art {
+        let strength = if overview { 0.45 } else { 0.85 };
+        return Some((blend(palette.window, art, strength), palette.window));
+    }
+    (palette.tint.a() > 0).then_some((palette.tint, Color32::TRANSPARENT))
+}
+
+/// Where the header's wash is painted: the top of the panel, moved up by
+/// how far the page has scrolled, so it leaves with the hero.
+fn header_rect(panel: Rect, scrolled: f32) -> Rect {
+    Rect::from_min_size(
+        panel.min - vec2(0.0, scrolled.max(0.0)),
+        vec2(panel.width(), 340.0),
+    )
 }
 
 /// The shadow the header casts on a page scrolled under it, deepening over
@@ -728,6 +757,52 @@ mod window_chrome_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A page fades from its cover's colour while art tints the interface,
+    /// otherwise from the palette's own wash, and from nothing when the
+    /// palette has none.
+    #[test]
+    fn the_header_fades_from_the_art_or_the_palettes_wash() {
+        let mut palette = theme::Palette::dark();
+        assert_eq!(header_wash(&palette, false, None), None);
+
+        let art = Color32::from_rgb(0x50, 0x38, 0xc8);
+        let (page, _) = header_wash(&palette, false, Some(art)).unwrap();
+        let (overview, _) = header_wash(&palette, true, Some(art)).unwrap();
+        assert_eq!(page, blend(palette.window, art, 0.85));
+        assert_eq!(overview, blend(palette.window, art, 0.45));
+
+        palette.tint = Color32::from_black_alpha(24);
+        assert_eq!(
+            header_wash(&palette, false, None),
+            Some((palette.tint, Color32::TRANSPARENT))
+        );
+        assert_eq!(
+            header_wash(&palette, false, Some(art)).unwrap().0,
+            page,
+            "art wins over the wash"
+        );
+    }
+
+    /// The wash sits at the top of an unscrolled page and leaves with the
+    /// hero as the page scrolls, instead of staying behind the page.
+    #[test]
+    fn the_header_wash_scrolls_away_with_the_page() {
+        let panel = Rect::from_min_size(egui::pos2(0.0, 80.0), vec2(800.0, 600.0));
+        assert_eq!(header_rect(panel, 0.0).min, panel.min);
+        assert_eq!(header_rect(panel, 0.0).width(), 800.0);
+        assert_eq!(header_rect(panel, 120.0).min.y, panel.min.y - 120.0);
+        assert_eq!(header_rect(panel, 120.0).max.y, panel.min.y + 220.0);
+        assert!(
+            header_rect(panel, 400.0).max.y < panel.min.y,
+            "gone once scrolled past"
+        );
+        assert_eq!(
+            header_rect(panel, -5.0).min,
+            panel.min,
+            "no overscroll bounce"
+        );
+    }
 
     /// The header casts a shadow only on a page scrolled under it, and it
     /// is black in both themes, never the page's own colour.

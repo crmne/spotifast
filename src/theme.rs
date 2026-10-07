@@ -32,6 +32,10 @@ pub struct Palette {
     pub warning: Color32,
     pub overlay: Color32,
     pub shadow: Color32,
+    /// The colour a page's header fades from when album art does not tint
+    /// it; its alpha is the strength. Transparent leaves the plain window.
+    #[serde(default)]
+    pub tint: Color32,
 }
 
 impl Palette {
@@ -54,6 +58,7 @@ impl Palette {
             warning: Color32::from_rgb(0xf2, 0xb8, 0x5c),
             overlay: Color32::from_rgb(0x22, 0x27, 0x2e),
             shadow: Color32::from_black_alpha(140),
+            tint: Color32::TRANSPARENT,
         }
     }
 
@@ -76,6 +81,7 @@ impl Palette {
             warning: Color32::from_rgb(0xb8, 0x7a, 0x14),
             overlay: Color32::from_rgb(0xff, 0xff, 0xff),
             shadow: Color32::from_black_alpha(50),
+            tint: Color32::TRANSPARENT,
         }
     }
 
@@ -126,6 +132,7 @@ impl fastframe_theme::Palette for Palette {
             "warning" => self.warning = color,
             "overlay" => self.overlay = color,
             "shadow" => self.shadow = color,
+            "tint" => self.tint = color,
             _ => return false,
         }
         true
@@ -930,17 +937,20 @@ mod tests {
         output.textures_delta.clear();
     }
 
-    /// Palette files name the sixteen colours every app shares, and only
-    /// those: a typo is an invalid file, not an ignored colour.
+    /// Palette files name the sixteen colours every app shares and
+    /// Spotifast's own `tint`, and only those: a typo is an invalid file,
+    /// not an ignored colour.
     #[test]
     fn palette_files_set_every_base_colour() {
         use fastframe_theme::Palette as _;
-        for name in fastframe_theme::BASE_COLORS {
+        for name in fastframe_theme::BASE_COLORS.iter().chain(&["tint"]) {
             let mut palette = Palette::dark();
             assert!(palette.set(name, Color32::from_rgb(1, 2, 3)), "{name}");
             assert_ne!(palette, Palette::dark(), "{name}");
         }
         assert!(!Palette::dark().set("typo", Color32::RED));
+        assert_eq!(Palette::dark().tint, Color32::TRANSPARENT);
+        assert_eq!(Palette::light().tint, Color32::TRANSPARENT);
         let light: Palette =
             fastframe_theme::parse_palette(r##"{"base":"light","colors":{"accent":"#8c3fa5"}}"##)
                 .unwrap();
