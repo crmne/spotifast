@@ -1,5 +1,7 @@
 //! The playback queue, as a page or as a side panel.
 
+use std::collections::BTreeSet;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use egui::{Align, Frame, Layout, Margin};
@@ -7,7 +9,7 @@ use egui::{Align, Frame, Layout, Margin};
 use crate::api::models::PlayableItem;
 use crate::app::App;
 use crate::i18n::{Locale, gettext};
-use crate::model::{Action, DragTrack, Loadable, QueueTab, RowContext};
+use crate::model::{Action, DragTrack, Loadable, Page, QueueTab, RowContext};
 use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
@@ -335,6 +337,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         theme::ROW_HEIGHT
     };
     let queue_len = app.queue.get().map(|queue| queue.queue.len()).unwrap_or(0);
+    let picks = QueuePicks::new(app);
     // The user's own songs get their own section on top; the playing
     // context's rows follow under the usual heading. One numbering runs
     // through both, because that is the order things play.
@@ -400,7 +403,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 },
                 0.12,
             );
-            queue_row(app, ui, index, compact, shift);
+            queue_row(app, ui, &picks, index, compact, shift);
             ui.allocate_space(egui::vec2(width, gap));
         });
         if let Some(slot) = move_slot {
@@ -462,7 +465,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         );
         ui.add_space(4.0);
         widgets::virtual_rows(ui, queue_len - queued_len, row_height, |ui, index| {
-            queue_row(app, ui, queued_len + index, compact, 0.0);
+            queue_row(app, ui, &picks, queued_len + index, compact, 0.0);
         });
     }
 }
@@ -600,7 +603,14 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
 /// One row of the queue, numbered and indexed by its place in the whole
 /// queue, whichever section it sits in. `shift` parts rows around the slot
 /// a dragged row would land in, in the "Playing next" section only.
-fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shift: f32) {
+fn queue_row(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    picks: &QueuePicks,
+    index: usize,
+    compact: bool,
+    shift: f32,
+) {
     let Some(item) = app
         .queue
         .get()
@@ -609,7 +619,7 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shif
     else {
         return;
     };
-    widgets::track_row(
+    let pick = widgets::track_row(
         ui,
         app,
         TrackRow {
@@ -625,8 +635,55 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shif
             compact,
             thin: false,
             shift,
-            picked: false,
-            picked_songs: &[],
+            picked: picks.rows.contains(&index),
+            picked_songs: &picks.songs,
         },
     );
+    if let Some(pick) = pick {
+        app.pick_row(&Page::Queue, &picks.view, index, pick, picks.len);
+    }
+}
+
+/// The picked queue rows. They are positions, so any change to the queue
+/// (a song starting, an addition, a move) drops the selection rather than
+/// leave it on whichever songs slid into those places.
+struct QueuePicks {
+    view: String,
+    len: usize,
+    rows: BTreeSet<usize>,
+    songs: Vec<PlayableItem>,
+}
+
+impl QueuePicks {
+    fn new(app: &mut App) -> Self {
+        let rows = app
+            .queue
+            .get()
+            .map(|queue| queue.queue.as_slice())
+            .unwrap_or_default();
+        let mut hasher = DefaultHasher::new();
+        for item in rows {
+            item.uri().hash(&mut hasher);
+        }
+        let len = rows.len();
+        let view = format!("{len}:{:x}", hasher.finish());
+        app.keep_picked_rows_for(&Page::Queue, &view);
+        let picked = app.picked_rows(&Page::Queue).cloned().unwrap_or_default();
+        let songs = app
+            .queue
+            .get()
+            .map(|queue| {
+                picked
+                    .iter()
+                    .filter_map(|&row| queue.queue.get(row).cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            view,
+            len,
+            rows: picked,
+            songs,
+        }
+    }
 }

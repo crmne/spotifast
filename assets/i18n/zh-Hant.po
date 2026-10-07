@@ -721,6 +721,17 @@ msgstr "無法套用 Proxy：{error}。仍在使用先前的連線設定。"
 msgid "Queue cleared"
 msgstr "已清除待播清單"
 
+#. Translators: {count} is a number of songs.
+#: src/app.rs:4471
+#, rust-format
+msgid "{count} song removed from queue"
+msgid_plural "{count} songs removed from queue"
+msgstr[0] "已從待播清單中移除 {count} 首歌曲"
+
+#: src/ui/widgets.rs:598 src/ui/widgets.rs:840
+msgid "Remove from queue"
+msgstr "從待播清單中移除"
+
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
 #: src/app.rs:4411 src/app.rs:16309
 #, rust-format

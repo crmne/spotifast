@@ -110,6 +110,14 @@ not consume a queue row or restore an older queue saved on this computer.
    below stay. It only shows while this computer is the player, because
    that is the only queue the app can actually clear.
 
+   Rows of *Playing next* can also be removed one by one: right-click a
+   row, or a selection picked with Ctrl/Cmd-click or Shift-click, and
+   choose **Remove from queue**. Only the chosen rows leave; another copy
+   of the same song stays. Like **Clear queue**, the entry only appears
+   while this computer is the player, and only when every picked row sits
+   in *Playing next*. A selection in the queue is cleared whenever the
+   queue changes, so it never lands on songs that slid into its place.
+
 8. **Changes appear immediately.** Spotifast updates the queue before Spotify
    confirms the change. For local playback, it updates its own player directly.
    Toggling shuffle rechecks the queue so the new playback order appears

@@ -4050,7 +4050,7 @@ mod tests {
                 },
                 |ui| {
                     if show_parent {
-                        crate::ui::widgets::picked_menu(ui, app, &songs, None);
+                        crate::ui::widgets::picked_menu(ui, app, &songs, None, None);
                     }
                 },
             );
@@ -4122,7 +4122,7 @@ mod tests {
                     events,
                     ..Default::default()
                 },
-                |ui| crate::ui::widgets::picked_menu(ui, app, &songs, None),
+                |ui| crate::ui::widgets::picked_menu(ui, app, &songs, None, None),
             );
             output.textures_delta.clear();
             output.platform_output.accesskit_update.unwrap()
@@ -8846,6 +8846,7 @@ mod tests {
                         app,
                         songs,
                         Some(&("pl1".to_string(), None)),
+                        None,
                     );
                 },
             );
@@ -8869,6 +8870,114 @@ mod tests {
         let expected: Vec<String> = songs.iter().map(|song| song.uri().to_string()).collect();
         assert!(
             matches!(app.actions.as_slice(), [Action::RemoveFromPlaylist { playlist_id, uris }] if playlist_id == "pl1" && *uris == expected)
+        );
+        app.backend.shutdown();
+    }
+
+    /// A Playing next row's menu removes it from the queue; a Next up row's
+    /// menu does not offer that, and a picked selection removes all of it.
+    #[test]
+    fn queue_menu_removes_only_playing_next_rows() {
+        let (ctx, mut app) = accessible_app("queue-remove-menu");
+        app.backend.set_offline(true);
+        app.local_ready = true;
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:playing".into(),
+            ..Default::default()
+        });
+        app.local.playback = crate::player::Playback::Playing;
+        let queued = PlayableItem::Track(track(0));
+        let context = PlayableItem::Track(track(1));
+        app.manual_queue = vec![queued.uri().to_string()];
+        app.queue = Loadable::Loaded(Queue {
+            currently_playing: None,
+            queue: vec![queued.clone(), context.clone()],
+        });
+        let paint = |ctx: &egui::Context,
+                     app: &mut App,
+                     item: &PlayableItem,
+                     index: usize,
+                     events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::widgets::item_menu(
+                        ui,
+                        app,
+                        item,
+                        Some(&RowContext::Queue),
+                        Some(index),
+                    );
+                },
+            );
+            output.textures_delta.clear();
+            menu_text(&output)
+        };
+        let painted = paint(&ctx, &mut app, &context, 1, vec![]);
+        assert!(
+            !painted.iter().any(|(text, _)| text == "Remove from queue"),
+            "a Next up row must not offer removal"
+        );
+        let painted = paint(&ctx, &mut app, &queued, 0, vec![]);
+        let remove = painted
+            .iter()
+            .find(|(text, _)| text == "Remove from queue")
+            .expect("a Playing next row offers removal")
+            .1
+            .center();
+        app.actions.clear();
+        paint(
+            &ctx,
+            &mut app,
+            &queued,
+            0,
+            pointer_click(remove, egui::PointerButton::Primary),
+        );
+        let uri = queued.uri().to_string();
+        assert!(
+            matches!(app.actions.as_slice(), [Action::RemoveFromQueue { rows }] if *rows == [(0, uri.clone())])
+        );
+
+        let songs = vec![queued.clone(), queued.clone()];
+        let rows = vec![(0, uri.clone()), (1, uri.clone())];
+        let frame = |ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::widgets::picked_menu(ui, app, &songs, None, Some(rows.clone()));
+                },
+            );
+            output.textures_delta.clear();
+            menu_text(&output)
+        };
+        let remove = frame(&ctx, &mut app, vec![])
+            .iter()
+            .find(|(text, _)| text == "Remove from queue")
+            .expect("a picked Playing next selection offers removal")
+            .1
+            .center();
+        app.actions.clear();
+        frame(
+            &ctx,
+            &mut app,
+            pointer_click(remove, egui::PointerButton::Primary),
+        );
+        assert!(
+            matches!(app.actions.as_slice(), [Action::RemoveFromQueue { rows: removed }] if *removed == rows)
         );
         app.backend.shutdown();
     }

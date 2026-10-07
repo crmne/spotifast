@@ -992,6 +992,12 @@ pub enum Action {
         items: Vec<PlayableItem>,
         position: usize,
     },
+    /// Remove rows from the manually queued "Playing next" section, each
+    /// named by its shown queue index and song URI. Only applied while the
+    /// local player is the active target, like `MoveInQueue`.
+    RemoveFromQueue {
+        rows: Vec<(usize, String)>,
+    },
     /// Set saved state for several songs explicitly.
     SetSavedMany {
         uris: Vec<String>,

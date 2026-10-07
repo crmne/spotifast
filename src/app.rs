@@ -4392,6 +4392,90 @@ impl App {
         self.toast(gettext(self.locale, "Queue cleared"));
     }
 
+    /// Whether the shown queue row at `index` can be removed: a row of
+    /// Playing next while the local queue can be rewritten.
+    pub fn can_remove_queue_row(&self, index: usize) -> bool {
+        self.queue_locally_reorderable() && index < self.queued_rows_len()
+    }
+
+    /// Removes the given Playing next rows, each named by its shown index
+    /// and URI. librespot cannot remove one row from a live queue, so the
+    /// local engine is cleared and given the remaining songs again.
+    fn remove_from_queue(&mut self, rows: Vec<(usize, String)>) {
+        if !self.queue_locally_reorderable() {
+            return;
+        }
+        let queued_len = self.queued_rows_len();
+        let Loadable::Loaded(queue) = &self.queue else {
+            return;
+        };
+        // The shown order can differ from `manual_queue` after an answer
+        // from Spotify, so match the n-th shown copy of a song to its n-th
+        // queued copy rather than trusting the index alone.
+        let mut shown = Vec::new();
+        let mut manual = Vec::new();
+        for (row, uri) in rows {
+            if row >= queued_len || queue.queue.get(row).map(PlayableItem::uri) != Some(&uri) {
+                continue;
+            }
+            let occurrence = queue.queue[..row]
+                .iter()
+                .filter(|item| item.uri() == uri)
+                .count();
+            if let Some(index) = self
+                .manual_queue
+                .iter()
+                .enumerate()
+                .filter(|(_, queued)| **queued == uri)
+                .nth(occurrence)
+                .map(|(index, _)| index)
+            {
+                shown.push(row);
+                manual.push(index);
+            }
+        }
+        shown.sort_unstable();
+        shown.dedup();
+        manual.sort_unstable();
+        manual.dedup();
+        if manual.is_empty() {
+            return;
+        }
+        let mut removed = HashSet::new();
+        if let Loadable::Loaded(queue) = &mut self.queue {
+            for row in shown.iter().rev() {
+                removed.insert(queue.queue.remove(*row).uri().to_string());
+            }
+        }
+        for index in manual.iter().rev() {
+            self.remove_manual_queue_row(*index);
+        }
+        // With no manual rows left, the reorder check below has nothing to
+        // compare; a late answer still topped by a removed song is stale.
+        if self.manual_queue.is_empty() {
+            self.queue_cleared = Some((removed, Instant::now()));
+        }
+        if self
+            .selection
+            .as_ref()
+            .is_some_and(|(owner, _, _)| *owner == Page::Queue)
+        {
+            self.clear_picked_rows();
+        }
+        self.resync_local_queue();
+        let count = manual.len();
+        self.toast(
+            ngettext(
+                self.locale,
+                // Translators: {count} is a number of songs.
+                "{count} song removed from queue",
+                "{count} songs removed from queue",
+                count as u32,
+            )
+            .replace("{count}", &count.to_string()),
+        );
+    }
+
     /// Current and upcoming track URIs, deduplicated in playback order.
     pub fn queue_playlist_uris(&self) -> Vec<String> {
         let mut seen = std::collections::HashSet::new();
@@ -8799,6 +8883,7 @@ impl App {
                 self.backend.send(Command::DiscoverReceivers);
             }
             Action::ClearQueue => self.clear_queue(),
+            Action::RemoveFromQueue { rows } => self.remove_from_queue(rows),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::SaveRadio(seed) => self.save_radio(&seed),
             Action::RefreshQueue => self.refresh_queue(true),
@@ -14038,6 +14123,160 @@ mod tests {
         assert_eq!(app.queue_stale_retries, 0);
         assert!(app.queue_reorder_pending.is_none());
         assert_eq!(queue_uris(&app).1, reordered);
+    }
+
+    fn app_playing_locally_with_queue(manual: &[&str], context: &[&str]) -> App {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.local_ready = true;
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:playing".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.manual_queue = manual.iter().map(|uri| uri.to_string()).collect();
+        let rows: Vec<&str> = manual.iter().chain(context).copied().collect();
+        app.queue = loaded_queue("spotify:track:playing", &rows);
+        app
+    }
+
+    /// Removing picked Playing next rows takes exactly those rows, at once,
+    /// keeps the context below, and a late answer still listing them does
+    /// not bring them back.
+    #[test]
+    fn removing_queued_rows_takes_them_and_survives_a_stale_answer() {
+        let mut app = app_playing_locally_with_queue(
+            &["spotify:track:m0", "spotify:track:m1", "spotify:track:m2"],
+            &["spotify:track:ctx1"],
+        );
+        app.pick_row(&Page::Queue, "v", 0, RowPick::Only, 4);
+        app.pick_row(&Page::Queue, "v", 2, RowPick::Toggle, 4);
+        let before = Queue {
+            currently_playing: Some(queued_song("spotify:track:playing")),
+            queue: app.queue.get().unwrap().queue.clone(),
+        };
+
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![
+                    (0, "spotify:track:m0".into()),
+                    (2, "spotify:track:m2".into()),
+                ],
+            },
+            &ctx,
+        );
+
+        let after = vec![
+            "spotify:track:m1".to_string(),
+            "spotify:track:ctx1".to_string(),
+        ];
+        assert_eq!(queue_uris(&app).1, after);
+        assert_eq!(app.manual_queue, ["spotify:track:m1"]);
+        assert_eq!(app.queued_rows_len(), 1);
+        assert_eq!(app.picked_rows(&Page::Queue), None);
+
+        app.queue_recheck_at = None;
+        app.refresh_queue(true);
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(before),
+        });
+        assert_eq!(
+            queue_uris(&app).1,
+            after,
+            "removed rows must not flicker back"
+        );
+    }
+
+    /// Of two copies of a song, only the one picked leaves.
+    #[test]
+    fn removing_one_copy_of_a_song_queued_twice_keeps_the_other() {
+        let mut app = app_playing_locally_with_queue(
+            &["spotify:track:a", "spotify:track:b", "spotify:track:a"],
+            &["spotify:track:ctx1"],
+        );
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![(2, "spotify:track:a".into())],
+            },
+            &ctx,
+        );
+        assert_eq!(app.manual_queue, ["spotify:track:a", "spotify:track:b"]);
+        assert_eq!(
+            queue_uris(&app).1,
+            ["spotify:track:a", "spotify:track:b", "spotify:track:ctx1"]
+        );
+    }
+
+    /// Emptying Playing next leaves the context rows, and a late answer
+    /// still topped by a removed song is not shown.
+    #[test]
+    fn removing_every_queued_row_keeps_the_context() {
+        let mut app =
+            app_playing_locally_with_queue(&["spotify:track:m0"], &["spotify:track:ctx1"]);
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![(0, "spotify:track:m0".into())],
+            },
+            &ctx,
+        );
+        assert_eq!(queue_uris(&app).1, ["spotify:track:ctx1"]);
+        assert!(app.manual_queue.is_empty());
+
+        app.queue_recheck_at = None;
+        app.refresh_queue(true);
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(Queue {
+                currently_playing: Some(queued_song("spotify:track:playing")),
+                queue: vec![
+                    queued_song("spotify:track:m0"),
+                    queued_song("spotify:track:ctx1"),
+                ],
+            }),
+        });
+        assert_eq!(queue_uris(&app).1, ["spotify:track:ctx1"]);
+    }
+
+    /// Context rows and rows whose song has moved are never removed, and
+    /// nothing is removed while another device plays.
+    #[test]
+    fn removal_ignores_context_rows_stale_indices_and_remote_playback() {
+        let mut app =
+            app_playing_locally_with_queue(&["spotify:track:m0"], &["spotify:track:ctx1"]);
+        let ctx = egui::Context::default();
+        assert!(app.can_remove_queue_row(0));
+        assert!(!app.can_remove_queue_row(1));
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![
+                    (1, "spotify:track:ctx1".into()),
+                    (0, "spotify:track:other".into()),
+                ],
+            },
+            &ctx,
+        );
+        assert_eq!(
+            queue_uris(&app).1,
+            ["spotify:track:m0", "spotify:track:ctx1"]
+        );
+
+        app.local.playback = Playback::Stopped;
+        app.local.track = None;
+        app.local_ready = false;
+        assert!(!app.can_remove_queue_row(0));
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: vec![(0, "spotify:track:m0".into())],
+            },
+            &ctx,
+        );
+        assert_eq!(app.manual_queue, ["spotify:track:m0"]);
     }
 
     /// Moving a queued row must keep every pending addition pointing at its

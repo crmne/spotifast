@@ -548,6 +548,7 @@ pub fn picked_menu(
     app: &mut App,
     songs: &[PlayableItem],
     editable_playlist: Option<&(String, Option<String>)>,
+    queue_rows: Option<Vec<(usize, String)>>,
 ) {
     let palette = app.palette;
     let locale = app.locale;
@@ -587,6 +588,17 @@ pub fn picked_menu(
                 .map(|item| (item.uri().to_string(), item.name().to_string()))
                 .collect(),
         });
+    }
+    // Only offered when every picked row sits in Playing next.
+    if let Some(rows) = queue_rows
+        && menu_item(
+            ui,
+            &palette,
+            Some(Icon::Minus),
+            &gettext(locale, "Remove from queue"),
+        )
+    {
+        app.actions.push(Action::RemoveFromQueue { rows });
     }
     // Set one explicit saved state for the full selection.
     let all_saved = uris.iter().all(|uri| app.is_saved(uri).unwrap_or(false));
@@ -817,6 +829,19 @@ pub fn item_menu(
         app.actions.push(Action::AddToQueue {
             uri: uri.clone(),
             label: label.clone(),
+        });
+    }
+    if let (Some(RowContext::Queue), Some(index)) = (context, index)
+        && app.can_remove_queue_row(index)
+        && menu_item(
+            ui,
+            &palette,
+            Some(Icon::Minus),
+            &gettext(locale, "Remove from queue"),
+        )
+    {
+        app.actions.push(Action::RemoveFromQueue {
+            rows: vec![(index, uri.clone())],
         });
     }
     if item.is_track() {
@@ -1857,13 +1882,31 @@ fn track_row_contents(
                     } => Some(playlist),
                     _ => None,
                 };
-                picked_menu(ui, app, row.picked_songs, editable);
+                let queue_rows = matches!(row.context, RowContext::Queue)
+                    .then(|| picked_queue_rows(app))
+                    .flatten();
+                picked_menu(ui, app, row.picked_songs, editable, queue_rows);
             } else {
                 item_menu(ui, app, row.item, Some(row.context), Some(row.index));
             }
         });
     crate::autoscroll::row(ui, &response);
     (response, pick)
+}
+
+/// The picked queue rows, by shown index and URI, when every one of them
+/// can be removed from Playing next.
+fn picked_queue_rows(app: &App) -> Option<Vec<(usize, String)>> {
+    let rows = app.picked_rows(&Page::Queue)?;
+    let queue = app.queue.get()?;
+    rows.iter()
+        .map(|&index| {
+            app.can_remove_queue_row(index)
+                .then(|| queue.queue.get(index))
+                .flatten()
+                .map(|item| (index, item.uri().to_string()))
+        })
+        .collect()
 }
 
 /// Scroll the enclosing list while a held drag approaches its visible edges.

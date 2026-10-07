@@ -734,6 +734,18 @@ msgstr ""
 msgid "Queue cleared"
 msgstr "Warteschlange geleert"
 
+#. Translators: {count} is a number of songs.
+#: src/app.rs:4471
+#, rust-format
+msgid "{count} song removed from queue"
+msgid_plural "{count} songs removed from queue"
+msgstr[0] "{count} Song aus der Warteschlange entfernt"
+msgstr[1] "{count} Songs aus der Warteschlange entfernt"
+
+#: src/ui/widgets.rs:598 src/ui/widgets.rs:840
+msgid "Remove from queue"
+msgstr "Aus der Warteschlange entfernen"
+
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
 #: src/app.rs:4411 src/app.rs:16309
 #, rust-format

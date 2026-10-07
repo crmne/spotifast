@@ -733,6 +733,18 @@ msgstr ""
 msgid "Queue cleared"
 msgstr "Kön rensad"
 
+#. Translators: {count} is a number of songs.
+#: src/app.rs:4471
+#, rust-format
+msgid "{count} song removed from queue"
+msgid_plural "{count} songs removed from queue"
+msgstr[0] "{count} låt har tagits bort från kön"
+msgstr[1] "{count} låtar har tagits bort från kön"
+
+#: src/ui/widgets.rs:598 src/ui/widgets.rs:840
+msgid "Remove from queue"
+msgstr "Ta bort från kön"
+
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
 #: src/app.rs:4411 src/app.rs:16309
 #, rust-format
