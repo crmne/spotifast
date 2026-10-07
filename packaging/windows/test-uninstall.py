@@ -39,6 +39,17 @@ class UninstallTest(unittest.TestCase):
         # Redirect their protocol lookup too, so no real Spotify key is touched.
         code = (ROOT / "spotifast.iss").read_text(encoding="utf-8").split("[Code]", 1)[1]
         code = code.replace("Software\\Classes\\spotify", "Software\\Classes\\" + cls.identity)
+        # Exercise the close action without clicking a desktop dialog in CI.
+        code = code.replace("function InitializeUninstall: Boolean;",
+                            "function CheckUninstall: Boolean;")
+        code += '''
+function InitializeUninstall: Boolean;
+begin
+  if ExpandConstant('{param:TESTCLOSE|0}') = '1' then
+    CloseInstalledSpotifast;
+  Result := CheckUninstall;
+end;
+'''
         script = cls.root / "test.iss"
         script.write_text(f'''#define Arch "x86_64"
 #define AppExeName "spotifast.exe"
@@ -66,15 +77,16 @@ Source: "{cls.root / 'keep.txt'}"; DestDir: "{{app}}"
 
     def tearDown(self):
         for process in self.processes:
-            process.terminate()
+            if process.poll() is None:
+                process.terminate()
             process.wait(timeout=10)
         if (self.app / "unins000.exe").exists():
             self.assertEqual(self.uninstall(), 0)
 
-    def uninstall(self):
+    def uninstall(self, *extra):
         log = self.root / (uuid.uuid4().hex + ".log")
         result = subprocess.run(
-            [str(self.app / "unins000.exe"), *FLAGS, f"/LOG={log}"], timeout=60,
+            [str(self.app / "unins000.exe"), *FLAGS, f"/LOG={log}", *extra], timeout=60,
         ).returncode
         # The uninstaller can finish deleting its own files after returning.
         if result == 0:
@@ -111,6 +123,14 @@ Source: "{cls.root / 'keep.txt'}"; DestDir: "{{app}}"
         self.assertEqual(self.uninstall(), 0)
         self.assertFalse((self.app / "spotifast.exe").exists())
         self.assertFalse((self.app / "keep.txt").exists())
+
+    def test_close_terminates_only_the_installed_copy(self):
+        self.run_payload(self.app / "spotifast.exe")
+        self.run_payload(self.root / "spotifast.exe")
+        self.assertEqual(self.uninstall('/TESTCLOSE=1'), 0)
+        self.processes[0].wait(timeout=10)
+        self.assertIsNone(self.processes[1].poll())
+        self.assertFalse((self.app / "spotifast.exe").exists())
 
     def test_missing_executable_does_not_block_cleanup(self):
         (self.app / "spotifast.exe").unlink()

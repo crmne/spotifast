@@ -120,6 +120,30 @@ begin
 end;
 #endif
 
+procedure CloseInstalledSpotifast;
+var
+  Locator, Services, Processes, Process, Path: Variant;
+  Index: Integer;
+  Exe: String;
+begin
+  Exe := ExpandConstant('{app}\{#AppExeName}');
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Services := Locator.ConnectServer('', 'root\CIMV2');
+    Processes := Services.ExecQuery('SELECT * FROM Win32_Process WHERE Name = ''{#AppExeName}''');
+    for Index := 0 to Processes.Count - 1 do begin
+      Process := Processes.ItemIndex(Index);
+      Path := Process.ExecutablePath;
+      // A portable copy can have the same name. Never close it by name alone.
+      if not VarIsNull(Path) then
+        if CompareText(Path, Exe) = 0 then
+          Log('Closing installed Spotifast: result ' + IntToStr(Process.Terminate(0)));
+    end;
+  except
+    Log('Could not close installed Spotifast: ' + GetExceptionMessage);
+  end;
+end;
+
 // CloseApplications covers Setup, not Uninstall. Check the installed file
 // before removing anything, including the uninstaller needed to try again.
 function InitializeUninstall: Boolean;
@@ -142,10 +166,18 @@ begin
     end;
     if UninstallSilent then
       Exit;
-    if SuppressibleMsgBox('Spotifast cannot be removed while its program file is in use or inaccessible.' + #13#10#13#10 +
-      'Quit Spotifast, including its tray icon and mini player, then click Retry. Click Cancel to leave it installed.',
-      mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then
+    case SuppressibleTaskDialogMsgBox('Spotifast cannot be removed yet.',
+      'Its program file is in use or inaccessible. Quit Spotifast and retry, or close it here to continue.' + #13#10#13#10 +
+      'Close Spotifast ends the process immediately. Unsaved changes may be lost.',
+      mbError, MB_YESNOCANCEL, ['Retry', 'Close Spotifast', 'Cancel'], 0, IDCANCEL) of
+      IDYES: ;
+      IDNO: begin
+        CloseInstalledSpotifast;
+        Sleep(200);
+      end;
+    else
       Exit;
+    end;
   end;
   Result := True;
 end;
