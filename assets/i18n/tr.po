@@ -3217,8 +3217,8 @@ msgid "Composition & Lyrics"
 msgstr "Beste ve sözler"
 
 #: src/ui/settings.rs
-msgid "Faithful visuals"
-msgstr "Aslına uygun görünüm"
+msgid "Faithful UI"
+msgstr "Aslına uygun arayüz"
 
 #: src/ui/settings.rs
 msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."

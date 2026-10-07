@@ -3245,8 +3245,8 @@ msgid "Composition & Lyrics"
 msgstr "Музыка и текст"
 
 #: src/ui/settings.rs
-msgid "Faithful visuals"
-msgstr "Оформление как в Spotify"
+msgid "Faithful UI"
+msgstr "Интерфейс как в Spotify"
 
 #: src/ui/settings.rs
 msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."

@@ -266,6 +266,9 @@ pub struct Settings {
     pub player_bar_vis: PlayerBarVis,
     /// Spotify-style shell, neutral surfaces, and controls.
     pub faithful_visuals: bool,
+    /// Windows title bar choice before enabling Faithful UI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub faithful_visuals_previous_titlebar: Option<bool>,
     /// Last local volume, 0..=65535.
     pub volume: u16,
     /// Whether the library sidebar is visible.
@@ -435,6 +438,7 @@ impl Default for Settings {
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
             faithful_visuals: false,
+            faithful_visuals_previous_titlebar: None,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_visible: true,
             art_expanded: false,

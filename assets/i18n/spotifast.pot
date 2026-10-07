@@ -3102,7 +3102,7 @@ msgid "Composition & Lyrics"
 msgstr ""
 
 #: src/ui/settings.rs
-msgid "Faithful visuals"
+msgid "Faithful UI"
 msgstr ""
 
 #: src/ui/settings.rs

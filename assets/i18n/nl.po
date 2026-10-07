@@ -3230,8 +3230,8 @@ msgid "Composition & Lyrics"
 msgstr "Compositie en tekst"
 
 #: src/ui/settings.rs
-msgid "Faithful visuals"
-msgstr "Getrouwe vormgeving"
+msgid "Faithful UI"
+msgstr "Getrouwe interface"
 
 #: src/ui/settings.rs
 msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."

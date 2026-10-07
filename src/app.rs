@@ -9344,6 +9344,28 @@ impl App {
                     self.push_winamp_level(ctx);
                 }
             }
+            Action::SetFaithfulVisuals(enabled) => {
+                if self.settings.faithful_visuals != enabled {
+                    self.settings.faithful_visuals = enabled;
+                    #[cfg(windows)]
+                    {
+                        let custom = if enabled {
+                            self.settings.faithful_visuals_previous_titlebar =
+                                Some(self.settings.custom_titlebar);
+                            Some(true)
+                        } else {
+                            self.settings.faithful_visuals_previous_titlebar.take()
+                        };
+                        if let Some(custom) = custom {
+                            self.apply(Action::SetCustomTitlebar(custom), ctx);
+                        }
+                    }
+                    self.mark_settings_dirty();
+                    if enabled {
+                        self.refresh_queue(true);
+                    }
+                }
+            }
             Action::SetCustomTitlebar(custom) => {
                 if self.settings.custom_titlebar != custom {
                     self.settings.custom_titlebar = custom;
@@ -11379,6 +11401,69 @@ mod tests {
         assert!(!app.settings.custom_titlebar);
         assert!(!app.switch_intent, "the mini player is not the main window");
         assert!(!crate::window::custom_titlebar());
+    }
+
+    #[test]
+    fn faithful_ui_restores_the_windows_titlebar_choice_after_restart() {
+        // Window decorations use process-wide state; isolate this test from
+        // parallel layout tests that draw with the standard title bar.
+        const CHILD: &str = "SPOTIFAST_FAITHFUL_TITLEBAR_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "app::tests::faithful_ui_restores_the_windows_titlebar_choice_after_restart",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        for original in [false, true] {
+            let mut app = headless_app();
+            let ctx = egui::Context::default();
+            app.settings.custom_titlebar = original;
+            app.apply(Action::SetFaithfulVisuals(true), &ctx);
+            assert!(app.settings.faithful_visuals);
+            assert_eq!(app.settings.custom_titlebar, cfg!(windows) || original);
+            assert_eq!(app.switch_intent, cfg!(windows) && !original);
+            assert_eq!(
+                app.settings.faithful_visuals_previous_titlebar,
+                if cfg!(windows) { Some(original) } else { None }
+            );
+
+            // Repeated enables must not overwrite the original choice.
+            app.apply(Action::SetFaithfulVisuals(true), &ctx);
+            // The separate title bar switch still works while the mode is on.
+            app.apply(Action::SetCustomTitlebar(false), &ctx);
+            assert!(!app.settings.custom_titlebar);
+            app.settings =
+                serde_json::from_str(&serde_json::to_string(&app.settings).unwrap()).unwrap();
+            app.apply(Action::SetFaithfulVisuals(false), &ctx);
+            assert!(!app.settings.faithful_visuals);
+            assert_eq!(app.settings.custom_titlebar, cfg!(windows) && original);
+            assert_eq!(app.settings.faithful_visuals_previous_titlebar, None);
+            app.backend.shutdown();
+        }
+    }
+
+    #[test]
+    fn disabling_existing_faithful_ui_keeps_the_titlebar_without_a_saved_choice() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.settings.faithful_visuals = true;
+        app.settings.custom_titlebar = true;
+        app.apply(Action::SetFaithfulVisuals(false), &ctx);
+        assert!(app.settings.custom_titlebar);
+        assert!(!app.switch_intent);
+        app.backend.shutdown();
     }
 
     #[test]

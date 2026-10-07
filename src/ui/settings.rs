@@ -805,7 +805,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let middle_click = gettext(locale, "Middle-click autoscroll");
     let custom_titlebar = gettext(locale, "Custom title bar");
     let player_bar_vis = gettext(locale, "Player bar visualizer");
-    let faithful_visuals = gettext(locale, "Faithful visuals");
+    let faithful_visuals = gettext(locale, "Faithful UI");
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
             let detail = theme::catalog_detail(
@@ -1182,18 +1182,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 &appearance,
                 &appearance_rows[9],
                 |ui| {
-                    if widgets::switch(
-                        ui,
-                        &palette,
-                        &faithful_visuals,
-                        &mut app.settings.faithful_visuals,
-                    )
-                    .changed()
-                    {
-                        if app.settings.faithful_visuals {
-                            app.actions.push(crate::model::Action::RefreshQueue);
-                        }
-                        changed = true;
+                    let mut faithful = app.settings.faithful_visuals;
+                    if widgets::switch(ui, &palette, &faithful_visuals, &mut faithful).changed() {
+                        app.actions.push(Action::SetFaithfulVisuals(faithful));
                     }
                 },
             );

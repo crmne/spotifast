@@ -3124,8 +3124,8 @@ msgid "Composition & Lyrics"
 msgstr "作曲与作词"
 
 #: src/ui/settings.rs
-msgid "Faithful visuals"
-msgstr "忠实外观"
+msgid "Faithful UI"
+msgstr "忠实界面"
 
 #: src/ui/settings.rs
 msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."

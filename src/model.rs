@@ -1149,6 +1149,7 @@ pub enum Action {
     SetWinampTaskbar(bool),
     /// Windows: draw Spotifast's own title bar instead of the standard one.
     SetCustomTitlebar(bool),
+    SetFaithfulVisuals(bool),
     OpenSkinsFolder,
     /// Pick a different skin each time the mini player opens.
     SetRandomSkin(bool),

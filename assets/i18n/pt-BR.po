@@ -3220,8 +3220,8 @@ msgid "Composition & Lyrics"
 msgstr "Composição e letra"
 
 #: src/ui/settings.rs
-msgid "Faithful visuals"
-msgstr "Visual fiel"
+msgid "Faithful UI"
+msgstr "Interface fiel"
 
 #: src/ui/settings.rs
 msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
