@@ -309,7 +309,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 badge_width(device_galley.as_ref(), DEVICE_BADGE_PADDING, labels)
                     + badge_width(update_galley.as_ref(), UPDATE_BADGE_PADDING, labels)
             };
-            let controls = RIGHT_CONTROLS_WIDTH
+            let mut controls = RIGHT_CONTROLS_WIDTH
                 + if busy {
                     SPINNER_SIZE + ITEM_SPACING
                 } else {
@@ -332,6 +332,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             } else {
                 0.0
             };
+            // Below the usual window minimum, keep Home and search usable by
+            // moving secondary controls to the account menu before they collide.
+            let compact = app.settings.faithful_visuals
+                && search_room < controls + badges(false) + home_width + search_gap + SEARCH_MIN;
+            if compact {
+                controls -= 3.0 * (ICON_BUTTON_SIZE + ITEM_SPACING);
+            }
             let fit = topbar_fit(
                 search_room,
                 controls + home_width + search_gap,
@@ -492,6 +499,32 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         ) {
                             app.actions.push(Action::Open(Page::Settings));
                         }
+                        if compact {
+                            for (icon, label, action) in [
+                                (
+                                    Icon::AudioLines,
+                                    super::keys::platform_shortcut(
+                                        &gettext(locale, "MilkDrop visualiser (Ctrl+Shift+K)"),
+                                        &gettext(locale, "MilkDrop visualiser (Cmd+Shift+K)"),
+                                    )
+                                    .to_owned(),
+                                    Action::ToggleWinampMilkdrop,
+                                ),
+                                (
+                                    Icon::Shrink,
+                                    super::keys::platform_shortcut(
+                                        &gettext(locale, "Winamp mini player (Ctrl+M)"),
+                                        &gettext(locale, "Winamp mini player (Cmd+Shift+M)"),
+                                    )
+                                    .to_owned(),
+                                    Action::ToggleWinampWindow,
+                                ),
+                            ] {
+                                if super::widgets::menu_item(ui, &palette, Some(icon), &label) {
+                                    app.actions.push(action);
+                                }
+                            }
+                        }
                         if super::widgets::menu_item(
                             ui,
                             &palette,
@@ -512,51 +545,53 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         }
                     });
                 ui.add_space(4.0);
-                if theme::icon_button(
-                    ui,
-                    Icon::Settings,
-                    ICON_BUTTON_ICON,
-                    palette.secondary,
-                    palette.text,
-                    &gettext(locale, "Settings"),
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::Open(Page::Settings));
-                }
-                if theme::icon_button(
-                    ui,
-                    Icon::AudioLines,
-                    ICON_BUTTON_ICON,
-                    if app.settings.milkdrop_open {
-                        palette.accent
-                    } else {
-                        palette.secondary
-                    },
-                    palette.text,
-                    super::keys::platform_shortcut(
-                        &gettext(locale, "MilkDrop visualiser (Ctrl+Shift+K)"),
-                        &gettext(locale, "MilkDrop visualiser (Cmd+Shift+K)"),
-                    ),
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::ToggleWinampMilkdrop);
-                }
-                if theme::icon_button(
-                    ui,
-                    Icon::Shrink,
-                    ICON_BUTTON_ICON,
-                    palette.secondary,
-                    palette.text,
-                    super::keys::platform_shortcut(
-                        &gettext(locale, "Winamp mini player (Ctrl+M)"),
-                        &gettext(locale, "Winamp mini player (Cmd+Shift+M)"),
-                    ),
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::ToggleWinampWindow);
+                if !compact {
+                    if theme::icon_button(
+                        ui,
+                        Icon::Settings,
+                        ICON_BUTTON_ICON,
+                        palette.secondary,
+                        palette.text,
+                        &gettext(locale, "Settings"),
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::Open(Page::Settings));
+                    }
+                    if theme::icon_button(
+                        ui,
+                        Icon::AudioLines,
+                        ICON_BUTTON_ICON,
+                        if app.settings.milkdrop_open {
+                            palette.accent
+                        } else {
+                            palette.secondary
+                        },
+                        palette.text,
+                        super::keys::platform_shortcut(
+                            &gettext(locale, "MilkDrop visualiser (Ctrl+Shift+K)"),
+                            &gettext(locale, "MilkDrop visualiser (Cmd+Shift+K)"),
+                        ),
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::ToggleWinampMilkdrop);
+                    }
+                    if theme::icon_button(
+                        ui,
+                        Icon::Shrink,
+                        ICON_BUTTON_ICON,
+                        palette.secondary,
+                        palette.text,
+                        super::keys::platform_shortcut(
+                            &gettext(locale, "Winamp mini player (Ctrl+M)"),
+                            &gettext(locale, "Winamp mini player (Cmd+Shift+M)"),
+                        ),
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::ToggleWinampWindow);
+                    }
                 }
                 // A quiet spinner once the app has been talking to Spotify for a
                 // while, long enough that fast requests never flash it.

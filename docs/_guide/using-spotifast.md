@@ -352,6 +352,8 @@ restarting; light, dark, and custom themes remain available.
 On Windows, enabling Faithful UI also enables the custom title bar.
 You can change the title bar separately afterward. Disabling Faithful UI
 restores the title bar setting from before you enabled it, including after a restart.
+In very narrow windows, Settings, MilkDrop, and the mini player are available
+from the account menu to leave room for Home and search.
 
 **Player bar visualizer** in **Settings > Appearance** shows the song moving
 behind the player bar's controls: **Spectrum** draws glowing bars from bass

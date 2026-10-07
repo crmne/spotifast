@@ -9206,6 +9206,64 @@ mod tests {
         }
         app.backend.shutdown();
     }
+    #[test]
+    fn faithful_header_fits_a_tiled_window_without_covering_search() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("faithful-tiled-header");
+        app.settings.faithful_visuals = true;
+        app.update = Some(crate::updates::Release {
+            version: "9.9.9".into(),
+            url: "https://example.invalid/releases".into(),
+        });
+        for sidebar in [false, true] {
+            app.settings.sidebar_visible = sidebar;
+            for width in [480.0, 520.0, 600.0, 760.0, 1440.0] {
+                for frame in 0..2 {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(width, 620.0),
+                            )),
+                            ..Default::default()
+                        },
+                        |ui| app.frame_ui(ui),
+                    );
+                    output.textures_delta.clear();
+                    if frame == 0 {
+                        continue;
+                    }
+                    let field = ctx
+                        .read_response(egui::Id::new("global-search"))
+                        .unwrap()
+                        .rect;
+                    let tree = output.platform_output.accesskit_update.unwrap();
+                    for label in ["Playing on", "Update to"] {
+                        let bounds = tree
+                            .nodes
+                            .iter()
+                            .find_map(|(_, node)| {
+                                (node.role() == Role::Button
+                                    && node.label().is_some_and(|name| name.starts_with(label)))
+                                .then(|| node.bounds())
+                                .flatten()
+                            })
+                            .expect("collapsed badges remain accessible");
+                        assert!(
+                            bounds.x0 as f32 >= field.right() + 30.0,
+                            "{label} overlaps search at {width}, sidebar={sidebar}: badge={}, field={}",
+                            bounds.x0,
+                            field.right() + 30.0
+                        );
+                        assert!(bounds.x1 <= f64::from(width));
+                    }
+                    assert!(field.left() >= 0.0);
+                }
+            }
+        }
+        app.backend.shutdown();
+    }
+
     #[cfg(feature = "demo")]
     #[test]
     fn faithful_resize_highlights_fit_the_panel_gaps() {
