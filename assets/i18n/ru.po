@@ -3202,8 +3202,8 @@ msgstr "В Windows на ARM OpenGL, с помощью которого рису�
 
 #: src/ui/settings.rs:808
 msgid "Show scrollbars only on hover"
-msgstr ""
+msgstr "Показывать полосы прокрутки только при наведении"
 
 #: src/ui/settings.rs:888
 msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
-msgstr ""
+msgstr "Показывать полосы прокрутки при наведении указателя на их край. Отключите, чтобы они оставались видимыми."

@@ -3187,8 +3187,8 @@ msgstr "No Windows on ARM, o OpenGL que o Spotifast usa para desenhar vem do Ope
 
 #: src/ui/settings.rs:808
 msgid "Show scrollbars only on hover"
-msgstr ""
+msgstr "Mostrar barras de deslocamento apenas ao passar o rato"
 
 #: src/ui/settings.rs:888
 msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
-msgstr ""
+msgstr "Mostra as barras de deslocamento ao passar o rato sobre a margem das mesmas. Desative para as manter visíveis."

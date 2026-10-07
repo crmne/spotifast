@@ -3203,8 +3203,8 @@ msgstr "Unter Windows on ARM stammt das OpenGL, mit dem Spotifast zeichnet, aus 
 
 #: src/ui/settings.rs:808
 msgid "Show scrollbars only on hover"
-msgstr ""
+msgstr "Bildlaufleisten nur beim Darüberfahren anzeigen"
 
 #: src/ui/settings.rs:888
 msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
-msgstr ""
+msgstr "Bildlaufleisten anzeigen, wenn sich der Mauszeiger an ihrem Rand befindet. Deaktivieren, um sie immer anzuzeigen."

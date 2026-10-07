@@ -3174,8 +3174,8 @@ msgstr "ARM üzerinde Windows'ta Spotifast'in çizim için kullandığı OpenGL,
 
 #: src/ui/settings.rs:808
 msgid "Show scrollbars only on hover"
-msgstr ""
+msgstr "Kaydırma çubuklarını yalnızca üzerine gelindiğinde göster"
 
 #: src/ui/settings.rs:888
 msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
-msgstr ""
+msgstr "İşaretçi kenarlarının üzerine geldiğinde kaydırma çubuklarını göster. Sürekli görünür tutmak için kapatın."
