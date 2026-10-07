@@ -243,6 +243,7 @@ pub enum ApiRequest {
     PlaySearch {
         kind: String,
         query: String,
+        serial: u64,
     },
     Artist {
         id: String,
@@ -477,6 +478,7 @@ pub enum ApiResponse {
     /// when nothing matched.
     PlaySearch {
         query: String,
+        serial: u64,
         result: ApiResult<Option<String>>,
     },
     Artist {
@@ -4048,7 +4050,11 @@ async fn handle(
             query,
             serial,
         },
-        ApiRequest::PlaySearch { kind, query } => ApiResponse::PlaySearch {
+        ApiRequest::PlaySearch {
+            kind,
+            query,
+            serial,
+        } => ApiResponse::PlaySearch {
             result: routed!(search(&query, &[kind.as_str()])).map(|results| {
                 // Spotify ranks each kind by relevance; the first is the match.
                 match kind.as_str() {
@@ -4071,6 +4077,7 @@ async fn handle(
                 }
             }),
             query,
+            serial,
         },
         ApiRequest::SearchPlaylists { query, serial } => ApiResponse::SearchPlaylists {
             result: routed!(search(&query, &["playlist"]))

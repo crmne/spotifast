@@ -820,6 +820,18 @@ msgstr "已儲存至你的音樂庫"
 msgid "Couldn't update your library: {error}"
 msgstr "無法更新你的音樂庫：{error}"
 
+#. Translators: {query} is the words someone searched for.
+#: src/app.rs:6259
+#, rust-format
+msgid "Nothing on Spotify matches “{query}”"
+msgstr "Spotify 上沒有與「{query}」相符的內容"
+
+#. Translators: {query} is the words someone searched for; {error} is an error message.
+#: src/app.rs:6267
+#, rust-format
+msgid "Couldn't search for “{query}”: {error}"
+msgstr "無法搜尋「{query}」：{error}"
+
 #. Translators: {error} is an error message.
 #: src/app.rs:6117
 #, rust-format

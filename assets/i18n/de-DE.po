@@ -835,6 +835,18 @@ msgstr "In deiner Bibliothek gespeichert"
 msgid "Couldn't update your library: {error}"
 msgstr "Deine Bibliothek konnte nicht aktualisiert werden: {error}"
 
+#. Translators: {query} is the words someone searched for.
+#: src/app.rs:6259
+#, rust-format
+msgid "Nothing on Spotify matches “{query}”"
+msgstr "Auf Spotify passt nichts zu „{query}“"
+
+#. Translators: {query} is the words someone searched for; {error} is an error message.
+#: src/app.rs:6267
+#, rust-format
+msgid "Couldn't search for “{query}”: {error}"
+msgstr "Suche nach „{query}“ fehlgeschlagen: {error}"
+
 #. Translators: {error} is an error message.
 #: src/app.rs:6117
 #, rust-format
