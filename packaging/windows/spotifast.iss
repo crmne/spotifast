@@ -120,6 +120,36 @@ begin
 end;
 #endif
 
+// CloseApplications covers Setup, not Uninstall. Check the installed file
+// before removing anything, including the uninstaller needed to try again.
+function InitializeUninstall: Boolean;
+var
+  Exe: String;
+  Probe: TFileStream;
+begin
+  Result := False;
+  Exe := ExpandConstant('{app}\{#AppExeName}');
+  while FileExists(Exe) do begin
+    try
+      // Windows denies write access to a running executable. Do not write
+      // anything: opening it also catches other locks on this exact copy.
+      Probe := TFileStream.Create(Exe, fmOpenReadWrite or fmShareExclusive);
+      Probe.Free;
+      Result := True;
+      Exit;
+    except
+      Log('Cannot open the installed executable for uninstall: ' + GetExceptionMessage);
+    end;
+    if UninstallSilent then
+      Exit;
+    if SuppressibleMsgBox('Spotifast cannot be removed while its program file is in use or inaccessible.' + #13#10#13#10 +
+      'Quit Spotifast, including its tray icon and mini player, then click Retry. Click Cancel to leave it installed.',
+      mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then
+      Exit;
+  end;
+  Result := True;
+end;
+
 // The spotify: scheme key is shared with whatever else opens the links, so
 // uninstalling takes it away only while it still names this program.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

@@ -25,6 +25,8 @@ installation checks require the exact identity expected for that version.
 
 The application retains its Flatpak manifests, macOS bundle/signing configuration
 and Windows installer configuration. nFPM does not replace these platform tools.
+The Windows uninstaller asks you to quit Spotifast before removing files if its
+executable is in use. Silent uninstall exits without removing files in that case.
 See the repository's [maintainer packaging guide](https://github.com/crmne/spotifast/blob/main/PACKAGING.md)
 for commands and the shared tool's [platform coverage](https://github.com/crmne/native-packages/blob/main/docs/platforms.md)
 for the boundaries.
