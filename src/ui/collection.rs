@@ -1386,27 +1386,15 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             // Spotify's collaborative flag covers secret collaborations; a
             // playlist made together today is recognised by who added songs.
             let owner_id = playlist.owner.id.as_deref();
-            // Spotify's own playlists carry adder ids of their machinery;
-            // nothing about them is a collaboration.
-            let editorial = owner_id == Some("spotify");
-            let others = if editorial {
-                0
-            } else {
-                page.contributors
-                    .iter()
-                    .filter(|id| !id.is_empty() && Some(id.as_str()) != owner_id)
-                    .count()
-            };
-            let made_together = playlist.collaborative || others > 0;
+            let others = other_adders(owner_id, &page.contributors, &user_id);
+            let made_together = playlist.collaborative || !others.is_empty();
             let mut byline = vec![(playlist.owner_name().to_string(), None)];
-            if others > 0 {
-                let named: Vec<String> = page
-                    .contributors
+            if !others.is_empty() {
+                let named: Vec<String> = others
                     .iter()
-                    .filter(|id| Some(id.as_str()) != owner_id)
-                    .filter_map(|id| app.user_names.get(id)?.clone())
+                    .filter_map(|id| app.user_names.get(*id)?.clone())
                     .collect();
-                byline.push((contributors_text(app.locale, &named, others), None));
+                byline.push((contributors_text(app.locale, &named, others.len()), None));
             }
             let count_text = if page.items.is_complete() {
                 songs_and_duration(app.locale, count, duration_ms)
@@ -1421,7 +1409,11 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     .map(|playlist| playlist.images.as_slice()),
                 false,
             );
-            playlist_hero(app, ui, playlist, images, byline, made_together);
+            // A Blend is made together, but only Spotify writes to it, so it
+            // is no collaborative playlist anyone could add to.
+            let collaborative =
+                playlist.collaborative || (made_together && !spotify_owned(owner_id));
+            playlist_hero(app, ui, playlist, images, byline, collaborative);
             let owned = playlist.owned_by(&user_id);
             let saved = app.is_saved(&playlist.uri).unwrap_or(false);
             let needle = page.filter.trim().to_lowercase();
@@ -1982,6 +1974,47 @@ pub(super) fn songs_and_duration(locale: Locale, count: u32, duration_ms: u64) -
     .replace("{duration}", &util::format_total_ms(locale, duration_ms))
 }
 
+/// The account Spotify's own playlists belong to, and the adder id it
+/// stamps on the songs it chose itself.
+const SPOTIFY_USER: &str = "spotify";
+
+fn spotify_owned(owner_id: Option<&str>) -> bool {
+    owner_id == Some(SPOTIFY_USER)
+}
+
+/// Who besides the owner added songs to a playlist, from the adders seen
+/// so far.
+///
+/// Spotify's own playlists carry adder ids of their machinery, so for a
+/// playlist Spotify owns nobody counts, except in a Blend. Spotify owns a
+/// Blend too, but its songs are added by the people it blends. A Blend is
+/// recognised by the listener being among those adders alongside someone
+/// else: Spotify's mixes are made for the listener, never by them. Spotify
+/// itself stays out of a Blend's list, as the owner it already is.
+fn other_adders<'a>(
+    owner_id: Option<&str>,
+    contributors: &'a std::collections::BTreeSet<String>,
+    listener: &str,
+) -> Vec<&'a str> {
+    let others = contributors
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !id.is_empty() && Some(*id) != owner_id);
+    if !spotify_owned(owner_id) {
+        return others.collect();
+    }
+    let blended = !listener.is_empty()
+        && contributors.contains(listener)
+        && contributors
+            .iter()
+            .any(|id| !id.is_empty() && id != listener && id != SPOTIFY_USER);
+    if blended {
+        others.collect()
+    } else {
+        Vec::new()
+    }
+}
+
 /// Who else made a playlist together with its owner: by name when there
 /// are one or two known names, by count otherwise.
 fn contributors_text(locale: Locale, named: &[String], others: usize) -> String {
@@ -2037,6 +2070,45 @@ mod tests {
     use super::*;
     use crate::api::models::{Album, ArtistRef, Image, Track};
     use crate::model::PlaylistPage;
+
+    fn adders(ids: &[&str]) -> std::collections::BTreeSet<String> {
+        ids.iter().map(|id| (*id).to_string()).collect()
+    }
+
+    #[test]
+    fn a_shared_playlist_counts_everyone_but_its_owner() {
+        let seen = adders(&["ana", "bea", ""]);
+        assert_eq!(other_adders(Some("ana"), &seen, "ana"), vec!["bea"]);
+        assert_eq!(other_adders(Some("ana"), &seen, "carl"), vec!["bea"]);
+        assert!(other_adders(Some("ana"), &adders(&["ana"]), "ana").is_empty());
+    }
+
+    #[test]
+    fn spotify_mixes_made_for_the_listener_have_no_other_adders() {
+        // Discover Weekly and its siblings: adder ids of Spotify's machinery.
+        let seen = adders(&["spotify", "machinery-a", "machinery-b"]);
+        assert!(other_adders(Some("spotify"), &seen, "sam").is_empty());
+        // Even a mix that named the listener as its adder is still theirs alone.
+        let solo = adders(&["spotify", "sam"]);
+        assert!(other_adders(Some("spotify"), &solo, "sam").is_empty());
+        // Without a known listener nothing can be told apart.
+        assert!(other_adders(Some("spotify"), &adders(&["ana", "bea"]), "").is_empty());
+    }
+
+    #[test]
+    fn a_blend_counts_the_people_it_blends() {
+        let seen = adders(&["spotify", "sam", "kasia", ""]);
+        assert_eq!(
+            other_adders(Some("spotify"), &seen, "sam"),
+            vec!["kasia", "sam"]
+        );
+        // Spotify's own picks need not have loaded yet.
+        let people = adders(&["sam", "kasia"]);
+        assert_eq!(
+            other_adders(Some("spotify"), &people, "kasia"),
+            vec!["kasia", "sam"]
+        );
+    }
 
     #[test]
     fn hero_images_keep_the_previous_art_until_the_new_cover_is_ready() {
