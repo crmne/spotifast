@@ -317,6 +317,8 @@ pub struct App {
     /// Receivers seen on the local network. Spotify lists a receiver only
     /// once it has an account, so these are the ones it cannot see yet.
     pub receivers: Vec<crate::zeroconf::Receiver>,
+    /// The jam this computer hosts or has joined, if any.
+    pub jam: crate::jam::view::JamView,
     /// The receiver currently being handed the account, by name.
     pub activating_receiver: Option<String>,
     pub devices_loading: bool,
@@ -791,6 +793,7 @@ impl App {
             winamp_level_reassert: 0,
             devices: Vec::new(),
             receivers: Vec::new(),
+            jam: Default::default(),
             activating_receiver: None,
             devices_loading: false,
             devices_fetched_at: None,
@@ -1848,6 +1851,7 @@ impl App {
                 Event::Auth(status) => self.handle_auth(status),
                 Event::Playback(status) => self.handle_playback(status),
                 Event::Receivers(receivers) => self.receivers = receivers,
+                Event::Jam(event) => self.jam.apply(event),
                 Event::ReceiverActivated { name, result } => {
                     self.activating_receiver = None;
                     match result {
@@ -4390,6 +4394,54 @@ impl App {
         // Refresh to remove queued tracks added by another client.
         self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
         self.toast(gettext(self.locale, "Queue cleared"));
+    }
+
+    /// Hosts a jam at `bind`, this computer's address on the network the
+    /// guests share (see [`crate::jam::net::lan_address`]). Zero for `port`
+    /// picks a free one; the invitation names it.
+    pub fn host_jam(&mut self, bind: std::net::IpAddr, port: u16) {
+        let clock = crate::jam::session::JamClock::new();
+        self.jam.start(clock);
+        self.backend.jam(crate::jam::net::JamCommand::Host {
+            name: self.jam_name(),
+            bind,
+            port,
+            clock,
+        });
+    }
+
+    /// Joins the jam an invitation code names. A malformed code changes
+    /// nothing.
+    pub fn join_jam(&mut self, code: &str) -> Result<(), crate::jam::invite::InviteError> {
+        let invite = crate::jam::invite::Invite::parse(code)?;
+        let clock = crate::jam::session::JamClock::new();
+        self.jam.start(clock);
+        self.backend.jam(crate::jam::net::JamCommand::Join {
+            invite,
+            name: self.jam_name(),
+            clock,
+        });
+        Ok(())
+    }
+
+    /// Leaves the jam, or ends it when hosting. The view clears at once.
+    pub fn leave_jam(&mut self) {
+        if !self.jam.active() {
+            return;
+        }
+        self.backend.jam(crate::jam::net::JamCommand::Leave);
+        self.jam.apply(crate::jam::net::JamEvent::Ended(
+            crate::jam::net::EndReason::Left,
+        ));
+    }
+
+    /// The name others see in a jam: the Spotify display name, which they
+    /// see on shared playlists already, never the account's username.
+    fn jam_name(&self) -> String {
+        self.user
+            .as_ref()
+            .and_then(|user| user.display_name.clone())
+            .unwrap_or_default()
     }
 
     /// Whether the shown queue row at `index` can be removed: a row of
@@ -14189,6 +14241,31 @@ mod tests {
             after,
             "removed rows must not flicker back"
         );
+    }
+
+    /// A malformed invitation starts nothing; leaving clears the jam at
+    /// once, and the network's late events cannot bring it back.
+    #[test]
+    fn joining_and_leaving_a_jam_updates_the_view_at_once() {
+        let mut app = headless_app();
+        assert!(app.join_jam("not an invitation").is_err());
+        assert!(!app.jam.active());
+
+        let code = crate::jam::invite::Invite {
+            host: "127.0.0.1".into(),
+            port: 4070,
+            secret: crate::jam::invite::Secret::generate(),
+        }
+        .code();
+        app.join_jam(&code).unwrap();
+        assert_eq!(app.jam.status, crate::jam::view::JamStatus::Starting);
+
+        app.leave_jam();
+        assert!(!app.jam.active());
+        app.handle_backend_events(vec![Event::Jam(crate::jam::net::JamEvent::Joined {
+            you: 1,
+        })]);
+        assert!(!app.jam.active());
     }
 
     /// Of two copies of a song, only the one picked leaves.

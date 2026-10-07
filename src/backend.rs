@@ -562,6 +562,8 @@ struct PlaylistCacheWrite {
 }
 
 pub enum Command {
+    /// Host, join, or act in a jam; see [`crate::jam`].
+    Jam(crate::jam::net::JamCommand),
     OpenThemesFolder,
     ProxyRestored {
         lease: CredentialLease,
@@ -780,6 +782,7 @@ pub enum Event {
     Playback(LocalPlayback),
     /// Receivers seen on the local network that Spotify has not listed.
     Receivers(Vec<crate::zeroconf::Receiver>),
+    Jam(crate::jam::net::JamEvent),
     ReceiverActivated {
         name: String,
         result: Result<(), String>,
@@ -1200,6 +1203,11 @@ impl Backend {
         self.send(Command::Player(command));
     }
 
+    /// Hosts, joins, or acts in a jam on the runtime.
+    pub fn jam(&self, command: crate::jam::net::JamCommand) {
+        self.send(Command::Jam(command));
+    }
+
     pub(crate) fn album_types(&self, uris: Vec<String>) {
         #[cfg(test)]
         self.album_type_requests
@@ -1362,6 +1370,7 @@ struct Worker {
     authorizing_source: Option<ApiSource>,
     pending_authorization: Option<ApiSource>,
     reconnects: Vec<Instant>,
+    jam: crate::jam::net::JamRunner,
     /// What the engine was playing when it went down, to load again once
     /// the next one is up.
     resume: Option<PlaybackResume>,
@@ -1422,6 +1431,7 @@ impl Worker {
             authorizing_source: None,
             pending_authorization: None,
             reconnects: Vec::new(),
+            jam: Default::default(),
             resume: None,
             resume_verify: None,
         }
@@ -1974,6 +1984,15 @@ impl Worker {
                     }
                 }
                 Command::AlbumTypes(uris) => self.fetch_album_types(uris),
+                Command::Jam(command) => {
+                    let events = self.events.clone();
+                    let waker = self.waker.clone();
+                    let sink: crate::jam::net::Sink = Arc::new(move |event| {
+                        let _ = events.send(Event::Jam(event));
+                        waker.wake();
+                    });
+                    self.jam.command(command, sink);
+                }
                 Command::AudiobookShows(uris) => {
                     self.audiobook_lookup.extend(uris);
                     self.start_audiobook_lookup();

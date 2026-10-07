@@ -95,15 +95,18 @@ impl HostSession {
     }
 
     /// A guest left or was disconnected. Its songs stay in the queue.
-    pub fn leave(&mut self, id: ParticipantId) {
+    /// Returns whether it was still in the jam.
+    pub fn leave(&mut self, id: ParticipantId) -> bool {
         if id == HOST_ID {
-            return;
+            return false;
         }
         let before = self.participants.len();
         self.participants.retain(|participant| participant.id != id);
-        if self.participants.len() != before {
+        let left = self.participants.len() != before;
+        if left {
             self.changed();
         }
+        left
     }
 
     pub fn set_permissions(&mut self, permissions: Permissions) {
@@ -339,13 +342,44 @@ impl ClockSync {
 
     /// The host's clock now, once at least one sample arrived.
     pub fn host_now(&self, local_ms: u64) -> Option<u64> {
+        Some(local_ms.saturating_add_signed(self.offset()?))
+    }
+
+    /// How far the host's clock runs ahead of this one: the median of the
+    /// recent samples.
+    pub fn offset(&self) -> Option<i64> {
         let mut offsets: Vec<i64> = self.offsets.iter().copied().collect();
         if offsets.is_empty() {
             return None;
         }
         offsets.sort_unstable();
-        let offset = offsets[offsets.len() / 2];
-        Some(local_ms.saturating_add_signed(offset))
+        Some(offsets[offsets.len() / 2])
+    }
+}
+
+/// Milliseconds since a jam began on this computer. The network tasks and
+/// the app share one, so a clock offset measured by one applies to the
+/// other.
+#[derive(Clone, Copy, Debug)]
+pub struct JamClock {
+    epoch: std::time::Instant,
+}
+
+impl Default for JamClock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl JamClock {
+    pub fn new() -> Self {
+        Self {
+            epoch: std::time::Instant::now(),
+        }
+    }
+
+    pub fn now_ms(&self) -> u64 {
+        u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 }
 

@@ -136,6 +136,8 @@ pub enum HostMsg {
         t0: u64,
         host_time_ms: u64,
     },
+    /// The host ended the jam; a guest should not try to reconnect.
+    Closed,
 }
 
 /// Why a guest was not let in.
