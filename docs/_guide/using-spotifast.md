@@ -258,10 +258,15 @@ spotifast seek -- -15         spotifast like
 spotifast seek-to 90          spotifast play-uri spotify:playlist:37i9…
 spotifast show                spotifast transfer <device-id>
 spotifast now-playing [--raw] spotifast devices [--raw]
+spotifast play-search <words> spotifast play-search --kind artist <name>
 ```
 
 `shuffle` and `repeat` toggle when used without an argument. Pass a state to
 set it directly. `like` adds or removes the playing track from your library.
+
+`play-search` searches Spotify and plays the best match: a song, or with
+`--kind album`, `artist`, or `playlist`, one of those from the start. It shows
+a message instead when nothing matches.
 
 `now-playing` prints one readable line. `--raw` prints tab-separated fields:
 state, title, artists, album, position_ms, duration_ms, volume, shuffle,
