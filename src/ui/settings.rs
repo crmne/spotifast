@@ -805,6 +805,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let middle_click = gettext(locale, "Middle-click autoscroll");
     let custom_titlebar = gettext(locale, "Custom title bar");
     let player_bar_vis = gettext(locale, "Player bar visualizer");
+    let scrollbars_on_hover = gettext(locale, "Show scrollbars only on hover");
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
             let detail = theme::catalog_detail(
@@ -881,6 +882,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 locale,
                 "Show the song moving behind the player bar's controls while it plays here.",
             ),
+        ),
+        RowText::new(
+            scrollbars_on_hover.clone(),
+            gettext(locale, "Fade scrollbars when the pointer leaves the scroll area. Turn off to keep them visible."),
         ),
     ];
     if section_matches(&needle, &appearance, &appearance_rows) {
@@ -1155,6 +1160,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     },
                 );
             }
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &appearance,
+                &appearance_rows[9],
+                |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        &scrollbars_on_hover,
+                        &mut app.settings.scrollbars_on_hover,
+                    )
+                    .changed()
+                    {
+                        app.mark_settings_dirty();
+                    }
+                },
+            );
             if app.windows_controls_visible() {
                 filtered_row(
                     ui,

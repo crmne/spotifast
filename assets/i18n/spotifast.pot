@@ -3056,3 +3056,11 @@ msgstr ""
 #: src/window.rs:35
 msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr ""
+
+#: src/ui/settings.rs:808
+msgid "Show scrollbars only on hover"
+msgstr ""
+
+#: src/ui/settings.rs:888
+msgid "Fade scrollbars when the pointer leaves the scroll area. Turn off to keep them visible."
+msgstr ""

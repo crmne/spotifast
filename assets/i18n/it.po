@@ -3192,3 +3192,11 @@ msgstr "Su Windows on ARM, l’OpenGL con cui Spotifast disegna proviene dall’
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Riduci animazioni del testo"
+
+#: src/ui/settings.rs:808
+msgid "Show scrollbars only on hover"
+msgstr ""
+
+#: src/ui/settings.rs:888
+msgid "Fade scrollbars when the pointer leaves the scroll area. Turn off to keep them visible."
+msgstr ""

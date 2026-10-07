@@ -262,7 +262,9 @@ pub fn apply(ctx: &egui::Context, palette: &Palette) {
 
 /// Applies a palette to this view and children without changing global style.
 pub fn apply_local(ui: &mut egui::Ui, palette: &Palette) {
+    let dormant_handle_opacity = ui.style().spacing.scroll.dormant_handle_opacity;
     apply_to_style(ui.style_mut(), palette);
+    ui.style_mut().spacing.scroll.dormant_handle_opacity = dormant_handle_opacity;
 }
 
 fn apply_to_style(style: &mut egui::Style, palette: &Palette) {

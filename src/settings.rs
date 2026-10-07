@@ -279,6 +279,8 @@ pub struct Settings {
     pub queue_width: f32,
     /// Use compact single-line rows without cover art in track lists.
     pub tracklist_compact: bool,
+    /// Fade scrollbars when the pointer leaves their scroll area.
+    pub scrollbars_on_hover: bool,
     /// Linux: middle-click a list to autoscroll it. Off by default, because
     /// Linux desktops usually paste the primary selection on middle click.
     /// Windows always autoscrolls and macOS never does.
@@ -441,6 +443,7 @@ impl Default for Settings {
             lyrics_width: 360.0,
             queue_width: 360.0,
             tracklist_compact: false,
+            scrollbars_on_hover: true,
             middle_click_autoscroll: false,
             search_history: Vec::new(),
             show_shortcut_hints: true,
@@ -1210,6 +1213,19 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"skin":"A.wsz"}"#).unwrap();
         assert!(!settings.random_skin);
         assert_eq!(settings.skin.as_deref(), Some("A.wsz"));
+    }
+
+    #[test]
+    fn scrollbar_preference_preserves_old_settings_and_round_trips() {
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert!(old.scrollbars_on_hover);
+        let settings = Settings {
+            scrollbars_on_hover: false,
+            ..Default::default()
+        };
+        let restored: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert!(!restored.scrollbars_on_hover);
     }
 
     #[test]
