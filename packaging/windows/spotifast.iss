@@ -169,7 +169,7 @@ begin
     case SuppressibleTaskDialogMsgBox('Spotifast cannot be removed yet.',
       'Its program file is in use or inaccessible. Quit Spotifast and retry, or close it here to continue.' + #13#10#13#10 +
       'Close Spotifast ends the process immediately. Unsaved changes may be lost.',
-      mbError, MB_YESNOCANCEL, ['Retry', 'Close Spotifast', 'Cancel'], 0, IDCANCEL) of
+      mbError, MB_YESNOCANCEL, ['Retry', 'Close Spotifast'], 0, IDCANCEL) of
       IDYES: ;
       IDNO: begin
         CloseInstalledSpotifast;
