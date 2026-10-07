@@ -3365,8 +3365,8 @@ msgstr ""
 
 #: src/ui/settings.rs:808
 msgid "Show scrollbars only on hover"
-msgstr ""
+msgstr "Pokazuj paski przewijania tylko po najechaniu kursorem"
 
 #: src/ui/settings.rs:888
 msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
-msgstr ""
+msgstr "Pokazuj paski przewijania po najechaniu kursorem na ich krawędź. Wyłącz tę opcję, aby były zawsze widoczne."

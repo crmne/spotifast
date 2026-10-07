@@ -3236,8 +3236,8 @@ msgstr ""
 
 #: src/ui/settings.rs:808
 msgid "Show scrollbars only on hover"
-msgstr ""
+msgstr "僅在游標停留時顯示捲動條"
 
 #: src/ui/settings.rs:888
 msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
-msgstr ""
+msgstr "將游標移至捲動條邊緣時顯示捲動條。關閉此選項可讓捲動條持續顯示。"

@@ -3312,8 +3312,8 @@ msgstr ""
 
 #: src/ui/settings.rs:808
 msgid "Show scrollbars only on hover"
-msgstr ""
+msgstr "スクロールバーをホバー時のみ表示"
 
 #: src/ui/settings.rs:888
 msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
-msgstr ""
+msgstr "スクロールバーの端にポインターを合わせると表示します。常に表示するにはオフにしてください。"
