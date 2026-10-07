@@ -2684,9 +2684,9 @@ impl App {
     }
 
     /// Whether the right panel shows the playing song: opened for itself, or
-    /// for the lyrics it holds underneath.
+    /// for the lyrics or the queue it holds underneath.
     pub fn now_playing_panel_open(&self) -> bool {
-        self.show_now_playing_panel || self.show_lyrics_panel
+        self.show_now_playing_panel || self.show_lyrics_panel || self.show_queue_panel
     }
 
     /// Asks for the playing track's lyrics unless they are here or on the
@@ -8935,19 +8935,14 @@ impl App {
                 self.show_queue_panel = !self.show_queue_panel;
                 if self.show_queue_panel {
                     self.show_lyrics_panel = false;
-                    self.show_now_playing_panel = false;
                     self.refresh_queue(true);
                 }
             }
             Action::ToggleNowPlayingPanel => {
+                // Only the playing song's part: the lyrics or the queue
+                // beneath it stay as they are.
                 self.leave_lyrics_fullscreen(ctx);
-                if self.now_playing_panel_open() {
-                    self.show_now_playing_panel = false;
-                    self.show_lyrics_panel = false;
-                } else {
-                    self.show_now_playing_panel = true;
-                    self.show_queue_panel = false;
-                }
+                self.show_now_playing_panel = !self.show_now_playing_panel;
             }
             Action::ToggleLyricsPanel => {
                 self.leave_lyrics_fullscreen(ctx);
@@ -10777,8 +10772,7 @@ mod tests {
                     .rect
                     .center()
             } else {
-                // Below the playing song's cover, over the lyrics.
-                egui::pos2(1120.0, 560.0)
+                egui::pos2(1120.0, 100.0)
             };
             let press = |button, pressed| egui::Event::PointerButton {
                 pos: anchor,
@@ -17293,29 +17287,35 @@ mod tests {
     }
 
     #[test]
-    fn lyrics_sit_under_the_now_playing_panel() {
+    fn the_playing_song_toggles_apart_from_the_lyrics_and_queue() {
         let mut app = headless_app();
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(Default::default(), |ui| {
-            app.apply(Action::ToggleQueuePanel, ui.ctx());
-            // Lyrics alone open the panel, and hiding them closes it again.
-            app.apply(Action::ToggleLyricsPanel, ui.ctx());
-            assert!(app.now_playing_panel_open() && !app.show_queue_panel);
-            app.apply(Action::ToggleLyricsPanel, ui.ctx());
-            assert!(!app.now_playing_panel_open());
-            // Opened for itself, the panel stays when the lyrics go.
+            // Alone, the playing song opens and closes the panel.
             app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
-            app.apply(Action::ToggleLyricsPanel, ui.ctx());
-            app.apply(Action::ToggleLyricsPanel, ui.ctx());
             assert!(app.now_playing_panel_open());
-            // Its close button takes the lyrics with it.
+            app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
+            assert!(!app.now_playing_panel_open());
+            // With the lyrics, it comes and goes above them, and they stay.
             app.apply(Action::ToggleLyricsPanel, ui.ctx());
             app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
-            assert!(!app.now_playing_panel_open() && !app.show_lyrics_panel);
-            // It shares the right side with the queue, one at a time.
+            assert!(app.show_now_playing_panel && app.show_lyrics_panel);
             app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
+            assert!(!app.show_now_playing_panel && app.show_lyrics_panel);
+            app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
+            assert!(app.show_now_playing_panel && app.show_lyrics_panel);
+            // Hiding the lyrics leaves the playing song on its own.
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+            assert!(app.show_now_playing_panel && app.now_playing_panel_open());
+            // The queue takes the lyrics' place under it the same way.
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
             app.apply(Action::ToggleQueuePanel, ui.ctx());
-            assert!(app.show_queue_panel && !app.now_playing_panel_open());
+            assert!(app.show_queue_panel && !app.show_lyrics_panel);
+            assert!(app.show_now_playing_panel);
+            app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
+            assert!(!app.show_now_playing_panel && app.show_queue_panel);
+            app.apply(Action::ToggleQueuePanel, ui.ctx());
+            assert!(!app.now_playing_panel_open());
         });
         output.textures_delta.clear();
         app.backend.shutdown();

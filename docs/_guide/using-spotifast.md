@@ -489,18 +489,20 @@ use a personal Spotify app, reconnect it in Settings as well.
 
 ## Now playing
 
-Choose the disc button at the end of the player bar to open the Now playing
-panel on the right. It shows the playing song's cover with its title, artists
-and album. Choose the button again, or the close button in the panel, to fold
-it away. Spotifast remembers whether it was open. Queue and Now playing share
-the right side, so opening one closes the other.
+Choose the disc button at the end of the player bar to show the playing
+song's cover with its title, artists and album at the top of the right panel.
+Choose the button again, or the close button beside **Now playing**, to fold
+it away. Spotifast remembers whether it was shown.
+
+The disc button changes only that part. Lyrics or the queue already open stay
+where they are: the cover appears above them, and folding it away leaves them
+as they were. Under the cover, the queue's cover, tabs and songs scroll
+together, so scrolling down brings the whole queue into view.
 
 ## Lyrics
 
 Choose the microphone button in the player bar, or press **L**, to show lyrics.
-They appear in the Now playing panel, under the song's cover, and the panel
-opens for them if it was closed. Hiding the lyrics leaves the panel as it was
-before. Synced lyrics follow the playing line automatically. Scroll to pause following,
+When the playing song is shown, they appear under its cover. Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
 
 The expand button opens lyrics in full screen. Press **Esc** or choose the

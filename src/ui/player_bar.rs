@@ -937,7 +937,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
         ui,
         Icon::Disc,
         18.0,
-        if app.now_playing_panel_open() {
+        if app.show_now_playing_panel {
             palette.accent
         } else {
             palette.secondary

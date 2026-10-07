@@ -69,10 +69,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if app.settings.sidebar_visible {
             sidebar::show(app, ui);
         }
+        // The playing song, when shown, tops the queue or the lyrics, or
+        // has the right panel to itself.
         if app.show_queue_panel {
             queue::side_panel(app, ui);
         }
-        if app.now_playing_panel_open() {
+        if app.show_lyrics_panel || (app.show_now_playing_panel && !app.show_queue_panel) {
             lyrics::side_panel(app, ui);
         }
         central(app, ui);

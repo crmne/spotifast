@@ -28,6 +28,9 @@ fn show_sung_line(ui: &egui::Ui, line: Rect, animation: Option<egui::style::Scro
 }
 /// How long a line takes to light up or fade.
 const LIGHT_UP_SECONDS: f32 = 0.22;
+/// The most of the right panel's height the cover takes with the lyrics
+/// or the queue beneath it, the same for both so it holds still between them.
+pub(super) const COVER_ABOVE_LIST: f32 = 0.38;
 
 fn blend(from: egui::Color32, to: egui::Color32, t: f32) -> egui::Color32 {
     let t = t.clamp(0.0, 1.0);
@@ -61,12 +64,19 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             ui.available_width(),
         );
         ui.add_space(window_controls.lyrics_top);
+        let card = app.show_now_playing_panel && !app.show_queue_panel;
+        if card {
+            now_playing_top(app, ui, app.show_lyrics_panel);
+        }
+        if !app.show_lyrics_panel {
+            return;
+        }
         ui.horizontal(|ui| {
             ui.add_space(4.0);
             theme::text(
                 ui,
-                gettext(app.locale, "Now playing"),
-                theme::bold(18.0),
+                gettext(app.locale, "Lyrics"),
+                theme::bold(if card { 16.0 } else { 18.0 }),
                 palette.text,
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -80,24 +90,8 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 )
                 .clicked()
                 {
-                    app.actions.push(Action::ToggleNowPlayingPanel);
+                    app.actions.push(Action::ToggleLyricsPanel);
                 }
-            });
-        });
-        ui.add_space(8.0);
-        if !now_playing_card(app, ui) || !app.show_lyrics_panel {
-            return;
-        }
-        ui.add_space(16.0);
-        ui.horizontal(|ui| {
-            ui.add_space(4.0);
-            theme::text(
-                ui,
-                gettext(app.locale, "Lyrics"),
-                theme::bold(16.0),
-                palette.text,
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if theme::icon_button(
                     ui,
                     Icon::Expand,
@@ -138,34 +132,70 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// The playing song's cover with its title, artists and album beneath, at
-/// the top of the panel. Returns whether a song is playing; with none, the
-/// panel says so instead.
-fn now_playing_card(app: &App, ui: &mut egui::Ui) -> bool {
-    let palette = app.palette;
-    let Some(now) = app.now_playing() else {
-        let detail = if app.show_lyrics_panel {
-            gettext(app.locale, "Play a song to see its lyrics.")
-        } else {
-            Default::default()
-        };
-        widgets::empty_state(
-            ui,
-            &palette,
-            Icon::Music,
-            &gettext(app.locale, "Nothing playing"),
-            &detail,
-        );
-        return false;
-    };
-    // The cover leaves the lyrics beneath it most of the panel's height.
-    let width = ui.available_width();
-    let height = if app.show_lyrics_panel {
-        ui.available_height() * 0.38
+/// The top of the right panel: its heading, then the playing song's card.
+/// `below` says the lyrics follow underneath, so the cover leaves them
+/// most of the height. With nothing playing, the panel says so, unless
+/// what follows has its own word for it.
+fn now_playing_top(app: &mut App, ui: &mut egui::Ui, below: bool) {
+    now_playing_heading(app, ui);
+    if app.now_playing().is_none() {
+        if !below {
+            widgets::empty_state(
+                ui,
+                &app.palette,
+                Icon::Music,
+                &gettext(app.locale, "Nothing playing"),
+                "",
+            );
+        }
+        return;
+    }
+    let cover_at_most = if below {
+        ui.available_height() * COVER_ABOVE_LIST
     } else {
         ui.available_height() - 110.0
     };
-    let side = width.min(height).max(64.0);
+    now_playing_card(app, ui, cover_at_most);
+}
+
+/// The right panel's heading, with the button that folds it away.
+pub(super) fn now_playing_heading(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        theme::text(
+            ui,
+            gettext(app.locale, "Now playing"),
+            theme::bold(18.0),
+            palette.text,
+        );
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if theme::icon_button(
+                ui,
+                Icon::X,
+                18.0,
+                palette.secondary,
+                palette.text,
+                &gettext(app.locale, "Close"),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::ToggleNowPlayingPanel);
+            }
+        });
+    });
+    ui.add_space(8.0);
+}
+
+/// The playing song's cover, no taller than `cover_at_most`, with its
+/// title, artists and album beneath. Nothing when no song is playing.
+pub(super) fn now_playing_card(app: &App, ui: &mut egui::Ui, cover_at_most: f32) {
+    let palette = app.palette;
+    let Some(now) = app.now_playing() else {
+        return;
+    };
+    let width = ui.available_width();
+    let side = width.min(cover_at_most).max(64.0);
     let (row, _) = ui.allocate_exact_size(vec2(width, side), Sense::hover());
     let cover = Rect::from_center_size(row.center(), vec2(side, side));
     widgets::paint_cover(
@@ -201,7 +231,7 @@ fn now_playing_card(app: &App, ui: &mut egui::Ui) -> bool {
             }
         }
     });
-    true
+    ui.add_space(16.0);
 }
 
 fn contents(app: &mut App, ui: &mut egui::Ui) {

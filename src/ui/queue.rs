@@ -61,50 +61,16 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             ui.available_width(),
         );
         ui.add_space(window_controls.queue_top);
-        // Measure buttons first and give the remaining width to the chips.
-        // Without `shrink_left`, wrapped chips can overlap the close button.
-        let tab = app.queue_tab;
-        let offer_save = tab == QueueTab::Queue && !app.queue_playlist_uris().is_empty();
-        let mut picked = None;
-        let mut close = false;
-        let mut save = false;
-        egui::Sides::new().shrink_left().show(
-            ui,
-            |ui| {
-                ui.add_space(4.0);
-                picked = widgets::chips(
-                    ui,
-                    &palette,
-                    &[
-                        (QueueTab::Queue, &gettext(app.locale, "Queue")),
-                        (QueueTab::Recents, &gettext(app.locale, "Recent")),
-                    ],
-                    tab,
-                );
-            },
-            |ui| {
-                close = theme::icon_button(
-                    ui,
-                    Icon::X,
-                    18.0,
-                    palette.secondary,
-                    palette.text,
-                    &gettext(app.locale, "Close"),
-                )
-                .clicked();
-                save = save_button(ui, &palette, offer_save, app.locale);
-            },
-        );
-        if let Some(tab) = picked {
-            app.actions.push(Action::SetQueueTab(tab));
+        let card = app.show_now_playing_panel;
+        if card {
+            super::lyrics::now_playing_heading(app, ui);
+        } else {
+            tabs(app, ui);
+            ui.add_space(8.0);
         }
-        if close {
-            app.actions.push(Action::ToggleQueuePanel);
-        }
-        if save {
-            app.actions.push(Action::SaveQueueAsPlaylist);
-        }
-        ui.add_space(8.0);
+        // Under the playing song, the cover, the tabs and the queue scroll
+        // as one, so the cover starts large and gives way to the songs.
+        let cover_at_most = ui.available_height() * super::lyrics::COVER_ABOVE_LIST;
         // Lazy load recents when tab becomes visible.
         if app.queue_tab == QueueTab::Recents
             && !app.recents.loading
@@ -120,9 +86,19 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 .id_salt("queue-panel-scroll")
                 .auto_shrink([false, false]),
             egui::Vec2b::new(false, true),
-            |ui| match app.queue_tab {
-                QueueTab::Queue => contents(app, ui, true),
-                QueueTab::Recents => recents_contents(app, ui),
+            |ui| {
+                if card {
+                    if app.now_playing().is_some() {
+                        super::lyrics::now_playing_card(app, ui, cover_at_most);
+                        ui.add_space(16.0);
+                    }
+                    tabs(app, ui);
+                    ui.add_space(8.0);
+                }
+                match app.queue_tab {
+                    QueueTab::Queue => contents(app, ui, true),
+                    QueueTab::Recents => recents_contents(app, ui),
+                }
             },
         );
     });
@@ -132,6 +108,55 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     {
         app.settings.queue_width = width;
         app.actions.push(Action::SettingsChanged);
+    }
+}
+
+/// The Queue and Recent tabs, with the buttons that close and save the
+/// queue.
+fn tabs(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    // Measure buttons first and give the remaining width to the chips.
+    // Without `shrink_left`, wrapped chips can overlap the close button.
+    let tab = app.queue_tab;
+    let offer_save = tab == QueueTab::Queue && !app.queue_playlist_uris().is_empty();
+    let mut picked = None;
+    let mut close = false;
+    let mut save = false;
+    egui::Sides::new().shrink_left().show(
+        ui,
+        |ui| {
+            ui.add_space(4.0);
+            picked = widgets::chips(
+                ui,
+                &palette,
+                &[
+                    (QueueTab::Queue, &gettext(app.locale, "Queue")),
+                    (QueueTab::Recents, &gettext(app.locale, "Recent")),
+                ],
+                tab,
+            );
+        },
+        |ui| {
+            close = theme::icon_button(
+                ui,
+                Icon::X,
+                18.0,
+                palette.secondary,
+                palette.text,
+                &gettext(app.locale, "Close"),
+            )
+            .clicked();
+            save = save_button(ui, &palette, offer_save, app.locale);
+        },
+    );
+    if let Some(tab) = picked {
+        app.actions.push(Action::SetQueueTab(tab));
+    }
+    if close {
+        app.actions.push(Action::ToggleQueuePanel);
+    }
+    if save {
+        app.actions.push(Action::SaveQueueAsPlaylist);
     }
 }
 
