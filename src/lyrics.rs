@@ -1,7 +1,7 @@
 //! Lyrics for the playing track, from Spotify or LRCLIB.
 //!
 //! [LRCLIB](https://lrclib.net) provides plain and LRC-synced lyrics without an
-//! account or key. Spotifast tries Spotify's transcription first when the
+//! account or key. Spotizgeg tries Spotify's transcription first when the
 //! playback session is signed in, then LRCLIB.
 //!
 //! Matching starts with an exact lookup, then ranks search results. Track

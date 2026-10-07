@@ -116,7 +116,7 @@ struct Hook {
 
 /// Where the hook hangs on the window.
 fn property() -> *const u16 {
-    windows_sys::w!("SpotifastThumbBar")
+    windows_sys::w!("SpotizgegThumbBar")
 }
 
 /// The toolbar under one window's taskbar preview.
@@ -707,7 +707,7 @@ mod tests {
                 unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
             }
         }
-        let class = wide("SpotifastThumbbarTest");
+        let class = wide("SpotizgegThumbbarTest");
         let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
         let descriptor = WNDCLASSW {
             lpfnWndProc: Some(original),

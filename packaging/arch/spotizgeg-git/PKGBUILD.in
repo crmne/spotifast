@@ -1,5 +1,5 @@
 # Maintainer: Carmine Paolino <carmine@paolino.me>
-pkgname=spotifast-git
+pkgname=spotizgeg-git
 pkgver=@VERSION@
 pkgrel=1
 pkgdesc="Native Spotify client"
@@ -14,8 +14,8 @@ depends=('dbus' 'alsa-lib' 'libpulse' 'libglvnd' 'libxkbcommon' 'wayland' 'libx1
 makedepends=('git' 'cargo' 'cmake' 'clang')
 optdepends=('libxkbcommon-x11: keyboard handling in X11 sessions'
             'pipewire-pulse: PipeWire as the PulseAudio server')
-provides=("spotifast=$pkgver")
-conflicts=('spotifast' 'spotifast-bin')
+provides=("spotizgeg=$pkgver")
+conflicts=('spotizgeg' 'spotizgeg-bin')
 # !lto because ring compiles its own C and Arch's default CFLAGS put LTO
 # objects in the archive, which lld then cannot resolve: the link fails on
 # undefined ring_core_* symbols. The stable package is prebuilt and never
@@ -61,13 +61,13 @@ check() {
 package() {
   cd "${srcdir}/${pkgname}"
 
-  install -Dm755 "target/release/spotifast" "${pkgdir}/usr/bin/spotifast"
+  install -Dm755 "target/release/spotizgeg" "${pkgdir}/usr/bin/spotizgeg"
   install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 "README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-  install -Dm644 "packaging/applications/spotifast.desktop" \
-    "${pkgdir}/usr/share/applications/spotifast.desktop"
-  install -Dm644 "packaging/icons/spotifast.svg" \
-    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/spotifast.svg"
-  install -Dm644 contrib/omarchy/spotifast.json.tpl "${pkgdir}/usr/share/spotifast/omarchy/spotifast.json.tpl"
-  install -Dm755 contrib/omarchy/spotifast-theme "${pkgdir}/usr/share/spotifast/omarchy/spotifast-theme"
+  install -Dm644 "packaging/applications/spotizgeg.desktop" \
+    "${pkgdir}/usr/share/applications/spotizgeg.desktop"
+  install -Dm644 "packaging/icons/spotizgeg.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/spotizgeg.svg"
+  install -Dm644 contrib/omarchy/spotizgeg.json.tpl "${pkgdir}/usr/share/spotizgeg/omarchy/spotizgeg.json.tpl"
+  install -Dm755 contrib/omarchy/spotizgeg-theme "${pkgdir}/usr/share/spotizgeg/omarchy/spotizgeg-theme"
 }

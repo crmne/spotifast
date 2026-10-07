@@ -1,0 +1,37 @@
+# The release workflow's Flatpak: the binary the Linux job built, packaged
+# into the same sandbox as rocks.spotizgeg.Spotizgeg.yml describes. The
+# job unpacks the release tarball into built/ beside this file first.
+id: rocks.spotizgeg.Spotizgeg
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: spotizgeg
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --socket=pulseaudio
+  - --share=network
+  # Platform storage for this application's Spotify grants.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --own-name=org.mpris.MediaPlayer2.spotizgeg
+  - --persist=.local/state
+modules:
+  - name: spotizgeg
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 spotizgeg /app/bin/spotizgeg
+      - install -Dm644 packaging/applications/*.desktop /app/share/applications/rocks.spotizgeg.Spotizgeg.desktop
+      - sed -i 's/^Icon=.*$/Icon=rocks.spotizgeg.Spotizgeg/;s/^StartupWMClass=spotizgeg$/StartupWMClass=rocks.spotizgeg.Spotizgeg/' /app/share/applications/rocks.spotizgeg.Spotizgeg.desktop
+      - install -Dm644 packaging/icons/*.svg /app/share/icons/hicolor/scalable/apps/rocks.spotizgeg.Spotizgeg.svg
+      - install -Dm644 packaging/flatpak/rocks.spotizgeg.Spotizgeg.metainfo.xml /app/share/metainfo/rocks.spotizgeg.Spotizgeg.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/spotizgeg/LICENSE
+    sources:
+      - type: dir
+        path: built
+      # Metainfo belongs to this packaging checkout, not the portable archive.
+      - type: file
+        path: rocks.spotizgeg.Spotizgeg.metainfo.xml
+        dest: packaging/flatpak

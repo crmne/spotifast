@@ -195,7 +195,7 @@ pub enum QueueTab {
     #[default]
     Queue,
     Recents,
-    /// Listening together with other Spotifast users.
+    /// Listening together with other Spotizgeg users.
     Jam,
 }
 
@@ -1162,7 +1162,7 @@ pub enum Action {
     SetSkinScale(u8),
     ToggleWinampOnTop,
     SetWinampTaskbar(bool),
-    /// Windows: draw Spotifast's own title bar instead of the standard one.
+    /// Windows: draw Spotizgeg's own title bar instead of the standard one.
     SetCustomTitlebar(bool),
     OpenSkinsFolder,
     /// Pick a different skin each time the mini player opens.

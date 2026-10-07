@@ -13,14 +13,14 @@ fn update_flags_are_intercepted_before_the_arguments_are_parsed() {
     for flags in [
         [
             "--update-receipt",
-            "/missing/.spotifast-update-0000000000000000/handoff.json",
+            "/missing/.spotizgeg-update-0000000000000000/handoff.json",
         ],
         [
             "--update-error",
             "The update could not start. The previous version has been restored.",
         ],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_spotifast"))
+        let output = Command::new(env!("CARGO_BIN_EXE_spotizgeg"))
             .args(flags)
             .arg("--version")
             .output()
@@ -28,7 +28,7 @@ fn update_flags_are_intercepted_before_the_arguments_are_parsed() {
         assert!(output.status.success(), "{flags:?}: {output:?}");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout).trim(),
-            format!("spotifast {}", env!("CARGO_PKG_VERSION"))
+            format!("spotizgeg {}", env!("CARGO_PKG_VERSION"))
         );
     }
 }
@@ -40,11 +40,11 @@ fn update_flags_are_intercepted_before_the_arguments_are_parsed() {
 #[test]
 fn apply_update_runs_the_helper_before_the_app() {
     let scratch = std::env::temp_dir().join(format!(
-        "spotifast-apply-update-{:016x}",
+        "spotizgeg-apply-update-{:016x}",
         rand::random::<u64>()
     ));
     std::fs::create_dir(&scratch).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_spotifast"))
+    let output = Command::new(env!("CARGO_BIN_EXE_spotizgeg"))
         .arg("--apply-update")
         .arg(scratch.join("missing-job.json"))
         .env("HOME", &scratch)

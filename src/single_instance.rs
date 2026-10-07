@@ -11,10 +11,10 @@
 //! port that answers only requests carrying the random token the running
 //! instance writes beside the lock.
 //!
-//! Clients send one `spotifast:<verb>` line and receive one reply. Commands
+//! Clients send one `spotizgeg:<verb>` line and receive one reply. Commands
 //! enter the same action queue as tray and media-key events. Read commands use
 //! snapshots, so the listener thread never accesses app state. The
-//! `spotifast` command-line subcommands are clients of this channel; MPRIS
+//! `spotizgeg` command-line subcommands are clients of this channel; MPRIS
 //! remains for media keys and desktop players on Linux.
 //!
 //! Clients poll the current snapshot; the app does not push updates.
@@ -25,8 +25,8 @@
 //! instance the same way, as `open-link`.
 
 /// The name every request and reply starts with, so a copy of another app
-/// never obeys Spotifast's requests.
-const NAME: &str = "spotifast";
+/// never obeys Spotizgeg's requests.
+const NAME: &str = "spotizgeg";
 
 /// The reply to an accepted command.
 const OK_REPLY: &str = "ok";
@@ -132,7 +132,7 @@ pub const NO_DEVICES: &str = "[]";
 /// runtime directory on Linux (the app's own inside Flatpak), the user's
 /// private temporary directory on macOS, where a socket path under
 /// Application Support can outgrow the 104 bytes macOS allows with a long
-/// user name, and beside Spotifast's state on Windows.
+/// user name, and beside Spotizgeg's state on Windows.
 fn slot() -> fastframe_instance::Slot {
     #[cfg(not(windows))]
     {
@@ -166,7 +166,7 @@ pub fn send(verb: &str) -> std::io::Result<Reply> {
     reply(&slot().send(verb)?)
 }
 
-/// Reads the running instance's reply, without the `spotifast:` prefix the
+/// Reads the running instance's reply, without the `spotizgeg:` prefix the
 /// channel already checked.
 fn reply(line: &str) -> std::io::Result<Reply> {
     if line == OK_REPLY {
@@ -178,7 +178,7 @@ fn reply(line: &str) -> std::io::Result<Reply> {
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "the running Spotifast answered something unexpected",
+            "the running Spotizgeg answered something unexpected",
         ))
     }
 }
@@ -213,12 +213,12 @@ fn claim(
         }
         fastframe_instance::Claim::Running(_) => Outcome::Surfaced,
         fastframe_instance::Claim::Declined => {
-            log::warn!("Spotifast is already running and declined this launch's request");
+            log::warn!("Spotizgeg is already running and declined this launch's request");
             Outcome::Surfaced
         }
         fastframe_instance::Claim::Unanswered => {
             log::warn!(
-                "Spotifast is already running but did not answer; not starting a second copy"
+                "Spotizgeg is already running but did not answer; not starting a second copy"
             );
             Outcome::Surfaced
         }
@@ -275,7 +275,7 @@ enum Request {
 }
 
 /// Reads one request line, the channel having already checked and removed
-/// its `spotifast:` prefix.
+/// its `spotizgeg:` prefix.
 fn parse(line: &str) -> Option<Request> {
     let verb = line.trim_end();
     let (verb, argument) = match verb.split_once(' ') {
@@ -454,11 +454,11 @@ mod tests {
         assert!(command("seek-to -1").is_none());
     }
 
-    /// A slot of its own in a throwaway directory, so a Spotifast already
+    /// A slot of its own in a throwaway directory, so a Spotizgeg already
     /// running on this machine is left alone.
     fn test_slot(name: &str) -> (fastframe_instance::Slot, std::path::PathBuf) {
         let dir =
-            std::env::temp_dir().join(format!("spotifast-instance-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spotizgeg-instance-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         (fastframe_instance::Slot::at(&dir, NAME), dir)
     }

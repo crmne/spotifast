@@ -1,5 +1,5 @@
 //! `jam-server serve` keeps the jam running; `jam-server code` prints the
-//! code listeners paste into Spotifast.
+//! code listeners paste into Spotizgeg.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use jam_core::wire::Limits;
 use jam_server::DataDir;
 
 #[derive(Parser)]
-#[command(version, about = "Keeps a Spotifast jam running for its listeners")]
+#[command(version, about = "Keeps a Spotizgeg jam running for its listeners")]
 struct Cli {
     /// Where the password, the certificate and the jam are kept.
     #[arg(long, global = true, default_value = "data")]

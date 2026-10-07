@@ -1,10 +1,10 @@
 ---
 layout: home
-title: Spotifast
+title: Spotizgeg
 description: A fast, lightweight Spotify app for Linux, macOS, and Windows.
 permalink: /
 hero:
-  name: Spotifast
+  name: Spotizgeg
   text: Spotify, native and fast
   tagline: A lightweight Spotify app for Linux, macOS, and Windows. Listen on your computer, browse your music, and control your other devices.
   actions:
@@ -12,14 +12,14 @@ hero:
       text: Download
       link: /download/
     - theme: alt
-      text: What is Spotifast?
-      link: /what-is-spotifast/
+      text: What is Spotizgeg?
+      link: /what-is-spotizgeg/
     - theme: alt
       text: GitHub
       link: https://github.com/crmne/spotifast
   image:
     src: /screenshot.png
-    alt: "Spotifast Home with the playlist library, recommendations, queue, and player visible"
+    alt: "Spotizgeg Home with the playlist library, recommendations, queue, and player visible"
     width: 2018
     height: 1198
 
@@ -35,7 +35,7 @@ features:
     details: Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own.
   - icon: 🎨
     title: Themes
-    details: Choose light, dark, or your own colours. On Omarchy, Spotifast can follow your desktop theme as it changes, while the music keeps playing.
+    details: Choose light, dark, or your own colours. On Omarchy, Spotizgeg can follow your desktop theme as it changes, while the music keeps playing.
   - icon: 📻
     title: Winamp mini player
     details: Bring back the classic Winamp look, with skins, a playlist, sound controls, and animations that move to your music.
@@ -56,7 +56,7 @@ features:
     link_text: Read the source
 ---
 
-<video class="hero-film image-src" controls muted loop playsinline preload="metadata" poster="/assets/images/launch-film-poster.jpg" aria-label="Spotifast in a minute: a film of the app, made with its built-in demo content" hidden>
+<video class="hero-film image-src" controls muted loop playsinline preload="metadata" poster="/assets/images/launch-film-poster.jpg" aria-label="Spotizgeg in a minute: a film of the app, made with its built-in demo content" hidden>
   <source src="/assets/videos/launch-film.mp4" type="video/mp4">
 </video>
 
@@ -96,19 +96,19 @@ sharp. [See the mini player in detail](/winamp/).
 
 ## MilkDrop with more than 10,000 presets
 
-On first use, Spotifast automatically downloads the original MilkDrop 2
+On first use, Spotizgeg automatically downloads the original MilkDrop 2
 presets and projectM's Cream of the Crop collection. These visual designs
 react to music playing on your computer, in a resizable window or full screen.
 [See the controls and preset details](/milkdrop/).
 
-<video class="milkdrop-showcase" autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop presets reacting to music in Spotifast">
+<video class="milkdrop-showcase" autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop presets reacting to music in Spotizgeg">
   <source src="/assets/images/milkdrop.mp4" type="video/mp4">
 </video>
 
 ## WhatsApp, just as fast
 
 **Want WhatsApp just as fast and native?** [ZapFast](https://zapfast.rocks) is
-Spotifast's sibling: the same native interface, for WhatsApp. Both are built on [fastframe](https://github.com/crmne/fastframe), the shared
+Spotizgeg's sibling: the same native interface, for WhatsApp. Both are built on [fastframe](https://github.com/crmne/fastframe), the shared
 foundation for native Rust apps built with egui.
 
 <style>

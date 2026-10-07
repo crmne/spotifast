@@ -323,7 +323,7 @@ impl Inner {
 
 impl BytesLoader for ArtLoader {
     fn id(&self) -> &'static str {
-        "spotifast::ArtLoader"
+        "spotizgeg::ArtLoader"
     }
 
     fn load(&self, ctx: &egui::Context, uri: &str) -> BytesLoadResult {
@@ -737,7 +737,7 @@ mod tests {
     #[test]
     fn downloaded_artwork_survives_caller_drop_and_reloads_without_network() {
         let dir =
-            std::env::temp_dir().join(format!("spotifast-art-roundtrip-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spotizgeg-art-roundtrip-{}", std::process::id()));
         let runtime = artwork_test_runtime();
         let loader = artwork_test_loader(&runtime, dir.clone());
         let expected: Vec<u8> = (0..256 * 1024).map(|index| (index % 251) as u8).collect();
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn artwork_cache_write_failure_keeps_download_usable() {
         let dir = std::env::temp_dir().join(format!(
-            "spotifast-art-write-failure-{}",
+            "spotizgeg-art-write-failure-{}",
             std::process::id()
         ));
         let runtime = artwork_test_runtime();
@@ -801,7 +801,7 @@ mod tests {
     #[test]
     fn rejected_artwork_responses_do_not_create_cache_files() {
         let dir =
-            std::env::temp_dir().join(format!("spotifast-art-rejected-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spotizgeg-art-rejected-{}", std::process::id()));
         let runtime = artwork_test_runtime();
         let loader = artwork_test_loader(&runtime, dir.clone());
         runtime.block_on(async {
@@ -868,7 +868,7 @@ mod tests {
     #[test]
     fn lyrics_backdrop_appears_while_a_cover_releases_the_same_artwork() {
         let runtime = artwork_test_runtime();
-        let dir = std::env::temp_dir().join(format!("spotifast-backdrop-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-backdrop-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let loader = artwork_test_loader(&runtime, dir.clone());
         let ctx = egui::Context::default();
@@ -901,7 +901,7 @@ mod tests {
     fn lyrics_backdrop_holds_the_previous_song_and_retries_failures() {
         let runtime = artwork_test_runtime();
         let dir =
-            std::env::temp_dir().join(format!("spotifast-backdrop-retry-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spotizgeg-backdrop-retry-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let loader = artwork_test_loader(&runtime, dir.clone());
         let ctx = egui::Context::default();
@@ -977,7 +977,7 @@ mod tests {
     fn softened_cover_reuses_decoded_art_after_source_bytes_are_released() {
         let runtime = artwork_test_runtime();
         let dir =
-            std::env::temp_dir().join(format!("spotifast-softened-decoded-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spotizgeg-softened-decoded-{}", std::process::id()));
         let loader = artwork_test_loader(&runtime, dir.clone());
         let ctx = egui::Context::default();
         egui_extras::install_image_loaders(&ctx);
@@ -1037,7 +1037,7 @@ mod tests {
     fn softened_cover_pending_requests_are_deduplicated() {
         let runtime = artwork_test_runtime();
         let dir =
-            std::env::temp_dir().join(format!("spotifast-softened-pending-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spotizgeg-softened-pending-{}", std::process::id()));
         let loader = artwork_test_loader(&runtime, dir.clone());
         let ctx = egui::Context::default();
         let mut covers = SoftenedCovers::default();
@@ -1130,7 +1130,7 @@ mod tests {
     /// takes the whole process with it.
     #[test]
     fn a_cached_file_is_named_only_once_it_is_really_there() {
-        let dir = std::env::temp_dir().join(format!("spotifast-art-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-art-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
@@ -1158,7 +1158,7 @@ mod tests {
 
     #[test]
     fn prefetching_starts_one_download_and_not_another() {
-        let dir = std::env::temp_dir().join(format!("spotifast-prefetch-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-prefetch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
@@ -1289,7 +1289,7 @@ mod tests {
         assert_eq!(one, 2 * 640 * 640 * 4);
         let jpeg = 50_000usize;
         let dir = std::env::temp_dir().join(format!(
-            "spotifast-art-budget-{}-{}",
+            "spotizgeg-art-budget-{}-{}",
             std::process::id(),
             Instant::now().elapsed().as_nanos()
         ));
@@ -1363,7 +1363,7 @@ mod tests {
         use std::time::Duration as StdDuration;
 
         let dir = std::env::temp_dir().join(format!(
-            "spotifast-art-reload-{}-{}",
+            "spotizgeg-art-reload-{}-{}",
             std::process::id(),
             Instant::now().elapsed().as_nanos()
         ));

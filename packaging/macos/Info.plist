@@ -2,11 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Spotifast</string>
-    <key>CFBundleDisplayName</key><string>Spotifast</string>
+    <key>CFBundleName</key><string>Spotizgeg</string>
+    <key>CFBundleDisplayName</key><string>Spotizgeg</string>
     <key>CFBundleIdentifier</key><string>__IDENTIFIER__</string>
     <key>CFBundleExecutable</key><string>__EXECUTABLE__</string>
-    <key>CFBundleIconFile</key><string>spotifast</string>
+    <key>CFBundleIconFile</key><string>spotizgeg</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>__VERSION__</string>
     <key>CFBundleVersion</key><string>__BUILD__</string>
@@ -18,7 +18,7 @@
     <array>
         <string>_spotify-connect._tcp</string>
     </array>
-    <!-- Spotify links (spotify:track:…) open in Spotifast; src/mac_links.rs
+    <!-- Spotify links (spotify:track:…) open in Spotizgeg; src/mac_links.rs
          takes them. Launch Services notes this when the app is first opened. -->
     <key>CFBundleURLTypes</key>
     <array>

@@ -22,7 +22,7 @@ spec.loader.exec_module(metainfo)
 class ReleaseMetainfoTests(unittest.TestCase):
     def fixture(self, app_id=metainfo.APP_ID, version="0.8.0"):
         return f"""<component type="desktop-application">
-          <id>{app_id}</id><name>Spotifast</name>
+          <id>{app_id}</id><name>Spotizgeg</name>
           <launchable type="desktop-id">{app_id}.desktop</launchable>
           <description><p>Existing release description.</p></description>
           <releases><release version="{version}" date="2026-09-14" /></releases>
@@ -32,7 +32,7 @@ class ReleaseMetainfoTests(unittest.TestCase):
         result = ET.fromstring(metainfo.check_metainfo(self.fixture(), "0.8.0"))
         self.assertEqual(result.findtext("id"), metainfo.APP_ID)
         self.assertEqual(result.findtext("launchable"), metainfo.APP_ID + ".desktop")
-        self.assertEqual(result.findtext("name"), "Spotifast")
+        self.assertEqual(result.findtext("name"), "Spotizgeg")
         self.assertEqual(result.findtext("description/p"), "Existing release description.")
         self.assertEqual(result.find("releases/release").attrib,
                          {"version": "0.8.0", "date": "2026-09-14"})

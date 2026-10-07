@@ -51,19 +51,19 @@ cd /d "%~dp0..\.."
 cargo build --release --locked || exit /b 1
 
 rem The installer must run on a clean machine: no MSVC runtime imports.
-dumpbin /dependents target\release\spotifast.exe | findstr /i "MSVCP VCRUNTIME" >nul
+dumpbin /dependents target\release\spotizgeg.exe | findstr /i "MSVCP VCRUNTIME" >nul
 if not errorlevel 1 (
-  echo spotifast.exe imports an MSVC runtime DLL; check .cargo\config.toml.
+  echo spotizgeg.exe imports an MSVC runtime DLL; check .cargo\config.toml.
   exit /b 1
 )
 
-for /f "tokens=2" %%v in ('target\release\spotifast.exe --version') do set "VERSION=%%v"
+for /f "tokens=2" %%v in ('target\release\spotizgeg.exe --version') do set "VERSION=%%v"
 if not defined VERSION (
-  echo Could not read the version from spotifast.exe --version.
+  echo Could not read the version from spotizgeg.exe --version.
   exit /b 1
 )
 
 "%ISCC%" /Q "/DVersion=%VERSION%" /DArch=x86_64 ^
-  "/DBinary=%CD%\target\release\spotifast.exe" ^
-  "/DOutputDir=%CD%\dist" packaging\windows\spotifast.iss || exit /b 1
-echo Built dist\spotifast-v%VERSION%-x86_64-pc-windows-msvc-setup.exe
+  "/DBinary=%CD%\target\release\spotizgeg.exe" ^
+  "/DOutputDir=%CD%\dist" packaging\windows\spotizgeg.iss || exit /b 1
+echo Built dist\spotizgeg-v%VERSION%-x86_64-pc-windows-msvc-setup.exe

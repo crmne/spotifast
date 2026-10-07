@@ -1,4 +1,4 @@
-//! The core of Spotifast's jams, shared by the app and the jam server.
+//! The core of Spotizgeg's jams, shared by the app and the jam server.
 //!
 //! A jam is one shared queue that a server keeps running, and that every
 //! listener follows on their own Spotify account. No audio ever crosses the

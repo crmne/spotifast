@@ -5,17 +5,17 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please include the log from Spotifast's last run:
+        Please include the log from Spotizgeg's last run:
 
-        - Linux: `~/.local/state/spotifast/spotifast.log`
-        - macOS: `~/Library/Application\ Support/me.paolino.spotifast/spotifast.log`
-        - Windows: `%LOCALAPPDATA%\paolino\spotifast\data\spotifast.log`
+        - Linux: `~/.local/state/spotizgeg/spotizgeg.log`
+        - macOS: `~/Library/Application\ Support/me.paolino.spotizgeg/spotizgeg.log`
+        - Windows: `%LOCALAPPDATA%\paolino\spotizgeg\data\spotizgeg.log`
 
         If the app crashed or vanished, include `panic.log` from the same folder.
   - type: input
     id: version
     attributes:
-      label: Spotifast version and how you installed it
+      label: Spotizgeg version and how you installed it
       placeholder: "0.5.0-rc1 from the AUR / the DMG / the Windows installer / Homebrew / the Flatpak bundle"
     validations:
       required: true
@@ -56,7 +56,7 @@ body:
   - type: textarea
     id: log
     attributes:
-      label: spotifast.log
+      label: spotizgeg.log
       description: Reproduce the problem, quit the app, then paste the whole file here (and panic.log, if there is one). Paths are above.
       render: text
     validations:

@@ -5,17 +5,17 @@ it pins the shared CLI and nFPM versions and declares Linux amd64/arm64 inputs,
 DEB/RPM/AppImage contents, dependencies, recipe templates and downstream repositories.
 Application assets and native recipes stay in `packaging/`.
 
-Public AUR, Homebrew, DEB/RPM and release download names use Spotifast, and
-Linux packages install `spotifast` as the only executable.
+Public AUR, Homebrew, DEB/RPM and release download names use Spotizgeg, and
+Linux packages install `spotizgeg` as the only executable.
 
-Linux builds provide `spotifast.desktop` and `spotifast.svg`, matching the
+Linux builds provide `spotizgeg.desktop` and `spotizgeg.svg`, matching the
 native window and MPRIS desktop-entry ID. Flatpak installs those assets under
 its full application ID and sets the window class to match.
 `python3 packaging/test-launchers.py` exercises the actual AUR and Flatpak
 installation commands with a release payload, using Ruby to read YAML.
 
 Linux packages also install the optional Omarchy template and hook under
-`share/spotifast/omarchy` in their installation prefix. The normal application
+`share/spotizgeg/omarchy` in their installation prefix. The normal application
 launch registers missing per-user files and prepares the current palette on an
 Omarchy desktop, without changing existing files or the selected theme. Setup
 runs in the background; package-manager scripts do not write into user homes.
@@ -25,7 +25,7 @@ portable Linux release archives carry the assets with their source/binary
 payloads. Source and binary AUR recipes also accept older releases that predate
 the integration; the git recipe requires the current files. Nix installs the
 Linux desktop assets beside its binaries and packages the signed macOS
-`Spotifast.app` bundle in the same derivation. Flatpak does not install host
+`Spotizgeg.app` bundle in the same derivation. Flatpak does not install host
 desktop hooks.
 
 ```sh
@@ -65,7 +65,7 @@ Packaging CI builds both architectures using a pinned published release
 runs. It then installs and removes each package in clean Ubuntu 24.04, Debian
 13, Fedora 41 and current Fedora containers on native amd64 and arm64 runners.
 Each case verifies that a settings fixture survives installation and removal,
-runs `spotifast --version`, loads the GUI libraries with `dlopen`, and
+runs `spotizgeg --version`, loads the GUI libraries with `dlopen`, and
 verifies the desktop entry and icon. They cover installation and library
 resolution, not a running desktop or Spotify playback. On release runs these
 checks follow artifact attachment; a failure marks the workflow as failed.
@@ -109,7 +109,7 @@ for commands and supported formats.
 The manual **Flatpak from release** workflow can rebuild a missing Flatpak from
 an existing tag. It verifies the published Linux archive against `checksums.txt`
 and uses that tag's version and description with the current Flatpak app ID,
-`rocks.spotifast.Spotifast`, without compiling or replacing binaries.
+`rocks.spotizgeg.Spotizgeg`, without compiling or replacing binaries.
 It uploads a workflow artifact only. After checking the bundle, attach it to the
 existing release and add its hash to `checksums.txt`, preserving every existing
 asset and checksum. Release tags stay immutable.
@@ -155,6 +155,6 @@ native-packages build \
 Secret configuration applies to future builds. Existing published DMGs retain
 their original signatures; this setup does not replace release assets.
 
-`packaging/release-names.py DIST TAG` checks the release's `spotifast-`
+`packaging/release-names.py DIST TAG` checks the release's `spotizgeg-`
 downloads and writes their checksums. Run `python3 packaging/test-release-names.py`
 when changing this step. Published historical downloads are never rewritten.

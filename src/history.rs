@@ -1,6 +1,6 @@
 //! Local play history.
 //!
-//! Spotify does not record playback from librespot clients. Spotifast stores
+//! Spotify does not record playback from librespot clients. Spotizgeg stores
 //! local plays and merges them with `/me/player/recently-played`, which covers
 //! other devices. A track counts only after enough listening time, so skips do
 //! not fill the history.

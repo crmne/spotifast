@@ -23,13 +23,13 @@ class ReleaseNamesTest(unittest.TestCase):
     def test_checksums_cover_every_download_and_are_repeatable(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "spotifast-v0.12.0-linux.tar.gz").write_bytes(b"Linux build")
-            (root / "spotifast-v0.12.0-macos.dmg").write_bytes(b"Mac build")
-            (root / "spotifast-v0.11.2-linux.tar.gz").write_bytes(b"another release")
+            (root / "spotizgeg-v0.12.0-linux.tar.gz").write_bytes(b"Linux build")
+            (root / "spotizgeg-v0.12.0-macos.dmg").write_bytes(b"Mac build")
+            (root / "spotizgeg-v0.11.2-linux.tar.gz").write_bytes(b"another release")
             release_names.prepare(root, "v0.12.0")
             before = (root / "checksums.txt").read_bytes()
             names = [line.split()[1] for line in before.decode().splitlines()]
-            self.assertEqual(names, ["spotifast-v0.12.0-linux.tar.gz", "spotifast-v0.12.0-macos.dmg"])
+            self.assertEqual(names, ["spotizgeg-v0.12.0-linux.tar.gz", "spotizgeg-v0.12.0-macos.dmg"])
             release_names.prepare(root, "v0.12.0")
             self.assertEqual((root / "checksums.txt").read_bytes(), before)
 
@@ -37,7 +37,7 @@ class ReleaseNamesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "build").write_bytes(b"build")
-            (root / "spotifast-v0.12.0-linux.tar.gz").symlink_to(root / "build")
+            (root / "spotizgeg-v0.12.0-linux.tar.gz").symlink_to(root / "build")
             with self.assertRaisesRegex(ValueError, "regular release file"):
                 release_names.prepare(root, "v0.12.0")
             self.assertFalse((root / "checksums.txt").exists())

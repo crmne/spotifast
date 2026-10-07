@@ -125,7 +125,7 @@ fn apply_blocking_proxy(
 }
 
 fn user_agent() -> &'static str {
-    concat!("Spotifast/", env!("CARGO_PKG_VERSION"))
+    concat!("Spotizgeg/", env!("CARGO_PKG_VERSION"))
 }
 
 #[cfg(test)]
@@ -156,7 +156,7 @@ mod tests {
         let http = Http::default();
         let clone = http.clone();
         let replacement = reqwest::Client::builder()
-            .user_agent("spotifast-test")
+            .user_agent("spotizgeg-test")
             .build()
             .unwrap();
         http.replace(replacement.clone());

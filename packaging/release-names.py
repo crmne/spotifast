@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check a release's Spotifast downloads and write their checksums."""
+"""Check a release's Spotizgeg downloads and write their checksums."""
 
 import argparse
 import hashlib
@@ -12,7 +12,7 @@ def prepare(directory, tag):
         raise ValueError("Expected a release tag")
     files = []
     for path in directory.iterdir():
-        if path.name.startswith("spotifast-" + tag + "-"):
+        if path.name.startswith("spotizgeg-" + tag + "-"):
             if not path.is_file() or path.is_symlink():
                 raise ValueError(f"Expected a regular release file: {path.name}")
             files.append(path)

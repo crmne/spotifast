@@ -27,10 +27,10 @@ pub fn report_missing_opengl(locale: crate::i18n::Locale) {
     const STORE_PAGE: &str = "ms-windows-store://pdp/?ProductId=9NQPSL29BFFF";
 
     let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
-    let title = wide(&gettext(locale, "Spotifast cannot open its window"));
+    let title = wide(&gettext(locale, "Spotizgeg cannot open its window"));
     let text = wide(&gettext(
         locale,
-        "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?",
+        "On Windows on ARM, the OpenGL that Spotizgeg draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?",
     ));
     // SAFETY: both strings are NUL-terminated UTF-16 that outlive the call,
     // and the box has no owner window.

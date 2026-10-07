@@ -1,4 +1,4 @@
-//! Where Spotifast keeps its files.
+//! Where Spotizgeg keeps its files.
 //!
 //! Configuration, durable non-secret state, and disposable caches live in the
 //! platform's conventional directories. Spotify grants use the platform store;
@@ -15,9 +15,40 @@ pub struct AppDirs {
     pub cache: PathBuf,
 }
 
+/// The fork's name before it became Spotizgeg; its files are taken over.
+const PREVIOUS_NAME: &str = "spotifast";
+
 impl AppDirs {
     pub fn discover() -> Self {
-        Self::for_name("spotifast")
+        let dirs = Self::for_name("spotizgeg");
+        dirs.adopt(&Self::for_name(PREVIOUS_NAME));
+        dirs
+    }
+
+    /// Moves each of `previous`'s directories here while this one does not
+    /// exist yet, so settings, history and caches survive the rename. A
+    /// directory that cannot be moved is left where it was.
+    fn adopt(&self, previous: &Self) {
+        for (old, new) in [
+            (&previous.config, &self.config),
+            (&previous.state, &self.state),
+            (&previous.cache, &self.cache),
+        ] {
+            if old == new || new.exists() || !old.is_dir() {
+                continue;
+            }
+            let moved = new
+                .parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| std::fs::rename(old, new));
+            if let Err(error) = moved {
+                log::warn!(
+                    "could not move {} to {}: {error}",
+                    old.display(),
+                    new.display()
+                );
+            }
+        }
     }
 
     fn for_name(name: &str) -> Self {
@@ -81,7 +112,7 @@ impl AppDirs {
 
     /// The log of the current run, replaced at every start.
     pub fn log_file(&self) -> PathBuf {
-        self.state.join("spotifast.log")
+        self.state.join("spotizgeg.log")
     }
 
     /// Where a panic is recorded before the process dies of it.
@@ -138,5 +169,59 @@ impl AppDirs {
             std::fs::create_dir_all(dir)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dirs_in(root: &std::path::Path, name: &str) -> AppDirs {
+        AppDirs {
+            config: root.join("config").join(name),
+            state: root.join("state").join(name),
+            cache: root.join("cache").join(name),
+        }
+    }
+
+    /// Settings and history kept under the fork's previous name move to the
+    /// new one on first start, and a directory already there is kept as is.
+    #[test]
+    fn the_previous_names_files_move_to_the_new_one_once() {
+        let root = std::env::temp_dir().join(format!(
+            "spotizgeg-adopt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let previous = dirs_in(&root, "old");
+        let current = dirs_in(&root, "new");
+        std::fs::create_dir_all(&previous.config).unwrap();
+        std::fs::write(previous.settings_file(), "{\"volume\":37}").unwrap();
+        std::fs::create_dir_all(&previous.state).unwrap();
+        std::fs::write(previous.history_file(), "[]").unwrap();
+        // The cache was made fresh already: the old one stays put.
+        std::fs::create_dir_all(&previous.cache).unwrap();
+        std::fs::create_dir_all(&current.cache).unwrap();
+
+        current.adopt(&previous);
+        assert_eq!(
+            std::fs::read_to_string(current.settings_file()).unwrap(),
+            "{\"volume\":37}"
+        );
+        assert!(current.history_file().is_file());
+        assert!(!previous.config.exists() && !previous.state.exists());
+        assert!(previous.cache.is_dir());
+
+        // Nothing left to move, and what is here is not touched again.
+        std::fs::write(current.settings_file(), "{}").unwrap();
+        current.adopt(&previous);
+        assert_eq!(
+            std::fs::read_to_string(current.settings_file()).unwrap(),
+            "{}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

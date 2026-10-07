@@ -2,7 +2,7 @@
 //!
 //! A `.wsz` file contains bitmap sprite sheets and two small text files. This
 //! module decodes them to RGBA textures. [`sprites`] defines source coordinates;
-//! [`layout`] defines window positions. Missing files fall back to Spotifast's
+//! [`layout`] defines window positions. Missing files fall back to Spotizgeg's
 //! built-in classic skin. Modern `.wal` skins are unsupported.
 
 pub mod config;
@@ -28,7 +28,7 @@ pub enum SkinError {
     NotAnArchive,
     #[error("{0}")]
     Archive(zip::ZipError),
-    #[error("this is a modern Winamp skin, which Spotifast cannot draw; it needs a classic one")]
+    #[error("this is a modern Winamp skin, which Spotizgeg cannot draw; it needs a classic one")]
     ModernSkin,
     #[error("no skin bitmaps were found inside")]
     Empty,
@@ -208,7 +208,7 @@ impl Skin {
         })
     }
 
-    /// The skin Spotifast ships, drawn for it and packed as a `.wsz` like
+    /// The skin Spotizgeg ships, drawn for it and packed as a `.wsz` like
     /// any other, so it goes through the same reader. It has every sheet,
     /// so any other skin's gaps can be filled from it.
     pub fn builtin() -> Arc<Skin> {
@@ -276,10 +276,10 @@ fn wanted(file_name: &str) -> bool {
 }
 
 /// The built-in skin, drawn by `examples/default_skin.rs`.
-const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotifast.wsz");
+const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotizgeg.wsz");
 
 static BUILTIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
-    Arc::new(Skin::from_archive("Spotifast", BUILTIN_ARCHIVE).expect("the built-in skin reads"))
+    Arc::new(Skin::from_archive("Spotizgeg", BUILTIN_ARCHIVE).expect("the built-in skin reads"))
 });
 
 #[cfg(test)]
@@ -326,7 +326,7 @@ mod tests {
             );
         }
         assert!(skin.has_extended_digits());
-        assert_eq!(skin.name, "Spotifast");
+        assert_eq!(skin.name, "Spotizgeg");
     }
 
     #[test]
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn a_folder_of_bitmaps_is_a_skin_too() {
-        let dir = std::env::temp_dir().join(format!("spotifast-skin-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-skin-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("MAIN.BMP"), png(275, 116, [7, 7, 7])).unwrap();
         std::fs::write(dir.join("readme.txt"), b"a folder skin").unwrap();
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn a_folder_skin_is_read_from_the_folder_it_was_unpacked_into() {
-        let dir = std::env::temp_dir().join(format!("spotifast-nested-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-nested-{}", std::process::id()));
         let inner = dir.join("Some Skin");
         std::fs::create_dir_all(&inner).unwrap();
         std::fs::write(inner.join("MAIN.BMP"), png(275, 116, [9, 9, 9])).unwrap();
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn shallower_skin_files_win_across_sibling_subtrees() {
-        let dir = std::env::temp_dir().join(format!("spotifast-skin-depth-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-skin-depth-{}", std::process::id()));
         for folder in ["a/nested", "b", "c"] {
             std::fs::create_dir_all(dir.join(folder)).unwrap();
         }
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn unpacked_skin_search_stops_at_its_depth_limit() {
-        let dir = std::env::temp_dir().join(format!("spotifast-skin-limit-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-skin-limit-{}", std::process::id()));
         let mut inner = dir.clone();
         for _ in 0..=MAX_SKIN_DEPTH {
             inner = inner.join("nested");
@@ -526,7 +526,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unpacked_skin_search_does_not_follow_file_or_directory_links() {
-        let dir = std::env::temp_dir().join(format!("spotifast-skin-links-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-skin-links-{}", std::process::id()));
         let chosen = dir.join("chosen");
         let outside = dir.join("outside");
         std::fs::create_dir_all(&chosen).unwrap();
@@ -544,11 +544,11 @@ mod tests {
         assert!(matches!(Skin::load(missing), Err(SkinError::Io(_))));
     }
 
-    /// Loads every skin in `$SPOTIFAST_SKIN_SAMPLES`, when set, to check
+    /// Loads every skin in `$SPOTIZGEG_SKIN_SAMPLES`, when set, to check
     /// the reader against real files without shipping any.
     #[test]
     fn sample_skins_load() {
-        let Ok(dir) = std::env::var("SPOTIFAST_SKIN_SAMPLES") else {
+        let Ok(dir) = std::env::var("SPOTIZGEG_SKIN_SAMPLES") else {
             return;
         };
         let mut seen = 0;

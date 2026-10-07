@@ -4,7 +4,7 @@ description: Status and maintainer setup for publishing Nix builds.
 ---
 
 An official public binary cache is not active yet. Nix installations may still
-build Spotifast from source. The GitHub Actions cache speeds up CI only; it is
+build Spotizgeg from source. The GitHub Actions cache speeds up CI only; it is
 not a public Nix substituter.
 
 ## Maintainer setup

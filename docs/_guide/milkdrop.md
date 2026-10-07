@@ -8,7 +8,7 @@ MilkDrop shows colourful animations that react to your music. Open it from
 the top-bar visualiser button, Ctrl+Shift+K, Settings, or the mini player's
 **V** menu. It runs in its own window.
 
-<video autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop running in Spotifast" style="width: 100%; height: auto;">
+<video autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop running in Spotizgeg" style="width: 100%; height: auto;">
   <source src="/assets/images/milkdrop.mp4" type="video/mp4">
 </video>
 
@@ -30,7 +30,7 @@ It reacts only to music playing on this computer.
 Each visual design is called a **preset**. They change every ten seconds by
 default; choose a different interval in Settings.
 
-On first use, Spotifast automatically downloads the 550 MilkDrop 2 presets
+On first use, Spotizgeg automatically downloads the 550 MilkDrop 2 presets
 and the 9,800-preset Cream of the Crop pack. You can download either pack
 again from Settings. A built-in animation appears while the download starts.
 

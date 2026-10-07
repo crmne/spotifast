@@ -17,7 +17,7 @@
 //! `HICON`s at whatever size the system asks for and the app already
 //! compiles `tiny-skia` for the Winamp playlist's text. They follow the
 //! system's light or dark setting, not the app's: the preview flyout is
-//! Windows' own surface, so a Spotifast set to Light on a dark desktop
+//! Windows' own surface, so a Spotizgeg set to Light on a dark desktop
 //! still needs light icons there.
 
 #[cfg(windows)]

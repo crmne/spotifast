@@ -88,7 +88,7 @@
       packages = forAllSystems (
         pkgs:
         let
-          spotifast =
+          spotizgeg =
             let
               toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
               rustPlatform = pkgs.makeRustPlatform {
@@ -110,14 +110,14 @@
               );
             in
             rustPlatform.buildRustPackage rec {
-              pname = "spotifast";
+              pname = "spotizgeg";
               version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
               src = self;
 
               # The lock file contains git dependencies. fetchCargoVendor includes
               # them in the fixed-output dependency tree, unlike cargoLock alone.
               cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-                pname = "spotifast";
+                pname = "spotizgeg";
                 version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
                 src = self;
                 hash = "sha256-vXgV/4CXzrw6WTmPnmB7DVZ0P6sC4UB1M70VDuzt2jY=";
@@ -172,31 +172,31 @@
               # The GUI dlopens its Wayland, X11 and GL libraries at run time.
               postFixup =
                 pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-                  wrapProgram $out/bin/spotifast \
+                  wrapProgram $out/bin/spotizgeg \
                     --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath runtimeLibs}
                 ''
                 + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-                  rcodesign sign "$out/Applications/Spotifast.app"
+                  rcodesign sign "$out/Applications/Spotizgeg.app"
                 '';
 
               postInstall =
                 pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-                  install -Dm644 packaging/applications/spotifast.desktop \
-                    $out/share/applications/spotifast.desktop
-                  install -Dm644 packaging/icons/spotifast.svg \
-                    $out/share/icons/hicolor/scalable/apps/spotifast.svg
-                  install -Dm644 contrib/omarchy/spotifast.json.tpl \
-                    $out/share/spotifast/omarchy/spotifast.json.tpl
-                  install -Dm755 contrib/omarchy/spotifast-theme \
-                    $out/share/spotifast/omarchy/spotifast-theme
+                  install -Dm644 packaging/applications/spotizgeg.desktop \
+                    $out/share/applications/spotizgeg.desktop
+                  install -Dm644 packaging/icons/spotizgeg.svg \
+                    $out/share/icons/hicolor/scalable/apps/spotizgeg.svg
+                  install -Dm644 contrib/omarchy/spotizgeg.json.tpl \
+                    $out/share/spotizgeg/omarchy/spotizgeg.json.tpl
+                  install -Dm755 contrib/omarchy/spotizgeg-theme \
+                    $out/share/spotizgeg/omarchy/spotizgeg-theme
                 ''
                 + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-                  app="$out/Applications/Spotifast.app/Contents"
+                  app="$out/Applications/Spotizgeg.app/Contents"
                   mkdir -p "$app/MacOS" "$app/Resources"
-                  executable=Spotifast
-                  identifier=rocks.spotifast.Spotifast
-                  cp "$out/bin/spotifast" "$app/MacOS/$executable"
-                  icnsify packaging/macos/icon-1024.png -o "$app/Resources/spotifast.icns"
+                  executable=Spotizgeg
+                  identifier=rocks.spotizgeg.Spotizgeg
+                  cp "$out/bin/spotizgeg" "$app/MacOS/$executable"
+                  icnsify packaging/macos/icon-1024.png -o "$app/Resources/spotizgeg.icns"
                   substitute packaging/macos/Info.plist "$app/Info.plist" \
                     --replace-fail __VERSION__ "${version}" \
                     --replace-fail __BUILD__ "${pkgs.lib.head (pkgs.lib.splitString "-" version)}" \
@@ -208,17 +208,17 @@
                 description = "Fast native Spotify client with local playback and Spotify Connect";
                 homepage = "https://spotifast.rocks";
                 license = pkgs.lib.licenses.mit;
-                mainProgram = "spotifast";
+                mainProgram = "spotizgeg";
               };
             };
 
         in
         {
-          default = spotifast;
-          inherit spotifast;
+          default = spotizgeg;
+          inherit spotizgeg;
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-          spotifast-app = spotifast;
+          spotizgeg-app = spotizgeg;
         }
       );
 

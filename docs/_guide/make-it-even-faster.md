@@ -6,7 +6,7 @@ nav_order: 6
 
 ## API rate limits
 
-Spotify limits how often apps can ask for information. Spotifast normally
+Spotify limits how often apps can ask for information. Spotizgeg normally
 shares this allowance with other listeners and several other music players.
 When that shared connection is busy, your library and search results can take
 longer to load. The top bar shows a spinner while you wait.
@@ -15,7 +15,7 @@ You can reduce those delays by creating a **personal Spotify app**. This is
 a connection registered to your account on Spotify's developer website.
 You do not need to write code or install another player.
 
-Spotifast offers this setup once after you sign in with Premium. Choose
+Spotizgeg offers this setup once after you sign in with Premium. Choose
 **Set up personal app** to open Settings, or **Keep shared app** to continue
 as you are. You can set it up later in Settings.
 
@@ -39,7 +39,7 @@ Spotify allows personal apps ten search results at a time for each type,
 compared with twenty on the shared connection.
 
 Setting up playback on this computer also helps playlists load faster.
-Spotifast can load playlists that would otherwise use the shared allowance
+Spotizgeg can load playlists that would otherwise use the shared allowance
 through its music connection instead.
 [How it connects](/how-it-connects/) explains which connection each feature uses.
 
@@ -61,12 +61,12 @@ through its music connection instead.
 
 ![Settings, with a personal Spotify app in use](/assets/images/make-it-even-faster.png)
 
-## Use it in Spotifast
+## Use it in Spotizgeg
 
 1. Open **Settings**, find **Personal Spotify app**, and paste the
    Client ID.
 2. Click **Authorize**. Your browser opens Spotify's sign-in for your app.
-   Spotifast verifies that it belongs to the same Spotify account, then shows
+   Spotizgeg verifies that it belongs to the same Spotify account, then shows
    **Personal app ready**.
 
 Your playback setup stays the same. Select **Remove** to stop using your

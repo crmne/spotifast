@@ -135,7 +135,7 @@ fn tabs(app: &mut App, ui: &mut egui::Ui) {
                 &[
                     (QueueTab::Queue, &gettext(app.locale, "Queue")),
                     (QueueTab::Recents, &gettext(app.locale, "Recent")),
-                    // Translators: Listening together with other Spotifast users, each on their own account.
+                    // Translators: Listening together with other Spotizgeg users, each on their own account.
                     (QueueTab::Jam, &gettext(app.locale, "Jam")),
                 ],
                 tab,

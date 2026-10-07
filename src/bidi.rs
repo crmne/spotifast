@@ -957,7 +957,7 @@ mod tests {
     }
 
     /// Words, punctuation, digits, Latin runs, and brackets land where the
-    /// bidi algorithm puts them. Spotifast once reordered words itself for
+    /// bidi algorithm puts them. Spotizgeg once reordered words itself for
     /// stock egui; with the fork shaping each run in its own direction, that
     /// reversed punctuation next to a space a second time.
     #[test]

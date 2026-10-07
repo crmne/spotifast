@@ -398,7 +398,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("spotifast-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -421,7 +421,7 @@ mod tests {
     fn a_short_title_sits_still_and_a_long_one_scrolls() {
         let mut state = WinampState::new(None, AudioTap::new(), crate::eq::shared());
         let start = Instant::now();
-        assert_eq!(state.marquee("Spotifast", start).0, "Spotifast");
+        assert_eq!(state.marquee("Spotizgeg", start).0, "Spotizgeg");
         assert!(!state.marquee_scrolling());
 
         let long = "Radiohead - Everything In Its Right Place (4:11)";

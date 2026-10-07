@@ -198,7 +198,7 @@ mod tests {
         image.write_to(&mut jpeg, ImageFormat::Jpeg).unwrap();
         assert!(prepare(jpeg.get_ref()).is_ok());
         let missing = std::env::temp_dir().join(format!(
-            "spotifast-missing-cover-{}.jpg",
+            "spotizgeg-missing-cover-{}.jpg",
             std::process::id()
         ));
         assert!(read(&missing).unwrap_err().contains("Couldn't open"));

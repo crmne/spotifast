@@ -19,7 +19,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{auth::StoredToken, paths::AppDirs};
 
-const SERVICE: &str = "rocks.spotifast.Spotifast";
+const SERVICE: &str = "rocks.spotizgeg.Spotizgeg";
+/// Where grants were kept before the fork was renamed: read once, moved to
+/// [`SERVICE`], and removed on sign-out like the new ones.
+const PREVIOUS_SERVICE: &str = "rocks.spotifast.Spotifast";
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,6 +182,10 @@ struct NativeStore {
 
 impl NativeStore {
     fn entry(&mut self, key: &str) -> Result<keyring_core::Entry, Error> {
+        self.entry_in(SERVICE, key)
+    }
+
+    fn entry_in(&mut self, service: &str, key: &str) -> Result<keyring_core::Entry, Error> {
         if self.store.is_none() {
             #[cfg(target_os = "linux")]
             let store = zbus_secret_service_keyring_store::Store::new();
@@ -191,27 +198,47 @@ impl NativeStore {
         self.store
             .as_ref()
             .ok_or(Error::Unavailable)?
-            .build(SERVICE, key, None)
+            .build(service, key, None)
             .map_err(native_error)
     }
-}
 
-impl ProtectedStore for NativeStore {
-    fn read(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
-        match self.entry(key)?.get_secret() {
+    fn read_in(&mut self, service: &str, key: &str) -> Result<Option<Vec<u8>>, Error> {
+        match self.entry_in(service, key)?.get_secret() {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring_core::Error::NoEntry) => Ok(None),
             Err(error) => Err(native_error(error)),
         }
     }
+
+    fn delete_in(&mut self, service: &str, key: &str) -> Result<(), Error> {
+        match self.entry_in(service, key)?.delete_credential() {
+            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+            Err(error) => Err(native_error(error)),
+        }
+    }
+}
+
+impl ProtectedStore for NativeStore {
+    fn read(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
+        if let Some(secret) = self.read_in(SERVICE, key)? {
+            return Ok(Some(secret));
+        }
+        // A grant from before the rename moves over the first time it is
+        // read; should the move fail, it is still used from where it is.
+        let Some(secret) = self.read_in(PREVIOUS_SERVICE, key)? else {
+            return Ok(None);
+        };
+        if self.write(key, &secret).is_ok() {
+            let _ = self.delete_in(PREVIOUS_SERVICE, key);
+        }
+        Ok(Some(secret))
+    }
     fn write(&mut self, key: &str, secret: &[u8]) -> Result<(), Error> {
         self.entry(key)?.set_secret(secret).map_err(native_error)
     }
     fn delete(&mut self, key: &str) -> Result<(), Error> {
-        match self.entry(key)?.delete_credential() {
-            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
-            Err(error) => Err(native_error(error)),
-        }
+        self.delete_in(PREVIOUS_SERVICE, key)?;
+        self.delete_in(SERVICE, key)
     }
 }
 
@@ -703,7 +730,7 @@ mod tests {
         fn new() -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let root = std::env::temp_dir().join(format!(
-                "spotifast-credential-tests-{}-{}",
+                "spotizgeg-credential-tests-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));

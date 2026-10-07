@@ -9,8 +9,8 @@ on a small jam server that you keep on a VPS, so it is always there: people
 join and leave whenever they like, and the music carries on for the others.
 Everyone in the jam has the same rights.
 
-This is Spotifast's own feature, not Spotify's Jam: it works between people
-who use Spotifast, and people in the Spotify app cannot join it.
+This is Spotizgeg's own feature, not Spotify's Jam: it works between people
+who use Spotizgeg, and people in the Spotify app cannot join it.
 
 ## What you need
 
@@ -23,14 +23,14 @@ who use Spotifast, and people in the Spotify app cannot join it.
   people you want in the jam.
 - **Spotify Premium for everyone.** No sound travels through the server.
   Each person plays the songs on their own account, the way they play
-  anything else in Spotifast.
-- **Playback on this computer.** A jam plays through Spotifast's own player,
+  anything else in Spotizgeg.
+- **Playback on this computer.** A jam plays through Spotizgeg's own player,
   not through a speaker or phone picked in the device list.
 
 ## Join the jam
 
 Open the queue panel and pick the **Jam** tab. Enter the server's address
-and paste its code, then choose **Join**. Spotifast keeps both, so next time
+and paste its code, then choose **Join**. Spotizgeg keeps both, so next time
 **Join** is all it takes. The tab then shows who is listening, the song
 playing and the shared queue, with each song's cover and who added it.
 
@@ -52,7 +52,7 @@ last person leaves, the jam pauses where it was, and picks up from there.
   song. The person longest in the jam adds them, and only if **Autoplay** is
   on in their settings.
 - **Volume stays your own.**
-- If the connection drops, Spotifast reconnects on its own and sends again
+- If the connection drops, Spotizgeg reconnects on its own and sends again
   the songs you added meanwhile.
 
 Every computer stays within about a second of the server. A correction is a
@@ -68,8 +68,8 @@ The server is a small program in this repository, `jam-server`, which needs
 neither Spotify nor an account. Any Linux VPS with Docker will do.
 
 ```sh
-git clone <your repository> spotifast
-cd spotifast/jam-server
+git clone <your repository> spotizgeg
+cd spotizgeg/jam-server
 docker compose up -d
 docker compose run --rm jam code
 ```
@@ -89,7 +89,7 @@ running without Docker.
 
 ## Security
 
-The connection to the server is encrypted with TLS. Spotifast accepts only
+The connection to the server is encrypted with TLS. Spotizgeg accepts only
 the certificate that the server code names, so nobody can stand in for your
 server, even without a domain name. Listeners prove they know the password
 without sending it, and the proof only works for that one connection.

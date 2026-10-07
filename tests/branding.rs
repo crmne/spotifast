@@ -1,14 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const COMMAND: &str = env!("CARGO_BIN_EXE_spotifast");
+const COMMAND: &str = env!("CARGO_BIN_EXE_spotizgeg");
 
 struct Scratch(PathBuf);
 
 impl Scratch {
     fn new() -> Self {
         let path =
-            std::env::temp_dir().join(format!("spotifast-branding-{:016x}", rand::random::<u64>()));
+            std::env::temp_dir().join(format!("spotizgeg-branding-{:016x}", rand::random::<u64>()));
         std::fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -26,16 +26,16 @@ fn the_command_reports_its_name_and_passes_the_update_version_check() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),
-        format!("spotifast {}", env!("CARGO_PKG_VERSION"))
+        format!("spotizgeg {}", env!("CARGO_PKG_VERSION"))
     );
     let help = Command::new(COMMAND).arg("--help").output().unwrap();
     assert!(help.status.success());
     assert!(
         String::from_utf8(help.stdout)
             .unwrap()
-            .contains("Usage: spotifast")
+            .contains("Usage: spotizgeg")
     );
-    assert_eq!(spotifast::updates::CONFIG.slug, "spotifast");
+    assert_eq!(spotizgeg::updates::CONFIG.slug, "spotizgeg");
 }
 
 /// The app's name before the rename is gone from everything but the past
@@ -48,8 +48,8 @@ fn no_file_carries_the_old_name() {
     let allowed = [
         root.join("packaging/release-notes"),
         // Old guide URLs still redirect, so links from elsewhere keep working.
-        root.join("docs/_guide/using-spotifast.md"),
-        root.join("docs/_guide/what-is-spotifast.md"),
+        root.join("docs/_guide/using-spotizgeg.md"),
+        root.join("docs/_guide/what-is-spotizgeg.md"),
     ];
     let skipped = [
         "target",
@@ -92,33 +92,39 @@ fn no_file_carries_the_old_name() {
 
 #[test]
 fn existing_preferences_and_custom_connect_names_survive_a_save() {
-    use spotifast::settings::{Settings, ThemeChoice};
+    use spotizgeg::settings::{Settings, ThemeChoice};
 
     let scratch = Scratch::new();
     let path = scratch.0.join("settings.json");
-    for name in ["Spotifast", "Living room", "Carmine's laptop"] {
+    for name in ["Spotizgeg", "Living room", "Carmine's laptop"] {
         let saved = Settings {
             device_name: name.into(),
             theme: ThemeChoice::Light,
             volume: 37,
             pinned_contexts: vec![
                 "spotify:playlist:123".into(),
-                spotifast::settings::LIKED_SONGS_KEY.into(),
+                spotizgeg::settings::LIKED_SONGS_KEY.into(),
             ],
             ..Settings::default()
         };
         saved.save(&path);
         assert_eq!(Settings::load(&path), saved);
     }
-    assert_eq!(Settings::default().device_name, "Spotifast");
+    assert_eq!(Settings::default().device_name, "Spotizgeg");
+
+    // The default Connect name from before the rename follows it.
+    std::fs::write(&path, r#"{"device_name": "Spotifast", "volume": 37}"#).unwrap();
+    let renamed = Settings::load(&path);
+    assert_eq!(renamed.device_name, "Spotizgeg");
+    assert_eq!(renamed.volume, 37);
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn the_command_forwards_links_to_the_existing_instance_on_a_private_bus() {
-    use spotifast::single_instance::{ControlCommand, Outcome};
+    use spotizgeg::single_instance::{ControlCommand, Outcome};
 
-    const CHILD: &str = "SPOTIFAST_BRANDING_PRIVATE_BUS";
+    const CHILD: &str = "SPOTIZGEG_BRANDING_PRIVATE_BUS";
     if std::env::var_os(CHILD).is_none() {
         // A clean build (including Nix) need not have /etc/dbus-1/session.conf.
         // Own the bus configuration too, without loading desktop services.
@@ -150,7 +156,7 @@ fn the_command_forwards_links_to_the_existing_instance_on_a_private_bus() {
             ])
             .env(CHILD, "1")
             // The running copy's slot lives in the runtime directory, so a
-            // Spotifast already running on this machine is left alone.
+            // Spotizgeg already running on this machine is left alone.
             .env("XDG_RUNTIME_DIR", &scratch.0)
             .output()
             .expect("the Linux test environment needs dbus-run-session");
@@ -173,7 +179,7 @@ fn the_command_forwards_links_to_the_existing_instance_on_a_private_bus() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let Outcome::Only(guard) = spotifast::single_instance::acquire(&Default::default(), None)
+    let Outcome::Only(guard) = spotizgeg::single_instance::acquire(&Default::default(), None)
     else {
         panic!("the private bus must start without another instance");
     };

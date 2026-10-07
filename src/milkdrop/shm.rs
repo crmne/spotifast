@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn frames_written_are_read_back_once_and_behind_the_lag() {
-        let path = std::env::temp_dir().join(format!("spotifast-shm-test-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("spotizgeg-shm-test-{}", std::process::id()));
         let writer = Ring::create(&path).unwrap();
         let reader = Ring::open(&path).unwrap();
         writer.push(&[0.5, -0.5, 1.0, 0.0, 0.2, 0.2, 0.3, 0.3]);

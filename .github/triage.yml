@@ -61,7 +61,7 @@ instructions: |
   librespot session or audio-key refusal. Do not dismiss a valid caching
   request or repeat setup advice already tried. Local playback needs Premium.
   No alternate audio sources, DRM bypass, embedded browser, telemetry, or
-  hosted Spotifast service. Use wontfix only for an exactly documented
+  hosted Spotizgeg service. Use wontfix only for an exactly documented
   unavailable capability; out-of-scope only for a documented product boundary.
   Never infer an antivirus false positive from a detection name, unsigned
   binary, or source code. Ask for the flagged artifact's SHA-256 when missing.

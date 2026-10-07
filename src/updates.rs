@@ -14,8 +14,8 @@ use fastframe_update::{MacConfig, ReqwestTransport, UpdateConfig};
 
 pub const CONFIG: UpdateConfig = UpdateConfig {
     macos: MacConfig {
-        bundle_ids: &["rocks.spotifast.Spotifast"],
-        executable_names: &["Spotifast"],
+        bundle_ids: &["rocks.spotizgeg.Spotizgeg"],
+        executable_names: &["Spotizgeg"],
         legacy_bundle_names: &[],
     },
     // Releases are verified against checksums.txt alone until they are
@@ -24,13 +24,13 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
     publisher_key: None,
     ..UpdateConfig::new(
         "crmne/spotifast",
-        "Spotifast",
-        "spotifast",
+        "Spotizgeg",
+        "spotizgeg",
         env!("CARGO_PKG_VERSION"),
     )
 };
 
-/// An updater on Spotifast's HTTP client, through the configured proxy.
+/// An updater on Spotizgeg's HTTP client, through the configured proxy.
 pub fn updater(proxy: &crate::settings::ProxyConfig) -> anyhow::Result<Updater> {
     let builder = crate::http::blocking_builder(proxy).map_err(anyhow::Error::msg)?;
     Ok(Updater::new(CONFIG, ReqwestTransport::new(builder)?))

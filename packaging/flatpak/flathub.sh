@@ -19,7 +19,7 @@ if [ ! -f "$generator" ]; then
 fi
 mkdir -p "$out"
 python3 "$generator" "$root/Cargo.lock" -o "$out/cargo-sources.json"
-python3 - "$here/rocks.spotifast.Spotifast.yml" "$out/rocks.spotifast.Spotifast.yml" "$tag" "$commit" <<'PY'
+python3 - "$here/rocks.spotizgeg.Spotizgeg.yml" "$out/rocks.spotizgeg.Spotizgeg.yml" "$tag" "$commit" <<'PY'
 import sys
 src, dst, tag, commit = sys.argv[1:]
 text = open(src).read()
@@ -28,5 +28,5 @@ new = f"      - type: git\n        url: https://github.com/crmne/spotifast.git\n
 assert old in text, "the source block moved"
 open(dst, "w").write(text.replace(old, new))
 PY
-python3 "$here/prepare-metainfo.py" "$tag" "$out/rocks.spotifast.Spotifast.metainfo.xml"
-echo "wrote $out/rocks.spotifast.Spotifast.yml and cargo-sources.json for $tag ($commit)"
+python3 "$here/prepare-metainfo.py" "$tag" "$out/rocks.spotizgeg.Spotizgeg.metainfo.xml"
+echo "wrote $out/rocks.spotizgeg.Spotizgeg.yml and cargo-sources.json for $tag ($commit)"

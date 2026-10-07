@@ -1,8 +1,8 @@
 # jam-server
 
-Keeps one Spotifast jam running for everyone who has its server code. It
+Keeps one Spotizgeg jam running for everyone who has its server code. It
 holds the shared queue, the playing song and its position; each listener's
-Spotifast plays the songs on their own Spotify account. No audio and no
+Spotizgeg plays the songs on their own Spotify account. No audio and no
 Spotify credential ever reach the server. See the [Jams guide](../docs/_guide/jam.md)
 for what listeners see.
 
@@ -43,9 +43,9 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
 ## The code
 
 `jam-server code` prints `password#fingerprint`. Listeners enter it in
-Spotifast beside the server's address, `host` or `host:port` (4070 unless
+Spotizgeg beside the server's address, `host` or `host:port` (4070 unless
 `serve --listen` says otherwise). The fingerprint is
-the SHA-256 of the certificate: Spotifast trusts that certificate and no
+the SHA-256 of the certificate: Spotizgeg trusts that certificate and no
 other, so no domain name or certificate authority is needed. A new
 certificate, or a new password, means a new code for everyone.
 

@@ -316,7 +316,7 @@ pub fn ended(locale: Locale, reason: &EndReason) -> Option<String> {
             }
             EndReason::Rejected(Rejection::Full) => gettext(locale, "That jam is full."),
             EndReason::Rejected(Rejection::IncompatibleVersion) => {
-                gettext(locale, "The jam server runs another version of Spotifast.")
+                gettext(locale, "The jam server runs another version of Spotizgeg.")
             }
             EndReason::Unreachable(_) => gettext(locale, "Couldn't reach the jam."),
         }

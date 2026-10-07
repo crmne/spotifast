@@ -28,7 +28,7 @@ impl SystemAppearance {
         let scheme = Arc::new(AtomicU8::new(UNKNOWN));
         let shared = scheme.clone();
         let spawned = std::thread::Builder::new()
-            .name("spotifast-appearance".to_string())
+            .name("spotizgeg-appearance".to_string())
             .spawn(move || {
                 if let Err(error) = watch(&shared, &wake) {
                     log::debug!("the desktop's colour scheme is unavailable: {error}");

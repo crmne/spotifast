@@ -79,10 +79,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $binary = "target\${{ matrix.target }}\release\spotifast.exe"
+          $binary = "target\${{ matrix.target }}\release\spotizgeg.exe"
           $imports = & dumpbin /dependents $binary | Out-String
           $runtime = $imports | Select-String -Pattern 'MSVCP[0-9_]*\.dll|VCRUNTIME[0-9_]*\.dll'
-          if ($runtime) { throw "Spotifast imports an MSVC runtime:`n$runtime" }
+          if ($runtime) { throw "Spotizgeg imports an MSVC runtime:`n$runtime" }
           # The updater picks its download by the running executable's
           # architecture, so a binary of the wrong one under this name would
           # keep every copy installed from it on the wrong architecture.
@@ -90,24 +90,24 @@ jobs:
           if ($headers -notmatch '${{ matrix.pe-machine }}') { throw "$binary is not built for ${{ matrix.target }}:`n$headers" }
           # Each Windows build runs on its own processor: start it once.
           $version = (& $binary --version | Out-String).Trim()
-          if ($version -notmatch '^spotifast \d+\.\d+\.\d+') { throw "Unexpected --version output: $version" }
+          if ($version -notmatch '^spotizgeg \d+\.\d+\.\d+') { throw "Unexpected --version output: $version" }
 
       - name: Package
         shell: bash
         run: |
-          name="spotifast-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          name="spotizgeg-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "dist/$name"
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/spotifast.exe" "dist/$name/"
+            cp "target/${{ matrix.target }}/release/spotizgeg.exe" "dist/$name/"
           else
-            cp "target/${{ matrix.target }}/release/spotifast" "dist/$name/"
+            cp "target/${{ matrix.target }}/release/spotizgeg" "dist/$name/"
           fi
           cp README.md LICENSE "dist/$name/"
-          cp packaging/spotifast-portable.txt "dist/$name/"
+          cp packaging/spotizgeg-portable.txt "dist/$name/"
           if [ "${{ runner.os }}" = "Linux" ]; then
             # Desktop integration for package builds and hand-installs.
-            cp --parents packaging/applications/spotifast.desktop packaging/icons/spotifast.svg "dist/$name/"
-            cp --parents contrib/omarchy/spotifast.json.tpl contrib/omarchy/spotifast-theme "dist/$name/"
+            cp --parents packaging/applications/spotizgeg.desktop packaging/icons/spotizgeg.svg "dist/$name/"
+            cp --parents contrib/omarchy/spotizgeg.json.tpl contrib/omarchy/spotizgeg-theme "dist/$name/"
           fi
           cd dist
           if [ "${{ runner.os }}" = "Windows" ]; then
@@ -127,8 +127,8 @@ jobs:
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           & $iscc "/DVersion=$version" "/DArch=$arch" `
-            "/DBinary=$PWD\target\${{ matrix.target }}\release\spotifast.exe" `
-            "/DOutputDir=$PWD\dist" packaging\windows\spotifast.iss
+            "/DBinary=$PWD\target\${{ matrix.target }}\release\spotizgeg.exe" `
+            "/DOutputDir=$PWD\dist" packaging\windows\spotizgeg.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v7
@@ -167,9 +167,9 @@ jobs:
         run: |
           mkdir -p universal
           lipo -create \
-            target/aarch64-apple-darwin/release/spotifast \
-            target/x86_64-apple-darwin/release/spotifast \
-            -output universal/spotifast
+            target/aarch64-apple-darwin/release/spotizgeg \
+            target/x86_64-apple-darwin/release/spotizgeg \
+            -output universal/spotizgeg
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -181,7 +181,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist/macos-input
-          bash packaging/macos/bundle.sh universal/spotifast dist/macos-input/Spotifast.app "$version"
+          bash packaging/macos/bundle.sh universal/spotizgeg dist/macos-input/Spotizgeg.app "$version"
           cp README.md LICENSE dist/macos-input/
 
       - name: Package, sign and notarize macOS app
@@ -215,12 +215,12 @@ jobs:
           path: dist
       - name: Unpack the Linux build
         run: |
-          tar xzf dist/spotifast-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz -C packaging/flatpak "spotifast-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
-          mv packaging/flatpak/spotifast-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu packaging/flatpak/built
+          tar xzf dist/spotizgeg-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz -C packaging/flatpak "spotizgeg-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          mv packaging/flatpak/spotizgeg-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu packaging/flatpak/built
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          manifest-path: packaging/flatpak/rocks.spotifast.Spotifast.bundle.yml
-          bundle: spotifast-${{ github.ref_name }}-x86_64.flatpak
+          manifest-path: packaging/flatpak/rocks.spotizgeg.Spotizgeg.bundle.yml
+          bundle: spotizgeg-${{ github.ref_name }}-x86_64.flatpak
           cache: false
           upload-artifact: false
       - uses: actions/upload-artifact@v7
@@ -253,7 +253,7 @@ jobs:
         run: |
           curl --fail --location --retry 3 \
             "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" \
-            --output "dist/spotifast-${GITHUB_REF_NAME}-source.tar.gz"
+            --output "dist/spotizgeg-${GITHUB_REF_NAME}-source.tar.gz"
       - name: Public filenames, updater compatibility and checksums
         run: python3 packaging/release-names.py dist "$GITHUB_REF_NAME"
       - uses: ruby/setup-ruby@v1
@@ -264,18 +264,18 @@ jobs:
       # Updaters that carry the key refuse releases without a valid one.
       - name: Sign checksums
         env:
-          SPOTIFAST_UPDATE_SIGNING_KEY: ${{ secrets.SPOTIFAST_UPDATE_SIGNING_KEY }}
+          SPOTIZGEG_UPDATE_SIGNING_KEY: ${{ secrets.SPOTIZGEG_UPDATE_SIGNING_KEY }}
         run: |
           gem install native-packages --version 0.8.1 --no-document
           native-packages sign-checksums dist/checksums.txt \
             --public-key assets/update-public-key.hex \
-            --key-env SPOTIFAST_UPDATE_SIGNING_KEY
+            --key-env SPOTIZGEG_UPDATE_SIGNING_KEY
           native-packages verify-checksums dist/checksums.txt \
             --public-key assets/update-public-key.hex
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          name: Spotifast ${{ github.ref_name }}
+          name: Spotizgeg ${{ github.ref_name }}
           # Publish reviewed notes immediately, not a generated PR-only summary.
           body_path: packaging/release-notes/${{ github.ref_name }}.md
           generate_release_notes: false

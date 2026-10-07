@@ -1,21 +1,21 @@
-# Spotifast as a Flatpak, built from source: the manifest Flathub builds
+# Spotizgeg as a Flatpak, built from source: the manifest Flathub builds
 # from. The copy in the Flathub repository names a tag and its commit in
 # the source below and carries cargo-sources.json next to it; flathub.sh
 # writes both. For a local build, this one takes the checkout as it is:
 #
 #   flatpak-builder --user --install --force-clean build-dir \
-#       packaging/flatpak/rocks.spotifast.Spotifast.yml
+#       packaging/flatpak/rocks.spotizgeg.Spotizgeg.yml
 #
 # The release workflow does not build from source twice: it packages the
 # binary the Linux job already built, through the bundle manifest beside
 # this one, whose finish-args are the same as these.
-id: rocks.spotifast.Spotifast
+id: rocks.spotizgeg.Spotizgeg
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: spotifast
+command: spotizgeg
 finish-args:
   # Wayland first, X11 when that is what there is.
   - --socket=wayland
@@ -32,32 +32,32 @@ finish-args:
   # Platform storage for this application's Spotify grants.
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.kde.StatusNotifierWatcher
-  - --own-name=org.mpris.MediaPlayer2.spotifast
+  - --own-name=org.mpris.MediaPlayer2.spotizgeg
   # Older Flatpak versions leave XDG_STATE_HOME unset. Keep the fallback
   # state directory (session, history, logs, and credential markers) durable.
   - --persist=.local/state
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
-    CARGO_HOME: /run/build/spotifast/cargo
+    CARGO_HOME: /run/build/spotizgeg/cargo
 modules:
-  - name: spotifast
+  - name: spotizgeg
     buildsystem: simple
     build-commands:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --locked
-      - install -Dm755 target/release/spotifast /app/bin/spotifast
-      - install -Dm644 packaging/applications/*.desktop /app/share/applications/rocks.spotifast.Spotifast.desktop
-      - sed -i 's/^Icon=.*$/Icon=rocks.spotifast.Spotifast/;s/^StartupWMClass=spotifast$/StartupWMClass=rocks.spotifast.Spotifast/' /app/share/applications/rocks.spotifast.Spotifast.desktop
-      - install -Dm644 packaging/icons/*.svg /app/share/icons/hicolor/scalable/apps/rocks.spotifast.Spotifast.svg
-      - install -Dm644 packaging/flatpak/rocks.spotifast.Spotifast.metainfo.xml /app/share/metainfo/rocks.spotifast.Spotifast.metainfo.xml
-      - install -Dm644 LICENSE /app/share/licenses/spotifast/LICENSE
+      - install -Dm755 target/release/spotizgeg /app/bin/spotizgeg
+      - install -Dm644 packaging/applications/*.desktop /app/share/applications/rocks.spotizgeg.Spotizgeg.desktop
+      - sed -i 's/^Icon=.*$/Icon=rocks.spotizgeg.Spotizgeg/;s/^StartupWMClass=spotizgeg$/StartupWMClass=rocks.spotizgeg.Spotizgeg/' /app/share/applications/rocks.spotizgeg.Spotizgeg.desktop
+      - install -Dm644 packaging/icons/*.svg /app/share/icons/hicolor/scalable/apps/rocks.spotizgeg.Spotizgeg.svg
+      - install -Dm644 packaging/flatpak/rocks.spotizgeg.Spotizgeg.metainfo.xml /app/share/metainfo/rocks.spotizgeg.Spotizgeg.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/spotizgeg/LICENSE
     sources:
       - type: dir
         path: ../..
       # Supply the current app ID even when generating a manifest for an older tag.
       - type: file
-        path: rocks.spotifast.Spotifast.metainfo.xml
+        path: rocks.spotizgeg.Spotizgeg.metainfo.xml
         dest: packaging/flatpak
       # Every crate the lockfile names, for the offline build; flathub.sh
       # writes it with flatpak-cargo-generator.

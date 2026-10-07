@@ -1,5 +1,5 @@
 # Maintainer: Carmine Paolino <carmine@paolino.me>
-pkgname=spotifast
+pkgname=spotizgeg
 pkgver=@VERSION@
 pkgrel=@PKGREL@
 pkgdesc="Native Spotify client"
@@ -11,16 +11,16 @@ depends=('dbus' 'alsa-lib' 'libpulse' 'libglvnd' 'libxkbcommon' 'wayland' 'libx1
 makedepends=('cargo' 'cmake' 'clang')
 optdepends=('libxkbcommon-x11: keyboard handling in X11 sessions'
             'pipewire-pulse: PipeWire as the PulseAudio server')
-conflicts=('spotifast-bin' 'spotifast-git')
+conflicts=('spotizgeg-bin' 'spotizgeg-git')
 # !lto because ring compiles its own C and Arch's default CFLAGS put LTO
 # objects in the archive, which lld then cannot resolve: the link fails on
 # undefined ring_core_* symbols.
 options=('!debug' '!lto')
-source=("${pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/spotifast-v${pkgver}-source.tar.gz")
+source=("${pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/spotizgeg-v${pkgver}-source.tar.gz")
 sha256sums=('@SOURCE_SHA256@')
 
 _source_dir() {
-  printf '%s\n' "${srcdir}/spotifast-${pkgver}"
+  printf '%s\n' "${srcdir}/spotizgeg-${pkgver}"
 }
 
 prepare() {
@@ -51,16 +51,16 @@ check() {
 package() {
   cd "$(_source_dir)"
 
-  install -Dm755 "target/release/spotifast" "${pkgdir}/usr/bin/spotifast"
+  install -Dm755 "target/release/spotizgeg" "${pkgdir}/usr/bin/spotizgeg"
   install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 "README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-  install -Dm644 "packaging/applications/spotifast.desktop" \
-    "${pkgdir}/usr/share/applications/spotifast.desktop"
-  install -Dm644 "packaging/icons/spotifast.svg" \
-    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/spotifast.svg"
+  install -Dm644 "packaging/applications/spotizgeg.desktop" \
+    "${pkgdir}/usr/share/applications/spotizgeg.desktop"
+  install -Dm644 "packaging/icons/spotizgeg.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/spotizgeg.svg"
   # Older release fixtures predate the optional integration.
   if [[ -d contrib/omarchy ]]; then
-    install -Dm644 contrib/omarchy/spotifast.json.tpl "${pkgdir}/usr/share/spotifast/omarchy/spotifast.json.tpl"
-    install -Dm755 contrib/omarchy/spotifast-theme "${pkgdir}/usr/share/spotifast/omarchy/spotifast-theme"
+    install -Dm644 contrib/omarchy/spotizgeg.json.tpl "${pkgdir}/usr/share/spotizgeg/omarchy/spotizgeg.json.tpl"
+    install -Dm755 contrib/omarchy/spotizgeg-theme "${pkgdir}/usr/share/spotizgeg/omarchy/spotizgeg-theme"
   fi
 }

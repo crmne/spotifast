@@ -32,7 +32,7 @@ jobs:
       - name: Verify and unpack the published Linux build
         shell: bash
         run: |
-          name="spotifast-${RELEASE_TAG}-x86_64-unknown-linux-gnu"
+          name="spotizgeg-${RELEASE_TAG}-x86_64-unknown-linux-gnu"
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           mkdir dist
           cd dist
@@ -46,11 +46,11 @@ jobs:
           mv "packaging/flatpak/$name" packaging/flatpak/built
           # Keep the exact release version and description, with today's app ID.
           python3 packaging/flatpak/prepare-metainfo.py "$RELEASE_TAG" \
-            packaging/flatpak/rocks.spotifast.Spotifast.metainfo.xml
+            packaging/flatpak/rocks.spotizgeg.Spotizgeg.metainfo.xml
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          manifest-path: packaging/flatpak/rocks.spotifast.Spotifast.bundle.yml
-          bundle: spotifast-${{ inputs.version }}-x86_64.flatpak
+          manifest-path: packaging/flatpak/rocks.spotizgeg.Spotizgeg.bundle.yml
+          bundle: spotizgeg-${{ inputs.version }}-x86_64.flatpak
           cache: false
           upload-artifact: false
       - uses: actions/upload-artifact@v7

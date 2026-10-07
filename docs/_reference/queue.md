@@ -81,7 +81,7 @@ not consume a queue row or restore an older queue saved on this computer.
    changing playback devices asks you to add it again on the new device.
 
    On another device, a rate limit delays additions instead of dropping them.
-   Spotifast retries automatically after Spotify's requested wait and keeps
+   Spotizgeg retries automatically after Spotify's requested wait and keeps
    later songs behind the album. Pending rows retain their known titles and
    durations. If Spotify permanently rejects an addition, only the rejected
    song and any unsent remainder of its album disappear; accepted songs stay.
@@ -118,16 +118,16 @@ not consume a queue row or restore an older queue saved on this computer.
    in *Playing next*. A selection in the queue is cleared whenever the
    queue changes, so it never lands on songs that slid into its place.
 
-8. **Changes appear immediately.** Spotifast updates the queue before Spotify
+8. **Changes appear immediately.** Spotizgeg updates the queue before Spotify
    confirms the change. For local playback, it updates its own player directly.
    Toggling shuffle rechecks the queue so the new playback order appears
    promptly without waiting for the song to finish.
 
-9. **Closing the app keeps the queue.** Spotifast saves it locally. When you
+9. **Closing the app keeps the queue.** Spotizgeg saves it locally. When you
    resume the last song, it restores your queued songs and playlist position.
 
 10. **Old answers from Spotify are ignored.** Queue responses can be a few
-    seconds late. Spotifast ignores stale responses and asks again. Your
+    seconds late. Spotizgeg ignores stale responses and asks again. Your
     changes stay visible while it waits for confirmation.
 
 Since 0.8.0, selecting several playlist rows and choosing
@@ -144,6 +144,6 @@ counts once, and the notification reports only the rows actually added.
     *Playing next* elsewhere in the same section moves it, only while this
     computer is the active player. Otherwise every drop still just adds to
     the end, exactly like **Add to queue**. *Next up* is never a drop
-    target: it plays from the current context, not from a list Spotifast
+    target: it plays from the current context, not from a list Spotizgeg
     can rewrite. While *Playing next* is empty, drop the song on the player
     bar's Queue button instead.

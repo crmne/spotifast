@@ -1,6 +1,6 @@
 # The jam server alone: the app, egui and librespot are not compiled here.
 # Build from the repository root:
-#   docker build -f jam-server/Dockerfile -t spotifast-jam .
+#   docker build -f jam-server/Dockerfile -t spotizgeg-jam .
 FROM rust:1.98-slim AS build
 WORKDIR /src
 COPY . .

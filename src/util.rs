@@ -248,7 +248,7 @@ fn triangle_distance(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32))
     if inside { 0.0 } else { d1.min(d2).min(d3) }
 }
 
-/// The mark on a 128-unit square, as `packaging/icons/spotifast.svg` draws
+/// The mark on a 128-unit square, as `packaging/icons/spotizgeg.svg` draws
 /// it: a disc of radius 62 and a play triangle with corners rounded by 5,
 /// set a little left of its box so it looks centred. `polished` adds the
 /// darker rim, the lit face and the bright edge between them.

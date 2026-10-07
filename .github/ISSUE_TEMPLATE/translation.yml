@@ -12,7 +12,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Spotifast version
+      label: Spotizgeg version
       description: Include the commit if you are testing a development build.
     validations:
       required: true

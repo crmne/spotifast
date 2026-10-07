@@ -1178,7 +1178,7 @@ mod tests {
     #[tokio::test]
     async fn revoked_provider_cannot_return_or_persist_its_token() {
         let root =
-            std::env::temp_dir().join(format!("spotifast-revoked-provider-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spotizgeg-revoked-provider-{}", std::process::id()));
         let store = crate::credentials::Store::in_memory(crate::paths::AppDirs {
             config: root.join("config"),
             state: root.join("state"),

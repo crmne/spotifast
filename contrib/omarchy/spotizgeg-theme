@@ -1,11 +1,11 @@
 #!/bin/bash
-# Install with: omarchy hook install theme-set contrib/omarchy/spotifast-theme
+# Install with: omarchy hook install theme-set contrib/omarchy/spotizgeg-theme
 set -euo pipefail
 
 # These overrides also let the hook be tested without changing the desktop.
-theme_dir=${SPOTIFAST_OMARCHY_THEME_DIR:-$HOME/.local/state/omarchy/current/theme}
-themes_dir=${SPOTIFAST_THEMES_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/spotifast/themes}
-source_file=$theme_dir/spotifast.json
+theme_dir=${SPOTIZGEG_OMARCHY_THEME_DIR:-$HOME/.local/state/omarchy/current/theme}
+themes_dir=${SPOTIZGEG_THEMES_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/spotizgeg/themes}
+source_file=$theme_dir/spotizgeg.json
 
 # A theme without a generated palette leaves the last accepted colors alone.
 [[ -f $source_file && ! -L $source_file ]] || exit 0
@@ -18,4 +18,4 @@ mv -f -- "$temporary" "$themes_dir/omarchy.json"
 
 # This command only contacts an existing instance. A stopped app stays stopped.
 # The next launch reads the file if no instance is running or predates reload.
-spotifast reload-themes >/dev/null 2>&1 || true
+spotizgeg reload-themes >/dev/null 2>&1 || true

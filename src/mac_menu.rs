@@ -81,7 +81,7 @@ mod mac_impl {
 
     thread_local! {
         /// The object the menu items call. Only the main thread touches it.
-        static HANDLER: OnceCell<Retained<SpotifastMenuHandler>> = const { OnceCell::new() };
+        static HANDLER: OnceCell<Retained<SpotizgegMenuHandler>> = const { OnceCell::new() };
     }
 
     pub fn set_waker(wake: impl Fn() + Send + Sync + 'static) {
@@ -139,10 +139,10 @@ mod mac_impl {
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
-        #[name = "SpotifastMenuHandler"]
-        pub struct SpotifastMenuHandler;
+        #[name = "SpotizgegMenuHandler"]
+        pub struct SpotizgegMenuHandler;
 
-        impl SpotifastMenuHandler {
+        impl SpotizgegMenuHandler {
             #[unsafe(method(openSettings:))]
             fn open_settings(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Settings);
@@ -422,8 +422,8 @@ mod mac_impl {
             return;
         }
 
-        let handler: Retained<SpotifastMenuHandler> =
-            unsafe { objc2::msg_send![mtm.alloc::<SpotifastMenuHandler>(), init] };
+        let handler: Retained<SpotizgegMenuHandler> =
+            unsafe { objc2::msg_send![mtm.alloc::<SpotizgegMenuHandler>(), init] };
         let target: &NSObject = &handler;
 
         // 1. Update and Settings items in app menu (first menu)
@@ -704,7 +704,7 @@ mod mac_impl {
         ));
         help_menu.addItem(&create_item(
             mtm,
-            ns_string!("Spotifast on GitHub"),
+            ns_string!("Spotizgeg on GitHub"),
             Some(sel!(openRepo:)),
             ns_string!(""),
             None,

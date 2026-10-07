@@ -1,17 +1,17 @@
 ---
-title: Translating Spotifast
-description: Help translate Spotifast and preview the work so far.
+title: Translating Spotizgeg
+description: Help translate Spotizgeg and preview the work so far.
 nav_order: 6
 ---
 
-Spotifast follows your computer's language when it has a translation for it,
+Spotizgeg follows your computer's language when it has a translation for it,
 and uses English otherwise. **Settings → Appearance → Language** picks another
 language, listed under its own name, and applies it at once; **System** follows
 the computer again. This arrived in 0.10.0. Corrections from
 fluent speakers are welcome.
 
 Translations are stored in `.po` files, a common format supported by editors
-such as Poedit and Weblate. They are included with Spotifast, so the app does
+such as Poedit and Weblate. They are included with Spotizgeg, so the app does
 not contact an online translation service.
 
 ## Languages and coverage
@@ -57,7 +57,7 @@ or the date in `YYYY-MM-DD` form.
 
 ## Edit and preview
 
-The repository's `assets/i18n/spotifast.pot` is the English source template.
+The repository's `assets/i18n/spotizgeg.pot` is the English source template.
 Open the PO for your language, such as `assets/i18n/es.po`, in your translation editor. Edit `msgstr` values;
 keep `msgid`, `msgid_plural`, `msgctxt`, and placeholders such as `{count}`, `{date}`,
 `{track}` and `{error}` unchanged.

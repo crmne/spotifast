@@ -1,6 +1,6 @@
-print_spotifast_post_install() {
+print_spotizgeg_post_install() {
   cat <<'EOF2'
-Spotifast setup:
+Spotizgeg setup:
 
   Launch it, press Sign in with Spotify, and approve in the browser.
   Playing music on this computer is one more one-time approval from the
@@ -14,9 +14,9 @@ EOF2
 }
 
 post_install() {
-  print_spotifast_post_install
+  print_spotizgeg_post_install
 }
 
 post_upgrade() {
-  print_spotifast_post_install
+  print_spotizgeg_post_install
 }

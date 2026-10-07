@@ -5,11 +5,11 @@ use std::process::Command;
 #[test]
 fn an_unavailable_display_leaves_a_useful_log_without_a_console() {
     let directory = std::env::temp_dir().join(format!(
-        "spotifast-startup-diagnostics-{:016x}",
+        "spotizgeg-startup-diagnostics-{:016x}",
         rand::random::<u64>()
     ));
     std::fs::create_dir(&directory).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_spotifast"))
+    let output = Command::new(env!("CARGO_BIN_EXE_spotizgeg"))
         .args(["--demo", "--demo-shot"])
         .arg(directory.join("unused.png"))
         .arg("--demo-data")
@@ -20,12 +20,12 @@ fn an_unavailable_display_leaves_a_useful_log_without_a_console() {
         .env("XDG_RUNTIME_DIR", &directory)
         .output()
         .unwrap();
-    let log = std::fs::read_to_string(directory.join("state/spotifast.log")).unwrap();
+    let log = std::fs::read_to_string(directory.join("state/spotizgeg.log")).unwrap();
     std::fs::remove_dir_all(directory).unwrap();
 
     assert!(!output.status.success(), "the unavailable display opened");
     assert!(
-        log.contains(&format!("Starting spotifast {}", env!("CARGO_PKG_VERSION"))),
+        log.contains(&format!("Starting spotizgeg {}", env!("CARGO_PKG_VERSION"))),
         "missing startup identity: {log}"
     );
     assert!(

@@ -4,7 +4,7 @@ description: Shared packaging automation and application-specific release defini
 nav_order: 20
 ---
 
-Spotifast keeps release asset definitions, nFPM configuration and native AUR and
+Spotizgeg keeps release asset definitions, nFPM configuration and native AUR and
 Homebrew templates in `native-packages.yaml` and `packaging/`. Common automation comes from the pinned
 [native-packages](https://github.com/crmne/native-packages) gem, installed with `gem install native-packages --version 0.6.0`.
 
@@ -17,7 +17,7 @@ Ubuntu 24.04, Debian 13, Fedora 41 and current Fedora on amd64 and arm64, includ
 the GUI libraries loaded at runtime. They do not exercise desktop rendering or
 Spotify playback. Release checks run after the packages are attached.
 
-On main, after 0.8.0, Linux launcher and icon filenames use Spotifast, as does
+On main, after 0.8.0, Linux launcher and icon filenames use Spotizgeg, as does
 the application's window identity. Historical release fixtures retain their
 original matching filenames and window class because their binaries are
 unchanged. Packaging regressions cover current and historical inputs;

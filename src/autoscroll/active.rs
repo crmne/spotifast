@@ -6,7 +6,7 @@
 
 use egui::{Context, Id, LayerId, Pos2, Rect, Response, ScrollArea, Ui, Vec2, ViewportId};
 
-const FRAME_ID: &str = "spotifast-autoscroll-frame";
+const FRAME_ID: &str = "spotizgeg-autoscroll-frame";
 const DEAD_ZONE: f32 = 12.0;
 const SPEED: f32 = 6.0;
 

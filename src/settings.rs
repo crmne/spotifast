@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 /// Local Library identity only. Never sent to Spotify as a context URI.
-pub const LIKED_SONGS_KEY: &str = "spotifast:liked-songs";
+pub const LIKED_SONGS_KEY: &str = "spotizgeg:liked-songs";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -288,7 +288,7 @@ pub struct Settings {
     /// An optional personal Spotify Web API application id. The shared
     /// application remains active for coverage when this is present.
     pub web_client_id: Option<String>,
-    /// Legacy reminder time, retained for older Spotifast versions.
+    /// Legacy reminder time, retained for older Spotizgeg versions.
     pub personal_app_nudge_at: Option<String>,
     /// The listener has dismissed or followed the personal-app introduction.
     pub personal_app_intro_seen: bool,
@@ -323,7 +323,7 @@ pub struct Settings {
     pub winamp_window: bool,
     /// Windows and X11: keep a taskbar button while the Winamp window is visible.
     pub winamp_show_taskbar: bool,
-    /// Windows: draw Spotifast's own title bar and window buttons instead of
+    /// Windows: draw Spotizgeg's own title bar and window buttons instead of
     /// the standard Windows frame.
     pub custom_titlebar: bool,
     /// Skin file or folder name. `None` selects the built-in skin.
@@ -421,7 +421,7 @@ impl std::fmt::Debug for Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            device_name: "Spotifast".to_string(),
+            device_name: "Spotizgeg".to_string(),
             bitrate: 320,
             normalisation: false,
             autoplay: true,
@@ -585,6 +585,11 @@ impl Settings {
                     Self::default()
                 });
                 settings.migrate_proxy(text);
+                // The Connect name the fork had by default before its rename
+                // follows the rename; a name the listener chose stays.
+                if settings.device_name == "Spotifast" {
+                    settings.device_name = Self::default().device_name;
+                }
                 settings.proxy_password_legacy = !settings.proxy_password.is_empty();
                 settings
             }
@@ -1058,7 +1063,7 @@ mod tests {
     /// rather than dropped as unreadable and replaced with the defaults.
     #[test]
     fn a_settings_file_saved_with_a_byte_order_mark_keeps_its_preferences() {
-        let dir = std::env::temp_dir().join(format!("spotifast-bom-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-bom-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("settings.json");
         std::fs::write(
@@ -1341,7 +1346,7 @@ mod tests {
 
     #[test]
     fn a_legacy_socks_url_becomes_socks_mode() {
-        let dir = std::env::temp_dir().join(format!("spotifast-proxy-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spotizgeg-proxy-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("settings.json");
         std::fs::write(
@@ -1622,7 +1627,7 @@ mod session_tests {
     #[test]
     fn a_new_session_atomically_replaces_the_previous_one() {
         let root = std::env::temp_dir().join(format!(
-            "spotifast-session-test-{}-{:?}",
+            "spotizgeg-session-test-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));

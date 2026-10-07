@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
-description = "The protocol, state and client of Spotifast's jams, shared by the app and the jam server"
+description = "The protocol, state and client of Spotizgeg's jams, shared by the app and the jam server"
 publish = false
 
 [dependencies]

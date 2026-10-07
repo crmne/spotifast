@@ -1,14 +1,14 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Spotifast
+Name=Spotizgeg
 GenericName=Music Player
 Comment=Le spotizgeg, le seul et l'unique !
-Exec=spotifast %u
+Exec=spotizgeg %u
 Terminal=false
 Categories=AudioVideo;Audio;Player;Music;
-Keywords=spotify;music;player;streaming;spotifast;
-Icon=spotifast
+Keywords=spotify;music;player;streaming;spotizgeg;
+Icon=spotizgeg
 StartupNotify=true
-StartupWMClass=spotifast
+StartupWMClass=spotizgeg
 MimeType=x-scheme-handler/spotify;

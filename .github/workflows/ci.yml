@@ -120,12 +120,12 @@ jobs:
         shell: pwsh
         run: |
           mbx build --locked
-          $imports = & dumpbin /dependents target\debug\spotifast.exe | Out-String
+          $imports = & dumpbin /dependents target\debug\spotizgeg.exe | Out-String
           $runtime = $imports | Select-String -Pattern 'MSVCP[0-9_]*\.dll|VCRUNTIME[0-9_]*\.dll'
-          if ($runtime) { throw "Spotifast imports an MSVC runtime:`n$runtime" }
+          if ($runtime) { throw "Spotizgeg imports an MSVC runtime:`n$runtime" }
           $machine = if ($env:RUNNER_ARCH -eq 'ARM64') { 'AA64 machine \(ARM64\)' } else { '8664 machine \(x64\)' }
-          $headers = & dumpbin /headers target\debug\spotifast.exe | Out-String
-          if ($headers -notmatch $machine) { throw "spotifast.exe is not built for $env:RUNNER_ARCH`:`n$headers" }
+          $headers = & dumpbin /headers target\debug\spotizgeg.exe | Out-String
+          if ($headers -notmatch $machine) { throw "spotizgeg.exe is not built for $env:RUNNER_ARCH`:`n$headers" }
 
       - name: Windows installer syntax and renamed inputs
         if: runner.os == 'Windows'
@@ -135,7 +135,7 @@ jobs:
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
-          & $iscc "/DVersion=$version" "/DArch=$arch" "/DBinary=$PWD\target\debug\spotifast.exe" "/DOutputDir=$env:RUNNER_TEMP\spotifast-installer-check" packaging\windows\spotifast.iss
+          & $iscc "/DVersion=$version" "/DArch=$arch" "/DBinary=$PWD\target\debug\spotizgeg.exe" "/DOutputDir=$env:RUNNER_TEMP\spotizgeg-installer-check" packaging\windows\spotizgeg.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: macOS bundle identity and helper startup
@@ -144,17 +144,17 @@ jobs:
         run: |
           mbx build --locked
           version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
-          app="$RUNNER_TEMP/spotifast-bundle-check/Spotifast.app"
-          bash packaging/macos/bundle.sh target/debug/spotifast "$app" "$version"
+          app="$RUNNER_TEMP/spotizgeg-bundle-check/Spotizgeg.app"
+          bash packaging/macos/bundle.sh target/debug/spotizgeg "$app" "$version"
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
           "$app/Contents/MacOS/$executable" --version
           # A missing job must reach our error handler, not die during launch.
           set +e
-          "$app/Contents/MacOS/$executable" --apply-update "$RUNNER_TEMP/spotifast-missing-job.json" 2> "$RUNNER_TEMP/spotifast-helper-check.log"
+          "$app/Contents/MacOS/$executable" --apply-update "$RUNNER_TEMP/spotizgeg-missing-job.json" 2> "$RUNNER_TEMP/spotizgeg-helper-check.log"
           status=$?
           set -e
           test "$status" -eq 1
-          test -s "$RUNNER_TEMP/spotifast-helper-check.log"
+          test -s "$RUNNER_TEMP/spotizgeg-helper-check.log"
 
   nix:
     name: Nix package
@@ -208,4 +208,4 @@ jobs:
         env:
           JEKYLL_ENV: production
         run: |
-          bundle exec jekyll build --destination "$RUNNER_TEMP/spotifast-site"
+          bundle exec jekyll build --destination "$RUNNER_TEMP/spotizgeg-site"

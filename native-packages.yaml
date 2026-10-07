@@ -11,23 +11,23 @@ libraries:
     deb: libasound2t64
     rpm: alsa-lib
 nfpm:
-  name: spotifast
+  name: spotizgeg
   maintainer: Carmine Paolino <carmine@paolino.me>
   homepage: https://github.com/crmne/spotifast
   description: A native Spotify client
   license: MIT
   contents:
   # A glob source makes nFPM append its basename to the destination directory.
-  - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/spotifast"
+  - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/spotizgeg"
     dst: "/usr/bin/"
     file_info:
       mode: 493
   - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/LICENSE"
-    dst: "/usr/share/licenses/spotifast/"
+    dst: "/usr/share/licenses/spotizgeg/"
     file_info:
       mode: 420
   - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/README.md"
-    dst: "/usr/share/doc/spotifast/"
+    dst: "/usr/share/doc/spotizgeg/"
     file_info:
       mode: 420
   - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/packaging/applications/*.desktop"
@@ -38,12 +38,12 @@ nfpm:
     dst: "/usr/share/icons/hicolor/scalable/apps/"
     file_info:
       mode: 420
-  - src: contrib/omarchy/spotifast.json.tpl
-    dst: /usr/share/spotifast/omarchy/spotifast.json.tpl
+  - src: contrib/omarchy/spotizgeg.json.tpl
+    dst: /usr/share/spotizgeg/omarchy/spotizgeg.json.tpl
     file_info:
       mode: 420
-  - src: contrib/omarchy/spotifast-theme
-    dst: /usr/share/spotifast/omarchy/spotifast-theme
+  - src: contrib/omarchy/spotizgeg-theme
+    dst: /usr/share/spotizgeg/omarchy/spotizgeg-theme
     file_info:
       mode: 493
   overrides:
@@ -101,7 +101,7 @@ targets:
       local: dist/macos-input
     native:
       command: [ruby, packaging/macos/dmg.rb, '@PAYLOAD@', '@PACKAGE@']
-      output: 'spotifast-@TAG@-macos-universal.dmg'
+      output: 'spotizgeg-@TAG@-macos-universal.dmg'
   linux-amd64:
     platform: linux
     arch: amd64
@@ -112,8 +112,8 @@ targets:
     - rpm
     - appimage
     input:
-      local: dist/spotifast-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz
-      release_asset: spotifast-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz
+      local: dist/spotizgeg-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz
+      release_asset: spotizgeg-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz
   linux-arm64:
     platform: linux
     arch: arm64
@@ -124,64 +124,64 @@ targets:
     - rpm
     - appimage
     input:
-      local: dist/spotifast-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
-      release_asset: spotifast-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
+      local: dist/spotizgeg-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
+      release_asset: spotizgeg-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
 release:
   repository: crmne/spotifast
   prereleases: true
   checksums: checksums.txt
 assets:
   AMD64:
-    file: spotifast-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz
-    local: dist/spotifast-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz
+    file: spotizgeg-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz
+    local: dist/spotizgeg-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz
   ARM64:
-    file: spotifast-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
-    local: dist/spotifast-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
+    file: spotizgeg-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
+    local: dist/spotizgeg-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
   SOURCE:
-    file: spotifast-v@VERSION@-source.tar.gz
-    local: dist/spotifast-v@VERSION@-source.tar.gz
+    file: spotizgeg-v@VERSION@-source.tar.gz
+    local: dist/spotizgeg-v@VERSION@-source.tar.gz
   MACOS:
-    file: spotifast-v@VERSION@-macos-universal.dmg
-    local: dist/spotifast-v@VERSION@-macos-universal.dmg
+    file: spotizgeg-v@VERSION@-macos-universal.dmg
+    local: dist/spotizgeg-v@VERSION@-macos-universal.dmg
 templates:
-  arch/spotifast/PKGBUILD: packaging/arch/spotifast/PKGBUILD.in
-  arch/spotifast/spotifast.install: packaging/arch/spotifast.install
-  arch/spotifast-bin/PKGBUILD: packaging/arch/spotifast-bin/PKGBUILD.in
-  arch/spotifast-bin/spotifast-bin.install: packaging/arch/spotifast.install
-  arch/spotifast-git/PKGBUILD: packaging/arch/spotifast-git/PKGBUILD.in
-  arch/spotifast-git/spotifast-git.install: packaging/arch/spotifast.install
-  homebrew/spotifast.rb: packaging/homebrew/spotifast.rb.in
+  arch/spotizgeg/PKGBUILD: packaging/arch/spotizgeg/PKGBUILD.in
+  arch/spotizgeg/spotizgeg.install: packaging/arch/spotizgeg.install
+  arch/spotizgeg-bin/PKGBUILD: packaging/arch/spotizgeg-bin/PKGBUILD.in
+  arch/spotizgeg-bin/spotizgeg-bin.install: packaging/arch/spotizgeg.install
+  arch/spotizgeg-git/PKGBUILD: packaging/arch/spotizgeg-git/PKGBUILD.in
+  arch/spotizgeg-git/spotizgeg-git.install: packaging/arch/spotizgeg.install
+  homebrew/spotizgeg.rb: packaging/homebrew/spotizgeg.rb.in
 repositories:
   aur-source:
     group: aur
     url: https://aur.archlinux.org/spotifast.git
-    push_url: ssh://aur@aur.archlinux.org/spotifast.git
+    push_url: ssh://aur@aur.archlinux.org/spotizgeg.git
     branch: master
     package_path: "."
     files:
-      arch/spotifast: "."
+      arch/spotizgeg: "."
     version_file: ".SRCINFO"
     version_pattern: "^\\s*pkgver = (\\S+)"
     publish: push
   aur-bin:
     group: aur
     url: https://aur.archlinux.org/spotifast-bin.git
-    push_url: ssh://aur@aur.archlinux.org/spotifast-bin.git
+    push_url: ssh://aur@aur.archlinux.org/spotizgeg-bin.git
     branch: master
     package_path: "."
     files:
-      arch/spotifast-bin: "."
+      arch/spotizgeg-bin: "."
     version_file: ".SRCINFO"
     version_pattern: "^\\s*pkgver = (\\S+)"
     publish: push
   aur-git:
     group: aur
     url: https://aur.archlinux.org/spotifast-git.git
-    push_url: ssh://aur@aur.archlinux.org/spotifast-git.git
+    push_url: ssh://aur@aur.archlinux.org/spotizgeg-git.git
     branch: master
     package_path: "."
     files:
-      arch/spotifast-git: "."
+      arch/spotizgeg-git: "."
     version_file: ".SRCINFO"
     version_pattern: "^\\s*pkgver = (\\S+)"
     publish: push
@@ -191,8 +191,8 @@ repositories:
     branch: main
     package_path: Casks
     files:
-      homebrew/spotifast.rb: Casks/spotifast.rb
-    version_file: Casks/spotifast.rb
+      homebrew/spotizgeg.rb: Casks/spotizgeg.rb
+    version_file: Casks/spotizgeg.rb
     version_pattern: version "([^"]+)"
     publish: push
 version_file: Cargo.toml

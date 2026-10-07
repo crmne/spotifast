@@ -1,11 +1,11 @@
-# Spotifast agent guide
+# Spotizgeg agent guide
 
 Follow `CONTRIBUTING.md`; it is the canonical product and contribution policy.
 These instructions add implementation constraints for coding agents.
 
 ## Product boundaries
 
-- Keep Spotifast a small native Spotify client. Do not add a browser engine,
+- Keep Spotizgeg a small native Spotify client. Do not add a browser engine,
   telemetry, a hosted backend, or alternate sources for Spotify audio.
 - The one exception is the jam server (`jam-server/`, sharing
   `crates/jam-core` with the app), which this private fork runs on its own
@@ -195,7 +195,7 @@ A release is not the tag alone. Do these in order:
    Homebrew, and AUR. The prerelease remains available from GitHub's releases
    page.
 4. For a stable release, only after the GitHub release exists, update
-   `docs/_config.yml` `spotifast_version` and
+   `docs/_config.yml` `spotizgeg_version` and
    `docs/_data/versions.yml`. The selector carries only the latest stable
    version: replace its version entry, make it `current`, and point it at
    `/download/`. Do not retain older version entries; they remain available

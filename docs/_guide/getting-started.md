@@ -7,15 +7,15 @@ nav_order: 2
 ## Install
 
 Choose your system on the [Download page](/download/) and follow its
-installation steps. Then open **Spotifast**.
+installation steps. Then open **Spotizgeg**.
 
 ## Sign in
 
 Press **Sign in with Spotify**. Your browser opens Spotify's sign-in page.
-Approve access there, then return to Spotifast to see your library.
-Spotifast never sees your Spotify password.
+Approve access there, then return to Spotizgeg to see your library.
+Spotizgeg never sees your Spotify password.
 
-Spotifast remembers your sign-in using your computer's protected storage,
+Spotizgeg remembers your sign-in using your computer's protected storage,
 so you normally do not need to sign in each time you open the app.
 
 ## Enable playback on this computer
@@ -25,15 +25,15 @@ open the device menu in the bottom player bar and select **Set up playback
 here**, or find the same option in Settings.
 
 Spotify asks you to approve playback separately from library access. Follow
-the browser prompt once; Spotifast remembers this approval too.
+the browser prompt once; Spotizgeg remembers this approval too.
 [Read more about the two sign-ins](/how-it-connects/).
 
-The computer then appears as a Spotify Connect device named **Spotifast**.
+The computer then appears as a Spotify Connect device named **Spotizgeg**.
 You can rename it in Settings.
 
 ## Basics
 
-- **Closing the window does not stop the music.** Spotifast keeps playing
+- **Closing the window does not stop the music.** Spotizgeg keeps playing
   from the system tray; reopen it from the tray icon and quit from the tray
   menu or Ctrl+Q. On macOS you can also reopen it from the Dock. Settings can
   turn this off. On Linux, including Flatpak, a desktop with a working system
@@ -52,21 +52,21 @@ You can rename it in Settings.
   In **Add to playlist**, type a playlist name to find it, or choose
   **New playlist**. Typing chooses the first match, so `Enter` adds to it;
   the up and down arrows choose another. You can add one song or a selection.
-  If the playlist already contains the song, Spotifast asks before adding
+  If the playlist already contains the song, Spotizgeg asks before adding
   another copy.
-- **Spotify links open in Spotifast.** A `spotify:` link shared from another
-  app opens its page, starting Spotifast if it is not running. Links to
+- **Spotify links open in Spotizgeg.** A `spotify:` link shared from another
+  app opens its page, starting Spotizgeg if it is not running. Links to
   `open.spotify.com` go through the browser first, which hands them over the
-  same way. `spotifast <link>` does the same from a terminal.
+  same way. `spotizgeg <link>` does the same from a terminal.
 
 ## Match your desktop theme
 
 Open **Settings → Appearance → Theme** and choose **Light**, **Dark**, or
 **Follow system**. Follow system matches your desktop's appearance.
 
-On Omarchy, Spotifast matches your desktop theme from the first time you open
+On Omarchy, Spotizgeg matches your desktop theme from the first time you open
 it; the AUR package also installs the theme hook. Choose **Follow system** or **Omarchy**, then change your
-desktop theme: Spotifast's colours follow while the music keeps playing.
+desktop theme: Spotizgeg's colours follow while the music keeps playing.
 New installations already use Follow system. Updating keeps your previous
 theme choice.
 
@@ -75,7 +75,7 @@ For your own colours or a manual installation, see
 
 ## If song titles show empty boxes
 
-Spotifast uses your computer's fonts to display titles in different languages.
+Spotizgeg uses your computer's fonts to display titles in different languages.
 macOS and Windows already include fonts for most languages. On Linux,
 install `noto-fonts` and `noto-fonts-cjk` (Arch) or `fonts-noto` and
 `fonts-noto-cjk` (Debian or Ubuntu) if letters are missing.
@@ -89,23 +89,23 @@ Long titles are shortened with dots to fit the available space.
 
 ## Choosing the interface language
 
-Spotifast uses your computer's language when it has a translation for it, and
+Spotizgeg uses your computer's language when it has a translation for it, and
 English otherwise. To pick another language, open **Settings → Appearance →
 Language**. Each language is listed under its own name, and the change applies
 at once. Choose **System** to follow the computer again. Spanish and Turkish
 are complete; other translations are in progress, and anything not yet translated
-appears in English. See [Translating Spotifast](/translating/) to help.
+appears in English. See [Translating Spotizgeg](/translating/) to help.
 
 ## Choosing which app opens Spotify links
 
-On macOS, opening Spotifast makes it available for Spotify links. If Spotify's
+On macOS, opening Spotizgeg makes it available for Spotify links. If Spotify's
 own app is installed too, macOS uses whichever app last registered for them.
 On Windows, choose the app in **Settings → Apps → Default apps**.
 
 On Linux, after installing the current app launcher:
 
 ```sh
-xdg-mime default spotifast.desktop x-scheme-handler/spotify
+xdg-mime default spotizgeg.desktop x-scheme-handler/spotify
 ```
 
 ## If your network needs a proxy
@@ -113,7 +113,7 @@ xdg-mime default spotifast.desktop x-scheme-handler/spotify
 **In development, not included in 0.8.0:** you can configure a proxy, a server
 your network uses to reach the internet, on the sign-in screen or in
 **Settings → Proxy**. Enter the address, port, and any login details supplied
-by your network administrator. Spotifast protects the saved proxy password.
+by your network administrator. Spotizgeg protects the saved proxy password.
 If it cannot save the password, it tells you and uses it only until you quit.
 
 Playing music on this computer supports only HTTP proxies without a login.
