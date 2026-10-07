@@ -327,9 +327,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             } else {
                 0.0
             };
+            let search_gap = if app.settings.faithful_visuals {
+                ITEM_SPACING
+            } else {
+                0.0
+            };
             let fit = topbar_fit(
                 search_room,
-                controls + home_width,
+                controls + home_width + search_gap,
                 badges(true),
                 badges(false),
             );
@@ -341,6 +346,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     - window_controls.topbar_width
                     - controls
                     - badges(fit.labels)
+                    - search_gap
                     - group_width;
                 let start = ideal_left.min(rightmost).max(ui.cursor().left());
                 ui.add_space((start - ui.cursor().left()).max(0.0));
