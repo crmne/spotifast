@@ -75,10 +75,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if app.show_queue_panel {
             queue::side_panel(app, ui);
         }
-        if app.show_lyrics_panel || (app.show_now_playing_panel && !app.show_queue_panel) {
+        if app.show_lyrics_panel || (app.now_playing_card_shown() && !app.show_queue_panel) {
             lyrics::side_panel(app, ui);
         }
-        central(app, ui);
+        if app.cover_enlarged && app.now_playing().is_some() {
+            lyrics::enlarged_cover(app, ui);
+        } else {
+            central(app, ui);
+        }
         keep_room_for_panels(app, ctx);
     }
     devices::popup(app, ctx);

@@ -1112,6 +1112,9 @@ pub enum Action {
     ToggleQueuePanel,
     ToggleLyricsPanel,
     ToggleNowPlayingPanel,
+    /// Shows the playing song's cover large in place of the page, or the
+    /// page again.
+    SetCoverEnlarged(bool),
     SetLyricsFullscreen(bool),
     LyricsLineShown(Option<usize>),
     FollowLyrics,

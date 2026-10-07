@@ -64,7 +64,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             ui.available_width(),
         );
         ui.add_space(window_controls.lyrics_top);
-        let card = app.show_now_playing_panel && !app.show_queue_panel;
+        let card = app.now_playing_card_shown() && !app.show_queue_panel;
         if card {
             now_playing_top(app, ui, app.show_lyrics_panel);
         }
@@ -189,7 +189,7 @@ pub(super) fn now_playing_heading(app: &mut App, ui: &mut egui::Ui) {
 
 /// The playing song's cover, no taller than `cover_at_most`, with its
 /// title, artists and album beneath. Nothing when no song is playing.
-pub(super) fn now_playing_card(app: &App, ui: &mut egui::Ui, cover_at_most: f32) {
+pub(super) fn now_playing_card(app: &mut App, ui: &mut egui::Ui, cover_at_most: f32) {
     let palette = app.palette;
     let Some(now) = app.now_playing() else {
         return;
@@ -207,6 +207,9 @@ pub(super) fn now_playing_card(app: &App, ui: &mut egui::Ui, cover_at_most: f32)
         Icon::Music,
         Some(app.backend.art()),
     );
+    if enlarge_button(ui, cover, app.locale).clicked() {
+        app.actions.push(Action::SetCoverEnlarged(true));
+    }
     ui.add_space(10.0);
     ui.vertical_centered(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
@@ -232,6 +235,138 @@ pub(super) fn now_playing_card(app: &App, ui: &mut egui::Ui, cover_at_most: f32)
         }
     });
     ui.add_space(16.0);
+}
+
+/// The button in the corner of the right panel's cover that shows it large
+/// in place of the page. It sits on a dark disc so it reads on any cover,
+/// fainter until the pointer is over the cover.
+fn enlarge_button(ui: &mut egui::Ui, cover: Rect, locale: crate::i18n::Locale) -> egui::Response {
+    let edge = 30.0;
+    let rect = Rect::from_min_size(
+        cover.right_bottom() - vec2(edge + 8.0, edge + 8.0),
+        vec2(edge, edge),
+    );
+    let lit = ui.rect_contains_pointer(cover);
+    ui.painter().circle_filled(
+        rect.center(),
+        edge / 2.0,
+        Color32::from_black_alpha(if lit { 150 } else { 80 }),
+    );
+    let mut corner = ui.new_child(UiBuilder::new().max_rect(rect));
+    theme::icon_button(
+        &mut corner,
+        Icon::Expand,
+        16.0,
+        Color32::from_white_alpha(if lit { 230 } else { 170 }),
+        Color32::WHITE,
+        &gettext(locale, "Enlarge cover"),
+    )
+}
+
+/// The playing song's cover in place of the page, as large as the page
+/// allows, with its title beneath and the button that brings the page back.
+/// The right panel meanwhile shows the queue or the lyrics on their own.
+pub fn enlarged_cover(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let tint = app.now_playing_tint();
+    egui::CentralPanel::default()
+        .frame(Frame::new().fill(palette.window))
+        .show(ui, |ui| {
+            let rect = ui.max_rect();
+            if let Some(tint) = tint {
+                widgets::paint_vertical_gradient(
+                    ui,
+                    rect,
+                    blend(palette.window, tint, 0.55),
+                    palette.window,
+                );
+            }
+            ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
+            super::topbar::show(app, ui);
+            let below = Rect::from_min_max(
+                pos2(rect.left() + 24.0, ui.cursor().top() + 8.0),
+                pos2(rect.right() - 24.0, rect.bottom() - 24.0),
+            );
+            let mut corner = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(below)
+                    .layout(Layout::right_to_left(Align::Min)),
+            );
+            if theme::icon_button(
+                &mut corner,
+                Icon::Shrink,
+                18.0,
+                palette.secondary,
+                palette.text,
+                &gettext(app.locale, "Shrink cover"),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::SetCoverEnlarged(false));
+            }
+            let Some(now) = app.now_playing() else {
+                return;
+            };
+            // Room under the cover for the title and two lines beneath it.
+            let words = 84.0;
+            let gap = 18.0;
+            let side = (below.height() - words - gap - 32.0)
+                .min(below.width() - 96.0)
+                .max(120.0);
+            let top = below.center().y - (side + gap + words) / 2.0;
+            let cover =
+                Rect::from_min_size(pos2(below.center().x - side / 2.0, top), vec2(side, side));
+            let radius = 12.0;
+            ui.painter().add(
+                egui::epaint::Shadow {
+                    offset: [0, 18],
+                    blur: 48,
+                    spread: 0,
+                    color: Color32::from_black_alpha(80),
+                }
+                .as_shape(cover, radius),
+            );
+            widgets::paint_cover(
+                ui,
+                &palette,
+                now.art_url.as_deref().or(now.art_small.as_deref()),
+                cover,
+                radius,
+                Icon::Music,
+                Some(app.backend.art()),
+            );
+            let width = side.max(320.0).min(below.width());
+            let text = Rect::from_min_size(
+                pos2(below.center().x - width / 2.0, cover.bottom() + gap),
+                vec2(width, words),
+            );
+            let mut text_ui = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(text)
+                    .layout(Layout::top_down(Align::Center)),
+            );
+            text_ui.spacing_mut().item_spacing.y = 4.0;
+            text_ui.add(
+                egui::Label::new(
+                    egui::RichText::new(&now.title)
+                        .font(theme::bold(24.0))
+                        .color(palette.text),
+                )
+                .truncate(),
+            );
+            for (line, size) in [(&now.subtitle, 15.0), (&now.album_name, 13.0)] {
+                if !line.is_empty() && *line != now.title {
+                    text_ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(line)
+                                .font(theme::regular(size))
+                                .color(palette.secondary),
+                        )
+                        .truncate(),
+                    );
+                }
+            }
+        });
 }
 
 fn contents(app: &mut App, ui: &mut egui::Ui) {

@@ -177,6 +177,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             app.show_devices = false;
         } else if app.lyrics_fullscreen.is_some() {
             app.actions.push(Action::SetLyricsFullscreen(false));
+        } else if app.cover_enlarged {
+            app.actions.push(Action::SetCoverEnlarged(false));
         }
     }
 }

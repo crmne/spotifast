@@ -364,6 +364,14 @@ msgstr ""
 msgid "Full screen lyrics"
 msgstr ""
 
+#: src/ui/lyrics.rs
+msgid "Enlarge cover"
+msgstr ""
+
+#: src/ui/lyrics.rs
+msgid "Shrink cover"
+msgstr ""
+
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
 msgctxt "lyrics"
 msgid "Follow"

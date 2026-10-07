@@ -361,6 +361,14 @@ msgstr "Carica altri"
 msgid "Full screen lyrics"
 msgstr "Testo a schermo intero"
 
+#: src/ui/lyrics.rs
+msgid "Enlarge cover"
+msgstr "Ingrandisci copertina"
+
+#: src/ui/lyrics.rs
+msgid "Shrink cover"
+msgstr "Riduci copertina"
+
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
 msgctxt "lyrics"
 msgid "Follow"

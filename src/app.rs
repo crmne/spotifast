@@ -425,6 +425,9 @@ pub struct App {
     /// The right panel with the playing song's cover and title, which the
     /// lyrics join underneath when they are shown.
     pub show_now_playing_panel: bool,
+    /// The playing song's cover fills the page; the right panel then shows
+    /// the queue or the lyrics without the cover above them.
+    pub cover_enlarged: bool,
     pub lyrics_fullscreen: Option<bool>,
     pub lyrics_fullscreen_seen: bool,
     lyrics_fullscreen_restoring: Option<bool>,
@@ -883,6 +886,7 @@ impl App {
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
             show_now_playing_panel: session.now_playing_open.unwrap_or(false),
+            cover_enlarged: false,
             lyrics_fullscreen: None,
             lyrics_fullscreen_seen: false,
             lyrics_fullscreen_restoring: None,
@@ -2715,8 +2719,14 @@ impl App {
 
     /// Whether the right panel shows the playing song: opened for itself, or
     /// for the lyrics or the queue it holds underneath.
+    /// Whether the right panel shows the playing song's cover above the
+    /// queue or the lyrics: not while the cover fills the page instead.
+    pub fn now_playing_card_shown(&self) -> bool {
+        self.show_now_playing_panel && !self.cover_enlarged
+    }
+
     pub fn now_playing_panel_open(&self) -> bool {
-        self.show_now_playing_panel || self.show_lyrics_panel || self.show_queue_panel
+        self.now_playing_card_shown() || self.show_lyrics_panel || self.show_queue_panel
     }
 
     /// Asks for the playing track's lyrics unless they are here or on the
@@ -8709,6 +8719,20 @@ impl App {
         ) {
             self.leave_lyrics_fullscreen(ctx);
         }
+        // Going somewhere brings the page back in place of the large cover.
+        if matches!(
+            &action,
+            Action::Open(_)
+                | Action::OpenSongRadio { .. }
+                | Action::OpenUri(_)
+                | Action::OpenLink(_)
+                | Action::FocusSearch
+                | Action::Back
+                | Action::Forward
+                | Action::SignOut
+        ) {
+            self.cover_enlarged = false;
+        }
         if self.jam_transport(&action) {
             return;
         }
@@ -9443,6 +9467,16 @@ impl App {
                 // beneath it stay as they are.
                 self.leave_lyrics_fullscreen(ctx);
                 self.show_now_playing_panel = !self.show_now_playing_panel;
+            }
+            Action::SetCoverEnlarged(enlarged) => {
+                self.leave_lyrics_fullscreen(ctx);
+                self.cover_enlarged = enlarged;
+                // The right panel keeps what the cover topped; with nothing
+                // under it, the queue takes its place.
+                if enlarged && !self.show_queue_panel && !self.show_lyrics_panel {
+                    self.show_queue_panel = true;
+                    self.refresh_queue(true);
+                }
             }
             Action::ToggleLyricsPanel => {
                 self.leave_lyrics_fullscreen(ctx);

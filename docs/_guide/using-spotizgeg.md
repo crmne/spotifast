@@ -501,6 +501,12 @@ where they are: the cover appears above them, and folding it away leaves them
 as they were. Under the cover, the queue's cover, tabs and songs scroll
 together, so scrolling down brings the whole queue into view.
 
+The expand button in the corner of the cover shows it large in place of the
+page, with the song's title beneath. Meanwhile the right panel shows the queue
+or the lyrics on their own, without the cover above them; with neither open,
+the queue opens there. Press **Esc**, choose the shrink button beside the large
+cover, or go to any page to bring the page back.
+
 ## Lyrics
 
 Choose the microphone button in the player bar, or press **L**, to show lyrics.

@@ -357,6 +357,14 @@ msgstr "加载更多"
 msgid "Full screen lyrics"
 msgstr "全屏歌词"
 
+#: src/ui/lyrics.rs
+msgid "Enlarge cover"
+msgstr "放大封面"
+
+#: src/ui/lyrics.rs
+msgid "Shrink cover"
+msgstr "缩小封面"
+
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
 msgctxt "lyrics"
 msgid "Follow"

@@ -357,6 +357,14 @@ msgstr "さらに読み込む"
 msgid "Full screen lyrics"
 msgstr "歌詞を全画面表示"
 
+#: src/ui/lyrics.rs
+msgid "Enlarge cover"
+msgstr "ジャケットを拡大"
+
+#: src/ui/lyrics.rs
+msgid "Shrink cover"
+msgstr "ジャケットを縮小"
+
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
 msgctxt "lyrics"
 msgid "Follow"

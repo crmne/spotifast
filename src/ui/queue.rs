@@ -63,7 +63,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             ui.available_width(),
         );
         ui.add_space(window_controls.queue_top);
-        let card = app.show_now_playing_panel;
+        let card = app.now_playing_card_shown();
         if card {
             super::lyrics::now_playing_heading(app, ui);
         } else {

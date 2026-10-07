@@ -361,6 +361,14 @@ msgstr "Charger plus"
 msgid "Full screen lyrics"
 msgstr "Paroles en plein écran"
 
+#: src/ui/lyrics.rs
+msgid "Enlarge cover"
+msgstr "Agrandir la pochette"
+
+#: src/ui/lyrics.rs
+msgid "Shrink cover"
+msgstr "Réduire la pochette"
+
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
 msgctxt "lyrics"
 msgid "Follow"

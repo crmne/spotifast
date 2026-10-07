@@ -775,6 +775,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             }
             "queue" => app.show_queue_panel = true,
             "now-playing" => app.show_now_playing_panel = true,
+            "cover-enlarged" => {
+                app.show_now_playing_panel = true;
+                app.actions.push(Action::SetCoverEnlarged(true));
+            }
             "playing-next" => {
                 app.show_queue_panel = true;
                 if let Loadable::Loaded(queue) = &app.queue {
@@ -8872,6 +8876,61 @@ mod tests {
             matches!(app.actions.as_slice(), [Action::RemoveFromPlaylist { playlist_id, uris }] if playlist_id == "pl1" && *uris == expected)
         );
         app.backend.shutdown();
+    }
+
+    /// The cover's button shows it large in place of the page, and the
+    /// right panel goes on with the queue, without the cover above it.
+    /// Escape, or the button beside the large cover, brings the page back.
+    #[test]
+    fn the_cover_enlarges_in_place_of_the_page_and_back() {
+        use egui::accesskit::{Action as Access, Role};
+        let (ctx, mut app) = accessible_app("cover-enlarged");
+        app.backend.set_offline(true);
+        assert!(app.now_playing().is_some(), "the demo plays a song");
+        app.show_now_playing_panel = true;
+        app.show_queue_panel = false;
+        app.show_lyrics_panel = false;
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let enlarge = accessible_node(&tree, "Enlarge cover", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(enlarge, Access::Click, None)],
+        );
+        assert!(app.cover_enlarged);
+        assert!(app.show_queue_panel, "the queue takes the cover's place");
+        assert!(app.show_now_playing_panel, "the choice of panel is kept");
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let shrink = accessible_node(&tree, "Shrink cover", Role::Button);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Enlarge cover")),
+            "the right panel still shows the cover"
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(shrink, Access::Click, None)],
+        );
+        assert!(!app.cover_enlarged);
+
+        app.cover_enlarged = true;
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!app.cover_enlarged);
+
+        app.cover_enlarged = true;
+        accessible_frame(&ctx, &mut app, vec![]);
+        app.apply(Action::Open(Page::Search), &ctx);
+        assert!(!app.cover_enlarged, "going somewhere shows the page again");
     }
 
     /// The Jam tab asks for the server code, then shows who listens,
