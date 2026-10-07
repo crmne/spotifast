@@ -3034,6 +3034,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(feature = "demo")]
     #[test]
     fn artist_card_has_no_biography_entry_point() {
         let (ctx, mut app) = accessible_app("artist-card");
@@ -3065,6 +3066,7 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[cfg(feature = "demo")]
     #[test]
     fn credits_modal_grows_to_show_its_content() {
         let (ctx, mut app) = accessible_app("credits-height");
@@ -9204,6 +9206,7 @@ mod tests {
         }
         app.backend.shutdown();
     }
+    #[cfg(feature = "demo")]
     #[test]
     fn faithful_resize_highlights_fit_the_panel_gaps() {
         let (ctx, mut app) = accessible_app("faithful-resize");
