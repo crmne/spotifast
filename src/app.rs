@@ -3345,6 +3345,11 @@ impl App {
                 }),
                 ControlCommand::OpenLink(uri) => Some(Action::OpenLink(uri)),
                 ControlCommand::Transfer(device_id) => Some(Action::Transfer(device_id)),
+                // Answered by the search's response, which plays the match.
+                ControlCommand::PlaySearch { kind, query } => {
+                    self.backend.api(ApiRequest::PlaySearch { kind, query });
+                    None
+                }
                 ControlCommand::RefreshDevices => Some(Action::RefreshDevices),
             };
             if let Some(action) = action {
@@ -5899,6 +5904,19 @@ impl App {
                     self.search.playlists_pending = split;
                 }
             }
+            ApiResponse::PlaySearch { query, result } => match result {
+                Ok(Some(uri)) => self.actions.push(Action::PlayContext {
+                    uri,
+                    offset_uri: None,
+                    offset_index: None,
+                }),
+                Ok(None) => self.toast(format!(
+                    "Nothing on Spotify matches \u{201c}{query}\u{201d}"
+                )),
+                Err(error) => self.toast_error(format!(
+                    "Couldn't search for \u{201c}{query}\u{201d}: {error}"
+                )),
+            },
             ApiResponse::SearchPlaylists {
                 query,
                 serial,
