@@ -885,7 +885,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ),
         RowText::new(
             scrollbars_on_hover.clone(),
-            gettext(locale, "Fade scrollbars when the pointer leaves the scroll area. Turn off to keep them visible."),
+            gettext(locale, "Show scrollbars when hovering over their edge. Turn off to keep them visible."),
         ),
     ];
     if section_matches(&needle, &appearance, &appearance_rows) {

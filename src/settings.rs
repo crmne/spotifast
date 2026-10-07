@@ -279,7 +279,7 @@ pub struct Settings {
     pub queue_width: f32,
     /// Use compact single-line rows without cover art in track lists.
     pub tracklist_compact: bool,
-    /// Fade scrollbars when the pointer leaves their scroll area.
+    /// Show scrollbars only when hovering over their edge.
     pub scrollbars_on_hover: bool,
     /// Linux: middle-click a list to autoscroll it. Off by default, because
     /// Linux desktops usually paste the primary selection on middle click.

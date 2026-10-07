@@ -3264,9 +3264,12 @@ impl App {
         } else {
             0.55
         };
-        if ctx.global_style().spacing.scroll.dormant_handle_opacity != dormant_opacity {
+        if ctx.global_style().spacing.scroll.dormant_handle_opacity != dormant_opacity
+            || ctx.global_style().spacing.scroll.active_handle_opacity != dormant_opacity
+        {
             ctx.global_style_mut(|style| {
-                style.spacing.scroll.dormant_handle_opacity = dormant_opacity
+                style.spacing.scroll.dormant_handle_opacity = dormant_opacity;
+                style.spacing.scroll.active_handle_opacity = dormant_opacity;
             });
         }
     }

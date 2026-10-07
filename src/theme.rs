@@ -263,8 +263,10 @@ pub fn apply(ctx: &egui::Context, palette: &Palette) {
 /// Applies a palette to this view and children without changing global style.
 pub fn apply_local(ui: &mut egui::Ui, palette: &Palette) {
     let dormant_handle_opacity = ui.style().spacing.scroll.dormant_handle_opacity;
+    let active_handle_opacity = ui.style().spacing.scroll.active_handle_opacity;
     apply_to_style(ui.style_mut(), palette);
     ui.style_mut().spacing.scroll.dormant_handle_opacity = dormant_handle_opacity;
+    ui.style_mut().spacing.scroll.active_handle_opacity = active_handle_opacity;
 }
 
 fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
@@ -358,7 +360,7 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
         dormant_background_opacity: 0.0,
         dormant_handle_opacity: 0.0,
         active_background_opacity: 0.0,
-        active_handle_opacity: 0.55,
+        active_handle_opacity: 0.0,
         interact_handle_opacity: 0.85,
         foreground_color: true,
         ..egui::style::ScrollStyle::floating()

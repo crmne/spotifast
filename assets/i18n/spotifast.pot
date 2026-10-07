@@ -3062,5 +3062,5 @@ msgid "Show scrollbars only on hover"
 msgstr ""
 
 #: src/ui/settings.rs:888
-msgid "Fade scrollbars when the pointer leaves the scroll area. Turn off to keep them visible."
+msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
 msgstr ""
