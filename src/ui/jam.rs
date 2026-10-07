@@ -1,6 +1,6 @@
-//! The queue panel's Jam tab: hosting, joining, and the shared queue.
+//! The queue panel's Jam tab: joining the jam server, and the shared queue.
 
-use egui::{Align, Layout, RichText};
+use egui::RichText;
 
 use crate::app::{App, Target};
 use crate::i18n::{Locale, gettext};
@@ -16,11 +16,11 @@ pub fn contents(app: &mut App, ui: &mut egui::Ui) {
     match app.jam.status {
         JamStatus::Off => start(app, ui),
         JamStatus::Starting => widgets::loading_row(ui, &app.palette, app.locale),
-        JamStatus::Hosting | JamStatus::Joined | JamStatus::Reconnecting(_) => session(app, ui),
+        JamStatus::Joined | JamStatus::Reconnecting(_) => session(app, ui),
     }
 }
 
-/// No jam yet: host one, or join one with a code.
+/// Not in the jam: the server code, and the button that joins.
 fn start(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
@@ -33,39 +33,27 @@ fn start(app: &mut App, ui: &mut egui::Ui) {
         notice(ui, &palette, &reason);
         ui.add_space(12.0);
     }
-    heading(ui, &palette, &gettext(locale, "Host a jam"));
     body(
         ui,
         &palette,
         &gettext(
             locale,
-            "Friends on your network join with the invitation code. Everyone listens on their own Spotify account.",
+            "Listen together with everyone who has the jam server's code. Each person plays the songs on their own Spotify account.",
         ),
     );
-    ui.add_space(8.0);
-    if theme::soft_button(
-        ui,
-        &palette,
-        Some(Icon::Users),
-        &gettext(locale, "Host a jam"),
-        false,
-    )
-    .clicked()
-    {
-        app.actions.push(Action::HostJam);
-    }
-    ui.add_space(20.0);
-    heading(ui, &palette, &gettext(locale, "Join a jam"));
-    // The code being typed is the field's own, like any text in progress.
-    let id = ui.make_persistent_id("jam-invitation-code");
+    ui.add_space(12.0);
+    heading(ui, &palette, &gettext(locale, "Jam server code"));
+    // The code being typed is the field's own until joining keeps it.
+    let id = ui.make_persistent_id("jam-server-code");
     let mut code = ui
         .data(|data| data.get_temp::<String>(id))
-        .unwrap_or_default();
+        .unwrap_or_else(|| app.settings.jam_server.clone());
     let field = widgets::text_edit(
         ui,
         locale,
         egui::TextEdit::singleline(&mut code)
-            .hint_text(gettext(locale, "Invitation code"))
+            .password(true)
+            .hint_text(gettext(locale, "Jam server code"))
             .desired_width(f32::INFINITY),
     );
     let entered = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
@@ -73,7 +61,7 @@ fn start(app: &mut App, ui: &mut egui::Ui) {
     let clicked = theme::soft_button(
         ui,
         &palette,
-        Some(Icon::CirclePlus),
+        Some(Icon::Users),
         &gettext(locale, "Join"),
         false,
     )
@@ -84,11 +72,10 @@ fn start(app: &mut App, ui: &mut egui::Ui) {
     ui.data_mut(|data| data.insert_temp(id, code));
 }
 
-/// In a jam: the invitation, who listens, what plays, and what follows.
+/// In the jam: who listens, what plays, and what follows.
 fn session(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
-    let hosting = app.jam.status == JamStatus::Hosting;
     if matches!(app.jam.status, JamStatus::Reconnecting(_)) {
         notice(ui, &palette, &gettext(locale, "Reconnecting…"));
         ui.add_space(8.0);
@@ -103,53 +90,6 @@ fn session(app: &mut App, ui: &mut egui::Ui) {
             ),
         );
         ui.add_space(8.0);
-    }
-    if hosting && let Some(invite) = &app.jam.invite {
-        let code = invite.code();
-        heading(ui, &palette, &gettext(locale, "Invitation code"));
-        ui.horizontal(|ui| {
-            let copy = ui
-                .with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let copy = theme::icon_button(
-                        ui,
-                        Icon::Copy,
-                        16.0,
-                        palette.secondary,
-                        palette.text,
-                        &gettext(locale, "Copy invitation"),
-                    )
-                    .clicked();
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(&code)
-                                .monospace()
-                                .size(12.0)
-                                .color(palette.text),
-                        )
-                        .wrap(),
-                    );
-                    copy
-                })
-                .inner;
-            if copy {
-                app.actions.push(Action::CopyJamInvite);
-            }
-        });
-        ui.add_space(8.0);
-        let mut control = app
-            .jam
-            .state
-            .as_ref()
-            .is_some_and(|state| state.permissions.guests_control_playback);
-        let label = gettext(locale, "Guests control playback");
-        ui.horizontal(|ui| {
-            if widgets::switch(ui, &palette, &label, &mut control).changed() {
-                app.actions.push(Action::SetJamGuestControl(control));
-            }
-            ui.add_space(6.0);
-            theme::text(ui, &*label, theme::regular(13.0), palette.text);
-        });
-        ui.add_space(12.0);
     }
 
     let listeners = app
@@ -203,26 +143,29 @@ fn session(app: &mut App, ui: &mut egui::Ui) {
             &gettext(locale, "Right-click a song and choose Add to jam."),
         );
     }
+    // Everyone has the same rights: any song can be taken out.
     for item in &queued {
-        let removable = app.jam.can_remove(item);
-        row(ui, app, item, removable, false);
+        row(ui, app, item, true, false);
     }
     for item in &pending {
         row(ui, app, item, false, true);
     }
 
     ui.add_space(16.0);
-    let leave = if hosting {
-        gettext(locale, "End the jam")
-    } else {
-        gettext(locale, "Leave the jam")
-    };
-    if theme::soft_button(ui, &palette, Some(Icon::LogOut), &leave, false).clicked() {
+    if theme::soft_button(
+        ui,
+        &palette,
+        Some(Icon::LogOut),
+        &gettext(locale, "Leave the jam"),
+        false,
+    )
+    .clicked()
+    {
         app.actions.push(Action::LeaveJam);
     }
 }
 
-/// The artists, and who added the song when that is still known.
+/// The artists, and who added the song while they are still listening.
 fn subtitle(app: &App, item: &JamItem) -> String {
     match app.jam.name_of(item.added_by) {
         Some(name) => {
@@ -242,28 +185,31 @@ fn subtitle(app: &App, item: &JamItem) -> String {
     }
 }
 
-/// One song of the jam. A pending one is dimmed until the host shows it.
+/// One song of the jam. A pending one is dimmed until the server shows it.
 fn row(ui: &mut egui::Ui, app: &mut App, item: &JamItem, removable: bool, pending: bool) {
     let palette = app.palette;
-    let title = item.title.as_str();
     let subtitle = subtitle(app, item);
-    let subtitle = subtitle.as_str();
-    let removable = removable.then_some(item.id);
     ui.scope(|ui| {
         if pending {
             ui.multiply_opacity(0.55);
         }
         ui.horizontal(|ui| {
-            let button = if removable.is_some() { 30.0 } else { 0.0 };
+            let button = if removable { 30.0 } else { 0.0 };
             let width = (ui.available_width() - button).max(40.0);
             ui.vertical(|ui| {
                 ui.set_width(width);
-                let title =
-                    widgets::ellipsized(ui, title, theme::medium(13.0), palette.text, width, 1);
+                let title = widgets::ellipsized(
+                    ui,
+                    &item.title,
+                    theme::medium(13.0),
+                    palette.text,
+                    width,
+                    1,
+                );
                 ui.add(egui::Label::new(title).selectable(false));
                 let subtitle = widgets::ellipsized(
                     ui,
-                    subtitle,
+                    &subtitle,
                     theme::regular(12.0),
                     palette.secondary,
                     width,
@@ -271,7 +217,7 @@ fn row(ui: &mut egui::Ui, app: &mut App, item: &JamItem, removable: bool, pendin
                 );
                 ui.add(egui::Label::new(subtitle).selectable(false));
             });
-            if let Some(item) = removable
+            if removable
                 && theme::icon_button(
                     ui,
                     Icon::X,
@@ -282,7 +228,7 @@ fn row(ui: &mut egui::Ui, app: &mut App, item: &JamItem, removable: bool, pendin
                 )
                 .clicked()
             {
-                app.actions.push(Action::RemoveFromJam(item));
+                app.actions.push(Action::RemoveFromJam(item.id));
             }
         });
     });
@@ -317,16 +263,12 @@ pub fn ended(locale: Locale, reason: &EndReason) -> Option<String> {
     Some(
         match reason {
             EndReason::Left => return None,
-            EndReason::HostClosed => gettext(locale, "The host ended the jam."),
-            EndReason::Rejected(Rejection::BadInvite) => {
-                gettext(locale, "That invitation is wrong or has expired.")
+            EndReason::Rejected(Rejection::BadPassword) => {
+                gettext(locale, "The jam server refused this code.")
             }
             EndReason::Rejected(Rejection::Full) => gettext(locale, "That jam is full."),
             EndReason::Rejected(Rejection::IncompatibleVersion) => {
-                gettext(locale, "That jam runs another version of Spotifast.")
-            }
-            EndReason::CannotListen(_) => {
-                gettext(locale, "Couldn't start the jam on this network.")
+                gettext(locale, "The jam server runs another version of Spotifast.")
             }
             EndReason::Unreachable(_) => gettext(locale, "Couldn't reach the jam."),
         }

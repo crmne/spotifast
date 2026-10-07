@@ -7,8 +7,8 @@
 //! so the engine cannot wander off into Spotify's autoplay, which makes the
 //! end of a song look like the same song starting again.
 
-use super::protocol::JamState;
-use super::session::{Correction, DRIFT_TOLERANCE_MS, LocalView, reconcile};
+use crate::protocol::JamState;
+use crate::session::{Correction, DRIFT_TOLERANCE_MS, LocalView, reconcile};
 
 /// Time for a load to show up in the engine's state.
 const LOAD_GRACE_MS: u64 = 5_000;
@@ -45,16 +45,16 @@ pub struct Step {
 
 impl Syncer {
     /// Compares `state` with local playback and returns the corrections due
-    /// now. `host_now_ms` is the host's clock; `now_ms` this computer's.
+    /// now. `server_now_ms` is the server's clock; `now_ms` this computer's.
     pub fn step(
         &mut self,
         state: &JamState,
         local: Observed<'_>,
-        host_now_ms: u64,
+        server_now_ms: u64,
         now_ms: u64,
     ) -> Step {
         let song_ended = self.observe(state, local);
-        let wanted = reconcile(state, local.view, host_now_ms);
+        let wanted = reconcile(state, local.view, server_now_ms);
         let mut corrections = Vec::new();
         for correction in wanted {
             match &correction {
@@ -116,7 +116,7 @@ fn near_the_end(state: &JamState, target: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jam::protocol::{HOST_ID, JamItem, Permissions};
+    use crate::protocol::JamItem;
 
     const A: &str = "spotify:track:aaaaaaaaaaaaaaaaaaaaaa";
     const B: &str = "spotify:track:bbbbbbbbbbbbbbbbbbbbbb";
@@ -130,14 +130,13 @@ mod tests {
                 title: String::new(),
                 artists: String::new(),
                 duration_ms: 100_000,
-                added_by: HOST_ID,
+                added_by: 1,
             }),
             queue: Vec::new(),
             playing,
             position_ms,
-            host_time_ms: 0,
+            server_time_ms: 0,
             participants: Vec::new(),
-            permissions: Permissions::default(),
         }
     }
 

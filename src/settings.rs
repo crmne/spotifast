@@ -309,6 +309,9 @@ pub struct Settings {
     /// The sidebar's own playlist order, set by dragging rows. Kept while
     /// another sort is selected; empty means no saved local arrangement.
     pub sidebar_order: Vec<String>,
+    /// The jam server code, `host:port#password#fingerprint`, as last
+    /// joined. It holds the server's password: never log it.
+    pub jam_server: String,
     /// Explicit order per Library shelf. Missing shelves keep their previous
     /// behaviour; selecting another order never deletes the local arrangement.
     pub library_sort: std::collections::BTreeMap<LibraryShelf, LibrarySort>,
@@ -404,6 +407,8 @@ impl std::fmt::Debug for Settings {
         let mut preferences = serde_json::to_value(self).map_err(|_| std::fmt::Error)?;
         if let Some(fields) = preferences.as_object_mut() {
             fields.remove("proxy_username");
+            // The jam server code carries the server's password.
+            fields.remove("jam_server");
         }
         f.debug_struct("Settings")
             .field("preferences", &preferences)
@@ -455,6 +460,7 @@ impl Default for Settings {
             pinned_contexts: Vec::new(),
             liked_songs_pinned: true,
             sidebar_order: Vec::new(),
+            jam_server: String::new(),
             library_sort: std::collections::BTreeMap::new(),
             zoom: 1.0,
             winamp_window: false,

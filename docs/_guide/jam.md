@@ -1,77 +1,93 @@
 ---
 title: Jams
-description: Listen together with friends who also use Spotifast, each on their own Spotify account.
+description: Listen together through your own jam server, each person on their own Spotify account.
 nav_order: 7
 ---
 
-A jam lets a few people listen to the same songs at the same time. One person
-hosts it; the others join with an invitation code. Everyone adds songs to one
-shared queue, and every computer plays the same song at the same point.
+A jam is one shared queue that everyone listens to at the same time. It runs
+on a small jam server that you keep on a VPS, so it is always there: people
+join and leave whenever they like, and the music carries on for the others.
+Everyone in the jam has the same rights.
 
 This is Spotifast's own feature, not Spotify's Jam: it works between people
 who use Spotifast, and people in the Spotify app cannot join it.
 
 ## What you need
 
-- **Spotify Premium for everyone.** No sound travels between computers. Each
-  person plays the songs on their own account, the way they play anything
-  else in Spotifast.
-- **The same network.** The host's computer must be reachable from the
-  guests': the same home or office network, or a private network such as
-  [Tailscale](https://tailscale.com) for friends elsewhere. Do not open a
-  port on your router to the Internet for a jam: see
-  [Security](#security) below.
+- **A jam server.** One person runs it on a VPS; see
+  [Run the jam server](#run-the-jam-server) below.
+- **The server code**, which the server prints for you. It looks like
+  `203.0.113.7:4070#…#…` and holds the server's password: share it
+  privately, with the people you want in the jam.
+- **Spotify Premium for everyone.** No sound travels through the server.
+  Each person plays the songs on their own account, the way they play
+  anything else in Spotifast.
 - **Playback on this computer.** A jam plays through Spotifast's own player,
   not through a speaker or phone picked in the device list.
 
-## Host a jam
+## Join the jam
 
-Open the queue panel and pick the **Jam** tab, then **Host a jam**. The tab
-shows an invitation code such as `192.168.1.20:54321#…`. Copy it with the
-button beside it and send it to your friends privately: anyone with the code
-can join while the jam lasts.
+Open the queue panel and pick the **Jam** tab. Paste the server code and
+choose **Join**. Spotifast keeps the code, so next time **Join** is all it
+takes. The tab then shows who is listening, the song playing and the shared
+queue, with who added each song.
 
-**Guests control playback** lets guests skip, pause, seek and remove any
-song. Without it, only you do, and guests can add songs and remove their own.
-
-**End the jam** closes it for everyone. Each jam has a new code.
-
-## Join a jam
-
-Paste the code in the **Jam** tab and choose **Join**. The tab then shows who
-is listening, the song playing and the shared queue, with who added each
-song.
+**Leave the jam** takes you out; the jam plays on for the others. When the
+last person leaves, the jam pauses where it was, and picks up from there.
 
 ## During a jam
 
 - **Add songs** by right-clicking a song, or a selection, and choosing
-  **Add to jam**. The song appears at once and the host confirms it a moment
-  later. Local files cannot be shared.
-- **The player controls act on the jam.** Play, pause, next, previous (back
-  to the start of the song) and the progress bar go to the host, who applies
-  them for everyone, or refuses them when guests do not control playback.
+  **Add to jam**. The song appears at once and the server confirms it a
+  moment later. Local files cannot be shared.
+- **Anyone can do anything.** Play, pause, next, previous (back to the start
+  of the song) and the progress bar act on the jam for everyone, and anyone
+  can remove any song with the cross beside it.
 - **Starting a playlist or album is held back**, since the jam decides what
   plays. Add its songs to the jam instead.
 - **Volume stays your own.**
 - If the connection drops, Spotifast reconnects on its own and sends again
   the songs you added meanwhile.
 
-Every computer stays within about a second of the host. A correction is a
+Every computer stays within about a second of the server. A correction is a
 short jump in the song, so small differences are left alone. A jam suits
 listening together from different places; in one room, the speakers will
 not be exactly in step.
 
-When a jam ends, your repeat setting comes back as it was.
+When you leave, your repeat setting comes back as it was.
+
+## Run the jam server
+
+The server is a small program in this repository, `jam-server`, which needs
+neither Spotify nor an account. Any Linux VPS with Docker will do.
+
+```sh
+git clone <your repository> spotifast
+cd spotifast/jam-server
+docker compose up -d
+docker compose run --rm jam code --host 203.0.113.7
+```
+
+Replace `203.0.113.7` with the VPS's public address or host name. The last
+command prints the server code. Open TCP port 4070 in the VPS's firewall.
+
+The first start creates the server's password and its certificate in the
+`jam-data` volume, and the jam is saved there too, so restarts and updates
+keep the queue. Back up that volume to keep the same code; deleting it makes
+a new password and certificate, and everyone needs the new code.
+
+To change the password, stop the server, delete `secret` from the volume,
+start it again, and hand out the new code. See `jam-server/README.md` for
+running without Docker.
 
 ## Security
 
-The connection between computers is not encrypted. The invitation code holds
-a random secret that is never sent: guests prove they know it. But someone
-who can watch your network can see which songs are played and who listens,
-and could interfere with the jam once it is running.
+The connection to the server is encrypted with TLS. Spotifast accepts only
+the certificate that the server code names, so nobody can stand in for your
+server, even without a domain name. Listeners prove they know the password
+without sending it, and the proof only works for that one connection.
 
-So host jams on a network you trust, or through a private network such as
-Tailscale, which encrypts everything. Spotifast listens only on your
-computer's address on that network, and only while you host. No Spotify
-credential or account detail other than your display name ever goes to the
-other participants.
+Anyone with the server code can join, add and remove songs, and control
+playback: share it only with the people you want in the jam. The server
+sees your Spotify display name and the songs played, never any Spotify
+credential or other account detail.

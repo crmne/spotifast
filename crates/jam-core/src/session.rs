@@ -1,21 +1,23 @@
 //! The jam's state machines, free of sockets and of the player.
 //!
-//! The host holds a [`HostSession`]: it admits guests, applies their
-//! requests under the host's permissions, and moves on when a song ends.
-//! Every participant, the host included, then [`reconcile`]s the state it
-//! last saw with its own local playback, which yields the few player
-//! corrections needed to follow along.
+//! The server holds a [`JamSession`]: it admits listeners, applies their
+//! requests, and moves on when a song ends. Every listener has the same
+//! rights. Each listener then [`reconcile`]s the state it last saw with its
+//! own local playback, which yields the few player corrections needed to
+//! follow along.
 
 use std::collections::VecDeque;
 
-use super::invite::{self, Secret};
-use super::protocol::{
-    ClientMsg, HOST_ID, ItemId, JamItem, JamState, MAX_NAME_CHARS, MAX_PARTICIPANTS, MAX_QUEUE,
-    MAX_QUEUED_PER_GUEST, PROTOCOL_VERSION, Participant, ParticipantId, Permissions, Refusal,
-    Rejection, clean_text,
+use serde::{Deserialize, Serialize};
+
+use crate::auth::{self, Secret};
+use crate::protocol::{
+    ClientMsg, ItemId, JamItem, JamState, MAX_NAME_CHARS, MAX_PARTICIPANTS, MAX_QUEUE,
+    MAX_QUEUED_PER_LISTENER, PROTOCOL_VERSION, Participant, ParticipantId, Refusal, Rejection,
+    clean_text,
 };
 
-/// Below this, a guest's position is left alone: librespot cannot change
+/// Below this, a listener's position is left alone: librespot cannot change
 /// speed, so every correction is an audible seek.
 pub const DRIFT_TOLERANCE_MS: u32 = 750;
 /// Clock samples kept; their median resists one slow round trip.
@@ -23,10 +25,10 @@ const CLOCK_SAMPLES: usize = 5;
 /// A round trip slower than this says little about either clock.
 const MAX_ROUND_TRIP_MS: u64 = 5_000;
 
-/// The host's authoritative jam. Times are milliseconds on the host's own
-/// clock since the jam started.
+/// The authoritative jam, on the server. Times are milliseconds on the
+/// server's own clock.
 #[derive(Debug)]
-pub struct HostSession {
+pub struct JamSession {
     seq: u64,
     current: Option<JamItem>,
     queue: Vec<JamItem>,
@@ -35,33 +37,59 @@ pub struct HostSession {
     position_ms: u32,
     anchor_ms: u64,
     participants: Vec<Participant>,
-    permissions: Permissions,
     next_item: ItemId,
     next_participant: ParticipantId,
 }
 
-impl HostSession {
-    pub fn new(host_name: &str, now_ms: u64) -> Self {
-        let mut name = clean_text(host_name, MAX_NAME_CHARS);
-        if name.is_empty() {
-            name = "Host".into();
-        }
+/// What outlives a server restart: the songs and where the playing one was.
+/// Nobody is listening after a restart, so it comes back paused.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Saved {
+    pub current: Option<JamItem>,
+    pub queue: Vec<JamItem>,
+    pub position_ms: u32,
+    pub next_item: ItemId,
+}
+
+impl JamSession {
+    pub fn new(now_ms: u64) -> Self {
+        Self::restore(Saved::default(), now_ms)
+    }
+
+    pub fn restore(saved: Saved, now_ms: u64) -> Self {
+        let highest = saved
+            .current
+            .iter()
+            .chain(&saved.queue)
+            .map(|item| item.id)
+            .max()
+            .unwrap_or(0);
+        let mut queue = saved.queue;
+        queue.truncate(MAX_QUEUE);
         Self {
             seq: 0,
-            current: None,
-            queue: Vec::new(),
+            current: saved.current,
+            queue,
             playing: false,
-            position_ms: 0,
+            position_ms: saved.position_ms,
             anchor_ms: now_ms,
-            participants: vec![Participant { id: HOST_ID, name }],
-            permissions: Permissions::default(),
-            next_item: 1,
-            next_participant: HOST_ID + 1,
+            participants: Vec::new(),
+            next_item: saved.next_item.max(highest + 1),
+            next_participant: 1,
         }
     }
 
-    /// Lets a guest in when its [`ClientMsg::Hello`] answers this
-    /// connection's `nonce` with the jam's secret.
+    pub fn save(&self, now_ms: u64) -> Saved {
+        Saved {
+            current: self.current.clone(),
+            queue: self.queue.clone(),
+            position_ms: self.position_at(now_ms),
+            next_item: self.next_item,
+        }
+    }
+
+    /// Lets a listener in when its [`ClientMsg::Hello`] answers this
+    /// connection's `nonce` with the server's password.
     pub fn admit(
         &mut self,
         hello: &ClientMsg,
@@ -75,13 +103,13 @@ impl HostSession {
             proof,
         } = hello
         else {
-            return Err(Rejection::BadInvite);
+            return Err(Rejection::BadPassword);
         };
         if *version != PROTOCOL_VERSION {
             return Err(Rejection::IncompatibleVersion);
         }
-        if !invite::verify(secret, nonce, name, binding, proof) {
-            return Err(Rejection::BadInvite);
+        if !auth::verify(secret, nonce, name, binding, proof) {
+            return Err(Rejection::BadPassword);
         }
         if self.participants.len() >= MAX_PARTICIPANTS {
             return Err(Rejection::Full);
@@ -94,44 +122,31 @@ impl HostSession {
         Ok(id)
     }
 
-    /// A guest left or was disconnected. Its songs stay in the queue.
-    /// Returns whether it was still in the jam.
-    pub fn leave(&mut self, id: ParticipantId) -> bool {
-        if id == HOST_ID {
-            return false;
-        }
+    /// A listener left or was disconnected. Its songs stay in the queue.
+    /// With nobody left, the jam pauses where it was. Returns whether the
+    /// listener was still in the jam.
+    pub fn leave(&mut self, id: ParticipantId, now_ms: u64) -> bool {
         let before = self.participants.len();
         self.participants.retain(|participant| participant.id != id);
         let left = self.participants.len() != before;
         if left {
+            if self.participants.is_empty() && self.playing {
+                self.position_ms = self.position_at(now_ms);
+                self.anchor_ms = now_ms;
+                self.playing = false;
+            }
             self.changed();
         }
         left
     }
 
-    pub fn set_permissions(&mut self, permissions: Permissions) {
-        if self.permissions != permissions {
-            self.permissions = permissions;
-            self.changed();
-        }
-    }
-
-    /// Applies one request from a participant. On a refusal nothing
-    /// changes.
+    /// Applies one request from a listener. On a refusal nothing changes.
     pub fn apply(
         &mut self,
         from: ParticipantId,
         message: ClientMsg,
         now_ms: u64,
     ) -> Result<(), Refusal> {
-        if !self
-            .participants
-            .iter()
-            .any(|participant| participant.id == from)
-        {
-            return Err(Refusal::NotAllowed);
-        }
-        let control = from == HOST_ID || self.permissions.guests_control_playback;
         match message {
             ClientMsg::Hello { .. } | ClientMsg::Ping { .. } => return Err(Refusal::Unexpected),
             ClientMsg::Add {
@@ -143,13 +158,12 @@ impl HostSession {
                 if self.queue.len() >= MAX_QUEUE {
                     return Err(Refusal::QueueFull);
                 }
-                if from != HOST_ID
-                    && self
-                        .queue
-                        .iter()
-                        .filter(|item| item.added_by == from)
-                        .count()
-                        >= MAX_QUEUED_PER_GUEST
+                if self
+                    .queue
+                    .iter()
+                    .filter(|item| item.added_by == from)
+                    .count()
+                    >= MAX_QUEUED_PER_LISTENER
                 {
                     return Err(Refusal::QuotaReached);
                 }
@@ -172,33 +186,34 @@ impl HostSession {
             }
             ClientMsg::Remove { item } => {
                 let index = self.queue_index(item)?;
-                if !control && self.queue[index].added_by != from {
-                    return Err(Refusal::NotAllowed);
-                }
                 self.queue.remove(index);
             }
             ClientMsg::Move { item, to } => {
-                if !control {
-                    return Err(Refusal::NotAllowed);
-                }
                 let index = self.queue_index(item)?;
                 let moved = self.queue.remove(index);
                 self.queue.insert(to.min(self.queue.len()), moved);
             }
             ClientMsg::Skip => {
-                if !control {
-                    return Err(Refusal::NotAllowed);
-                }
                 if self.current.is_none() {
                     return Err(Refusal::NotFound);
                 }
                 self.advance(now_ms);
                 return Ok(());
             }
-            ClientMsg::SetPlaying { playing } => {
-                if !control {
-                    return Err(Refusal::NotAllowed);
+            ClientMsg::Ended { item } => {
+                // Every listener reports the same ending; the first moves
+                // the jam on and the rest name a song that already left.
+                if self
+                    .current
+                    .as_ref()
+                    .is_none_or(|current| current.id != item)
+                {
+                    return Err(Refusal::NotFound);
                 }
+                self.advance(now_ms);
+                return Ok(());
+            }
+            ClientMsg::SetPlaying { playing } => {
                 if self.current.is_none() {
                     return Err(Refusal::NotFound);
                 }
@@ -207,9 +222,6 @@ impl HostSession {
                 self.playing = playing;
             }
             ClientMsg::Seek { position_ms } => {
-                if !control {
-                    return Err(Refusal::NotAllowed);
-                }
                 let Some(current) = &self.current else {
                     return Err(Refusal::NotFound);
                 };
@@ -242,9 +254,8 @@ impl HostSession {
             queue: self.queue.clone(),
             playing: self.playing,
             position_ms: self.position_at(now_ms),
-            host_time_ms: now_ms,
+            server_time_ms: now_ms,
             participants: self.participants.clone(),
-            permissions: self.permissions,
         }
     }
 
@@ -281,8 +292,7 @@ impl HostSession {
             .ok_or(Refusal::NotFound)
     }
 
-    /// Two guests named alike, or a guest named like the host, are told
-    /// apart by a number.
+    /// Two listeners named alike are told apart by a number.
     fn unique_name(&self, name: &str) -> String {
         let taken = |candidate: &str| {
             self.participants
@@ -316,7 +326,7 @@ fn clamp_to(position_ms: u32, duration_ms: u32) -> u32 {
     }
 }
 
-/// Estimates the host's clock from ping round trips.
+/// Estimates the server's clock from ping round trips.
 #[derive(Debug, Default)]
 pub struct ClockSync {
     offsets: VecDeque<i64>,
@@ -324,8 +334,8 @@ pub struct ClockSync {
 
 impl ClockSync {
     /// A ping sent at `t0` and answered at `t1`, both on the local clock,
-    /// which the host stamped `host_time_ms`.
-    pub fn sample(&mut self, t0: u64, host_time_ms: u64, t1: u64) {
+    /// which the server stamped `server_time_ms`.
+    pub fn sample(&mut self, t0: u64, server_time_ms: u64, t1: u64) {
         let Some(round_trip) = t1.checked_sub(t0) else {
             return;
         };
@@ -333,19 +343,19 @@ impl ClockSync {
             return;
         }
         let midpoint = t0 + round_trip / 2;
-        let offset = host_time_ms as i64 - midpoint as i64;
+        let offset = server_time_ms as i64 - midpoint as i64;
         if self.offsets.len() == CLOCK_SAMPLES {
             self.offsets.pop_front();
         }
         self.offsets.push_back(offset);
     }
 
-    /// The host's clock now, once at least one sample arrived.
-    pub fn host_now(&self, local_ms: u64) -> Option<u64> {
+    /// The server's clock now, once at least one sample arrived.
+    pub fn server_now(&self, local_ms: u64) -> Option<u64> {
         Some(local_ms.saturating_add_signed(self.offset()?))
     }
 
-    /// How far the host's clock runs ahead of this one: the median of the
+    /// How far the server's clock runs ahead of this one: the median of the
     /// recent samples.
     pub fn offset(&self) -> Option<i64> {
         let mut offsets: Vec<i64> = self.offsets.iter().copied().collect();
@@ -357,9 +367,8 @@ impl ClockSync {
     }
 }
 
-/// Milliseconds since a jam began on this computer. The network tasks and
-/// the app share one, so a clock offset measured by one applies to the
-/// other.
+/// Milliseconds since a clock started. The network task and the app share
+/// one, so a clock offset measured by one applies to the other.
 #[derive(Clone, Copy, Debug)]
 pub struct JamClock {
     epoch: std::time::Instant,
@@ -383,7 +392,7 @@ impl JamClock {
     }
 }
 
-/// The newest state a guest has seen.
+/// The newest state a listener has seen.
 #[derive(Debug, Default)]
 pub struct Follower {
     pub state: Option<JamState>,
@@ -428,8 +437,8 @@ pub enum Correction {
 }
 
 /// The corrections that bring local playback in line with `state`, given
-/// the host's clock now.
-pub fn reconcile(state: &JamState, local: LocalView<'_>, host_now_ms: u64) -> Vec<Correction> {
+/// the server's clock now.
+pub fn reconcile(state: &JamState, local: LocalView<'_>, server_now_ms: u64) -> Vec<Correction> {
     let Some(current) = &state.current else {
         return if local.playing {
             vec![Correction::SetPlaying(false)]
@@ -438,7 +447,7 @@ pub fn reconcile(state: &JamState, local: LocalView<'_>, host_now_ms: u64) -> Ve
         };
     };
     let target = if state.playing {
-        let elapsed = host_now_ms.saturating_sub(state.host_time_ms);
+        let elapsed = server_now_ms.saturating_sub(state.server_time_ms);
         u32::try_from(u64::from(state.position_ms) + elapsed).unwrap_or(u32::MAX)
     } else {
         state.position_ms
@@ -486,19 +495,23 @@ mod tests {
         ClientMsg::Hello {
             version: PROTOCOL_VERSION,
             name: name.into(),
-            proof: invite::proof(secret, nonce, name, b""),
+            proof: auth::proof(secret, nonce, name, b"tls"),
         }
     }
 
-    /// A host with one admitted guest.
-    fn jam() -> (HostSession, ParticipantId, Secret) {
+    fn join(jam: &mut JamSession, secret: &Secret, name: &str) -> ParticipantId {
+        let nonce = auth::new_nonce();
+        jam.admit(&hello(secret, &nonce, name), secret, &nonce, b"tls")
+            .unwrap()
+    }
+
+    /// A jam with two listeners.
+    fn jam() -> (JamSession, ParticipantId, ParticipantId) {
         let secret = Secret::generate();
-        let mut host = HostSession::new("Host", 0);
-        let nonce = invite::new_nonce();
-        let guest = host
-            .admit(&hello(&secret, &nonce, "Ana"), &secret, &nonce, b"")
-            .unwrap();
-        (host, guest, secret)
+        let mut jam = JamSession::new(0);
+        let ana = join(&mut jam, &secret, "Ana");
+        let bob = join(&mut jam, &secret, "Bob");
+        (jam, ana, bob)
     }
 
     fn uris(state: &JamState) -> (Option<&str>, Vec<&str>) {
@@ -509,35 +522,40 @@ mod tests {
     }
 
     #[test]
-    fn only_a_proof_for_this_nonce_and_secret_gets_in() {
+    fn only_a_proof_for_this_nonce_password_and_channel_gets_in() {
         let secret = Secret::generate();
-        let mut host = HostSession::new("Host", 0);
-        let nonce = invite::new_nonce();
-        let replayed = hello(&secret, &invite::new_nonce(), "Ana");
+        let mut jam = JamSession::new(0);
+        let nonce = auth::new_nonce();
+        let replayed = hello(&secret, &auth::new_nonce(), "Ana");
         assert_eq!(
-            host.admit(&replayed, &secret, &nonce, b""),
-            Err(Rejection::BadInvite)
+            jam.admit(&replayed, &secret, &nonce, b"tls"),
+            Err(Rejection::BadPassword)
         );
-        let wrong_secret = hello(&Secret::generate(), &nonce, "Ana");
+        let wrong = hello(&Secret::generate(), &nonce, "Ana");
         assert_eq!(
-            host.admit(&wrong_secret, &secret, &nonce, b""),
-            Err(Rejection::BadInvite)
+            jam.admit(&wrong, &secret, &nonce, b"tls"),
+            Err(Rejection::BadPassword)
+        );
+        let relayed = hello(&secret, &nonce, "Ana");
+        assert_eq!(
+            jam.admit(&relayed, &secret, &nonce, b"another connection"),
+            Err(Rejection::BadPassword)
         );
         let ClientMsg::Hello { name, proof, .. } = hello(&secret, &nonce, "Ana") else {
             unreachable!()
         };
         let old = ClientMsg::Hello {
-            version: PROTOCOL_VERSION + 1,
+            version: PROTOCOL_VERSION - 1,
             name,
             proof,
         };
         assert_eq!(
-            host.admit(&old, &secret, &nonce, b""),
+            jam.admit(&old, &secret, &nonce, b"tls"),
             Err(Rejection::IncompatibleVersion)
         );
-        assert_eq!(host.state(0).participants.len(), 1);
+        assert!(jam.state(0).participants.is_empty());
         assert!(
-            host.admit(&hello(&secret, &nonce, "Ana"), &secret, &nonce, b"")
+            jam.admit(&hello(&secret, &nonce, "Ana"), &secret, &nonce, b"tls")
                 .is_ok()
         );
     }
@@ -545,151 +563,109 @@ mod tests {
     #[test]
     fn the_jam_fills_up_and_names_stay_distinct() {
         let secret = Secret::generate();
-        let mut host = HostSession::new("Ana", 0);
-        for _ in 1..MAX_PARTICIPANTS {
-            let nonce = invite::new_nonce();
-            host.admit(&hello(&secret, &nonce, "ana"), &secret, &nonce, b"")
-                .unwrap();
+        let mut jam = JamSession::new(0);
+        for _ in 0..MAX_PARTICIPANTS {
+            join(&mut jam, &secret, "ana");
         }
-        let nonce = invite::new_nonce();
+        let nonce = auth::new_nonce();
         assert_eq!(
-            host.admit(&hello(&secret, &nonce, "Bob"), &secret, &nonce, b""),
+            jam.admit(&hello(&secret, &nonce, "Bob"), &secret, &nonce, b"tls"),
             Err(Rejection::Full)
         );
-        let names: Vec<String> = host
+        let names: Vec<String> = jam
             .state(0)
             .participants
             .into_iter()
             .map(|participant| participant.name)
             .collect();
-        assert_eq!(names[..3], ["Ana", "ana (2)", "ana (3)"]);
-        let unique: std::collections::HashSet<String> =
-            names.iter().map(|name| name.to_lowercase()).collect();
-        assert_eq!(unique.len(), names.len());
+        assert_eq!(names[..3], ["ana", "ana (2)", "ana (3)"]);
     }
 
     #[test]
-    fn the_first_song_added_plays_next_and_later_ones_queue() {
-        let (mut host, guest, _) = jam();
-        host.apply(guest, add(A, 1000), 0).unwrap();
-        host.apply(HOST_ID, add(B, 1000), 0).unwrap();
-        host.apply(guest, add(A, 1000), 0).unwrap();
-        let state = host.state(0);
-        assert_eq!(uris(&state), (Some(A), vec![B, A]));
-        assert_ne!(state.queue[0].id, state.queue[1].id);
-        assert_eq!(state.queue[1].added_by, guest);
-    }
-
-    #[test]
-    fn guests_control_playback_only_when_the_host_allows_it() {
-        let (mut host, guest, _) = jam();
-        host.apply(HOST_ID, add(A, 1000), 0).unwrap();
-        host.apply(HOST_ID, add(B, 1000), 0).unwrap();
-        let seq = host.state(0).seq;
-        for request in [
-            ClientMsg::Skip,
-            ClientMsg::SetPlaying { playing: true },
-            ClientMsg::Seek { position_ms: 5 },
-        ] {
-            assert_eq!(
-                host.apply(guest, request.clone(), 0),
-                Err(Refusal::NotAllowed)
-            );
-        }
-        let b = host.state(0).queue[0].id;
+    fn every_listener_may_do_everything() {
+        let (mut jam, ana, bob) = jam();
+        jam.apply(ana, add(A, 1000), 0).unwrap();
+        jam.apply(ana, add(B, 1000), 0).unwrap();
+        jam.apply(ana, add(C, 1000), 0).unwrap();
+        let c = jam.state(0).queue[1].id;
+        jam.apply(bob, ClientMsg::Move { item: c, to: 0 }, 0)
+            .unwrap();
+        assert_eq!(uris(&jam.state(0)).1, [C, B]);
+        jam.apply(bob, ClientMsg::Remove { item: c }, 0).unwrap();
+        jam.apply(bob, ClientMsg::SetPlaying { playing: true }, 0)
+            .unwrap();
+        jam.apply(bob, ClientMsg::Seek { position_ms: 500 }, 0)
+            .unwrap();
+        jam.apply(bob, ClientMsg::Skip, 0).unwrap();
+        assert_eq!(uris(&jam.state(0)), (Some(B), vec![]));
         assert_eq!(
-            host.apply(guest, ClientMsg::Move { item: b, to: 0 }, 0),
-            Err(Refusal::NotAllowed)
-        );
-        assert_eq!(
-            host.apply(guest, ClientMsg::Remove { item: b }, 0),
-            Err(Refusal::NotAllowed),
-            "a guest removes only its own songs"
-        );
-        assert_eq!(host.state(0).seq, seq, "a refusal changes nothing");
-
-        host.set_permissions(Permissions {
-            guests_control_playback: true,
-        });
-        host.apply(guest, ClientMsg::Skip, 0).unwrap();
-        assert_eq!(uris(&host.state(0)), (Some(B), vec![]));
-    }
-
-    #[test]
-    fn a_guest_may_remove_its_own_songs() {
-        let (mut host, guest, _) = jam();
-        host.apply(HOST_ID, add(A, 1000), 0).unwrap();
-        host.apply(guest, add(B, 1000), 0).unwrap();
-        let b = host.state(0).queue[0].id;
-        host.apply(guest, ClientMsg::Remove { item: b }, 0).unwrap();
-        assert_eq!(uris(&host.state(0)), (Some(A), vec![]));
-        assert_eq!(
-            host.apply(guest, ClientMsg::Remove { item: b }, 0),
+            jam.apply(bob, ClientMsg::Remove { item: c }, 0),
             Err(Refusal::NotFound)
         );
-    }
-
-    #[test]
-    fn strangers_and_handshake_messages_are_not_requests() {
-        let (mut host, guest, _) = jam();
-        assert_eq!(host.apply(99, add(A, 1000), 0), Err(Refusal::NotAllowed));
         assert_eq!(
-            host.apply(guest, ClientMsg::Ping { t0: 0 }, 0),
+            jam.apply(ana, ClientMsg::Ping { t0: 0 }, 0),
             Err(Refusal::Unexpected)
         );
-        host.leave(guest);
-        assert_eq!(host.apply(guest, add(A, 1000), 0), Err(Refusal::NotAllowed));
     }
 
     #[test]
-    fn a_guest_cannot_flood_the_queue() {
-        let (mut host, guest, _) = jam();
-        host.apply(HOST_ID, add(A, 1000), 0).unwrap();
-        for _ in 0..MAX_QUEUED_PER_GUEST {
-            host.apply(guest, add(B, 1000), 0).unwrap();
-        }
+    fn the_first_report_of_an_ending_moves_on_and_the_rest_are_ignored() {
+        let (mut jam, ana, bob) = jam();
+        jam.apply(ana, add(A, 0), 0).unwrap();
+        jam.apply(ana, add(B, 0), 0).unwrap();
+        let a = jam.state(0).current.unwrap().id;
+        jam.apply(ana, ClientMsg::Ended { item: a }, 0).unwrap();
         assert_eq!(
-            host.apply(guest, add(B, 1000), 0),
-            Err(Refusal::QuotaReached)
+            jam.apply(bob, ClientMsg::Ended { item: a }, 0),
+            Err(Refusal::NotFound),
+            "a second report must not skip the next song too"
         );
-        // The host is not held to a guest's quota, only to the queue's size.
-        while host.state(0).queue.len() < MAX_QUEUE {
-            host.apply(HOST_ID, add(C, 1000), 0).unwrap();
+        assert_eq!(uris(&jam.state(0)), (Some(B), vec![]));
+    }
+
+    #[test]
+    fn a_listener_cannot_flood_the_queue() {
+        let (mut jam, ana, bob) = jam();
+        jam.apply(ana, add(A, 1000), 0).unwrap();
+        for _ in 0..MAX_QUEUED_PER_LISTENER {
+            jam.apply(ana, add(B, 1000), 0).unwrap();
+        }
+        assert_eq!(jam.apply(ana, add(B, 1000), 0), Err(Refusal::QuotaReached));
+        jam.apply(bob, add(C, 1000), 0).unwrap();
+    }
+
+    #[test]
+    fn the_queue_has_a_ceiling() {
+        let secret = Secret::generate();
+        let mut jam = JamSession::new(0);
+        let first = join(&mut jam, &secret, "Ana");
+        jam.apply(first, add(A, 1000), 0).unwrap();
+        let mut listener = first;
+        while jam.state(0).queue.len() < MAX_QUEUE {
+            if jam.apply(listener, add(C, 1000), 0) == Err(Refusal::QuotaReached) {
+                jam.leave(listener, 0);
+                listener = join(&mut jam, &secret, "Next");
+            }
         }
         assert_eq!(
-            host.apply(HOST_ID, add(C, 1000), 0),
+            jam.apply(listener, add(C, 1000), 0),
             Err(Refusal::QueueFull)
         );
     }
 
     #[test]
-    fn moving_a_song_lands_it_at_the_asked_place() {
-        let (mut host, _, _) = jam();
-        for uri in [A, A, B, C] {
-            host.apply(HOST_ID, add(uri, 1000), 0).unwrap();
-        }
-        let c = host.state(0).queue[2].id;
-        host.apply(HOST_ID, ClientMsg::Move { item: c, to: 0 }, 0)
+    fn playback_runs_on_the_server_clock_and_moves_on_at_the_end() {
+        let (mut jam, ana, _) = jam();
+        jam.apply(ana, add(A, 10_000), 0).unwrap();
+        jam.apply(ana, add(B, 10_000), 0).unwrap();
+        jam.apply(ana, ClientMsg::SetPlaying { playing: true }, 1_000)
             .unwrap();
-        assert_eq!(uris(&host.state(0)).1, [C, A, B]);
-        host.apply(HOST_ID, ClientMsg::Move { item: c, to: 99 }, 0)
+        assert_eq!(jam.state(4_000).position_ms, 3_000);
+        jam.apply(ana, ClientMsg::SetPlaying { playing: false }, 5_000)
             .unwrap();
-        assert_eq!(uris(&host.state(0)).1, [A, B, C]);
-    }
-
-    #[test]
-    fn playback_runs_on_the_host_clock_and_moves_on_at_the_end() {
-        let (mut host, _, _) = jam();
-        host.apply(HOST_ID, add(A, 10_000), 0).unwrap();
-        host.apply(HOST_ID, add(B, 10_000), 0).unwrap();
-        host.apply(HOST_ID, ClientMsg::SetPlaying { playing: true }, 1_000)
-            .unwrap();
-        assert_eq!(host.state(4_000).position_ms, 3_000);
-        host.apply(HOST_ID, ClientMsg::SetPlaying { playing: false }, 5_000)
-            .unwrap();
-        assert_eq!(host.state(9_000).position_ms, 4_000, "paused holds still");
-        host.apply(
-            HOST_ID,
+        assert_eq!(jam.state(9_000).position_ms, 4_000, "paused holds still");
+        jam.apply(
+            ana,
             ClientMsg::Seek {
                 position_ms: 99_000,
             },
@@ -697,32 +673,77 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            host.state(9_000).position_ms,
+            jam.state(9_000).position_ms,
             10_000,
             "seek stays in the song"
         );
-        host.apply(HOST_ID, ClientMsg::Seek { position_ms: 8_000 }, 9_000)
+        jam.apply(ana, ClientMsg::Seek { position_ms: 8_000 }, 9_000)
             .unwrap();
-        host.apply(HOST_ID, ClientMsg::SetPlaying { playing: true }, 9_000)
+        jam.apply(ana, ClientMsg::SetPlaying { playing: true }, 9_000)
             .unwrap();
-        assert!(!host.tick(10_999));
-        assert!(host.tick(11_000));
-        let state = host.state(11_000);
+        assert!(!jam.tick(10_999));
+        assert!(jam.tick(11_000));
+        let state = jam.state(11_000);
         assert_eq!(uris(&state), (Some(B), vec![]));
         assert!(state.playing);
         assert_eq!(state.position_ms, 0);
-        assert!(host.tick(21_000));
-        let state = host.state(21_000);
+        assert!(jam.tick(21_000));
+        let state = jam.state(21_000);
         assert_eq!(uris(&state), (None, vec![]));
         assert!(!state.playing, "an empty jam stops");
     }
 
     #[test]
+    fn the_jam_pauses_when_the_last_listener_leaves() {
+        let (mut jam, ana, bob) = jam();
+        jam.apply(ana, add(A, 100_000), 0).unwrap();
+        jam.apply(ana, ClientMsg::SetPlaying { playing: true }, 0)
+            .unwrap();
+        assert!(jam.leave(ana, 1_000));
+        assert!(jam.state(5_000).playing, "one listener remains");
+        assert!(jam.leave(bob, 5_000));
+        assert!(!jam.leave(bob, 5_000));
+        let state = jam.state(60_000);
+        assert!(!state.playing);
+        assert_eq!(state.position_ms, 5_000);
+    }
+
+    #[test]
+    fn a_saved_jam_comes_back_paused_with_fresh_ids() {
+        let (mut jam, ana, _) = jam();
+        jam.apply(ana, add(A, 100_000), 0).unwrap();
+        jam.apply(ana, add(B, 100_000), 0).unwrap();
+        jam.apply(ana, ClientMsg::SetPlaying { playing: true }, 0)
+            .unwrap();
+        let saved = jam.save(3_000);
+        let text = serde_json::to_string(&saved).unwrap();
+        let restored = JamSession::restore(serde_json::from_str(&text).unwrap(), 0);
+        let state = restored.state(50_000);
+        assert_eq!(uris(&state), (Some(A), vec![B]));
+        assert_eq!(state.position_ms, 3_000);
+        assert!(!state.playing);
+        assert!(state.participants.is_empty());
+        let mut restored = restored;
+        let secret = Secret::generate();
+        let cleo = join(&mut restored, &secret, "Cleo");
+        restored.apply(cleo, add(C, 1000), 0).unwrap();
+        let ids: Vec<ItemId> = restored
+            .state(0)
+            .current
+            .iter()
+            .chain(&restored.state(0).queue)
+            .map(|item| item.id)
+            .collect();
+        let unique: std::collections::HashSet<_> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len(), "ids stay distinct after a restore");
+    }
+
+    #[test]
     fn every_change_advances_the_sequence_and_a_late_state_is_ignored() {
-        let (mut host, _, _) = jam();
-        let before = host.state(0);
-        host.apply(HOST_ID, add(A, 1000), 0).unwrap();
-        let after = host.state(0);
+        let (mut jam, ana, _) = jam();
+        let before = jam.state(0);
+        jam.apply(ana, add(A, 1000), 0).unwrap();
+        let after = jam.state(0);
         assert!(after.seq > before.seq);
         let mut follower = Follower::default();
         assert!(follower.receive(after.clone()));
@@ -735,27 +756,26 @@ mod tests {
     }
 
     #[test]
-    fn the_host_clock_is_the_median_of_recent_round_trips() {
+    fn the_server_clock_is_the_median_of_recent_round_trips() {
         let mut clock = ClockSync::default();
-        assert_eq!(clock.host_now(0), None);
-        // The host runs 1000 ms ahead; a 100 ms round trip is split evenly.
+        assert_eq!(clock.server_now(0), None);
+        // The server runs 1000 ms ahead; a 100 ms round trip is split evenly.
         clock.sample(0, 1_050, 100);
-        assert_eq!(clock.host_now(200), Some(1_200));
+        assert_eq!(clock.server_now(200), Some(1_200));
         // One lopsided sample does not move the median of three.
         clock.sample(1_000, 2_050, 1_100);
         clock.sample(2_000, 9_000, 2_100);
-        assert_eq!(clock.host_now(3_000), Some(4_000));
+        assert_eq!(clock.server_now(3_000), Some(4_000));
         // Out of order and very slow round trips are dropped.
         clock.sample(5_000, 0, 4_000);
         clock.sample(0, 0, MAX_ROUND_TRIP_MS + 1);
         assert_eq!(clock.offsets.len(), 3);
-        // A host behind this clock is fine too.
         let mut behind = ClockSync::default();
         behind.sample(10_000, 5_000, 10_000);
-        assert_eq!(behind.host_now(10_000), Some(5_000));
+        assert_eq!(behind.server_now(10_000), Some(5_000));
     }
 
-    fn playing_state(uri: &str, position_ms: u32, host_time_ms: u64, playing: bool) -> JamState {
+    fn playing_state(uri: &str, position_ms: u32, server_time_ms: u64, playing: bool) -> JamState {
         JamState {
             seq: 1,
             current: Some(JamItem {
@@ -764,14 +784,13 @@ mod tests {
                 title: String::new(),
                 artists: String::new(),
                 duration_ms: 200_000,
-                added_by: HOST_ID,
+                added_by: 1,
             }),
             queue: Vec::new(),
             playing,
             position_ms,
-            host_time_ms,
+            server_time_ms,
             participants: Vec::new(),
-            permissions: Permissions::default(),
         }
     }
 
@@ -785,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn a_guest_loads_the_jam_song_where_the_host_is_now() {
+    fn a_listener_loads_the_jam_song_where_the_server_is_now() {
         let state = playing_state(A, 10_000, 1_000, true);
         assert_eq!(
             reconcile(&state, local(Some(B), true, 0), 3_000),
@@ -816,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn a_guest_pauses_and_resumes_with_the_jam() {
+    fn a_listener_pauses_and_resumes_with_the_jam() {
         let paused = playing_state(A, 10_000, 0, false);
         assert_eq!(
             reconcile(&paused, local(Some(A), true, 10_000), 5_000),

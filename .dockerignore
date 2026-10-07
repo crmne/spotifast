@@ -1,0 +1,5 @@
+# The jam server image builds from the sources alone.
+target/
+**/target/
+.git/
+.cache/

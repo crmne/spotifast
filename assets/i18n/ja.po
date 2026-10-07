@@ -742,53 +742,17 @@ msgid "Added to the jam"
 msgstr "ジャムに追加しました"
 
 #: src/ui/jam.rs
-msgid "Copy invitation"
-msgstr "招待をコピー"
-
-#: src/ui/jam.rs
 msgid "Couldn't reach the jam."
 msgstr "ジャムに接続できませんでした。"
-
-#: src/ui/jam.rs
-msgid "Couldn't start the jam on this network."
-msgstr "このネットワークでジャムを開始できませんでした。"
-
-#: src/ui/jam.rs
-msgid "End the jam"
-msgstr "ジャムを終了"
-
-#: src/ui/jam.rs
-msgid "Friends on your network join with the invitation code. Everyone listens on their own Spotify account."
-msgstr "同じネットワーク上の友だちは招待コードで参加できます。各自が自分の Spotify アカウントで聴きます。"
-
-#: src/ui/jam.rs
-msgid "Guests control playback"
-msgstr "ゲストが再生を操作できる"
-
-#: src/ui/jam.rs
-msgid "Host a jam"
-msgstr "ジャムを開催"
 
 #: src/ui/jam.rs
 msgid "In a jam, add songs to the jam to play them."
 msgstr "ジャム中は、曲をジャムに追加して再生してください。"
 
-#: src/ui/jam.rs
-msgid "Invitation code"
-msgstr "招待コード"
-
-#: src/ui/jam.rs
-msgid "Invitation copied"
-msgstr "招待をコピーしました"
-
 #. Translators: Listening together with other Spotifast users, each on their own account.
 #: src/ui/jam.rs
 msgid "Jam"
 msgstr "ジャム"
-
-#: src/ui/jam.rs
-msgid "Join a jam"
-msgstr "ジャムに参加"
 
 #: src/ui/jam.rs
 msgid "Join"
@@ -803,10 +767,6 @@ msgid "Listeners"
 msgstr "リスナー"
 
 #: src/ui/jam.rs
-msgid "Only the host can do that."
-msgstr "この操作はホストのみ行えます。"
-
-#: src/ui/jam.rs
 msgid "Reconnecting…"
 msgstr "再接続しています…"
 
@@ -819,24 +779,8 @@ msgid "Right-click a song and choose Add to jam."
 msgstr "曲を右クリックして「ジャムに追加」を選んでください。"
 
 #: src/ui/jam.rs
-msgid "That invitation code isn't valid."
-msgstr "この招待コードは無効です。"
-
-#: src/ui/jam.rs
-msgid "That invitation is wrong or has expired."
-msgstr "この招待は正しくないか、期限が切れています。"
-
-#: src/ui/jam.rs
 msgid "That jam is full."
 msgstr "このジャムは満員です。"
-
-#: src/ui/jam.rs
-msgid "That jam runs another version of Spotifast."
-msgstr "このジャムは別のバージョンの Spotifast を使っています。"
-
-#: src/ui/jam.rs
-msgid "The host ended the jam."
-msgstr "ホストがジャムを終了しました。"
 
 #: src/ui/jam.rs
 msgid "The jam plays on this computer. Switch playback here to follow it."
@@ -849,6 +793,26 @@ msgstr "ジャムの再生待ちリストがいっぱいです。"
 #: src/ui/jam.rs
 msgid "You have plenty of songs waiting already."
 msgstr "すでに多くの曲が待機中です。"
+
+#: src/ui/jam.rs
+msgid "Listen together with everyone who has the jam server's code. Each person plays the songs on their own Spotify account."
+msgstr "ジャムサーバーのコードを持っている全員と一緒に聴けます。各自が自分の Spotify アカウントで曲を再生します。"
+
+#: src/ui/jam.rs
+msgid "Jam server code"
+msgstr "ジャムサーバーのコード"
+
+#: src/ui/jam.rs
+msgid "That jam server code isn't valid."
+msgstr "このジャムサーバーのコードは無効です。"
+
+#: src/ui/jam.rs
+msgid "The jam server refused this code."
+msgstr "ジャムサーバーがこのコードを拒否しました。"
+
+#: src/ui/jam.rs
+msgid "The jam server runs another version of Spotifast."
+msgstr "ジャムサーバーは別のバージョンの Spotifast を使っています。"
 
 #. Translators: {count} is a number of songs.
 #: src/app.rs:4471

@@ -7,6 +7,15 @@ These instructions add implementation constraints for coding agents.
 
 - Keep Spotifast a small native Spotify client. Do not add a browser engine,
   telemetry, a hosted backend, or alternate sources for Spotify audio.
+- The one exception is the jam server (`jam-server/`, sharing
+  `crates/jam-core` with the app), which this private fork runs on its own
+  VPS so listeners can share a jam. It relays song links, positions and
+  display names only: never audio, never a Spotify credential, and nothing
+  that reaches Spotify on anyone's behalf. Keep it that small. Its
+  connections stay TLS with the pinned certificate fingerprint and the
+  channel-bound password proof; do not weaken either, log the password or
+  the server code, or add a way to join without the code. Read
+  `docs/_reference/how-it-connects.md` (Jams) before changing it.
 - Playback capabilities come from librespot. Do not advertise or implement a
   capability merely because its name appears in a protobuf or enum. In
   particular, do not pursue Spotify Lossless or DRM circumvention unless

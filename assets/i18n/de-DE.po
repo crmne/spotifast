@@ -749,53 +749,17 @@ msgid "Added to the jam"
 msgstr "Zur Jam hinzugefügt"
 
 #: src/ui/jam.rs
-msgid "Copy invitation"
-msgstr "Einladung kopieren"
-
-#: src/ui/jam.rs
 msgid "Couldn't reach the jam."
 msgstr "Die Jam ist nicht erreichbar."
-
-#: src/ui/jam.rs
-msgid "Couldn't start the jam on this network."
-msgstr "Die Jam konnte in diesem Netzwerk nicht gestartet werden."
-
-#: src/ui/jam.rs
-msgid "End the jam"
-msgstr "Jam beenden"
-
-#: src/ui/jam.rs
-msgid "Friends on your network join with the invitation code. Everyone listens on their own Spotify account."
-msgstr "Freunde in deinem Netzwerk treten mit dem Einladungscode bei. Alle hören mit ihrem eigenen Spotify-Konto."
-
-#: src/ui/jam.rs
-msgid "Guests control playback"
-msgstr "Gäste steuern die Wiedergabe"
-
-#: src/ui/jam.rs
-msgid "Host a jam"
-msgstr "Jam hosten"
 
 #: src/ui/jam.rs
 msgid "In a jam, add songs to the jam to play them."
 msgstr "In einer Jam fügst du Songs zur Jam hinzu, um sie abzuspielen."
 
-#: src/ui/jam.rs
-msgid "Invitation code"
-msgstr "Einladungscode"
-
-#: src/ui/jam.rs
-msgid "Invitation copied"
-msgstr "Einladung kopiert"
-
 #. Translators: Listening together with other Spotifast users, each on their own account.
 #: src/ui/jam.rs
 msgid "Jam"
 msgstr "Jam"
-
-#: src/ui/jam.rs
-msgid "Join a jam"
-msgstr "Einer Jam beitreten"
 
 #: src/ui/jam.rs
 msgid "Join"
@@ -810,10 +774,6 @@ msgid "Listeners"
 msgstr "Zuhörer"
 
 #: src/ui/jam.rs
-msgid "Only the host can do that."
-msgstr "Das kann nur der Host."
-
-#: src/ui/jam.rs
 msgid "Reconnecting…"
 msgstr "Verbindung wird wiederhergestellt…"
 
@@ -826,24 +786,8 @@ msgid "Right-click a song and choose Add to jam."
 msgstr "Klicke mit der rechten Maustaste auf einen Song und wähle „Zur Jam hinzufügen“."
 
 #: src/ui/jam.rs
-msgid "That invitation code isn't valid."
-msgstr "Dieser Einladungscode ist ungültig."
-
-#: src/ui/jam.rs
-msgid "That invitation is wrong or has expired."
-msgstr "Diese Einladung ist falsch oder abgelaufen."
-
-#: src/ui/jam.rs
 msgid "That jam is full."
 msgstr "Diese Jam ist voll."
-
-#: src/ui/jam.rs
-msgid "That jam runs another version of Spotifast."
-msgstr "Diese Jam nutzt eine andere Spotifast-Version."
-
-#: src/ui/jam.rs
-msgid "The host ended the jam."
-msgstr "Der Host hat die Jam beendet."
 
 #: src/ui/jam.rs
 msgid "The jam plays on this computer. Switch playback here to follow it."
@@ -856,6 +800,26 @@ msgstr "Die Warteschlange der Jam ist voll."
 #: src/ui/jam.rs
 msgid "You have plenty of songs waiting already."
 msgstr "Du hast schon viele Songs in der Warteschlange."
+
+#: src/ui/jam.rs
+msgid "Listen together with everyone who has the jam server's code. Each person plays the songs on their own Spotify account."
+msgstr "Hört gemeinsam mit allen, die den Code des Jam-Servers haben. Jede Person hört die Songs mit ihrem eigenen Spotify-Konto."
+
+#: src/ui/jam.rs
+msgid "Jam server code"
+msgstr "Code des Jam-Servers"
+
+#: src/ui/jam.rs
+msgid "That jam server code isn't valid."
+msgstr "Dieser Jam-Server-Code ist ungültig."
+
+#: src/ui/jam.rs
+msgid "The jam server refused this code."
+msgstr "Der Jam-Server hat diesen Code abgelehnt."
+
+#: src/ui/jam.rs
+msgid "The jam server runs another version of Spotifast."
+msgstr "Der Jam-Server nutzt eine andere Spotifast-Version."
 
 #. Translators: {count} is a number of songs.
 #: src/app.rs:4471

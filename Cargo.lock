@@ -2963,6 +2963,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jam-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "hmac 0.12.1",
+ "rand 0.9.5",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-rustls",
+]
+
+[[package]]
+name = "jam-server"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "jam-core",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+]
+
+[[package]]
 name = "jiff"
 version = "0.2.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5874,6 +5902,7 @@ dependencies = [
  "http",
  "hyper-util",
  "image",
+ "jam-core",
  "jiff",
  "keyring-core",
  "librespot-connect",

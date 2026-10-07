@@ -1,0 +1,21 @@
+[package]
+name = "jam-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+description = "The protocol, state and client of Spotifast's jams, shared by the app and the jam server"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+hmac = "0.12"
+rand = "0.9"
+# The same TLS stack and ring provider the app's HTTP client already uses.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "time", "net", "sync", "rt", "macros"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }

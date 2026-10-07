@@ -1,0 +1,15 @@
+# Run from this directory: `docker compose up -d`, then
+# `docker compose run --rm jam code --host <the server's public address>`.
+services:
+  jam:
+    build:
+      context: ..
+      dockerfile: jam-server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4070:4070"
+    volumes:
+      - jam-data:/data
+
+volumes:
+  jam-data:

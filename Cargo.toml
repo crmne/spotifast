@@ -18,7 +18,14 @@ path = "src/lib.rs"
 name = "spotifast"
 path = "src/spotifast.rs"
 
+[workspace]
+# The app, the jam core it shares with the jam server, and that server.
+members = [".", "crates/jam-core", "jam-server"]
+default-members = [".", "crates/jam-core", "jam-server"]
+
 [dependencies]
+# The jam protocol and state, shared with the jam server.
+jam-core = { path = "crates/jam-core" }
 anyhow = "1"
 thiserror = "2"
 clap = { version = "4.5", features = ["derive"] }

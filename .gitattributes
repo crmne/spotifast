@@ -1,1 +1,3 @@
 .github/workflows/*.lock.yml linguist-generated=true
+# Run inside Linux containers: a carriage return would break the shebang.
+*.sh text eol=lf

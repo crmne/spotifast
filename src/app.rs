@@ -4411,35 +4411,26 @@ impl App {
         self.toast(gettext(self.locale, "Queue cleared"));
     }
 
-    /// Hosts a jam at `bind`, this computer's address on the network the
-    /// guests share (see [`crate::jam::net::lan_address`]). Zero for `port`
-    /// picks a free one; the invitation names it.
-    pub fn host_jam(&mut self, bind: std::net::IpAddr, port: u16) {
-        let clock = crate::jam::session::JamClock::new();
-        self.jam.start(clock);
-        self.backend.jam(crate::jam::net::JamCommand::Host {
-            name: self.jam_name(),
-            bind,
-            port,
-            clock,
-        });
-    }
-
-    /// Joins the jam an invitation code names. A malformed code changes
-    /// nothing.
-    pub fn join_jam(&mut self, code: &str) -> Result<(), crate::jam::invite::InviteError> {
-        let invite = crate::jam::invite::Invite::parse(code)?;
+    /// Joins the jam on the server `code` names, and keeps the code for next
+    /// time. A malformed code changes nothing.
+    pub fn join_jam(&mut self, code: &str) -> Result<(), crate::jam::auth::CodeError> {
+        let server = crate::jam::auth::ServerCode::parse(code)?;
+        let code = code.trim().to_string();
+        if self.settings.jam_server != code {
+            self.settings.jam_server = code;
+            self.settings_dirty = true;
+        }
         let clock = crate::jam::session::JamClock::new();
         self.jam.start(clock);
         self.backend.jam(crate::jam::net::JamCommand::Join {
-            invite,
+            code: server,
             name: self.jam_name(),
             clock,
         });
         Ok(())
     }
 
-    /// Leaves the jam, or ends it when hosting. The view clears at once.
+    /// Leaves the jam; it plays on for the others. The view clears at once.
     pub fn leave_jam(&mut self) {
         if !self.jam.active() {
             return;
@@ -4460,15 +4451,14 @@ impl App {
         };
         self.jam.apply(event);
         if joined {
-            // A rejoined guest may face a restarted host: judge afresh, and
-            // send again what was added while away.
+            // A rejoined listener may face a restarted server: judge afresh,
+            // and send again what was added while away.
             self.jam_sync = Default::default();
             for message in self.jam.resend() {
                 self.jam_request(message);
             }
         }
         let refusal = match refused {
-            Some(Refusal::NotAllowed) => Some(gettext(self.locale, "Only the host can do that.")),
             Some(Refusal::QueueFull) => Some(gettext(self.locale, "The jam's queue is full.")),
             Some(Refusal::QuotaReached) => Some(gettext(
                 self.locale,
@@ -4499,13 +4489,13 @@ impl App {
         }
     }
 
-    /// Keeps local playback on the jam: its song, where the host is in it,
+    /// Keeps local playback on the jam: its song, where the server is in it,
     /// playing or paused. Only the local player can follow a jam.
     fn sync_jam(&mut self) {
         if !self.jam.in_session() || !self.local_ready || !matches!(self.target(), Target::Local) {
             return;
         }
-        let (Some(clock), Some(host_now)) = (self.jam.clock, self.jam.host_now_ms()) else {
+        let (Some(clock), Some(server_now)) = (self.jam.clock, self.jam.server_now_ms()) else {
             return;
         };
         let Some(state) = self.jam.state.as_ref() else {
@@ -4525,24 +4515,24 @@ impl App {
         };
         let step = self
             .jam_sync
-            .step(state, observed, host_now, clock.now_ms());
-        // A song of unknown length cannot be timed by the host, so its end
-        // shows here: the engine, holding it on repeat, starts it again.
-        let ended = step.song_ended
-            && self.jam.status == crate::jam::view::JamStatus::Hosting
-            && state
-                .current
-                .as_ref()
-                .is_some_and(|current| current.duration_ms == 0);
+            .step(state, observed, server_now, clock.now_ms());
+        // The engine, holding the song on repeat, started it again: it
+        // reached its end. The server times songs of known length itself;
+        // this report covers the others, and names the song so that it moves
+        // the jam on once however many listeners send it.
+        let ended = step
+            .song_ended
+            .then(|| state.current.as_ref().map(|current| current.id))
+            .flatten();
         for correction in step.corrections {
             self.backend.player(jam_player_command(correction));
         }
-        if ended {
-            self.jam_request(crate::jam::protocol::ClientMsg::Skip);
+        if let Some(item) = ended {
+            self.jam_request(crate::jam::protocol::ClientMsg::Ended { item });
         }
     }
 
-    /// Adds songs to the jam. Each shows at once; the host confirms after.
+    /// Adds songs to the jam. Each shows at once; the server confirms after.
     /// Only Spotify songs and episodes can be shared, not local files.
     fn add_to_jam(&mut self, items: Vec<PlayableItem>) {
         if !self.jam.in_session() {
@@ -4574,14 +4564,14 @@ impl App {
         }
     }
 
-    /// Sends a request to the jam's host, which may be this computer.
+    /// Sends a request to the jam server.
     pub fn jam_request(&mut self, message: crate::jam::protocol::ClientMsg) {
         self.backend
             .jam(crate::jam::net::JamCommand::Request(message));
     }
 
-    /// The player bar's controls act on the jam while in one: the host
-    /// decides, and every participant follows.
+    /// The player bar's controls act on the jam while in one: the server
+    /// applies them, and every listener follows.
     fn jam_transport(&mut self, action: &Action) -> bool {
         use crate::jam::protocol::ClientMsg;
         if !self.jam.in_session() {
@@ -4590,9 +4580,9 @@ impl App {
         let Some(state) = self.jam.state.as_ref() else {
             return true;
         };
-        let position = self.jam.host_now_ms().map_or(state.position_ms, |now| {
+        let position = self.jam.server_now_ms().map_or(state.position_ms, |now| {
             let elapsed = if state.playing {
-                now.saturating_sub(state.host_time_ms)
+                now.saturating_sub(state.server_time_ms)
             } else {
                 0
             };
@@ -9138,16 +9128,9 @@ impl App {
             }
             Action::ClearQueue => self.clear_queue(),
             Action::RemoveFromQueue { rows } => self.remove_from_queue(rows),
-            Action::HostJam => match crate::jam::net::lan_address() {
-                Some(address) => self.host_jam(address, 0),
-                None => self.toast(gettext(
-                    self.locale,
-                    "Couldn't start the jam on this network.",
-                )),
-            },
             Action::JoinJam(code) => {
                 if self.join_jam(&code).is_err() {
-                    self.toast(gettext(self.locale, "That invitation code isn't valid."));
+                    self.toast(gettext(self.locale, "That jam server code isn't valid."));
                 }
             }
             Action::LeaveJam => self.leave_jam(),
@@ -9156,22 +9139,6 @@ impl App {
                 if self.jam.in_session() {
                     let message = self.jam.remove(item);
                     self.jam_request(message);
-                }
-            }
-            Action::SetJamGuestControl(guests_control_playback) => {
-                if self.jam.status == crate::jam::view::JamStatus::Hosting {
-                    self.backend
-                        .jam(crate::jam::net::JamCommand::SetPermissions(
-                            crate::jam::protocol::Permissions {
-                                guests_control_playback,
-                            },
-                        ));
-                }
-            }
-            Action::CopyJamInvite => {
-                if let Some(invite) = &self.jam.invite {
-                    ctx.copy_text(invite.code());
-                    self.toast(gettext(self.locale, "Invitation copied"));
                 }
             }
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
@@ -14506,22 +14473,30 @@ mod tests {
         );
     }
 
-    /// A malformed invitation starts nothing; leaving clears the jam at
-    /// once, and the network's late events cannot bring it back.
+    /// A malformed server code starts nothing; a good one is kept for next
+    /// time. Leaving clears the jam at once, and the connection's late
+    /// events cannot bring it back.
     #[test]
     fn joining_and_leaving_a_jam_updates_the_view_at_once() {
         let mut app = headless_app();
-        assert!(app.join_jam("not an invitation").is_err());
+        assert!(app.join_jam("not a server code").is_err());
         assert!(!app.jam.active());
+        assert!(app.settings.jam_server.is_empty());
 
-        let code = crate::jam::invite::Invite {
-            host: "127.0.0.1".into(),
+        let code = crate::jam::auth::ServerCode {
+            host: "203.0.113.7".into(),
             port: 4070,
-            secret: crate::jam::invite::Secret::generate(),
+            secret: crate::jam::auth::Secret::generate(),
+            fingerprint: crate::jam::auth::Fingerprint::of(b"certificate"),
         }
         .code();
         app.join_jam(&code).unwrap();
         assert_eq!(app.jam.status, crate::jam::view::JamStatus::Starting);
+        assert_eq!(app.settings.jam_server, code);
+        assert!(
+            !format!("{:?}", app.settings).contains(&code),
+            "the server code holds a password and must stay out of diagnostics"
+        );
 
         app.leave_jam();
         assert!(!app.jam.active());
@@ -14538,14 +14513,13 @@ mod tests {
             title: "Song".into(),
             artists: "Artist".into(),
             duration_ms,
-            added_by: crate::jam::protocol::HOST_ID,
+            added_by: 1,
         }
     }
 
-    /// An app in a jam whose clock matches its own, the local engine ready
-    /// and playing `local_uri` with its own repeat mode.
+    /// An app in a jam whose clock matches the server's, the local engine
+    /// ready and playing `local_uri` with its own repeat mode.
     fn app_in_jam(
-        host: bool,
         current: crate::jam::protocol::JamItem,
         position_ms: u32,
         local_uri: &str,
@@ -14564,19 +14538,9 @@ mod tests {
         app.local.repeat = RepeatMode::Context;
         let clock = crate::jam::session::JamClock::new();
         app.jam.start(clock);
-        if host {
-            app.jam.apply(JamEvent::Hosting {
-                invite: crate::jam::invite::Invite {
-                    host: "127.0.0.1".into(),
-                    port: 4070,
-                    secret: crate::jam::invite::Secret::generate(),
-                },
-            });
-        } else {
-            app.jam.apply(JamEvent::Joined { you: 1 });
-            app.jam.apply(JamEvent::ClockOffset(0));
-        }
-        let mut state = crate::jam::session::HostSession::new("Host", 0).state(clock.now_ms());
+        app.jam.apply(JamEvent::Joined { you: 1 });
+        app.jam.apply(JamEvent::ClockOffset(0));
+        let mut state = crate::jam::session::JamSession::new(0).state(clock.now_ms());
         state.seq = 1;
         state.current = Some(current);
         state.playing = true;
@@ -14590,12 +14554,12 @@ mod tests {
     const JAM_A: &str = "spotify:track:aaaaaaaaaaaaaaaaaaaaaa";
     const JAM_B: &str = "spotify:track:bbbbbbbbbbbbbbbbbbbbbb";
 
-    /// A guest plays the jam's song where the host is, alone and on repeat
-    /// so the engine cannot move on to autoplay, and asks only once while
-    /// the engine loads it.
+    /// A listener plays the jam's song where the server is, alone and on
+    /// repeat so the engine cannot move on to autoplay, and asks only once
+    /// while the engine loads it.
     #[test]
-    fn a_jam_guest_loads_the_jam_song_alone_on_repeat() {
-        let mut app = app_in_jam(false, jam_item(JAM_A, 200_000), 30_000, JAM_B);
+    fn a_jam_listener_loads_the_jam_song_alone_on_repeat() {
+        let mut app = app_in_jam(jam_item(JAM_A, 200_000), 30_000, JAM_B);
         app.sync_jam();
         let commands = app.backend.take_player_commands();
         let [PlayerCommand::Load(spec)] = commands.as_slice() else {
@@ -14617,11 +14581,11 @@ mod tests {
         assert!(app.backend.take_player_commands().is_empty());
     }
 
-    /// In a jam, the player controls ask the host rather than the engine.
+    /// In a jam, the player controls ask the server rather than the engine.
     #[test]
-    fn jam_transport_controls_go_to_the_host() {
+    fn jam_transport_controls_go_to_the_server() {
         use crate::jam::protocol::ClientMsg;
-        let mut app = app_in_jam(false, jam_item(JAM_A, 200_000), 0, JAM_A);
+        let mut app = app_in_jam(jam_item(JAM_A, 200_000), 0, JAM_A);
         let ctx = egui::Context::default();
         for action in [
             Action::Next,
@@ -14652,37 +14616,38 @@ mod tests {
         );
     }
 
-    /// The host cannot time a song of unknown length; when its engine
-    /// starts it over, the host moves the jam on. A known length is timed
-    /// by the host, and a guest never decides.
+    /// When the engine starts the jam's song over on its own, the song
+    /// reached its end: the listener tells the server which song ended, so
+    /// that however many listeners say so, the jam moves on once. Nothing is
+    /// said for a song this listener did not just play through.
     #[test]
-    fn a_jam_host_moves_on_when_a_song_of_unknown_length_ends() {
+    fn a_jam_listener_reports_the_end_of_the_song() {
         use crate::jam::protocol::ClientMsg;
-        for (host, duration_ms, skips) in
-            [(true, 0, true), (true, 200_000, false), (false, 0, false)]
-        {
-            let mut app = app_in_jam(host, jam_item(JAM_A, duration_ms), 0, JAM_A);
-            app.local.track_sequence = 1;
-            app.sync_jam();
-            app.local.track_sequence = 2;
-            app.sync_jam();
-            assert_eq!(
-                app.backend.take_jam_requests().contains(&ClientMsg::Skip),
-                skips,
-                "host {host}, length {duration_ms}"
-            );
-        }
+        let mut app = app_in_jam(jam_item(JAM_A, 0), 0, JAM_A);
+        app.local.track_sequence = 1;
+        app.sync_jam();
+        assert!(app.backend.take_jam_requests().is_empty());
+        app.local.track_sequence = 2;
+        app.sync_jam();
+        assert_eq!(
+            app.backend.take_jam_requests(),
+            [ClientMsg::Ended { item: 1 }]
+        );
+        assert!(
+            !app.backend.take_jam_requests().contains(&ClientMsg::Skip),
+            "a skip would move the jam on once per listener"
+        );
     }
 
     /// The jam put its songs on repeat; its end gives the listener's own
     /// repeat mode back.
     #[test]
     fn the_end_of_a_jam_gives_back_the_repeat_mode() {
-        let mut app = app_in_jam(false, jam_item(JAM_A, 200_000), 0, JAM_A);
+        let mut app = app_in_jam(jam_item(JAM_A, 200_000), 0, JAM_A);
         app.sync_jam();
         app.local.repeat = RepeatMode::Track;
         app.handle_backend_events(vec![Event::Jam(crate::jam::net::JamEvent::Ended(
-            crate::jam::net::EndReason::HostClosed,
+            crate::jam::net::EndReason::Unreachable("gone".into()),
         ))]);
         assert!(!app.jam.active());
         assert!(
@@ -14699,7 +14664,7 @@ mod tests {
     fn songs_added_to_a_jam_show_at_once_and_survive_a_reconnection() {
         use crate::jam::net::JamEvent;
         use crate::jam::protocol::ClientMsg;
-        let mut app = app_in_jam(false, jam_item(JAM_A, 200_000), 0, JAM_A);
+        let mut app = app_in_jam(jam_item(JAM_A, 200_000), 0, JAM_A);
         let ctx = egui::Context::default();
         let song = |uri: &str| {
             PlayableItem::Track(crate::api::models::Track {
@@ -14735,7 +14700,7 @@ mod tests {
     /// a word on how to share it instead.
     #[test]
     fn a_jam_holds_off_other_playback() {
-        let mut app = app_in_jam(false, jam_item(JAM_A, 200_000), 0, JAM_A);
+        let mut app = app_in_jam(jam_item(JAM_A, 200_000), 0, JAM_A);
         let ctx = egui::Context::default();
         app.apply(
             Action::PlayContext {
@@ -14753,7 +14718,7 @@ mod tests {
     /// Only the local player follows a jam.
     #[test]
     fn a_jam_is_not_followed_without_the_local_player() {
-        let mut app = app_in_jam(false, jam_item(JAM_A, 200_000), 0, JAM_B);
+        let mut app = app_in_jam(jam_item(JAM_A, 200_000), 0, JAM_B);
         app.local_ready = false;
         app.sync_jam();
         assert!(app.backend.take_player_commands().is_empty());

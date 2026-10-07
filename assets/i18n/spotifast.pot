@@ -744,52 +744,16 @@ msgid "Added to the jam"
 msgstr ""
 
 #: src/ui/jam.rs
-msgid "Copy invitation"
-msgstr ""
-
-#: src/ui/jam.rs
 msgid "Couldn't reach the jam."
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "Couldn't start the jam on this network."
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "End the jam"
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "Friends on your network join with the invitation code. Everyone listens on their own Spotify account."
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "Guests control playback"
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "Host a jam"
 msgstr ""
 
 #: src/ui/jam.rs
 msgid "In a jam, add songs to the jam to play them."
 msgstr ""
 
-#: src/ui/jam.rs
-msgid "Invitation code"
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "Invitation copied"
-msgstr ""
-
 #. Translators: Listening together with other Spotifast users, each on their own account.
 #: src/ui/jam.rs
 msgid "Jam"
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "Join a jam"
 msgstr ""
 
 #: src/ui/jam.rs
@@ -805,10 +769,6 @@ msgid "Listeners"
 msgstr ""
 
 #: src/ui/jam.rs
-msgid "Only the host can do that."
-msgstr ""
-
-#: src/ui/jam.rs
 msgid "Reconnecting…"
 msgstr ""
 
@@ -821,23 +781,7 @@ msgid "Right-click a song and choose Add to jam."
 msgstr ""
 
 #: src/ui/jam.rs
-msgid "That invitation code isn't valid."
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "That invitation is wrong or has expired."
-msgstr ""
-
-#: src/ui/jam.rs
 msgid "That jam is full."
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "That jam runs another version of Spotifast."
-msgstr ""
-
-#: src/ui/jam.rs
-msgid "The host ended the jam."
 msgstr ""
 
 #: src/ui/jam.rs
@@ -850,6 +794,26 @@ msgstr ""
 
 #: src/ui/jam.rs
 msgid "You have plenty of songs waiting already."
+msgstr ""
+
+#: src/ui/jam.rs
+msgid "Listen together with everyone who has the jam server's code. Each person plays the songs on their own Spotify account."
+msgstr ""
+
+#: src/ui/jam.rs
+msgid "Jam server code"
+msgstr ""
+
+#: src/ui/jam.rs
+msgid "That jam server code isn't valid."
+msgstr ""
+
+#: src/ui/jam.rs
+msgid "The jam server refused this code."
+msgstr ""
+
+#: src/ui/jam.rs
+msgid "The jam server runs another version of Spotifast."
 msgstr ""
 
 #. Translators: {count} is a number of songs.

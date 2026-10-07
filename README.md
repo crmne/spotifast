@@ -44,7 +44,7 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 |---|---|
 | **Library and search** | Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own. |
 | **Spotify Connect** | Play on this computer or control playback on your other devices. |
-| **Jams** | Listen together with friends on your network who also use Spotifast, each on their own Premium account. See [Jams](https://spotifast.rocks/jam/). |
+| **Jams** | Listen together through your own jam server with friends who also use Spotifast, each on their own Premium account. See [Jams](https://spotifast.rocks/jam/). |
 | **Themes** | Choose light, dark, system appearance, or custom colours. On Omarchy, follow your desktop theme. |
 | **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings. |
 | **Winamp mini player** | Use classic skins with an equalizer, playlist, and animated sound displays. |

@@ -1002,18 +1002,12 @@ pub enum Action {
     RemoveFromQueue {
         rows: Vec<(usize, String)>,
     },
-    /// Host a jam on this computer's network address.
-    HostJam,
-    /// Join the jam an invitation code names.
+    /// Join the jam on the server a server code names, and keep that code.
     JoinJam(String),
-    /// Leave the jam, or end it when hosting.
     LeaveJam,
-    /// Add songs to the jam's queue, shown at once while the host confirms.
+    /// Add songs to the jam's queue, shown at once while the server confirms.
     AddToJam(Vec<PlayableItem>),
     RemoveFromJam(crate::jam::protocol::ItemId),
-    /// Host only: whether guests may skip, pause, seek and reorder.
-    SetJamGuestControl(bool),
-    CopyJamInvite,
     /// Set saved state for several songs explicitly.
     SetSavedMany {
         uris: Vec<String>,

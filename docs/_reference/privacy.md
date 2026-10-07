@@ -49,11 +49,11 @@ Spotifast connects only to the services below.
   sent.
 - **Your local network.** Spotifast looks for Spotify Connect speakers over
   mDNS and talks to the ones you choose.
-- **The people in your jam.** Only while you host or join a
-  [jam](/jam/), Spotifast connects directly to the other participants'
-  computers. It sends your Spotify display name, the songs you add, and
-  playback commands and positions. The connection is not encrypted; no
-  credential or other account detail is sent.
+- **Your jam server.** Only while you are in a [jam](/jam/), Spotifast
+  connects over TLS to the jam server its code names, which whoever runs it
+  hosts. It sends your Spotify display name, the songs you add, and playback
+  commands and positions; the other listeners see your name and your songs.
+  No credential or other account detail is sent.
 
 Links you open from the app, such as the Winamp Skin Museum or this website,
 open in your browser.
