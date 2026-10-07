@@ -47,6 +47,15 @@ impl JamView {
         self.status != JamStatus::Off
     }
 
+    /// Hosting, or a guest let in, even while reconnecting: playback
+    /// belongs to the jam.
+    pub fn in_session(&self) -> bool {
+        matches!(
+            self.status,
+            JamStatus::Hosting | JamStatus::Joined | JamStatus::Reconnecting(_)
+        )
+    }
+
     /// The host's clock now, once known.
     pub fn host_now_ms(&self) -> Option<u64> {
         let clock = self.clock?;

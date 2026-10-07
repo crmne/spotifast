@@ -900,6 +900,8 @@ pub struct Backend {
     #[cfg(test)]
     player_commands: std::sync::Mutex<Vec<PlayerCommand>>,
     #[cfg(test)]
+    jam_requests: std::sync::Mutex<Vec<crate::jam::protocol::ClientMsg>>,
+    #[cfg(test)]
     album_type_requests: std::sync::Mutex<Vec<Vec<String>>>,
     #[cfg(test)]
     home_episode_requests: std::sync::Mutex<Vec<(Vec<String>, u64)>>,
@@ -985,6 +987,8 @@ impl Backend {
             queued_tracks: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             player_commands: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            jam_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             album_type_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
@@ -1205,7 +1209,16 @@ impl Backend {
 
     /// Hosts, joins, or acts in a jam on the runtime.
     pub fn jam(&self, command: crate::jam::net::JamCommand) {
+        #[cfg(test)]
+        if let crate::jam::net::JamCommand::Request(message) = &command {
+            self.jam_requests.lock().unwrap().push(message.clone());
+        }
         self.send(Command::Jam(command));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_jam_requests(&self) -> Vec<crate::jam::protocol::ClientMsg> {
+        std::mem::take(&mut *self.jam_requests.lock().unwrap())
     }
 
     pub(crate) fn album_types(&self, uris: Vec<String>) {

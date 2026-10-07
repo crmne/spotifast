@@ -16,6 +16,7 @@
 //! - [`session`]: the host's authoritative state machine and the guest's
 //!   reconciliation of that state with its local playback.
 //!
+//! [`sync`] keeps local playback on the jam without fighting the engine.
 //! [`net`] carries all of it over TCP on the backend's runtime, and
 //! [`view`] is what the app knows of the jam from the network's events.
 
@@ -23,4 +24,5 @@ pub mod invite;
 pub mod net;
 pub mod protocol;
 pub mod session;
+pub mod sync;
 pub mod view;

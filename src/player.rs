@@ -278,6 +278,9 @@ impl LoadSpec {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PlayerCommand {
+    /// Resume, or stay playing. A jam sets playback rather than flipping it.
+    Play,
+    Pause,
     Toggle,
     Next,
     Previous,
@@ -604,6 +607,8 @@ impl Engine {
     fn send_command(&self, command: PlayerCommand) -> Result<()> {
         let spirc = &self.spirc;
         match command {
+            PlayerCommand::Play => spirc.play()?,
+            PlayerCommand::Pause => spirc.pause()?,
             PlayerCommand::Toggle => spirc.play_pause()?,
             PlayerCommand::Next => spirc.next()?,
             PlayerCommand::Previous => spirc.prev()?,
