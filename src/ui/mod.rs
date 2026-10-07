@@ -72,7 +72,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if app.show_queue_panel {
             queue::side_panel(app, ui);
         }
-        if app.show_lyrics_panel {
+        if app.now_playing_panel_open() {
             lyrics::side_panel(app, ui);
         }
         central(app, ui);
@@ -113,7 +113,7 @@ fn keep_room_for_panels(app: &App, ctx: &Context) {
     let width = main_min_width(
         topbar::least_width(ctx),
         app.settings.sidebar_visible,
-        app.show_queue_panel || app.show_lyrics_panel,
+        app.show_queue_panel || app.now_playing_panel_open(),
     )
     .round();
     let id = Id::new("main-min-width");

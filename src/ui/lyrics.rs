@@ -1,4 +1,5 @@
-//! The words of the playing track, in a side panel that follows the song.
+//! The playing song in a side panel: its cover and title, with its words
+//! beneath when the lyrics are shown, following the song.
 
 use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, pos2, vec2};
 
@@ -56,7 +57,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         let window_controls = super::window_controls_reservation(
             ui.ctx(),
             app.show_queue_panel,
-            app.show_lyrics_panel,
+            app.now_playing_panel_open(),
             ui.available_width(),
         );
         ui.add_space(window_controls.lyrics_top);
@@ -64,7 +65,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             ui.add_space(4.0);
             theme::text(
                 ui,
-                gettext(app.locale, "Lyrics"),
+                gettext(app.locale, "Now playing"),
                 theme::bold(18.0),
                 palette.text,
             );
@@ -79,8 +80,24 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 )
                 .clicked()
                 {
-                    app.actions.push(Action::ToggleLyricsPanel);
+                    app.actions.push(Action::ToggleNowPlayingPanel);
                 }
+            });
+        });
+        ui.add_space(8.0);
+        if !now_playing_card(app, ui) || !app.show_lyrics_panel {
+            return;
+        }
+        ui.add_space(16.0);
+        ui.horizontal(|ui| {
+            ui.add_space(4.0);
+            theme::text(
+                ui,
+                gettext(app.locale, "Lyrics"),
+                theme::bold(16.0),
+                palette.text,
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if theme::icon_button(
                     ui,
                     Icon::Expand,
@@ -119,6 +136,72 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         app.settings.lyrics_width = current_width;
         app.actions.push(Action::SettingsChanged);
     }
+}
+
+/// The playing song's cover with its title, artists and album beneath, at
+/// the top of the panel. Returns whether a song is playing; with none, the
+/// panel says so instead.
+fn now_playing_card(app: &App, ui: &mut egui::Ui) -> bool {
+    let palette = app.palette;
+    let Some(now) = app.now_playing() else {
+        let detail = if app.show_lyrics_panel {
+            gettext(app.locale, "Play a song to see its lyrics.")
+        } else {
+            Default::default()
+        };
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::Music,
+            &gettext(app.locale, "Nothing playing"),
+            &detail,
+        );
+        return false;
+    };
+    // The cover leaves the lyrics beneath it most of the panel's height.
+    let width = ui.available_width();
+    let height = if app.show_lyrics_panel {
+        ui.available_height() * 0.38
+    } else {
+        ui.available_height() - 110.0
+    };
+    let side = width.min(height).max(64.0);
+    let (row, _) = ui.allocate_exact_size(vec2(width, side), Sense::hover());
+    let cover = Rect::from_center_size(row.center(), vec2(side, side));
+    widgets::paint_cover(
+        ui,
+        &palette,
+        now.art_url.as_deref().or(now.art_small.as_deref()),
+        cover,
+        8.0,
+        Icon::Music,
+        Some(app.backend.art()),
+    );
+    ui.add_space(10.0);
+    ui.vertical_centered(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(&now.title)
+                    .font(theme::semibold(17.0))
+                    .color(palette.text),
+            )
+            .truncate(),
+        );
+        for line in [&now.subtitle, &now.album_name] {
+            if !line.is_empty() && *line != now.title {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(line)
+                            .font(theme::regular(13.0))
+                            .color(palette.secondary),
+                    )
+                    .truncate(),
+                );
+            }
+        }
+    });
+    true
 }
 
 fn contents(app: &mut App, ui: &mut egui::Ui) {

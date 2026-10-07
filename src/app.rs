@@ -406,6 +406,9 @@ pub struct App {
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
+    /// The right panel with the playing song's cover and title, which the
+    /// lyrics join underneath when they are shown.
+    pub show_now_playing_panel: bool,
     pub lyrics_fullscreen: Option<bool>,
     pub lyrics_fullscreen_seen: bool,
     lyrics_fullscreen_restoring: Option<bool>,
@@ -857,6 +860,7 @@ impl App {
             uploaded_covers: Default::default(),
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
+            show_now_playing_panel: session.now_playing_open.unwrap_or(false),
             lyrics_fullscreen: None,
             lyrics_fullscreen_seen: false,
             lyrics_fullscreen_restoring: None,
@@ -2677,6 +2681,12 @@ impl App {
         if self.show_lyrics_panel {
             self.request_lyrics();
         }
+    }
+
+    /// Whether the right panel shows the playing song: opened for itself, or
+    /// for the lyrics it holds underneath.
+    pub fn now_playing_panel_open(&self) -> bool {
+        self.show_now_playing_panel || self.show_lyrics_panel
     }
 
     /// Asks for the playing track's lyrics unless they are here or on the
@@ -8925,7 +8935,18 @@ impl App {
                 self.show_queue_panel = !self.show_queue_panel;
                 if self.show_queue_panel {
                     self.show_lyrics_panel = false;
+                    self.show_now_playing_panel = false;
                     self.refresh_queue(true);
+                }
+            }
+            Action::ToggleNowPlayingPanel => {
+                self.leave_lyrics_fullscreen(ctx);
+                if self.now_playing_panel_open() {
+                    self.show_now_playing_panel = false;
+                    self.show_lyrics_panel = false;
+                } else {
+                    self.show_now_playing_panel = true;
+                    self.show_queue_panel = false;
                 }
             }
             Action::ToggleLyricsPanel => {
@@ -9976,6 +9997,7 @@ impl App {
                 window_size: self.last_window_size.or(self.session_window_size),
                 window_pos: self.last_window_pos.or(self.session_window_pos),
                 queue_open: Some(self.show_queue_panel),
+                now_playing_open: Some(self.show_now_playing_panel),
                 queue_tab: Some(self.queue_tab.encode().to_string()),
                 winamp_pos: self.winamp.last_pos.or(self.winamp.restore_pos),
                 milkdrop_pos: self.milkdrop_pos,
@@ -10755,7 +10777,8 @@ mod tests {
                     .rect
                     .center()
             } else {
-                egui::pos2(1120.0, 100.0)
+                // Below the playing song's cover, over the lyrics.
+                egui::pos2(1120.0, 560.0)
             };
             let press = |button, pressed| egui::Event::PointerButton {
                 pos: anchor,
@@ -17267,6 +17290,35 @@ mod tests {
                 .commands
                 .contains(&egui::ViewportCommand::Fullscreen(false))
         );
+    }
+
+    #[test]
+    fn lyrics_sit_under_the_now_playing_panel() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            app.apply(Action::ToggleQueuePanel, ui.ctx());
+            // Lyrics alone open the panel, and hiding them closes it again.
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+            assert!(app.now_playing_panel_open() && !app.show_queue_panel);
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+            assert!(!app.now_playing_panel_open());
+            // Opened for itself, the panel stays when the lyrics go.
+            app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+            assert!(app.now_playing_panel_open());
+            // Its close button takes the lyrics with it.
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+            app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
+            assert!(!app.now_playing_panel_open() && !app.show_lyrics_panel);
+            // It shares the right side with the queue, one at a time.
+            app.apply(Action::ToggleNowPlayingPanel, ui.ctx());
+            app.apply(Action::ToggleQueuePanel, ui.ctx());
+            assert!(app.show_queue_panel && !app.now_playing_panel_open());
+        });
+        output.textures_delta.clear();
+        app.backend.shutdown();
     }
 
     fn headless_app() -> App {

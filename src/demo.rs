@@ -774,6 +774,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 };
             }
             "queue" => app.show_queue_panel = true,
+            "now-playing" => app.show_now_playing_panel = true,
             "playing-next" => {
                 app.show_queue_panel = true;
                 if let Loadable::Loaded(queue) = &app.queue {

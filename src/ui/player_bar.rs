@@ -933,6 +933,22 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     {
         app.actions.push(Action::ToggleLyricsPanel);
     }
+    if theme::icon_button(
+        ui,
+        Icon::Disc,
+        18.0,
+        if app.now_playing_panel_open() {
+            palette.accent
+        } else {
+            palette.secondary
+        },
+        palette.text,
+        &gettext(app.locale, "Now playing"),
+    )
+    .clicked()
+    {
+        app.actions.push(Action::ToggleNowPlayingPanel);
+    }
 }
 
 #[cfg(test)]

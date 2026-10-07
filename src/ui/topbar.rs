@@ -199,7 +199,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let window_controls = super::window_controls_reservation(
         ui.ctx(),
         app.show_queue_panel,
-        app.show_lyrics_panel,
+        app.now_playing_panel_open(),
         width,
     );
     // Where the titlebar used to be: the bar grows upwards into that space and

@@ -408,10 +408,10 @@ Spotifast on Windows, macOS, or X11 again.
 
 Since 0.8.0, the top bar reserves room for the device and update
 badges beside Search. In narrow windows those badges show only their icons.
-The bar stays above the page. Library, Queue and Lyrics keep their full height.
-When the window narrows, Library, Queue and Lyrics give up width before the
+The bar stays above the page. Library, Queue and Now playing keep their full height.
+When the window narrows, Library, Queue and Now playing give up width before the
 top bar runs out of room, and return to the widths you chose once it widens.
-With Queue or Lyrics open, the window cannot be made narrower than the room
+With Queue or Now playing open, the window cannot be made narrower than the room
 they need beside the page.
 Hover to read the device name or available version; click to open the device
 picker or update window.
@@ -487,10 +487,20 @@ You can replace it with other text instead.
 If Spotify refuses permission, sign in again and approve image uploads. If you
 use a personal Spotify app, reconnect it in Settings as well.
 
+## Now playing
+
+Choose the disc button at the end of the player bar to open the Now playing
+panel on the right. It shows the playing song's cover with its title, artists
+and album. Choose the button again, or the close button in the panel, to fold
+it away. Spotifast remembers whether it was open. Queue and Now playing share
+the right side, so opening one closes the other.
+
 ## Lyrics
 
-Choose the microphone button in the player bar, or press **L**, to open lyrics.
-Synced lyrics follow the playing line automatically. Scroll to pause following,
+Choose the microphone button in the player bar, or press **L**, to show lyrics.
+They appear in the Now playing panel, under the song's cover, and the panel
+opens for them if it was closed. Hiding the lyrics leaves the panel as it was
+before. Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
 
 The expand button opens lyrics in full screen. Press **Esc** or choose the
