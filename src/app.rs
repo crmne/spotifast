@@ -3350,15 +3350,8 @@ impl App {
                 }),
                 ControlCommand::OpenLink(uri) => Some(Action::OpenLink(uri)),
                 ControlCommand::Transfer(device_id) => Some(Action::Transfer(device_id)),
-                // Answered by the search's response, which plays the match.
                 ControlCommand::PlaySearch { kind, query } => {
-                    self.play_search_serial = self.play_search_serial.wrapping_add(1);
-                    self.backend.api(ApiRequest::PlaySearch {
-                        kind,
-                        query,
-                        serial: self.play_search_serial,
-                    });
-                    None
+                    Some(Action::PlaySearch { kind, query })
                 }
                 ControlCommand::RefreshDevices => Some(Action::RefreshDevices),
             };
@@ -8339,6 +8332,17 @@ impl App {
                 request.offset_uri = offset_uri;
                 request.offset_position = offset_index;
                 self.play_request(request, false);
+            }
+            // Answered by the search's response, which plays the match.
+            // Taking the serial here, not when the command arrives, keeps
+            // a play queued before it from superseding it.
+            Action::PlaySearch { kind, query } => {
+                self.play_search_serial = self.play_search_serial.wrapping_add(1);
+                self.backend.api(ApiRequest::PlaySearch {
+                    kind,
+                    query,
+                    serial: self.play_search_serial,
+                });
             }
             Action::PlayUris { uris, index } => {
                 if uris.is_empty() {
@@ -22185,10 +22189,12 @@ mod tests {
     }
 
     /// A play-search that finishes late never replaces a newer search or
-    /// something the user started meanwhile.
+    /// something the user started after it, and a play asked for before it
+    /// never supersedes it, even within one batch of commands.
     #[test]
     fn a_late_play_search_never_overrides_a_newer_choice() {
         // #given
+        let ctx = egui::Context::default();
         let mut app = headless_app();
         let queue: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>> = Default::default();
         app.control_commands = Some(std::sync::Arc::clone(&queue));
@@ -22201,40 +22207,67 @@ mod tests {
             serial,
             result: Ok(Some(uri.to_owned())),
         };
+        let send = |app: &mut App, commands: Vec<ControlCommand>| {
+            queue.lock().expect("the queue").extend(commands);
+            app.handle_control_commands();
+            app.apply_actions(&ctx);
+            app.play_search_serial
+        };
+        let played = |app: &App| -> Vec<String> {
+            app.actions
+                .iter()
+                .filter_map(|action| match action {
+                    Action::PlayContext { uri, .. } => Some(uri.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
 
         // #when two searches are sent and the older answers last
-        queue.lock().expect("the queue").push(search("first"));
-        app.handle_control_commands();
-        let first = app.play_search_serial;
-        queue.lock().expect("the queue").push(search("second"));
-        app.handle_control_commands();
-        let second = app.play_search_serial;
+        let first = send(&mut app, vec![search("first")]);
+        let second = send(&mut app, vec![search("second")]);
         app.handle_api(found(second, "spotify:track:second"));
         app.handle_api(found(first, "spotify:track:first"));
 
         // #then only the newer search plays
-        assert!(
-            matches!(
-                app.actions.as_slice(),
-                [Action::PlayContext { uri, .. }] if uri == "spotify:track:second"
-            ),
-            "{:?}",
-            app.actions
-        );
+        assert_eq!(played(&app), ["spotify:track:second"]);
 
         // #when the user plays something before a search answers
         app.actions.clear();
-        queue.lock().expect("the queue").push(search("third"));
-        app.handle_control_commands();
-        let third = app.play_search_serial;
-        app.play_request(
-            PlayRequest::context("spotify:album:chosen".to_owned()),
-            false,
+        let third = send(&mut app, vec![search("third")]);
+        send(
+            &mut app,
+            vec![ControlCommand::PlayUri("spotify:album:chosen".to_owned())],
         );
         app.handle_api(found(third, "spotify:track:third"));
 
         // #then the user's choice stands
-        assert!(app.actions.is_empty(), "{:?}", app.actions);
+        assert!(played(&app).is_empty(), "{:?}", app.actions);
+
+        // #when one batch asks for a URI and then a search
+        app.actions.clear();
+        queue.lock().expect("the queue").extend([
+            ControlCommand::PlayUri("spotify:album:older".to_owned()),
+            search("fourth"),
+        ]);
+        app.handle_control_commands();
+
+        // #then the search takes precedence after the URI, in command order
+        assert!(
+            matches!(
+                app.actions.as_slice(),
+                [Action::PlayContext { .. }, Action::PlaySearch { query, .. }] if query == "fourth"
+            ),
+            "{:?}",
+            app.actions
+        );
+        app.apply_actions(&ctx);
+        let fourth = app.play_search_serial;
+        app.actions.clear();
+        app.handle_api(found(fourth, "spotify:track:fourth"));
+
+        // #then the search, asked for last, still plays
+        assert_eq!(played(&app), ["spotify:track:fourth"]);
     }
 
     /// Control clients can set state, seek, play a URI, and transfer playback.
