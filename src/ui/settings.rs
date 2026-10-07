@@ -814,6 +814,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let show_custom_titlebar = cfg!(target_os = "linux") || app.windows_controls_visible();
     let player_bar_vis = gettext(locale, "Player bar visualizer");
     let player_bar_vis_click = gettext(locale, "Click player bar to change visualizer");
+    let scrollbars_on_hover = gettext(locale, "Show scrollbars only on hover");
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
             let detail = theme::catalog_detail(
@@ -894,6 +895,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         RowText::new(
             player_bar_vis_click.clone(),
             gettext(locale, "Allow clicks on empty player bar space to cycle the visualizer."),
+        ),
+        RowText::new(
+            scrollbars_on_hover.clone(),
+            gettext(locale, "Fade scrollbars when the pointer leaves the scroll area. Turn off to keep them visible."),
         ),
     ];
     if section_matches(&needle, &appearance, &appearance_rows) {
@@ -1187,6 +1192,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     },
                 );
             }
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &appearance,
+                &appearance_rows[10],
+                |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        &scrollbars_on_hover,
+                        &mut app.settings.scrollbars_on_hover,
+                    )
+                    .changed()
+                    {
+                        app.mark_settings_dirty();
+                    }
+                },
+            );
             if show_custom_titlebar {
                 filtered_row(
                     ui,
