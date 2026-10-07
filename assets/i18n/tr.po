@@ -3171,3 +3171,11 @@ msgstr "Spotifast penceresini açamıyor"
 #: src/window.rs:35
 msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr "ARM üzerinde Windows'ta Spotifast'in çizim için kullandığı OpenGL, Microsoft'un OpenCL, OpenGL & Vulkan Compatibility Pack paketinden gelir. Yüklemek veya onarmak için Microsoft Store sayfası açılsın mı?"
+
+#: src/ui/settings.rs
+msgid "Click player bar to change visualizer"
+msgstr "Görselleştiriciyi değiştirmek için oynatma çubuğuna tıkla"
+
+#: src/ui/settings.rs
+msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgstr "Oynatma çubuğundaki boş alana tıklayarak görselleştiriciyi değiştirmeye izin ver."

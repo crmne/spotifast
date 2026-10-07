@@ -3166,3 +3166,11 @@ msgstr "I Windows på ARM kommer OpenGL, som Spotifast ritar med, från Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Minska låttextrörelse"
+
+#: src/ui/settings.rs
+msgid "Click player bar to change visualizer"
+msgstr "Klicka på uppspelningsfältet för att byta visualisering"
+
+#: src/ui/settings.rs
+msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgstr "Tillåt klick på tomma ytor i uppspelningsfältet för att växla visualisering."
