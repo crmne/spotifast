@@ -129,6 +129,16 @@ enum Control {
     Like,
     /// Play a Spotify URI: a track, album, playlist, artist, or show
     PlayUri { uri: String },
+    /// Search Spotify and play the best match: `play-search danza rota`, or
+    /// `play-search --kind artist soda stereo`
+    PlaySearch {
+        /// What to look for: a song, or an album, artist, or playlist to play from the start
+        #[arg(long, value_enum, default_value_t = SearchKind::Track)]
+        kind: SearchKind,
+        /// The words to search for
+        #[arg(required = true, num_args = 1..)]
+        query: Vec<String>,
+    },
     /// List the Spotify Connect devices
     Devices {
         /// Print the JSON the running instance sent instead.
@@ -149,6 +159,14 @@ enum Control {
     Show,
     /// Reload local palette files without starting the app or interrupting playback
     ReloadThemes,
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum SearchKind {
+    Track,
+    Album,
+    Artist,
+    Playlist,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -205,6 +223,15 @@ fn run_control(control: Control) -> i32 {
         }
         Control::Like => "save-toggle".to_owned(),
         Control::PlayUri { uri } => format!("play-uri {uri}"),
+        Control::PlaySearch { kind, query } => {
+            let kind = match kind {
+                SearchKind::Track => "track",
+                SearchKind::Album => "album",
+                SearchKind::Artist => "artist",
+                SearchKind::Playlist => "playlist",
+            };
+            format!("play-search {kind} {}", query.join(" "))
+        }
         Control::Devices { .. } => "devices".to_owned(),
         Control::Transfer { device_id } => format!("transfer {device_id}"),
         Control::NowPlaying { .. } => "nowplaying".to_owned(),
