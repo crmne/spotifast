@@ -99,7 +99,9 @@ Homebrew automation needs `PUBLISH_HOMEBREW=true` and
 `HOMEBREW_TAP_GITHUB_TOKEN`. Enable only configured destinations.
 
 The macOS target, Windows and Flatpak build steps remain responsible
-for their native artifacts. Additional nFPM formats require suitable platform
+for their native artifacts. To make the Windows installer locally without a
+tag, run `packaging\windows\build-installer.bat`; it lists what it needs at
+the top and writes the setup program to `dist\`. Additional nFPM formats require suitable platform
 inputs and dependencies; adding a format does not port the application.
 See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.8.1)
 for commands and supported formats.
