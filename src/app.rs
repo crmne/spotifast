@@ -1595,7 +1595,14 @@ impl App {
         self.pending_fresh() && self.pending_play_keys.iter().any(|k| k == key)
     }
 
+    /// Records who is behind a user id. A lookup that found nothing never
+    /// replaces a name already known: when the session connects, names
+    /// still being looked up are asked for again, and the lookup that
+    /// failed may answer after the one that found the name.
     pub fn set_user_name(&mut self, id: String, name: Option<String>) {
+        if name.is_none() && self.user_names.get(&id).is_some_and(Option::is_some) {
+            return;
+        }
         if self.user_names.get(&id) != Some(&name) {
             self.user_names.insert(id, name);
             self.user_names_revision = self.user_names_revision.wrapping_add(1);
@@ -15109,6 +15116,32 @@ mod tests {
         );
         app.reveal_theme_changes = false;
         app
+    }
+
+    /// Two lookups of one adder can overlap; the one that found nothing
+    /// must not turn a shown name back into the bare id.
+    #[test]
+    fn a_failed_name_lookup_keeps_the_name_already_found() {
+        let mut app = test_app("adder-name-race");
+        app.request_user_names(vec!["kasia-id".into()]);
+        app.set_user_name("kasia-id".into(), Some("Kasia".into()));
+        let revision = app.user_names_revision;
+        app.set_user_name("kasia-id".into(), None);
+        assert_eq!(
+            app.user_names.get("kasia-id"),
+            Some(&Some("Kasia".to_string()))
+        );
+        assert_eq!(app.user_names_revision, revision, "nothing to redraw");
+        // A renamed account still shows its new name.
+        app.set_user_name("kasia-id".into(), Some("Kasia M.".into()));
+        assert_eq!(
+            app.user_names.get("kasia-id"),
+            Some(&Some("Kasia M.".to_string()))
+        );
+        // An id nobody could name stays unnamed, to be shown as the id.
+        app.set_user_name("nobody".into(), None);
+        assert_eq!(app.user_names.get("nobody"), Some(&None));
+        app.backend.shutdown();
     }
 
     /// With Random on, each switch to the mini player shows a skin other
