@@ -343,6 +343,13 @@ has no place in Spotify's playlist tree. Returning to **Local custom order**
 restores its saved position. Dragging a song onto Liked Songs still saves that
 song, wherever the row sits.
 
+**Faithful visuals**, at the bottom of **Settings > Appearance**, adds
+Spotify-style panels, navigation, playback icons, and a Now Playing panel.
+It is off by default. The Now Playing panel shows artwork, artists, credits,
+and the next track; Queue and Lyrics replace it, and narrow windows hide it.
+Credits requires local playback sign-in. You can switch the option without
+restarting; light, dark, and custom themes remain available.
+
 **Player bar visualizer** in **Settings > Appearance** shows the song moving
 behind the player bar's controls: **Spectrum** draws glowing bars from bass
 to treble with peaks that hang and fall, and **Waveform** draws the sound's

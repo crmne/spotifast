@@ -3156,3 +3156,55 @@ msgstr "Windows on ARM では、Spotifast の描画に使う OpenGL は Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#: src/ui/details.rs
+msgid "Credits"
+msgstr "クレジット"
+
+#: src/ui/details.rs
+msgid "No contributor credits are available."
+msgstr "参加者のクレジット情報はありません。"
+
+#: src/ui/details.rs
+msgid "Label"
+msgstr "レーベル"
+
+#: src/details.rs
+msgid "Main Artist"
+msgstr "メインアーティスト"
+
+#: src/details.rs
+msgid "Featured Artist"
+msgstr "ゲストアーティスト"
+
+#: src/details.rs
+msgid "Remixer"
+msgstr "リミキサー"
+
+#: src/details.rs
+msgid "Actor"
+msgstr "俳優"
+
+#: src/details.rs
+msgid "Composer"
+msgstr "作曲者"
+
+#: src/details.rs
+msgid "Conductor"
+msgstr "指揮者"
+
+#: src/details.rs
+msgid "Orchestra"
+msgstr "オーケストラ"
+
+#: src/ui/details.rs
+msgid "Composition & Lyrics"
+msgstr "作曲・歌詞"
+
+#: src/ui/settings.rs
+msgid "Faithful visuals"
+msgstr "忠実な外観"
+
+#: src/ui/settings.rs
+msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
+msgstr "Spotify風のパネル、ナビゲーション、再生コントロールを使用します。再生中ビューを追加します。"

@@ -3199,3 +3199,55 @@ msgstr "В Windows на ARM OpenGL, с помощью которого рису�
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Уменьшить анимацию текста"
+
+#: src/ui/details.rs
+msgid "Credits"
+msgstr "Авторы"
+
+#: src/ui/details.rs
+msgid "No contributor credits are available."
+msgstr "Сведения об участниках недоступны."
+
+#: src/ui/details.rs
+msgid "Label"
+msgstr "Лейбл"
+
+#: src/details.rs
+msgid "Main Artist"
+msgstr "Основной исполнитель"
+
+#: src/details.rs
+msgid "Featured Artist"
+msgstr "Приглашённый исполнитель"
+
+#: src/details.rs
+msgid "Remixer"
+msgstr "Автор ремикса"
+
+#: src/details.rs
+msgid "Actor"
+msgstr "Актёр"
+
+#: src/details.rs
+msgid "Composer"
+msgstr "Композитор"
+
+#: src/details.rs
+msgid "Conductor"
+msgstr "Дирижёр"
+
+#: src/details.rs
+msgid "Orchestra"
+msgstr "Оркестр"
+
+#: src/ui/details.rs
+msgid "Composition & Lyrics"
+msgstr "Музыка и текст"
+
+#: src/ui/settings.rs
+msgid "Faithful visuals"
+msgstr "Оформление как в Spotify"
+
+#: src/ui/settings.rs
+msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
+msgstr "Панели, навигация и управление воспроизведением в стиле Spotify. Добавляет панель текущего трека."

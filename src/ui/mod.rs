@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 pub mod artist;
 pub mod collection;
+mod details;
 pub(crate) mod devices;
 mod dialogs;
 pub mod home;
@@ -11,6 +12,7 @@ mod keys;
 pub mod library;
 pub mod login;
 mod lyrics;
+mod now_playing;
 pub mod player_bar;
 pub mod queue;
 pub mod radio;
@@ -34,6 +36,10 @@ use crate::theme::{self, Icon};
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let ctx = &ctx;
+    if app.settings.faithful_visuals {
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0, app.palette.window);
+    }
     keys::handle(app, ctx);
     for path in winamp::dropped_skins(ctx) {
         app.actions.push(Action::InstallSkin(path));
@@ -66,7 +72,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if app.lyrics_fullscreen.is_some() {
         lyrics::fullscreen(app, ui);
     } else {
-        if app.settings.sidebar_visible {
+        if app.settings.sidebar_visible && !app.settings.faithful_visuals {
+            sidebar::show(app, ui);
+        }
+        if app.settings.faithful_visuals {
+            let header_space = window_controls_reservation(ctx, false, false, ui.available_width());
+            egui::Panel::top("main-header")
+                .exact_size(
+                    theme::TOP_BAR_HEIGHT + theme::titlebar_inset(ctx) + header_space.topbar_top,
+                )
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(Frame::new().fill(app.palette.window))
+                .show(ui, |ui| topbar::show(app, ui));
+        }
+        if app.settings.sidebar_visible && app.settings.faithful_visuals {
             sidebar::show(app, ui);
         }
         if app.show_queue_panel {
@@ -74,6 +94,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
         if app.show_lyrics_panel {
             lyrics::side_panel(app, ui);
+        }
+        let now_playing_visible = app.now_playing_panel_visible()
+            && ui.available_width() >= page_min_width(app, ctx) + theme::SIDE_PANEL_MIN_WIDTH;
+        ctx.data_mut(|data| {
+            data.insert_temp(Id::new("now-playing-panel-visible"), now_playing_visible)
+        });
+        if now_playing_visible {
+            now_playing::side_panel(app, ui);
         }
         central(app, ui);
         keep_room_for_panels(app, ctx);
@@ -99,6 +127,52 @@ fn main_min_width(page: f32, sidebar: bool, right_panel: bool) -> f32 {
     (sidebar + right + page).max(crate::window::MAIN_MIN_SIZE[0])
 }
 
+/// Hide egui's full-height resize line while preserving the child controls' style.
+pub(crate) fn begin_panel_resize(app: &App, ui: &mut egui::Ui) -> std::sync::Arc<egui::Style> {
+    let style = ui.style().clone();
+    if app.settings.faithful_visuals {
+        ui.style_mut().visuals.widgets.active.fg_stroke = egui::Stroke::NONE;
+        ui.style_mut().visuals.widgets.hovered.fg_stroke = egui::Stroke::NONE;
+    }
+    style
+}
+
+pub(crate) fn finish_panel_resize(
+    app: &App,
+    ui: &mut egui::Ui,
+    style: std::sync::Arc<egui::Style>,
+    id: &str,
+    right: bool,
+    rect: egui::Rect,
+) {
+    ui.set_style(style);
+    if !app.settings.faithful_visuals {
+        return;
+    }
+    let Some(response) = ui.ctx().read_response(egui::Id::new(id).with("__resize")) else {
+        return;
+    };
+    if response.hovered() || response.dragged() {
+        // Each adjoining panel contributes four points to the gap.
+        let x = if right { rect.left() } else { rect.right() };
+        ui.painter().vline(
+            x,
+            (rect.top() + 12.0)..=(rect.bottom() - 12.0),
+            egui::Stroke::new(2.0, app.palette.text),
+        );
+    }
+}
+
+/// In the faithful layout the header spans the window, so side panels only
+/// need to reserve enough room for page content beneath it.
+pub(crate) fn page_min_width(app: &App, ctx: &Context) -> f32 {
+    if app.settings.faithful_visuals {
+        480.0
+    } else {
+        topbar::least_width(ctx)
+    }
+}
+
 /// The sidebar's narrowest width.
 pub(crate) const SIDEBAR_MIN_WIDTH: f32 = 210.0;
 
@@ -111,7 +185,7 @@ fn keep_room_for_panels(app: &App, ctx: &Context) {
         return;
     }
     let width = main_min_width(
-        topbar::least_width(ctx),
+        page_min_width(app, ctx),
         app.settings.sidebar_visible,
         app.show_queue_panel || app.show_lyrics_panel,
     )
@@ -256,8 +330,19 @@ fn page_tint(app: &mut App) -> Option<Color32> {
 fn central(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let tint = page_tint(app);
+    let faithful = app.settings.faithful_visuals;
+    let background = if faithful {
+        palette.panel
+    } else {
+        palette.window
+    };
     egui::CentralPanel::default()
-        .frame(Frame::new().fill(palette.window))
+        .frame(
+            Frame::new()
+                .fill(background)
+                .corner_radius(if faithful { 8 } else { 0 })
+                .outer_margin(if faithful { 4 } else { 0 }),
+        )
         .show(ui, |ui| {
             let rect = ui.max_rect();
             if let Some(tint) = tint {
@@ -269,16 +354,19 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                 } else {
                     0.85
                 };
-                let top = blend(palette.window, tint, strength);
+                let top = blend(background, tint, strength);
                 let header = Rect::from_min_size(rect.min, vec2(rect.width(), 340.0));
-                widgets::paint_vertical_gradient(ui, header, top, palette.window);
+                widgets::paint_vertical_gradient(ui, header, top, background);
             }
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
             // egui fades a scrolled page's edge into the panel's plain
             // colour, which shows as a pale band over a cover's tint; the
             // page casts a shadow under the header instead.
             ui.spacing_mut().scroll.fade.strength = 0.0;
-            topbar::show(app, ui);
+            if !faithful {
+                topbar::show(app, ui);
+            }
+
             let page = app.page().clone();
             let scroll = crate::autoscroll::show(
                 ui,
@@ -291,7 +379,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                         .inner_margin(Margin {
                             left: widgets::PAGE_PADDING as i8,
                             right: widgets::PAGE_PADDING as i8,
-                            top: 4,
+                            top: if faithful { 16 } else { 4 },
                             bottom: 48,
                         })
                         .show(ui, |ui| {
@@ -315,7 +403,9 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                         });
                 },
             );
-            header_shadow(ui, scroll.inner_rect, scroll.state.offset.y, palette.dark);
+            if !faithful {
+                header_shadow(ui, scroll.inner_rect, scroll.state.offset.y, palette.dark);
+            }
         });
 }
 

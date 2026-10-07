@@ -3205,3 +3205,55 @@ msgstr "Sous Windows sur ARM, l’OpenGL avec lequel Spotifast dessine provient 
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Réduire les animations des paroles"
+
+#: src/ui/details.rs
+msgid "Credits"
+msgstr "Crédits"
+
+#: src/ui/details.rs
+msgid "No contributor credits are available."
+msgstr "Aucun crédit de contributeur disponible."
+
+#: src/ui/details.rs
+msgid "Label"
+msgstr "Label"
+
+#: src/details.rs
+msgid "Main Artist"
+msgstr "Artiste principal"
+
+#: src/details.rs
+msgid "Featured Artist"
+msgstr "Artiste invité"
+
+#: src/details.rs
+msgid "Remixer"
+msgstr "Remixeur"
+
+#: src/details.rs
+msgid "Actor"
+msgstr "Acteur"
+
+#: src/details.rs
+msgid "Composer"
+msgstr "Compositeur"
+
+#: src/details.rs
+msgid "Conductor"
+msgstr "Chef d’orchestre"
+
+#: src/details.rs
+msgid "Orchestra"
+msgstr "Orchestre"
+
+#: src/ui/details.rs
+msgid "Composition & Lyrics"
+msgstr "Composition et paroles"
+
+#: src/ui/settings.rs
+msgid "Faithful visuals"
+msgstr "Apparence fidèle"
+
+#: src/ui/settings.rs
+msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
+msgstr "Utilise des panneaux, une navigation et des commandes de lecture inspirés de Spotify. Ajoute la vue du titre en cours."

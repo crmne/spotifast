@@ -773,6 +773,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     380.0
                 };
             }
+            "now-playing" => app.settings.faithful_visuals = true,
+            "faithful" => app.settings.faithful_visuals = true,
             "queue" => app.show_queue_panel = true,
             "playing-next" => {
                 app.show_queue_panel = true;
@@ -910,6 +912,34 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     version: "0.7.1".into(),
                     url: "https://spotifast.rocks/download/".into(),
                 });
+            }
+            "credits" | "credits-card" => {
+                if let Some(now) = app.now_playing() {
+                    app.details.insert(
+                        now.uri.clone(),
+                        Loadable::Loaded(crate::details::Details {
+                            credits: vec![
+                                crate::details::Credit {
+                                    name: "Demo contributor".into(),
+                                    uri: Some("spotify:artist:demo".into()),
+                                    role: 1,
+                                },
+                                crate::details::Credit {
+                                    name: "Demo contributor".into(),
+                                    uri: Some("spotify:artist:demo".into()),
+                                    role: 5,
+                                },
+                            ],
+                            label: Some("Demo label".into()),
+                        }),
+                    );
+                    if surface == "credits" {
+                        app.dialog = Some(Dialog::TrackCredits {
+                            uri: now.uri,
+                            name: now.title,
+                        });
+                    }
+                }
             }
             "personal-app" => app.dialog = Some(Dialog::PersonalAppIntro),
             "many-devices" => {
@@ -3002,6 +3032,72 @@ mod tests {
             .into_iter()
             .map(|(text, _)| text)
             .collect()
+    }
+
+    #[test]
+    fn artist_card_has_no_biography_entry_point() {
+        let (ctx, mut app) = accessible_app("artist-card");
+        apply_flags(
+            &mut app,
+            Some("playlist:pl1"),
+            Some("faithful,credits-card"),
+        );
+        for _ in 0..3 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1440.0, 1400.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            for shape in &output.shapes {
+                if let egui::epaint::Shape::Text(text) = &shape.shape {
+                    assert!(!text.galley.job.text.contains("Demo biography"));
+                    assert_ne!(text.galley.job.text, "About the artist");
+                }
+            }
+            output.textures_delta.clear();
+        }
+        assert!(app.dialog.is_none());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn credits_modal_grows_to_show_its_content() {
+        let (ctx, mut app) = accessible_app("credits-height");
+        apply_flags(&mut app, Some("playlist:pl1"), Some("credits"));
+        for size in [egui::vec2(1280.0, 800.0), egui::vec2(800.0, 600.0)] {
+            for frame in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                        ..Default::default()
+                    },
+                    |ui| app.frame_ui(ui),
+                );
+                output.textures_delta.clear();
+                if frame < 2 {
+                    continue;
+                }
+                for label in ["Artist", "Composition & Lyrics", "Demo label"] {
+                    let visible = output.shapes.iter().any(|shape| {
+                        if let egui::epaint::Shape::Text(text) = &shape.shape {
+                            text.galley.job.text == label
+                                && shape
+                                    .clip_rect
+                                    .contains_rect(text.galley.rect.translate(text.pos.to_vec2()))
+                        } else {
+                            false
+                        }
+                    });
+                    assert!(visible, "{label} must be visible at {size:?}");
+                }
+            }
+        }
+        app.backend.shutdown();
     }
 
     /// The About card ends with the author's credit, and the name opens
@@ -9108,6 +9204,166 @@ mod tests {
         }
         app.backend.shutdown();
     }
+    #[test]
+    fn faithful_resize_highlights_fit_the_panel_gaps() {
+        let (ctx, mut app) = accessible_app("faithful-resize");
+        apply_flags(&mut app, Some("playlist:pl1"), Some("faithful"));
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
+        for _ in 0..3 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+        }
+        for (id, right) in [("sidebar", false), ("now-playing-panel", true)] {
+            let rect = egui::containers::panel::PanelState::load(&ctx, egui::Id::new(id))
+                .unwrap()
+                .outer_rect;
+            let x = if right { rect.left() } else { rect.right() };
+            let expected = [
+                egui::pos2(x, rect.top() + 12.0),
+                egui::pos2(x, rect.bottom() - 12.0),
+            ];
+            let mut found = false;
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        events: vec![egui::Event::PointerMoved(egui::pos2(x, rect.center().y))],
+                        ..Default::default()
+                    },
+                    |ui| app.frame_ui(ui),
+                );
+                found = output.shapes.iter().any(|shape| matches!(&shape.shape,
+                    egui::epaint::Shape::LineSegment { points, stroke } if *points == expected && stroke.width == 2.0));
+                output.textures_delta.clear();
+            }
+            assert!(found, "centered highlight for {id}");
+        }
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn faithful_layout_keeps_header_above_panels_and_can_be_disabled() {
+        for light in [false, true] {
+            let (ctx, mut app) = accessible_app("faithful-layout");
+            app.open(Page::Playlist("pl1".into()));
+            app.settings.theme = if light {
+                crate::settings::ThemeChoice::Light
+            } else {
+                crate::settings::ThemeChoice::Dark
+            };
+            app.settings.sidebar_visible = true;
+            for faithful in [false, true, false] {
+                app.settings.faithful_visuals = faithful;
+                app.actions.push(Action::SettingsChanged);
+                for width in [800.0, 1440.0] {
+                    for _ in 0..3 {
+                        let mut output = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(width, 900.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ui| app.frame_ui(ui),
+                        );
+                        output.textures_delta.clear();
+                    }
+                    let rect = |name: &str| {
+                        egui::containers::panel::PanelState::load(&ctx, egui::Id::new(name))
+                            .unwrap()
+                            .outer_rect
+                    };
+                    let sidebar = rect("sidebar");
+                    let search = ctx
+                        .read_response(egui::Id::new("global-search"))
+                        .unwrap()
+                        .rect;
+                    if faithful {
+                        let header = rect("main-header");
+                        assert!(header.contains_rect(search), "search must fit at {width}");
+                        assert_eq!(header.left(), 0.0);
+                        assert_eq!(header.right(), width);
+                        assert!(sidebar.top() >= header.bottom());
+                        assert_eq!(app.palette, crate::theme::Palette::faithful(!light));
+                        if width == 800.0 {
+                            assert!(!ctx.data(|data| {
+                                data.get_temp::<bool>(egui::Id::new("now-playing-panel-visible"))
+                                    .unwrap_or(false)
+                            }));
+                        }
+                    } else {
+                        assert!(search.left() >= sidebar.right());
+                        assert_eq!(sidebar.top(), 0.0);
+                        assert_eq!(
+                            app.palette,
+                            if light {
+                                crate::theme::Palette::light()
+                            } else {
+                                crate::theme::Palette::dark()
+                            }
+                        );
+                    }
+                }
+            }
+            app.backend.shutdown();
+        }
+    }
+
+    #[test]
+    fn side_panels_start_below_the_shared_header() {
+        for theme in ["dark", "light"] {
+            let (ctx, mut app) = accessible_app(&format!("full-height-panels-{theme}"));
+            app.open(Page::Playlist("pl1".into()));
+            app.settings.faithful_visuals = true;
+            app.settings.theme = if theme == "light" {
+                crate::settings::ThemeChoice::Light
+            } else {
+                crate::settings::ThemeChoice::Dark
+            };
+            app.actions.push(Action::SettingsChanged);
+            for panel in ["queue", "lyrics"] {
+                app.show_queue_panel = panel == "queue";
+                app.show_lyrics_panel = panel == "lyrics";
+                for width in [760.0, 1080.0, 1600.0] {
+                    for _ in 0..3 {
+                        let mut output = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(width, 800.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ui| app.frame_ui(ui),
+                        );
+                        output.textures_delta.clear();
+                    }
+                    let rect = |name: &str| {
+                        egui::containers::panel::PanelState::load(&ctx, egui::Id::new(name))
+                            .expect("the panel was drawn")
+                            .outer_rect
+                    };
+                    let side = rect(&format!("{panel}-panel"));
+                    let header = rect("main-header");
+                    let player = rect("player-bar");
+                    assert_eq!(side.top(), header.bottom(), "{panel} at {width} in {theme}");
+                    assert_eq!(header.right(), width, "header spans the right panel");
+                    assert_eq!(side.bottom(), player.top());
+                    let search = ctx.read_response(egui::Id::new("global-search")).unwrap();
+                    assert!(side.top() >= search.rect.bottom());
+                }
+            }
+            app.backend.shutdown();
+        }
+    }
+
     #[test]
     fn side_panels_keep_their_full_height_beside_the_page_toolbar() {
         for theme in ["dark", "light"] {

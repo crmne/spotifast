@@ -679,6 +679,10 @@ pub enum Command {
     },
     /// The words of a track, from LRCLIB.
     Lyrics(Box<LyricsRequest>),
+    Details {
+        account: String,
+        uri: String,
+    },
     /// The account's playlist tree, folders and all, from the session.
     Rootlist,
     /// Internal: a rootlist read completed for this signed-in session.
@@ -791,6 +795,11 @@ pub enum Event {
         color: [u8; 3],
     },
     Error(String),
+    Details {
+        account: String,
+        uri: String,
+        result: Result<crate::details::Details, String>,
+    },
     /// GitHub answered an update check, or the request failed.
     UpdateChecked {
         manual: bool,
@@ -1888,6 +1897,31 @@ impl Worker {
                     });
                 }
                 Command::Lyrics(request) => self.fetch_lyrics(*request),
+                Command::Details { account, uri } => {
+                    let engine = self.engine.clone();
+                    let events = self.events.clone();
+                    let waker = self.waker.clone();
+                    tokio::spawn(async move {
+                        let result = match engine {
+                            Some(engine) => match tokio::time::timeout(
+                                Duration::from_secs(20),
+                                crate::details::fetch(engine.session(), &uri),
+                            )
+                            .await
+                            {
+                                Ok(result) => result.map_err(|error| error.to_string()),
+                                Err(_) => Err("The details request timed out.".into()),
+                            },
+                            None => Err("Sign in to local playback to load these details.".into()),
+                        };
+                        let _ = events.send(Event::Details {
+                            account,
+                            uri,
+                            result,
+                        });
+                        waker.wake();
+                    });
+                }
                 Command::Rootlist => self.fetch_rootlist(),
                 Command::RootlistFinished { generation, result } => {
                     self.on_rootlist_finished(generation, result);

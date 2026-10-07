@@ -3085,3 +3085,55 @@ msgstr "在 ARM 版 Windows 上，Spotifast 用來繪製介面的 OpenGL 由 Mic
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "減少歌詞動畫"
+
+#: src/ui/details.rs
+msgid "Credits"
+msgstr "製作人員"
+
+#: src/ui/details.rs
+msgid "No contributor credits are available."
+msgstr "暫無製作人員資訊。"
+
+#: src/ui/details.rs
+msgid "Label"
+msgstr "唱片公司"
+
+#: src/details.rs
+msgid "Main Artist"
+msgstr "主要藝人"
+
+#: src/details.rs
+msgid "Featured Artist"
+msgstr "客串藝人"
+
+#: src/details.rs
+msgid "Remixer"
+msgstr "混音師"
+
+#: src/details.rs
+msgid "Actor"
+msgstr "演員"
+
+#: src/details.rs
+msgid "Composer"
+msgstr "作曲家"
+
+#: src/details.rs
+msgid "Conductor"
+msgstr "指揮"
+
+#: src/details.rs
+msgid "Orchestra"
+msgstr "管弦樂團"
+
+#: src/ui/details.rs
+msgid "Composition & Lyrics"
+msgstr "作曲與作詞"
+
+#: src/ui/settings.rs
+msgid "Faithful visuals"
+msgstr "忠實外觀"
+
+#: src/ui/settings.rs
+msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
+msgstr "使用 Spotify 風格的面板、導覽和播放控制項，並新增現正播放檢視。"

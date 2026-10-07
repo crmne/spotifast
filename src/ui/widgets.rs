@@ -39,6 +39,42 @@ pub(super) struct CoverSources<'a> {
     pub align_thumbnail: bool,
 }
 
+/// Fit the full cover inside its reserved square without cropping its edges.
+pub(super) fn paint_cover_contained(
+    ui: &Ui,
+    palette: &Palette,
+    url: Option<&str>,
+    rect: Rect,
+    radius: f32,
+    art: Option<&crate::images::ArtLoader>,
+) {
+    if let Some(url) = url {
+        if let Some(art) = art {
+            art.touch(url);
+        }
+        let image = egui::Image::new(url).show_loading_spinner(false);
+        if let Ok(egui::load::TexturePoll::Ready { texture }) =
+            image.load_for_size(ui.ctx(), rect.size())
+        {
+            if let Some(art) = art {
+                art.release_bytes(url);
+                art.note_decoded(
+                    url,
+                    texture.size.x.round() as usize,
+                    texture.size.y.round() as usize,
+                );
+            }
+            let scale = (rect.width() / texture.size.x).min(rect.height() / texture.size.y);
+            let fitted = Rect::from_center_size(rect.center(), texture.size * scale);
+            egui::Image::new(texture)
+                .corner_radius(radius as u8)
+                .paint_at(ui, fitted);
+            return;
+        }
+    }
+    paint_cover(ui, palette, url, rect, radius, Icon::Music, art);
+}
+
 pub fn paint_cover(
     ui: &Ui,
     palette: &Palette,
@@ -592,11 +628,22 @@ pub fn picked_menu(
     let all_saved = uris.iter().all(|uri| app.is_saved(uri).unwrap_or(false));
     let (icon, text) = if all_saved {
         (
-            Icon::HeartFilled,
+            if app.settings.faithful_visuals {
+                Icon::CircleCheck
+            } else {
+                Icon::HeartFilled
+            },
             gettext(locale, "Remove from Liked Songs"),
         )
     } else {
-        (Icon::Heart, gettext(locale, "Save to Liked Songs"))
+        (
+            if app.settings.faithful_visuals {
+                Icon::CirclePlus
+            } else {
+                Icon::Heart
+            },
+            gettext(locale, "Save to Liked Songs"),
+        )
     };
     if menu_item(ui, &palette, Some(icon), &text) {
         app.actions.push(Action::SetSavedMany {
@@ -823,11 +870,22 @@ pub fn item_menu(
         let saved = app.is_saved(&uri).unwrap_or(false);
         let (icon, text) = if saved {
             (
-                Icon::HeartFilled,
+                if app.settings.faithful_visuals {
+                    Icon::CircleCheck
+                } else {
+                    Icon::HeartFilled
+                },
                 gettext(locale, "Remove from Liked Songs"),
             )
         } else {
-            (Icon::Heart, gettext(locale, "Save to Liked Songs"))
+            (
+                if app.settings.faithful_visuals {
+                    Icon::CirclePlus
+                } else {
+                    Icon::Heart
+                },
+                gettext(locale, "Save to Liked Songs"),
+            )
         };
         if menu_item(ui, &palette, Some(icon), &text) {
             app.actions.push(Action::ToggleSaved(uri.clone()));
@@ -1728,9 +1786,23 @@ fn track_row_contents(
                 child.set_opacity(0.0);
             }
             let (icon, color) = if saved == Some(true) {
-                (Icon::HeartFilled, palette.accent)
+                (
+                    if app.settings.faithful_visuals {
+                        Icon::CircleCheck
+                    } else {
+                        Icon::HeartFilled
+                    },
+                    palette.accent,
+                )
             } else {
-                (Icon::Heart, palette.secondary)
+                (
+                    if app.settings.faithful_visuals {
+                        Icon::CirclePlus
+                    } else {
+                        Icon::Heart
+                    },
+                    palette.secondary,
+                )
             };
             let tooltip = if saved == Some(true) {
                 gettext(app.locale, "Remove from Liked Songs")
@@ -2454,6 +2526,7 @@ pub fn card(
 pub fn shelf(
     ui: &mut Ui,
     palette: &Palette,
+    fade_edge: bool,
     id: &str,
     title: &str,
     add_contents: impl FnOnce(&mut Ui),
@@ -2461,7 +2534,7 @@ pub fn shelf(
     ui.add_space(8.0);
     theme::section_title(ui, palette, title);
     ui.add_space(4.0);
-    crate::autoscroll::show(
+    let scroll = crate::autoscroll::show(
         ui,
         egui::ScrollArea::horizontal().id_salt(id),
         egui::Vec2b::new(true, false),
@@ -2472,6 +2545,22 @@ pub fn shelf(
             });
         },
     );
+    if fade_edge && scroll.content_size.x - scroll.state.offset.x > scroll.inner_rect.width() + 1.0
+    {
+        let rect = scroll.inner_rect;
+        let left = (rect.right() - 48.0).max(rect.left());
+        let edge = palette.panel.gamma_multiply(0.55);
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(pos2(left, rect.top()), Color32::TRANSPARENT);
+        mesh.colored_vertex(rect.right_top(), edge);
+        mesh.colored_vertex(rect.right_bottom(), edge);
+        mesh.colored_vertex(pos2(left, rect.bottom()), Color32::TRANSPARENT);
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        ui.painter()
+            .with_clip_rect(rect.intersect(ui.clip_rect()))
+            .add(egui::Shape::mesh(mesh));
+    }
     ui.add_space(12.0);
 }
 
@@ -2791,8 +2880,21 @@ pub fn search_field(
     hint: &str,
     width: f32,
 ) -> egui::Response {
-    let height = 34.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    search_field_sized(ui, palette, locale, id, text, hint, vec2(width, 34.0))
+}
+
+/// A search field with an explicit outer size.
+pub fn search_field_sized(
+    ui: &mut Ui,
+    palette: &Palette,
+    locale: Locale,
+    id: egui::Id,
+    text: &mut String,
+    hint: &str,
+    size: Vec2,
+) -> egui::Response {
+    let height = size.y;
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let has_focus = ui.memory(|memory| memory.has_focus(id));
     let fill = if has_focus {
         palette.surface_hover

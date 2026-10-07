@@ -870,6 +870,10 @@ pub struct DragEntry {
 
 #[derive(Clone, Debug)]
 pub enum Dialog {
+    TrackCredits {
+        uri: String,
+        name: String,
+    },
     CreatePlaylist {
         name: String,
         public: bool,
@@ -1050,6 +1054,8 @@ pub enum Action {
     /// Save a radio page's songs to a new playlist, by the seed's URI.
     SaveRadio(String),
     RefreshQueue,
+    /// Load artist details for the Now Playing panel without navigating.
+    LoadNowPlayingArtists,
     CopyLink(String),
     /// Copy picked songs' links, one per line, and remember the songs so a
     /// paste of the same links can show their rows at once.

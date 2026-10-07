@@ -477,7 +477,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let floating_art = app.settings.sidebar_grid && expanded_art;
     // The traffic lights float over the top-left of the sidebar now, so the
     // first nav row has to start below them.
-    let top = 12 + theme::titlebar_inset(ui.ctx()) as i8;
+    let top = 12
+        + if app.settings.faithful_visuals {
+            0
+        } else {
+            theme::titlebar_inset(ui.ctx()) as i8
+        };
     let beside = if app.show_queue_panel || app.show_lyrics_panel {
         theme::SIDE_PANEL_MIN_WIDTH
     } else {
@@ -488,20 +493,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         "sidebar",
         super::SIDEBAR_MIN_WIDTH..=600.0,
         app.settings.sidebar_width,
-        ui.available_width() - super::topbar::least_width(ui.ctx()) - beside,
+        ui.available_width() - super::page_min_width(app, ui.ctx()) - beside,
     );
     let panel = egui::Panel::left("sidebar")
         .resizable(true)
         .default_size(app.settings.sidebar_width)
         .size_range(fit.range.clone())
         .show_separator_line(false)
-        .frame(Frame::new().fill(palette.panel).inner_margin(Margin {
-            left: 12,
-            right: 8,
-            top,
-            bottom: if expanded_art { 0 } else { 8 },
-        }));
+        .frame(
+            Frame::new()
+                .fill(palette.panel)
+                .corner_radius(if app.settings.faithful_visuals { 8 } else { 0 })
+                .outer_margin(if app.settings.faithful_visuals { 4 } else { 0 })
+                .inner_margin(Margin {
+                    left: 12,
+                    right: 8,
+                    top,
+                    bottom: if expanded_art { 0 } else { 8 },
+                }),
+        );
+    let panel_style = super::begin_panel_resize(app, ui);
     let response = panel.show(ui, |ui| {
+        ui.set_style(panel_style.clone());
         let art_rect = expanded_art.then(|| expanded_art_rect(ui));
         if let Some(rect) = art_rect.filter(|_| !floating_art) {
             reserve_expanded_art(ui, rect);
@@ -514,6 +527,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             paint_expanded_art(app, ui, rect);
         }
     });
+    super::finish_panel_resize(
+        app,
+        ui,
+        panel_style,
+        "sidebar",
+        false,
+        response.response.rect,
+    );
     let width = response.response.rect.width();
     if (width - app.settings.sidebar_width).abs() > 1.0
         && super::panel_width_chosen(ui.ctx(), "sidebar", &fit)
@@ -827,36 +848,38 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let palette = app.palette;
     let page = app.page().clone();
     let locale = app.locale;
-    ui.add_space(4.0);
-    if nav_row(
-        ui,
-        &palette,
-        Icon::House,
-        &gettext(locale, "Home"),
-        page == Page::Home,
-    )
-    .clicked()
-    {
-        app.actions.push(Action::Open(Page::Home));
+    if !app.settings.faithful_visuals {
+        ui.add_space(4.0);
+        if nav_row(
+            ui,
+            &palette,
+            Icon::House,
+            &gettext(locale, "Home"),
+            page == Page::Home,
+        )
+        .clicked()
+        {
+            app.actions.push(Action::Open(Page::Home));
+        }
+        if nav_row(
+            ui,
+            &palette,
+            Icon::Search,
+            &gettext(locale, "Search"),
+            page == Page::Search,
+        )
+        .clicked()
+        {
+            app.actions.push(Action::FocusSearch);
+        }
+        ui.add_space(10.0);
+        ui.painter().hline(
+            ui.max_rect().x_range().shrink(4.0),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, palette.outline),
+        );
+        ui.add_space(10.0);
     }
-    if nav_row(
-        ui,
-        &palette,
-        Icon::Search,
-        &gettext(locale, "Search"),
-        page == Page::Search,
-    )
-    .clicked()
-    {
-        app.actions.push(Action::FocusSearch);
-    }
-    ui.add_space(10.0);
-    ui.painter().hline(
-        ui.max_rect().x_range().shrink(4.0),
-        ui.cursor().top(),
-        egui::Stroke::new(1.0, palette.outline),
-    );
-    ui.add_space(10.0);
 
     let filter_id = egui::Id::new("sidebar-filter");
     let mut filter = ui

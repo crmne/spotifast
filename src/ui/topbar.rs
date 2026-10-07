@@ -198,8 +198,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let width = ui.available_width();
     let window_controls = super::window_controls_reservation(
         ui.ctx(),
-        app.show_queue_panel,
-        app.show_lyrics_panel,
+        app.show_queue_panel && !app.settings.faithful_visuals,
+        app.show_lyrics_panel && !app.settings.faithful_visuals,
         width,
     );
     // Where the titlebar used to be: the bar grows upwards into that space and
@@ -240,6 +240,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.add_space(2.0);
             }
             if !app.settings.sidebar_visible
+                && !app.settings.faithful_visuals
                 && nav_button(ui, &palette, Icon::House, true, &gettext(locale, "Home")).clicked()
             {
                 app.actions.push(Action::Open(Page::Home));
@@ -321,18 +322,59 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // keep room for it (`least_width`).
             let lead = width - ui.available_width() + window_controls.topbar_width;
             ui.ctx().data_mut(|data| data.insert_temp(lead_id(), lead));
-            let fit = topbar_fit(search_room, controls, badges(true), badges(false));
+            let home_width = if app.settings.faithful_visuals {
+                48.0
+            } else {
+                0.0
+            };
+            let fit = topbar_fit(
+                search_room,
+                controls + home_width,
+                badges(true),
+                badges(false),
+            );
             let search_width = fit.search;
+            if app.settings.faithful_visuals {
+                let group_width = home_width + search_width;
+                let ideal_left = ui.max_rect().center().x - group_width * 0.5;
+                let rightmost = ui.max_rect().right()
+                    - window_controls.topbar_width
+                    - controls
+                    - badges(fit.labels)
+                    - group_width;
+                let start = ideal_left.min(rightmost).max(ui.cursor().left());
+                ui.add_space((start - ui.cursor().left()).max(0.0));
+                if theme::circle_button(
+                    ui,
+                    Icon::House,
+                    40.0,
+                    palette.surface,
+                    palette.surface_hover,
+                    palette.text,
+                    &gettext(locale, "Home"),
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::Open(Page::Home));
+                }
+            }
             let id = egui::Id::new("global-search");
             let before = app.search.query.clone();
-            let response = super::widgets::search_field(
+            let response = super::widgets::search_field_sized(
                 ui,
                 &palette,
                 app.locale,
                 id,
                 &mut app.search.query,
                 &gettext(locale, "What do you want to play?"),
-                search_width,
+                vec2(
+                    search_width,
+                    if app.settings.faithful_visuals {
+                        40.0
+                    } else {
+                        34.0
+                    },
+                ),
             );
             if app.search.focus_requested {
                 app.search.focus_requested = false;

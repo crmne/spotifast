@@ -3056,3 +3056,55 @@ msgstr ""
 #: src/window.rs:35
 msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr ""
+
+#: src/ui/details.rs
+msgid "Credits"
+msgstr ""
+
+#: src/ui/details.rs
+msgid "No contributor credits are available."
+msgstr ""
+
+#: src/ui/details.rs
+msgid "Label"
+msgstr ""
+
+#: src/details.rs
+msgid "Main Artist"
+msgstr ""
+
+#: src/details.rs
+msgid "Featured Artist"
+msgstr ""
+
+#: src/details.rs
+msgid "Remixer"
+msgstr ""
+
+#: src/details.rs
+msgid "Actor"
+msgstr ""
+
+#: src/details.rs
+msgid "Composer"
+msgstr ""
+
+#: src/details.rs
+msgid "Conductor"
+msgstr ""
+
+#: src/details.rs
+msgid "Orchestra"
+msgstr ""
+
+#: src/ui/details.rs
+msgid "Composition & Lyrics"
+msgstr ""
+
+#: src/ui/settings.rs
+msgid "Faithful visuals"
+msgstr ""
+
+#: src/ui/settings.rs
+msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
+msgstr ""
