@@ -2749,6 +2749,7 @@ impl App {
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
         if self.jam.in_session() {
+            self.jam.expire();
             self.sync_jam();
             // Drift builds up between events; look again soon.
             ctx.request_repaint_after(JAM_SYNC_EVERY);
@@ -4450,15 +4451,45 @@ impl App {
     }
 
     fn handle_jam(&mut self, event: crate::jam::net::JamEvent) {
+        use crate::jam::protocol::Refusal;
         let was_active = self.jam.active();
         let joined = matches!(event, crate::jam::net::JamEvent::Joined { .. });
+        let refused = match &event {
+            crate::jam::net::JamEvent::Refused(refusal) => Some(*refusal),
+            _ => None,
+        };
         self.jam.apply(event);
         if joined {
-            // A rejoined guest may face a restarted host: judge afresh.
+            // A rejoined guest may face a restarted host: judge afresh, and
+            // send again what was added while away.
             self.jam_sync = Default::default();
+            for message in self.jam.resend() {
+                self.jam_request(message);
+            }
+        }
+        let refusal = match refused {
+            Some(Refusal::NotAllowed) => Some(gettext(self.locale, "Only the host can do that.")),
+            Some(Refusal::QueueFull) => Some(gettext(self.locale, "The jam's queue is full.")),
+            Some(Refusal::QuotaReached) => Some(gettext(
+                self.locale,
+                "You have plenty of songs waiting already.",
+            )),
+            Some(Refusal::NotFound | Refusal::Unexpected) | None => None,
+        };
+        if let Some(refusal) = refusal {
+            self.toast(refusal);
         }
         if was_active && !self.jam.active() {
             self.jam_sync = Default::default();
+            // Said here too: the Jam tab may well be closed.
+            if let Some(text) = self
+                .jam
+                .ended
+                .as_ref()
+                .and_then(|reason| crate::ui::jam::ended(self.locale, reason))
+            {
+                self.toast(text);
+            }
             // The jam put its songs on repeat; give the listener theirs back.
             if let Some(repeat) = self.jam_repeat_before.take()
                 && self.local.is_active()
@@ -4508,6 +4539,38 @@ impl App {
         }
         if ended {
             self.jam_request(crate::jam::protocol::ClientMsg::Skip);
+        }
+    }
+
+    /// Adds songs to the jam. Each shows at once; the host confirms after.
+    /// Only Spotify songs and episodes can be shared, not local files.
+    fn add_to_jam(&mut self, items: Vec<PlayableItem>) {
+        if !self.jam.in_session() {
+            return;
+        }
+        // While reconnecting, additions wait and go out once back in.
+        let connected = !matches!(
+            self.jam.status,
+            crate::jam::view::JamStatus::Reconnecting(_)
+        );
+        let mut added = false;
+        for item in items {
+            let Ok(uri) = crate::jam::protocol::song_uri(item.uri().to_string()) else {
+                continue;
+            };
+            let message = self.jam.add(
+                uri,
+                item.name().to_string(),
+                item.subtitle(),
+                item.duration_ms(),
+            );
+            if connected {
+                self.jam_request(message);
+            }
+            added = true;
+        }
+        if added {
+            self.toast(gettext(self.locale, "Added to the jam"));
         }
     }
 
@@ -8505,6 +8568,24 @@ impl App {
         if self.jam_transport(&action) {
             return;
         }
+        // The jam decides what plays; starting something else here would
+        // only be undone by the next sync.
+        if self.jam.in_session()
+            && matches!(
+                &action,
+                Action::PlayContext { .. }
+                    | Action::PlayEpisode { .. }
+                    | Action::PlayUris { .. }
+                    | Action::PlayFromRow { .. }
+                    | Action::ShufflePlay(_)
+            )
+        {
+            self.toast(gettext(
+                self.locale,
+                "In a jam, add songs to the jam to play them.",
+            ));
+            return;
+        }
         match action {
             Action::Open(page) => self.open(page),
             Action::OpenSongRadio { uri, track } => self.open_song_radio(&uri, &track),
@@ -9057,6 +9138,42 @@ impl App {
             }
             Action::ClearQueue => self.clear_queue(),
             Action::RemoveFromQueue { rows } => self.remove_from_queue(rows),
+            Action::HostJam => match crate::jam::net::lan_address() {
+                Some(address) => self.host_jam(address, 0),
+                None => self.toast(gettext(
+                    self.locale,
+                    "Couldn't start the jam on this network.",
+                )),
+            },
+            Action::JoinJam(code) => {
+                if self.join_jam(&code).is_err() {
+                    self.toast(gettext(self.locale, "That invitation code isn't valid."));
+                }
+            }
+            Action::LeaveJam => self.leave_jam(),
+            Action::AddToJam(items) => self.add_to_jam(items),
+            Action::RemoveFromJam(item) => {
+                if self.jam.in_session() {
+                    let message = self.jam.remove(item);
+                    self.jam_request(message);
+                }
+            }
+            Action::SetJamGuestControl(guests_control_playback) => {
+                if self.jam.status == crate::jam::view::JamStatus::Hosting {
+                    self.backend
+                        .jam(crate::jam::net::JamCommand::SetPermissions(
+                            crate::jam::protocol::Permissions {
+                                guests_control_playback,
+                            },
+                        ));
+                }
+            }
+            Action::CopyJamInvite => {
+                if let Some(invite) = &self.jam.invite {
+                    ctx.copy_text(invite.code());
+                    self.toast(gettext(self.locale, "Invitation copied"));
+                }
+            }
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::SaveRadio(seed) => self.save_radio(&seed),
             Action::RefreshQueue => self.refresh_queue(true),
@@ -14573,6 +14690,64 @@ mod tests {
                 .take_player_commands()
                 .contains(&PlayerCommand::Repeat(RepeatMode::Context))
         );
+    }
+
+    /// A song added to the jam shows at once and goes to the host; a local
+    /// file cannot be shared. Added while reconnecting, it waits and goes
+    /// out once back in.
+    #[test]
+    fn songs_added_to_a_jam_show_at_once_and_survive_a_reconnection() {
+        use crate::jam::net::JamEvent;
+        use crate::jam::protocol::ClientMsg;
+        let mut app = app_in_jam(false, jam_item(JAM_A, 200_000), 0, JAM_A);
+        let ctx = egui::Context::default();
+        let song = |uri: &str| {
+            PlayableItem::Track(crate::api::models::Track {
+                uri: uri.into(),
+                name: "Song".into(),
+                duration_ms: 1_000,
+                ..Default::default()
+            })
+        };
+        app.apply(
+            Action::AddToJam(vec![song(JAM_B), song("spotify:local:a:b:c:1")]),
+            &ctx,
+        );
+        assert!(matches!(
+            app.backend.take_jam_requests()[..],
+            [ClientMsg::Add { ref uri, duration_ms: 1_000, .. }] if uri == JAM_B
+        ));
+        assert_eq!(app.jam.pending.len(), 1);
+
+        app.handle_backend_events(vec![Event::Jam(JamEvent::Reconnecting { attempt: 1 })]);
+        app.apply(Action::AddToJam(vec![song(JAM_A)]), &ctx);
+        assert!(app.backend.take_jam_requests().is_empty());
+        assert_eq!(app.jam.pending.len(), 2);
+        app.handle_backend_events(vec![Event::Jam(JamEvent::Joined { you: 4 })]);
+        assert_eq!(
+            app.backend.take_jam_requests().len(),
+            2,
+            "both go out again"
+        );
+    }
+
+    /// The jam decides what plays: starting something else is refused with
+    /// a word on how to share it instead.
+    #[test]
+    fn a_jam_holds_off_other_playback() {
+        let mut app = app_in_jam(false, jam_item(JAM_A, 200_000), 0, JAM_A);
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::PlayContext {
+                uri: "spotify:album:x".into(),
+                offset_uri: None,
+                offset_index: None,
+            },
+            &ctx,
+        );
+        app.apply(Action::ShufflePlay("spotify:playlist:x".into()), &ctx);
+        assert!(app.backend.take_player_commands().is_empty());
+        assert!(app.backend.take_jam_requests().is_empty());
     }
 
     /// Only the local player follows a jam.

@@ -589,6 +589,7 @@ pub fn picked_menu(
                 .collect(),
         });
     }
+    add_to_jam_item(ui, app, songs);
     // Only offered when every picked row sits in Playing next.
     if let Some(rows) = queue_rows
         && menu_item(
@@ -633,6 +634,27 @@ pub fn picked_menu(
         });
     }
     add_to_playlist_menu(ui, app, songs);
+}
+
+/// "Add to jam", while in one and when any of `items` can be shared: a
+/// Spotify song or episode, not a local file.
+fn add_to_jam_item(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
+    let shareable: Vec<PlayableItem> = items
+        .iter()
+        .filter(|item| crate::jam::protocol::song_uri(item.uri().to_string()).is_ok())
+        .cloned()
+        .collect();
+    if app.jam.in_session()
+        && !shareable.is_empty()
+        && menu_item(
+            ui,
+            &app.palette,
+            Some(Icon::Users),
+            &gettext(app.locale, "Add to jam"),
+        )
+    {
+        app.actions.push(Action::AddToJam(shareable));
+    }
 }
 
 fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
@@ -831,6 +853,7 @@ pub fn item_menu(
             label: label.clone(),
         });
     }
+    add_to_jam_item(ui, app, std::slice::from_ref(item));
     if let (Some(RowContext::Queue), Some(index)) = (context, index)
         && app.can_remove_queue_row(index)
         && menu_item(

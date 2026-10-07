@@ -741,6 +741,129 @@ msgstr ""
 msgid "Queue cleared"
 msgstr "Очередь очищена"
 
+#: src/ui/jam.rs
+msgid "Add to jam"
+msgstr "Добавить в джем"
+
+#. Translators: Keep {name} exactly as written. It becomes the name of the person who added the song.
+#: src/ui/jam.rs
+#, rust-format
+msgid "Added by {name}"
+msgstr "Добавлено: {name}"
+
+#: src/ui/jam.rs
+msgid "Added to the jam"
+msgstr "Добавлено в джем"
+
+#: src/ui/jam.rs
+msgid "Copy invitation"
+msgstr "Скопировать приглашение"
+
+#: src/ui/jam.rs
+msgid "Couldn't reach the jam."
+msgstr "Не удалось подключиться к джему."
+
+#: src/ui/jam.rs
+msgid "Couldn't start the jam on this network."
+msgstr "Не удалось запустить джем в этой сети."
+
+#: src/ui/jam.rs
+msgid "End the jam"
+msgstr "Завершить джем"
+
+#: src/ui/jam.rs
+msgid "Friends on your network join with the invitation code. Everyone listens on their own Spotify account."
+msgstr "Друзья в твоей сети присоединяются по коду приглашения. Каждый слушает в своём аккаунте Spotify."
+
+#: src/ui/jam.rs
+msgid "Guests control playback"
+msgstr "Гости управляют воспроизведением"
+
+#: src/ui/jam.rs
+msgid "Host a jam"
+msgstr "Устроить джем"
+
+#: src/ui/jam.rs
+msgid "In a jam, add songs to the jam to play them."
+msgstr "Во время джема добавляй треки в джем, чтобы их включить."
+
+#: src/ui/jam.rs
+msgid "Invitation code"
+msgstr "Код приглашения"
+
+#: src/ui/jam.rs
+msgid "Invitation copied"
+msgstr "Приглашение скопировано"
+
+#. Translators: Listening together with other Spotifast users, each on their own account.
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Джем"
+
+#: src/ui/jam.rs
+msgid "Join a jam"
+msgstr "Присоединиться к джему"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "Присоединиться"
+
+#: src/ui/jam.rs
+msgid "Leave the jam"
+msgstr "Покинуть джем"
+
+#: src/ui/jam.rs
+msgid "Listeners"
+msgstr "Слушатели"
+
+#: src/ui/jam.rs
+msgid "Only the host can do that."
+msgstr "Это может сделать только организатор."
+
+#: src/ui/jam.rs
+msgid "Reconnecting…"
+msgstr "Переподключение…"
+
+#: src/ui/jam.rs
+msgid "Remove from the jam"
+msgstr "Удалить из джема"
+
+#: src/ui/jam.rs
+msgid "Right-click a song and choose Add to jam."
+msgstr "Нажми на трек правой кнопкой и выбери «Добавить в джем»."
+
+#: src/ui/jam.rs
+msgid "That invitation code isn't valid."
+msgstr "Этот код приглашения недействителен."
+
+#: src/ui/jam.rs
+msgid "That invitation is wrong or has expired."
+msgstr "Приглашение неверное или устарело."
+
+#: src/ui/jam.rs
+msgid "That jam is full."
+msgstr "Джем заполнен."
+
+#: src/ui/jam.rs
+msgid "That jam runs another version of Spotifast."
+msgstr "В этом джеме другая версия Spotifast."
+
+#: src/ui/jam.rs
+msgid "The host ended the jam."
+msgstr "Организатор завершил джем."
+
+#: src/ui/jam.rs
+msgid "The jam plays on this computer. Switch playback here to follow it."
+msgstr "Джем играет на этом компьютере. Переключи воспроизведение сюда, чтобы слушать вместе."
+
+#: src/ui/jam.rs
+msgid "The jam's queue is full."
+msgstr "Очередь джема заполнена."
+
+#: src/ui/jam.rs
+msgid "You have plenty of songs waiting already."
+msgstr "У тебя и так много треков в очереди."
+
 #. Translators: {count} is a number of songs.
 #: src/app.rs:4471
 #, rust-format

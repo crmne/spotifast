@@ -100,6 +100,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 match app.queue_tab {
                     QueueTab::Queue => contents(app, ui, true),
                     QueueTab::Recents => recents_contents(app, ui),
+                    QueueTab::Jam => super::jam::contents(app, ui),
                 }
             },
         );
@@ -134,6 +135,8 @@ fn tabs(app: &mut App, ui: &mut egui::Ui) {
                 &[
                     (QueueTab::Queue, &gettext(app.locale, "Queue")),
                     (QueueTab::Recents, &gettext(app.locale, "Recent")),
+                    // Translators: Listening together with other Spotifast users, each on their own account.
+                    (QueueTab::Jam, &gettext(app.locale, "Jam")),
                 ],
                 tab,
             );

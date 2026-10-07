@@ -300,6 +300,43 @@ save another copy of the credential.
 The receiver then signs in and appears in Spotify's device list. Spotifast
 uses the Web API for subsequent control requests.
 
+## Jams
+
+A [jam](/jam/) connects Spotifast instances to each other, never to a
+Spotify service of its own. The network work runs on the backend runtime
+(`src/jam/net.rs`); the protocol and state machines (`src/jam/protocol.rs`,
+`src/jam/session.rs`) are free of sockets and tested on their own.
+
+The host listens on TCP at one address of the computer, the one its default
+route uses, on a port the system picks. It refuses to listen on every address
+at once, and stops listening when the jam ends. Messages are JSON, one per
+line, and never carry audio, a URL, or a Spotify credential: songs travel as
+`spotify:track:` or `spotify:episode:` links with a 22-character id, and
+anything else is refused.
+
+The invitation code is `host:port#secret`, with 128 random bits drawn for
+each jam. A guest never sends the secret: it answers the host's random nonce
+with an HMAC-SHA256 keyed by it, over its name and a transport binding that
+is empty while the channel is plain TCP. The channel itself is not encrypted,
+which is why jams are meant for a trusted network or a tunnel such as
+Tailscale.
+
+The host treats every guest as untrusted, and a guest treats the host the
+same way. Lines are limited to 256 KiB before they are parsed; text is
+stripped of control and bidirectional formatting characters and shortened.
+The host accepts at most 32 connections at once, 16 participants, 500 queued
+songs and 50 waiting songs per guest. The handshake must finish within ten
+seconds, a guest silent for thirty seconds is dropped, and a guest sending
+more than 20 messages a second after a burst of 40 is disconnected.
+
+The host owns the jam: the queue, the playing song, and its position on the
+host's clock. Guests estimate that clock from ping round trips and load,
+seek, play or pause their own engine to follow. Each jam song is loaded
+alone, without autoplay and on repeat, so the engine never moves on by
+itself; the host moves the jam on when a song's known length has run, or,
+when the length is unknown, when its own engine starts the song over. A
+guest reconnects on its own with growing delays, up to eight attempts.
+
 ## The engine
 
 Playback runs on a separate runtime. Librespot maintains the Spotify Connect

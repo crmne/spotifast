@@ -8874,6 +8874,115 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The Jam tab offers hosting and joining, then shows the invitation,
+    /// the songs and who added them; a song's menu offers it to the jam
+    /// only while in one.
+    #[test]
+    fn the_jam_tab_and_song_menu_follow_the_jam() {
+        use crate::jam::net::JamEvent;
+        use crate::jam::protocol::{HOST_ID, JamItem, Participant};
+        let (ctx, mut app) = accessible_app("jam-tab");
+        app.backend.set_offline(true);
+        let draw = |ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(360.0, 900.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::jam::contents(app, ui),
+            );
+            output.textures_delta.clear();
+            menu_text(&output)
+        };
+        let has = |text: &[(String, egui::Rect)], wanted: &str| {
+            text.iter().any(|(text, _)| text.contains(wanted))
+        };
+        let menu = |ctx: &egui::Context, app: &mut App, item: &PlayableItem| {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                crate::ui::widgets::item_menu(ui, app, item, None, None);
+            });
+            output.textures_delta.clear();
+            menu_text(&output)
+        };
+        // A link the jam accepts: a 22-character Spotify id.
+        let song = PlayableItem::Track(Track {
+            uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa".into(),
+            ..track(0)
+        });
+
+        let text = draw(&ctx, &mut app, vec![]);
+        assert!(
+            has(&text, "Host a jam") && has(&text, "Join a jam"),
+            "{text:?}"
+        );
+        assert!(!has(&menu(&ctx, &mut app, &song), "Add to jam"));
+
+        let invite = crate::jam::invite::Invite {
+            host: "192.168.1.20".into(),
+            port: 4070,
+            secret: crate::jam::invite::Secret::generate(),
+        };
+        app.jam.start(crate::jam::session::JamClock::new());
+        app.jam.apply(JamEvent::Hosting {
+            invite: invite.clone(),
+        });
+        let mut state = crate::jam::session::HostSession::new("Host", 0).state(0);
+        state.seq = 1;
+        state.participants.push(Participant {
+            id: 1,
+            name: "Ana".into(),
+        });
+        state.queue.push(JamItem {
+            id: 2,
+            uri: song.uri().into(),
+            title: "Jam Song".into(),
+            artists: "Jam Artist".into(),
+            duration_ms: 1000,
+            added_by: 1,
+        });
+        assert_eq!(state.participants[0].id, HOST_ID);
+        app.jam.apply(JamEvent::State(state));
+
+        let text = draw(&ctx, &mut app, vec![]);
+        for wanted in [
+            invite.code().as_str(),
+            "Guests control playback",
+            "Host, Ana",
+            "Jam Song",
+            "Added by Ana",
+            "End the jam",
+        ] {
+            assert!(
+                has(&text, wanted),
+                "the hosted jam lacks {wanted:?}: {text:?}"
+            );
+        }
+        let end = text
+            .iter()
+            .find(|(text, _)| text == "End the jam")
+            .unwrap()
+            .1
+            .center();
+        app.actions.clear();
+        draw(
+            &ctx,
+            &mut app,
+            pointer_click(end, egui::PointerButton::Primary),
+        );
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::LeaveJam))
+        );
+
+        assert!(has(&menu(&ctx, &mut app, &song), "Add to jam"));
+        app.backend.shutdown();
+    }
+
     /// A Playing next row's menu removes it from the queue; a Next up row's
     /// menu does not offer that, and a picked selection removes all of it.
     #[test]

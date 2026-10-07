@@ -720,6 +720,129 @@ msgstr "无法应用代理：{error}。仍在使用之前的连接设置。"
 msgid "Queue cleared"
 msgstr "播放队列已清空"
 
+#: src/ui/jam.rs
+msgid "Add to jam"
+msgstr "添加到 Jam"
+
+#. Translators: Keep {name} exactly as written. It becomes the name of the person who added the song.
+#: src/ui/jam.rs
+#, rust-format
+msgid "Added by {name}"
+msgstr "由 {name} 添加"
+
+#: src/ui/jam.rs
+msgid "Added to the jam"
+msgstr "已添加到 Jam"
+
+#: src/ui/jam.rs
+msgid "Copy invitation"
+msgstr "复制邀请"
+
+#: src/ui/jam.rs
+msgid "Couldn't reach the jam."
+msgstr "无法连接到 Jam。"
+
+#: src/ui/jam.rs
+msgid "Couldn't start the jam on this network."
+msgstr "无法在此网络上启动 Jam。"
+
+#: src/ui/jam.rs
+msgid "End the jam"
+msgstr "结束 Jam"
+
+#: src/ui/jam.rs
+msgid "Friends on your network join with the invitation code. Everyone listens on their own Spotify account."
+msgstr "同一网络中的好友可以通过邀请码加入。每个人都用自己的 Spotify 账号收听。"
+
+#: src/ui/jam.rs
+msgid "Guests control playback"
+msgstr "允许来宾控制播放"
+
+#: src/ui/jam.rs
+msgid "Host a jam"
+msgstr "发起 Jam"
+
+#: src/ui/jam.rs
+msgid "In a jam, add songs to the jam to play them."
+msgstr "在 Jam 中，请将歌曲添加到 Jam 来播放。"
+
+#: src/ui/jam.rs
+msgid "Invitation code"
+msgstr "邀请码"
+
+#: src/ui/jam.rs
+msgid "Invitation copied"
+msgstr "邀请已复制"
+
+#. Translators: Listening together with other Spotifast users, each on their own account.
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Jam"
+
+#: src/ui/jam.rs
+msgid "Join a jam"
+msgstr "加入 Jam"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "加入"
+
+#: src/ui/jam.rs
+msgid "Leave the jam"
+msgstr "退出 Jam"
+
+#: src/ui/jam.rs
+msgid "Listeners"
+msgstr "听众"
+
+#: src/ui/jam.rs
+msgid "Only the host can do that."
+msgstr "只有主持人可以这样做。"
+
+#: src/ui/jam.rs
+msgid "Reconnecting…"
+msgstr "正在重新连接…"
+
+#: src/ui/jam.rs
+msgid "Remove from the jam"
+msgstr "从 Jam 中移除"
+
+#: src/ui/jam.rs
+msgid "Right-click a song and choose Add to jam."
+msgstr "右键点击歌曲，然后选择“添加到 Jam”。"
+
+#: src/ui/jam.rs
+msgid "That invitation code isn't valid."
+msgstr "此邀请码无效。"
+
+#: src/ui/jam.rs
+msgid "That invitation is wrong or has expired."
+msgstr "此邀请有误或已过期。"
+
+#: src/ui/jam.rs
+msgid "That jam is full."
+msgstr "此 Jam 已满。"
+
+#: src/ui/jam.rs
+msgid "That jam runs another version of Spotifast."
+msgstr "此 Jam 使用的是其他版本的 Spotifast。"
+
+#: src/ui/jam.rs
+msgid "The host ended the jam."
+msgstr "主持人已结束 Jam。"
+
+#: src/ui/jam.rs
+msgid "The jam plays on this computer. Switch playback here to follow it."
+msgstr "Jam 在这台电脑上播放。请将播放切换到这里以跟随。"
+
+#: src/ui/jam.rs
+msgid "The jam's queue is full."
+msgstr "Jam 的播放队列已满。"
+
+#: src/ui/jam.rs
+msgid "You have plenty of songs waiting already."
+msgstr "你已经有很多歌曲在等待了。"
+
 #. Translators: {count} is a number of songs.
 #: src/app.rs:4471
 #, rust-format

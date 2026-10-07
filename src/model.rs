@@ -195,6 +195,8 @@ pub enum QueueTab {
     #[default]
     Queue,
     Recents,
+    /// Listening together with other Spotifast users.
+    Jam,
 }
 
 impl QueueTab {
@@ -202,6 +204,7 @@ impl QueueTab {
         match self {
             Self::Queue => "queue",
             Self::Recents => "recents",
+            Self::Jam => "jam",
         }
     }
 
@@ -209,6 +212,7 @@ impl QueueTab {
         match text {
             "queue" => Some(Self::Queue),
             "recents" => Some(Self::Recents),
+            "jam" => Some(Self::Jam),
             // Backward compatibility with the old tab name.
             "recently_played" => Some(Self::Recents),
             _ => None,
@@ -998,6 +1002,18 @@ pub enum Action {
     RemoveFromQueue {
         rows: Vec<(usize, String)>,
     },
+    /// Host a jam on this computer's network address.
+    HostJam,
+    /// Join the jam an invitation code names.
+    JoinJam(String),
+    /// Leave the jam, or end it when hosting.
+    LeaveJam,
+    /// Add songs to the jam's queue, shown at once while the host confirms.
+    AddToJam(Vec<PlayableItem>),
+    RemoveFromJam(crate::jam::protocol::ItemId),
+    /// Host only: whether guests may skip, pause, seek and reorder.
+    SetJamGuestControl(bool),
+    CopyJamInvite,
     /// Set saved state for several songs explicitly.
     SetSavedMany {
         uris: Vec<String>,

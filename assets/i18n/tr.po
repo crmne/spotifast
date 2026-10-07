@@ -734,6 +734,129 @@ msgstr ""
 msgid "Queue cleared"
 msgstr "Sıra temizlendi"
 
+#: src/ui/jam.rs
+msgid "Add to jam"
+msgstr "Jam'e ekle"
+
+#. Translators: Keep {name} exactly as written. It becomes the name of the person who added the song.
+#: src/ui/jam.rs
+#, rust-format
+msgid "Added by {name}"
+msgstr "{name} ekledi"
+
+#: src/ui/jam.rs
+msgid "Added to the jam"
+msgstr "Jam'e eklendi"
+
+#: src/ui/jam.rs
+msgid "Copy invitation"
+msgstr "Daveti kopyala"
+
+#: src/ui/jam.rs
+msgid "Couldn't reach the jam."
+msgstr "Jam'e ulaşılamadı."
+
+#: src/ui/jam.rs
+msgid "Couldn't start the jam on this network."
+msgstr "Jam bu ağda başlatılamadı."
+
+#: src/ui/jam.rs
+msgid "End the jam"
+msgstr "Jam'i bitir"
+
+#: src/ui/jam.rs
+msgid "Friends on your network join with the invitation code. Everyone listens on their own Spotify account."
+msgstr "Ağınızdaki arkadaşlar davet koduyla katılır. Herkes kendi Spotify hesabıyla dinler."
+
+#: src/ui/jam.rs
+msgid "Guests control playback"
+msgstr "Konuklar çalmayı kontrol eder"
+
+#: src/ui/jam.rs
+msgid "Host a jam"
+msgstr "Jam düzenle"
+
+#: src/ui/jam.rs
+msgid "In a jam, add songs to the jam to play them."
+msgstr "Jam sırasında şarkıları çalmak için jam'e ekleyin."
+
+#: src/ui/jam.rs
+msgid "Invitation code"
+msgstr "Davet kodu"
+
+#: src/ui/jam.rs
+msgid "Invitation copied"
+msgstr "Davet kopyalandı"
+
+#. Translators: Listening together with other Spotifast users, each on their own account.
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Jam"
+
+#: src/ui/jam.rs
+msgid "Join a jam"
+msgstr "Bir jam'e katıl"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "Katıl"
+
+#: src/ui/jam.rs
+msgid "Leave the jam"
+msgstr "Jam'den ayrıl"
+
+#: src/ui/jam.rs
+msgid "Listeners"
+msgstr "Dinleyiciler"
+
+#: src/ui/jam.rs
+msgid "Only the host can do that."
+msgstr "Bunu yalnızca ev sahibi yapabilir."
+
+#: src/ui/jam.rs
+msgid "Reconnecting…"
+msgstr "Yeniden bağlanılıyor…"
+
+#: src/ui/jam.rs
+msgid "Remove from the jam"
+msgstr "Jam'den kaldır"
+
+#: src/ui/jam.rs
+msgid "Right-click a song and choose Add to jam."
+msgstr "Bir şarkıya sağ tıklayıp Jam'e ekle'yi seçin."
+
+#: src/ui/jam.rs
+msgid "That invitation code isn't valid."
+msgstr "Bu davet kodu geçerli değil."
+
+#: src/ui/jam.rs
+msgid "That invitation is wrong or has expired."
+msgstr "Bu davet yanlış veya süresi dolmuş."
+
+#: src/ui/jam.rs
+msgid "That jam is full."
+msgstr "Bu jam dolu."
+
+#: src/ui/jam.rs
+msgid "That jam runs another version of Spotifast."
+msgstr "Bu jam, Spotifast'in başka bir sürümünü kullanıyor."
+
+#: src/ui/jam.rs
+msgid "The host ended the jam."
+msgstr "Ev sahibi jam'i bitirdi."
+
+#: src/ui/jam.rs
+msgid "The jam plays on this computer. Switch playback here to follow it."
+msgstr "Jam bu bilgisayarda çalıyor. Takip etmek için çalmayı buraya alın."
+
+#: src/ui/jam.rs
+msgid "The jam's queue is full."
+msgstr "Jam'in sırası dolu."
+
+#: src/ui/jam.rs
+msgid "You have plenty of songs waiting already."
+msgstr "Zaten bekleyen çok şarkınız var."
+
 #. Translators: {count} is a number of songs.
 #: src/app.rs:4471
 #, rust-format
