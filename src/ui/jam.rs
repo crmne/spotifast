@@ -206,17 +206,44 @@ fn subtitle(app: &App, item: &JamItem) -> String {
     }
 }
 
+/// The cover's side in a jam row, as in the queue's compact rows.
+const COVER: f32 = 36.0;
+/// The side of [`theme::icon_button`] for the row's 14 point cross.
+const REMOVE_BUTTON: f32 = 26.0;
+
 /// One song of the jam. A pending one is dimmed until the server shows it.
 fn row(ui: &mut egui::Ui, app: &mut App, item: &JamItem, removable: bool, pending: bool) {
     let palette = app.palette;
     let subtitle = subtitle(app, item);
+    let cover = app.jam_cover(&item.uri).map(str::to_string);
     ui.scope(|ui| {
         if pending {
             ui.multiply_opacity(0.55);
         }
         ui.horizontal(|ui| {
-            let button = if removable { 30.0 } else { 0.0 };
-            let width = (ui.available_width() - button).max(40.0);
+            let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(COVER), egui::Sense::hover());
+            widgets::paint_cover(
+                ui,
+                &palette,
+                cover.as_deref(),
+                rect,
+                4.0,
+                if item.uri.starts_with("spotify:episode:") {
+                    Icon::Mic
+                } else {
+                    Icon::Music
+                },
+                Some(app.backend.art()),
+            );
+            // The text takes what the cover and the cross leave, spacing
+            // included: claiming any more would hold the panel at its widest
+            // however narrow it is dragged.
+            let button = if removable {
+                REMOVE_BUTTON + ui.spacing().item_spacing.x
+            } else {
+                0.0
+            };
+            let width = (ui.available_width() - button).max(0.0);
             ui.vertical(|ui| {
                 ui.set_width(width);
                 let title = widgets::ellipsized(

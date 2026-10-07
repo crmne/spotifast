@@ -342,6 +342,16 @@ the same song are ignored. With nobody left listening, the jam pauses. The
 server saves the queue within a second of each change, so a restart keeps it.
 A listener reconnects on its own with growing delays, up to eight attempts.
 
+Since links are all a jam carries, each listener asks the Web API's track
+endpoint for the first 30 songs it shows, for their covers, the way it does
+for any other song. When the last song plays and nothing waits in the queue,
+the listener with the lowest id (the one longest in the jam) asks librespot's
+session for that song's radio, as a radio page does, and adds its first ten
+songs that are not in the jam already nor added this way before; it does so
+only with **Autoplay** on, and once per song. The other listeners leave it to
+that one, so the songs arrive once. The server takes these additions like any
+other; it never asks Spotify for anything.
+
 ## The engine
 
 Playback runs on a separate runtime. Librespot maintains the Spotify Connect

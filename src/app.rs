@@ -326,6 +326,13 @@ pub struct App {
     /// The repeat mode before a jam put its songs on repeat, to give back
     /// when the jam ends.
     jam_repeat_before: Option<RepeatMode>,
+    /// The jam song whose radio was asked for once the queue ran out, so
+    /// that it is asked for once.
+    jam_autoplayed: Option<crate::jam::protocol::ItemId>,
+    /// The radio on its way to the jam: its seed and request generation.
+    jam_radio: Option<(String, u64)>,
+    /// Songs the jam's autoplay started from or added, never added again.
+    jam_autoplay_heard: HashSet<String>,
     /// The receiver currently being handed the account, by name.
     pub activating_receiver: Option<String>,
     pub devices_loading: bool,
@@ -803,6 +810,9 @@ impl App {
             jam: Default::default(),
             jam_sync: Default::default(),
             jam_repeat_before: None,
+            jam_autoplayed: None,
+            jam_radio: None,
+            jam_autoplay_heard: HashSet::new(),
             activating_receiver: None,
             devices_loading: false,
             devices_fetched_at: None,
@@ -1976,7 +1986,14 @@ impl App {
                     seed,
                     generation,
                     result,
-                } => self.receive_radio(&seed, generation, result),
+                } => {
+                    if self.jam_radio.as_ref() == Some(&(seed.clone(), generation)) {
+                        self.jam_radio = None;
+                        self.receive_jam_radio(&seed, result);
+                    } else {
+                        self.receive_radio(&seed, generation, result);
+                    }
+                }
                 Event::AlbumType { uri, result } => match result {
                     Ok(true) => {
                         self.confirmed_ep_albums.insert(uri);
@@ -2751,6 +2768,7 @@ impl App {
         if self.jam.in_session() {
             self.jam.expire();
             self.sync_jam();
+            self.autoplay_jam();
             // Drift builds up between events; look again soon.
             ctx.request_repaint_after(JAM_SYNC_EVERY);
         }
@@ -4456,6 +4474,7 @@ impl App {
             _ => None,
         };
         self.jam.apply(event);
+        self.request_jam_covers();
         if joined {
             // A rejoined listener may face a restarted server: judge afresh,
             // and send again what was added while away.
@@ -4477,6 +4496,9 @@ impl App {
         }
         if was_active && !self.jam.active() {
             self.jam_sync = Default::default();
+            self.jam_autoplayed = None;
+            self.jam_radio = None;
+            self.jam_autoplay_heard.clear();
             // Said here too: the Jam tab may well be closed.
             if let Some(text) = self
                 .jam
@@ -4541,8 +4563,16 @@ impl App {
     /// Adds songs to the jam. Each shows at once; the server confirms after.
     /// Only Spotify songs and episodes can be shared, not local files.
     fn add_to_jam(&mut self, items: Vec<PlayableItem>) {
+        if self.share_with_jam(items) {
+            self.toast(gettext(self.locale, "Added to the jam"));
+        }
+    }
+
+    /// Sends songs to the jam, each shown at once. Returns whether any could
+    /// be shared.
+    fn share_with_jam(&mut self, items: Vec<PlayableItem>) -> bool {
         if !self.jam.in_session() {
-            return;
+            return false;
         }
         // While reconnecting, additions wait and go out once back in.
         let connected = !matches!(
@@ -4566,8 +4596,126 @@ impl App {
             added = true;
         }
         if added {
-            self.toast(gettext(self.locale, "Added to the jam"));
+            self.request_jam_covers();
         }
+        added
+    }
+
+    /// The cover of a song in the jam, once its details are known. The jam
+    /// carries links only, never pictures, so each listener looks them up.
+    pub fn jam_cover(&self, uri: &str) -> Option<&str> {
+        self.track_cache
+            .get(uri.strip_prefix("spotify:track:")?)?
+            .image(64)
+    }
+
+    /// Asks for the details of the jam's first songs, for their covers.
+    fn request_jam_covers(&mut self) {
+        /// Enough rows to fill the tab; the others are asked for as the
+        /// queue moves up.
+        const COVERED: usize = 30;
+        let ids: Vec<String> = self
+            .jam
+            .state
+            .iter()
+            .flat_map(|state| state.current.iter().chain(&state.queue))
+            .chain(self.jam.pending.iter().map(|pending| &pending.item))
+            .filter_map(|item| item.uri.strip_prefix("spotify:track:"))
+            .take(COVERED)
+            .map(str::to_string)
+            .collect();
+        let now = Instant::now();
+        for id in ids {
+            if self.track_cache.contains_key(&id) {
+                self.track_used.insert(id, now);
+            } else if self.track_requests.insert(id.clone()) {
+                self.backend.api(ApiRequest::Track { id });
+            }
+        }
+    }
+
+    /// Spotify's autoplay, for the jam: once its last song plays, with the
+    /// queue empty, songs like it follow, from that song's radio. One
+    /// listener asks, the one longest in the jam, so the songs arrive once
+    /// however many are listening.
+    fn autoplay_jam(&mut self) {
+        if !self.settings.autoplay || self.jam.status != crate::jam::view::JamStatus::Joined {
+            return;
+        }
+        let (Some(state), Some(you)) = (self.jam.state.as_ref(), self.jam.you) else {
+            return;
+        };
+        let Some(current) = state.current.as_ref() else {
+            return;
+        };
+        if self.jam_autoplayed == Some(current.id)
+            || self.jam_radio.is_some()
+            || self.jam.shown_queue().next().is_some()
+            || !self.jam.pending.is_empty()
+            || !current.uri.starts_with("spotify:track:")
+            || state.participants.iter().map(|known| known.id).min() != Some(you)
+        {
+            return;
+        }
+        let seed = current.uri.clone();
+        self.jam_autoplayed = Some(current.id);
+        self.jam_autoplay_heard.insert(seed.clone());
+        self.load_generation = self.load_generation.wrapping_add(1);
+        self.jam_radio = Some((seed.clone(), self.load_generation));
+        log::info!("the jam's queue ran out; adding songs like {seed}");
+        self.backend.send(Command::Radio {
+            seed,
+            generation: self.load_generation,
+        });
+    }
+
+    /// Adds the first songs of the radio [`Self::autoplay_jam`] asked for,
+    /// leaving out those already in the jam or added by autoplay before.
+    fn receive_jam_radio(&mut self, seed: &str, result: Result<Vec<Track>, String>) {
+        /// As many as the radio would play in half an hour or so.
+        const SONGS: usize = 10;
+        let songs = match result {
+            Ok(songs) => songs,
+            Err(error) => {
+                log::warn!("no songs to follow {seed} in the jam: {error}");
+                return;
+            }
+        };
+        let in_jam: HashSet<&str> = self
+            .jam
+            .state
+            .iter()
+            .flat_map(|state| state.current.iter().chain(&state.queue))
+            .chain(self.jam.pending.iter().map(|pending| &pending.item))
+            .map(|item| item.uri.as_str())
+            .collect();
+        let mut picked = Vec::new();
+        for track in songs {
+            if picked.len() == SONGS {
+                break;
+            }
+            if track.uri == seed
+                || in_jam.contains(track.uri.as_str())
+                || self.jam_autoplay_heard.contains(&track.uri)
+                || picked
+                    .iter()
+                    .any(|known: &PlayableItem| known.uri() == track.uri)
+            {
+                continue;
+            }
+            picked.push(PlayableItem::Track(track));
+        }
+        for item in &picked {
+            self.jam_autoplay_heard.insert(item.uri().to_string());
+            if let PlayableItem::Track(track) = item
+                && let Some(id) = &track.id
+            {
+                self.track_cache
+                    .entry(id.clone())
+                    .or_insert_with(|| track.clone());
+            }
+        }
+        self.share_with_jam(picked);
     }
 
     /// Sends a request to the jam server.
@@ -14627,6 +14775,133 @@ mod tests {
             app.backend
                 .take_player_commands()
                 .contains(&PlayerCommand::Next)
+        );
+    }
+
+    /// Once the jam's last song plays, the listener longest in the jam asks
+    /// for its radio once, and adds the radio's songs but the one playing.
+    /// The others leave it to that listener, so the songs arrive once.
+    #[test]
+    fn the_jam_plays_on_with_songs_like_its_last_one() {
+        use crate::jam::protocol::{ClientMsg, Participant};
+        const JAM_C: &str = "spotify:track:cccccccccccccccccccccc";
+        let listeners = |you_first: bool| {
+            let mut app = app_in_jam(jam_item(JAM_A, 200_000), 0, JAM_A);
+            let state = app.jam.state.as_mut().unwrap();
+            state.participants = vec![
+                Participant {
+                    id: if you_first { 1 } else { 2 },
+                    name: "Ana".into(),
+                },
+                Participant {
+                    id: if you_first { 2 } else { 0 },
+                    name: "Bob".into(),
+                },
+            ];
+            app
+        };
+
+        let mut other = listeners(false);
+        other.autoplay_jam();
+        assert_eq!(other.jam_radio, None, "someone else asks for the radio");
+
+        let mut app = listeners(true);
+        app.autoplay_jam();
+        let Some((seed, generation)) = app.jam_radio.clone() else {
+            panic!("the jam's queue ran out without asking for more");
+        };
+        assert_eq!(seed, JAM_A);
+        app.autoplay_jam();
+        assert_eq!(app.jam_radio, Some((seed.clone(), generation)));
+
+        let track = |uri: &str| Track {
+            uri: uri.into(),
+            name: "Like it".into(),
+            ..Default::default()
+        };
+        app.handle_backend_events(vec![Event::Radio {
+            seed,
+            generation,
+            result: Ok(vec![track(JAM_A), track(JAM_B), track(JAM_C), track(JAM_B)]),
+        }]);
+        let added: Vec<String> = app
+            .backend
+            .take_jam_requests()
+            .into_iter()
+            .filter_map(|message| match message {
+                ClientMsg::Add { uri, .. } => Some(uri),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(added, [JAM_B, JAM_C]);
+        assert_eq!(app.jam_radio, None);
+
+        // The same song does not ask again once its radio's songs are gone.
+        app.jam.pending.clear();
+        app.autoplay_jam();
+        assert_eq!(app.jam_radio, None);
+    }
+
+    /// Without Spotify's autoplay, the jam stops with its last song.
+    #[test]
+    fn the_jam_stops_with_its_last_song_without_autoplay() {
+        let mut app = app_in_jam(jam_item(JAM_A, 200_000), 0, JAM_A);
+        app.jam.state.as_mut().unwrap().participants = vec![crate::jam::protocol::Participant {
+            id: 1,
+            name: "Ana".into(),
+        }];
+        app.settings.autoplay = false;
+        app.autoplay_jam();
+        assert_eq!(app.jam_radio, None);
+    }
+
+    /// A jam's rows never claim more width than the Queue panel has, or the
+    /// panel would hold at its widest however narrow it was dragged.
+    #[test]
+    fn the_jam_tab_keeps_the_queue_panel_as_narrow_as_chosen() {
+        use crate::jam::net::JamEvent;
+        let ctx = egui::Context::default();
+        let mut app = test_app("jam-narrow-panel");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.jam.start(crate::jam::session::JamClock::new());
+        app.jam.apply(JamEvent::Joined { you: 1 });
+        let mut state = crate::jam::session::JamSession::new(0).state(0);
+        state.seq = 1;
+        state.participants = vec![crate::jam::protocol::Participant {
+            id: 1,
+            name: "Ana".into(),
+        }];
+        state.current = Some(jam_item(JAM_A, 200_000));
+        state.queue.push(crate::jam::protocol::JamItem {
+            id: 2,
+            ..jam_item(JAM_B, 200_000)
+        });
+        app.jam.apply(JamEvent::State(state));
+        app.queue_tab = QueueTab::Jam;
+        app.show_queue_panel = true;
+        app.settings.queue_width = crate::theme::SIDE_PANEL_MIN_WIDTH;
+
+        for _ in 0..5 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1400.0, 800.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+        }
+        let width = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("queue-panel"))
+            .unwrap()
+            .size()
+            .x;
+        assert!(
+            width <= crate::theme::SIDE_PANEL_MIN_WIDTH + 0.5,
+            "the Jam tab widened the panel to {width}"
         );
     }
 

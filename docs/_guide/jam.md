@@ -32,7 +32,7 @@ who use Spotifast, and people in the Spotify app cannot join it.
 Open the queue panel and pick the **Jam** tab. Enter the server's address
 and paste its code, then choose **Join**. Spotifast keeps both, so next time
 **Join** is all it takes. The tab then shows who is listening, the song
-playing and the shared queue, with who added each song.
+playing and the shared queue, with each song's cover and who added it.
 
 **Leave the jam** takes you out; the jam plays on for the others. When the
 last person leaves, the jam pauses where it was, and picks up from there.
@@ -47,6 +47,10 @@ last person leaves, the jam pauses where it was, and picks up from there.
   can remove any song with the cross beside it.
 - **Starting a playlist or album is held back**, since the jam decides what
   plays. Add its songs to the jam instead.
+- **The music carries on.** When the last song in the queue starts, songs
+  like it are added, the way Spotify's autoplay continues after a single
+  song. The person longest in the jam adds them, and only if **Autoplay** is
+  on in their settings.
 - **Volume stays your own.**
 - If the connection drops, Spotifast reconnects on its own and sends again
   the songs you added meanwhile.
