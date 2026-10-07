@@ -8916,7 +8916,7 @@ mod tests {
 
         let text = draw(&ctx, &mut app, vec![]);
         assert!(
-            has(&text, "Jam server code") && has(&text, "Join"),
+            has(&text, "Jam server address") && has(&text, "Jam server code") && has(&text, "Join"),
             "{text:?}"
         );
         assert!(!has(&menu(&ctx, &mut app, &song), "Add to jam"));

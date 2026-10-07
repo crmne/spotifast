@@ -26,24 +26,18 @@ enum Command {
         #[arg(long, default_value = "0.0.0.0:4070")]
         listen: SocketAddr,
     },
-    /// Print the server code for the address listeners reach this server
-    /// at. The code holds the password: share it privately.
-    Code {
-        /// The server's public host name or IP address.
-        #[arg(long)]
-        host: String,
-        #[arg(long, default_value_t = 4070)]
-        port: u16,
-    },
+    /// Print the server code. Listeners enter it beside the server's
+    /// address. It holds the password: share it privately.
+    Code,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let data = DataDir::new(cli.data);
     match cli.command {
-        Command::Code { host, port } => match data.server_code(&host, port) {
+        Command::Code => match data.server_code() {
             Ok(code) => {
-                println!("{}", code.code());
+                println!("{code}");
                 ExitCode::SUCCESS
             }
             Err(error) => {
@@ -91,7 +85,7 @@ async fn serve(data: DataDir, listen: SocketAddr) -> ExitCode {
         "jam-server: listening at {}, certificate SHA-256 {hex}",
         running.address
     );
-    eprintln!("jam-server: run `jam-server code --host <public address>` for the server code");
+    eprintln!("jam-server: run `jam-server code` for the server code");
     stopped().await;
     eprintln!("jam-server: stopping");
     running.stop().await;

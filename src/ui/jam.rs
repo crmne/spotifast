@@ -38,17 +38,31 @@ fn start(app: &mut App, ui: &mut egui::Ui) {
         &palette,
         &gettext(
             locale,
-            "Listen together with everyone who has the jam server's code. Each person plays the songs on their own Spotify account.",
+            "Listen together with everyone who has the jam server's address and code. Each person plays the songs on their own Spotify account.",
         ),
     );
     ui.add_space(12.0);
-    heading(ui, &palette, &gettext(locale, "Jam server code"));
-    // The code being typed is the field's own until joining keeps it.
-    let id = ui.make_persistent_id("jam-server-code");
+    // What is typed stays the fields' own until joining keeps it.
+    let address_id = ui.make_persistent_id("jam-server-address");
+    let code_id = ui.make_persistent_id("jam-server-code");
+    let mut address = ui
+        .data(|data| data.get_temp::<String>(address_id))
+        .unwrap_or_else(|| app.settings.jam_address.clone());
     let mut code = ui
-        .data(|data| data.get_temp::<String>(id))
-        .unwrap_or_else(|| app.settings.jam_server.clone());
-    let field = widgets::text_edit(
+        .data(|data| data.get_temp::<String>(code_id))
+        .unwrap_or_else(|| app.settings.jam_code.clone());
+
+    heading(ui, &palette, &gettext(locale, "Jam server address"));
+    let address_field = widgets::text_edit(
+        ui,
+        locale,
+        egui::TextEdit::singleline(&mut address)
+            .hint_text("jam.example.org")
+            .desired_width(f32::INFINITY),
+    );
+    ui.add_space(8.0);
+    heading(ui, &palette, &gettext(locale, "Jam server code"));
+    let code_field = widgets::text_edit(
         ui,
         locale,
         egui::TextEdit::singleline(&mut code)
@@ -56,7 +70,8 @@ fn start(app: &mut App, ui: &mut egui::Ui) {
             .hint_text(gettext(locale, "Jam server code"))
             .desired_width(f32::INFINITY),
     );
-    let entered = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+    let entered = (address_field.lost_focus() || code_field.lost_focus())
+        && ui.input(|input| input.key_pressed(egui::Key::Enter));
     ui.add_space(8.0);
     let clicked = theme::soft_button(
         ui,
@@ -66,10 +81,16 @@ fn start(app: &mut App, ui: &mut egui::Ui) {
         false,
     )
     .clicked();
-    if (entered || clicked) && !code.trim().is_empty() {
-        app.actions.push(Action::JoinJam(code.trim().to_string()));
+    if (entered || clicked) && !address.trim().is_empty() && !code.trim().is_empty() {
+        app.actions.push(Action::JoinJam {
+            address: address.trim().to_string(),
+            code: code.trim().to_string(),
+        });
     }
-    ui.data_mut(|data| data.insert_temp(id, code));
+    ui.data_mut(|data| {
+        data.insert_temp(address_id, address);
+        data.insert_temp(code_id, code);
+    });
 }
 
 /// In the jam: who listens, what plays, and what follows.

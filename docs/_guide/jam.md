@@ -16,9 +16,11 @@ who use Spotifast, and people in the Spotify app cannot join it.
 
 - **A jam server.** One person runs it on a VPS; see
   [Run the jam server](#run-the-jam-server) below.
-- **The server code**, which the server prints for you. It looks like
-  `203.0.113.7:4070#…#…` and holds the server's password: share it
-  privately, with the people you want in the jam.
+- **The server's address and its code.** The address is the VPS's host name
+  or IP address, such as `jam.example.org`; add `:port` only if the server
+  does not listen on 4070. The code, which the server prints for you, looks
+  like `…#…` and holds the server's password: share it privately, with the
+  people you want in the jam.
 - **Spotify Premium for everyone.** No sound travels through the server.
   Each person plays the songs on their own account, the way they play
   anything else in Spotifast.
@@ -27,10 +29,10 @@ who use Spotifast, and people in the Spotify app cannot join it.
 
 ## Join the jam
 
-Open the queue panel and pick the **Jam** tab. Paste the server code and
-choose **Join**. Spotifast keeps the code, so next time **Join** is all it
-takes. The tab then shows who is listening, the song playing and the shared
-queue, with who added each song.
+Open the queue panel and pick the **Jam** tab. Enter the server's address
+and paste its code, then choose **Join**. Spotifast keeps both, so next time
+**Join** is all it takes. The tab then shows who is listening, the song
+playing and the shared queue, with who added each song.
 
 **Leave the jam** takes you out; the jam plays on for the others. When the
 last person leaves, the jam pauses where it was, and picks up from there.
@@ -65,11 +67,12 @@ neither Spotify nor an account. Any Linux VPS with Docker will do.
 git clone <your repository> spotifast
 cd spotifast/jam-server
 docker compose up -d
-docker compose run --rm jam code --host 203.0.113.7
+docker compose run --rm jam code
 ```
 
-Replace `203.0.113.7` with the VPS's public address or host name. The last
-command prints the server code. Open TCP port 4070 in the VPS's firewall.
+The last command prints the server code. Give it, with the VPS's public
+address or host name, to the people you want in the jam. Open TCP port 4070
+in the VPS's firewall.
 
 The first start creates the server's password and its certificate in the
 `jam-data` volume, and the jam is saved there too, so restarts and updates

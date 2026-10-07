@@ -802,8 +802,8 @@ msgid "You have plenty of songs waiting already."
 msgstr "Du hast schon viele Songs in der Warteschlange."
 
 #: src/ui/jam.rs
-msgid "Listen together with everyone who has the jam server's code. Each person plays the songs on their own Spotify account."
-msgstr "Hört gemeinsam mit allen, die den Code des Jam-Servers haben. Jede Person hört die Songs mit ihrem eigenen Spotify-Konto."
+msgid "Listen together with everyone who has the jam server's address and code. Each person plays the songs on their own Spotify account."
+msgstr "Hört gemeinsam mit allen, die die Adresse und den Code des Jam-Servers haben. Jede Person hört die Songs mit ihrem eigenen Spotify-Konto."
 
 #: src/ui/jam.rs
 msgid "Jam server code"
@@ -820,6 +820,14 @@ msgstr "Der Jam-Server hat diesen Code abgelehnt."
 #: src/ui/jam.rs
 msgid "The jam server runs another version of Spotifast."
 msgstr "Der Jam-Server nutzt eine andere Spotifast-Version."
+
+#: src/ui/jam.rs
+msgid "Jam server address"
+msgstr "Adresse des Jam-Servers"
+
+#: src/ui/jam.rs
+msgid "That jam server address isn't valid."
+msgstr "Diese Jam-Server-Adresse ist ungültig."
 
 #. Translators: {count} is a number of songs.
 #: src/app.rs:4471

@@ -309,15 +309,17 @@ the app and by the server in `jam-server`, and are tested on their own. The
 app runs its connection on the backend runtime (`src/jam/net.rs`).
 
 Spotifast connects to the server only while you are in the jam, over TLS to
-the address the server code names. The code is `host:port#password#fingerprint`.
+the address the listener entered (`host`, or `host:port`; 4070 by default).
+The server code beside it is `password#fingerprint`.
 The app accepts the one certificate whose SHA-256 is the fingerprint, and
 still checks the handshake signatures, so only the holder of that key
 passes; no domain name or certificate authority is involved. The password is
 128 random bits drawn by the server. A listener never sends it: it answers
 the server's random nonce with an HMAC-SHA256 keyed by it, over its name and
 a value exported from the TLS session, so a proof cannot be replayed or
-relayed into another connection. The code is kept in `settings.json` as
-`jam_server` and left out of diagnostics.
+relayed into another connection. The address and the code are kept in
+`settings.json` as `jam_address` and `jam_code`; the code is left out of
+diagnostics.
 
 Messages are JSON, one per line, and never carry audio, a URL, or a Spotify
 credential: songs travel as `spotify:track:` or `spotify:episode:` links with

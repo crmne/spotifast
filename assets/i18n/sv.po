@@ -801,8 +801,8 @@ msgid "You have plenty of songs waiting already."
 msgstr "Du har redan många låtar som väntar."
 
 #: src/ui/jam.rs
-msgid "Listen together with everyone who has the jam server's code. Each person plays the songs on their own Spotify account."
-msgstr "Lyssna tillsammans med alla som har jamserverns kod. Var och en spelar låtarna med sitt eget Spotify-konto."
+msgid "Listen together with everyone who has the jam server's address and code. Each person plays the songs on their own Spotify account."
+msgstr "Lyssna tillsammans med alla som har jamserverns adress och kod. Var och en spelar låtarna med sitt eget Spotify-konto."
 
 #: src/ui/jam.rs
 msgid "Jam server code"
@@ -819,6 +819,14 @@ msgstr "Jamservern nekade den här koden."
 #: src/ui/jam.rs
 msgid "The jam server runs another version of Spotifast."
 msgstr "Jamservern använder en annan version av Spotifast."
+
+#: src/ui/jam.rs
+msgid "Jam server address"
+msgstr "Jamserverns adress"
+
+#: src/ui/jam.rs
+msgid "That jam server address isn't valid."
+msgstr "Jamserverns adress är inte giltig."
 
 #. Translators: {count} is a number of songs.
 #: src/app.rs:4471

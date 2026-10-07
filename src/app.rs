@@ -4411,13 +4411,19 @@ impl App {
         self.toast(gettext(self.locale, "Queue cleared"));
     }
 
-    /// Joins the jam on the server `code` names, and keeps the code for next
-    /// time. A malformed code changes nothing.
-    pub fn join_jam(&mut self, code: &str) -> Result<(), crate::jam::auth::CodeError> {
-        let server = crate::jam::auth::ServerCode::parse(code)?;
-        let code = code.trim().to_string();
-        if self.settings.jam_server != code {
-            self.settings.jam_server = code;
+    /// Joins the jam on the server at `address`, with the server's `code`,
+    /// and keeps both for next time. A malformed address or code changes
+    /// nothing.
+    pub fn join_jam(
+        &mut self,
+        address: &str,
+        code: &str,
+    ) -> Result<(), crate::jam::auth::CodeError> {
+        let server = crate::jam::auth::ServerCode::from_parts(address, code)?;
+        let (address, code) = (address.trim().to_string(), code.trim().to_string());
+        if self.settings.jam_address != address || self.settings.jam_code != code {
+            self.settings.jam_address = address;
+            self.settings.jam_code = code;
             self.settings_dirty = true;
         }
         let clock = crate::jam::session::JamClock::new();
@@ -9128,11 +9134,15 @@ impl App {
             }
             Action::ClearQueue => self.clear_queue(),
             Action::RemoveFromQueue { rows } => self.remove_from_queue(rows),
-            Action::JoinJam(code) => {
-                if self.join_jam(&code).is_err() {
+            Action::JoinJam { address, code } => match self.join_jam(&address, &code) {
+                Ok(()) => {}
+                Err(crate::jam::auth::CodeError::BadAddress) => {
+                    self.toast(gettext(self.locale, "That jam server address isn't valid."));
+                }
+                Err(_) => {
                     self.toast(gettext(self.locale, "That jam server code isn't valid."));
                 }
-            }
+            },
             Action::LeaveJam => self.leave_jam(),
             Action::AddToJam(items) => self.add_to_jam(items),
             Action::RemoveFromJam(item) => {
@@ -14473,30 +14483,34 @@ mod tests {
         );
     }
 
-    /// A malformed server code starts nothing; a good one is kept for next
+    /// A malformed address or code starts nothing; good ones are kept for next
     /// time. Leaving clears the jam at once, and the connection's late
     /// events cannot bring it back.
     #[test]
     fn joining_and_leaving_a_jam_updates_the_view_at_once() {
         let mut app = headless_app();
-        assert!(app.join_jam("not a server code").is_err());
+        let code = crate::jam::auth::access_code(
+            &crate::jam::auth::Secret::generate(),
+            crate::jam::auth::Fingerprint::of(b"certificate"),
+        );
+        assert_eq!(
+            app.join_jam("not an address", &code),
+            Err(crate::jam::auth::CodeError::BadAddress)
+        );
+        assert!(app.join_jam("jam.example.org", "not a code").is_err());
         assert!(!app.jam.active());
-        assert!(app.settings.jam_server.is_empty());
+        assert!(app.settings.jam_address.is_empty() && app.settings.jam_code.is_empty());
 
-        let code = crate::jam::auth::ServerCode {
-            host: "203.0.113.7".into(),
-            port: 4070,
-            secret: crate::jam::auth::Secret::generate(),
-            fingerprint: crate::jam::auth::Fingerprint::of(b"certificate"),
-        }
-        .code();
-        app.join_jam(&code).unwrap();
+        app.join_jam(" jam.example.org ", &code).unwrap();
         assert_eq!(app.jam.status, crate::jam::view::JamStatus::Starting);
-        assert_eq!(app.settings.jam_server, code);
+        assert_eq!(app.settings.jam_address, "jam.example.org");
+        assert_eq!(app.settings.jam_code, code);
+        let diagnostics = format!("{:?}", app.settings);
         assert!(
-            !format!("{:?}", app.settings).contains(&code),
+            !diagnostics.contains(&code),
             "the server code holds a password and must stay out of diagnostics"
         );
+        assert!(diagnostics.contains("jam.example.org"));
 
         app.leave_jam();
         assert!(!app.jam.active());

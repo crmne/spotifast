@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use jam_core::auth::{self, BINDING_BYTES, BINDING_LABEL, Fingerprint, Secret, ServerCode};
+use jam_core::auth::{self, BINDING_BYTES, BINDING_LABEL, Fingerprint, Secret};
 use jam_core::protocol::{
     self, ClientMsg, JamState, PROTOCOL_VERSION, ParticipantId, Rejection, ServerMsg, encode,
 };
@@ -98,21 +98,14 @@ impl DataDir {
         tls_config(certificates, key)
     }
 
-    /// The code to give listeners, for the address they reach this server at.
-    pub fn server_code(&self, host: &str, port: u16) -> Result<ServerCode, String> {
+    /// The code to give listeners, `password#fingerprint`. They enter the
+    /// server's address beside it themselves.
+    pub fn server_code(&self) -> Result<String, String> {
         let secret = self
             .load_or_create_secret()
             .map_err(|error| error.to_string())?;
         let (_, fingerprint) = self.load_tls()?;
-        let code = ServerCode {
-            host: host.to_string(),
-            port,
-            secret,
-            fingerprint,
-        };
-        // A code that does not read back is no use to anyone.
-        ServerCode::parse(&code.code()).map_err(|error| error.to_string())?;
-        Ok(code)
+        Ok(auth::access_code(&secret, fingerprint))
     }
 }
 

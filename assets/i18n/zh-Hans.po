@@ -788,8 +788,8 @@ msgid "You have plenty of songs waiting already."
 msgstr "你已经有很多歌曲在等待了。"
 
 #: src/ui/jam.rs
-msgid "Listen together with everyone who has the jam server's code. Each person plays the songs on their own Spotify account."
-msgstr "与所有拥有 Jam 服务器代码的人一起收听。每个人都用自己的 Spotify 账号播放歌曲。"
+msgid "Listen together with everyone who has the jam server's address and code. Each person plays the songs on their own Spotify account."
+msgstr "与所有拥有 Jam 服务器地址和代码的人一起收听。每个人都用自己的 Spotify 账号播放歌曲。"
 
 #: src/ui/jam.rs
 msgid "Jam server code"
@@ -806,6 +806,14 @@ msgstr "Jam 服务器拒绝了此代码。"
 #: src/ui/jam.rs
 msgid "The jam server runs another version of Spotifast."
 msgstr "Jam 服务器使用的是其他版本的 Spotifast。"
+
+#: src/ui/jam.rs
+msgid "Jam server address"
+msgstr "Jam 服务器地址"
+
+#: src/ui/jam.rs
+msgid "That jam server address isn't valid."
+msgstr "此 Jam 服务器地址无效。"
 
 #. Translators: {count} is a number of songs.
 #: src/app.rs:4471

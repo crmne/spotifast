@@ -1002,8 +1002,12 @@ pub enum Action {
     RemoveFromQueue {
         rows: Vec<(usize, String)>,
     },
-    /// Join the jam on the server a server code names, and keep that code.
-    JoinJam(String),
+    /// Join the jam on the server at `address` with the server's `code`, and
+    /// keep both.
+    JoinJam {
+        address: String,
+        code: String,
+    },
     LeaveJam,
     /// Add songs to the jam's queue, shown at once while the server confirms.
     AddToJam(Vec<PlayableItem>),

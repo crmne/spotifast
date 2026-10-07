@@ -438,10 +438,18 @@ fn the_code_names_the_certificate_and_keeps_the_password() {
     )
     .unwrap();
     let data = jam_server::DataDir::new(&directory);
-    let first = data.server_code("jam.example.org", 4070).unwrap();
-    let second = data.server_code("jam.example.org", 4070).unwrap();
+    let first = data.server_code().unwrap();
+    let second = data.server_code().unwrap();
     assert_eq!(first, second, "the password is kept, not drawn again");
-    assert_eq!(first.fingerprint, tls().1);
-    assert_eq!(ServerCode::parse(&first.code()), Ok(first));
+    let joined = ServerCode::from_parts("jam.example.org", &first).unwrap();
+    assert_eq!(joined.fingerprint, tls().1);
+    assert_eq!(
+        (joined.host.as_str(), joined.port),
+        ("jam.example.org", 4070)
+    );
+    assert!(
+        !first.contains("jam.example.org"),
+        "the code no longer names the address"
+    );
     let _ = std::fs::remove_dir_all(directory);
 }

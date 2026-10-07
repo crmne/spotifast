@@ -1,10 +1,13 @@
-//! The server code, and how each side proves itself to the other.
+//! Where the jam server is, its code, and how each side proves itself to the
+//! other.
 //!
-//! A server code reads `host:port#password#fingerprint`. The password is 128
-//! random bits drawn by the server, never chosen by a person, so a captured
-//! handshake cannot be guessed back to it. The fingerprint is the SHA-256 of
-//! the server's TLS certificate: the app accepts that certificate and no
-//! other, which needs neither a domain name nor a certificate authority.
+//! A listener enters two things: the server's address (`host` or
+//! `host:port`), and the server's code, `password#fingerprint`. The password
+//! is 128 random bits drawn by the server, never chosen by a person, so a
+//! captured handshake cannot be guessed back to it. The fingerprint is the
+//! SHA-256 of the server's TLS certificate: the app accepts that certificate
+//! and no other, wherever the address points, which needs neither a domain
+//! name nor a certificate authority.
 //!
 //! A listener never sends the password. It answers the server's random nonce
 //! with an HMAC keyed by it, over its name and a value exported from the TLS
@@ -72,8 +75,11 @@ impl Fingerprint {
     }
 }
 
-/// Where the jam server is, the certificate it must show, and the password
-/// it expects.
+/// The port a jam server listens on unless its address says otherwise.
+pub const DEFAULT_PORT: u16 = 4070;
+
+/// Everything needed to join: where the server is, the certificate it must
+/// show, and the password it expects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServerCode {
     /// A host name or IP address; an IPv6 address without brackets.
@@ -85,67 +91,94 @@ pub struct ServerCode {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CodeError {
+    #[error("the server's address is invalid")]
+    BadAddress,
     #[error("the server code is incomplete")]
     Incomplete,
     #[error("the server code's password is invalid")]
     BadSecret,
     #[error("the server code's fingerprint is invalid")]
     BadFingerprint,
-    #[error("the server code's address is invalid")]
-    BadAddress,
 }
 
 impl ServerCode {
-    /// The code to give the people who may join. It grants entry: share it
-    /// privately, and never write it to a log.
-    pub fn code(&self) -> String {
-        let host = if self.host.contains(':') {
-            format!("[{}]", self.host)
-        } else {
-            self.host.clone()
-        };
-        format!(
-            "{host}:{}#{}#{}",
-            self.port,
-            self.secret.to_text(),
-            self.fingerprint.to_text()
-        )
-    }
-
-    pub fn parse(code: &str) -> Result<Self, CodeError> {
-        let mut parts = code.trim().split('#');
-        let (Some(address), Some(secret), Some(fingerprint), None) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        else {
-            return Err(CodeError::Incomplete);
-        };
-        let secret = Secret::from_text(secret).ok_or(CodeError::BadSecret)?;
-        let fingerprint = Fingerprint::from_text(fingerprint).ok_or(CodeError::BadFingerprint)?;
-        let (host, port) = if let Some(rest) = address.strip_prefix('[') {
-            rest.split_once("]:").ok_or(CodeError::BadAddress)?
-        } else {
-            let (host, port) = address.rsplit_once(':').ok_or(CodeError::BadAddress)?;
-            if host.contains(':') {
-                return Err(CodeError::BadAddress);
-            }
-            (host, port)
-        };
-        let port: u16 = port.parse().map_err(|_| CodeError::BadAddress)?;
-        let host_valid = !host.is_empty()
-            && host.len() <= 253
-            && host
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b".-:%".contains(&byte));
-        if !host_valid || port == 0 {
-            return Err(CodeError::BadAddress);
-        }
+    /// From what a listener entered: the server's address and its code.
+    pub fn from_parts(address: &str, code: &str) -> Result<Self, CodeError> {
+        let (host, port) = parse_address(address)?;
+        let (secret, fingerprint) = parse_code(code)?;
         Ok(Self {
-            host: host.to_string(),
+            host,
             port,
             secret,
             fingerprint,
         })
     }
+
+    /// The code to give the people who may join, `password#fingerprint`.
+    /// It grants entry: share it privately, and never write it to a log.
+    pub fn code(&self) -> String {
+        access_code(&self.secret, self.fingerprint)
+    }
+
+    /// The address as a listener would enter it.
+    pub fn address(&self) -> String {
+        let host = if self.host.contains(':') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        format!("{host}:{}", self.port)
+    }
+}
+
+/// The server code for a password and a certificate fingerprint.
+pub fn access_code(secret: &Secret, fingerprint: Fingerprint) -> String {
+    format!("{}#{}", secret.to_text(), fingerprint.to_text())
+}
+
+/// `password#fingerprint`.
+fn parse_code(code: &str) -> Result<(Secret, Fingerprint), CodeError> {
+    let (secret, fingerprint) = code.trim().split_once('#').ok_or(CodeError::Incomplete)?;
+    let secret = Secret::from_text(secret).ok_or(CodeError::BadSecret)?;
+    let fingerprint = Fingerprint::from_text(fingerprint).ok_or(CodeError::BadFingerprint)?;
+    Ok((secret, fingerprint))
+}
+
+/// `host`, `host:port`, `[ipv6]`, `[ipv6]:port`, or a bare IPv6 address.
+/// Without a port, the server is taken to listen on [`DEFAULT_PORT`].
+fn parse_address(address: &str) -> Result<(String, u16), CodeError> {
+    let address = address.trim();
+    let (host, port) = if let Some(rest) = address.strip_prefix('[') {
+        match rest.split_once(']') {
+            Some((host, "")) => (host, None),
+            Some((host, port)) => (
+                host,
+                Some(port.strip_prefix(':').ok_or(CodeError::BadAddress)?),
+            ),
+            None => return Err(CodeError::BadAddress),
+        }
+    } else if address.matches(':').count() > 1 {
+        // Several colons and no brackets: an IPv6 address alone.
+        (address, None)
+    } else {
+        match address.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (address, None),
+        }
+    };
+    let port = match port {
+        Some(port) => port.parse().map_err(|_| CodeError::BadAddress)?,
+        None => DEFAULT_PORT,
+    };
+    let host_valid = !host.is_empty()
+        && host.len() <= 253
+        && host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b".-:%".contains(&byte));
+    if !host_valid || port == 0 {
+        return Err(CodeError::BadAddress);
+    }
+    Ok((host.to_string(), port))
 }
 
 /// A fresh challenge for one connection.
@@ -197,50 +230,71 @@ mod tests {
     }
 
     #[test]
-    fn codes_round_trip_for_names_and_both_ip_families() {
+    fn address_and_code_round_trip_for_names_and_both_ip_families() {
         for host in ["203.0.113.7", "jam.example.org", "2001:db8::1", "vps"] {
             let code = code(host);
-            assert_eq!(ServerCode::parse(&code.code()), Ok(code.clone()));
+            assert_eq!(
+                ServerCode::from_parts(&code.address(), &code.code()),
+                Ok(code.clone())
+            );
         }
     }
 
     #[test]
-    fn malformed_codes_are_refused() {
+    fn an_address_without_a_port_means_the_default_one() {
+        let text = code("vps").code();
+        for (address, host, port) in [
+            ("jam.example.org", "jam.example.org", DEFAULT_PORT),
+            ("  jam.example.org:5000 ", "jam.example.org", 5000),
+            ("203.0.113.7", "203.0.113.7", DEFAULT_PORT),
+            ("2001:db8::1", "2001:db8::1", DEFAULT_PORT),
+            ("[2001:db8::1]", "2001:db8::1", DEFAULT_PORT),
+            ("[2001:db8::1]:5000", "2001:db8::1", 5000),
+        ] {
+            let parsed = ServerCode::from_parts(address, &text).unwrap();
+            assert_eq!(
+                (parsed.host.as_str(), parsed.port),
+                (host, port),
+                "{address}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_addresses_and_codes_are_refused() {
+        let good = code("vps").code();
+        for address in [
+            "",
+            "host:0",
+            "host:99999",
+            "host:port",
+            "ho st",
+            "[::1]x",
+            "[::1",
+        ] {
+            assert_eq!(
+                ServerCode::from_parts(address, &good),
+                Err(CodeError::BadAddress),
+                "{address:?}"
+            );
+        }
         let secret = Secret::generate().to_text();
         let fingerprint = Fingerprint::of(b"x").to_text();
         for (text, error) in [
-            ("host:4070".to_string(), CodeError::Incomplete),
-            (format!("host:4070#{secret}"), CodeError::Incomplete),
+            (secret.clone(), CodeError::Incomplete),
+            (format!("short#{fingerprint}"), CodeError::BadSecret),
+            (format!("{secret}#short"), CodeError::BadFingerprint),
             (
-                format!("host:4070#{secret}#{fingerprint}#more"),
-                CodeError::Incomplete,
-            ),
-            (
-                format!("host:4070#short#{fingerprint}"),
-                CodeError::BadSecret,
-            ),
-            (
-                format!("host:4070#{secret}#short"),
+                format!("{secret}#{fingerprint}#more"),
                 CodeError::BadFingerprint,
             ),
+            // The old combined form, address first, is not a code.
             (
-                format!("host#{secret}#{fingerprint}"),
-                CodeError::BadAddress,
-            ),
-            (
-                format!("host:0#{secret}#{fingerprint}"),
-                CodeError::BadAddress,
-            ),
-            (
-                format!("2001:db8::1:4070#{secret}#{fingerprint}"),
-                CodeError::BadAddress,
-            ),
-            (
-                format!("ho st:4070#{secret}#{fingerprint}"),
-                CodeError::BadAddress,
+                format!("vps:4070#{secret}#{fingerprint}"),
+                CodeError::BadSecret,
             ),
         ] {
-            assert_eq!(ServerCode::parse(&text), Err(error), "{text}");
+            assert_eq!(ServerCode::from_parts("vps", &text), Err(error), "{text}");
         }
     }
 

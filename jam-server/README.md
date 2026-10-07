@@ -12,7 +12,7 @@ From this directory, on the VPS:
 
 ```sh
 docker compose up -d
-docker compose run --rm jam code --host <public address>
+docker compose run --rm jam code
 ```
 
 The image compiles the server alone, not the app. Open TCP port 4070. The
@@ -35,14 +35,16 @@ mkdir data
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
   -days 3650 -subj /CN=spotifast-jam -keyout data/key.pem -out data/cert.pem
 ./target/release/jam-server --data data serve --listen 0.0.0.0:4070
-./target/release/jam-server --data data code --host <public address>
+./target/release/jam-server --data data code
 ```
 
 `serve` stops cleanly on Ctrl+C or SIGTERM, saving the jam first.
 
 ## The code
 
-`jam-server code` prints `host:port#password#fingerprint`. The fingerprint is
+`jam-server code` prints `password#fingerprint`. Listeners enter it in
+Spotifast beside the server's address, `host` or `host:port` (4070 unless
+`serve --listen` says otherwise). The fingerprint is
 the SHA-256 of the certificate: Spotifast trusts that certificate and no
 other, so no domain name or certificate authority is needed. A new
 certificate, or a new password, means a new code for everyone.

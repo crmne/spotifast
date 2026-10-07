@@ -1,5 +1,6 @@
 # Run from this directory: `docker compose up -d`, then
-# `docker compose run --rm jam code --host <the server's public address>`.
+# `docker compose run --rm jam code`, and give that code, with this server's
+# public address, to the people you want in the jam.
 services:
   jam:
     build:
