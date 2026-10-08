@@ -131,10 +131,44 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 .iter()
                 .map(|(filter, label)| (*filter, label.as_ref()))
                 .collect();
-            if let Some(filter) = widgets::chips(ui, &palette, &options, page.filter) {
+            // Translators: opens every release of the artist on a page of its own.
+            let show_all_label = gettext(locale, "Show all").into_owned();
+            // The chips, then Show all, in reading and Tab order. The link is
+            // measured first so the chips scroll before they reach it.
+            let link_font = theme::semibold(14.0);
+            let link_width = ui
+                .painter()
+                .layout_no_wrap(show_all_label.clone(), link_font.clone(), palette.secondary)
+                .size()
+                .x;
+            let gap = ui.spacing().item_spacing.x;
+            let mut row = ui.available_rect_before_wrap();
+            row.max.y = row.min.y + ui.spacing().interact_size.y;
+            let chips_rect = row.with_max_x((row.max.x - link_width - gap).max(row.min.x));
+            let mut chips_ui = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(chips_rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            let picked = widgets::chips(&mut chips_ui, &palette, &options, page.filter);
+            let mut link_ui = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(row)
+                    .layout(egui::Layout::right_to_left(egui::Align::Center)),
+            );
+            let show_all =
+                theme::link(&mut link_ui, show_all_label, link_font, palette.secondary).clicked();
+            ui.advance_cursor_after_rect(chips_ui.min_rect() | link_ui.min_rect());
+            if let Some(filter) = picked {
                 app.actions.push(Action::SetDiscographyFilter {
                     artist_id: id.to_string(),
                     filter,
+                });
+            }
+            if show_all {
+                app.actions.push(Action::OpenDiscography {
+                    artist_id: id.to_string(),
+                    filter: picked.unwrap_or(page.filter),
                 });
             }
             ui.add_space(10.0);
