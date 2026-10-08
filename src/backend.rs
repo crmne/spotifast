@@ -238,6 +238,13 @@ pub enum ApiRequest {
         query: String,
         serial: u64,
     },
+    /// Search for one kind of thing and report the best match, to play it:
+    /// how `spotifast play-search` plays a song by its name.
+    PlaySearch {
+        kind: String,
+        query: String,
+        serial: u64,
+    },
     Artist {
         id: String,
     },
@@ -466,6 +473,13 @@ pub enum ApiResponse {
         query: String,
         serial: u64,
         result: ApiResult<Page<Playlist>>,
+    },
+    /// The URI of the best match for a [`ApiRequest::PlaySearch`], or `None`
+    /// when nothing matched.
+    PlaySearch {
+        query: String,
+        serial: u64,
+        result: ApiResult<Option<String>>,
     },
     Artist {
         id: String,
@@ -3361,6 +3375,8 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         }
         ApiRequest::SearchCatalogue { .. } => Operation::CatalogSearch,
         ApiRequest::Search { .. } => Operation::PlaylistSearch,
+        ApiRequest::PlaySearch { kind, .. } if kind == "playlist" => Operation::PlaylistSearch,
+        ApiRequest::PlaySearch { .. } => Operation::CatalogSearch,
         ApiRequest::Playlist { id, .. } => Operation::PlaylistMetadata(api.playlist_access(id)),
         ApiRequest::PlaylistItems { id, .. }
         | ApiRequest::PlaylistSample { id, .. }
@@ -3709,6 +3725,35 @@ async fn handle(
                 &query,
                 &["track", "artist", "album", "show", "episode"]
             )),
+            query,
+            serial,
+        },
+        ApiRequest::PlaySearch {
+            kind,
+            query,
+            serial,
+        } => ApiResponse::PlaySearch {
+            result: routed!(search(&query, &[kind.as_str()])).map(|results| {
+                // Spotify ranks each kind by relevance; the first is the match.
+                match kind.as_str() {
+                    "album" => results
+                        .albums
+                        .and_then(|p| p.items.into_iter().next())
+                        .map(|a| a.uri),
+                    "artist" => results
+                        .artists
+                        .and_then(|p| p.items.into_iter().next())
+                        .map(|a| a.uri),
+                    "playlist" => results
+                        .playlists
+                        .and_then(|p| p.items.into_iter().next())
+                        .map(|p| p.uri),
+                    _ => results
+                        .tracks
+                        .and_then(|p| p.items.into_iter().next())
+                        .map(|t| t.uri),
+                }
+            }),
             query,
             serial,
         },

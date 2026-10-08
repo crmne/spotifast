@@ -74,6 +74,12 @@ pub enum ControlCommand {
     ToggleSaved,
     /// Play a `spotify:` URI: a track, album, playlist, artist, or show.
     PlayUri(String),
+    /// Search Spotify for a track, album, artist, or playlist, and play the
+    /// best match.
+    PlaySearch {
+        kind: String,
+        query: String,
+    },
     /// Open the page for a Spotify link the desktop or another launch
     /// handed over, and bring the window forward.
     OpenLink(String),
@@ -310,6 +316,16 @@ fn parse(line: &str) -> Option<Request> {
         }
         ("save-toggle", None) => ControlCommand::ToggleSaved,
         ("play-uri", Some(uri)) => ControlCommand::PlayUri(spotify_uri(uri)?),
+        ("play-search", Some(argument)) => {
+            let (kind, query) = argument.split_once(' ')?;
+            if !matches!(kind, "track" | "album" | "artist" | "playlist") {
+                return None;
+            }
+            ControlCommand::PlaySearch {
+                kind: kind.to_owned(),
+                query: search_text(query)?,
+            }
+        }
         ("open-link", Some(link)) => ControlCommand::OpenLink(crate::link::parse(link)?),
         ("transfer", Some(id)) => ControlCommand::Transfer(device_id(id)?),
         ("nowplaying", None) => return Some(Request::NowPlaying),
@@ -327,6 +343,15 @@ fn spotify_uri(text: &str) -> Option<String> {
         && text
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_' | '.' | '%' | '+'));
+    shaped.then(|| text.to_owned())
+}
+
+/// Words to search for, checked like the other free-text arguments: not
+/// empty, not long, and without control characters.
+fn search_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    let shaped =
+        !text.is_empty() && text.chars().count() <= 200 && !text.chars().any(char::is_control);
     shaped.then(|| text.to_owned())
 }
 
@@ -421,6 +446,31 @@ mod tests {
         );
         assert!(matches!(parse("nowplaying"), Some(Request::NowPlaying)));
         assert!(matches!(parse("devices"), Some(Request::Devices)));
+    }
+
+    #[test]
+    fn play_search_carries_its_kind_and_words() {
+        assert_eq!(
+            command("play-search track danza rota soda stereo"),
+            Some(ControlCommand::PlaySearch {
+                kind: "track".into(),
+                query: "danza rota soda stereo".into(),
+            })
+        );
+        assert_eq!(
+            command("play-search artist Soda Stereo"),
+            Some(ControlCommand::PlaySearch {
+                kind: "artist".into(),
+                query: "Soda Stereo".into(),
+            })
+        );
+        assert_eq!(command("play-search track"), None);
+        assert_eq!(command("play-search song danza rota"), None);
+        assert_eq!(command("play-search track \u{7}bell"), None);
+        assert_eq!(
+            command(&format!("play-search track {}", "a".repeat(201))),
+            None
+        );
     }
 
     #[test]

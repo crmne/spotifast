@@ -939,6 +939,13 @@ pub enum Action {
         offset_uri: Option<String>,
         offset_index: Option<u32>,
     },
+    /// Search one kind of thing and play the best match, as
+    /// `spotifast play-search` asks. Queued like the other play actions so
+    /// it takes precedence in the order it was asked for.
+    PlaySearch {
+        kind: String,
+        query: String,
+    },
     /// Play one episode, from `resume_ms` when the row, card or button
     /// that asked showed it as started.
     PlayEpisode {
