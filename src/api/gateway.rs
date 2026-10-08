@@ -244,6 +244,19 @@ impl ApiGateway {
         self.session(source).client()
     }
 
+    /// Psst's Home section query also carries a Web API grant as `sp_t`.
+    /// Prefer the personal grant without waiting for shared verification.
+    pub(crate) async fn home_context_token(&self) -> Result<String, ApiError> {
+        let source = if self.personal_ready() {
+            ApiSource::Personal
+        } else if matches!(self.state(ApiSource::Shared), SessionState::Ready { .. }) {
+            ApiSource::Shared
+        } else {
+            return Err(ApiError::NotSignedIn);
+        };
+        self.session(source).client().home_context_token().await
+    }
+
     pub fn clear(&self, source: ApiSource) {
         let session = self.session(source);
         session.client().set_token_provider(None);

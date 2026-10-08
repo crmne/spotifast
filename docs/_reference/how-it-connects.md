@@ -14,14 +14,24 @@ local playback:
    catalog, catalogue search, playlist creation, and owned or collaborative
    playlist requests without using the shared app's quota. Complete
    playlist-library views and the playlist half of a search stay on the shared
-   app so Spotify-owned results are not filtered out. Both Web API grants must
-   verify as the same Spotify account.
+   app so Spotify-owned results are not filtered out. Home's **Made for you**
+   shelf reads the account's actual personalized section over the playback
+   session instead of performing four shared-app playlist searches. Both Web
+   API grants must verify as the same Spotify account.
 3. **Local playback** uses
    [librespot](https://github.com/librespot-org/librespot). It needs one more
    browser approval and keeps an independent reusable credential. Spotify Premium
    is required. While it is signed in, its session also reads the playlists
    the shared app would otherwise be asked for: other people's, and the
-   account's own when there is no personal app. Radio pages come only from
+   account's own when there is no personal app. Made for you needs this active
+   session and a verified Web API grant, preferably personal. Spotify's private
+   Home request receives the Web API access token as its `sp_t` context and
+   the session's Login5 bearer and client token as headers. No token is logged
+   or persisted for this shelf. Its response is kept in memory for ten minutes
+   per account; a manual refresh bypasses that cache but respects any
+   `Retry-After` cooldown. A failed refresh keeps previously shown cards.
+   If playback is not set up, the shelf offers a retry after setup. This
+   private response can change without notice. Radio pages come only from
    this session: the Web API has no stations. Opening one resolves the
    station and reads its songs' details in one batched request.
 

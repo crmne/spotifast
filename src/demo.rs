@@ -522,16 +522,7 @@ pub fn populate(app: &mut App) {
     app.home.top_songs = Loadable::Loaded(tracks.iter().skip(10).cloned().collect());
     app.home.top_songs_complete = true;
     app.home.recommendations = Loadable::Loaded(tracks.iter().skip(20).take(10).cloned().collect());
-    for term in DISCOVER_TERMS {
-        let matching: Vec<Playlist> = playlists
-            .iter()
-            .filter(|playlist| playlist.name.to_lowercase().contains(&term.to_lowercase()))
-            .cloned()
-            .collect();
-        app.home
-            .discover
-            .insert((*term).to_string(), Loadable::Loaded(matching));
-    }
+    app.home.made_for_you = Loadable::Loaded(playlists.iter().take(10).cloned().collect());
 
     // Search.
     app.search.query = "Bonobo".into();

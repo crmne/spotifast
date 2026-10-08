@@ -39,7 +39,10 @@ Spotifast connects only to the services below.
 - **Spotify.** Sign-in, your library, search, playlists, playback and Spotify
   Connect all go to Spotify, under your account. Spotify's own
   [privacy policy](https://www.spotify.com/legal/privacy-policy/) applies to
-  that data.
+  that data. Home's **Made for you** request sends an already verified Web API
+  access token to Spotify's Home service as well as the playback session's
+  Login5 bearer and client token. The resulting cards are cached in memory
+  for ten minutes and are cleared on sign-out.
 - **LRCLIB.** When the lyrics panel is open and Spotify has no lyrics for the
   song, Spotifast sends its artist, title, album and length to
   [lrclib.net](https://lrclib.net). Nothing identifying you is included.

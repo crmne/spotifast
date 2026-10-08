@@ -66,6 +66,10 @@ clients. Spotifast uses its session for:
 - **Lyrics** when Spotify has them.
 - **Display names** for the user IDs attached to songs in a playlist.
 - **Precise EP types** for releases that the Web API groups with singles.
+- **Made for you** through Spotify's personalized Home section. This private
+  request uses the playback session and an already verified Web API grant;
+  it does not spend the shared app's playlist-search quota. Spotify may change
+  this response without a Web API version change.
 - **Radio and autoplay** through Spotify's context resolver: stations seeded
   by a song, playlist, album, or artist. Each resolution is a fresh mix of 50
   songs, so a radio page plays the songs it shows rather than asking again.

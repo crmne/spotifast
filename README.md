@@ -27,6 +27,12 @@ Spotifast is a Spotify client written in Rust with
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast.
 
+Home's **Made for you** shelf reads Spotify's personalized playlist section
+through an active local playback session. It no longer searches for English
+playlist names through the shared Web API app. Enable local playback to load
+the shelf; Spotify can change this private Home response independently of the
+public Web API.
+
 ![Spotifast Home with the playlist library, recommendations, queue, and player visible](docs/screenshot.png)
 
 <details>

@@ -21,6 +21,12 @@ click. macOS retains its existing middle-click behavior.
 
 ## Scrolling shelves
 
+**Made for you** shows the personalized playlist cards Spotify returns for
+your account, in Spotify's order. Set up local playback to load it. If a
+refresh fails, cards already on screen remain available; **Retry** is shown
+when the first load fails. This shelf uses the playback session, so shared Web
+API playlist-search throttling does not block it.
+
 Point at a horizontal shelf, such as Made for you or Recently played on
 Home, and hold `Shift` while turning the mouse wheel. The shelf moves while
 the surrounding page stays put. Release `Shift` to scroll the page normally.

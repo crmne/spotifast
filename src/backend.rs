@@ -135,9 +135,9 @@ pub enum ApiRequest {
         seed_artists: Vec<String>,
         generation: u64,
     },
-    Discover {
-        term: String,
+    MadeForYou {
         generation: u64,
+        force: bool,
     },
     MyPlaylists {
         offset: u32,
@@ -326,7 +326,7 @@ impl ApiRequest {
                 | Self::TopTracks { .. }
                 | Self::TopArtists { .. }
                 | Self::Recommendations { .. }
-                | Self::Discover { .. }
+                | Self::MadeForYou { .. }
                 | Self::MyPlaylists { .. }
                 | Self::PlaylistSample { .. }
                 | Self::Contains { .. }
@@ -366,8 +366,7 @@ pub enum ApiResponse {
         generation: u64,
         result: ApiResult<Vec<Track>>,
     },
-    Discover {
-        term: String,
+    MadeForYou {
         generation: u64,
         result: ApiResult<Vec<Playlist>>,
     },
@@ -1329,6 +1328,7 @@ struct Worker {
     web_client_id: Option<String>,
     http: Http,
     api: Arc<ApiGateway>,
+    made_for_you: Arc<crate::made_for_you::MadeForYou>,
     background_api: Arc<tokio::sync::Semaphore>,
     art: ArtLoader,
     events: std::sync::mpsc::Sender<Event>,
@@ -1401,6 +1401,7 @@ impl Worker {
             engine_proxy: None,
             web_client_id,
             api: Arc::new(ApiGateway::new(http.clone(), activity)),
+            made_for_you: Arc::new(crate::made_for_you::MadeForYou::new(http.clone())),
             background_api: Arc::new(tokio::sync::Semaphore::new(4)),
             http,
             art,
@@ -2460,6 +2461,7 @@ impl Worker {
         self.cancel_search();
         self.signed_in = false;
         self.rootlist_pending = false;
+        self.made_for_you = Arc::new(crate::made_for_you::MadeForYou::new(self.http.clone()));
         self.session.send_modify(|generation| *generation += 1);
         self.authorization_attempt += 1;
         if let Err(error) = self.credentials.revoke_spotify() {
@@ -3260,6 +3262,7 @@ impl Worker {
 
     fn dispatch(&self, request: ApiRequest) -> tokio::task::AbortHandle {
         let api = Arc::clone(&self.api);
+        let made_for_you = Arc::clone(&self.made_for_you);
         let shared_lease = self.credentials.lease(CredentialSlot::Shared);
         let personal_lease = self.credentials.lease(CredentialSlot::Personal);
         let background_api = Arc::clone(&self.background_api);
@@ -3277,7 +3280,7 @@ impl Worker {
                     } else {
                         None
                     };
-                    handle(&api, engine.as_deref(), request).await
+                    handle(&api, &made_for_you, engine.as_deref(), request).await
                 } => result,
             };
             // Apply completion on the command loop. A late response cannot
@@ -3356,7 +3359,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         }
         ApiRequest::MyPlaylists { .. } => Operation::PlaylistLibrary,
         ApiRequest::CreatePlaylist { .. } => Operation::PlaylistCreation,
-        ApiRequest::Discover { .. } | ApiRequest::SearchPlaylists { .. } => {
+        ApiRequest::MadeForYou { .. } | ApiRequest::SearchPlaylists { .. } => {
             Operation::PlaylistSearch
         }
         ApiRequest::SearchCatalogue { .. } => Operation::CatalogSearch,
@@ -3395,7 +3398,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
 
 fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
     match response {
-        ApiResponse::Discover {
+        ApiResponse::MadeForYou {
             result: Ok(playlists),
             ..
         } => api.observe_playlists(playlists),
@@ -3455,9 +3458,29 @@ fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
 
 async fn handle(
     api: &ApiGateway,
+    made_for_you: &crate::made_for_you::MadeForYou,
     engine: Option<&Engine>,
     request: ApiRequest,
 ) -> (ApiResponse, Option<ApiSource>) {
+    if let ApiRequest::MadeForYou { generation, force } = request {
+        let result = match engine
+            .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
+        {
+            Some(engine) => {
+                made_for_you
+                    .load(engine.session(), force, || api.home_context_token())
+                    .await
+            }
+            None => Err(ApiError::Status {
+                status: 503,
+                message: "Set up local playback to load Made for you, then retry.".into(),
+            }),
+        };
+        if let Ok(playlists) = &result {
+            api.observe_playlists(playlists);
+        }
+        return (ApiResponse::MadeForYou { generation, result }, None);
+    }
     let operation = operation_for(api, &request);
     // A session whose long-lived connection has dropped still answers over
     // its HTTP client, so the engine's presence is the only liveness test;
@@ -3530,15 +3553,7 @@ async fn handle(
             generation,
             result: routed!(recommendations(&seed_tracks, &seed_artists, 20)),
         },
-        ApiRequest::Discover { term, generation } => {
-            let result = routed!(search(&term, &["playlist"]))
-                .map(|results| results.playlists.map(|page| page.items).unwrap_or_default());
-            ApiResponse::Discover {
-                term,
-                generation,
-                result,
-            }
-        }
+        ApiRequest::MadeForYou { .. } => unreachable!("handled before Web API routing"),
         ApiRequest::MyPlaylists { offset, generation } => ApiResponse::MyPlaylists {
             offset,
             generation,
