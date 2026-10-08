@@ -453,6 +453,27 @@ run when Home refreshes: on opening Home, at most once every ten minutes, and
 on a manual refresh. A rate limit, exhausted quota or expired sign-in stops the
 remaining shows for that refresh; the shelf keeps what it showed before.
 
+## Artist discographies
+
+**Show all** on an artist page opens the artist's discography. Its releases
+come from the request the artist page uses, read page after page until the
+list is complete, because Spotify lists albums before singles and
+compilations instead of by date; the page orders them itself. A list the
+artist page already holds in full needs no request. Each release's songs come
+from the album-track endpoint in pages of 50, with the normal personal/shared
+app routing: at most two releases at a time while the page is open, starting
+with the releases on screen and going no further below them than a play could
+reach. Leaving the page stops reading further releases; a release already
+being read finishes, and so does a play still waiting for its songs. A play
+that needs releases not read yet asks for them first, up to four at a time. Liked and saved states and
+EP labels are asked for only for the releases on screen. A rate limit, an
+exhausted quota, an expired sign-in, a network failure or a Spotify server
+error stops the song lists until **Retry**; a release Spotify cannot list fails
+alone and offers its own **Retry**. Offline the page asks for nothing; when the
+network comes back, the open page reads what it lacks, including song lists a
+failure stopped, and a play still waiting asks for the songs it needs. A page
+restored at startup asks for the artist once to show their name.
+
 ## Album queueing
 
 Since 0.9.0, adding an album, single, or EP to the queue resolves
