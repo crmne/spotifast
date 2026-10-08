@@ -11,11 +11,12 @@ local playback:
 
 1. **The shared Web API app** keeps full catalogue and playlist coverage.
 2. **Your optional personal Web API app** handles supported playback, library,
-   catalog, catalogue search, playlist creation, and owned or collaborative
-   playlist requests without using the shared app's quota. Complete
-   playlist-library views and the playlist half of a search stay on the shared
-   app so Spotify-owned results are not filtered out. Both Web API grants must
-   verify as the same Spotify account.
+   catalog, search (including playlists), playlist creation, and owned or
+   collaborative playlist requests without using the shared app's quota. Your
+   profile and playlist library also use the personal grant when it is ready.
+   The shared grant remains available if personal authorization fails or a
+   request needs coverage Development Mode does not provide. Both Web API
+   grants must verify as the same Spotify account.
 3. **Local playback** uses
    [librespot](https://github.com/librespot-org/librespot). It needs one more
    browser approval and keeps an independent reusable credential. Spotify Premium
@@ -59,20 +60,15 @@ and Omarchy Spotify. Spotify divides its quota among all users. A personal app
 adds a separate Development Mode quota. See
 [Use a Personal Spotify App](/make-it-even-faster/).
 
-Since 0.8.0, a search runs as two requests when a
-personal app is ready: songs, artists, albums, podcasts, and episodes on the
-personal app, and playlists on the shared app. This moves catalogue search off the quota Spotify divides among every user
-of the shared app. Each half is shown the moment it
-arrives, so a shared app waiting out a rate limit no longer holds up the songs,
-and playlists appear underneath when that wait ends. A half belonging to an
-earlier search is discarded rather than shown beside a newer one. A newer or cleared search cancels the previous requests, including waits
-for shared access. If either half fails, the successful results remain usable
-with an error for the failed part. A new query starts a fresh result set; old
-songs never appear under its name. The loading indicator remains until both
-parts finish. A personal app answers
-with ten results for each type where the shared app answers with twenty, because
-Development Mode rejects the larger page. Without a personal app, one request
-still asks for all six types and nothing about a search changes.
+When a personal app is ready, a search still runs as two requests: songs,
+artists, albums, podcasts and episodes in one, and playlists in the other.
+Both use the personal app, so a shared-app cooldown cannot hold up either
+half. Each half appears when ready. A newer or cleared search cancels earlier
+requests, and a failed half leaves the successful results usable. The loading
+indicator remains until both parts finish. Development Mode returns ten
+results per type where the shared app returns twenty. Without a personal app,
+one request asks for all six types. Spotify's Development Mode restrictions
+can limit playlist details even when a playlist appears in search.
 
 Since 0.8.0, verified Premium accounts using shared access see a
 one-time introduction to that option. Setup and dismissal are remembered in

@@ -29,11 +29,12 @@ has limits too.
 
 ## Shared coverage stays active
 
-Your personal connection searches songs, artists, albums, podcasts, and
-episodes. The shared connection finds playlists and supplies features Spotify
-does not make available to personal apps, such as recommendations and related
-artists. Search results appear as each part is ready, so a delayed playlist
-search does not hold up the songs.
+Your personal connection searches songs, artists, albums, podcasts, episodes
+and playlists, and reads your profile and playlist library. The shared
+connection still supplies features Spotify does not make available to
+personal apps, such as recommendations and related artists. Search results
+appear as each part is ready. Spotify may limit playlist details returned to
+Development Mode apps.
 
 Spotify allows personal apps ten search results at a time for each type,
 compared with twenty on the shared connection.

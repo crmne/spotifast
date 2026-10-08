@@ -3367,9 +3367,8 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         | ApiRequest::CheckPlaylistDuplicates {
             playlist_id: id, ..
         } => Operation::PlaylistItems(api.playlist_access(id)),
-        ApiRequest::UploadPlaylistCover { id, .. }
-        | ApiRequest::UpdatePlaylist { id, .. }
-        | ApiRequest::FollowPlaylist { id, .. } => {
+        ApiRequest::FollowPlaylist { .. } => Operation::UserData,
+        ApiRequest::UploadPlaylistCover { id, .. } | ApiRequest::UpdatePlaylist { id, .. } => {
             Operation::PlaylistMutation(api.playlist_access(id))
         }
         ApiRequest::AddToPlaylist { playlist_id, .. }
@@ -5796,6 +5795,21 @@ mod authorization_tests {
                 Operation::PlaylistSearch
             );
         }
+    }
+
+    #[test]
+    fn following_a_playlist_uses_the_user_library_route() {
+        let (_runtime, worker, _) = worker("follow-playlist-routing");
+        assert_eq!(
+            operation_for(
+                &worker.api,
+                &ApiRequest::FollowPlaylist {
+                    id: "1234567890123456789012".into(),
+                    follow: true,
+                },
+            ),
+            Operation::UserData
+        );
     }
 
     #[test]

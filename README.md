@@ -27,6 +27,10 @@ Spotifast is a Spotify client written in Rust with
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast.
 
+With a personal Spotify app ready, your profile, playlist library and playlist
+search use its Web API grant instead of waiting for the shared app's quota.
+Spotify's Development Mode restrictions can still limit playlist details.
+
 ![Spotifast Home with the playlist library, recommendations, queue, and player visible](docs/screenshot.png)
 
 <details>

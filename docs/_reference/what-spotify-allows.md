@@ -34,12 +34,13 @@ Spotifast uses the Web API for:
 Users of the default app share Spotify's quota. Spotifast limits heavy
 requests and pauses a session when Spotify sends a `Retry-After` response.
 
-Spotify also limits apps created since November 2024. These apps cannot access
-Spotify-owned playlists, related artists, recommendations, or audio features.
-This is why a personal app cannot handle every request. Complete playlist
-library views stay on the shared app. Playlists other people own, and every
-playlist when there is no personal app, are read over the librespot session
-while local playback is signed in. See [How It Connects](/how-it-connects/).
+Spotify also limits Development Mode apps. Playlist items are available only
+for playlists the account owns or collaborates on; related artists,
+recommendations and audio features are unavailable. A ready personal app
+handles the playlist library and search, though some playlist details may be
+missing. Playlists other people own, and every playlist when there is no
+personal app, are read over the librespot session while local playback is
+signed in. See [How It Connects](/how-it-connects/).
 
 ## librespot session
 

@@ -114,20 +114,22 @@ fn session_serves(operation: Operation, personal_ready: bool) -> bool {
 fn plan(operation: Operation, personal_ready: bool) -> ApiSource {
     use Operation::*;
     match operation {
-        CanonicalAccount | PlaylistLibrary | PlaylistSearch | UnsupportedDevelopmentMode => {
-            ApiSource::Shared
-        }
+        UnsupportedDevelopmentMode => ApiSource::Shared,
         PlaylistMetadata(PlaylistAccess::External | PlaylistAccess::Unknown)
         | PlaylistItems(PlaylistAccess::External | PlaylistAccess::Unknown)
         | PlaylistMutation(PlaylistAccess::External | PlaylistAccess::Unknown) => ApiSource::Shared,
         PlaylistMetadata(_) | PlaylistItems(_) | PlaylistMutation(_) if personal_ready => {
             ApiSource::Personal
         }
-        Playback | UserData | PlaylistCreation | Catalog | CatalogSearch if personal_ready => {
+        CanonicalAccount | Playback | UserData | PlaylistLibrary | PlaylistCreation
+        | PlaylistSearch | Catalog | CatalogSearch
+            if personal_ready =>
+        {
             ApiSource::Personal
         }
-        Playback | UserData | PlaylistCreation | Catalog | CatalogSearch | PlaylistMetadata(_)
-        | PlaylistItems(_) | PlaylistMutation(_) => ApiSource::Shared,
+        CanonicalAccount | Playback | UserData | PlaylistLibrary | PlaylistCreation
+        | PlaylistSearch | Catalog | CatalogSearch | PlaylistMetadata(_) | PlaylistItems(_)
+        | PlaylistMutation(_) => ApiSource::Shared,
     }
 }
 
@@ -274,6 +276,28 @@ impl ApiGateway {
     }
 
     pub async fn client_for(&self, operation: Operation) -> Result<Arc<ApiClient>, ApiError> {
+        // A restored personal grant may still be verifying when an early
+        // library request arrives. Wait before committing it to shared.
+        if plan(operation, true) == ApiSource::Personal {
+            let mut personal = self.personal.state.subscribe();
+            let generation = personal.borrow().0;
+            loop {
+                let (current, status) = personal.borrow_and_update().clone();
+                if current != generation {
+                    if matches!(status, SessionState::Unavailable) {
+                        break;
+                    }
+                    return Err(ApiError::NotSignedIn);
+                }
+                if !matches!(status, SessionState::Authorizing) {
+                    break;
+                }
+                personal
+                    .changed()
+                    .await
+                    .map_err(|_| ApiError::NotSignedIn)?;
+            }
+        }
         let source = plan(operation, self.personal_ready());
         let session = self.session(source);
         let mut state = session.state.subscribe();
@@ -342,7 +366,7 @@ mod tests {
     use std::future::Future;
 
     #[tokio::test]
-    async fn shared_requests_wait_while_a_personal_session_is_already_ready() {
+    async fn shared_only_requests_wait_while_a_personal_session_is_already_ready() {
         let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
         gateway.set_state(ApiSource::Shared, SessionState::Authorizing);
         gateway.begin_verification(
@@ -352,7 +376,7 @@ mod tests {
         gateway
             .install(ApiSource::Personal, AccountId::new("same"))
             .unwrap();
-        let mut waiting = Box::pin(gateway.client_for(Operation::PlaylistLibrary));
+        let mut waiting = Box::pin(gateway.client_for(Operation::UnsupportedDevelopmentMode));
         std::future::poll_fn(|cx| {
             assert!(waiting.as_mut().poll(cx).is_pending());
             std::task::Poll::Ready(())
@@ -373,11 +397,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn playlist_library_waits_for_the_personal_grant_instead_of_using_shared() {
+        let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        gateway.begin_verification(ApiSource::Shared, provider("shared", ApiSource::Shared));
+        gateway
+            .install(ApiSource::Shared, AccountId::new("same"))
+            .unwrap();
+        gateway.begin_verification(
+            ApiSource::Personal,
+            provider("personal", ApiSource::Personal),
+        );
+        let mut waiting = Box::pin(gateway.client_for(Operation::PlaylistLibrary));
+        std::future::poll_fn(|cx| {
+            assert!(waiting.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        gateway
+            .install(ApiSource::Personal, AccountId::new("same"))
+            .unwrap();
+        assert!(Arc::ptr_eq(
+            &waiting.await.unwrap(),
+            &gateway.verification_client(ApiSource::Personal)
+        ));
+    }
+
+    #[tokio::test]
     async fn sign_out_cancels_waiting_requests_even_if_sign_in_finishes_before_they_wake() {
         let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
         gateway.begin_verification(ApiSource::Shared, provider("old-shared", ApiSource::Shared));
         let old_client = gateway.verification_client(ApiSource::Shared);
-        let mut waiting = Box::pin(gateway.client_for(Operation::PlaylistLibrary));
+        let mut waiting = Box::pin(gateway.client_for(Operation::UnsupportedDevelopmentMode));
         std::future::poll_fn(|cx| {
             assert!(waiting.as_mut().poll(cx).is_pending());
             std::task::Poll::Ready(())
@@ -391,7 +441,7 @@ mod tests {
         assert!(matches!(waiting.await, Err(ApiError::NotSignedIn)));
         assert!(matches!(old_client.me().await, Err(ApiError::NotSignedIn)));
         let new_client = gateway
-            .client_for(Operation::PlaylistLibrary)
+            .client_for(Operation::UnsupportedDevelopmentMode)
             .await
             .unwrap();
         assert!(!Arc::ptr_eq(&old_client, &new_client));
@@ -448,9 +498,12 @@ mod tests {
     fn routing_matrix_selects_source() {
         let personal = true;
         for operation in [
+            Operation::CanonicalAccount,
             Operation::Playback,
             Operation::UserData,
+            Operation::PlaylistLibrary,
             Operation::PlaylistCreation,
+            Operation::PlaylistSearch,
             Operation::Catalog,
             Operation::CatalogSearch,
             Operation::PlaylistMetadata(PlaylistAccess::Owned),
@@ -461,9 +514,6 @@ mod tests {
             assert_eq!(plan(operation, personal), ApiSource::Personal);
         }
         for operation in [
-            Operation::CanonicalAccount,
-            Operation::PlaylistLibrary,
-            Operation::PlaylistSearch,
             Operation::UnsupportedDevelopmentMode,
             Operation::PlaylistMetadata(PlaylistAccess::External),
             Operation::PlaylistMetadata(PlaylistAccess::Unknown),
@@ -475,6 +525,7 @@ mod tests {
             assert_eq!(plan(operation, personal), ApiSource::Shared);
         }
         for operation in [
+            Operation::CanonicalAccount,
             Operation::Playback,
             Operation::UserData,
             Operation::PlaylistLibrary,
