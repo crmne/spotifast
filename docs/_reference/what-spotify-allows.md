@@ -36,10 +36,12 @@ requests and pauses a session when Spotify sends a `Retry-After` response.
 
 Spotify also limits apps created since November 2024. These apps cannot access
 Spotify-owned playlists, related artists, recommendations, or audio features.
-This is why a personal app cannot handle every request. Complete playlist
-library views stay on the shared app. Playlists other people own, and every
-playlist when there is no personal app, are read over the librespot session
-while local playback is signed in. See [How It Connects](/how-it-connects/).
+This is why a personal app cannot handle every request. When local playback
+is connected, the playlist library is listed and read over the librespot
+session, including Spotify-owned playlists. Without that session, library
+listing stays on the shared app. Playlists other people own, and every
+playlist when there is no personal app, are also read over the session when
+local playback is signed in. See [How It Connects](/how-it-connects/).
 
 ## librespot session
 
@@ -48,6 +50,10 @@ clients. Spotifast uses its session for:
 
 - **Playlist folders and order.** Spotifast can read them from Spotify's
   rootlist. librespot cannot create, rename, or move folders.
+- **Playlist library.** The rootlist lists the account's playlists, including
+  Spotify-owned ones. Spotifast resolves names and covers for one page at a
+  time through the session, avoiding the shared app's list quota. Session
+  headers may lack some Web API fields.
 - **Playlist permissions.** The rootlist shows when a playlist shared by
   invitation can be edited. The Web API's `collaborative` flag does not cover
   these playlists. Spotifast cannot manage collaborators.

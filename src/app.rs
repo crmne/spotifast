@@ -2080,8 +2080,25 @@ impl App {
     fn handle_playback(&mut self, status: LocalPlayback) {
         match &status {
             LocalPlayback::Ready { device_id } => {
+                let just_connected = !self.local_ready;
                 self.local_device_id = Some(device_id.clone());
                 self.local_ready = true;
+                // Replace an in-flight Web API request or refresh an already
+                // visible list now that the complete session rootlist is ready.
+                if just_connected {
+                    if self.library.playlists.get().is_none() {
+                        self.library.playlists = Loadable::NotLoaded;
+                        self.load_playlists();
+                    } else {
+                        self.library.playlists_next = None;
+                        self.library.playlists_asked = None;
+                        self.library.playlists_generation += 1;
+                        self.backend.api(ApiRequest::MyPlaylists {
+                            offset: 0,
+                            generation: self.library.playlists_generation,
+                        });
+                    }
+                }
                 if let Some(request) = self.queued_play.take() {
                     self.play_request(request, false);
                 }
@@ -5214,7 +5231,11 @@ impl App {
                 Err(error) => {
                     self.library.playlists_asked = None;
                     if offset == 0 {
-                        self.library.playlists = Loadable::Failed(error.to_string());
+                        if self.library.playlists.get().is_some() {
+                            self.toast_error(error.to_string());
+                        } else {
+                            self.library.playlists = Loadable::Failed(error.to_string());
+                        }
                     } else {
                         self.toast_error(
                             // Translators: {error} is an error message.
@@ -21932,6 +21953,51 @@ mod tests {
             app.shuffle_start("spotify:playlist:unopened"),
             (None, None),
             "librespot is left to draw its own"
+        );
+    }
+
+    #[test]
+    fn playback_connection_retries_a_library_waiting_on_the_shared_app() {
+        let mut app = headless_app();
+        app.library.playlists = Loadable::Loading;
+        app.library.playlists_generation = 4;
+        app.local_ready = false;
+        app.handle_playback(LocalPlayback::Ready {
+            device_id: "local-test".into(),
+        });
+        assert!(app.library.playlists.is_loading());
+        assert_eq!(app.library.playlists_generation, 5);
+        app.handle_playback(LocalPlayback::Ready {
+            device_id: "local-test".into(),
+        });
+        assert_eq!(app.library.playlists_generation, 5);
+    }
+
+    #[test]
+    fn playback_connection_refreshes_a_visible_library_without_losing_it_on_error() {
+        let mut app = headless_app();
+        app.library.playlists = Loadable::Loaded(vec![crate::api::models::Playlist {
+            id: "already-visible".into(),
+            ..Default::default()
+        }]);
+        app.library.playlists_generation = 4;
+        app.local_ready = false;
+        app.handle_playback(LocalPlayback::Ready {
+            device_id: "local-test".into(),
+        });
+        assert_eq!(app.library.playlists_generation, 5);
+        assert_eq!(
+            app.library.playlists.get().unwrap()[0].id,
+            "already-visible"
+        );
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: 5,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        assert_eq!(
+            app.library.playlists.get().unwrap()[0].id,
+            "already-visible"
         );
     }
 

@@ -27,7 +27,8 @@ use crate::images::{ArtLoader, accent_color};
 use crate::model::PlaylistCache;
 use crate::paths::AppDirs;
 use crate::player::{
-    Engine, EngineConfig, EngineEvent, Heard, LocalState, PlaybackResume, PlayerCommand,
+    Engine, EngineConfig, EngineEvent, Heard, LocalState, PlaybackResume, PlayerCommand, Rootlist,
+    RootlistEntry,
 };
 use crate::session_reads;
 use crate::settings::ProxyConfig;
@@ -44,6 +45,8 @@ const MAX_PENDING_ALBUM_TYPES: usize = 50;
 const AUDIOBOOK_BATCH: usize = 50;
 /// How long resolving a radio station and its songs may take.
 const RADIO_TIMEOUT: Duration = Duration::from_secs(20);
+const PLAYLIST_LIBRARY_TIMEOUT: Duration = Duration::from_secs(30);
+const PLAYLIST_LIBRARY_CONCURRENCY: usize = 4;
 /// Newest episodes read from each saved podcast for Home's podcast shelf.
 const HOME_EPISODES_PER_SHOW: u32 = 5;
 pub const PLAYLIST_PAGE_SIZE: u32 = 50;
@@ -3453,11 +3456,184 @@ fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
     }
 }
 
+/// The Web API can omit Spotify-owned playlists for personal apps, while its
+/// shared app can be rate-limited. The playback session's rootlist contains
+/// the complete account tree; resolve only this page's playlist headers.
+fn rootlist_playlist_window(
+    rootlist: &Rootlist,
+    offset: u32,
+    limit: u32,
+) -> (Vec<String>, u32, bool) {
+    let mut seen = HashSet::new();
+    let ids: Vec<&str> = rootlist
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            RootlistEntry::Playlist(uri) => uri.strip_prefix("spotify:playlist:"),
+            _ => None,
+        })
+        .filter(|id| id.len() == 22 && id.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+        .filter(|id| seen.insert(*id))
+        .collect();
+    let total = u32::try_from(ids.len()).unwrap_or(u32::MAX);
+    let page: Vec<String> = ids
+        .iter()
+        .skip(offset as usize)
+        .take(limit as usize)
+        .map(|id| (*id).to_owned())
+        .collect();
+    let more = offset.saturating_add(limit) < total;
+    (page, total, more)
+}
+
+#[cfg(test)]
+mod playlist_library_tests {
+    use super::*;
+
+    #[test]
+    fn rootlist_pages_include_followed_playlists_in_order_without_folders_or_duplicates() {
+        let first = "1234567890123456789012";
+        let second = "2234567890123456789012";
+        let third = "3234567890123456789012";
+        let rootlist = Rootlist {
+            entries: vec![
+                RootlistEntry::Playlist(format!("spotify:playlist:{first}")),
+                RootlistEntry::FolderStart {
+                    id: "folder".into(),
+                    name: "Saved".into(),
+                },
+                RootlistEntry::Playlist(format!("spotify:playlist:{second}")),
+                RootlistEntry::Playlist(format!("spotify:playlist:{first}")),
+                RootlistEntry::FolderEnd,
+                RootlistEntry::Playlist(format!("spotify:playlist:{third}")),
+            ],
+            editable: Default::default(),
+        };
+        let (page, total, more) = rootlist_playlist_window(&rootlist, 0, 2);
+        assert_eq!(page, [first, second]);
+        assert_eq!(total, 3);
+        assert!(more);
+        let (page, total, more) = rootlist_playlist_window(&rootlist, 2, 2);
+        assert_eq!(page, [third]);
+        assert_eq!(total, 3);
+        assert!(!more);
+    }
+
+    #[test]
+    fn an_incomplete_session_page_falls_back_instead_of_dropping_a_playlist() {
+        let first = Playlist {
+            id: "first".into(),
+            ..Default::default()
+        };
+        let second = Playlist {
+            id: "second".into(),
+            ..Default::default()
+        };
+        let page = complete_playlist_headers(vec![(1, Ok(second)), (0, Ok(first))]).unwrap();
+        assert_eq!(
+            page.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+        assert!(
+            complete_playlist_headers(vec![(
+                0,
+                Err(session_reads::Failure::Retry(anyhow::anyhow!(
+                    "missing header"
+                )))
+            )])
+            .is_err()
+        );
+    }
+}
+
+fn complete_playlist_headers(
+    mut resolved: Vec<(usize, Result<Playlist, session_reads::Failure>)>,
+) -> ApiResult<Vec<Playlist>> {
+    resolved.sort_by_key(|(index, _)| *index);
+    resolved
+        .into_iter()
+        .map(|(_, result)| {
+            result.map_err(|error| {
+                log::warn!("playlist library session header failed: {error:?}");
+                ApiError::Network("Couldn't read every playlist from the playback session".into())
+            })
+        })
+        .collect()
+}
+
+async fn session_playlist_library(
+    engine: &Engine,
+    offset: u32,
+    limit: u32,
+) -> ApiResult<Page<Playlist>> {
+    let rootlist = engine
+        .rootlist()
+        .await
+        .map_err(|_| ApiError::Network("Couldn't read your Spotify playlist list".into()))?;
+    let (ids, total, more) = rootlist_playlist_window(&rootlist, offset, limit);
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut resolved = Vec::with_capacity(ids.len());
+    for (index, id) in ids.iter().cloned().enumerate() {
+        let session = engine.session().clone();
+        tasks.spawn(async move { (index, session_reads::playlist(&session, &id).await) });
+        if tasks.len() >= PLAYLIST_LIBRARY_CONCURRENCY {
+            resolved.push(
+                tasks
+                    .join_next()
+                    .await
+                    .expect("one task is active")
+                    .map_err(|_| {
+                        ApiError::Network("Couldn't read your Spotify playlists".into())
+                    })?,
+            );
+        }
+    }
+    while let Some(result) = tasks.join_next().await {
+        resolved.push(
+            result.map_err(|_| ApiError::Network("Couldn't read your Spotify playlists".into()))?,
+        );
+    }
+    let items = complete_playlist_headers(resolved)?;
+    Ok(Page {
+        items,
+        total,
+        limit,
+        offset,
+        next: more.then(|| "session:rootlist".into()),
+    })
+}
+
 async fn handle(
     api: &ApiGateway,
     engine: Option<&Engine>,
     request: ApiRequest,
 ) -> (ApiResponse, Option<ApiSource>) {
+    if let ApiRequest::MyPlaylists { offset, generation } = &request
+        && let Some(engine) = engine
+            .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
+    {
+        match tokio::time::timeout(
+            PLAYLIST_LIBRARY_TIMEOUT,
+            session_playlist_library(engine, *offset, PLAYLIST_PAGE_SIZE),
+        )
+        .await
+        {
+            Ok(Ok(page)) => {
+                log::debug!("Spotify route operation=PlaylistLibrary source=session");
+                api.observe_playlists(&page.items);
+                return (
+                    ApiResponse::MyPlaylists {
+                        offset: *offset,
+                        generation: *generation,
+                        result: Ok(page),
+                    },
+                    None,
+                );
+            }
+            Ok(Err(error)) => log::warn!("playlist library session read failed: {error}"),
+            Err(_) => log::warn!("playlist library session read timed out"),
+        }
+    }
     let operation = operation_for(api, &request);
     // A session whose long-lived connection has dropped still answers over
     // its HTTP client, so the engine's presence is the only liveness test;
