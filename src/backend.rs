@@ -714,6 +714,9 @@ pub enum Command {
     AlbumTypes(Vec<String>),
     /// Ask the streaming session which saved shows are audiobooks.
     AudiobookShows(Vec<String>),
+    /// Read the headers of library playlists the Web API listed blank
+    /// through the streaming session.
+    PlaylistHeaders(Vec<String>),
     /// Resolve Spotify's radio seeded by `seed` through the streaming session.
     Radio {
         seed: String,
@@ -730,6 +733,11 @@ pub enum Command {
     AudiobookShowsResolved {
         session_generation: u64,
         audiobooks: Vec<String>,
+    },
+    /// Internal: one playlist header read for the session it started in.
+    PlaylistHeaderResolved {
+        session_generation: u64,
+        header: crate::api::models::Playlist,
     },
     /// Internal: one precise album type lookup finished.
     AlbumTypeResolved {
@@ -828,6 +836,9 @@ pub enum Event {
     /// Saved shows that Spotify's metadata marks as audiobooks. librespot
     /// cannot play them, so the Podcasts shelf leaves them out.
     AudiobookShows(Vec<String>),
+    /// The header the streaming session read for a library playlist the
+    /// Web API listed blank.
+    PlaylistHeader(crate::api::models::Playlist),
     /// The songs of the radio seeded by `seed`, for the request `generation`.
     Radio {
         seed: String,
@@ -1346,6 +1357,9 @@ struct Worker {
     album_type_lookup: AlbumTypeLookup,
     /// Saved shows waiting for the streaming session to say which are audiobooks.
     audiobook_lookup: BTreeSet<String>,
+    /// Library playlists the Web API listed blank, waiting for the streaming
+    /// session to read their headers.
+    playlist_header_lookup: BTreeSet<String>,
     /// Radios asked for before the streaming session was ready, by seed.
     radio_waiting: BTreeMap<String, u64>,
     /// True while a playback grant or engine connection is in flight, so a
@@ -1412,6 +1426,7 @@ impl Worker {
             rootlist_pending: false,
             album_type_lookup: AlbumTypeLookup::default(),
             audiobook_lookup: BTreeSet::new(),
+            playlist_header_lookup: BTreeSet::new(),
             radio_waiting: BTreeMap::new(),
             engine_busy: false,
             search_tasks: Vec::new(),
@@ -1978,6 +1993,10 @@ impl Worker {
                     self.audiobook_lookup.extend(uris);
                     self.start_audiobook_lookup();
                 }
+                Command::PlaylistHeaders(ids) => {
+                    self.playlist_header_lookup.extend(ids);
+                    self.start_playlist_header_lookup();
+                }
                 Command::Radio { seed, generation } => {
                     self.radio_waiting.insert(seed, generation);
                     self.start_radio();
@@ -2002,6 +2021,14 @@ impl Worker {
                 } => {
                     if self.signed_in && session_generation == *self.session.borrow() {
                         self.emit(Event::AudiobookShows(audiobooks));
+                    }
+                }
+                Command::PlaylistHeaderResolved {
+                    session_generation,
+                    header,
+                } => {
+                    if self.signed_in && session_generation == *self.session.borrow() {
+                        self.emit(Event::PlaylistHeader(header));
                     }
                 }
                 Command::AlbumTypeResolved {
@@ -2474,6 +2501,7 @@ impl Worker {
         self.resume_verify = None;
         self.album_type_lookup.reset_session();
         self.audiobook_lookup.clear();
+        self.playlist_header_lookup.clear();
         self.radio_waiting.clear();
         self.carry_volume();
         if let Some(engine) = self.engine.take() {
@@ -2824,6 +2852,7 @@ impl Worker {
                 self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
                 self.start_album_type_lookup();
                 self.start_audiobook_lookup();
+                self.start_playlist_header_lookup();
                 self.start_radio();
             }
             None => {
@@ -3058,6 +3087,41 @@ impl Worker {
                 session_generation,
                 audiobooks,
             });
+        });
+    }
+
+    /// Reads the waiting playlist headers over the streaming session, never
+    /// the Web API, which already listed them blank. One read at a time
+    /// keeps a long list gentle on Spotify, and each header is sent as it
+    /// arrives so the rows fill in turn. Without a session they wait; a
+    /// header that cannot be read leaves its row as listed.
+    fn start_playlist_header_lookup(&mut self) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        if self.playlist_header_lookup.is_empty() {
+            return;
+        }
+        let ids = std::mem::take(&mut self.playlist_header_lookup);
+        let session_generation = *self.session.borrow();
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            for id in ids {
+                let read = session_reads::playlist(engine.session(), &id);
+                match tokio::time::timeout(SESSION_READ_TIMEOUT, read).await {
+                    Ok(Ok(header)) => {
+                        let resolved = Command::PlaylistHeaderResolved {
+                            session_generation,
+                            header,
+                        };
+                        if commands.send(resolved).is_err() {
+                            return;
+                        }
+                    }
+                    Ok(Err(error)) => log::debug!("playlist header lookup failed: {error:?}"),
+                    Err(_) => log::debug!("playlist header lookup timed out"),
+                }
+            }
         });
     }
 

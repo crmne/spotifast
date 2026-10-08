@@ -513,6 +513,27 @@ impl Playlist {
         }
     }
 
+    /// Take what a library entry listed blank lacks from the header the
+    /// streaming session read. Spotify's Web API lists some of its own
+    /// playlists, "This Is" ones among them, with no name, cover,
+    /// description or songs, though the session reads them whole. An entry
+    /// with a name is as Spotify listed it and stays.
+    pub fn fill_blank_from(&mut self, header: &Playlist) {
+        if !self.name.is_empty() {
+            return;
+        }
+        self.name = header.name.clone();
+        if self.images.is_empty() {
+            self.images = header.images.clone();
+        }
+        if self.description.as_deref().is_none_or(str::is_empty) {
+            self.description = header.description.clone();
+        }
+        if self.track_total() == 0 {
+            self.items_count = header.items_count.clone();
+        }
+    }
+
     pub fn owner_name(&self) -> &str {
         self.owner
             .display_name
