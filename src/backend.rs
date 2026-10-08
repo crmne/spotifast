@@ -3524,8 +3524,11 @@ async fn handle(
             .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
         {
             Some(engine) => {
+                let playback_account = engine.session().username();
                 made_for_you
-                    .load(engine.session(), force, || api.home_context_token())
+                    .load(engine.session(), force, || {
+                        api.home_context_token(&playback_account)
+                    })
                     .await
             }
             None => Err(ApiError::Status {

@@ -232,12 +232,15 @@ impl ApiGateway {
 
     pub fn begin_verification(&self, source: ApiSource, provider: TokenProvider) {
         let session = self.session(source);
+        // Withdraw the old verified identity before swapping providers. A
+        // concurrent Home request must never see a new provider under the
+        // previous account's Ready state.
+        session.set_state(SessionState::Authorizing);
         let client = session.client().for_authorization(provider);
         *session
             .client
             .write()
             .unwrap_or_else(|lock| lock.into_inner()) = Arc::new(client);
-        session.set_state(SessionState::Authorizing);
     }
 
     pub fn verification_client(&self, source: ApiSource) -> Arc<ApiClient> {
@@ -246,15 +249,42 @@ impl ApiGateway {
 
     /// Psst's Home section query also carries a Web API grant as `sp_t`.
     /// Prefer the personal grant without waiting for shared verification.
-    pub(crate) async fn home_context_token(&self) -> Result<String, ApiError> {
-        let source = if self.personal_ready() {
-            ApiSource::Personal
-        } else if matches!(self.state(ApiSource::Shared), SessionState::Ready { .. }) {
-            ApiSource::Shared
-        } else {
+    pub(crate) async fn home_context_token(
+        &self,
+        playback_account: &str,
+    ) -> Result<String, ApiError> {
+        let source = [ApiSource::Personal, ApiSource::Shared]
+            .into_iter()
+            .find(|source| {
+                self.state(*source)
+                    .account()
+                    .is_some_and(|account| account.as_str() == playback_account)
+            })
+            .ok_or(ApiError::NotSignedIn)?;
+        let session = self.session(source);
+        let client = session.client();
+        let token = client.home_context_token().await?;
+        // Token refresh may have waited while a different grant was installed.
+        // Reject that answer before pairing it with the playback credential.
+        if !self.home_context_client_matches(source, playback_account, &client) {
             return Err(ApiError::NotSignedIn);
-        };
-        self.session(source).client().home_context_token().await
+        }
+        Ok(token)
+    }
+
+    /// Rejects a grant replaced or reauthorized while its token was pending.
+    fn home_context_client_matches(
+        &self,
+        source: ApiSource,
+        playback_account: &str,
+        client: &Arc<ApiClient>,
+    ) -> bool {
+        let session = self.session(source);
+        Arc::ptr_eq(client, &session.client())
+            && session
+                .state()
+                .account()
+                .is_some_and(|account| account.as_str() == playback_account)
     }
 
     pub fn clear(&self, source: ApiSource) {
@@ -353,6 +383,32 @@ impl ApiGateway {
 mod tests {
     use super::*;
     use std::future::Future;
+
+    #[tokio::test]
+    async fn home_context_grant_stays_bound_to_the_playback_account() {
+        let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        gateway.begin_verification(ApiSource::Shared, provider("home-alice", ApiSource::Shared));
+        gateway
+            .install(ApiSource::Shared, AccountId::new("alice"))
+            .unwrap();
+        let old = gateway.verification_client(ApiSource::Shared);
+        assert!(gateway.home_context_client_matches(ApiSource::Shared, "alice", &old));
+        assert!(!gateway.home_context_client_matches(ApiSource::Shared, "bob", &old));
+        assert!(matches!(
+            gateway.home_context_token("bob").await,
+            Err(ApiError::NotSignedIn)
+        ));
+
+        gateway.begin_verification(ApiSource::Shared, provider("home-bob", ApiSource::Shared));
+        assert!(!gateway.home_context_client_matches(ApiSource::Shared, "alice", &old));
+        gateway
+            .install(ApiSource::Shared, AccountId::new("bob"))
+            .unwrap();
+        assert!(!gateway.home_context_client_matches(ApiSource::Shared, "alice", &old));
+        let current = gateway.verification_client(ApiSource::Shared);
+        assert!(!Arc::ptr_eq(&old, &current));
+        assert!(gateway.home_context_client_matches(ApiSource::Shared, "bob", &current));
+    }
 
     #[tokio::test]
     async fn shared_requests_wait_while_a_personal_session_is_already_ready() {

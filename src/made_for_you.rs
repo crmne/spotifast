@@ -23,6 +23,7 @@ const QUERY_HASH: &str = "eb3fba2d388cf4fc4d696b1757a58584e9538a3b515ea742e9cc94
 // Spotify DJ is a special context that librespot cannot play as a playlist.
 const UNSUPPORTED_DJ_URI: &str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq";
 const CACHE_AGE: Duration = Duration::from_secs(600);
+const LOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const PAGE_SIZE: usize = 20;
 const MAX_PAGES: usize = 10;
 
@@ -62,6 +63,7 @@ impl MadeForYou {
         }
     }
 
+    /// Returns the account's cached shelf or coalesces one bounded refresh.
     pub async fn load<F, Fut>(
         &self,
         session: &Session,
@@ -86,6 +88,27 @@ impl MadeForYou {
             return Err(ApiError::RateLimited);
         }
 
+        // Keep the lock across the entire read so concurrent refreshes share
+        // one answer, but do not let slow token resolution or ten slow pages
+        // block later requests indefinitely.
+        tokio::time::timeout(LOAD_TIMEOUT, self.fetch(session, context_token, &mut state))
+            .await
+            .map_err(|_| {
+                ApiError::Network("Made for you took too long to load. Try again.".into())
+            })?
+    }
+
+    /// Resolves both tokens and reads every Home page under the caller's lock.
+    async fn fetch<F, Fut>(
+        &self,
+        session: &Session,
+        context_token: F,
+        state: &mut State,
+    ) -> Result<Vec<Playlist>, ApiError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<String, ApiError>>,
+    {
         let context_token = context_token().await?;
         let client = self.http.client().map_err(ApiError::Network)?;
         let token = session
