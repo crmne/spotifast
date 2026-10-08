@@ -473,6 +473,7 @@ fastframe_icons::icons! {
         Volume2 => lucide "volume-2",
         VolumeX => lucide "volume-x",
         Watch => "watch",
+        WifiOff => "wifi-off",
         X => lucide "x",
         Zap => "zap",
     }

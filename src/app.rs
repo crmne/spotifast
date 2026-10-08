@@ -280,6 +280,8 @@ pub struct App {
     control_devices_stale: bool,
     /// Sample data is loaded; Spotify requests are disabled.
     pub offline: bool,
+    /// OS reports network path is available.
+    pub network_reachable: bool,
     pub palette: Palette,
     /// The language the interface is drawn in: [`Settings::language`]
     /// resolved against the operating system's preferred languages.
@@ -781,6 +783,7 @@ impl App {
             control_devices: None,
             control_devices_stale: true,
             offline: false,
+            network_reachable: true,
             palette,
             locale,
             window_level_supported: true,
@@ -1869,6 +1872,7 @@ impl App {
                 }
                 Event::Auth(status) => self.handle_auth(status),
                 Event::Playback(status) => self.handle_playback(status),
+                Event::NetworkStatus(reachable) => self.network_reachable = reachable,
                 Event::Receivers(receivers) => self.receivers = receivers,
                 Event::ReceiverActivated { name, result } => {
                     self.activating_receiver = None;
@@ -2127,7 +2131,9 @@ impl App {
                     gettext(self.locale, "Local playback: {error}").replace("{error}", message),
                 );
             }
-            LocalPlayback::Authorizing | LocalPlayback::Connecting => {}
+            LocalPlayback::Authorizing
+            | LocalPlayback::Connecting
+            | LocalPlayback::WaitingForNetwork => {}
         }
         self.local_playback = status;
     }
@@ -6870,7 +6876,9 @@ impl App {
                 // wait for the connecting engine or ask for a device.
                 if matches!(
                     self.local_playback,
-                    LocalPlayback::Connecting | LocalPlayback::Authorizing
+                    LocalPlayback::Connecting
+                        | LocalPlayback::Authorizing
+                        | LocalPlayback::WaitingForNetwork
                 ) || (self.settings.playback_authorized
                     && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
                 {
@@ -9200,7 +9208,9 @@ impl App {
                 } else if !self.local_ready
                     && !matches!(
                         self.local_playback,
-                        LocalPlayback::Authorizing | LocalPlayback::Connecting
+                        LocalPlayback::Authorizing
+                            | LocalPlayback::Connecting
+                            | LocalPlayback::WaitingForNetwork
                     )
                 {
                     self.settings.playback_authorized = true;

@@ -14,6 +14,31 @@ use super::widgets::{self, TrackRow};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
+    if !app.network_reachable {
+        let space = ((ui.available_height() - 160.0) / 2.0).max(48.0);
+        ui.add_space(space);
+        ui.vertical_centered(|ui| {
+            theme::icon(ui, Icon::WifiOff, 54.0, palette.dim);
+            ui.add_space(16.0);
+            theme::text(
+                ui,
+                gettext(app.locale, "You're offline"),
+                theme::bold(28.0),
+                palette.text,
+            );
+            ui.add_space(8.0);
+            theme::text(
+                ui,
+                gettext(
+                    app.locale,
+                    "Spotifast will reconnect automatically when your connection returns.",
+                ),
+                theme::regular(14.0),
+                palette.secondary,
+            );
+        });
+        return;
+    }
     ui.add_space(6.0);
     let greeting = crate::util::greeting(app.locale);
     theme::text(ui, greeting.as_ref(), theme::bold(30.0), palette.text);
