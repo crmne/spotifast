@@ -388,6 +388,10 @@ pub struct App {
     /// Spotify may expose one recording under several market-specific track
     /// URIs. Map those URIs to the recording identity returned by the API.
     track_recordings: HashMap<String, String>,
+    /// `track_recordings` the other way round: each recording's URIs, so
+    /// whether a recording is saved is answered from its own few URIs
+    /// rather than by scanning every saved URI, once per track of a page.
+    recording_uris: HashMap<String, HashSet<String>>,
     /// Known playlist-track availability for this account. Keep positive
     /// answers too, so an older disk cache cannot make a song unavailable
     /// again after the Web API has confirmed it can play.
@@ -657,6 +661,26 @@ fn tray_config() -> fastframe_tray::Config {
     }
 }
 
+/// Files `uri` under the recording `key` in `track_recordings` and in its
+/// reverse index, `recording_uris`, so the two always agree.
+fn link_recording(
+    track_recordings: &mut HashMap<String, String>,
+    recording_uris: &mut HashMap<String, HashSet<String>>,
+    uri: String,
+    key: String,
+) {
+    if let Some(previous) = track_recordings.insert(uri.clone(), key.clone())
+        && previous != key
+        && let Some(uris) = recording_uris.get_mut(&previous)
+    {
+        uris.remove(&uri);
+        if uris.is_empty() {
+            recording_uris.remove(&previous);
+        }
+    }
+    recording_uris.entry(key).or_default().insert(uri);
+}
+
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, mut settings: Settings, options: AppOptions) -> Self {
         // The legacy password file has no endpoint of its own. Keep the old
@@ -846,6 +870,7 @@ impl App {
             saved: HashMap::new(),
             saved_pending: HashSet::new(),
             track_recordings: HashMap::new(),
+            recording_uris: HashMap::new(),
             playlist_availability: HashMap::new(),
             saved_recordings: HashSet::new(),
             saved_writes: HashMap::new(),
@@ -1127,24 +1152,34 @@ impl App {
         }
     }
 
+    /// Whether any URI of the recording is saved.
+    fn recording_saved(&self, key: &str) -> bool {
+        self.recording_uris
+            .get(key)
+            .is_some_and(|uris| uris.iter().any(|uri| self.saved.get(uri) == Some(&true)))
+    }
+
     fn remember_track_recording(&mut self, track: &Track) {
         let Some(key) = track.recording_key() else {
             return;
         };
-        self.track_recordings.insert(track.uri.clone(), key.clone());
+        link_recording(
+            &mut self.track_recordings,
+            &mut self.recording_uris,
+            track.uri.clone(),
+            key.clone(),
+        );
         if let Some(linked) = &track.linked_from
             && !linked.uri.is_empty()
         {
-            self.track_recordings
-                .insert(linked.uri.clone(), key.clone());
+            link_recording(
+                &mut self.track_recordings,
+                &mut self.recording_uris,
+                linked.uri.clone(),
+                key.clone(),
+            );
         }
-        if self.saved.iter().any(|(uri, saved)| {
-            *saved
-                && self
-                    .track_recordings
-                    .get(uri)
-                    .is_some_and(|held| held == &key)
-        }) {
+        if self.recording_saved(&key) {
             self.saved_recordings.insert(key);
         }
     }
@@ -1156,13 +1191,7 @@ impl App {
         };
         if saved {
             self.saved_recordings.insert(key);
-        } else if !self.saved.iter().any(|(candidate, saved)| {
-            *saved
-                && self
-                    .track_recordings
-                    .get(candidate)
-                    .is_some_and(|held| held == &key)
-        }) {
+        } else if !self.recording_saved(&key) {
             self.saved_recordings.remove(&key);
         }
     }
@@ -1172,16 +1201,12 @@ impl App {
             return vec![uri.to_string()];
         };
         let equivalents: Vec<String> = self
-            .saved
-            .iter()
-            .filter(|(candidate, saved)| {
-                **saved
-                    && self
-                        .track_recordings
-                        .get(*candidate)
-                        .is_some_and(|held| held == key)
-            })
-            .map(|(candidate, _)| candidate.clone())
+            .recording_uris
+            .get(key)
+            .into_iter()
+            .flatten()
+            .filter(|candidate| self.saved.get(*candidate) == Some(&true))
+            .cloned()
             .collect();
         if equivalents.is_empty() {
             vec![uri.to_string()]
@@ -2133,6 +2158,7 @@ impl App {
         self.saved.clear();
         self.saved_pending.clear();
         self.track_recordings.clear();
+        self.recording_uris.clear();
         self.playlist_availability.clear();
         self.saved_recordings.clear();
         self.saved_writes.clear();
@@ -10043,7 +10069,12 @@ impl App {
             if !self.saved_writes.contains_key(uri) && self.liked_songs.intent(uri).is_none() {
                 self.saved.insert(uri.clone(), true);
                 if let Some(key) = item.track.recording_key() {
-                    self.track_recordings.insert(uri.clone(), key.clone());
+                    link_recording(
+                        &mut self.track_recordings,
+                        &mut self.recording_uris,
+                        uri.clone(),
+                        key.clone(),
+                    );
                     self.saved_recordings.insert(key);
                 }
             }
@@ -19424,6 +19455,40 @@ mod tests {
 
         assert_eq!(app.is_saved(playing_uri), Some(true));
         assert_eq!(app.saved_toggle_targets(playing_uri), vec![saved_uri]);
+    }
+
+    #[test]
+    fn a_recording_follows_its_uris_when_they_move_or_change() {
+        let mut app = headless_app();
+        let recording = |uri: &str, isrc: &str| Track {
+            uri: uri.into(),
+            external_ids: crate::api::models::ExternalIds {
+                isrc: Some(isrc.into()),
+            },
+            ..Default::default()
+        };
+        let (first, second) = ("spotify:track:first", "spotify:track:second");
+        app.remember_track_recording(&recording(first, "AAA"));
+        app.remember_track_recording(&recording(second, "AAA"));
+        app.set_saved_state(first.into(), true);
+        assert_eq!(app.is_saved(second), Some(true));
+        // The liked URI turns out to be another recording: the old one
+        // keeps nothing of it.
+        app.remember_track_recording(&recording(first, "BBB"));
+        app.set_saved_state(first.into(), true);
+        app.set_saved_state(second.into(), false);
+        assert_eq!(app.is_saved(second), Some(false));
+        assert_eq!(app.saved_toggle_targets(second), vec![second]);
+        assert_eq!(app.recording_uris["isrc:AAA"].len(), 1);
+        // A URI marked saved directly still counts for its recording.
+        app.saved.insert(second.into(), true);
+        app.remember_track_recording(&recording("spotify:track:third", "AAA"));
+        assert_eq!(app.is_saved("spotify:track:third"), Some(true));
+        app.set_saved_state(first.into(), false);
+        app.remember_track_recording(&recording(first, "BBB"));
+        assert_eq!(app.is_saved(first), Some(false));
+        app.reset_data();
+        assert!(app.recording_uris.is_empty());
     }
 
     #[test]
