@@ -2,7 +2,8 @@
 //!
 //! The private Pathfinder contract follows Psst's homeSection integration
 //! (jpochyla/psst#745). It can change independently of the public Web API.
-//! Never retry a refusal through a different grant or search by playlist name.
+//! This reader never retries a refusal through a different grant. The backend
+//! may separately offer an explicitly labeled shared-search fallback.
 
 use std::collections::HashSet;
 use std::future::Future;

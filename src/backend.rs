@@ -369,6 +369,7 @@ pub enum ApiResponse {
     MadeForYou {
         generation: u64,
         result: ApiResult<Vec<Playlist>>,
+        shared_fallback: bool,
     },
     MyPlaylists {
         offset: u32,
@@ -3456,6 +3457,62 @@ fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
     }
 }
 
+const SHARED_MADE_FOR_YOU_TERMS: [&str; 4] =
+    ["Discover Weekly", "Release Radar", "Daily Mix", "daylist"];
+const UNSUPPORTED_DJ_URI: &str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq";
+
+/// Search is an approximation, used only when Spotify's personalized Home
+/// section cannot be read. Keep it visibly distinct from the real shelf.
+async fn shared_made_for_you(api: &ApiGateway) -> ApiResult<Vec<Playlist>> {
+    let client = api.client_for(Operation::PlaylistSearch).await?;
+    let mut playlists = Vec::new();
+    let mut seen = HashSet::new();
+    for term in SHARED_MADE_FOR_YOU_TERMS {
+        let results = client.search(term, &["playlist"]).await?;
+        let mut matching: Vec<_> = results
+            .playlists
+            .into_iter()
+            .flat_map(|page| page.items)
+            .filter(|playlist| shared_made_for_you_match(playlist, term))
+            .filter(|playlist| seen.insert(playlist.name.to_ascii_lowercase()))
+            .take(6)
+            .collect();
+        playlists.append(&mut matching);
+    }
+    log::debug!("Spotify route operation=MadeForYou source=shared-fallback");
+    Ok(playlists)
+}
+
+fn shared_made_for_you_match(playlist: &Playlist, term: &str) -> bool {
+    let name = playlist.name.trim();
+    let matches_name = name.eq_ignore_ascii_case(term)
+        || (term == "Daily Mix"
+            && name.strip_prefix("Daily Mix ").is_some_and(|number| {
+                !number.is_empty() && number.bytes().all(|c| c.is_ascii_digit())
+            }));
+    matches_name
+        && playlist.uri != UNSUPPORTED_DJ_URI
+        && (playlist.owner.id.as_deref() == Some("spotify")
+            || playlist.owner.display_name.as_deref() == Some("Spotify"))
+}
+
+async fn with_shared_made_for_you_fallback<F, Fut>(
+    session_result: ApiResult<Vec<Playlist>>,
+    fallback: F,
+) -> (ApiResult<Vec<Playlist>>, bool)
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ApiResult<Vec<Playlist>>>,
+{
+    match session_result {
+        Ok(playlists) => (Ok(playlists), false),
+        Err(error) => {
+            log::warn!("Made for you session read failed; trying shared search fallback: {error}");
+            (fallback().await, true)
+        }
+    }
+}
+
 async fn handle(
     api: &ApiGateway,
     made_for_you: &crate::made_for_you::MadeForYou,
@@ -3463,7 +3520,7 @@ async fn handle(
     request: ApiRequest,
 ) -> (ApiResponse, Option<ApiSource>) {
     if let ApiRequest::MadeForYou { generation, force } = request {
-        let result = match engine
+        let session_result = match engine
             .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
         {
             Some(engine) => {
@@ -3473,13 +3530,29 @@ async fn handle(
             }
             None => Err(ApiError::Status {
                 status: 503,
-                message: "Set up local playback to load Made for you, then retry.".into(),
+                message: "The playback session is unavailable for Made for you.".into(),
             }),
         };
+        let (result, shared_fallback) =
+            with_shared_made_for_you_fallback(session_result, || async {
+                shared_made_for_you(api).await
+            })
+            .await;
         if let Ok(playlists) = &result {
             api.observe_playlists(playlists);
         }
-        return (ApiResponse::MadeForYou { generation, result }, None);
+        let expired = match &result {
+            Err(ApiError::SignInExpired { api_source }) => Some(*api_source),
+            _ => None,
+        };
+        return (
+            ApiResponse::MadeForYou {
+                generation,
+                result,
+                shared_fallback,
+            },
+            expired,
+        );
     }
     let operation = operation_for(api, &request);
     // A session whose long-lived connection has dropped still answers over
@@ -6215,6 +6288,51 @@ mod cover_routing_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn made_for_you_uses_shared_search_only_after_session_failure() {
+        let session_playlist = Playlist {
+            id: "session".into(),
+            ..Default::default()
+        };
+        let (result, shared) =
+            with_shared_made_for_you_fallback(Ok(vec![session_playlist.clone()]), || async {
+                panic!("the successful session must not search")
+            })
+            .await;
+        assert!(!shared);
+        assert_eq!(result.unwrap(), vec![session_playlist]);
+
+        let (result, shared) =
+            with_shared_made_for_you_fallback(Err(ApiError::RateLimited), || async {
+                Ok(vec![Playlist {
+                    id: "shared".into(),
+                    ..Default::default()
+                }])
+            })
+            .await;
+        assert!(shared);
+        assert_eq!(result.unwrap()[0].id, "shared");
+    }
+
+    #[test]
+    fn shared_suggestions_are_spotify_owned_and_exclude_dj() {
+        let mut playlist = Playlist {
+            name: "Daily Mix 3".into(),
+            uri: "spotify:playlist:mix".into(),
+            ..Default::default()
+        };
+        playlist.owner.id = Some("spotify".into());
+        assert!(shared_made_for_you_match(&playlist, "Daily Mix"));
+        playlist.name = "Daily Mix Party".into();
+        assert!(!shared_made_for_you_match(&playlist, "Daily Mix"));
+        playlist.name = "Daily Mix 3".into();
+        playlist.owner.id = Some("other".into());
+        assert!(!shared_made_for_you_match(&playlist, "Daily Mix"));
+        playlist.owner.id = Some("spotify".into());
+        playlist.uri = UNSUPPORTED_DJ_URI.into();
+        assert!(!shared_made_for_you_match(&playlist, "Daily Mix"));
+    }
 
     #[test]
     fn six_session_drops_in_ten_minutes_give_up() {

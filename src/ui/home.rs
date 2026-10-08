@@ -203,7 +203,11 @@ fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
         ui,
         &palette,
         "made-for-you",
-        &gettext(app.locale, "Made for you"),
+        &if app.home.made_for_you_shared_fallback {
+            gettext(app.locale, "Playlists")
+        } else {
+            gettext(app.locale, "Made for you")
+        },
         |ui| {
             if playlists.is_empty() && loading {
                 widgets::loading_row(ui, &palette, app.locale);

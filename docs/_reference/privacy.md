@@ -42,7 +42,8 @@ Spotifast connects only to the services below.
   that data. Home's **Made for you** request sends an already verified Web API
   access token to Spotify's Home service as well as the playback session's
   Login5 bearer and client token. The resulting cards are cached in memory
-  for ten minutes and are cleared on sign-out.
+  for ten minutes and are cleared on sign-out. If that request fails, the
+  shared Web API receives playlist-name searches for approximate suggestions.
 - **LRCLIB.** When the lyrics panel is open and Spotify has no lyrics for the
   song, Spotifast sends its artist, title, album and length to
   [lrclib.net](https://lrclib.net). Nothing identifying you is included.

@@ -5132,9 +5132,16 @@ impl App {
                 }
                 self.home.recommendations.refresh(result);
             }
-            ApiResponse::MadeForYou { generation, result } => {
+            ApiResponse::MadeForYou {
+                generation,
+                result,
+                shared_fallback,
+            } => {
                 if generation != self.home.generation {
                     return;
+                }
+                if result.is_ok() {
+                    self.home.made_for_you_shared_fallback = shared_fallback;
                 }
                 self.home.made_for_you.refresh(result);
             }
@@ -21898,21 +21905,33 @@ mod tests {
         app.handle_api(ApiResponse::MadeForYou {
             generation: 4,
             result: Ok(vec![playlist.clone()]),
+            shared_fallback: false,
         });
         assert_eq!(
             app.home.made_for_you.get().unwrap(),
             &vec![playlist.clone()]
         );
+        assert!(!app.home.made_for_you_shared_fallback);
         app.handle_api(ApiResponse::MadeForYou {
             generation: 4,
             result: Err(crate::api::ApiError::RateLimited),
+            shared_fallback: true,
         });
         assert_eq!(app.home.made_for_you.get().unwrap(), &vec![playlist]);
+        assert!(!app.home.made_for_you_shared_fallback);
         app.handle_api(ApiResponse::MadeForYou {
             generation: 3,
             result: Ok(vec![]),
+            shared_fallback: true,
         });
         assert_eq!(app.home.made_for_you.get().unwrap().len(), 1);
+        assert!(!app.home.made_for_you_shared_fallback);
+        app.handle_api(ApiResponse::MadeForYou {
+            generation: 4,
+            result: Ok(vec![]),
+            shared_fallback: true,
+        });
+        assert!(app.home.made_for_you_shared_fallback);
     }
 
     #[test]
