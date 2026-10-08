@@ -2653,6 +2653,13 @@ msgstr "Kompilacja"
 msgid "Appears On"
 msgstr "Występuje na"
 
+#. Translators: a play from an artist's discography page started
+#. before every song after the chosen one had loaded.
+#: src/app/discography.rs:651
+msgid "Some songs didn't load in time, so the queue ends early"
+msgstr ""
+"Niektóre utwory nie wczytały się na czas, więc kolejka kończy się wcześniej"
+
 #: src/milkdrop.rs:73
 msgid "Uncapped"
 msgstr "Bez limitu"
@@ -2799,6 +2806,11 @@ msgstr "Brak popularnych utworów do wyświetlenia."
 #: src/ui/artist.rs:124
 msgid "Discography"
 msgstr "Dyskografia"
+
+#. Translators: opens every release of the artist on a page of its own.
+#: src/ui/artist.rs:123
+msgid "Show all"
+msgstr "Pokaż wszystkie"
 
 #: src/ui/artist.rs:218
 msgid "Nothing in this category."
@@ -3174,6 +3186,23 @@ msgstr "Opcjonalny opis"
 #: src/ui/dialogs.rs:596
 msgid "Save"
 msgstr "Zapisz"
+
+#. Translators: the order of an artist's releases on their discography page.
+#: src/ui/discography.rs:337
+msgid "Newest first"
+msgstr "Od najnowszych"
+
+#. Translators: the order of an artist's releases on their discography page.
+#: src/ui/discography.rs:340
+msgid "Oldest first"
+msgstr "Od najstarszych"
+
+#. Translators: the name of the menu choosing which of an artist's
+#. releases show, read out by screen readers; a noun, not a command.
+#: src/ui/discography.rs:367
+msgctxt "menu name"
+msgid "Filter"
+msgstr "Filtr"
 
 #: src/ui/home.rs:342
 msgid "Made for you"

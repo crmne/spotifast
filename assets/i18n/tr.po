@@ -2647,6 +2647,12 @@ msgstr "Derleme"
 msgid "Appears On"
 msgstr "Yer Aldığı Albümler"
 
+#. Translators: a play from an artist's discography page started
+#. before every song after the chosen one had loaded.
+#: src/app/discography.rs:651
+msgid "Some songs didn't load in time, so the queue ends early"
+msgstr "Bazı şarkılar zamanında yüklenemedi, bu yüzden sıra erken bitiyor"
+
 #: src/milkdrop.rs:73
 msgid "Uncapped"
 msgstr "Sınırsız"
@@ -2792,6 +2798,11 @@ msgstr "Gösterilecek popüler şarkı yok."
 #: src/ui/artist.rs:124
 msgid "Discography"
 msgstr "Diskografi"
+
+#. Translators: opens every release of the artist on a page of its own.
+#: src/ui/artist.rs:123
+msgid "Show all"
+msgstr "Tümünü göster"
 
 #: src/ui/artist.rs:218
 msgid "Nothing in this category."
@@ -3158,6 +3169,23 @@ msgstr "İsteğe bağlı açıklama"
 #: src/ui/dialogs.rs:596
 msgid "Save"
 msgstr "Kaydet"
+
+#. Translators: the order of an artist's releases on their discography page.
+#: src/ui/discography.rs:337
+msgid "Newest first"
+msgstr "Önce en yeniler"
+
+#. Translators: the order of an artist's releases on their discography page.
+#: src/ui/discography.rs:340
+msgid "Oldest first"
+msgstr "Önce en eskiler"
+
+#. Translators: the name of the menu choosing which of an artist's
+#. releases show, read out by screen readers; a noun, not a command.
+#: src/ui/discography.rs:367
+msgctxt "menu name"
+msgid "Filter"
+msgstr "Filtre"
 
 #: src/ui/home.rs:342
 msgid "Made for you"

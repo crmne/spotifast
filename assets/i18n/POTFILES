@@ -11,6 +11,7 @@ src/ui/soloist.rs
 src/soloist/mod.rs
 src/api/models.rs
 src/app/radio.rs
+src/app/discography.rs
 src/milkdrop.rs
 src/model.rs
 src/settings.rs
@@ -19,6 +20,7 @@ src/ui/artist.rs
 src/ui/collection.rs
 src/ui/devices.rs
 src/ui/dialogs.rs
+src/ui/discography.rs
 src/ui/home.rs
 src/ui/keys.rs
 src/ui/library.rs

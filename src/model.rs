@@ -121,6 +121,8 @@ pub enum Page {
     Playlist(String),
     Album(String),
     Artist(String),
+    /// Every release of an artist with its songs, by the artist's id.
+    Discography(String),
     Show(String),
     /// Spotify's radio seeded by a song, playlist, album, or artist, by the
     /// seed's URI.
@@ -144,6 +146,7 @@ impl Page {
             Page::Playlist(id) => format!("playlist:{id}"),
             Page::Album(id) => format!("album:{id}"),
             Page::Artist(id) => format!("artist:{id}"),
+            Page::Discography(id) => format!("discography:{id}"),
             Page::Show(id) => format!("show:{id}"),
             Page::Radio(seed) => format!("radio:{seed}"),
             Page::Queue => "queue".into(),
@@ -170,6 +173,7 @@ impl Page {
                     "playlist" => Page::Playlist(id.into()),
                     "album" => Page::Album(id.into()),
                     "artist" => Page::Artist(id.into()),
+                    "discography" => Page::Discography(id.into()),
                     "show" => Page::Show(id.into()),
                     "radio" if crate::util::station_uri(id).is_some() => Page::Radio(id.into()),
                     _ => return None,
@@ -969,6 +973,137 @@ pub struct ArtistPage {
     pub show_all_top: bool,
 }
 
+/// What the discography page knows of one release's songs.
+#[derive(Debug)]
+pub enum ReleaseTracks {
+    /// Asked for. Pages arrive in album order, and the songs show only once
+    /// every page has, so a play never starts from half a release. `next`
+    /// is the offset of the page on its way.
+    Loading {
+        songs: Vec<Track>,
+        next: u32,
+    },
+    Loaded(Vec<Track>),
+    Failed(String),
+}
+
+impl ReleaseTracks {
+    pub fn songs(&self) -> Option<&[Track]> {
+        match self {
+            Self::Loaded(songs) => Some(songs),
+            _ => None,
+        }
+    }
+
+    /// Loaded or given up on: a play waits for neither.
+    pub fn resolved(&self) -> bool {
+        !matches!(self, Self::Loading { .. })
+    }
+}
+
+/// An artist's discography page: every release in the chosen filter, each
+/// with its songs, newest or oldest first.
+#[derive(Debug)]
+pub struct DiscographyPage {
+    /// Identifies this page's requests. A reloaded or recreated page ignores
+    /// the answers that were on their way to the one it replaced.
+    pub generation: u64,
+    /// The artist when the page was made, or as Spotify described them for
+    /// a page opened without the artist page, kept should that page be let
+    /// go while this one stays.
+    pub artist: Option<Artist>,
+    pub filter: DiscographyFilter,
+    pub newest_first: bool,
+    /// Every release of each filter, by [`DiscographyFilter::groups`]. A list
+    /// loads all of its pages, since only the whole list can be ordered.
+    pub releases: HashMap<String, PagedList<Album>>,
+    /// Each release's songs by album id, shared by the filters.
+    pub tracks: HashMap<String, ReleaseTracks>,
+    /// Why song lists stopped loading for every release, such as a rate
+    /// limit; cleared by Retry.
+    pub halted: Option<String>,
+    /// The first and last releases on screen, by their place in the order
+    /// shown. Song lists load from there.
+    pub in_view: Option<(usize, usize)>,
+    /// The artist has been asked for, to name a page opened without it.
+    pub artist_requested: bool,
+}
+
+impl DiscographyPage {
+    pub fn new(generation: u64, artist: Option<Artist>, filter: DiscographyFilter) -> Self {
+        Self {
+            generation,
+            artist,
+            filter,
+            newest_first: true,
+            releases: HashMap::new(),
+            tracks: HashMap::new(),
+            halted: None,
+            in_view: None,
+            artist_requested: false,
+        }
+    }
+
+    /// The current filter's release list, when it has been asked for.
+    pub fn list(&self) -> Option<&PagedList<Album>> {
+        self.releases.get(self.filter.groups())
+    }
+
+    /// The current filter's releases in the order the page shows them: by
+    /// release date, newest or oldest first, with unknown dates last and
+    /// releases of the same date in Spotify's order.
+    pub fn ordered(&self) -> Vec<&Album> {
+        self.ordered_as(self.filter, self.newest_first)
+    }
+
+    /// The releases as a given filter and order show them, which a play
+    /// keeps from its click should the user change either while it waits.
+    pub fn ordered_as(&self, filter: DiscographyFilter, newest_first: bool) -> Vec<&Album> {
+        let Some(list) = self.releases.get(filter.groups()) else {
+            return Vec::new();
+        };
+        let mut releases: Vec<&Album> = list.items.iter().collect();
+        releases.sort_by(|a, b| release_order(a, b, newest_first));
+        releases
+    }
+
+    /// The album a release id names, from whichever filter's list holds it.
+    pub fn release(&self, album_id: &str) -> Option<&Album> {
+        self.releases
+            .values()
+            .flat_map(|list| &list.items)
+            .find(|album| album.id == album_id)
+    }
+}
+
+/// A release date as (year, month, day), with 0 for a part Spotify leaves
+/// out: dates come as `2024-03-15`, `2024-03` or `2024`.
+pub fn release_date_key(date: &str) -> Option<(u16, u8, u8)> {
+    let mut parts = date.trim().split('-');
+    let year = parts.next()?.parse().ok()?;
+    let month = match parts.next() {
+        Some(month) => month.parse().ok()?,
+        None => 0,
+    };
+    let day = match parts.next() {
+        Some(day) => day.parse().ok()?,
+        None => 0,
+    };
+    Some((year, month, day))
+}
+
+fn release_order(a: &Album, b: &Album, newest_first: bool) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let key = |album: &Album| album.release_date.as_deref().and_then(release_date_key);
+    match (key(a), key(b)) {
+        (Some(a), Some(b)) if newest_first => b.cmp(&a),
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
 /// A radio page: the songs Spotify mixed for its seed, which are the songs
 /// its Play button plays.
 #[derive(Default)]
@@ -1023,6 +1158,9 @@ pub enum RowContext {
     Uris(Arc<[String]>),
     /// A Next up row. Playing it consumes that row and all rows before it.
     Queue,
+    /// A song on an artist's discography page, which plays the page from
+    /// it to the end. The row's index is its place in the release.
+    Discography { artist_id: String, album_id: String },
     /// A sorted or filtered context view that plays the displayed rows.
     View {
         uris: Arc<[String]>,
@@ -1348,6 +1486,43 @@ pub enum Action {
         artist_id: String,
         filter: DiscographyFilter,
     },
+    /// Open the artist's discography page on the filter the artist page
+    /// shows.
+    OpenDiscography {
+        artist_id: String,
+        filter: DiscographyFilter,
+    },
+    /// Choose the releases the discography page shows.
+    SetDiscographyPageFilter {
+        artist_id: String,
+        filter: DiscographyFilter,
+    },
+    /// Order the discography page's releases newest or oldest first.
+    SetDiscographyOrder {
+        artist_id: String,
+        newest_first: bool,
+    },
+    /// Play the discography page from a release to the end of the page:
+    /// from the song at `start` (its place in the release and its URI), or
+    /// from the release's first playable song.
+    PlayDiscography {
+        artist_id: String,
+        album_id: String,
+        start: Option<(u32, String)>,
+    },
+    /// Try a discography page again: one release's songs, or, with no
+    /// release, the release list and every song list that stopped loading.
+    RetryDiscography {
+        artist_id: String,
+        album_id: Option<String>,
+    },
+    /// The releases on a discography page's screen changed, by their places
+    /// in the order shown: their songs load first.
+    DiscographyInView {
+        artist_id: String,
+        first: usize,
+        last: usize,
+    },
     ToggleShowAllTop(String),
     Reload(Page),
     SignIn,
@@ -1633,5 +1808,124 @@ mod finite_scroll_tests {
         assert_eq!(list.window_at(150, 50), None);
         list.fail("offline".into());
         assert_eq!(list.window_at(150, 50), None);
+    }
+}
+
+#[cfg(test)]
+mod discography_tests {
+    use super::*;
+
+    fn release(id: &str, date: Option<&str>) -> Album {
+        Album {
+            id: id.into(),
+            uri: format!("spotify:album:{id}"),
+            name: id.into(),
+            release_date: date.map(str::to_string),
+            ..Album::default()
+        }
+    }
+
+    fn page_with(releases: Vec<Album>) -> DiscographyPage {
+        let mut page = DiscographyPage::new(1, None, DiscographyFilter::All);
+        let mut list = PagedList::default();
+        let total = releases.len() as u32;
+        list.absorb(
+            0,
+            Page_ {
+                items: releases,
+                offset: 0,
+                limit: 50,
+                total,
+                next: None,
+            },
+        );
+        page.releases
+            .insert(DiscographyFilter::All.groups().to_string(), list);
+        page
+    }
+
+    fn ids(page: &DiscographyPage) -> Vec<&str> {
+        page.ordered()
+            .into_iter()
+            .map(|album| album.id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn release_dates_of_every_precision_have_a_key() {
+        assert_eq!(release_date_key("2024-03-15"), Some((2024, 3, 15)));
+        assert_eq!(release_date_key("2024-03"), Some((2024, 3, 0)));
+        assert_eq!(release_date_key("2024"), Some((2024, 0, 0)));
+        assert_eq!(release_date_key(""), None);
+        assert_eq!(release_date_key("soon"), None);
+        assert_eq!(release_date_key("2024-xx"), None);
+    }
+
+    #[test]
+    fn releases_show_newest_first_across_the_groups_spotify_returns_apart() {
+        // Spotify lists albums before singles, so a newer single can come
+        // after an older album; the page orders the whole list by date.
+        let page = page_with(vec![
+            release("album-2019", Some("2019-05-01")),
+            release("album-2022", Some("2022-01-20")),
+            release("single-2024", Some("2024-06-07")),
+            release("single-2020", Some("2020-02")),
+        ]);
+        assert_eq!(
+            ids(&page),
+            ["single-2024", "album-2022", "single-2020", "album-2019"]
+        );
+    }
+
+    #[test]
+    fn oldest_first_reverses_the_dates_but_not_spotify_order_within_a_day() {
+        let mut page = page_with(vec![
+            release("b", Some("2021-04-09")),
+            release("a", Some("2021-04-09")),
+            release("new", Some("2023")),
+            release("old", Some("1999-12-31")),
+        ]);
+        assert_eq!(ids(&page), ["new", "b", "a", "old"]);
+        page.newest_first = false;
+        assert_eq!(ids(&page), ["old", "b", "a", "new"]);
+    }
+
+    #[test]
+    fn releases_without_a_date_come_last_in_both_orders() {
+        let mut page = page_with(vec![
+            release("undated", None),
+            release("dated", Some("2010")),
+            release("garbled", Some("unknown")),
+        ]);
+        assert_eq!(ids(&page), ["dated", "undated", "garbled"]);
+        page.newest_first = false;
+        assert_eq!(ids(&page), ["dated", "undated", "garbled"]);
+    }
+
+    #[test]
+    fn same_named_releases_all_stay() {
+        let page = page_with(vec![
+            release("explicit", Some("2020-01-01")),
+            Album {
+                name: "explicit".into(),
+                ..release("clean", Some("2020-01-01"))
+            },
+        ]);
+        assert_eq!(ids(&page), ["explicit", "clean"]);
+    }
+
+    #[test]
+    fn a_page_without_the_filter_list_shows_nothing() {
+        let mut page = page_with(vec![release("a", Some("2020"))]);
+        page.filter = DiscographyFilter::Singles;
+        assert!(page.ordered().is_empty());
+        assert!(page.list().is_none());
+    }
+
+    #[test]
+    fn the_discography_page_round_trips_through_its_encoding() {
+        let page = Page::Discography("4tZwfgrHOc3mvqYlEYSvVi".into());
+        assert_eq!(page.encode(), "discography:4tZwfgrHOc3mvqYlEYSvVi");
+        assert_eq!(Page::decode(&page.encode()), Some(page));
     }
 }

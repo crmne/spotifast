@@ -2597,6 +2597,12 @@ msgstr "컴필레이션"
 msgid "Appears On"
 msgstr "참여 앨범"
 
+#. Translators: a play from an artist's discography page started
+#. before every song after the chosen one had loaded.
+#: src/app/discography.rs:651
+msgid "Some songs didn't load in time, so the queue ends early"
+msgstr "일부 곡을 제때 불러오지 못해 재생목록이 일찍 끝납니다"
+
 #: src/milkdrop.rs:73
 msgid "Uncapped"
 msgstr "제한 없음"
@@ -2742,6 +2748,11 @@ msgstr "표시할 인기 곡이 없습니다."
 #: src/ui/artist.rs:124
 msgid "Discography"
 msgstr "디스코그래피"
+
+#. Translators: opens every release of the artist on a page of its own.
+#: src/ui/artist.rs:123
+msgid "Show all"
+msgstr "모두 보기"
 
 #: src/ui/artist.rs:218
 msgid "Nothing in this category."
@@ -3102,6 +3113,23 @@ msgstr "설명 (선택 사항)"
 #: src/ui/dialogs.rs:596
 msgid "Save"
 msgstr "저장"
+
+#. Translators: the order of an artist's releases on their discography page.
+#: src/ui/discography.rs:337
+msgid "Newest first"
+msgstr "최신순"
+
+#. Translators: the order of an artist's releases on their discography page.
+#: src/ui/discography.rs:340
+msgid "Oldest first"
+msgstr "오래된 순"
+
+#. Translators: the name of the menu choosing which of an artist's
+#. releases show, read out by screen readers; a noun, not a command.
+#: src/ui/discography.rs:367
+msgctxt "menu name"
+msgid "Filter"
+msgstr "필터"
 
 #: src/ui/home.rs:342
 msgid "Made for you"

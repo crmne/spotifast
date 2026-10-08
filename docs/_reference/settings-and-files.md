@@ -249,6 +249,8 @@ playlist prefix when its snapshot still matches. Pending playlist edits and
 their rows stay in memory until the write and its snapshot are confirmed,
 even if this temporarily exceeds the usual page limit. Track metadata is
 limited to 800 cached tracks; navigation and periodic cleanup trim old entries.
+Up to three artist discography pages are kept the same way; the open one and
+one a play is waiting for are never dropped.
 
 The session remembers separate positions for the main window and the Winamp
 mini player, and the main window's size and whether it was maximized. Sizes
@@ -470,7 +472,8 @@ Builds made with `cargo build --features demo` accept `--demo`, which loads
 sample data for screenshots and interface work. Demo mode never writes
 settings.
 
-`--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
+`--demo-page` opens a page, such as `home`, `playlist:pl1`, `artist:art0`, or
+`discography:art0`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
 `queue`, `playing-next`, `devices`, `home-loading`, `audio-outputs`, `shortcuts`, `premium`, `create`, `duplicate`, `light`, `system-light`, `system-dark`,
 `focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`, `slow-banner`, `audio-key-banner`,
@@ -479,7 +482,8 @@ and `--demo-show` adds surfaces on top of it: a comma separated list of
 `library-grid-wide`, `eq-user-presets`, `start-in-tray`, `rtl`, `player-bar-spectrum`, `player-bar-waveform`,
 `lyrics-fullscreen-view`, `lyrics-fullscreen-instrumental`, `signed-out`, `connecting`,
 `waiting-for-browser`, `sign-in-returning`, `sign-in-malformed`, `sign-in-shared-retired`,
-`sign-in-unknown-client`, `sign-in-not-allowed`, `shared-grant`, and `own-app`. The Library variants show the list or cover grid with
+`sign-in-unknown-client`, `sign-in-not-allowed`, `shared-grant`, `own-app`, `discography-failed`,
+and `discography-halted`. The Library variants show the list or cover grid with
 a normal, narrow, or wide sidebar and collapsed artwork for matching captures.
 `shuffle-selected` and `shuffle-started` capture the selected-mode and
 playback-started outcomes of a collection Shuffle click. `update` shows a sample
@@ -511,7 +515,10 @@ demo mode never reads or changes the real login entry.
 `rtl` gives the first songs of `playlist:pl1` invented Hebrew and Arabic
 titles, some mixed with English, numbers, and brackets.
 `collection-loading` keeps known collection metadata and placeholder artwork
-visible while replacing the page content, with unfinished controls disabled.
+visible while replacing the page content, with unfinished controls disabled;
+on `discography:art0` it leaves the first two releases' songs loading.
+`discography-failed` shows the first release's songs failing with a Retry, and
+`discography-halted` shows song lists stopped by a rate limit.
 `home-loading` shows Home while its shelves are still loading.
 `--demo-language <TAG>` shows the interface in one of the bundled languages,
 such as `es` or `ja`, in place of the saved setting and the system's language.

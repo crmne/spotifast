@@ -6,6 +6,7 @@ pub mod artist;
 pub mod collection;
 pub(crate) mod devices;
 mod dialogs;
+pub mod discography;
 pub(crate) mod friends;
 pub mod home;
 mod keys;
@@ -276,6 +277,26 @@ fn page_tint(app: &mut App) -> Option<Color32> {
             .or_else(|| app.known_artist(id))
             .and_then(|artist| pick_image(&artist.images, 64))
             .map(str::to_string),
+        // The artist's colour, as on the artist page. Until the artist is
+        // known, Spotify's first release, which the order and filter
+        // controls do not move.
+        Page::Discography(id) => app
+            .artist_pages
+            .get(id)
+            .and_then(|page| page.artist.get())
+            .or_else(|| app.known_artist(id))
+            .or_else(|| app.discography_pages.get(id)?.artist.as_ref())
+            .and_then(|artist| pick_image(&artist.images, 64))
+            .or_else(|| {
+                let page = app.discography_pages.get(id)?;
+                let first = page
+                    .releases
+                    .get(crate::model::DiscographyFilter::All.groups())?
+                    .items
+                    .first()?;
+                pick_image(&first.images, 64)
+            })
+            .map(str::to_string),
         Page::Show(id) => app
             .show_pages
             .get(id)
@@ -374,6 +395,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                             Page::Playlist(id) => collection::playlist(app, ui, &id),
                             Page::Album(id) => collection::album(app, ui, &id),
                             Page::Artist(id) => artist::show(app, ui, &id),
+                            Page::Discography(id) => discography::show(app, ui, &id),
                             Page::Show(id) => show::show(app, ui, &id),
                             Page::Radio(seed) => radio::radio(app, ui, &seed),
                             Page::Queue => queue::page(app, ui),

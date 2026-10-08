@@ -44,7 +44,8 @@ struct Cli {
     #[arg(long, requires = "demo")]
     demo_data: Option<std::path::PathBuf>,
 
-    /// Page to open in demo mode, e.g. `home`, `playlist:pl1`, `artist:art0`.
+    /// Page to open in demo mode, e.g. `home`, `playlist:pl1`, `artist:art0`,
+    /// `discography:art0`.
     #[cfg(feature = "demo")]
     #[arg(long)]
     demo_page: Option<String>,
@@ -57,7 +58,8 @@ struct Cli {
     /// `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
     /// `library-grid-wide`, `waiting-for-browser`, `sign-in-returning`, `sign-in-malformed`,
     /// `sign-in-shared-retired`, `sign-in-unknown-client`, `sign-in-not-allowed`,
-    /// `shared-grant`, or `own-app`. `wmp-skin=PATH` wears a Windows Media
+    /// `shared-grant`, `own-app`, `discography-failed`, or `discography-halted`.
+    /// `wmp-skin=PATH` wears a Windows Media
     /// Player skin, and `wmp-run=SCRIPT` runs script in it once it starts
     /// (`|` for a comma), to open a drawer or view for a capture.
     #[cfg(feature = "demo")]

@@ -341,6 +341,21 @@ pub enum ApiRequest {
         offset: u32,
         request: u64,
     },
+    /// A page of an artist's releases for the discography page, kept apart
+    /// from the artist page's own list.
+    DiscographyAlbums {
+        artist_id: String,
+        groups: String,
+        offset: u32,
+        generation: u64,
+    },
+    /// A page of one release's songs for the discography page.
+    DiscographyTracks {
+        artist_id: String,
+        album_id: String,
+        offset: u32,
+        generation: u64,
+    },
     Show {
         id: String,
     },
@@ -607,6 +622,20 @@ pub enum ApiResponse {
     AlbumQueueTracks {
         offset: u32,
         request: u64,
+        result: ApiResult<Page<Track>>,
+    },
+    DiscographyAlbums {
+        artist_id: String,
+        groups: String,
+        offset: u32,
+        generation: u64,
+        result: ApiResult<Page<Album>>,
+    },
+    DiscographyTracks {
+        artist_id: String,
+        album_id: String,
+        offset: u32,
+        generation: u64,
         result: ApiResult<Page<Track>>,
     },
     Show {
@@ -1226,6 +1255,8 @@ pub struct Backend {
         std::sync::Mutex<Vec<crate::account_cache::Cache<crate::model::HomeSnapshot>>>,
     #[cfg(test)]
     top_tracks_requests: std::sync::Mutex<Vec<(TopPeriod, u32, bool, u64)>>,
+    #[cfg(test)]
+    discography_requests: std::sync::Mutex<Vec<ApiRequest>>,
 }
 
 impl Backend {
@@ -1328,6 +1359,8 @@ impl Backend {
             home_cache_stores: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             top_tracks_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            discography_requests: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -1413,6 +1446,16 @@ impl Backend {
     }
 
     pub fn api(&self, request: ApiRequest) {
+        #[cfg(test)]
+        if matches!(
+            request,
+            ApiRequest::DiscographyAlbums { .. } | ApiRequest::DiscographyTracks { .. }
+        ) {
+            self.discography_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(request.clone());
+        }
         #[cfg(test)]
         if matches!(
             request,
@@ -1605,6 +1648,17 @@ impl Backend {
         std::mem::take(
             &mut *self
                 .remote_play_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    /// Release lists and song lists the discography page asked for.
+    #[cfg(test)]
+    pub fn take_discography_requests(&self) -> Vec<ApiRequest> {
+        std::mem::take(
+            &mut *self
+                .discography_requests
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
@@ -5152,6 +5206,8 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         | ApiRequest::Album { .. }
         | ApiRequest::AlbumTracks { .. }
         | ApiRequest::AlbumQueueTracks { .. }
+        | ApiRequest::DiscographyAlbums { .. }
+        | ApiRequest::DiscographyTracks { .. }
         | ApiRequest::Show { .. }
         | ApiRequest::ShowEpisodes { .. }
         | ApiRequest::HomeEpisodes { .. }
@@ -5936,6 +5992,30 @@ async fn handle(
             result: routed!(album_tracks(&id, offset, 50)),
             offset,
             request,
+        },
+        ApiRequest::DiscographyAlbums {
+            artist_id,
+            groups,
+            offset,
+            generation,
+        } => ApiResponse::DiscographyAlbums {
+            result: routed!(artist_albums(&artist_id, &groups, offset, 50)),
+            artist_id,
+            groups,
+            offset,
+            generation,
+        },
+        ApiRequest::DiscographyTracks {
+            artist_id,
+            album_id,
+            offset,
+            generation,
+        } => ApiResponse::DiscographyTracks {
+            result: routed!(album_tracks(&album_id, offset, 50)),
+            artist_id,
+            album_id,
+            offset,
+            generation,
         },
         ApiRequest::Show { id } => ApiResponse::Show {
             result: routed!(show(&id)),
@@ -9954,6 +10034,36 @@ mod cover_routing_tests {
             operation_for(&api, &request),
             Operation::PlaylistMutation(PlaylistAccess::Collaborative)
         );
+    }
+
+    #[test]
+    fn discography_reads_are_catalogue_reads_the_user_waits_for() {
+        let api = ApiGateway::new(
+            reqwest::Client::new(),
+            std::sync::Arc::new(NetActivity::default()),
+        );
+        api.install(ApiSource::Shared, AccountId::new("me"))
+            .unwrap();
+        for request in [
+            ApiRequest::DiscographyAlbums {
+                artist_id: "art".into(),
+                groups: "album,single,compilation".into(),
+                offset: 0,
+                generation: 1,
+            },
+            ApiRequest::DiscographyTracks {
+                artist_id: "art".into(),
+                album_id: "alb".into(),
+                offset: 50,
+                generation: 1,
+            },
+        ] {
+            // Like the artist and album pages' own reads: the personal app
+            // when it is ready, else the shared one, and never held back as
+            // background work.
+            assert_eq!(operation_for(&api, &request), Operation::Catalog);
+            assert!(!request.background());
+        }
     }
 }
 

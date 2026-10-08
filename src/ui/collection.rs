@@ -1342,7 +1342,7 @@ fn navigate_song_rows(
     None
 }
 
-fn placeholder_row(
+pub(super) fn placeholder_row(
     ui: &mut egui::Ui,
     palette: &Palette,
     locale: Locale,

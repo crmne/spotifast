@@ -2542,6 +2542,12 @@ msgstr "合輯"
 msgid "Appears On"
 msgstr "參與作品"
 
+#. Translators: a play from an artist's discography page started
+#. before every song after the chosen one had loaded.
+#: src/app/discography.rs:651
+msgid "Some songs didn't load in time, so the queue ends early"
+msgstr "部分歌曲未能及時載入，待播清單會提前結束"
+
 #: src/milkdrop.rs:73
 msgid "Uncapped"
 msgstr "不限制"
@@ -2679,6 +2685,11 @@ msgstr "沒有可顯示的熱門歌曲。"
 #: src/ui/artist.rs:124
 msgid "Discography"
 msgstr "音樂作品"
+
+#. Translators: opens every release of the artist on a page of its own.
+#: src/ui/artist.rs:123
+msgid "Show all"
+msgstr "查看全部"
 
 #: src/ui/artist.rs:218
 msgid "Nothing in this category."
@@ -3033,6 +3044,23 @@ msgstr "選填說明"
 #: src/ui/dialogs.rs:596
 msgid "Save"
 msgstr "儲存"
+
+#. Translators: the order of an artist's releases on their discography page.
+#: src/ui/discography.rs:337
+msgid "Newest first"
+msgstr "最新的在前"
+
+#. Translators: the order of an artist's releases on their discography page.
+#: src/ui/discography.rs:340
+msgid "Oldest first"
+msgstr "最早的在前"
+
+#. Translators: the name of the menu choosing which of an artist's
+#. releases show, read out by screen readers; a noun, not a command.
+#: src/ui/discography.rs:367
+msgctxt "menu name"
+msgid "Filter"
+msgstr "篩選"
 
 #: src/ui/home.rs:342
 msgid "Made for you"
