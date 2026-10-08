@@ -992,6 +992,13 @@ pub enum Action {
         items: Vec<PlayableItem>,
         position: usize,
     },
+    /// Take rows out of the manually queued "Playing next" section, each
+    /// named by its index in the queue and the song it holds there. Only
+    /// applied while the local player is the active target; see
+    /// [`crate::app::App::queue_locally_reorderable`].
+    RemoveFromQueue {
+        rows: Vec<(usize, String)>,
+    },
     /// Set saved state for several songs explicitly.
     SetSavedMany {
         uris: Vec<String>,
