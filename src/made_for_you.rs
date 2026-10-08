@@ -19,6 +19,8 @@ use crate::http::Http;
 const ENDPOINT: &str = "https://api-partner.spotify.com/pathfinder/v2/query";
 const SECTION: &str = "spotify:section:0JQ5DAUnp4wcj0bCb3wh3S";
 const QUERY_HASH: &str = "eb3fba2d388cf4fc4d696b1757a58584e9538a3b515ea742e9cc9465807340be";
+// Spotify DJ is a special context that librespot cannot play as a playlist.
+const UNSUPPORTED_DJ_URI: &str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq";
 const CACHE_AGE: Duration = Duration::from_secs(600);
 const PAGE_SIZE: usize = 20;
 const MAX_PAGES: usize = 10;
@@ -240,6 +242,9 @@ fn parse_page(body: serde_json::Value) -> Result<ShelfPage, ApiError> {
             let Some(uri) = data.get("uri").and_then(|value| value.as_str()) else {
                 continue;
             };
+            if uri == UNSUPPORTED_DJ_URI {
+                continue;
+            }
             let Some(id) = uri
                 .strip_prefix("spotify:playlist:")
                 .filter(|id| id.len() == 22 && id.bytes().all(|byte| byte.is_ascii_alphanumeric()))
@@ -351,6 +356,17 @@ mod tests {
             {"content":{"data":{"__typename":"FutureCard","uri":"spotify:playlist:1234567890123456789012","name":"unknown"}}}
         ]))).unwrap();
         assert!(result.playlists.is_empty());
+    }
+
+    #[test]
+    fn unsupported_dj_context_is_omitted_without_hiding_dj_named_playlists() {
+        let result = parse_page(shelf(json!([
+            {"content":{"data":{"__typename":"Playlist","uri":UNSUPPORTED_DJ_URI,"name":"DJ"}}},
+            {"content":{"data":{"__typename":"Playlist","uri":"spotify:playlist:1234567890123456789012","name":"DJ Mix"}}}
+        ]))).unwrap();
+        assert_eq!(result.count, 2);
+        assert_eq!(result.playlists.len(), 1);
+        assert_eq!(result.playlists[0].name, "DJ Mix");
     }
 
     #[test]

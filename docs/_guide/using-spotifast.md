@@ -25,7 +25,8 @@ click. macOS retains its existing middle-click behavior.
 your account, in Spotify's order. Set up local playback to load it. If a
 refresh fails, cards already on screen remain available; **Retry** is shown
 when the first load fails. This shelf uses the playback session, so shared Web
-API playlist-search throttling does not block it.
+API playlist-search throttling does not block it. Spotify DJ is left out
+because Spotifast cannot play its special context.
 
 Point at a horizontal shelf, such as Made for you or Recently played on
 Home, and hold `Shift` while turning the mouse wheel. The shelf moves while
