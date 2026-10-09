@@ -1843,10 +1843,10 @@ impl App {
                 Event::McpStatus(status) => self.mcp_status = status,
                 Event::McpPlaylistChanged { id, snapshot } => {
                     self.load_playlists();
-                    if let Some(id) = id {
-                        if let Some(page) = self.playlist_pages.get_mut(&id) {
-                            page.optimistic_snapshot = snapshot;
-                        }
+                    if let Some(id) = id
+                        && let Some(page) = self.playlist_pages.get_mut(&id)
+                    {
+                        page.optimistic_snapshot = snapshot;
                         self.reload(Page::Playlist(id));
                     }
                 }
@@ -17330,6 +17330,34 @@ mod tests {
         );
         app.local_ready = true;
         app
+    }
+
+    #[test]
+    fn mcp_edits_refresh_cached_pages_without_loading_unopened_playlists() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.offline = false;
+        app.auth = AuthStatus::Connected {
+            username: "account".into(),
+        };
+        app.playlist_pages
+            .insert("opened".into(), PlaylistPage::default());
+        app.handle_backend_events(vec![
+            Event::McpPlaylistChanged {
+                id: Some("unopened".into()),
+                snapshot: Some("new".into()),
+            },
+            Event::McpPlaylistChanged {
+                id: Some("opened".into()),
+                snapshot: Some("new".into()),
+            },
+        ]);
+        assert_eq!(app.playlist_pages.len(), 1);
+        let page = &app.playlist_pages["opened"];
+        assert_eq!(page.optimistic_snapshot.as_deref(), Some("new"));
+        assert!(page.items.loading);
+        assert!(page.refresh_after_write);
+        assert!(app.library.playlists.is_loading());
     }
 
     /// Dock menu picks wait in their own queue, which the application reads

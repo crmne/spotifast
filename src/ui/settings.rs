@@ -1190,9 +1190,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if app.settings.mcp_enabled {
                 ui.horizontal(|ui| {
                     ui.label(gettext(locale, "Local port (0 selects an available port)"));
-                    changed |= ui
-                        .add(egui::DragValue::new(&mut app.settings.mcp_port).range(0..=u16::MAX))
-                        .changed();
+                    let draft_id = ui.id().with("mcp-port-draft");
+                    let mut port = ui
+                        .data(|data| data.get_temp::<u16>(draft_id))
+                        .unwrap_or(app.settings.mcp_port);
+                    let response = ui.add(
+                        egui::DragValue::new(&mut port)
+                            .range(0..=u16::MAX)
+                            .update_while_editing(false),
+                    );
+                    if (response.drag_stopped()
+                        || response.lost_focus()
+                        || (response.changed() && !response.dragged()))
+                        && port != app.settings.mcp_port
+                    {
+                        app.settings.mcp_port = port;
+                        changed = true;
+                    }
+                    ui.data_mut(|data| data.insert_temp(draft_id, port));
                 });
                 match &app.mcp_status {
                     crate::mcp::Status::Running(connection) => {

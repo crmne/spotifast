@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-09 04:54+0200\n"
+"POT-Creation-Date: 2026-10-09 05:47+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -344,7 +344,7 @@ msgid "Next up"
 msgstr ""
 
 #: src/ui/queue.rs:474 src/ui/queue.rs:507 src/ui/widgets.rs:2505
-#: src/ui/settings.rs:1218 src/ui/collection.rs:1070
+#: src/ui/settings.rs:1233 src/ui/collection.rs:1070
 msgid "Retry"
 msgstr ""
 
@@ -1397,7 +1397,7 @@ msgstr ""
 msgid "Follow system uses your desktop's light or dark appearance."
 msgstr ""
 
-#: src/ui/settings.rs:827 src/ui/settings.rs:2029
+#: src/ui/settings.rs:827 src/ui/settings.rs:2044
 msgid "Language"
 msgstr ""
 
@@ -1475,155 +1475,155 @@ msgstr ""
 msgid "Local port (0 selects an available port)"
 msgstr ""
 
-#: src/ui/settings.rs:1204
+#: src/ui/settings.rs:1219
 msgid "Copy MCP configuration"
 msgstr ""
 
-#: src/ui/settings.rs:1213
+#: src/ui/settings.rs:1228
 msgid "The access token changes whenever the server restarts."
 msgstr ""
 
-#: src/ui/settings.rs:1232
+#: src/ui/settings.rs:1247
 msgid "Proxy"
 msgstr ""
 
-#: src/ui/settings.rs:1234
+#: src/ui/settings.rs:1249
 msgid "Mode, host, port, username and password"
 msgstr ""
 
-#: src/ui/settings.rs:1237
+#: src/ui/settings.rs:1252
 msgid "Off, System, HTTP or SOCKS5 proxy for network requests."
 msgstr ""
 
-#: src/ui/settings.rs:1247
+#: src/ui/settings.rs:1262
 msgctxt "proxy"
 msgid "Mode"
 msgstr ""
 
-#: src/ui/settings.rs:1250
+#: src/ui/settings.rs:1265
 msgid ""
 "Off ignores environment variables. System uses them, and the OS proxy on "
 "macOS and Windows."
 msgstr ""
 
-#: src/ui/settings.rs:1302 src/ui/login.rs:249
+#: src/ui/settings.rs:1317 src/ui/login.rs:249
 msgid "Apply settings"
 msgstr ""
 
-#: src/ui/settings.rs:1314
+#: src/ui/settings.rs:1329
 msgid "Not using a proxy."
 msgstr ""
 
-#: src/ui/settings.rs:1315
+#: src/ui/settings.rs:1330
 msgid "Using the system proxy."
 msgstr ""
 
-#: src/ui/settings.rs:1326
+#: src/ui/settings.rs:1341
 msgid "Winamp skins"
 msgstr ""
 
-#: src/ui/settings.rs:1327 src/ui/winamp/mod.rs:706 src/ui/winamp/mod.rs:852
+#: src/ui/settings.rs:1342 src/ui/winamp/mod.rs:706 src/ui/winamp/mod.rs:852
 msgid "Always on top"
 msgstr ""
 
-#: src/ui/settings.rs:1328
+#: src/ui/settings.rs:1343
 msgid "Show Winamp in taskbar"
 msgstr ""
 
-#: src/ui/settings.rs:1331
+#: src/ui/settings.rs:1346
 msgid "Mini player"
 msgstr ""
 
-#: src/ui/settings.rs:1335
+#: src/ui/settings.rs:1350
 msgid ""
 "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
 "return. Drop a skin on either window to add it."
 msgstr ""
 
-#: src/ui/settings.rs:1339
+#: src/ui/settings.rs:1354
 msgid ""
 "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
 "return. Drop a skin on either window to add it."
 msgstr ""
 
-#: src/ui/settings.rs:1345
+#: src/ui/settings.rs:1360
 msgid "Skin"
 msgstr ""
 
 #. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1349
+#: src/ui/settings.rs:1364
 #, rust-format
 msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
 msgstr ""
 
-#: src/ui/settings.rs:1354 src/ui/winamp/mod.rs:693
+#: src/ui/settings.rs:1369 src/ui/winamp/mod.rs:693
 msgid "Size"
 msgstr ""
 
-#: src/ui/settings.rs:1355
+#: src/ui/settings.rs:1370
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr ""
 
-#: src/ui/settings.rs:1360
+#: src/ui/settings.rs:1375
 msgid "Keep the Winamp window above everything else."
 msgstr ""
 
-#: src/ui/settings.rs:1366 src/ui/winamp/mod.rs:716
+#: src/ui/settings.rs:1381 src/ui/winamp/mod.rs:716
 msgid "Show in taskbar"
 msgstr ""
 
-#: src/ui/settings.rs:1369
+#: src/ui/settings.rs:1384
 msgid ""
 "Keep a taskbar button for the mini player. The tray icon stays available "
 "when hidden."
 msgstr ""
 
-#: src/ui/settings.rs:1374
+#: src/ui/settings.rs:1389
 msgid "Installed skins"
 msgstr ""
 
-#: src/ui/settings.rs:1387
+#: src/ui/settings.rs:1402
 msgid "Switch to it"
 msgstr ""
 
-#: src/ui/settings.rs:1400
+#: src/ui/settings.rs:1415
 msgid "Skin Museum"
 msgstr ""
 
-#: src/ui/settings.rs:1426
+#: src/ui/settings.rs:1441
 msgid "Random"
 msgstr ""
 
-#: src/ui/settings.rs:1465
+#: src/ui/settings.rs:1480
 #, rust-format
 msgid ""
 "Now showing {skin}. Another one is picked each time the mini player opens."
 msgstr ""
 
-#: src/ui/settings.rs:1519
+#: src/ui/settings.rs:1534
 msgid "MilkDrop window"
 msgstr ""
 
-#: src/ui/settings.rs:1527
+#: src/ui/settings.rs:1542
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
 "shortcuts."
 msgstr ""
 
-#: src/ui/settings.rs:1531
+#: src/ui/settings.rs:1546
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
 "shortcuts."
 msgstr ""
 
-#: src/ui/settings.rs:1537 src/ui/settings.rs:1767
+#: src/ui/settings.rs:1552 src/ui/settings.rs:1782
 msgid "Presets"
 msgstr ""
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1542
+#: src/ui/settings.rs:1557
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -1631,7 +1631,7 @@ msgid ""
 msgstr ""
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1548
+#: src/ui/settings.rs:1563
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -1639,7 +1639,7 @@ msgid ""
 msgstr ""
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1554
+#: src/ui/settings.rs:1569
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -1650,170 +1650,170 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/ui/settings.rs:1563
+#: src/ui/settings.rs:1578
 msgid "Time per preset"
 msgstr ""
 
-#: src/ui/settings.rs:1566
+#: src/ui/settings.rs:1581
 msgid "How long each preset plays before the next fades in."
 msgstr ""
 
-#: src/ui/settings.rs:1570
+#: src/ui/settings.rs:1585
 msgid "Frame rate"
 msgstr ""
 
-#: src/ui/settings.rs:1574
+#: src/ui/settings.rs:1589
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr ""
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:1579
+#: src/ui/settings.rs:1594
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
 "Uncapped draws as fast as possible."
 msgstr ""
 
-#: src/ui/settings.rs:1586
+#: src/ui/settings.rs:1601
 msgid "Resolution"
 msgstr ""
 
-#: src/ui/settings.rs:1589
+#: src/ui/settings.rs:1604
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr ""
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:1596
+#: src/ui/settings.rs:1611
 msgid "Get presets"
 msgstr ""
 
-#: src/ui/settings.rs:1634
+#: src/ui/settings.rs:1649
 msgid "Fetching..."
 msgstr ""
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:1637
+#: src/ui/settings.rs:1652
 #, rust-format
 msgid "Get {pack}"
 msgstr ""
 
-#: src/ui/settings.rs:1739
+#: src/ui/settings.rs:1754
 msgctxt "resolution"
 msgid "Full"
 msgstr ""
 
-#: src/ui/settings.rs:1740
+#: src/ui/settings.rs:1755
 msgctxt "resolution"
 msgid "Half"
 msgstr ""
 
-#: src/ui/settings.rs:1741
+#: src/ui/settings.rs:1756
 msgctxt "resolution"
 msgid "Quarter"
 msgstr ""
 
-#: src/ui/settings.rs:1755
+#: src/ui/settings.rs:1770
 msgid "Equalizer"
 msgstr ""
 
-#: src/ui/settings.rs:1761
+#: src/ui/settings.rs:1776
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
 msgstr ""
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1769
+#: src/ui/settings.rs:1784
 msgid "Preamp"
 msgstr ""
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:1771
+#: src/ui/settings.rs:1786
 msgid "Bands"
 msgstr ""
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1821
+#: src/ui/settings.rs:1836
 msgctxt "equalizer"
 msgid "Pre"
 msgstr ""
 
-#: src/ui/settings.rs:1838
+#: src/ui/settings.rs:1853
 msgid "Storage"
 msgstr ""
 
-#: src/ui/settings.rs:1841
+#: src/ui/settings.rs:1856
 msgid "Artwork cache"
 msgstr ""
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:1843 src/ui/settings.rs:1849
+#: src/ui/settings.rs:1858 src/ui/settings.rs:1864
 #, rust-format
 msgid "Stored in {folder}"
 msgstr ""
 
-#: src/ui/settings.rs:1855
+#: src/ui/settings.rs:1870
 msgid "Play history"
 msgstr ""
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:1859
+#: src/ui/settings.rs:1874
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr ""
 
-#: src/ui/settings.rs:1864
+#: src/ui/settings.rs:1879
 msgid "Sign-in"
 msgstr ""
 
-#: src/ui/settings.rs:1867
+#: src/ui/settings.rs:1882
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr ""
 
-#: src/ui/settings.rs:1879
+#: src/ui/settings.rs:1894
 msgid "Clear artwork"
 msgstr ""
 
-#: src/ui/settings.rs:1893
+#: src/ui/settings.rs:1908
 msgid "Clear history"
 msgstr ""
 
-#: src/ui/settings.rs:1905 src/ui/show.rs:34
+#: src/ui/settings.rs:1920 src/ui/show.rs:34
 msgid "About"
 msgstr ""
 
-#: src/ui/settings.rs:1908
+#: src/ui/settings.rs:1923
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr ""
 
-#: src/ui/settings.rs:1910
+#: src/ui/settings.rs:1925
 msgid "Check for updates"
 msgstr ""
 
-#: src/ui/settings.rs:1911
+#: src/ui/settings.rs:1926
 msgid "Checking…"
 msgstr ""
 
-#: src/ui/settings.rs:1912 src/ui/dialogs.rs:153 src/ui/keys.rs:300
+#: src/ui/settings.rs:1927 src/ui/dialogs.rs:153 src/ui/keys.rs:300
 #: src/ui/topbar.rs:451
 msgid "Keyboard shortcuts"
 msgstr ""
 
-#: src/ui/settings.rs:1913
+#: src/ui/settings.rs:1928
 msgid "Source code"
 msgstr ""
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:1985
+#: src/ui/settings.rs:2000
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr ""
 
-#: src/ui/settings.rs:1986
+#: src/ui/settings.rs:2001
 msgid "Try fewer words, or check the spelling."
 msgstr ""
 
-#: src/ui/settings.rs:2002
+#: src/ui/settings.rs:2017
 msgctxt "language"
 msgid "System"
 msgstr ""

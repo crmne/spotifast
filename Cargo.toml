@@ -28,6 +28,7 @@ serde_json = "1"
 rmcp = { version = "3.5.1", default-features = false, features = ["server", "transport-streamable-http-server"] }
 # Hosts MCP on the existing Tokio runtime, with bearer and Origin checks.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+# CancellationToken stops MCP requests and the server when access is disabled.
 tokio-util = "0.7"
 log = "0.4"
 directories = "6"
