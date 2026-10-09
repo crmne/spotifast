@@ -363,8 +363,8 @@ msgid "Load more"
 msgstr "Charger plus"
 
 #: src/ui/lyrics.rs:90
-msgid "Full screen lyrics"
-msgstr "Paroles en plein écran"
+msgid "Expand lyrics"
+msgstr "Agrandir les paroles"
 
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:572
 msgctxt "lyrics"
@@ -429,9 +429,9 @@ msgstr "Aucune parole synchronisée pour ce titre."
 msgid "Loading…"
 msgstr "Chargement…"
 
-#: src/ui/lyrics.rs:560
-msgid "Leave full screen (Esc)"
-msgstr "Quitter le plein écran (Esc)"
+#: src/ui/lyrics.rs:534
+msgid "Collapse lyrics (Esc)"
+msgstr "Réduire les paroles (Échap)"
 
 #: src/ui/widgets.rs:582 src/ui/widgets.rs:815 src/ui/widgets.rs:1037
 msgid "Add to queue"
@@ -2538,8 +2538,8 @@ msgid "Show the lyrics"
 msgstr "Afficher les paroles"
 
 #: src/ui/keys.rs:215
-msgid "Lyrics: leave full screen"
-msgstr "Paroles : quitter le plein écran"
+msgid "Collapse lyrics or leave full screen"
+msgstr "Réduire les paroles ou quitter le plein écran"
 
 #: src/ui/keys.rs:218
 msgid "Song list: extend or shrink the selection"
@@ -3363,3 +3363,7 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Réduire les animations des paroles"
+
+#: src/ui/keys.rs src/ui/topbar.rs
+msgid "Toggle full screen"
+msgstr "Basculer en plein écran"

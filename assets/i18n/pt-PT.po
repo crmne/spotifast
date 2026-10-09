@@ -363,8 +363,8 @@ msgid "Load more"
 msgstr "Carregar mais"
 
 #: src/ui/lyrics.rs:90
-msgid "Full screen lyrics"
-msgstr "Letra em ecrã inteiro"
+msgid "Expand lyrics"
+msgstr "Expandir a letra"
 
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:572
 msgctxt "lyrics"
@@ -429,9 +429,9 @@ msgstr "Esta música não tem letra sincronizada."
 msgid "Loading…"
 msgstr "A carregar…"
 
-#: src/ui/lyrics.rs:560
-msgid "Leave full screen (Esc)"
-msgstr "Sair do ecrã inteiro (Esc)"
+#: src/ui/lyrics.rs:534
+msgid "Collapse lyrics (Esc)"
+msgstr "Recolher a letra (Esc)"
 
 #: src/ui/widgets.rs:582 src/ui/widgets.rs:815 src/ui/widgets.rs:1037
 msgid "Add to queue"
@@ -2522,8 +2522,8 @@ msgid "Show the lyrics"
 msgstr "Mostrar a letra"
 
 #: src/ui/keys.rs:215
-msgid "Lyrics: leave full screen"
-msgstr "Letra: sair do ecrã inteiro"
+msgid "Collapse lyrics or leave full screen"
+msgstr "Recolher a letra ou sair do ecrã inteiro"
 
 #: src/ui/keys.rs:218
 msgid "Song list: extend or shrink the selection"
@@ -3340,3 +3340,7 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Reduzir movimento da letra"
+
+#: src/ui/keys.rs src/ui/topbar.rs
+msgid "Toggle full screen"
+msgstr "Alternar ecrã inteiro"

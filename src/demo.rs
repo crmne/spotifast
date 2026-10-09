@@ -1171,17 +1171,19 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     },
                 );
             }
-            "lyrics" | "lyrics-fullscreen" => {
+            "lyrics" | "lyrics-expanded" | "lyrics-fullscreen" => {
                 app.lyrics_uri = app.now_playing().map(|now| now.uri);
                 app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
                 app.lyrics_following = true;
                 app.show_lyrics_panel = true;
+                if surface != "lyrics" {
+                    app.actions.push(Action::SetLyricsExpanded(true));
+                }
                 if surface == "lyrics-fullscreen" {
-                    app.actions.push(Action::SetLyricsFullscreen(true));
+                    app.actions.push(Action::ToggleFullscreen);
                 }
             }
-            // Full-screen lyrics drawn in the window as it is, for shots at
-            // a chosen size, which a real full screen would override.
+            // Keep the older screenshot flags as aliases for expanded lyrics.
             "lyrics-fullscreen-view" | "lyrics-fullscreen-instrumental" => {
                 app.lyrics_uri = app.now_playing().map(|now| now.uri);
                 let mut lyrics = sample_lyrics();
@@ -1189,7 +1191,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.lyrics = Loadable::Loaded(Some(lyrics));
                 app.lyrics_following = true;
                 app.show_lyrics_panel = true;
-                app.lyrics_fullscreen = Some(false);
+                app.lyrics_expanded = true;
             }
             // Emoji in titles, artists, playlist names and lyrics: joined
             // sequences, skin tones, flags and keycaps. Give it after
@@ -1957,14 +1959,13 @@ mod tests {
             );
             assert!(app.lyrics_following);
             let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let expand =
-                accessible_node(&tree, &gettext(locale, "Full screen lyrics"), Role::Button);
+            let expand = accessible_node(&tree, &gettext(locale, "Expand lyrics"), Role::Button);
             accessible_frame(
                 &ctx,
                 &mut app,
                 vec![accessible_action(expand, AccessibleAction::Click, None)],
             );
-            assert!(app.lyrics_fullscreen.is_some());
+            assert!(app.lyrics_expanded);
             app.lyrics_following = false;
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let follow =
@@ -1978,7 +1979,7 @@ mod tests {
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let leave = accessible_node(
                 &tree,
-                &gettext(locale, "Leave full screen (Esc)"),
+                &gettext(locale, "Collapse lyrics (Esc)"),
                 Role::Button,
             );
             accessible_frame(
@@ -1986,9 +1987,9 @@ mod tests {
                 &mut app,
                 vec![accessible_action(leave, AccessibleAction::Click, None)],
             );
-            assert!(app.lyrics_fullscreen.is_none());
+            assert!(!app.lyrics_expanded);
             for fullscreen in [false, true] {
-                app.lyrics_fullscreen = fullscreen.then_some(false);
+                app.lyrics_expanded = fullscreen;
                 app.lyrics = Loadable::Failed("fixture failure".into());
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 let retry = accessible_node(&tree, &gettext(locale, "Try again"), Role::Button);
@@ -2000,7 +2001,7 @@ mod tests {
                 // Offline retries finish without contacting a lyrics provider.
                 assert!(matches!(app.lyrics, Loadable::Loaded(None)));
             }
-            app.lyrics_fullscreen = None;
+            app.lyrics_expanded = false;
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let close = accessible_node(&tree, &gettext(locale, "Close"), Role::Button);
             accessible_frame(
@@ -2023,7 +2024,7 @@ mod tests {
             app.show_lyrics_panel = true;
             app.lyrics_uri = app.now_playing().map(|now| now.uri);
             for fullscreen in [false, true] {
-                app.lyrics_fullscreen = fullscreen.then_some(false);
+                app.lyrics_expanded = fullscreen;
                 let view = |app: &mut App, ui: &mut egui::Ui| app.frame_ui(ui);
                 let mut instrumental = sample_lyrics();
                 instrumental.instrumental = true;
@@ -6284,7 +6285,7 @@ mod tests {
         for fullscreen in [false, true] {
             let (ctx, mut app) = accessible_app(&format!("sung-line-{fullscreen}"));
             app.show_lyrics_panel = true;
-            app.lyrics_fullscreen = Some(fullscreen);
+            app.lyrics_expanded = true;
             app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
             app.lyrics_following = true;
             let remote = app.remote.as_mut().unwrap();
@@ -6447,7 +6448,7 @@ mod tests {
         app.attach(&ctx);
         populate(&mut app);
         app.show_lyrics_panel = true;
-        app.lyrics_fullscreen = Some(false);
+        app.lyrics_expanded = true;
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.lyrics_following = false;
         let mut sizes = Vec::new();
@@ -6562,9 +6563,9 @@ mod tests {
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.show_lyrics_panel = true;
         frame(&ctx, &mut app);
-        app.lyrics_fullscreen = Some(false);
+        app.lyrics_expanded = true;
         frame(&ctx, &mut app);
-        app.lyrics_fullscreen = None;
+        app.lyrics_expanded = false;
         app.show_lyrics_panel = false;
         for dialog in [
             Dialog::Shortcuts,
@@ -6603,7 +6604,7 @@ mod tests {
             frame(&ctx, &mut app);
         }
         assert!(!app.palette.dark);
-        app.lyrics_fullscreen = Some(false);
+        app.lyrics_expanded = true;
         frame(&ctx, &mut app);
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);

@@ -52,6 +52,9 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 Action::ToggleQueuePanel,
             );
         }
+        if !app.settings.winamp_window {
+            key(Modifiers::NONE, Key::F11, Action::ToggleFullscreen);
+        }
         key(Modifiers::COMMAND, Key::F, Action::FocusSearch);
         key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
@@ -175,8 +178,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             app.actions.push(Action::CloseDialog);
         } else if app.show_devices {
             app.show_devices = false;
-        } else if app.lyrics_fullscreen.is_some() {
-            app.actions.push(Action::SetLyricsFullscreen(false));
+        } else if app.lyrics_expanded {
+            app.actions.push(Action::SetLyricsExpanded(false));
+        } else if app.main_fullscreen(ctx) {
+            app.actions.push(Action::ToggleFullscreen);
         }
     }
 }
@@ -212,7 +217,11 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
         (keys("R"), gettext(locale, "Cycle repeat")),
         (keys("Q"), gettext(locale, "Show the queue")),
         (keys("L"), gettext(locale, "Show the lyrics")),
-        (keys("Esc"), gettext(locale, "Lyrics: leave full screen")),
+        (keys("F11"), gettext(locale, "Toggle full screen")),
+        (
+            keys("Esc"),
+            gettext(locale, "Collapse lyrics or leave full screen"),
+        ),
         (
             keys("Shift+↑  /  Shift+↓"),
             gettext(locale, "Song list: extend or shrink the selection"),

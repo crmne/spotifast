@@ -359,8 +359,8 @@ msgid "Load more"
 msgstr "さらに読み込む"
 
 #: src/ui/lyrics.rs:90
-msgid "Full screen lyrics"
-msgstr "歌詞を全画面表示"
+msgid "Expand lyrics"
+msgstr "歌詞を拡大"
 
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:572
 msgctxt "lyrics"
@@ -423,9 +423,9 @@ msgstr "この曲には同期された歌詞がありません。"
 msgid "Loading…"
 msgstr "読み込み中…"
 
-#: src/ui/lyrics.rs:560
-msgid "Leave full screen (Esc)"
-msgstr "全画面表示を終了 (Esc)"
+#: src/ui/lyrics.rs:534
+msgid "Collapse lyrics (Esc)"
+msgstr "歌詞を縮小 (Esc)"
 
 #: src/ui/widgets.rs:582 src/ui/widgets.rs:815 src/ui/widgets.rs:1037
 msgid "Add to queue"
@@ -2496,8 +2496,8 @@ msgid "Show the lyrics"
 msgstr "歌詞を表示"
 
 #: src/ui/keys.rs:215
-msgid "Lyrics: leave full screen"
-msgstr "歌詞：全画面表示を終了"
+msgid "Collapse lyrics or leave full screen"
+msgstr "歌詞を縮小、または全画面表示を終了"
 
 #: src/ui/keys.rs:218
 msgid "Song list: extend or shrink the selection"
@@ -3309,3 +3309,7 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#: src/ui/keys.rs src/ui/topbar.rs
+msgid "Toggle full screen"
+msgstr "全画面表示を切り替え"
