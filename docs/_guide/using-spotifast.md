@@ -316,6 +316,8 @@ dates come last.
 **Spotify custom order** follows your playlist order and folders from Spotify.
 Set up playback on this computer to load that order. Your playlists stay
 visible while it loads, and Spotifast remembers the last order for your account.
+When you rearrange your library in another Spotify app, Spotifast picks up the
+new order when you switch back to it.
 Items you pin in Spotifast remain at the top, including items from a closed
 folder. Sorting or dragging Library items changes their order only in
 Spotifast; it does not rearrange your Spotify library.
