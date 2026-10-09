@@ -1073,7 +1073,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     app.actions.push(Action::SetLyricsExpanded(true));
                 }
                 if surface == "lyrics-fullscreen" {
-                    app.actions.push(Action::ToggleFullscreen);
+                    app.actions.push(Action::EnterFullscreen);
                 }
             }
             // Keep the older screenshot flags as aliases for expanded lyrics.

@@ -1092,6 +1092,7 @@ pub enum Action {
     ToggleQueuePanel,
     ToggleLyricsPanel,
     SetLyricsExpanded(bool),
+    EnterFullscreen,
     ToggleFullscreen,
     LyricsLineShown(Option<usize>),
     FollowLyrics,

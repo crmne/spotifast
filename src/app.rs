@@ -1006,6 +1006,12 @@ impl App {
             }
             return;
         }
+        if self.offline {
+            self.main_fullscreen_from = None;
+            self.main_fullscreen_seen = false;
+            self.main_fullscreen_restoring = None;
+            return;
+        }
         if self.main_fullscreen_from.is_some() {
             self.main_fullscreen_seen = false;
             self.main_fullscreen_restoring = None;
@@ -8968,6 +8974,11 @@ impl App {
                     self.request_lyrics();
                 }
             }
+            Action::EnterFullscreen => {
+                if !self.main_fullscreen(ctx) {
+                    self.apply(Action::ToggleFullscreen, ctx);
+                }
+            }
             Action::ToggleFullscreen => {
                 if !self.settings.winamp_window {
                     if self.main_fullscreen(ctx) {
@@ -12125,6 +12136,7 @@ mod tests {
         crate::demo::populate(&mut app);
         app.session_window_size = Some([1100.0, 700.0]);
         app.session_window_pos = Some([100.0, 150.0]);
+        app.main_fullscreen_from = Some(crate::settings::WindowMode::default());
 
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(Default::default(), |_ui| app.attach(&ctx));
@@ -12133,11 +12145,55 @@ mod tests {
         assert!(
             !commands.iter().any(|command| matches!(
                 command,
-                egui::ViewportCommand::InnerSize(_) | egui::ViewportCommand::OuterPosition(_)
+                egui::ViewportCommand::InnerSize(_)
+                    | egui::ViewportCommand::OuterPosition(_)
+                    | egui::ViewportCommand::Fullscreen(_)
             )),
             "the last real session must not move or resize the demo: {commands:?}"
         );
+        assert!(app.main_fullscreen_from.is_none());
         app.backend.shutdown();
+    }
+
+    #[test]
+    fn lyrics_fullscreen_demo_enters_fullscreen_and_keeps_native_fullscreen() {
+        for fullscreen in [false, true] {
+            let mut app = headless_app();
+            crate::demo::populate(&mut app);
+            crate::demo::apply_flags(&mut app, None, Some("lyrics-fullscreen"));
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .fullscreen = Some(fullscreen);
+            let mut output = ctx.run_ui(input, |ui| {
+                app.attach(ui.ctx());
+                for action in std::mem::take(&mut app.actions) {
+                    app.apply(action, ui.ctx());
+                }
+                assert!(app.lyrics_expanded);
+                assert!(app.main_fullscreen(ui.ctx()));
+                app.apply(Action::EnterFullscreen, ui.ctx());
+                assert!(app.main_fullscreen(ui.ctx()));
+            });
+            output.textures_delta.clear();
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            assert!(
+                !commands
+                    .iter()
+                    .any(|command| matches!(command, egui::ViewportCommand::Fullscreen(false)))
+            );
+            if !fullscreen {
+                assert!(
+                    commands
+                        .iter()
+                        .any(|command| matches!(command, egui::ViewportCommand::Fullscreen(true)))
+                );
+            }
+            app.backend.shutdown();
+        }
     }
 
     /// The song the last session ended on is shown, paused, at the position

@@ -217,7 +217,8 @@ Winamp skins do not yet have equivalent accessibility coverage.
 
 Press `F11` or choose **Toggle full screen** in the profile menu to fill
 the display with the main window. Press `F11` again or `Esc` to return to
-the previous window size. Spotifast remembers this mode across restarts.
+the previous window size. Escape dismisses an active text field or popup first.
+Spotifast remembers this mode across restarts.
 The lyrics expand button changes the layout independently of full screen.
 
 ## Keyboard shortcuts
