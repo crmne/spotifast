@@ -164,6 +164,7 @@ pub fn radio(app: &mut App, ui: &mut egui::Ui, seed: &str) {
             },
             show_album: true,
             show_cover: true,
+            show_year: app.settings.tracklist_year,
             show_added: false,
             show_added_by: false,
             page: key,

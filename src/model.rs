@@ -804,6 +804,7 @@ pub struct TableSort {
 pub enum SortColumn {
     Title,
     Album,
+    Year,
     Added,
     Duration,
     AddedBy,

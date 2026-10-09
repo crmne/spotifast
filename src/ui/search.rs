@@ -448,6 +448,7 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
                 context: &context,
                 show_cover: true,
                 show_album: limit == usize::MAX,
+                show_year: limit == usize::MAX && app.settings.tracklist_year,
                 added_at: None,
                 added_by: None,
                 show_added_by: false,

@@ -559,6 +559,11 @@ msgctxt "column heading"
 msgid "ALBUM"
 msgstr ""
 
+#: src/ui/widgets.rs:2174
+msgctxt "column heading"
+msgid "YEAR"
+msgstr ""
+
 #: src/ui/widgets.rs:2155
 msgctxt "column heading"
 msgid "ADDED BY"
@@ -1378,6 +1383,10 @@ msgid "Compact track list"
 msgstr ""
 
 #: src/ui/settings.rs:805
+msgid "Release year column"
+msgstr ""
+
+#: src/ui/settings.rs:806
 msgid "Middle-click autoscroll"
 msgstr ""
 
@@ -1416,6 +1425,10 @@ msgstr ""
 
 #: src/ui/settings.rs:846
 msgid "Show each track on one line without a cover."
+msgstr ""
+
+#: src/ui/settings.rs:850
+msgid "Show the album release year in track lists."
 msgstr ""
 
 #: src/ui/settings.rs:849

@@ -649,6 +649,7 @@ fn track_list(
                 context: &context,
                 show_cover: !app.settings.tracklist_compact,
                 show_album: true,
+                show_year: false,
                 added_at: None,
                 added_by: None,
                 show_added_by: false,

@@ -802,6 +802,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let accent_from_art = gettext(locale, "Colour from album art");
     let sidebar_compact = gettext(locale, "Compact library sidebar");
     let tracklist_compact = gettext(locale, "Compact track list");
+    let tracklist_year = gettext(locale, "Release year column");
     let middle_click = gettext(locale, "Middle-click autoscroll");
     let custom_titlebar = gettext(locale, "Custom title bar");
     let player_bar_vis = gettext(locale, "Player bar visualizer");
@@ -844,6 +845,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         RowText::new(
             tracklist_compact.clone(),
             gettext(locale, "Show each track on one line without a cover."),
+        ),
+        RowText::new(
+            tracklist_year.clone(),
+            gettext(locale, "Show the album release year in track lists."),
         ),
         RowText::new(
             gettext(locale, "Interface zoom"),
@@ -1029,7 +1034,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     &palette,
                     &needle,
                     &appearance,
-                    &appearance_rows[8],
+                    &appearance_rows[9],
                     choices_width,
                     |ui| {
                         let mut choose = |ui: &mut egui::Ui, mode: PlayerBarVis, label: &str| {
@@ -1111,6 +1116,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 &appearance,
                 &appearance_rows[5],
                 |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        &tracklist_year,
+                        &mut app.settings.tracklist_year,
+                    )
+                    .changed()
+                    {
+                        changed = true;
+                    }
+                },
+            );
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &appearance,
+                &appearance_rows[6],
+                |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
                         let mut zoom = app.settings.zoom;
@@ -1140,7 +1164,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     &palette,
                     &needle,
                     &appearance,
-                    &appearance_rows[6],
+                    &appearance_rows[7],
                     |ui| {
                         if widgets::switch(
                             ui,
@@ -1161,7 +1185,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     &palette,
                     &needle,
                     &appearance,
-                    &appearance_rows[7],
+                    &appearance_rows[8],
                     |ui| {
                         let mut custom = app.settings.custom_titlebar;
                         if widgets::switch(ui, &palette, &custom_titlebar, &mut custom).changed() {

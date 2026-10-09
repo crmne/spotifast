@@ -1113,6 +1113,7 @@ pub struct TrackRow<'a> {
     pub context: &'a RowContext,
     pub show_cover: bool,
     pub show_album: bool,
+    pub show_year: bool,
     pub added_at: Option<&'a str>,
     /// Who put the song here, on playlists made together.
     pub added_by: Option<&'a str>,
@@ -1171,6 +1172,7 @@ struct Columns {
     number: f32,
     cover: f32,
     album: f32,
+    year: f32,
     added_by: f32,
     added: f32,
     heart: f32,
@@ -1194,6 +1196,7 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
         } else {
             0.0
         },
+        year: if row.show_year && medium { 60.0 } else { 0.0 },
         added_by: if row.show_added_by && extra_wide {
             130.0
         } else {
@@ -1443,7 +1446,8 @@ fn track_row_contents(
         x += cols.cover;
     }
     let right_fixed = cols.heart + cols.duration + cols.more + 8.0;
-    let text_right = rect.right() - right_fixed - cols.added - cols.added_by - cols.album;
+    let text_right =
+        rect.right() - right_fixed - cols.added - cols.added_by - cols.year - cols.album;
     let title_rect = Rect::from_min_max(
         pos2(x, rect.top()),
         pos2((text_right - 12.0).max(x), rect.bottom()),
@@ -1663,6 +1667,24 @@ fn track_row_contents(
             }
         }
         x += cols.album;
+    }
+    // Year.
+    if cols.year > 0.0 {
+        if let PlayableItem::Track(track) = row.item
+            && let Some(album) = &track.album
+            && let Some(year) = album.year()
+            && !year.starts_with("1970")
+        {
+            let cell = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.year, row_height));
+            painter.text(
+                pos2(cell.left(), cell.center().y),
+                egui::Align2::LEFT_CENTER,
+                year,
+                theme::regular(13.0),
+                palette.secondary,
+            );
+        }
+        x += cols.year;
     }
     // Added by.
     if cols.added_by > 0.0 {
@@ -2004,6 +2026,7 @@ pub fn table_header(
     palette: &Palette,
     locale: Locale,
     show_album: bool,
+    show_year: bool,
     show_added: bool,
     show_added_by: bool,
     show_cover: bool,
@@ -2141,6 +2164,7 @@ pub fn table_header(
     } else {
         0.0
     };
+    let year_width = if show_year && medium { 60.0 } else { 0.0 };
     let added_width = if show_added && wide { 120.0 } else { 0.0 };
     let extra_wide = width > 920.0;
     let added_by_width = if show_added_by && extra_wide {
@@ -2149,7 +2173,8 @@ pub fn table_header(
         0.0
     };
     let right_fixed = 36.0 + 56.0 + 36.0 + 8.0;
-    let mut cx = rect.right() - right_fixed - added_width - added_by_width - album_width;
+    let mut cx =
+        rect.right() - right_fixed - added_width - added_by_width - year_width - album_width;
     if album_width > 0.0 {
         heading(
             ui,
@@ -2158,6 +2183,15 @@ pub fn table_header(
             SortColumn::Album,
         );
         cx += album_width;
+    }
+    if year_width > 0.0 {
+        heading(
+            ui,
+            cx,
+            &pgettext(locale, "column heading", "YEAR"),
+            SortColumn::Year,
+        );
+        cx += year_width;
     }
     if added_by_width > 0.0 {
         heading(
@@ -3779,6 +3813,7 @@ mod tests {
                                     context: &context,
                                     show_cover: false,
                                     show_album: false,
+                                    show_year: false,
                                     added_at: None,
                                     added_by: None,
                                     show_added_by: false,

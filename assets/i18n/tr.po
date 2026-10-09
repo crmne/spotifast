@@ -566,6 +566,11 @@ msgctxt "column heading"
 msgid "ALBUM"
 msgstr "ALBÜM"
 
+#: src/ui/widgets.rs:2174
+msgctxt "column heading"
+msgid "YEAR"
+msgstr "YIL"
+
 #: src/ui/widgets.rs:2155
 msgctxt "column heading"
 msgid "ADDED BY"
@@ -1421,6 +1426,10 @@ msgid "Compact track list"
 msgstr "Kompakt parça listesi"
 
 #: src/ui/settings.rs:805
+msgid "Release year column"
+msgstr "Çıkış yılı sütunu"
+
+#: src/ui/settings.rs:806
 msgid "Middle-click autoscroll"
 msgstr "Orta tıklamayla otomatik kaydırma"
 
@@ -1463,6 +1472,10 @@ msgstr "Kenar çubuğunda adları kapaksız gösterir."
 #: src/ui/settings.rs:846
 msgid "Show each track on one line without a cover."
 msgstr "Her parçayı tek bir satırda ve kapaksız gösterir."
+
+#: src/ui/settings.rs:850
+msgid "Show the album release year in track lists."
+msgstr "Parça listelerinde albümün çıkış yılını gösterir."
 
 #: src/ui/settings.rs:849
 msgid "Interface zoom"

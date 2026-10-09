@@ -279,6 +279,8 @@ pub struct Settings {
     pub queue_width: f32,
     /// Use compact single-line rows without cover art in track lists.
     pub tracklist_compact: bool,
+    /// Show the release year column in track lists.
+    pub tracklist_year: bool,
     /// Linux: middle-click a list to autoscroll it. Off by default, because
     /// Linux desktops usually paste the primary selection on middle click.
     /// Windows always autoscrolls and macOS never does.
@@ -441,6 +443,7 @@ impl Default for Settings {
             lyrics_width: 360.0,
             queue_width: 360.0,
             tracklist_compact: false,
+            tracklist_year: false,
             middle_click_autoscroll: false,
             search_history: Vec::new(),
             show_shortcut_hints: true,
@@ -1171,6 +1174,7 @@ mod tests {
     fn older_settings_default_to_standard_tracklist() {
         let settings: Settings = serde_json::from_str("{}").unwrap();
         assert!(!settings.tracklist_compact);
+        assert!(!settings.tracklist_year);
     }
 
     #[test]
@@ -1182,6 +1186,17 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
         assert!(restored.tracklist_compact);
+    }
+
+    #[test]
+    fn tracklist_year_round_trips() {
+        let settings = Settings {
+            tracklist_year: true,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(restored.tracklist_year);
     }
 
     #[test]
