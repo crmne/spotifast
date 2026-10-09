@@ -81,6 +81,12 @@ struct Cli {
     #[cfg(feature = "demo")]
     #[arg(long, value_name = "X,Y:X,Y", value_parser = parse_demo_drag)]
     demo_drag: Option<[egui::Pos2; 2]>,
+
+    /// Scroll the page down by this many points before `--demo-shot`, as a
+    /// wheel turn over the middle of the window.
+    #[cfg(feature = "demo")]
+    #[arg(long, value_name = "POINTS")]
+    demo_scroll: Option<f32>,
 }
 
 /// Remote control of the running instance, for Raycast scripts, launchers,
@@ -537,6 +543,10 @@ pub(crate) fn run() -> eframe::Result<()> {
         .demo_drag
         .map(|[from, to]| DemoDrag { from, to, frame: 0 });
     #[cfg(feature = "demo")]
+    let demo_scroll = cli
+        .demo_scroll
+        .map(|points| DemoScroll { points, frame: 0 });
+    #[cfg(feature = "demo")]
     let demo_inner = cli.demo_size;
     #[cfg(feature = "demo")]
     spotifast::window::set_fixed_size(demo_inner.is_some());
@@ -651,6 +661,8 @@ pub(crate) fn run() -> eframe::Result<()> {
                         shot: creator_shot.clone(),
                         #[cfg(feature = "demo")]
                         drag: demo_drag,
+                        #[cfg(feature = "demo")]
+                        scroll: demo_scroll,
                     }))
                 }),
             )
@@ -1050,6 +1062,43 @@ mod native_window_tests {
         assert_eq!(frames.last().unwrap()[0], egui::Event::PointerMoved(to));
     }
 
+    /// The wheel turns once, over the middle of the window, after the page
+    /// has had frames to lay out, and never again.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn demo_scroll_turns_the_wheel_once_over_the_window() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut scroll = DemoScroll {
+            points: 240.0,
+            frame: 0,
+        };
+        let frames: Vec<_> = (0..=DemoScroll::REST + 5)
+            .map(|_| scroll.events(Some(screen)))
+            .collect();
+        assert!(
+            frames[..DemoScroll::REST as usize]
+                .iter()
+                .all(Vec::is_empty)
+        );
+        assert_eq!(
+            frames[DemoScroll::REST as usize],
+            vec![
+                egui::Event::PointerMoved(egui::pos2(400.0, 300.0)),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -240.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        );
+        assert!(
+            frames[DemoScroll::REST as usize + 1..]
+                .iter()
+                .all(Vec::is_empty)
+        );
+    }
+
     #[test]
     fn demo_size_parses_width_by_height() {
         assert_eq!(parse_demo_size("760x800").unwrap(), [760.0, 800.0]);
@@ -1115,6 +1164,43 @@ struct Shell {
     /// A drag held for `--demo-drag`, if this run shows one.
     #[cfg(feature = "demo")]
     drag: Option<DemoDrag>,
+    /// A wheel turn for `--demo-scroll`, if this run shows a scrolled page.
+    #[cfg(feature = "demo")]
+    scroll: Option<DemoScroll>,
+}
+
+/// A scripted wheel for `--demo-scroll`: rest while the page lays out,
+/// then turn the wheel once over the middle of the window, through the same
+/// events a real wheel sends.
+#[cfg(feature = "demo")]
+#[derive(Clone, Copy)]
+struct DemoScroll {
+    points: f32,
+    frame: u32,
+}
+
+#[cfg(feature = "demo")]
+impl DemoScroll {
+    /// Frames to rest before the turn, so the page under the wheel is laid out.
+    const REST: u32 = 20;
+
+    fn events(&mut self, screen: Option<egui::Rect>) -> Vec<egui::Event> {
+        let frame = self.frame;
+        self.frame = self.frame.saturating_add(1);
+        if frame != Self::REST {
+            return Vec::new();
+        }
+        let pos = screen.map_or(egui::pos2(400.0, 300.0), |screen| screen.center());
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -self.points),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    }
 }
 
 /// A scripted pointer for `--demo-drag`: rest on `from`, press there, glide
@@ -1232,6 +1318,10 @@ impl eframe::App for Shell {
                 )
             });
             raw_input.events.extend(drag.events());
+        }
+        if let Some(scroll) = self.scroll.as_mut() {
+            let events = scroll.events(raw_input.screen_rect);
+            raw_input.events.extend(events);
         }
     }
 

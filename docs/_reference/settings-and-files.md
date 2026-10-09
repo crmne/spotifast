@@ -340,7 +340,8 @@ size in logical pixels for a shot (for example `760x800` or `1240x800`).
 `--demo-shot-delay <MS>` sets how long to wait for cover art before taking it.
 `--demo-drag X,Y:X,Y` shows a drag in progress: the pointer presses at the
 first point, in logical pixels, and is still held down at the second when the
-shot is taken.
+shot is taken. `--demo-scroll <POINTS>` scrolls the page down by that many
+logical pixels first, as one wheel turn over the middle of the window.
 Since 0.8.0, demo windows ignore saved window geometry and do not
 read or save the normal window's framework state. Existing built-in appearance
 settings still apply. `--demo-data <DIRECTORY>` keeps demo caches and logs under
