@@ -734,10 +734,13 @@ pub enum Command {
         session_generation: u64,
         audiobooks: Vec<String>,
     },
-    /// Internal: one playlist header read for the session it started in.
+    /// Internal: one playlist header read finished for the session and
+    /// engine it started on. `None` when the session could not read it.
     PlaylistHeaderResolved {
+        id: String,
         session_generation: u64,
-        header: crate::api::models::Playlist,
+        engine_generation: u64,
+        header: Option<crate::api::models::Playlist>,
     },
     /// Internal: one precise album type lookup finished.
     AlbumTypeResolved {
@@ -1322,6 +1325,69 @@ impl AlbumTypeLookup {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PlaylistHeaderRequest {
+    id: String,
+    session_generation: u64,
+    engine_generation: u64,
+}
+
+/// Library playlists waiting for the streaming session to read their
+/// headers, read one at a time. A read still running when its engine is
+/// replaced goes back to the front of the queue for the new engine, and its
+/// answer from the retired one is ignored.
+#[derive(Default)]
+struct PlaylistHeaderLookup {
+    engine_generation: u64,
+    pending: VecDeque<String>,
+    active: Option<PlaylistHeaderRequest>,
+}
+
+impl PlaylistHeaderLookup {
+    fn enqueue(&mut self, ids: Vec<String>) {
+        for id in ids {
+            let active = self.active.as_ref().is_some_and(|request| request.id == id);
+            if !active && !self.pending.contains(&id) {
+                self.pending.push_back(id);
+            }
+        }
+    }
+
+    fn next(&mut self, session_generation: u64) -> Option<PlaylistHeaderRequest> {
+        if self.active.is_some() {
+            return None;
+        }
+        let request = PlaylistHeaderRequest {
+            id: self.pending.pop_front()?,
+            session_generation,
+            engine_generation: self.engine_generation,
+        };
+        self.active = Some(request.clone());
+        Some(request)
+    }
+
+    fn finish(&mut self, request: &PlaylistHeaderRequest) -> bool {
+        if self.active.as_ref() != Some(request) {
+            return false;
+        }
+        self.active = None;
+        true
+    }
+
+    fn requeue_active_for_new_engine(&mut self) {
+        self.engine_generation = self.engine_generation.wrapping_add(1);
+        if let Some(request) = self.active.take() {
+            self.pending.push_front(request.id);
+        }
+    }
+
+    fn clear_engine_work(&mut self) {
+        self.engine_generation = self.engine_generation.wrapping_add(1);
+        self.active = None;
+        self.pending.clear();
+    }
+}
+
 struct Worker {
     dirs: AppDirs,
     credentials: CredentialStore,
@@ -1359,7 +1425,7 @@ struct Worker {
     audiobook_lookup: BTreeSet<String>,
     /// Library playlists the Web API listed blank, waiting for the streaming
     /// session to read their headers.
-    playlist_header_lookup: BTreeSet<String>,
+    playlist_header_lookup: PlaylistHeaderLookup,
     /// Radios asked for before the streaming session was ready, by seed.
     radio_waiting: BTreeMap<String, u64>,
     /// True while a playback grant or engine connection is in flight, so a
@@ -1426,7 +1492,7 @@ impl Worker {
             rootlist_pending: false,
             album_type_lookup: AlbumTypeLookup::default(),
             audiobook_lookup: BTreeSet::new(),
-            playlist_header_lookup: BTreeSet::new(),
+            playlist_header_lookup: PlaylistHeaderLookup::default(),
             radio_waiting: BTreeMap::new(),
             engine_busy: false,
             search_tasks: Vec::new(),
@@ -1994,7 +2060,7 @@ impl Worker {
                     self.start_audiobook_lookup();
                 }
                 Command::PlaylistHeaders(ids) => {
-                    self.playlist_header_lookup.extend(ids);
+                    self.playlist_header_lookup.enqueue(ids);
                     self.start_playlist_header_lookup();
                 }
                 Command::Radio { seed, generation } => {
@@ -2024,13 +2090,18 @@ impl Worker {
                     }
                 }
                 Command::PlaylistHeaderResolved {
+                    id,
                     session_generation,
+                    engine_generation,
                     header,
-                } => {
-                    if self.signed_in && session_generation == *self.session.borrow() {
-                        self.emit(Event::PlaylistHeader(header));
-                    }
-                }
+                } => self.on_playlist_header_resolved(
+                    PlaylistHeaderRequest {
+                        id,
+                        session_generation,
+                        engine_generation,
+                    },
+                    header,
+                ),
                 Command::AlbumTypeResolved {
                     uri,
                     session_generation,
@@ -2501,7 +2572,7 @@ impl Worker {
         self.resume_verify = None;
         self.album_type_lookup.reset_session();
         self.audiobook_lookup.clear();
-        self.playlist_header_lookup.clear();
+        self.playlist_header_lookup.clear_engine_work();
         self.radio_waiting.clear();
         self.carry_volume();
         if let Some(engine) = self.engine.take() {
@@ -2637,6 +2708,7 @@ impl Worker {
     fn take_engine_for_resume(&mut self) {
         self.resume_verify = None;
         self.album_type_lookup.requeue_active_for_new_engine();
+        self.playlist_header_lookup.requeue_active_for_new_engine();
         self.carry_volume();
         if let Some(engine) = self.engine.take() {
             self.resume = engine.resume_point();
@@ -2870,6 +2942,7 @@ impl Worker {
         self.premium = premium;
         if premium == Some(false) {
             self.album_type_lookup.clear_engine_work();
+            self.playlist_header_lookup.clear_engine_work();
             self.carry_volume();
             if let Some(engine) = self.engine.take() {
                 engine.shutdown();
@@ -3090,39 +3163,53 @@ impl Worker {
         });
     }
 
-    /// Reads the waiting playlist headers over the streaming session, never
-    /// the Web API, which already listed them blank. One read at a time
-    /// keeps a long list gentle on Spotify, and each header is sent as it
-    /// arrives so the rows fill in turn. Without a session they wait; a
+    /// Reads the next waiting playlist header over the streaming session,
+    /// never the Web API, which already listed it blank. One read runs at a
+    /// time, so a long list stays gentle on Spotify, and each header is sent
+    /// as it arrives so the rows fill in turn. Without a session they wait; a
     /// header that cannot be read leaves its row as listed.
     fn start_playlist_header_lookup(&mut self) {
         let Some(engine) = self.engine.clone() else {
             return;
         };
-        if self.playlist_header_lookup.is_empty() {
+        let Some(request) = self.playlist_header_lookup.next(*self.session.borrow()) else {
             return;
-        }
-        let ids = std::mem::take(&mut self.playlist_header_lookup);
-        let session_generation = *self.session.borrow();
+        };
         let commands = self.commands.clone();
         tokio::spawn(async move {
-            for id in ids {
-                let read = session_reads::playlist(engine.session(), &id);
-                match tokio::time::timeout(SESSION_READ_TIMEOUT, read).await {
-                    Ok(Ok(header)) => {
-                        let resolved = Command::PlaylistHeaderResolved {
-                            session_generation,
-                            header,
-                        };
-                        if commands.send(resolved).is_err() {
-                            return;
-                        }
-                    }
-                    Ok(Err(error)) => log::debug!("playlist header lookup failed: {error:?}"),
-                    Err(_) => log::debug!("playlist header lookup timed out"),
+            let read = session_reads::playlist(engine.session(), &request.id);
+            let header = match tokio::time::timeout(SESSION_READ_TIMEOUT, read).await {
+                Ok(Ok(header)) => Some(header),
+                Ok(Err(error)) => {
+                    log::debug!("playlist header lookup failed: {error:?}");
+                    None
                 }
-            }
+                Err(_) => {
+                    log::debug!("playlist header lookup timed out");
+                    None
+                }
+            };
+            let _ = commands.send(Command::PlaylistHeaderResolved {
+                id: request.id,
+                session_generation: request.session_generation,
+                engine_generation: request.engine_generation,
+                header,
+            });
         });
+    }
+
+    fn on_playlist_header_resolved(
+        &mut self,
+        request: PlaylistHeaderRequest,
+        header: Option<crate::api::models::Playlist>,
+    ) {
+        if !self.signed_in || !self.playlist_header_lookup.finish(&request) {
+            return;
+        }
+        if let Some(header) = header {
+            self.emit(Event::PlaylistHeader(header));
+        }
+        self.start_playlist_header_lookup();
     }
 
     /// Resolves the waiting radios once the streaming session is ready; the
@@ -4635,6 +4722,66 @@ mod album_type_lookup_tests {
         let premium = lookup.next().expect("premium account request");
         assert_eq!(premium.uri, "premium");
         assert!(lookup.finish(&premium));
+    }
+}
+
+#[cfg(test)]
+mod playlist_header_lookup_tests {
+    use super::PlaylistHeaderLookup;
+
+    /// Blank library playlists are read one at a time: a batch that arrives
+    /// while a read runs waits behind it rather than starting a second read
+    /// beside it, and a playlist already waiting or being read is not queued
+    /// twice.
+    #[test]
+    fn playlist_headers_are_read_one_at_a_time() {
+        let mut lookup = PlaylistHeaderLookup::default();
+        lookup.enqueue(vec!["first".into(), "second".into()]);
+        let first = lookup.next(1).expect("first read");
+        assert_eq!(first.id, "first");
+        assert_eq!(lookup.next(1), None, "one read at a time");
+
+        lookup.enqueue(vec!["first".into(), "second".into(), "third".into()]);
+        assert_eq!(lookup.pending, ["second", "third"]);
+        assert_eq!(lookup.next(1), None, "a later batch waits too");
+
+        assert!(lookup.finish(&first));
+        assert_eq!(
+            lookup.next(1).map(|request| request.id).as_deref(),
+            Some("second")
+        );
+    }
+
+    /// A read still running when the engine is replaced goes back to the
+    /// front of the queue for the new engine, and the retired engine's
+    /// answer is ignored rather than finishing the new read.
+    #[test]
+    fn a_playlist_header_read_on_a_retired_engine_is_read_again() {
+        let mut lookup = PlaylistHeaderLookup::default();
+        lookup.enqueue(vec!["active".into(), "waiting".into()]);
+        let retired = lookup.next(1).expect("read on the old engine");
+
+        lookup.requeue_active_for_new_engine();
+        assert_eq!(lookup.pending, ["active", "waiting"]);
+
+        let replacement = lookup.next(1).expect("read on the new engine");
+        assert_eq!(replacement.id, "active");
+        assert_ne!(retired.engine_generation, replacement.engine_generation);
+        assert!(!lookup.finish(&retired), "the retired answer is ignored");
+        assert!(lookup.finish(&replacement));
+    }
+
+    #[test]
+    fn clearing_engine_work_drops_waiting_playlist_headers() {
+        let mut lookup = PlaylistHeaderLookup::default();
+        lookup.enqueue(vec!["active".into(), "waiting".into()]);
+        let active = lookup.next(1).expect("read before sign-out");
+
+        lookup.clear_engine_work();
+
+        assert!(lookup.active.is_none());
+        assert!(lookup.pending.is_empty());
+        assert!(!lookup.finish(&active));
     }
 }
 
