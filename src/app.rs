@@ -1872,7 +1872,13 @@ impl App {
                 }
                 Event::Auth(status) => self.handle_auth(status),
                 Event::Playback(status) => self.handle_playback(status),
-                Event::NetworkStatus(reachable) => self.network_reachable = reachable,
+                Event::NetworkStatus(reachable) => {
+                    let became_reachable = !self.network_reachable && reachable;
+                    self.network_reachable = reachable;
+                    if became_reachable {
+                        self.on_network_restored();
+                    }
+                }
                 Event::Receivers(receivers) => self.receivers = receivers,
                 Event::ReceiverActivated { name, result } => {
                     self.activating_receiver = None;
@@ -2136,6 +2142,149 @@ impl App {
             | LocalPlayback::WaitingForNetwork => {}
         }
         self.local_playback = status;
+    }
+
+    fn on_network_restored(&mut self) {
+        if !self.is_connected() {
+            return;
+        }
+        if self.library.playlists.needs_load() {
+            self.load_playlists();
+        }
+        let page = self.page().clone();
+        match page {
+            Page::Home => {
+                let incomplete = self.home.recently_played.get().is_none()
+                    || self.home.top_artists.get().is_none()
+                    || self.home.top_tracks.get().is_none();
+                if incomplete {
+                    self.load_home(true);
+                }
+            }
+            Page::TopSongs => {
+                if self.home.top_songs.get().is_none() {
+                    self.load_top_songs(true);
+                }
+            }
+            Page::Search => {}
+            Page::LikedSongs => {
+                if !self.liked_songs.cache_checked {
+                    self.ensure_liked_songs();
+                } else if !self.library.liked.loaded_once || self.library.liked.error.is_some() {
+                    self.library.liked.error = None;
+                    self.load_more(Page::LikedSongs);
+                }
+            }
+            Page::Albums => {
+                if !self.library.albums.loaded_once || self.library.albums.error.is_some() {
+                    self.library.albums.error = None;
+                    self.load_more(Page::Albums);
+                }
+            }
+            Page::Artists => {
+                if !self.library.artists.loaded_once || self.library.artists.error.is_some() {
+                    self.library.artists.error = None;
+                    self.load_more(Page::Artists);
+                }
+            }
+            Page::Podcasts => {
+                if !self.library.shows.loaded_once || self.library.shows.error.is_some() {
+                    self.library.shows.error = None;
+                    self.load_more(Page::Podcasts);
+                }
+            }
+            Page::Episodes => {
+                if !self.library.episodes.loaded_once || self.library.episodes.error.is_some() {
+                    self.library.episodes.error = None;
+                    self.load_more(Page::Episodes);
+                }
+            }
+            Page::Playlist(id) => {
+                let incomplete = match self.playlist_pages.get(&id) {
+                    None => true,
+                    Some(page) => {
+                        page.playlist.needs_load()
+                            || !page.items.loaded_once
+                            || page.items.error.is_some()
+                    }
+                };
+                if incomplete {
+                    if let Some(page) = self.playlist_pages.get_mut(&id) {
+                        page.items.error = None;
+                    }
+                    self.ensure_loaded(Page::Playlist(id));
+                }
+            }
+            Page::Album(id) => {
+                let incomplete = match self.album_pages.get(&id) {
+                    None => true,
+                    Some(page) => {
+                        page.album.needs_load()
+                            || !page.tracks.loaded_once
+                            || page.tracks.error.is_some()
+                    }
+                };
+                if incomplete {
+                    if let Some(page) = self.album_pages.get_mut(&id) {
+                        page.tracks.error = None;
+                    }
+                    self.ensure_loaded(Page::Album(id));
+                }
+            }
+            Page::Artist(id) => {
+                let incomplete = match self.artist_pages.get(&id) {
+                    None => true,
+                    Some(page) => {
+                        let filter = page.filter;
+                        let albums_need = page
+                            .albums
+                            .get(filter.groups())
+                            .is_none_or(|list| !list.loaded_once || list.error.is_some());
+                        page.artist.needs_load() || albums_need || page.related.needs_load()
+                    }
+                };
+                if incomplete {
+                    if let Some(page) = self.artist_pages.get_mut(&id) {
+                        let filter = page.filter;
+                        if let Some(list) = page.albums.get_mut(filter.groups()) {
+                            list.error = None;
+                        }
+                    }
+                    self.ensure_loaded(Page::Artist(id));
+                }
+            }
+            Page::Show(id) => {
+                let incomplete = match self.show_pages.get(&id) {
+                    None => true,
+                    Some(page) => {
+                        page.show.needs_load()
+                            || !page.episodes.loaded_once
+                            || page.episodes.error.is_some()
+                    }
+                };
+                if incomplete {
+                    if let Some(page) = self.show_pages.get_mut(&id) {
+                        page.episodes.error = None;
+                    }
+                    self.ensure_loaded(Page::Show(id));
+                }
+            }
+            Page::Radio(seed) => {
+                let incomplete = self
+                    .radio_pages
+                    .get(&seed)
+                    .is_none_or(|page| page.songs.needs_load());
+                if incomplete {
+                    self.ensure_loaded(Page::Radio(seed));
+                }
+            }
+            Page::Queue => {
+                if self.queue.needs_load() {
+                    self.refresh_queue(true);
+                }
+            }
+            Page::Settings => {}
+        }
     }
 
     fn reset_data(&mut self) {
@@ -3641,7 +3790,7 @@ impl App {
     // ---- loading ---------------------------------------------------------------
 
     fn load_playlists(&mut self) {
-        if self.library.playlists.is_loading() {
+        if !self.network_reachable || self.library.playlists.is_loading() {
             return;
         }
         self.library.playlists = Loadable::Loading;
@@ -3659,27 +3808,35 @@ impl App {
             return;
         }
         match page {
-            Page::Home => self.load_home(false),
-            Page::TopSongs => self.load_top_songs(false),
+            Page::Home => {
+                if self.network_reachable {
+                    self.load_home(false);
+                }
+            }
+            Page::TopSongs => {
+                if self.network_reachable {
+                    self.load_top_songs(false);
+                }
+            }
             Page::Search => {}
             Page::LikedSongs => self.ensure_liked_songs(),
             Page::Albums => {
-                if !self.library.albums.loaded_once {
+                if self.network_reachable && !self.library.albums.loaded_once {
                     self.load_more(Page::Albums);
                 }
             }
             Page::Artists => {
-                if !self.library.artists.loaded_once {
+                if self.network_reachable && !self.library.artists.loaded_once {
                     self.load_more(Page::Artists);
                 }
             }
             Page::Podcasts => {
-                if !self.library.shows.loaded_once {
+                if self.network_reachable && !self.library.shows.loaded_once {
                     self.load_more(Page::Podcasts);
                 }
             }
             Page::Episodes => {
-                if !self.library.episodes.loaded_once {
+                if self.network_reachable && !self.library.episodes.loaded_once {
                     self.load_more(Page::Episodes);
                 }
             }
@@ -3697,7 +3854,7 @@ impl App {
                 }
                 let page = self.playlist_pages.entry(id.clone()).or_default();
                 let generation = page.generation;
-                if page.playlist.needs_load() {
+                if page.playlist.needs_load() && self.network_reachable {
                     page.playlist = Loadable::Loading;
                     self.backend.api(ApiRequest::Playlist {
                         id: id.clone(),
@@ -3705,12 +3862,14 @@ impl App {
                     });
                 }
                 if !page.items.loaded_once && page.items.can_load_more() {
-                    page.items.loading = true;
-                    self.backend.api(ApiRequest::PlaylistItems {
-                        id: id.clone(),
-                        offset: 0,
-                        generation,
-                    });
+                    if self.network_reachable {
+                        page.items.loading = true;
+                        self.backend.api(ApiRequest::PlaylistItems {
+                            id: id.clone(),
+                            offset: 0,
+                            generation,
+                        });
+                    }
                     // Disk progress is adopted only if Spotify's snapshot
                     // still matches.
                     self.backend.send(Command::LoadPlaylistCache {
@@ -3718,7 +3877,9 @@ impl App {
                         generation,
                     });
                 }
-                self.request_contains(vec![format!("spotify:playlist:{id}")]);
+                if self.network_reachable {
+                    self.request_contains(vec![format!("spotify:playlist:{id}")]);
+                }
             }
             Page::Album(id) => {
                 if !self.album_pages.contains_key(&id) {
@@ -3732,39 +3893,53 @@ impl App {
                     );
                 }
                 let page = self.album_pages.entry(id.clone()).or_default();
-                if page.album.needs_load() {
+                if page.album.needs_load() && self.network_reachable {
                     page.album = Loadable::Loading;
                     self.backend.api(ApiRequest::Album { id: id.clone() });
                 }
-                self.request_contains(vec![format!("spotify:album:{id}")]);
+                if self.network_reachable {
+                    self.request_contains(vec![format!("spotify:album:{id}")]);
+                }
             }
             Page::Artist(id) => {
                 let page = self.artist_pages.entry(id.clone()).or_default();
-                if page.artist.needs_load() {
-                    page.artist = Loadable::Loading;
-                    self.backend.api(ApiRequest::Artist { id: id.clone() });
-                }
-                let filter = page.filter;
-                self.load_artist_albums(&id, filter);
-                if page_related_needs_load(&self.artist_pages, &id) {
-                    if let Some(page) = self.artist_pages.get_mut(&id) {
-                        page.related = Loadable::Loading;
+                if self.network_reachable {
+                    if page.artist.needs_load() {
+                        page.artist = Loadable::Loading;
+                        self.backend.api(ApiRequest::Artist { id: id.clone() });
                     }
-                    self.backend
-                        .api(ApiRequest::RelatedArtists { id: id.clone() });
+                    let filter = page.filter;
+                    self.load_artist_albums(&id, filter);
+                    if page_related_needs_load(&self.artist_pages, &id) {
+                        if let Some(page) = self.artist_pages.get_mut(&id) {
+                            page.related = Loadable::Loading;
+                        }
+                        self.backend
+                            .api(ApiRequest::RelatedArtists { id: id.clone() });
+                    }
+                    self.request_contains(vec![format!("spotify:artist:{id}")]);
                 }
-                self.request_contains(vec![format!("spotify:artist:{id}")]);
             }
             Page::Show(id) => {
                 let page = self.show_pages.entry(id.clone()).or_default();
-                if page.show.needs_load() {
+                if page.show.needs_load() && self.network_reachable {
                     page.show = Loadable::Loading;
                     self.backend.api(ApiRequest::Show { id: id.clone() });
                 }
-                self.request_contains(vec![format!("spotify:show:{id}")]);
+                if self.network_reachable {
+                    self.request_contains(vec![format!("spotify:show:{id}")]);
+                }
             }
-            Page::Radio(seed) => self.load_radio(&seed),
-            Page::Queue => self.refresh_queue(true),
+            Page::Radio(seed) => {
+                if self.network_reachable {
+                    self.load_radio(&seed);
+                }
+            }
+            Page::Queue => {
+                if self.network_reachable {
+                    self.refresh_queue(true);
+                }
+            }
             Page::Settings => {}
         }
     }
@@ -3887,7 +4062,7 @@ impl App {
     }
 
     pub fn load_recents(&mut self, force: bool) {
-        if self.recents.loading {
+        if !self.network_reachable || self.recents.loading {
             return;
         }
         if self.recents.complete && !force {
@@ -3923,6 +4098,12 @@ impl App {
     }
 
     pub fn load_more(&mut self, page: Page) {
+        if !self.network_reachable {
+            if matches!(page, Page::LikedSongs) && !self.liked_songs.cache_checked {
+                self.ensure_liked_songs();
+            }
+            return;
+        }
         match page {
             Page::LikedSongs => {
                 if !self.liked_songs.cache_checked {
@@ -4244,7 +4425,7 @@ impl App {
     }
 
     fn refresh_queue(&mut self, force: bool) {
-        if !self.is_connected() {
+        if !self.is_connected() || !self.network_reachable {
             return;
         }
         if self.resume_only() && matches!(self.queue, Loadable::Loaded(_)) {
@@ -5744,7 +5925,9 @@ impl App {
                             jiff::Timestamp::now().as_second(),
                         );
                     }
-                    Err(error) => self.liked_songs.fail(error.to_string()),
+                    Err(error) => self
+                        .liked_songs
+                        .fail(friendly_api_error(self.locale, &error)),
                 }
                 if !more {
                     self.sync_liked_songs();
@@ -5766,7 +5949,10 @@ impl App {
                     }
                     self.library.albums.absorb(offset, page);
                 }
-                Err(error) => self.library.albums.fail(error.to_string()),
+                Err(error) => self
+                    .library
+                    .albums
+                    .fail(friendly_api_error(self.locale, &error)),
             },
             ApiResponse::FollowedArtists { after, result } => {
                 let list = &mut self.library.artists;
@@ -5792,7 +5978,7 @@ impl App {
                         list.after = next;
                         list.error = None;
                     }
-                    Err(error) => list.error = Some(error.to_string()),
+                    Err(error) => list.error = Some(friendly_api_error(self.locale, &error)),
                 }
             }
             ApiResponse::SavedShows { offset, .. }
@@ -5816,7 +6002,10 @@ impl App {
                         self.request_home_episodes();
                     }
                 }
-                Err(error) => self.library.shows.fail(error.to_string()),
+                Err(error) => self
+                    .library
+                    .shows
+                    .fail(friendly_api_error(self.locale, &error)),
             },
             ApiResponse::HomeEpisodes { generation, .. } if generation != self.home.generation => {}
             ApiResponse::HomeEpisodes { result, .. } => match result {
@@ -5834,7 +6023,10 @@ impl App {
                     }
                     self.library.episodes.absorb(offset, page);
                 }
-                Err(error) => self.library.episodes.fail(error.to_string()),
+                Err(error) => self
+                    .library
+                    .episodes
+                    .fail(friendly_api_error(self.locale, &error)),
             },
             ApiResponse::SavedChanged {
                 uris,
@@ -5998,7 +6190,10 @@ impl App {
                     }
                 }
                 if let Some(page) = self.artist_pages.get_mut(&id) {
-                    page.artist = Loadable::from_result(result);
+                    page.artist = match result {
+                        Ok(artist) => Loadable::Loaded(artist),
+                        Err(error) => Loadable::Failed(friendly_api_error(self.locale, &error)),
+                    };
                 }
             }
             ApiResponse::ArtistTopTracks { id, result } => {
@@ -6007,7 +6202,10 @@ impl App {
                     self.request_contains(uris);
                 }
                 if let Some(page) = self.artist_pages.get_mut(&id) {
-                    page.top_tracks = Loadable::from_result(result);
+                    page.top_tracks = match result {
+                        Ok(tracks) => Loadable::Loaded(tracks),
+                        Err(error) => Loadable::Failed(friendly_api_error(self.locale, &error)),
+                    };
                 }
             }
             ApiResponse::ArtistAlbums {
@@ -6023,13 +6221,16 @@ impl App {
                     let list = page.albums.entry(groups).or_default();
                     match result {
                         Ok(albums) => list.absorb(offset, albums),
-                        Err(error) => list.fail(error.to_string()),
+                        Err(error) => list.fail(friendly_api_error(self.locale, &error)),
                     }
                 }
             }
             ApiResponse::RelatedArtists { id, result } => {
                 if let Some(page) = self.artist_pages.get_mut(&id) {
-                    page.related = Loadable::from_result(result);
+                    page.related = match result {
+                        Ok(artists) => Loadable::Loaded(artists),
+                        Err(error) => Loadable::Failed(friendly_api_error(self.locale, &error)),
+                    };
                 }
             }
             ApiResponse::Album { id, result } => {
@@ -6059,7 +6260,9 @@ impl App {
                                 });
                             }
                         }
-                        Err(error) => page.album = Loadable::Failed(error.to_string()),
+                        Err(error) => {
+                            page.album = Loadable::Failed(friendly_api_error(self.locale, &error))
+                        }
                     }
                 }
                 self.request_contains(uris);
@@ -6084,7 +6287,7 @@ impl App {
                             uris = tracks.items.iter().map(|track| track.uri.clone()).collect();
                             page.tracks.absorb(offset, tracks);
                         }
-                        Err(error) => page.tracks.fail(error.to_string()),
+                        Err(error) => page.tracks.fail(friendly_api_error(self.locale, &error)),
                     }
                 }
                 self.request_contains(uris);
@@ -6118,7 +6321,9 @@ impl App {
                                 self.backend.api(ApiRequest::ShowEpisodes { id, offset: 0 });
                             }
                         }
-                        Err(error) => page.show = Loadable::Failed(error.to_string()),
+                        Err(error) => {
+                            page.show = Loadable::Failed(friendly_api_error(self.locale, &error))
+                        }
                     }
                 }
             }
@@ -6126,7 +6331,7 @@ impl App {
                 if let Some(page) = self.show_pages.get_mut(&id) {
                     match result {
                         Ok(episodes) => page.episodes.absorb(offset, episodes),
-                        Err(error) => page.episodes.fail(error.to_string()),
+                        Err(error) => page.episodes.fail(friendly_api_error(self.locale, &error)),
                     }
                 }
             }
@@ -10130,6 +10335,7 @@ impl App {
             });
         } else if !self.liked_songs.fresh(jiff::Timestamp::now().as_second())
             && self.library.liked.error.is_none()
+            && self.network_reachable
         {
             self.refresh_liked_songs();
         }
@@ -10163,11 +10369,12 @@ impl App {
                 }
             }
         }
-        if !self.liked_songs.fresh(jiff::Timestamp::now().as_second())
-            || self.liked_songs.has_confirmed_changes()
+        if (!self.liked_songs.fresh(jiff::Timestamp::now().as_second())
+            || self.liked_songs.has_confirmed_changes())
+            && self.network_reachable
         {
             self.refresh_liked_songs();
-        } else if self.table_sorts.contains_key(&Page::LikedSongs) {
+        } else if self.table_sorts.contains_key(&Page::LikedSongs) && self.network_reachable {
             self.load_more(Page::LikedSongs);
         }
     }
@@ -10416,6 +10623,9 @@ fn engine_error_text(locale: Locale, error: &str) -> String {
 }
 
 fn friendly_page_error(locale: Locale, error: &crate::api::ApiError) -> String {
+    if error.is_network() {
+        return gettext(locale, "Network connection error. Check your connection.").into_owned();
+    }
     match error.status() {
         Some(403) | Some(404) => gettext(
             locale,
@@ -10423,6 +10633,14 @@ fn friendly_page_error(locale: Locale, error: &crate::api::ApiError) -> String {
         )
         .into_owned(),
         _ => error.to_string(),
+    }
+}
+
+fn friendly_api_error(locale: Locale, error: &crate::api::ApiError) -> String {
+    if error.is_network() {
+        gettext(locale, "Network connection error. Check your connection.").into_owned()
+    } else {
+        error.to_string()
     }
 }
 
@@ -23344,5 +23562,181 @@ mod tests {
             app.library.liked.revision, before,
             "the shorter list must invalidate the table's cached row order"
         );
+    }
+
+    #[test]
+    fn offline_ensure_loaded_suppresses_network_requests() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.network_reachable = false;
+        app.ensure_loaded(Page::Playlist("offline_playlist".into()));
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+        assert_eq!(
+            app.playlist_pages["offline_playlist"].playlist,
+            Loadable::NotLoaded
+        );
+        assert!(!app.playlist_pages["offline_playlist"].items.loading);
+    }
+
+    #[test]
+    fn offline_cached_playlist_preserves_content() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        let page = PlaylistPage {
+            playlist: Loadable::Loaded(Playlist {
+                id: "cached_pl".into(),
+                name: "Cached Playlist".into(),
+                ..Default::default()
+            }),
+            items: PagedList {
+                items: vec![cached_playlist_row("spotify:track:cached_song")],
+                total: Some(1),
+                loaded_once: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.playlist_pages.insert("cached_pl".into(), page);
+        app.network_reachable = false;
+
+        app.ensure_loaded(Page::Playlist("cached_pl".into()));
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+        assert_eq!(app.playlist_pages["cached_pl"].items.items.len(), 1);
+        assert!(app.playlist_pages["cached_pl"].playlist.get().is_some());
+    }
+
+    #[test]
+    fn offline_load_more_is_suppressed() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        let page = PlaylistPage {
+            items: PagedList {
+                items: vec![],
+                total: Some(100),
+                next_offset: Some(50),
+                loaded_once: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.playlist_pages.insert("cached_pl".into(), page);
+        app.network_reachable = false;
+
+        app.load_more(Page::Playlist("cached_pl".into()));
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+        assert!(!app.playlist_pages["cached_pl"].items.loading);
+    }
+
+    #[test]
+    fn network_restored_recovers_incomplete_active_page() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.network_reachable = false;
+        app.open(Page::Playlist("incomplete_pl".into()));
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+
+        assert!(app.network_reachable);
+        assert_eq!(app.backend.take_playlist_item_requests().len(), 1);
+    }
+
+    #[test]
+    fn network_restored_does_not_refetch_complete_cached_page() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        let page = PlaylistPage {
+            playlist: Loadable::Loaded(Playlist {
+                id: "complete_pl".into(),
+                ..Default::default()
+            }),
+            items: PagedList {
+                items: vec![cached_playlist_row("spotify:track:1")],
+                total: Some(1),
+                loaded_once: true,
+                next_offset: None,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.playlist_pages.insert("complete_pl".into(), page);
+        app.open(Page::Playlist("complete_pl".into()));
+        let _ = app.backend.take_playlist_item_requests();
+
+        app.network_reachable = false;
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+
+        assert!(app.network_reachable);
+        assert!(
+            app.backend.take_playlist_item_requests().is_empty(),
+            "complete cached page must not be refetched on network restoration"
+        );
+        assert_eq!(app.playlist_pages["complete_pl"].items.items.len(), 1);
+    }
+
+    #[test]
+    fn duplicate_network_reachability_events_do_not_refetch() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.open(Page::Playlist("incomplete_pl".into()));
+        app.network_reachable = true;
+        let _ = app.backend.take_playlist_item_requests();
+
+        // Already reachable: duplicate reachability event must not trigger recovery
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+    }
+
+    #[test]
+    fn network_error_sanitization_never_exposes_raw_url() {
+        use crate::api::ApiError;
+        use crate::i18n::Locale;
+        use crate::ui::widgets;
+
+        let raw_network_err = ApiError::Network(
+            "error sending request for url (https://api.spotify.com/v1/playlists/xyz): dns error"
+                .into(),
+        );
+
+        let page_err = friendly_page_error(Locale::English, &raw_network_err);
+        assert_eq!(page_err, "Network connection error. Check your connection.");
+        assert!(!page_err.contains("https://"));
+        assert!(!page_err.contains("api.spotify.com"));
+        assert!(!page_err.contains("dns error"));
+
+        let api_err = friendly_api_error(Locale::English, &raw_network_err);
+        assert_eq!(api_err, "Network connection error. Check your connection.");
+        assert!(!api_err.contains("https://"));
+        assert!(!api_err.contains("api.spotify.com"));
+
+        let sanitized = widgets::sanitize_error_message(
+            "error sending request for url (https://api.spotify.com/v1/me): connection closed",
+            Locale::English,
+        );
+        assert_eq!(
+            sanitized.as_ref(),
+            "Network connection error. Check your connection."
+        );
+
+        let server_err =
+            widgets::sanitize_error_message("500 Internal Server Error", Locale::English);
+        assert_eq!(server_err.as_ref(), "500 Internal Server Error");
     }
 }

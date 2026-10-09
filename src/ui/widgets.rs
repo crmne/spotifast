@@ -1282,7 +1282,10 @@ fn track_row_contents(
         return (response, None);
     }
     // Start a sidebar drag only after egui's drag threshold.
-    if row.item.is_track() && response.drag_started_by(egui::PointerButton::Primary) {
+    if ui.is_enabled()
+        && row.item.is_track()
+        && response.drag_started_by(egui::PointerButton::Primary)
+    {
         let items = dragged_items(row.item, row.picked, row.picked_songs);
         let source_playlist = match row.context {
             RowContext::Context {
@@ -1327,7 +1330,7 @@ fn track_row_contents(
             .current_track_uri()
             .is_some_and(|uri| uri == row.item.uri());
     let playing = is_current && app.believed_playing();
-    let hovered = ui.rect_contains_pointer(rect) || response.has_focus();
+    let hovered = ui.is_enabled() && (ui.rect_contains_pointer(rect) || response.has_focus());
     if row.picked {
         // Keep the existing translucent selection, using a neutral palette
         // color so selecting a song does not mark it as playing.
@@ -1791,13 +1794,13 @@ fn track_row_contents(
     // Row interactions.
     let mut pick = None;
     let accessible_click = response.clicked() && response.interact_pointer_pos().is_none();
-    if (response.double_clicked() || accessible_click) && !unavailable {
+    if ui.is_enabled() && (response.double_clicked() || accessible_click) && !unavailable {
         app.actions.push(Action::PlayFromRow {
             context: row.context.clone(),
             uri: row.item.uri().to_string(),
             index: row.index as u32,
         });
-    } else if response.clicked() {
+    } else if ui.is_enabled() && response.clicked() {
         // The cell that holds the play control: the number column when
         // there is one, the cover when there is not.
         let control = if cols.number > 0.0 {
@@ -2491,12 +2494,31 @@ pub fn loading_row(ui: &mut Ui, palette: &Palette, locale: Locale) {
     });
 }
 
+pub fn sanitize_error_message<'a>(message: &'a str, locale: Locale) -> std::borrow::Cow<'a, str> {
+    if message.contains("http://")
+        || message.contains("https://")
+        || message.contains("error sending request for url")
+        || message.contains("dns error")
+        || message.contains("connection closed")
+    {
+        gettext(locale, "Network connection error. Check your connection.")
+    } else {
+        std::borrow::Cow::Borrowed(message)
+    }
+}
+
 pub fn error_row(ui: &mut Ui, app: &mut App, message: &str, retry: Option<Page>) {
     let palette = app.palette;
+    let sanitized = sanitize_error_message(message, app.locale);
     ui.horizontal(|ui| {
         ui.add_space(8.0);
         theme::icon(ui, Icon::CircleAlert, 16.0, palette.danger);
-        theme::text(ui, message, theme::regular(13.0), palette.secondary);
+        theme::text(
+            ui,
+            sanitized.as_ref(),
+            theme::regular(13.0),
+            palette.secondary,
+        );
         if let Some(page) = retry
             && theme::soft_button(
                 ui,

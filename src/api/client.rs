@@ -49,6 +49,10 @@ impl ApiError {
             _ => None,
         }
     }
+
+    pub fn is_network(&self) -> bool {
+        matches!(self, Self::Network(_))
+    }
 }
 
 impl From<reqwest::Error> for ApiError {
