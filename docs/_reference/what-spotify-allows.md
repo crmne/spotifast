@@ -100,6 +100,8 @@ The Web API and librespot do not provide these features:
 - **Editing playlist folders.** librespot can only read them.
 - **Smart Shuffle, Jam, Blend, and similar Spotify features.** Spotify
   generates these for its own clients. Spotifast only has plain shuffle.
+  A Blend that a Spotify app already made opens like any playlist, with
+  who added each song, but Spotifast cannot start or manage one.
 - **Lossless audio.** librespot does not receive lossless streams. Spotifast
   will reconsider this if librespot gains lawful support, but it will not
   bypass Spotify's DRM.

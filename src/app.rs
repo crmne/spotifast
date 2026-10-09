@@ -35,6 +35,8 @@ const REMOTE_POLL_IDLE: Duration = Duration::from_secs(20);
 const REMOTE_FRESH: Duration = Duration::from_secs(45);
 const DEVICES_FRESH: Duration = Duration::from_secs(12);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
+/// How old the saved resume point may grow while music plays.
+const SESSION_REFRESH: Duration = Duration::from_secs(30);
 /// How far into a song Previous restarts it rather than stepping back,
 /// matching what librespot does during playback.
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
@@ -1601,7 +1603,14 @@ impl App {
         self.pending_fresh() && self.pending_play_keys.iter().any(|k| k == key)
     }
 
+    /// Records who is behind a user id. A lookup that found nothing never
+    /// replaces a name already known: when the session connects, names
+    /// still being looked up are asked for again, and the lookup that
+    /// failed may answer after the one that found the name.
     pub fn set_user_name(&mut self, id: String, name: Option<String>) {
+        if name.is_none() && self.user_names.get(&id).is_some_and(Option::is_some) {
+            return;
+        }
         if self.user_names.get(&id) != Some(&name) {
             self.user_names.insert(id, name);
             self.user_names_revision = self.user_names_revision.wrapping_add(1);
@@ -2612,6 +2621,8 @@ impl App {
         if same_uri && !new_occurrence {
             return;
         }
+        // A new track is a new resume point.
+        self.session_dirty = true;
         let queue_already_updated =
             self.queue_start_pending.take().as_ref() == Some(&self.target());
         let repeating = same_uri && new_occurrence && now.repeat == RepeatMode::Track;
@@ -2846,6 +2857,14 @@ impl App {
         self.sync_skin(ctx);
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
+        }
+        // The resume point moves while music plays, and nothing else marks the
+        // session for saving then. Refresh it now and again so a session that
+        // ends without a goodbye (a shutdown, a crash) resumes close by.
+        if self.now_playing().is_some_and(|now| now.playing)
+            && self.last_session_save.elapsed() > SESSION_REFRESH
+        {
+            self.session_dirty = true;
         }
         if self.session_dirty && self.last_session_save.elapsed() > Duration::from_secs(2) {
             self.save_session();
@@ -9748,7 +9767,21 @@ impl App {
         self.sync_window_title(ctx);
         #[cfg(target_os = "macos")]
         self.sync_notch_widget(ctx);
+        let close_requested = ctx.input(|input| input.viewport().close_requested());
+        self.note_close_request(close_requested, self.hides_to_tray());
         self.schedule_next_pass(ctx);
+    }
+
+    /// Closing the window keeps the process running in the tray when the
+    /// tray is shown and the setting asks for it.
+    ///
+    /// This runs with the logic, not the drawing: eframe runs only the logic
+    /// of a minimised window, and a close decided while drawing let closing a
+    /// minimised window quit the app instead.
+    fn note_close_request(&mut self, close_requested: bool, hides_to_tray: bool) {
+        if close_requested && !self.quit_requested && !self.switch_intent && hides_to_tray {
+            self.hide_intent = true;
+        }
     }
 
     /// Asks for the next pass that playback, pending plays and polling need.
@@ -9958,14 +9991,6 @@ impl App {
 
         if !self.toasts.is_empty() {
             ctx.request_repaint_after(TOAST_FRAME);
-        }
-        if ctx.input(|input| input.viewport().close_requested())
-            && !self.quit_requested
-            && !self.switch_intent
-            && self.hides_to_tray()
-        {
-            // Close the window and keep the process running in the tray.
-            self.hide_intent = true;
         }
         self.theme_transition.paint(ctx);
         self.frame_now = None;
@@ -15169,6 +15194,32 @@ mod tests {
         app
     }
 
+    /// Two lookups of one adder can overlap; the one that found nothing
+    /// must not turn a shown name back into the bare id.
+    #[test]
+    fn a_failed_name_lookup_keeps_the_name_already_found() {
+        let mut app = test_app("adder-name-race");
+        app.request_user_names(vec!["kasia-id".into()]);
+        app.set_user_name("kasia-id".into(), Some("Kasia".into()));
+        let revision = app.user_names_revision;
+        app.set_user_name("kasia-id".into(), None);
+        assert_eq!(
+            app.user_names.get("kasia-id"),
+            Some(&Some("Kasia".to_string()))
+        );
+        assert_eq!(app.user_names_revision, revision, "nothing to redraw");
+        // A renamed account still shows its new name.
+        app.set_user_name("kasia-id".into(), Some("Kasia M.".into()));
+        assert_eq!(
+            app.user_names.get("kasia-id"),
+            Some(&Some("Kasia M.".to_string()))
+        );
+        // An id nobody could name stays unnamed, to be shown as the id.
+        app.set_user_name("nobody".into(), None);
+        assert_eq!(app.user_names.get("nobody"), Some(&None));
+        app.backend.shutdown();
+    }
+
     /// With Random on, each switch to the mini player shows a skin other
     /// than the last one, and choosing a skin turns Random off.
     #[test]
@@ -15423,6 +15474,27 @@ mod tests {
     ) {
         app.custom_themes = theme::Catalog::preview(theme.into_iter().collect(), follows);
         app.adopt_custom_themes(ctx);
+    }
+
+    /// Closing hides to the tray only when the tray can take the app, and
+    /// never overrides a quit or a switch between windows. The decision runs
+    /// in the logic pass, so it also holds for a minimised window, whose
+    /// drawing eframe skips.
+    #[test]
+    fn a_close_request_hides_to_the_tray_from_the_logic_pass() {
+        use fastframe_shell::{Closed, Resident};
+        let mut app = headless_app();
+        app.note_close_request(true, false);
+        assert_eq!(app.closed(), Closed::Quit, "no tray to hide to");
+        app.note_close_request(false, true);
+        assert_eq!(app.closed(), Closed::Quit, "nothing asked to close");
+        app.note_close_request(true, true);
+        assert_eq!(app.closed(), Closed::Hide);
+
+        let mut app = headless_app();
+        app.quit_requested = true;
+        app.note_close_request(true, true);
+        assert_eq!(app.closed(), Closed::Quit, "Quit from the tray wins");
     }
 
     /// Quit wins over everything, a switch between the main window and the
@@ -17926,6 +17998,39 @@ mod tests {
         assert!(
             !app.playlist_pages.contains_key("late"),
             "a page that arrived after browsing still counts toward the cap"
+        );
+    }
+
+    /// Playing music keeps the saved resume point fresh on its own, so a
+    /// session that ends without a goodbye resumes close to where it was.
+    #[test]
+    fn playing_music_saves_the_resume_point_now_and_again() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let ctx = egui::Context::default();
+        let pass = |app: &mut App| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.background_frame(ui.ctx());
+            });
+            output.textures_delta.clear();
+        };
+        pass(&mut app);
+        let saved = app.last_session_save;
+
+        pass(&mut app);
+        assert_eq!(app.last_session_save, saved, "no save while it is fresh");
+
+        app.last_session_save = Instant::now() - SESSION_REFRESH - Duration::from_secs(1);
+        app.session_dirty = false;
+        pass(&mut app);
+        assert!(!app.session_dirty);
+        assert!(
+            app.last_session_save.elapsed() < SESSION_REFRESH,
+            "saved again"
         );
     }
 
