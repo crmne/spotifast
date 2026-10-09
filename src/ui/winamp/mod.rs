@@ -33,9 +33,6 @@ mod playlist;
 
 pub use pixel_text::PixelText;
 
-/// How often the visualiser moves.
-const VIS_FRAME: Duration = Duration::from_micros(16_667);
-
 /// The stack's height in skin pixels: the main window, and the equalizer
 /// and the playlist under it, whichever are open.
 fn stack_height(settings: &crate::settings::Settings) -> u32 {
@@ -379,11 +376,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         playlist::show(app, &mut below, now.as_ref(), focused);
     }
 
-    // egui subtracts one predicted frame from delayed repaints; the display
-    // supplies it, through the vsync swap or, on Wayland, the compositor's
-    // frame callback that eframe waits for.
     if vis_moving {
-        ctx.request_repaint_after(VIS_FRAME);
+        crate::theme::visualiser_frame(&ctx, app.budget);
     } else if now.is_some() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }

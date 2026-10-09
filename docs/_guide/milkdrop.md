@@ -25,6 +25,11 @@ Like the other visualisers, MilkDrop follows changes you make with the
 equalizer. Turning down the volume does not change the picture, even at zero.
 It reacts only to music playing on this computer.
 
+MilkDrop stops drawing while its window is minimised, and on macOS and Linux
+also while it is covered. While the system saves energy it draws at most 30
+frames a second, and one a second while the display is off or the screen is
+locked.
+
 ## Presets
 
 Each visual design is called a **preset**. They change every ten seconds by

@@ -349,7 +349,10 @@ to treble with peaks that hang and fall, and **Waveform** draws the sound's
 wave as a glowing line, both in colours drawn from the cover. It follows the equalizer, not the volume, and moves only while the
 song plays on this computer. It is off by default. Clicking the player
 bar's empty space switches it, as Winamp's visualizer did: off, then
-Spectrum, then Waveform, then off again.
+Spectrum, then Waveform, then off again. The visualizers draw at half their
+rate while Spotifast's window is out of focus or the system saves energy, and
+not at all while nobody can see the window: minimised, in the tray, with the
+display off or the screen locked.
 
 In **Settings > Appearance**, **Compact track list** puts each song on one
 line. In narrow lists, the added date follows the artist credits with a spaced

@@ -795,6 +795,36 @@ fn soft_button_inner(
     (response, dismissed)
 }
 
+/// Asks for the next frame `interval` from now.
+///
+/// egui takes one predicted frame off every delayed repaint, and egui-winit
+/// leaves that prediction at 1/60 s whatever the display, so asking egui for
+/// 33 ms brought the frame back after 16 ms. The prediction is added back
+/// here, for animations that mean to run slower than the display.
+pub fn repaint_after(ctx: &egui::Context, interval: std::time::Duration) {
+    let predicted = ctx.input(|input| input.predicted_dt);
+    ctx.request_repaint_after(interval + std::time::Duration::from_secs_f32(predicted));
+}
+
+/// How often a moving visualiser is drawn: sixty times a second, as Winamp
+/// drew its analyser.
+const VISUALISER_FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
+
+/// Asks for a moving visualiser's next frame within `budget`: as designed,
+/// at half rate when out of focus or saving energy, and none when nobody can
+/// see it.
+pub fn visualiser_frame(ctx: &egui::Context, budget: crate::power::Budget) {
+    use crate::power::Budget;
+    match budget {
+        // egui subtracts one predicted frame from delayed repaints; the
+        // display supplies it, through the vsync swap or, on Wayland, the
+        // compositor's frame callback that eframe waits for.
+        Budget::Normal => ctx.request_repaint_after(VISUALISER_FRAME),
+        Budget::Saver => repaint_after(ctx, VISUALISER_FRAME * 2),
+        Budget::Background => {}
+    }
+}
+
 /// An animated busy indicator paced independently of the graphics driver.
 pub fn spinner(ui: &mut egui::Ui, size: f32, color: Color32) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
@@ -1103,5 +1133,35 @@ mod tests {
             assert!(galley.rows[0].glyphs.len() >= 10);
         });
         output.textures_delta.clear();
+    }
+
+    /// An animation asking for its next frame in 33 ms gets it in 33 ms, not
+    /// in the 16 ms left after egui's predicted frame.
+    #[test]
+    fn a_timed_repaint_waits_the_whole_interval() {
+        let ctx = egui::Context::default();
+        let delays = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = std::sync::Arc::clone(&delays);
+        ctx.set_request_repaint_callback(move |info| seen.lock().unwrap().push(info.delay));
+        repaint_after(&ctx, std::time::Duration::from_millis(33));
+        let delays = delays.lock().unwrap();
+        assert_eq!(delays.len(), 1);
+        let ms = delays[0].as_secs_f64() * 1_000.0;
+        assert!((ms - 33.0).abs() < 0.5, "{ms} ms");
+    }
+
+    /// A visualiser nobody can see asks for no frames at all.
+    #[test]
+    fn an_unseen_visualiser_asks_for_no_frame() {
+        let ctx = egui::Context::default();
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let seen = std::sync::Arc::clone(&asked);
+        ctx.set_request_repaint_callback(move |_| {
+            seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        });
+        visualiser_frame(&ctx, crate::power::Budget::Background);
+        assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 0);
+        visualiser_frame(&ctx, crate::power::Budget::Saver);
+        assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 }
