@@ -22,6 +22,21 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     // A focused song row still takes Ctrl+arrow to change songs; a text
     // field uses those keys to move its caret.
     let editing_text = ctx.text_edit_focused();
+    // egui clears focus for Escape before this pass starts.
+    let focus_key = egui::Id::new("shortcut-text-focus").with(ctx.viewport_id());
+    let was_editing_text = ctx.data(|data| data.get_temp::<bool>(focus_key).unwrap_or(false));
+    let installed = egui::Id::new("shortcut-focus-observer");
+    if !ctx.data(|data| data.get_temp::<bool>(installed).unwrap_or(false)) {
+        ctx.on_end_pass(
+            "shortcut-text-focus",
+            std::sync::Arc::new(|ctx| {
+                let key = egui::Id::new("shortcut-text-focus").with(ctx.viewport_id());
+                let focused = ctx.text_edit_focused();
+                ctx.data_mut(|data| data.insert_temp(key, focused));
+            }),
+        );
+        ctx.data_mut(|data| data.insert_temp(installed, true));
+    }
     let mut actions = Vec::new();
     ctx.input_mut(|input| {
         let mut key = |modifiers: Modifiers, key: Key, action: Action| {
@@ -180,7 +195,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             app.show_devices = false;
         } else if app.lyrics_expanded {
             app.actions.push(Action::SetLyricsExpanded(false));
-        } else if app.main_fullscreen(ctx) {
+        } else if app.main_fullscreen(ctx)
+            && !editing_text
+            && !was_editing_text
+            && !egui::Popup::is_any_open(ctx)
+        {
             app.actions.push(Action::ToggleFullscreen);
         }
     }
@@ -322,6 +341,88 @@ mod tests {
     use crate::app::AppOptions;
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn escape_dismisses_text_and_popups_before_leaving_fullscreen() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-fullscreen-escape-test-{}",
+            std::process::id()
+        ));
+        let mut app = App::new(
+            &crate::backend::Waker::default(),
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+            },
+        );
+        crate::demo::populate(&mut app);
+        let ctx = egui::Context::default();
+        let field = egui::Id::new("fullscreen-text");
+        let popup = egui::Id::new("fullscreen-popup");
+        let mut text = String::from("search");
+        let frame = |app: &mut App, text: &mut String, escape: bool, show_popup: bool| {
+            app.actions.clear();
+            let mut input = egui::RawInput::default();
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .fullscreen = Some(true);
+            if escape {
+                input.events.push(egui::Event::Key {
+                    key: Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                });
+            }
+            let mut output = ctx.run_ui(input, |ui| {
+                handle(app, ui.ctx());
+                ui.add(egui::TextEdit::singleline(text).id(field));
+                if show_popup {
+                    egui::Popup::new(
+                        popup,
+                        ui.ctx().clone(),
+                        egui::pos2(200.0, 100.0),
+                        ui.layer_id(),
+                    )
+                    .open_memory(None)
+                    .show(|ui| {
+                        ui.label("Menu");
+                    });
+                }
+            });
+            output.textures_delta.clear();
+        };
+        frame(&mut app, &mut text, false, false);
+        ctx.memory_mut(|memory| memory.request_focus(field));
+        frame(&mut app, &mut text, false, false);
+        assert!(ctx.text_edit_focused());
+        frame(&mut app, &mut text, true, false);
+        assert!(app.actions.is_empty());
+        assert!(!ctx.text_edit_focused());
+
+        egui::Popup::open_id(&ctx, popup);
+        frame(&mut app, &mut text, false, true);
+        assert!(egui::Popup::is_any_open(&ctx));
+        frame(&mut app, &mut text, true, true);
+        assert!(app.actions.is_empty());
+        assert!(!egui::Popup::is_any_open(&ctx));
+
+        frame(&mut app, &mut text, false, false);
+        frame(&mut app, &mut text, true, false);
+        assert!(matches!(app.actions.as_slice(), [Action::ToggleFullscreen]));
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     /// A text field edits with the arrow keys: Ctrl or Alt moves a word,
     /// Cmd moves to the end of the line, and Ctrl or Cmd with Up or Down
