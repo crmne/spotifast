@@ -1665,8 +1665,9 @@ mod tests {
                 ("Repeat off", "Repeat"),
                 ("Mute", "Unmute"),
                 ("Unmute", "Mute"),
+                ("Add to playlist", "Remove from Liked Songs"),
                 ("Remove from Liked Songs", "Save to Liked Songs"),
-                ("Save to Liked Songs", "Remove from Liked Songs"),
+                ("Save to Liked Songs", "Add to playlist"),
             ] {
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 let button = accessible_node(&tree, &gettext(locale, source), Role::Button);
@@ -1694,6 +1695,88 @@ mod tests {
             }
             app.backend.shutdown();
         }
+    }
+
+    #[test]
+    fn liked_player_heart_opens_picker_without_unliking_and_adds_the_playing_song() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("player-heart-playlists");
+        let uri = app.now_playing().unwrap().uri;
+        app.saved.insert(uri.clone(), true);
+        let (playlist_id, playlist_name) = app.editable_playlists()[0].clone();
+        let draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            let actions = std::mem::take(&mut app.actions);
+            for action in actions {
+                if matches!(
+                    action,
+                    crate::model::Action::OpenPlaylistPicker(_)
+                        | crate::model::Action::ReadPlaylistMembership
+                ) {
+                    app.apply(action, &ctx);
+                } else {
+                    app.actions.push(action);
+                }
+            }
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        draw(&mut app, vec![]);
+        let tree = draw(&mut app, vec![]);
+        let heart = accessible_node(&tree, "Add to playlist", Role::Button);
+        app.actions.clear();
+        draw(
+            &mut app,
+            vec![accessible_action(heart, AccessibleAction::Click, None)],
+        );
+        let tree = draw(&mut app, vec![]);
+        assert_eq!(app.is_saved(&uri), Some(true));
+        assert!(
+            app.actions.is_empty(),
+            "opening the picker must not change the library"
+        );
+        let playlist = accessible_node(&tree, &playlist_name, Role::Button);
+        draw(
+            &mut app,
+            vec![accessible_action(playlist, AccessibleAction::Click, None)],
+        );
+        assert!(matches!(app.actions.as_slice(),
+            [crate::model::Action::AddToPlaylist { playlist_id: chosen, items, .. }]
+                if chosen == &playlist_id && items.len() == 1 && items[0].uri() == uri
+        ));
+        assert!(!egui::Popup::is_id_open(
+            &ctx,
+            egui::Id::new("player-bar-playlists")
+        ));
+
+        app.actions.clear();
+        draw(
+            &mut app,
+            vec![accessible_action(heart, AccessibleAction::Click, None)],
+        );
+        draw(&mut app, vec![]);
+        assert!(egui::Popup::is_id_open(
+            &ctx,
+            egui::Id::new("player-bar-playlists")
+        ));
+        app.remote = None;
+        draw(&mut app, vec![]);
+        assert!(!egui::Popup::is_id_open(
+            &ctx,
+            egui::Id::new("player-bar-playlists")
+        ));
+        assert!(app.actions.is_empty());
+        app.backend.shutdown();
     }
 
     #[test]
@@ -3808,7 +3891,7 @@ mod tests {
     #[test]
     fn playlist_filter_preserves_edit_permissions_and_keyboard_selection() {
         use egui::accesskit::Role;
-        for count in [1, 2] {
+        for (count, detailed) in [(1, false), (2, false), (1, true)] {
             let (ctx, mut app) = accessible_app(&format!("playlist-filter-{count}"));
             app.backend.set_offline(true);
             let owner = app.user_id().unwrap().to_string();
@@ -3846,12 +3929,18 @@ mod tests {
                         ..Default::default()
                     },
                     |ui| {
-                        let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                        let field = if detailed {
+                            crate::ui::playlist_picker::show(ui, app, &items[0], query)
+                        } else {
+                            crate::ui::widgets::playlist_picker(ui, app, &items, query)
+                        };
                         if focus {
                             field.request_focus();
                         }
                     },
                 );
+                app.actions
+                    .retain(|action| !matches!(action, Action::ReadPlaylistMembership));
                 output.textures_delta.clear();
                 output
             };
@@ -3915,7 +4004,16 @@ mod tests {
     /// to it at once; Up and Down move the choice first.
     #[test]
     fn typing_in_the_playlist_filter_chooses_the_first_match() {
-        let (ctx, mut app) = accessible_app("playlist-filter-choice");
+        check_playlist_keyboard_choice(false);
+    }
+
+    #[test]
+    fn recent_playlist_sorting_keeps_the_keyboard_choice_on_the_same_playlist() {
+        check_playlist_keyboard_choice(true);
+    }
+
+    fn check_playlist_keyboard_choice(detailed: bool) {
+        let (ctx, mut app) = accessible_app(&format!("playlist-filter-choice-{detailed}"));
         app.backend.set_offline(true);
         let owner = app.user_id().unwrap().to_string();
         let make = |id: &str, name: &str| Playlist {
@@ -3946,13 +4044,19 @@ mod tests {
                     ..Default::default()
                 },
                 |ui| {
-                    let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                    let field = if detailed {
+                        crate::ui::playlist_picker::show(ui, app, &items[0], query)
+                    } else {
+                        crate::ui::widgets::playlist_picker(ui, app, &items, query)
+                    };
                     if focus {
                         field.request_focus();
                     }
                 },
             );
             output.textures_delta.clear();
+            app.actions
+                .retain(|action| !matches!(action, Action::ReadPlaylistMembership));
         };
         let added = |app: &App| match app.actions.as_slice() {
             [crate::model::Action::AddToPlaylist { playlist_id, .. }] => Some(playlist_id.clone()),
@@ -3993,6 +4097,14 @@ mod tests {
         }
         draw(&mut app, &mut query, false, key(egui::Key::ArrowUp));
         assert_eq!(query, "night", "the arrows do not edit the filter");
+        if detailed {
+            // A date arriving between selection and Enter must not change its target.
+            app.playlist_picker
+                .entries
+                .entry("owls".into())
+                .or_default()
+                .updated_at_ms = Some(20);
+        }
         draw(&mut app, &mut query, false, key(egui::Key::Enter));
 
         // #then the choice it reached is added

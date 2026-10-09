@@ -79,6 +79,32 @@ pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> 
     Ok(playlist)
 }
 
+/// Membership needs only the playlist's URIs, not catalogue metadata.
+pub async fn membership(
+    session: &Session,
+    id: &str,
+    uri: &str,
+    offset: u32,
+) -> Result<crate::playlist_picker::MembershipPage, Failure> {
+    let list = window(session, id, offset, 500).await?;
+    if list.contents.position as u32 != offset
+        || (list.contents.items.is_empty() && offset < total(&list))
+    {
+        return Err(Failure::Retry(anyhow::anyhow!("Incomplete playlist page")));
+    }
+    let end = offset.saturating_add(list.contents.items.len() as u32);
+    Ok(crate::playlist_picker::MembershipPage {
+        contains: list
+            .contents
+            .items
+            .iter()
+            .any(|item| item.id.to_uri().is_ok_and(|candidate| candidate == uri)),
+        next_offset: (end > offset && end < total(&list)).then_some(end),
+        snapshot: Some(snapshot(&list.revision)),
+        updated_at_ms: Some(list.timestamp.as_timestamp_ms()),
+    })
+}
+
 /// One page of a playlist's rows, as the Web API pages them.
 pub async fn items(
     session: &Session,

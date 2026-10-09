@@ -98,6 +98,13 @@ engine starts at the volume being heard. This recovery applies to unexpected
 disconnects; changing audio settings still restarts the engine with its
 current-track pickup.
 
+The playing song's playlist picker checks editable playlists one page at a time
+while open. It prefers the same account's playback session, which also supplies
+Spotify's last-updated date for sorting. Without that session, it uses the existing
+Web API routing and leaves update dates unknown. Membership stays unknown
+until a read confirms it. Closing the picker stops further pages; reopening
+checks again so changes made in Spotify can appear.
+
 ## What the client stores
 
 - Since 0.8.0, shared and personal Web API grants

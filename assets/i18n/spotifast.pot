@@ -3056,3 +3056,11 @@ msgstr ""
 #: src/window.rs:35
 msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr ""
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr ""
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr ""

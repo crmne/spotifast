@@ -780,6 +780,25 @@ impl ApiClient {
         .map(Into::into)
     }
 
+    pub async fn playlist_membership(
+        &self,
+        id: &str,
+        uri: &str,
+        offset: u32,
+    ) -> Result<crate::playlist_picker::MembershipPage> {
+        let page = self.playlist_items(id, offset, 50).await?;
+        Ok(crate::playlist_picker::MembershipPage {
+            contains: page
+                .items
+                .iter()
+                .filter_map(PlaylistItem::playable)
+                .any(|item| item.uri() == uri),
+            next_offset: page.next_offset(),
+            snapshot: None,
+            updated_at_ms: None,
+        })
+    }
+
     /// Requested songs already present in a playlist.
     ///
     /// Spotify has no membership endpoint for playlists, so walk its pages

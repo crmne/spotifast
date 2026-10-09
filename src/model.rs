@@ -974,6 +974,8 @@ pub enum Action {
         label: String,
     },
     ToggleSaved(String),
+    OpenPlaylistPicker(String),
+    ReadPlaylistMembership,
     /// Queue several songs in order and show one notification.
     QueueMany {
         songs: Vec<(String, String)>,

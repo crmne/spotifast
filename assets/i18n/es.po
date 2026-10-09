@@ -3185,3 +3185,11 @@ msgstr "En Windows en ARM, el OpenGL con el que Spotifast dibuja viene del OpenC
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Reducir movimiento de la letra"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Guardado en"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "Actualizadas recientemente"

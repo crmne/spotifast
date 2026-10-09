@@ -48,6 +48,8 @@ clients. Spotifast uses its session for:
 
 - **Playlist folders and order.** Spotifast can read them from Spotify's
   rootlist. librespot cannot create, rename, or move folders.
+- **Playlist update dates.** The playback session supplies the update date used
+  by the playing song's playlist picker. The Web API does not expose this date.
 - **Playlist permissions.** The rootlist shows when a playlist shared by
   invitation can be edited. The Web API's `collaborative` flag does not cover
   these playlists. Spotifast cannot manage collaborators.
