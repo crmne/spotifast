@@ -3056,6 +3056,10 @@ msgstr "晚上好"
 msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
 msgstr "在 Wayland 上，请使用桌面环境的“保持在最上层”快捷键或窗口规则。"
 
+#: src/app.rs:2315
+msgid "No internet connection"
+msgstr "无互联网连接"
+
 #: src/window.rs:32
 msgid "Spotifast cannot open its window"
 msgstr "Spotifast 无法打开窗口"

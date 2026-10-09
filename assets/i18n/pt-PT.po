@@ -3162,6 +3162,10 @@ msgstr ""
 "No Wayland, usa o atalho ou a regra de janela “Manter acima” do teu ambiente "
 "de trabalho."
 
+#: src/app.rs:2315
+msgid "No internet connection"
+msgstr "Sem ligação à Internet"
+
 #: src/window.rs:32
 msgid "Spotifast cannot open its window"
 msgstr "O Spotifast não consegue abrir a janela"

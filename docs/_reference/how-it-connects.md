@@ -306,6 +306,37 @@ Playback runs on a separate runtime. Librespot maintains the Spotify Connect
 session, exposes this computer as a device, receives transfers, and reports
 playback state. If the session drops, it reconnects with the stored credential.
 
+When Spotify cannot be reached to reconnect, for example because the network
+is not back yet after the computer wakes, the engine keeps what was playing
+and tries again after 2 seconds, then 4, 8 and so on up to once a minute, and
+at once when the system reports the network back. The same applies when the
+stored credential cannot connect at start-up. Any other failure, such as
+Spotify refusing the credential or an account without Premium, stops it and
+shows the error, and then **Try again** opens the browser; after a network
+failure it reconnects with the stored credential instead.
+
+Before the computer sleeps, music playing on it pauses and the session is
+saved. The pause is asked of the player as soon as the system says it is
+going to sleep, without waiting for the window, whose logic may not run in
+time while the display goes off, and the position stops there. Windows with
+Modern Standby may freeze the app as the display goes off; the pause then
+lands as soon as it wakes. Either way it wakes paused at the same spot,
+however long it slept, also when it was still waiting to reconnect as the
+computer slept. When it wakes after more than 90 seconds, the
+session is replaced at once, keeping what was playing, since Spotify has
+usually dropped a session that slept that long. Music on other devices is
+left alone.
+
+Without internet, every track librespot tries to load fails, and it marks each
+one unavailable and skips to the next. When the system reports no internet,
+the app says so once instead of once per track, leaves the session alone, and
+replaces it when the network is back, so the marks go with it. A session
+replaced while it still runs can hand over only its track, so the app gives
+the new one the album, playlist or list around it as well, with the track and
+position shown when the last load failed. A track that autoplay added after
+its album or playlist is not part of it, so it comes back by itself, or, once
+it has played out, its radio follows.
+
 Since 0.9.0, selecting this computer in the device picker asks
 librespot to transfer playback from the active Connect device. Spotify supplies
 the current song, position, playing or paused state, context, and queue together.

@@ -3183,6 +3183,10 @@ msgstr ""
 "Sous Wayland, utilisez le raccourci ou la règle de fenêtre « Garder au-"
 "dessus » de votre bureau."
 
+#: src/app.rs:2315
+msgid "No internet connection"
+msgstr "Pas de connexion Internet"
+
 #: src/window.rs:32
 msgid "Spotifast cannot open its window"
 msgstr "Spotifast ne peut pas ouvrir sa fenêtre"

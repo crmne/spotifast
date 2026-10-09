@@ -3182,6 +3182,10 @@ msgstr ""
 "W Wayland użyj skrótu lub reguły okna „Zawsze na wierzchu” w swoim "
 "środowisku."
 
+#: src/app.rs:2315
+msgid "No internet connection"
+msgstr "Brak połączenia z internetem"
+
 #: src/window.rs:32
 msgid "Spotifast cannot open its window"
 msgstr "Spotifast nie może otworzyć okna"

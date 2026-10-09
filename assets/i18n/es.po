@@ -3163,6 +3163,10 @@ msgstr ""
 "En Wayland, usa el atajo o la regla de ventana «Mantener encima» de tu "
 "escritorio."
 
+#: src/app.rs:2315
+msgid "No internet connection"
+msgstr "Sin conexión a internet"
+
 #: src/window.rs:32
 msgid "Spotifast cannot open its window"
 msgstr "Spotifast no puede abrir su ventana"
