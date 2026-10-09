@@ -1648,6 +1648,7 @@ impl App {
         None
     }
 
+    /// Finds a playlist already loaded in the library, search, or Home shelf.
     pub fn known_playlist(&self, id: &str) -> Option<&Playlist> {
         self.library
             .playlists
@@ -1661,11 +1662,10 @@ impl App {
                     .and_then(|playlists| playlists.items.iter().find(|playlist| playlist.id == id))
             })
             .or_else(|| {
-                self.home.discover.values().find_map(|playlists| {
-                    playlists
-                        .get()
-                        .and_then(|playlists| playlists.iter().find(|playlist| playlist.id == id))
-                })
+                self.home
+                    .made_for_you
+                    .get()
+                    .and_then(|playlists| playlists.iter().find(|playlist| playlist.id == id))
             })
     }
 
@@ -2077,11 +2077,18 @@ impl App {
         self.auth = status;
     }
 
+    /// Retries the Home shelf when local playback becomes ready after Home.
     fn handle_playback(&mut self, status: LocalPlayback) {
         match &status {
             LocalPlayback::Ready { device_id } => {
                 self.local_device_id = Some(device_id.clone());
                 self.local_ready = true;
+                if self.home.requested && self.home.made_for_you.get().is_none() {
+                    self.backend.api(ApiRequest::MadeForYou {
+                        generation: self.home.generation,
+                        force: false,
+                    });
+                }
                 if let Some(request) = self.queued_play.take() {
                     self.play_request(request, false);
                 }
@@ -3745,6 +3752,7 @@ impl App {
         }
     }
 
+    /// Starts a new Home refresh while preserving cards already on screen.
     fn load_home(&mut self, force: bool) {
         if self.home.requested
             && !force
@@ -3780,21 +3788,11 @@ impl App {
             full: false,
             generation,
         });
-        self.home.discover_pending.clear();
-        for term in DISCOVER_TERMS {
-            self.home
-                .discover_pending
-                .insert((*term).to_string(), Loadable::Loading);
-            if !self.home.discover.contains_key(*term) {
-                self.home
-                    .discover
-                    .insert((*term).to_string(), Loadable::Loading);
-            }
-            self.backend.api(ApiRequest::Discover {
-                term: (*term).to_string(),
-                generation,
-            });
+        if self.home.made_for_you.get().is_none() {
+            self.home.made_for_you = Loadable::Loading;
         }
+        self.backend
+            .api(ApiRequest::MadeForYou { generation, force });
         // The podcast shelf reads from the saved shows. The first page of
         // them is the one the Podcasts shelf of the library asks for.
         if self.library.shows.loaded_once {
@@ -4790,6 +4788,7 @@ impl App {
         }
     }
 
+    /// Applies an API response to the current page and ignores stale Home data.
     fn handle_api(&mut self, mut response: ApiResponse) {
         match &mut response {
             ApiResponse::Playlist {
@@ -5137,40 +5136,11 @@ impl App {
                 }
                 self.home.recommendations.refresh(result);
             }
-            ApiResponse::Discover {
-                term,
-                generation,
-                result,
-            } => {
+            ApiResponse::MadeForYou { generation, result } => {
                 if generation != self.home.generation {
                     return;
                 }
-                let filtered = result.map(|playlists| {
-                    let mut seen = std::collections::HashSet::new();
-                    let mut matching: Vec<Playlist> = playlists
-                        .into_iter()
-                        .filter(|playlist| {
-                            let owner = playlist.owner.id.as_deref().unwrap_or("");
-                            is_made_for_you(&playlist.name, &term)
-                                && (owner == "spotify" || playlist.owner_name() == "Spotify")
-                                && seen.insert(playlist.name.to_lowercase())
-                        })
-                        .collect();
-                    matching.truncate(6);
-                    matching
-                });
-                self.home
-                    .discover_pending
-                    .insert(term, Loadable::from_result(filtered));
-                let complete = DISCOVER_TERMS.iter().all(|term| {
-                    self.home
-                        .discover_pending
-                        .get(*term)
-                        .is_some_and(|result| !result.is_loading())
-                });
-                if complete {
-                    self.home.discover = std::mem::take(&mut self.home.discover_pending);
-                }
+                self.home.made_for_you.refresh(result);
             }
             // A reload reads the playlists from the top again under a new
             // generation, so a page any earlier load asked for no longer
@@ -10309,23 +10279,6 @@ fn friendly_page_error(locale: Locale, error: &crate::api::ApiError) -> String {
         .into_owned(),
         _ => error.to_string(),
     }
-}
-
-/// Whether a Spotify-owned playlist named `name` is the personal one the
-/// Made for you shelf looks for under `term`. The name has to be the term
-/// itself, or "Daily Mix" with a number: Spotify also makes "<Artist> Mix",
-/// "This Is <Artist>", and "<Artist> Radio" for every artist, and an artist
-/// called "Discover Weekly" put those on the shelf (#89).
-fn is_made_for_you(name: &str, term: &str) -> bool {
-    let name = name.trim().to_lowercase();
-    let term = term.to_lowercase();
-    if name == term {
-        return true;
-    }
-    term == "daily mix"
-        && name
-            .strip_prefix("daily mix ")
-            .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// What the engine is told to play. A single song goes as a context of
@@ -21938,6 +21891,35 @@ mod tests {
     /// A Free account is told once per sign-in that nothing will play;
     /// a Premium one is not bothered.
     #[test]
+    fn made_for_you_keeps_the_last_shelf_on_error_and_ignores_old_answers() {
+        let mut app = headless_app();
+        app.home.generation = 4;
+        let playlist = crate::api::models::Playlist {
+            id: "1234567890123456789012".into(),
+            name: "Your current mix".into(),
+            ..Default::default()
+        };
+        app.handle_api(ApiResponse::MadeForYou {
+            generation: 4,
+            result: Ok(vec![playlist.clone()]),
+        });
+        assert_eq!(
+            app.home.made_for_you.get().unwrap(),
+            &vec![playlist.clone()]
+        );
+        app.handle_api(ApiResponse::MadeForYou {
+            generation: 4,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        assert_eq!(app.home.made_for_you.get().unwrap(), &vec![playlist]);
+        app.handle_api(ApiResponse::MadeForYou {
+            generation: 3,
+            result: Ok(vec![]),
+        });
+        assert_eq!(app.home.made_for_you.get().unwrap().len(), 1);
+    }
+
+    #[test]
     fn a_free_account_is_told_once_that_it_cannot_play() {
         let me = |product: &str| {
             ApiResponse::Me(Ok(crate::api::models::User {
@@ -21956,25 +21938,6 @@ mod tests {
         let mut app = headless_app();
         app.handle_api(me("premium"));
         assert!(app.dialog.is_none());
-    }
-
-    /// Only the personal playlists themselves belong on the shelf, not
-    /// what Spotify generates for an artist who took one of their names.
-    #[test]
-    fn the_shelf_takes_the_playlist_and_not_an_artist_named_after_it() {
-        assert!(is_made_for_you("Discover Weekly", "Discover Weekly"));
-        assert!(is_made_for_you("release radar", "Release Radar"));
-        assert!(is_made_for_you("daylist", "daylist"));
-        assert!(is_made_for_you("Daily Mix 3", "Daily Mix"));
-        assert!(is_made_for_you("Daily Mix", "Daily Mix"));
-        assert!(!is_made_for_you("Discover Weekly Mix", "Discover Weekly"));
-        assert!(!is_made_for_you(
-            "This Is Discover Weekly",
-            "Discover Weekly"
-        ));
-        assert!(!is_made_for_you("Release Radar Radio", "Release Radar"));
-        assert!(!is_made_for_you("Daily Mix Radio", "Daily Mix"));
-        assert!(!is_made_for_you("Daily Mix 3", "Discover Weekly"));
     }
 
     /// One song plays as a context of its own, so librespot's autoplay

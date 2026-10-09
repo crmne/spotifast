@@ -588,8 +588,7 @@ pub struct HomeData {
     pub top_songs_loading: bool,
     pub top_songs_complete: bool,
     pub recommendations: Loadable<Vec<Track>>,
-    pub discover: HashMap<String, Loadable<Vec<Playlist>>>,
-    pub discover_pending: HashMap<String, Loadable<Vec<Playlist>>>,
+    pub made_for_you: Loadable<Vec<Playlist>>,
     /// Saved podcasts with their newest episodes, in library order, for the
     /// podcast shelf. A refresh replaces them only once it answers.
     pub podcasts: Vec<(Show, Vec<Episode>)>,
@@ -600,8 +599,6 @@ pub struct HomeData {
     pub requested: bool,
     pub loaded_at: Option<Instant>,
 }
-
-pub const DISCOVER_TERMS: &[&str] = &["Discover Weekly", "Release Radar", "Daily Mix", "daylist"];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchFilter {

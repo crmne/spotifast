@@ -7,7 +7,7 @@ use egui::{CornerRadius, Rect, Sense, Vec2, pos2, vec2};
 use crate::api::models::{Episode, PlayableItem, Playlist, Show, pick_image};
 use crate::app::App;
 use crate::i18n::gettext;
-use crate::model::{Action, DISCOVER_TERMS, Loadable, Page, RowContext};
+use crate::model::{Action, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
@@ -189,30 +189,15 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// Renders session Home cards or approximate fallback cards in the same shelf.
 fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let mut playlists: Vec<Playlist> = Vec::new();
-    let mut loading = false;
-    let mut failed = false;
-    for term in DISCOVER_TERMS {
-        match app.home.discover.get(*term) {
-            Some(Loadable::Loaded(list)) => {
-                for playlist in list {
-                    let duplicate = playlists.iter().any(|existing| {
-                        existing.id == playlist.id
-                            || existing.name.eq_ignore_ascii_case(&playlist.name)
-                    });
-                    if !duplicate {
-                        playlists.push(playlist.clone());
-                    }
-                }
-            }
-            Some(Loadable::Loading) => loading = true,
-            Some(Loadable::Failed(_)) => failed = true,
-            _ => {}
-        }
-    }
-    if playlists.is_empty() && !loading && !failed {
+    let (playlists, loading, failure) = match &app.home.made_for_you {
+        Loadable::Loaded(playlists) => (playlists.clone(), false, None),
+        Loadable::Loading | Loadable::NotLoaded => (Vec::new(), true, None),
+        Loadable::Failed(error) => (Vec::new(), false, Some(error.clone())),
+    };
+    if playlists.is_empty() && !loading && failure.is_none() {
         return;
     }
     widgets::shelf(
@@ -223,9 +208,10 @@ fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
         |ui| {
             if playlists.is_empty() && loading {
                 widgets::loading_row(ui, &palette, app.locale);
-            } else if playlists.is_empty() && failed {
-                let message = gettext(app.locale, "Couldn't load this shelf");
-                widgets::error_row(ui, app, &message, Some(Page::Home));
+            } else if playlists.is_empty()
+                && let Some(message) = &failure
+            {
+                widgets::error_row(ui, app, message, Some(Page::Home));
             }
             for playlist in &playlists {
                 let subtitle = playlist
