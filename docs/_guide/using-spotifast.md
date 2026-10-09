@@ -37,6 +37,12 @@ open the podcast, or use its play button to play the episode. An episode you
 have started continues from where you left it. The same is true of Play on a
 podcast page, a saved episode, or a search result.
 
+## Saving the playing song
+
+Click the heart in the player bar to save the song to Liked Songs.
+For a song already liked, click the heart to choose a playlist. The popup
+also offers **New playlist** and **Remove from Liked Songs**.
+
 ## Dragging beyond the visible list
 
 Since 0.8.0, hold a dragged song near the top or

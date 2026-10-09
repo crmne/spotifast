@@ -1665,8 +1665,9 @@ mod tests {
                 ("Repeat off", "Repeat"),
                 ("Mute", "Unmute"),
                 ("Unmute", "Mute"),
+                ("Add to playlist", "Remove from Liked Songs"),
                 ("Remove from Liked Songs", "Save to Liked Songs"),
-                ("Save to Liked Songs", "Remove from Liked Songs"),
+                ("Save to Liked Songs", "Add to playlist"),
             ] {
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 let button = accessible_node(&tree, &gettext(locale, source), Role::Button);
@@ -1694,6 +1695,76 @@ mod tests {
             }
             app.backend.shutdown();
         }
+    }
+
+    #[test]
+    fn liked_player_heart_opens_picker_without_unliking_and_adds_the_playing_song() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("player-heart-playlists");
+        let uri = app.now_playing().unwrap().uri;
+        app.saved.insert(uri.clone(), true);
+        let (playlist_id, playlist_name) = app.editable_playlists()[0].clone();
+        let draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        draw(&mut app, vec![]);
+        let tree = draw(&mut app, vec![]);
+        let heart = accessible_node(&tree, "Add to playlist", Role::Button);
+        app.actions.clear();
+        draw(
+            &mut app,
+            vec![accessible_action(heart, AccessibleAction::Click, None)],
+        );
+        let tree = draw(&mut app, vec![]);
+        assert_eq!(app.is_saved(&uri), Some(true));
+        assert!(
+            app.actions.is_empty(),
+            "opening the picker must not change the library"
+        );
+        let playlist = accessible_node(&tree, &playlist_name, Role::Button);
+        draw(
+            &mut app,
+            vec![accessible_action(playlist, AccessibleAction::Click, None)],
+        );
+        assert!(matches!(app.actions.as_slice(),
+            [crate::model::Action::AddToPlaylist { playlist_id: chosen, items, .. }]
+                if chosen == &playlist_id && items.len() == 1 && items[0].uri() == uri
+        ));
+        assert!(!egui::Popup::is_id_open(
+            &ctx,
+            egui::Id::new("player-bar-playlists")
+        ));
+
+        app.actions.clear();
+        draw(
+            &mut app,
+            vec![accessible_action(heart, AccessibleAction::Click, None)],
+        );
+        draw(&mut app, vec![]);
+        assert!(egui::Popup::is_id_open(
+            &ctx,
+            egui::Id::new("player-bar-playlists")
+        ));
+        app.remote = None;
+        draw(&mut app, vec![]);
+        assert!(!egui::Popup::is_id_open(
+            &ctx,
+            egui::Id::new("player-bar-playlists")
+        ));
+        assert!(app.actions.is_empty());
+        app.backend.shutdown();
     }
 
     #[test]

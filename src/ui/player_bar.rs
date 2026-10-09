@@ -16,6 +16,7 @@ const TINT_STRENGTH: f32 = 0.12;
 /// How long the bar takes to cross over to a new song's tint.
 const TINT_FADE_SECONDS: f32 = 0.45;
 const TINT_SESSION_ID: &str = "player-bar-tint-session";
+const PLAYLIST_POPUP_ID: &str = "player-bar-playlists";
 /// How strongly the visualizer shows through behind the controls: the
 /// spectrum's bars fade from their foot to their top, with a glow around
 /// them, a brighter cap above, and a pulse along the foot with the bass.
@@ -59,6 +60,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             let rect = ui.max_rect();
             let now = app.now_playing();
+            let popup_id = egui::Id::new(PLAYLIST_POPUP_ID);
+            let popup_track = ui.data(|data| data.get_temp::<String>(popup_id));
+            if popup_track.as_deref().is_some_and(|uri| {
+                now.as_ref()
+                    .is_none_or(|now| now.uri != uri || now.is_episode)
+                    || !app.is_saved(uri).unwrap_or(false)
+            }) {
+                egui::Popup::close_id(ui.ctx(), popup_id);
+                ui.data_mut(|data| data.remove::<String>(popup_id));
+            }
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
             if visualizer(app, ui, behind, now.as_ref()) {
@@ -520,12 +531,12 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 
     // The playing thing answers the same right-click menu as a table row,
     // from the cover, the empty space around the words, or the words.
-    if let Some(item) = song {
+    if let Some(item) = &song {
         let context = app.editable_context_playlist();
         for response in [&cover_response, &info_response, &title_response] {
             egui::Popup::context_menu(response)
                 .frame(super::widgets::menu_frame(&palette))
-                .show(|ui| super::widgets::item_menu(ui, app, &item, context.as_ref(), None));
+                .show(|ui| super::widgets::item_menu(ui, app, item, context.as_ref(), None));
         }
     }
 
@@ -535,7 +546,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             (
                 Icon::HeartFilled,
                 palette.accent,
-                gettext(app.locale, "Remove from Liked Songs"),
+                gettext(app.locale, "Add to playlist"),
             )
         } else {
             (
@@ -564,8 +575,44 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        if theme::icon_button(&mut heart_ui, icon, 17.0, color, palette.text, &tooltip).clicked() {
-            app.actions.push(Action::ToggleSaved(now.uri.clone()));
+        let response = theme::icon_button(&mut heart_ui, icon, 17.0, color, palette.text, &tooltip);
+        if !saved {
+            if response.clicked() {
+                app.actions.push(Action::ToggleSaved(now.uri.clone()));
+            }
+        } else if let Some(item) = song {
+            let popup_id = egui::Id::new(PLAYLIST_POPUP_ID);
+            let query_id = popup_id.with("query");
+            let fresh = response.clicked() && !egui::Popup::is_id_open(ui.ctx(), popup_id);
+            if fresh {
+                ui.data_mut(|data| {
+                    data.insert_temp(popup_id, now.uri.clone());
+                    data.remove::<String>(query_id);
+                });
+            }
+            let mut query = ui
+                .data(|data| data.get_temp::<String>(query_id))
+                .unwrap_or_default();
+            egui::Popup::menu(&response)
+                .id(popup_id)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .frame(super::widgets::menu_frame(&palette))
+                .show(|ui| {
+                    let field = super::widgets::playlist_picker(ui, app, &[item], &mut query);
+                    if fresh {
+                        field.request_focus();
+                    }
+                    super::widgets::menu_separator(ui, &palette);
+                    if super::widgets::menu_item(
+                        ui,
+                        &palette,
+                        Some(Icon::HeartFilled),
+                        &gettext(app.locale, "Remove from Liked Songs"),
+                    ) {
+                        app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                    }
+                });
+            ui.data_mut(|data| data.insert_temp(query_id, query));
         }
     }
 }
