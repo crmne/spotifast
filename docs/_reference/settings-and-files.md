@@ -128,7 +128,7 @@ the background cache writer instead of making a separate copy. Visible library
 cards and collection covers request 640-pixel artwork for sharper HiDPI output;
 compact rows and softened placeholders keep using 64-pixel thumbnails. Up to 64
 softened 256-pixel covers may be retained in addition to the existing artwork
-budget, and their downloaded JPEG bytes are released after decoding. A failed
+budget, and their downloaded image bytes are released after decoding. A failed
 cache write does not prevent the downloaded image from being displayed.
 Softened previews reuse egui's decoded artwork after its encoded bytes have
 been released, without repeatedly reading the disk cache or downloading again.
