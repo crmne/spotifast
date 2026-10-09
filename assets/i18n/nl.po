@@ -3184,3 +3184,11 @@ msgstr "Op Windows on ARM komt de OpenGL waarmee Spotifast tekent uit het OpenCL
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Songtekstbeweging verminderen"
+
+#: src/ui/settings.rs:808
+msgid "Show scrollbars only on hover"
+msgstr "Schuifbalken alleen tonen bij aanwijzen"
+
+#: src/ui/settings.rs:888
+msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
+msgstr "Toon schuifbalken wanneer de muisaanwijzer boven hun rand staat. Schakel dit uit om ze zichtbaar te houden."

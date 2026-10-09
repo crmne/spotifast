@@ -3259,6 +3259,19 @@ impl App {
             self.accents.clear();
             self.accent_pending.clear();
         }
+        let dormant_opacity = if self.settings.scrollbars_on_hover {
+            0.0
+        } else {
+            0.55
+        };
+        if ctx.global_style().spacing.scroll.dormant_handle_opacity != dormant_opacity
+            || ctx.global_style().spacing.scroll.active_handle_opacity != dormant_opacity
+        {
+            ctx.global_style_mut(|style| {
+                style.spacing.scroll.dormant_handle_opacity = dormant_opacity;
+                style.spacing.scroll.active_handle_opacity = dormant_opacity;
+            });
+        }
     }
 
     fn handle_tray(&mut self) {

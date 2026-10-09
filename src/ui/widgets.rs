@@ -2461,17 +2461,23 @@ pub fn shelf(
     ui.add_space(8.0);
     theme::section_title(ui, palette, title);
     ui.add_space(4.0);
-    crate::autoscroll::show(
-        ui,
-        egui::ScrollArea::horizontal().id_salt(id),
-        egui::Vec2b::new(true, false),
-        |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
-                add_contents(ui);
-            });
-        },
-    );
+    ui.scope(|ui| {
+        // Keep even the expanded scrollbar below the card subtitles.
+        let scroll = &mut ui.style_mut().spacing.scroll;
+        scroll.floating_allocated_width =
+            scroll.bar_width + scroll.bar_inner_margin + scroll.bar_outer_margin;
+        crate::autoscroll::show(
+            ui,
+            egui::ScrollArea::horizontal().id_salt(id),
+            egui::Vec2b::new(true, false),
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
+                    add_contents(ui);
+                });
+            },
+        );
+    });
     ui.add_space(12.0);
 }
 
@@ -3146,6 +3152,51 @@ mod tests {
     use crate::model::{Action, Page};
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn shelf_scrollbar_stays_below_its_content() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        theme::apply(&ctx, &Palette::dark());
+        let mut content = Rect::NOTHING;
+        let mut output = None;
+        for frame in 0..5 {
+            let mut frame_output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 400.0))),
+                    time: Some(frame as f64),
+                    ..Default::default()
+                },
+                |ui| {
+                    shelf(
+                        ui,
+                        &Palette::dark(),
+                        "scrollbar-regression",
+                        "Shelf",
+                        |ui| {
+                            content = ui.allocate_exact_size(vec2(800.0, 120.0), Sense::hover()).0;
+                        },
+                    );
+                },
+            );
+            frame_output.textures_delta.clear();
+            output = Some(frame_output);
+        }
+        let tree = output.unwrap().platform_output.accesskit_update.unwrap();
+        let bar = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.role() == egui::accesskit::Role::ScrollBar)
+            .expect("overflowing shelf has a scrollbar")
+            .1
+            .bounds()
+            .unwrap();
+        assert!(
+            bar.y0 >= content.bottom() as f64,
+            "scrollbar must not cover card content"
+        );
+    }
 
     #[test]
     fn editing_a_proxy_endpoint_clears_its_password_but_password_entry_is_preserved() {

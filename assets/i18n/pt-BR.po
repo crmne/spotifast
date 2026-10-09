@@ -3174,3 +3174,11 @@ msgstr "No Windows on ARM, o OpenGL que o Spotifast usa para desenhar vem do Ope
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Reduzir movimento da letra"
+
+#: src/ui/settings.rs:808
+msgid "Show scrollbars only on hover"
+msgstr "Mostrar barras de rolagem apenas ao passar o mouse"
+
+#: src/ui/settings.rs:888
+msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
+msgstr "Mostra as barras de rolagem ao passar o mouse sobre a borda delas. Desative para mantê-las visíveis."

@@ -3166,3 +3166,11 @@ msgstr "I Windows på ARM kommer OpenGL, som Spotifast ritar med, från Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Minska låttextrörelse"
+
+#: src/ui/settings.rs:808
+msgid "Show scrollbars only on hover"
+msgstr "Visa rullningslister endast när pekaren hålls över dem"
+
+#: src/ui/settings.rs:888
+msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
+msgstr "Visa rullningslister när pekaren hålls över deras kant. Stäng av för att alltid visa dem."

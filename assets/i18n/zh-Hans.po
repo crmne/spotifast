@@ -3078,3 +3078,11 @@ msgstr "在 ARM 版 Windows 上，Spotifast 用于绘制界面的 OpenGL 由 Mic
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "减少歌词动画"
+
+#: src/ui/settings.rs:808
+msgid "Show scrollbars only on hover"
+msgstr "仅在悬停时显示滚动条"
+
+#: src/ui/settings.rs:888
+msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
+msgstr "将指针悬停在滚动条边缘时显示滚动条。关闭此选项可让滚动条始终可见。"
