@@ -76,7 +76,8 @@ clients. Spotifast uses its session for:
 librespot provides:
 
 - Spotify catalogue playback at up to 320 kbps.
-- Gapless playback, normalisation, and a local audio cache.
+- Gapless playback, normalisation, a local audio cache, and a crossfade
+  that Spotifast mixes in its own audio path.
 - Spotify Connect, so another Spotify client can transfer playback to this
   computer.
 - Shuffle, repeat, seek, and volume.
@@ -117,8 +118,11 @@ The Web API and librespot do not provide these features:
   [issue #566](https://github.com/crmne/spotifast/issues/566).
 - **Offline listening and downloads.** Spotify's DRM and the project's scope
   rule these out.
-- **Playback speed and crossfade.** librespot supports neither. Spotifast
-  would have to add them to its own audio path.
+- **Playback speed.** librespot does not change it. Spotifast would have to
+  resample its own audio path to offer one.
+- **Crossfade** is not a librespot feature. Spotifast mixes it itself, in the
+  audio path. Switching it off preserves queued audio and lets an already
+  started fade finish its curve.
 - **Free-account playback.** Replacing Spotify audio with another source is
   also out of scope. See the
   [contribution guide](https://github.com/crmne/spotifast/blob/main/CONTRIBUTING.md).

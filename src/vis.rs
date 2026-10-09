@@ -153,6 +153,9 @@ pub struct Tapped {
     applies_volume: bool,
     /// Final limiter, placed here because this stage knows the output volume.
     limiter: crate::limiter::Limiter,
+    crossfade: crate::sink::Crossfade,
+    clock_epoch: u64,
+    decoded_frames: u64,
     /// Track normalization factor. The tap removes it so visualizers show the
     /// source dynamics, as Winamp's analyser did.
     normalisation: Arc<std::sync::atomic::AtomicU64>,
@@ -176,8 +179,60 @@ impl Tapped {
             volume,
             applies_volume,
             limiter: crate::limiter::Limiter::new(f64::from(SAMPLE_RATE)),
+            crossfade: crate::sink::Crossfade::default(),
+            clock_epoch: u64::MAX,
+            decoded_frames: 0,
             normalisation,
         }
+    }
+
+    /// Drain in ordinary packet sizes. A blocking backend can take seconds
+    /// to accept a whole overlap; preparing it all at once also delays sound.
+    fn drain_tail(&mut self, converter: &mut Converter, advance_clock: bool) -> SinkResult<()> {
+        let held = self.crossfade.pending_frames() as u64;
+        let mut tail = self.crossfade.take_tail();
+        let delay = self.limiter.delay_frames();
+        tail.resize(tail.len() + delay * NUM_CHANNELS as usize, 0.0);
+        let end = self.decoded_frames + delay as u64;
+        let mut position = self.decoded_frames.saturating_sub(held);
+        for packet in tail.chunks(4096) {
+            position = (position + (packet.len() / NUM_CHANNELS as usize) as u64).min(end);
+            self.decoded_frames = if advance_clock { position } else { 0 };
+            self.emit(packet.to_vec(), converter)?;
+        }
+        self.decoded_frames = end;
+        Ok(())
+    }
+
+    /// One output path for ordinary packets and the final held overlap.
+    fn emit(&mut self, mut samples: Vec<f64>, converter: &mut Converter) -> SinkResult<()> {
+        // Post-EQ and crossfade, before output volume.
+        let factor = f64::from_bits(
+            self.normalisation
+                .load(std::sync::atomic::Ordering::Relaxed),
+        );
+        let restore = if factor > 0.05 && factor < 20.0 {
+            (1.0 / factor).clamp(0.125, 8.0) as f32
+        } else {
+            1.0
+        };
+        self.tap.push(&samples, restore);
+        let attenuation = self.volume.attenuation_factor();
+        if self.applies_volume {
+            for sample in &mut samples {
+                *sample *= attenuation;
+            }
+        }
+        let limited = full_scale(attenuation, self.applies_volume);
+        if let Some(full_scale) = limited {
+            self.limiter.process(&mut samples, full_scale);
+        }
+        let pending = self.crossfade.pending_frames() as u64
+            + limited.map_or(0, |_| self.limiter.delay_frames() as u64);
+        self.control
+            .clock
+            .prepare(self.decoded_frames.saturating_sub(pending));
+        self.inner.write(AudioPacket::Samples(samples), converter)
     }
 }
 
@@ -198,50 +253,77 @@ fn full_scale(volume: f64, applied: bool) -> Option<f64> {
 
 impl Sink for Tapped {
     fn start(&mut self) -> SinkResult<()> {
+        self.control.drain_events();
         self.inner.start()
     }
 
     fn stop(&mut self) -> SinkResult<()> {
+        self.control.drain_events();
+        if self.control.take_drop_tail() {
+            self.crossfade.clear();
+        } else if self.control.ended() {
+            // Include the limiter's final held frames, even after switch-off.
+            if let Err(error) = self.drain_tail(&mut Converter::new(None), true) {
+                log::error!("could not drain crossfade tail: {error}");
+            }
+        }
+        if self.control.ended() {
+            self.control.finish_output();
+        }
+        let result = self.inner.stop();
+        self.control.take_end_of_track();
         self.tap.clear();
-        self.inner.stop()
+        result
     }
 
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
+        self.control.drain_events();
+        if self.control.waiting_for_track() {
+            // Retain decoder backpressure while Connect replaces the track.
+            let frames = packet
+                .samples()
+                .map_err(|e| librespot_playback::audio_backend::SinkError::OnWrite(e.to_string()))?
+                .len()
+                / NUM_CHANNELS as usize;
+            std::thread::sleep(Duration::from_secs_f64(frames as f64 / SAMPLE_RATE as f64));
+            return Ok(());
+        }
+        if self.control.take_boundary_stop() {
+            // librespot stays gapless so a live switch can enable overlap.
+            // The sink owns the saved non-gapless boundary when it is off.
+            self.drain_tail(converter, false)?;
+            self.control.finish_output();
+            self.inner.stop()?;
+            self.inner.start()?;
+        }
+        let (epoch, origin) = self.control.clock.origin();
+        if self.clock_epoch != epoch {
+            self.clock_epoch = epoch;
+            self.decoded_frames = origin;
+        }
         if self.control.take_processing_reset() {
             self.eq.reset();
             self.limiter = crate::limiter::Limiter::new(f64::from(SAMPLE_RATE));
+            self.crossfade.clear();
+            self.control.take_drop_tail();
             self.tap.clear();
         }
-        let packet = match packet {
+        match packet {
             AudioPacket::Samples(mut samples) => {
+                self.decoded_frames += (samples.len() / NUM_CHANNELS as usize) as u64;
                 self.eq.process(&mut samples);
-                // Post-EQ, pre-volume, pre-normalisation: the equalizer
-                // shapes what the bars show; the volume knob and the
-                // loudness housekeeping never move them.
-                let factor = f64::from_bits(
-                    self.normalisation
-                        .load(std::sync::atomic::Ordering::Relaxed),
+                let samples = self.crossfade.process(
+                    samples,
+                    self.control.crossfade_frames(SAMPLE_RATE),
+                    self.control.take_crossing(),
                 );
-                let restore = if factor > 0.05 && factor < 20.0 {
-                    (1.0 / factor).clamp(0.125, 8.0) as f32
-                } else {
-                    1.0
-                };
-                self.tap.push(&samples, restore);
-                let attenuation = self.volume.attenuation_factor();
-                if self.applies_volume {
-                    for sample in &mut samples {
-                        *sample *= attenuation;
-                    }
+                if samples.is_empty() {
+                    return Ok(());
                 }
-                if let Some(full_scale) = full_scale(attenuation, self.applies_volume) {
-                    self.limiter.process(&mut samples, full_scale);
-                }
-                AudioPacket::Samples(samples)
+                self.emit(samples, converter)
             }
-            raw => raw,
-        };
-        self.inner.write(packet, converter)
+            raw => self.inner.write(raw, converter),
+        }
     }
 }
 
@@ -687,52 +769,300 @@ mod tests {
     fn write_level(tapped: &mut Tapped, level: f64) {
         tapped
             .write(
-                AudioPacket::Samples(vec![level; 2048]),
+                AudioPacket::Samples(vec![
+                    level;
+                    if tapped.control.waiting_for_track() {
+                        2048
+                    } else {
+                        2048 + 2 * tapped.control.crossfade_frames(SAMPLE_RATE)
+                    }
+                ]),
                 &mut Converter::new(None),
             )
             .unwrap();
     }
 
     #[test]
+    fn an_interrupted_decoder_cannot_race_to_the_end_while_a_new_track_loads() {
+        for applies_volume in [false, true] {
+            let control = crate::sink::AudioControl::new(crate::sink::DEFAULT_BUFFER_MS);
+            let (mut tapped, recorded) = recorded_tap(Arc::clone(&control), crate::eq::shared());
+            tapped.applies_volume = applies_volume;
+            control.interrupt();
+            let frames = SAMPLE_RATE as usize / 100;
+            let started = Instant::now();
+            for _ in 0..4 {
+                tapped
+                    .write(
+                        AudioPacket::Samples(vec![0.0; frames * NUM_CHANNELS as usize]),
+                        &mut Converter::new(None),
+                    )
+                    .unwrap();
+            }
+            assert!(started.elapsed() >= Duration::from_millis(40));
+            assert!(
+                recorded.lock().unwrap().is_empty(),
+                "the old decoder must not feed any backend"
+            );
+        }
+    }
+
+    fn test_audio_item() -> librespot_metadata::audio::AudioItem {
+        let track_id =
+            librespot_core::SpotifyUri::from_uri("spotify:track:14XWXWv5FoCbFzLksawpEe").unwrap();
+        librespot_metadata::audio::AudioItem {
+            track_id: track_id.clone(),
+            uri: track_id.to_uri().unwrap(),
+            files: Default::default(),
+            name: "Test song".into(),
+            covers: vec![],
+            language: vec![],
+            duration_ms: 200_000,
+            is_explicit: false,
+            availability: Ok(()),
+            alternatives: None,
+            unique_fields: librespot_metadata::audio::UniqueFields::Track {
+                artists: Default::default(),
+                album: "Album".into(),
+                album_artists: vec![],
+                popularity: 0,
+                number: 1,
+                disc_number: 1,
+            },
+        }
+    }
+
+    #[test]
+    fn live_crossfade_changes_preserve_the_started_curve_pause_and_final_audio() {
+        use librespot_playback::player::PlayerEvent;
+        for applies_volume in [false, true] {
+            for seconds in [0, 4, 12] {
+                let control = crate::sink::AudioControl::with_crossfade(
+                    crate::sink::DEFAULT_BUFFER_MS,
+                    Duration::from_secs(seconds),
+                );
+                let (mut tapped, recorded) =
+                    recorded_tap(Arc::clone(&control), crate::eq::shared());
+                tapped.applies_volume = applies_volume;
+                let item = test_audio_item();
+                control.handle_player_event(&PlayerEvent::TrackChanged {
+                    audio_item: Box::new(item.clone()),
+                });
+                let mut converter = Converter::new(None);
+                let rate = SAMPLE_RATE as usize;
+                tapped
+                    .write(
+                        AudioPacket::Samples(vec![0.125; 20 * rate * 2]),
+                        &mut converter,
+                    )
+                    .unwrap();
+                control.handle_player_event(&PlayerEvent::EndOfTrack {
+                    play_request_id: 1,
+                    track_id: item.track_id.clone(),
+                });
+                control.handle_player_event(&PlayerEvent::TrackChanged {
+                    audio_item: Box::new(item.clone()),
+                });
+                let quarter = seconds as usize * rate / 4;
+                tapped
+                    .write(
+                        AudioPacket::Samples(vec![0.25; quarter * 2]),
+                        &mut converter,
+                    )
+                    .unwrap();
+                control.set_crossfade(Duration::from_secs(if seconds == 12 { 4 } else { 12 }));
+                tapped
+                    .write(
+                        AudioPacket::Samples(vec![0.25; quarter * 2]),
+                        &mut converter,
+                    )
+                    .unwrap();
+                let before_pause = recorded.lock().unwrap().len();
+                tapped.stop().unwrap();
+                tapped.start().unwrap();
+                assert_eq!(recorded.lock().unwrap().len(), before_pause);
+                control.set_crossfade(Duration::ZERO);
+                for packet in vec![0.25; (20 * rate - 2 * quarter) * 2].chunks(2048) {
+                    tapped
+                        .write(AudioPacket::Samples(packet.to_vec()), &mut converter)
+                        .unwrap();
+                }
+                control.handle_player_event(&PlayerEvent::EndOfTrack {
+                    play_request_id: 2,
+                    track_id: item.track_id,
+                });
+                tapped.stop().unwrap();
+                let delay = tapped.limiter.delay_frames();
+                let played = recorded.lock().unwrap();
+                assert_eq!(played.len(), ((40 - seconds as usize) * rate + delay) * 2);
+                let start = (20 - seconds as usize) * rate + delay;
+                for frame in 0..seconds as usize * rate {
+                    let angle = (frame as f64 + 0.5) / (seconds as usize * rate) as f64
+                        * std::f64::consts::FRAC_PI_2;
+                    let expected = 0.125 * angle.cos() + 0.25 * angle.sin();
+                    assert!((played[(start + frame) * 2] - expected).abs() < 1e-10);
+                }
+                assert!((played[played.len() - 1] - 0.25).abs() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn crossfade_events_are_consumed_before_audio_and_the_final_tail_is_complete() {
+        use librespot_playback::player::PlayerEvent;
+        for applies_volume in [false, true] {
+            for seconds in [4, 12] {
+                let control = crate::sink::AudioControl::with_crossfade(
+                    crate::sink::DEFAULT_BUFFER_MS,
+                    Duration::from_secs(seconds),
+                );
+                let (send, receive) = tokio::sync::mpsc::unbounded_channel();
+                control.follow_events(receive);
+                let (mut tapped, recorded) =
+                    recorded_tap(Arc::clone(&control), crate::eq::shared());
+                tapped.applies_volume = applies_volume;
+                let item = test_audio_item();
+                let track_id = item.track_id.clone();
+                // No runtime task reads these events. The sink must observe the
+                // decoder's already-published boundary before the next packet.
+                send.send(PlayerEvent::TrackChanged {
+                    audio_item: Box::new(item.clone()),
+                })
+                .unwrap();
+                let overlap = seconds as usize * SAMPLE_RATE as usize;
+                tapped
+                    .write(
+                        AudioPacket::Samples(vec![0.2; overlap * 2]),
+                        &mut Converter::new(None),
+                    )
+                    .unwrap();
+                assert!(recorded.lock().unwrap().is_empty());
+                tapped.stop().unwrap();
+                tapped.start().unwrap();
+                assert!(
+                    recorded.lock().unwrap().is_empty(),
+                    "pause keeps the overlap"
+                );
+                send.send(PlayerEvent::EndOfTrack {
+                    play_request_id: 1,
+                    track_id: track_id.clone(),
+                })
+                .unwrap();
+                send.send(PlayerEvent::TrackChanged {
+                    audio_item: Box::new(item),
+                })
+                .unwrap();
+                for _ in 0..overlap / 64 {
+                    tapped
+                        .write(
+                            AudioPacket::Samples(vec![0.0; 128]),
+                            &mut Converter::new(None),
+                        )
+                        .unwrap();
+                }
+                let remainder = overlap % 64;
+                tapped
+                    .write(
+                        AudioPacket::Samples(vec![0.0; remainder * 2]),
+                        &mut Converter::new(None),
+                    )
+                    .unwrap();
+                let played = recorded.lock().unwrap();
+                assert_eq!(
+                    played.len(),
+                    overlap * 2,
+                    "each frame of the overlap is emitted once"
+                );
+                let delay = tapped.limiter.delay_frames();
+                assert!(played[delay * 2] > 0.19);
+                assert!(played[played.len() - 2] < 0.001);
+                drop(played);
+                recorded.lock().unwrap().clear();
+                tapped
+                    .write(
+                        AudioPacket::Samples(vec![0.25; overlap * 2]),
+                        &mut Converter::new(None),
+                    )
+                    .unwrap();
+                assert!(recorded.lock().unwrap().is_empty());
+                send.send(PlayerEvent::EndOfTrack {
+                    play_request_id: 2,
+                    track_id,
+                })
+                .unwrap();
+                tapped.stop().unwrap();
+                let played = recorded.lock().unwrap();
+                assert_eq!(played.len(), (overlap + delay) * 2);
+                assert!(
+                    played[delay * 2..]
+                        .iter()
+                        .all(|sample| (*sample - 0.25).abs() < 1e-6),
+                    "the last frame survives both crossfade and limiter buffering"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn replacing_a_track_discards_held_audio_before_its_silent_intro() {
         for equalizer_on in [false, true] {
-            let control = crate::sink::AudioControl::new(crate::sink::DEFAULT_BUFFER_MS);
-            let eq = crate::eq::shared();
-            {
-                let mut settings = eq.lock().unwrap();
-                settings.on = equalizer_on;
-                settings.bands_db[0] = 12.0;
+            for overlap in [
+                Duration::ZERO,
+                Duration::from_secs(4),
+                Duration::from_secs(12),
+            ] {
+                let control = crate::sink::AudioControl::with_crossfade(
+                    crate::sink::DEFAULT_BUFFER_MS,
+                    overlap,
+                );
+                let eq = crate::eq::shared();
+                {
+                    let mut settings = eq.lock().unwrap();
+                    settings.on = equalizer_on;
+                    settings.bands_db[0] = 12.0;
+                }
+                let (mut tapped, recorded) = recorded_tap(Arc::clone(&control), eq);
+                write_level(&mut tapped, 0.25);
+                control.interrupt();
+                // Old packets can still arrive while the replacement is loading.
+                write_level(&mut tapped, 0.25);
+                control.interrupt();
+                control.track_changed();
+                recorded.lock().unwrap().clear();
+                write_level(&mut tapped, 0.0);
+                assert!(!recorded.lock().unwrap().is_empty());
+                assert!(
+                    recorded.lock().unwrap().iter().all(|sample| *sample == 0.0),
+                    "the old overlap, limiter delay and equalizer tail must not reach the new track"
+                );
             }
-            let (mut tapped, recorded) = recorded_tap(Arc::clone(&control), eq);
-            write_level(&mut tapped, 0.25);
-            control.interrupt();
-            // Old packets can still arrive while the replacement is loading.
-            write_level(&mut tapped, 0.25);
-            control.interrupt();
-            control.track_changed();
-            recorded.lock().unwrap().clear();
-            write_level(&mut tapped, 0.0);
-            assert!(
-                recorded.lock().unwrap().iter().all(|sample| *sample == 0.0),
-                "the old limiter delay and equalizer tail must not reach the new track"
-            );
         }
     }
 
     #[test]
     fn a_confirmed_seek_discards_the_processing_history() {
-        let control = crate::sink::AudioControl::new(crate::sink::DEFAULT_BUFFER_MS);
-        let (mut tapped, recorded) = recorded_tap(Arc::clone(&control), crate::eq::shared());
-        write_level(&mut tapped, 0.25);
-        control.handle_player_event(&librespot_playback::player::PlayerEvent::Seeked {
-            play_request_id: 1,
-            track_id: librespot_core::SpotifyUri::from_uri("spotify:track:14XWXWv5FoCbFzLksawpEe")
+        for overlap in [
+            Duration::ZERO,
+            Duration::from_secs(4),
+            Duration::from_secs(12),
+        ] {
+            let control =
+                crate::sink::AudioControl::with_crossfade(crate::sink::DEFAULT_BUFFER_MS, overlap);
+            let (mut tapped, recorded) = recorded_tap(Arc::clone(&control), crate::eq::shared());
+            write_level(&mut tapped, 0.25);
+            control.handle_player_event(&librespot_playback::player::PlayerEvent::Seeked {
+                play_request_id: 1,
+                track_id: librespot_core::SpotifyUri::from_uri(
+                    "spotify:track:14XWXWv5FoCbFzLksawpEe",
+                )
                 .unwrap(),
-            position_ms: 0,
-        });
-        recorded.lock().unwrap().clear();
-        write_level(&mut tapped, 0.0);
-        assert!(recorded.lock().unwrap().iter().all(|sample| *sample == 0.0));
+                position_ms: 0,
+            });
+            recorded.lock().unwrap().clear();
+            write_level(&mut tapped, 0.0);
+            assert!(!recorded.lock().unwrap().is_empty());
+            assert!(recorded.lock().unwrap().iter().all(|sample| *sample == 0.0));
+        }
     }
 
     #[test]

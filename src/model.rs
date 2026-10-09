@@ -1121,6 +1121,7 @@ pub enum Action {
         playlist_order: Option<Vec<String>>,
     },
     RestartEngine,
+    UpdateCrossfade,
     /// Rebuild the HTTP client with the proxy in settings. Local playback
     /// restarts only when its HTTP proxy changed.
     ApplyProxy,

@@ -223,7 +223,9 @@ main fields are:
 | `bitrate` | `320` | 96, 160, or 320 kbps |
 | `normalisation` | `false` | Volume normalisation |
 | `autoplay` | `true` | Keep playing similar music at the end |
-| `gapless` | `true` | Gapless playback |
+| `gapless` | `true` | Gapless playback. Crossfade temporarily uses a continuous handoff; turning it off restores this saved choice |
+| `crossfade` | `false` | Song-to-song crossfade switch. Changes apply during playback without restarting. Turning it off preserves queued audio and lets a fade already started finish its original curve. A file saved before the switch is on when `crossfade_secs` is above zero |
+| `crossfade_secs` | `0` | Crossfade length in seconds, from the Settings slider, 0 to 12. A larger saved value is treated as 12. The slider keeps its place while the switch is off, and that length is used again when the switch is turned on. The active overlap is held until mixed or released in order. Live duration changes affect future fades, preserving a curve already started. Applies to every local backend |
 | `audio_backend` | platform | `pulseaudio` or `rodio` on Linux. `rodio` is Spotifast's own output, through ALSA; librespot's separate rodio backend is no longer built in, and a backend this build lacks plays through Spotifast's own output |
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
 | `theme` | `system` | Follow the system appearance by default; explicit `dark` and `light` choices remain available |
@@ -275,6 +277,14 @@ main fields are:
 | `proxy_host` | none | Host of a manual HTTP or SOCKS5 proxy. Ignored when the mode is `off` or `system` |
 | `proxy_port` | none | Port of a manual HTTP or SOCKS5 proxy |
 | `proxy_username` | none | Optional proxy login for Web requests; authenticated local playback proxying is not supported |
+
+The local playback counter follows emitted audio, accounting for the held
+crossfade/limiter frames and the output backlog. The native output counts frames
+rendered at the device rate and its reported latency; PulseAudio reports server
+and device latency. Pause freezes the native queue instead of draining it through
+silence. Seek and explicit track replacements discard that queue and start from
+the confirmed position. Pipe/subprocess outputs retain decoder timing because
+those external consumers expose no playback clock.
 
 ## Command line
 

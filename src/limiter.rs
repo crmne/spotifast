@@ -77,6 +77,10 @@ impl Limiter {
         }
     }
 
+    pub(crate) fn delay_frames(&self) -> usize {
+        self.held.len()
+    }
+
     /// Limits interleaved stereo `frames` to `full_scale`.
     ///
     /// `full_scale` may exceed one when output volume is applied later. For

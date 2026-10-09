@@ -5876,6 +5876,8 @@ dependencies = [
  "image",
  "jiff",
  "keyring-core",
+ "libpulse-binding",
+ "libpulse-simple-binding",
  "librespot-connect",
  "librespot-core",
  "librespot-metadata",

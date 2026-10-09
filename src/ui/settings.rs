@@ -441,6 +441,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let normalize_volume = gettext(locale, "Normalize volume");
     let autoplay = gettext(locale, "Autoplay");
     let gapless = gettext(locale, "Gapless playback");
+    let crossfade = gettext(locale, "Crossfade");
     let keep_playing = gettext(locale, "Keep music playing when the window closes");
     let update_checks = gettext(locale, "Automatic update checks");
     let audio_cache = gettext(locale, "Audio cache");
@@ -528,6 +529,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
         )
         .when(cfg!(target_os = "macos")),
+        RowText::new(
+            crossfade.clone(),
+            gettext(
+                locale,
+                "Fade the end of a song into the start of the next. Off keeps the handover as it is.",
+            ),
+        ),
     ];
     if section_matches(&needle, &playback, &playback_rows) {
         any_visible = true;
@@ -651,6 +659,44 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     changed = true;
                     playback_dirty = true;
                 }
+            });
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[15], |ui| {
+                // The control area lays out right-to-left: the switch is the
+                // rightmost item, and the slider sits to its left.
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if widgets::switch(ui, &palette, &crossfade, &mut app.settings.crossfade)
+                        .changed()
+                    {
+                        changed = true;
+                        app.actions.push(Action::UpdateCrossfade);
+                    }
+                    let mut seconds = app
+                        .settings
+                        .crossfade_secs
+                        .min(crate::sink::CROSSFADE_MAX.as_secs() as u32);
+                    // Translators: {seconds} is a crossfade length, such as 4.
+                    let unit = gettext(locale, "{seconds} s");
+                    let suffix = unit
+                        .split_once("{seconds}")
+                        .map(|(_, rest)| rest.to_owned())
+                        .unwrap_or_else(|| " s".to_owned());
+                    if setting_slider(
+                        ui,
+                        &palette,
+                        &mut seconds,
+                        0..=crate::sink::CROSSFADE_MAX.as_secs() as u32,
+                        |slider| slider.integer().suffix(suffix.clone()),
+                        |value| value.suffix(suffix.clone()),
+                    )
+                    .changed()
+                        && app.settings.crossfade_secs != seconds
+                    {
+                        app.settings.crossfade_secs = seconds;
+                        changed = true;
+                        app.actions.push(Action::UpdateCrossfade);
+                    }
+                });
             });
             filtered_row(ui, &palette, &needle, &playback, &playback_rows[6], |ui| {
                 if widgets::switch(

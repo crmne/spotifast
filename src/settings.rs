@@ -230,6 +230,17 @@ pub struct Settings {
     pub normalisation: bool,
     pub autoplay: bool,
     pub gapless: bool,
+    /// Whether songs fade into each other. Off is the default: nothing is
+    /// held back and songs hand over exactly as before. A file saved before
+    /// the switch existed is on only when [`Self::crossfade_secs`] is above
+    /// zero.
+    #[serde(default)]
+    pub crossfade: bool,
+    /// Song-to-song overlap in seconds, from the Settings slider, 0 to
+    /// [`crate::sink::CROSSFADE_MAX`]. Kept while the switch is off, and
+    /// used again when it is turned back on.
+    #[serde(default)]
+    pub crossfade_secs: u32,
     /// librespot backend name; `None` picks the platform default.
     pub audio_backend: Option<String>,
     pub audio_device: Option<String>,
@@ -419,6 +430,8 @@ impl Default for Settings {
             normalisation: false,
             autoplay: true,
             gapless: true,
+            crossfade: false,
+            crossfade_secs: 0,
             audio_backend: None,
             audio_device: None,
             audio_buffer_ms: default_buffer_ms(),
@@ -576,6 +589,7 @@ impl Settings {
                     Self::default()
                 });
                 settings.migrate_proxy(text);
+                settings.migrate_crossfade(text);
                 settings.proxy_password_legacy = !settings.proxy_password.is_empty();
                 settings
             }
@@ -620,6 +634,14 @@ impl Settings {
         self.search_history.retain(|entry| entry != query);
         self.search_history.insert(0, query.to_string());
         self.search_history.truncate(12);
+    }
+
+    /// A file from before the switch has no `crossfade` field. Treat a saved
+    /// length above zero as on, and zero as off.
+    pub(crate) fn migrate_crossfade(&mut self, text: &str) {
+        if !text.contains("\"crossfade\"") {
+            self.crossfade = self.crossfade_secs > 0;
+        }
     }
 
     pub(crate) fn migrate_proxy(&mut self, text: &str) {
@@ -1100,6 +1122,33 @@ mod tests {
         assert!(!settings.playlist_shaded);
         assert!(!settings.eq_shaded);
         assert!(!settings.winamp_shaded);
+        assert!(settings.audio_device.is_none());
+    }
+
+    #[test]
+    fn a_blank_output_device_follows_the_system_default() {
+        let missing: Settings = serde_json::from_str(r#"{"volume": 37}"#).unwrap();
+        assert!(missing.audio_device.is_none());
+        for blank in ["", "   "] {
+            let settings: Settings =
+                serde_json::from_str(&format!(r#"{{"audio_device": "{blank}"}}"#)).unwrap();
+            assert_eq!(settings.audio_device.as_deref(), Some(blank));
+            assert!(
+                settings
+                    .audio_device
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .is_none()
+            );
+        }
+        let chosen = Settings {
+            audio_device: Some("USB DAC".into()),
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&chosen).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.audio_device.as_deref(), Some("USB DAC"));
     }
 
     #[test]
@@ -1210,6 +1259,25 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"skin":"A.wsz"}"#).unwrap();
         assert!(!settings.random_skin);
         assert_eq!(settings.skin.as_deref(), Some("A.wsz"));
+    }
+
+    /// A file from before the switch is on only when it already had a length.
+    /// The switch and the length then round-trip on their own.
+    #[test]
+    fn a_saved_crossfade_length_turns_the_switch_on() {
+        let mut off: Settings = serde_json::from_str(r#"{"crossfade_secs":0}"#).unwrap();
+        off.migrate_crossfade(r#"{"crossfade_secs":0}"#);
+        assert!(!off.crossfade);
+
+        let mut on: Settings = serde_json::from_str(r#"{"crossfade_secs":8}"#).unwrap();
+        on.migrate_crossfade(r#"{"crossfade_secs":8}"#);
+        assert!(on.crossfade);
+        assert_eq!(on.crossfade_secs, 8);
+
+        let kept: Settings =
+            serde_json::from_str(r#"{"crossfade":false,"crossfade_secs":8}"#).unwrap();
+        assert!(!kept.crossfade);
+        assert_eq!(kept.crossfade_secs, 8);
     }
 
     #[test]

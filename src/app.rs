@@ -2259,7 +2259,7 @@ impl App {
         if state.seek_sequence != self.local.seek_sequence
             && let Some(controls) = &self.media_controls
         {
-            controls.seeked(Duration::from_millis(u64::from(state.position_ms)));
+            controls.seeked(Duration::from_millis(u64::from(state.position_now())));
         }
         if let Some(error) = &state.error
             && self.local.error.as_deref() != Some(error.as_str())
@@ -9135,6 +9135,19 @@ impl App {
                 self.settings_dirty = true;
                 ctx.set_theme(self.theme_preference());
             }
+            Action::UpdateCrossfade => {
+                self.save_settings();
+                self.backend
+                    .send(Command::UpdateCrossfade(std::time::Duration::from_secs(
+                        u64::from(
+                            u32::from(self.settings.crossfade)
+                                * self
+                                    .settings
+                                    .crossfade_secs
+                                    .min(crate::sink::CROSSFADE_MAX.as_secs() as u32),
+                        ),
+                    )));
+            }
             Action::RestartEngine => {
                 self.save_settings();
                 let config = engine_config(
@@ -10210,6 +10223,12 @@ pub fn engine_config(
         normalisation: settings.normalisation,
         autoplay: settings.autoplay,
         gapless: settings.gapless,
+        crossfade: std::time::Duration::from_secs(u64::from(
+            u32::from(settings.crossfade)
+                * settings
+                    .crossfade_secs
+                    .min(crate::sink::CROSSFADE_MAX.as_secs() as u32),
+        )),
         backend: settings.platform_backend(),
         buffer_ms: settings.audio_buffer_ms,
         audio_device: settings
@@ -21901,6 +21920,118 @@ mod tests {
         app.handle_proxy_applied(first, old, Ok(false));
         assert_eq!(app.applied_proxy, newest);
         assert_eq!(Settings::load(&app.dirs.settings_file()).proxy_port, "8090");
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn crossfade_controls_apply_live_and_preserve_the_saved_gapless_choice() {
+        let mut app = test_app("crossfade-live-controls");
+        app.backend.set_offline(true);
+        app.local_ready = true;
+        app.local.playback = Playback::Playing;
+        app.settings.gapless = false;
+        app.settings.crossfade_secs = 4;
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        ctx.enable_accesskit();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings-filter"), "crossfade".to_string()));
+        fn frame(app: &mut App, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::settings::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+        }
+        fn click(app: &mut App, ctx: &egui::Context, at: egui::Pos2) {
+            for pressed in [true, false] {
+                frame(
+                    app,
+                    ctx,
+                    vec![
+                        egui::Event::PointerMoved(at),
+                        egui::Event::PointerButton {
+                            pos: at,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Default::default(),
+                        },
+                    ],
+                );
+            }
+        }
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        let nodes = output.platform_output.accesskit_update.unwrap().nodes;
+        let switch = nodes
+            .iter()
+            .find(|(_, node)| {
+                node.label() == Some("Crossfade") && node.role() == egui::accesskit::Role::CheckBox
+            })
+            .unwrap()
+            .1
+            .bounds()
+            .unwrap();
+        click(
+            &mut app,
+            &ctx,
+            egui::pos2(
+                (switch.x0 + switch.x1) as f32 / 2.0,
+                (switch.y0 + switch.y1) as f32 / 2.0,
+            ),
+        );
+        assert!(app.settings.crossfade);
+        assert!(
+            app.actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdateCrossfade))
+        );
+        assert!(
+            !app.actions
+                .iter()
+                .any(|a| matches!(a, Action::RestartEngine))
+        );
+        app.apply_actions(&ctx);
+        let saved = Settings::load(&app.dirs.settings_file());
+        assert!(saved.crossfade);
+        assert_eq!(saved.crossfade_secs, 4);
+        assert!(!saved.gapless);
+        let output = frame(&mut app, &ctx, vec![]);
+        let nodes = output.platform_output.accesskit_update.unwrap().nodes;
+        let slider = nodes
+            .iter()
+            .find(|(_, node)| node.role() == egui::accesskit::Role::Slider)
+            .unwrap()
+            .1
+            .bounds()
+            .unwrap();
+        click(
+            &mut app,
+            &ctx,
+            egui::pos2(slider.x1 as f32 - 3.0, (slider.y0 + slider.y1) as f32 / 2.0),
+        );
+        assert_eq!(app.settings.crossfade_secs, 12);
+        assert!(
+            app.actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdateCrossfade))
+        );
+        assert!(
+            !app.actions
+                .iter()
+                .any(|a| matches!(a, Action::RestartEngine))
+        );
+        app.apply_actions(&ctx);
+        assert_eq!(Settings::load(&app.dirs.settings_file()).crossfade_secs, 12);
+        assert_eq!(app.local.playback, Playback::Playing);
+        assert!(!app.toasts.iter().any(|t| t.message.contains("Restarting")));
         app.backend.shutdown();
     }
 

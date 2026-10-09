@@ -595,6 +595,7 @@ pub enum Command {
     AuthorizePlayback,
     /// Reload the engine config (audio settings changed).
     RestartEngine(EngineConfig),
+    UpdateCrossfade(std::time::Duration),
     /// Rebuild the HTTP client. Restart local playback only when its HTTP
     /// proxy changed; Off, System, and SOCKS5 share a direct engine connection.
     ApplyProxy {
@@ -1685,6 +1686,12 @@ impl Worker {
                 }
                 Command::SignOut => self.sign_out(),
                 Command::AuthorizePlayback => self.authorize_playback(),
+                Command::UpdateCrossfade(duration) => {
+                    self.engine_config.crossfade = duration;
+                    if let Some(engine) = &self.engine {
+                        engine.set_crossfade(duration);
+                    }
+                }
                 Command::RestartEngine(mut config) => {
                     // Audio settings must not revert a proxy change whose UI
                     // acknowledgement was still in flight when this was clicked.
@@ -5201,6 +5208,27 @@ mod authorization_tests {
         ] {
             assert_eq!(worker.apply_proxy(next).unwrap(), restart);
         }
+    }
+
+    #[test]
+    fn live_crossfade_updates_keep_next_engine_config_and_gapless_preference() {
+        let (runtime, mut worker, _) = worker("crossfade-config");
+        worker.engine_config.gapless = false;
+        let (commands, receiver) = mpsc::unbounded_channel();
+        for seconds in [0, 4, 12] {
+            commands
+                .send(Command::UpdateCrossfade(std::time::Duration::from_secs(
+                    seconds,
+                )))
+                .unwrap();
+        }
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+        assert_eq!(
+            worker.engine_config.crossfade,
+            std::time::Duration::from_secs(12)
+        );
+        assert!(!worker.engine_config.gapless);
     }
 
     #[test]
