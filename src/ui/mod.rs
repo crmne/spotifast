@@ -13,6 +13,7 @@ pub mod login;
 mod lyrics;
 pub mod player_bar;
 mod prerelease;
+pub(crate) mod playlist_picker;
 pub mod queue;
 pub mod radio;
 pub mod search;

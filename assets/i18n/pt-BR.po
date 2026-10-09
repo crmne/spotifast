@@ -3329,3 +3329,7 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Reduzir movimento da letra"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Salvo em"

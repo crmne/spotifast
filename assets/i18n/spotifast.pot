@@ -3199,3 +3199,7 @@ msgid ""
 "Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft "
 "Store page to install or repair it?"
 msgstr ""
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr ""

@@ -3356,3 +3356,7 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Уменьшить анимацию текста"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Сохранено в"

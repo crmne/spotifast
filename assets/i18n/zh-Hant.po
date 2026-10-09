@@ -3233,3 +3233,7 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "減少歌詞動畫"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "已儲存至"

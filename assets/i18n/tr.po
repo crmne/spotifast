@@ -3327,3 +3327,7 @@ msgstr ""
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr ""
 #~ "Spotify uygulamaların sıradan tek bir şarkıyı kaldırmasına izin vermiyor."
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Kaydedildiği yer"

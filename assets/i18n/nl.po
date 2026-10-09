@@ -3340,3 +3340,7 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Songtekstbeweging verminderen"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Opgeslagen in"

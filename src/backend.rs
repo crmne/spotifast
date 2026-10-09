@@ -147,6 +147,12 @@ pub enum ApiRequest {
         id: String,
         generation: u64,
     },
+    PlaylistMembership {
+        id: String,
+        uri: String,
+        offset: u32,
+        generation: u64,
+    },
     PlaylistItems {
         id: String,
         offset: u32,
@@ -338,6 +344,7 @@ impl ApiRequest {
                 | Self::MadeForYou { .. }
                 | Self::MyPlaylists { .. }
                 | Self::PlaylistSample { .. }
+                | Self::PlaylistMembership { .. }
                 | Self::Contains { .. }
         )
     }
@@ -389,6 +396,11 @@ pub enum ApiResponse {
         id: String,
         generation: u64,
         result: ApiResult<Playlist>,
+    },
+    PlaylistMembership {
+        id: String,
+        generation: u64,
+        result: ApiResult<crate::playlist_picker::MembershipPage>,
     },
     PlaylistItems {
         id: String,
@@ -4079,6 +4091,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         ApiRequest::Playlist { id, .. } => Operation::PlaylistMetadata(api.playlist_access(id)),
         ApiRequest::PlaylistItems { id, .. }
         | ApiRequest::PlaylistSample { id, .. }
+        | ApiRequest::PlaylistMembership { id, .. }
         | ApiRequest::CheckPlaylistDuplicates {
             playlist_id: id, ..
         } => Operation::PlaylistItems(api.playlist_access(id)),
@@ -4383,6 +4396,16 @@ async fn handle(
         },
         ApiRequest::Playlist { id, generation } => ApiResponse::Playlist {
             result: routed!(playlist(&id)),
+            id,
+            generation,
+        },
+        ApiRequest::PlaylistMembership {
+            id,
+            uri,
+            offset,
+            generation,
+        } => ApiResponse::PlaylistMembership {
+            result: routed!(playlist_membership(&id, &uri, offset)),
             id,
             generation,
         },
@@ -4884,6 +4907,9 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
     let session = engine.session();
     let read = async {
         Some(match session_read(request)? {
+            SessionRead::Membership { id, uri, offset } => SessionAnswer::Membership(settle(
+                session_reads::membership(session, id, uri, offset).await,
+            )?),
             SessionRead::Header { id } => SessionAnswer::Header(Box::new(settle(
                 session_reads::playlist(session, id).await,
             )?)),
@@ -4911,15 +4937,35 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
 /// where the session serves the operation.
 #[derive(Debug, PartialEq)]
 enum SessionRead<'a> {
+    Membership {
+        id: &'a str,
+        uri: &'a str,
+        offset: u32,
+    },
+    Header {
+        id: &'a str,
+    },
+    Rows {
+        id: &'a str,
+        offset: u32,
+    },
+    Sample {
+        id: &'a str,
+        offset: u32,
+    },
     ArtistTop { id: &'a str },
-    Header { id: &'a str },
-    Rows { id: &'a str, offset: u32 },
-    Sample { id: &'a str, offset: u32 },
 }
 
 fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
     Some(match request {
         ApiRequest::ArtistTopTracks { id } => SessionRead::ArtistTop { id },
+        ApiRequest::PlaylistMembership {
+            id, uri, offset, ..
+        } => SessionRead::Membership {
+            id,
+            uri,
+            offset: *offset,
+        },
         ApiRequest::Playlist { id, .. } => SessionRead::Header { id },
         ApiRequest::PlaylistItems { id, offset, .. } => SessionRead::Rows {
             id,
@@ -4937,6 +4983,7 @@ fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
 enum SessionAnswer {
     ArtistTop(ApiResult<Vec<Track>>),
     Header(Box<ApiResult<Playlist>>),
+    Membership(ApiResult<crate::playlist_picker::MembershipPage>),
     Rows(ApiResult<Page<PlaylistItem>>),
 }
 
@@ -4950,6 +4997,14 @@ fn session_response(request: &ApiRequest, answer: SessionAnswer) -> Option<ApiRe
                 result,
             }
         }
+        (
+            ApiRequest::PlaylistMembership { id, generation, .. },
+            SessionAnswer::Membership(result),
+        ) => ApiResponse::PlaylistMembership {
+            id: id.clone(),
+            generation: *generation,
+            result,
+        },
         (ApiRequest::Playlist { id, generation }, SessionAnswer::Header(result)) => {
             ApiResponse::Playlist {
                 id: id.clone(),
