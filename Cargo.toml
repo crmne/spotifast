@@ -24,6 +24,12 @@ thiserror = "2"
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# MCP's official SDK owns protocol negotiation and Streamable HTTP sessions.
+rmcp = { version = "3.5.1", default-features = false, features = ["server", "transport-streamable-http-server"] }
+# Hosts MCP on the existing Tokio runtime, with bearer and Origin checks.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+# CancellationToken stops MCP requests and the server when access is disabled.
+tokio-util = "0.7"
 log = "0.4"
 directories = "6"
 # One protected-store API, with only each target's native provider below.

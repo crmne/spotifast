@@ -3171,3 +3171,27 @@ msgstr "Spotifast penceresini açamıyor"
 #: src/window.rs:35
 msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr "ARM üzerinde Windows'ta Spotifast'in çizim için kullandığı OpenGL, Microsoft'un OpenCL, OpenGL & Vulkan Compatibility Pack paketinden gelir. Yüklemek veya onarmak için Microsoft Store sayfası açılsın mı?"
+
+#: src/ui/settings.rs:1176
+msgid "Agents"
+msgstr "Ajanlar"
+
+#: src/ui/settings.rs:1177
+msgid "Local MCP server"
+msgstr "Yerel MCP sunucusu"
+
+#: src/ui/settings.rs:1180
+msgid "Let agents search Spotify, control playback and edit playlists."
+msgstr "Ajanların Spotify'da arama yapmasına, oynatmayı denetlemesine ve çalma listelerini düzenlemesine izin verin."
+
+#: src/ui/settings.rs:1192
+msgid "Local port (0 selects an available port)"
+msgstr "Yerel bağlantı noktası (0 kullanılabilir bir nokta seçer)"
+
+#: src/ui/settings.rs:1204
+msgid "Copy MCP configuration"
+msgstr "MCP yapılandırmasını kopyala"
+
+#: src/ui/settings.rs:1213
+msgid "The access token changes whenever the server restarts."
+msgstr "Sunucu her yeniden başlatıldığında erişim belirteci değişir."

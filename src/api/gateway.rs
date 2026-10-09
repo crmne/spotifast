@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
+use rmcp::schemars::{self, JsonSchema};
+use serde::Deserialize;
+
 use super::ApiSource;
 use super::client::{ApiClient, ApiError, NetActivity, TokenProvider};
 use super::models::Playlist;
@@ -18,7 +21,8 @@ impl AccountId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, JsonSchema)]
+#[serde(transparent)]
 pub struct PlaylistId(String);
 
 impl PlaylistId {

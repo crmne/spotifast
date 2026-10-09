@@ -3166,6 +3166,120 @@ mod tests {
     }
 
     #[test]
+    fn mcp_port_edits_apply_once_on_release_or_enter() {
+        let (ctx, mut app) = accessible_app("mcp-port-edit");
+        app.settings.mcp_enabled = true;
+        settings_text(&ctx, &mut app, "MCP");
+        let text = view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        let port = text
+            .iter()
+            .find(|(label, _)| label == "0")
+            .unwrap()
+            .1
+            .center();
+        app.actions.clear();
+        let pointer = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        view_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(port), pointer(port, true)],
+            crate::ui::settings::show,
+        );
+        let dragged = port + egui::vec2(80.0, 0.0);
+        view_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(dragged)],
+            crate::ui::settings::show,
+        );
+        let text = view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        assert!(
+            text.iter()
+                .any(|(label, _)| label.parse::<u16>().is_ok_and(|value| value > 0))
+        );
+        assert_eq!(app.settings.mcp_port, 0);
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::SettingsChanged))
+        );
+        let text = view_frame(
+            &ctx,
+            &mut app,
+            vec![pointer(dragged, false)],
+            crate::ui::settings::show,
+        );
+        let committed = app.settings.mcp_port;
+        assert!(committed > 0);
+        assert_eq!(
+            app.actions
+                .iter()
+                .filter(|action| matches!(action, Action::SettingsChanged))
+                .count(),
+            1
+        );
+        let port = text
+            .iter()
+            .find(|(label, _)| label == &committed.to_string())
+            .unwrap()
+            .1
+            .center();
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(port),
+                pointer(port, true),
+                pointer(port, false),
+            ],
+            crate::ui::settings::show,
+        );
+        view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        for digit in ["4", "2"] {
+            view_frame(
+                &ctx,
+                &mut app,
+                vec![egui::Event::Text(digit.into())],
+                crate::ui::settings::show,
+            );
+            assert_eq!(app.settings.mcp_port, committed);
+            assert!(
+                !app.actions
+                    .iter()
+                    .any(|action| matches!(action, Action::SettingsChanged))
+            );
+        }
+        view_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            crate::ui::settings::show,
+        );
+        view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        assert_eq!(app.settings.mcp_port, 42);
+        assert_eq!(
+            app.actions
+                .iter()
+                .filter(|action| matches!(action, Action::SettingsChanged))
+                .count(),
+            1
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn accessible_sliders_accept_keyboard_and_screen_reader_values() {
         use crate::ui::widgets::{SliderEvent, thin_slider};
         use egui::accesskit::{Action, ActionData, Role};

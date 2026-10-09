@@ -1103,6 +1103,7 @@ pub enum Action {
     DownloadUpdate,
     InstallUpdate,
     SettingsChanged,
+    RestartMcp,
     SetTheme(crate::settings::ThemeChoice),
     /// Draw the interface in this language from the next frame on.
     SetLanguage(crate::settings::LanguageChoice),

@@ -3078,3 +3078,27 @@ msgstr "在 ARM 版 Windows 上，Spotifast 用于绘制界面的 OpenGL 由 Mic
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "减少歌词动画"
+
+#: src/ui/settings.rs:1176
+msgid "Agents"
+msgstr "智能体"
+
+#: src/ui/settings.rs:1177
+msgid "Local MCP server"
+msgstr "本地 MCP 服务器"
+
+#: src/ui/settings.rs:1180
+msgid "Let agents search Spotify, control playback and edit playlists."
+msgstr "允许智能体搜索 Spotify、控制播放和编辑播放列表。"
+
+#: src/ui/settings.rs:1192
+msgid "Local port (0 selects an available port)"
+msgstr "本地端口（0 表示选择可用端口）"
+
+#: src/ui/settings.rs:1204
+msgid "Copy MCP configuration"
+msgstr "复制 MCP 配置"
+
+#: src/ui/settings.rs:1213
+msgid "The access token changes whenever the server restarts."
+msgstr "每次服务器重启时，访问令牌都会更改。"

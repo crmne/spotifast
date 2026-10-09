@@ -36,6 +36,8 @@ use librespot_playback::{
     mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
+use rmcp::schemars::{self, JsonSchema};
+use serde::Deserialize;
 use sha1::{Digest, Sha1};
 
 use crate::api::models::ArtistRef;
@@ -109,7 +111,8 @@ pub enum Playback {
     Paused,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum RepeatMode {
     #[default]
     Off,
