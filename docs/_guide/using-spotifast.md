@@ -22,12 +22,12 @@ click. macOS retains its existing middle-click behavior.
 ## Scrolling shelves
 
 **Made for you** shows the personalized playlist cards Spotify returns for
-your account, in Spotify's order, when local playback is available. If that
-read fails, the same shelf shows approximate matches found through the shared
-Web API. Shared access can be rate-limited. If a refresh fails, cards already
-on screen remain available; **Retry** is shown when the first
-load fails. Spotify DJ is left out because Spotifast cannot play its special
-context.
+your account, in Spotify's order, when local playback and a current Web API
+Home grant for that playback account are available. If the session read or
+grant check fails, the same shelf shows approximate matches found through the
+shared Web API. Shared access can be rate-limited. If a refresh fails, cards
+already on screen remain available; **Retry** is shown when the first load
+fails. Spotify DJ is left out because Spotifast cannot play its special context.
 
 Point at a horizontal shelf, such as Made for you or Recently played on
 Home, and hold `Shift` while turning the mouse wheel. The shelf moves while
