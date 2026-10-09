@@ -29,9 +29,9 @@ cannot play music through Spotifast.
 
 Home's **Made for you** shelf first reads Spotify's personalized playlist
 section through an active local playback session. If that read fails, Spotifast
-falls back to shared Web API playlist search and labels the approximate results
-**Playlists**. Spotify can change its private Home response independently of
-the public Web API.
+falls back to shared Web API playlist search. Those cards stay under **Made for
+you**, but they are approximate and may differ from Spotify's Home order.
+Spotify can change its private Home response independently of the public Web API.
 
 ![Spotifast Home with the playlist library, recommendations, queue, and player visible](docs/screenshot.png)
 

@@ -230,6 +230,7 @@ impl ApiGateway {
         Ok(())
     }
 
+    /// Withdraws the old account identity before installing a new grant.
     pub fn begin_verification(&self, source: ApiSource, provider: TokenProvider) {
         let session = self.session(source);
         // Withdraw the old verified identity before swapping providers. A

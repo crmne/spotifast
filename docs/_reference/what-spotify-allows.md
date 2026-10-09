@@ -70,7 +70,7 @@ clients. Spotifast uses its session for:
   request uses the playback session and an already verified Web API grant;
   when it succeeds, it does not spend the shared app's playlist-search quota.
   If it fails, the shared Web API can supply approximate playlist-name search
-  results under **Playlists**. Spotify may change the private Home
+  results in the same **Made for you** shelf. Spotify may change the private Home
   response without a Web API version change.
 - **Radio and autoplay** through Spotify's context resolver: stations seeded
   by a song, playlist, album, or artist. Each resolution is a fresh mix of 50

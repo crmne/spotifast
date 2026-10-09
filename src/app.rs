@@ -1648,6 +1648,7 @@ impl App {
         None
     }
 
+    /// Finds a playlist already loaded in the library, search, or Home shelf.
     pub fn known_playlist(&self, id: &str) -> Option<&Playlist> {
         self.library
             .playlists
@@ -2076,6 +2077,7 @@ impl App {
         self.auth = status;
     }
 
+    /// Retries the Home shelf when local playback becomes ready after Home.
     fn handle_playback(&mut self, status: LocalPlayback) {
         match &status {
             LocalPlayback::Ready { device_id } => {
@@ -3750,6 +3752,7 @@ impl App {
         }
     }
 
+    /// Starts a new Home refresh while preserving cards already on screen.
     fn load_home(&mut self, force: bool) {
         if self.home.requested
             && !force
@@ -5132,16 +5135,9 @@ impl App {
                 }
                 self.home.recommendations.refresh(result);
             }
-            ApiResponse::MadeForYou {
-                generation,
-                result,
-                shared_fallback,
-            } => {
+            ApiResponse::MadeForYou { generation, result } => {
                 if generation != self.home.generation {
                     return;
-                }
-                if result.is_ok() {
-                    self.home.made_for_you_shared_fallback = shared_fallback;
                 }
                 self.home.made_for_you.refresh(result);
             }
@@ -21905,33 +21901,21 @@ mod tests {
         app.handle_api(ApiResponse::MadeForYou {
             generation: 4,
             result: Ok(vec![playlist.clone()]),
-            shared_fallback: false,
         });
         assert_eq!(
             app.home.made_for_you.get().unwrap(),
             &vec![playlist.clone()]
         );
-        assert!(!app.home.made_for_you_shared_fallback);
         app.handle_api(ApiResponse::MadeForYou {
             generation: 4,
             result: Err(crate::api::ApiError::RateLimited),
-            shared_fallback: true,
         });
         assert_eq!(app.home.made_for_you.get().unwrap(), &vec![playlist]);
-        assert!(!app.home.made_for_you_shared_fallback);
         app.handle_api(ApiResponse::MadeForYou {
             generation: 3,
             result: Ok(vec![]),
-            shared_fallback: true,
         });
         assert_eq!(app.home.made_for_you.get().unwrap().len(), 1);
-        assert!(!app.home.made_for_you_shared_fallback);
-        app.handle_api(ApiResponse::MadeForYou {
-            generation: 4,
-            result: Ok(vec![]),
-            shared_fallback: true,
-        });
-        assert!(app.home.made_for_you_shared_fallback);
     }
 
     #[test]

@@ -23,9 +23,9 @@ click. macOS retains its existing middle-click behavior.
 
 **Made for you** shows the personalized playlist cards Spotify returns for
 your account, in Spotify's order, when local playback is available. If that
-read fails, **Playlists** shows approximate matches found through the shared
-Web API. Shared access can be rate-limited. If a refresh fails,
-cards already on screen remain available; **Retry** is shown when the first
+read fails, the same shelf shows approximate matches found through the shared
+Web API. Shared access can be rate-limited. If a refresh fails, cards already
+on screen remain available; **Retry** is shown when the first
 load fails. Spotify DJ is left out because Spotifast cannot play its special
 context.
 

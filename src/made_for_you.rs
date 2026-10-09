@@ -3,7 +3,7 @@
 //! The private Pathfinder contract follows Psst's homeSection integration
 //! (jpochyla/psst#745). It can change independently of the public Web API.
 //! This reader never retries a refusal through a different grant. The backend
-//! may separately offer an explicitly labeled shared-search fallback.
+//! may separately try a shared-search fallback.
 
 use std::collections::HashSet;
 use std::future::Future;
@@ -42,6 +42,7 @@ struct State {
 }
 
 impl State {
+    /// Returns a fresh shelf only for the same account and a nonforced read.
     fn cached(&self, account: &str, force: bool) -> Option<Vec<Playlist>> {
         self.cached.as_ref().and_then(|(at, playlists)| {
             (self.account == account && !force && at.elapsed() < CACHE_AGE)
@@ -49,6 +50,7 @@ impl State {
         })
     }
 
+    /// Reports whether Spotify's last Retry-After interval is still active.
     fn cooling_down(&self) -> bool {
         self.cooldown
             .is_some_and(|(at, duration)| at.elapsed() < duration)
@@ -56,6 +58,7 @@ impl State {
 }
 
 impl MadeForYou {
+    /// Creates an empty per-account Home shelf cache using the app's HTTP client.
     pub fn new(http: Http) -> Self {
         Self {
             state: Mutex::new(State::default()),
@@ -183,14 +186,17 @@ impl MadeForYou {
     }
 }
 
+/// Hides playback authentication details from the user-facing failure.
 fn session_error() -> ApiError {
     ApiError::Network("Couldn't authorize the playback session for Made for you. Try again.".into())
 }
 
+/// Reports a missing or incompatible private Home response.
 fn response_error() -> ApiError {
     ApiError::Decode("Made for you is unavailable in Spotify's response. Try again later.".into())
 }
 
+/// Builds one page of Spotify's persisted Home section query.
 fn query(country: &str, timezone: &str, context_token: &str, offset: usize) -> serde_json::Value {
     serde_json::json!({
         "operationName": "homeSection",
@@ -213,6 +219,7 @@ struct ShelfPage {
 }
 
 impl ShelfPage {
+    /// Uses raw card counts so skipped card types do not truncate paging.
     fn more(&self, offset: usize) -> bool {
         self.count > 0
             && self.total.map_or(self.count == PAGE_SIZE, |total| {
@@ -327,10 +334,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Wraps card data in the minimal Home response used by parser tests.
     fn shelf(items: serde_json::Value) -> serde_json::Value {
         json!({"data":{"homeSections":{"sections":[{"sectionItems":{"items":items}}]}}})
     }
 
+    /// Keeps localized and account-specific cards without English name filters.
     #[test]
     fn reads_personalized_cards_without_english_name_or_owner_filters() {
         let result = parse_page(shelf(json!([
@@ -347,6 +356,7 @@ mod tests {
         assert_eq!(result.count, 4);
     }
 
+    /// Distinguishes a refused or absent Home section from an empty shelf.
     #[test]
     fn graphql_errors_and_missing_sections_are_not_empty_successes() {
         assert!(parse_page(json!({"errors":[{"message":"refused"}]})).is_err());
@@ -355,6 +365,7 @@ mod tests {
         assert!(parse_page(shelf(json!([]))).unwrap().playlists.is_empty());
     }
 
+    /// Keeps the order Spotify supplies when a response contains several sections.
     #[test]
     fn preserves_playlist_order_across_home_sections() {
         let result = parse_page(json!({"data":{"homeSections":{"sections":[
@@ -372,6 +383,7 @@ mod tests {
         );
     }
 
+    /// Rejects unplayable identifiers and card variants the parser does not know.
     #[test]
     fn invalid_playlist_uris_and_unknown_cards_are_skipped() {
         let result = parse_page(shelf(json!([
@@ -382,6 +394,7 @@ mod tests {
         assert!(result.playlists.is_empty());
     }
 
+    /// Excludes the DJ context by URI while retaining ordinary DJ-named lists.
     #[test]
     fn unsupported_dj_context_is_omitted_without_hiding_dj_named_playlists() {
         let result = parse_page(shelf(json!([
@@ -393,6 +406,7 @@ mod tests {
         assert_eq!(result.playlists[0].name, "DJ Mix");
     }
 
+    /// Stops paging according to the response's raw item count and total.
     #[test]
     fn paging_uses_raw_card_counts_and_stops_on_empty_pages() {
         let mut page = ShelfPage {
@@ -411,6 +425,7 @@ mod tests {
         assert!(!page.more(0));
     }
 
+    /// Prevents one account or a manual refresh from reusing stale cached cards.
     #[test]
     fn cache_is_scoped_to_account_and_manual_refresh_respects_cooldown() {
         let state = State {
@@ -424,6 +439,7 @@ mod tests {
         assert!(state.cooling_down());
     }
 
+    /// Sends the verified Web API context token in the Home query variables.
     #[test]
     fn query_uses_the_verified_grant_for_spotify_home_context() {
         let query = query("CA", "America/Toronto", "personal-grant", 20);

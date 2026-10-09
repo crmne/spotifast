@@ -589,9 +589,6 @@ pub struct HomeData {
     pub top_songs_complete: bool,
     pub recommendations: Loadable<Vec<Track>>,
     pub made_for_you: Loadable<Vec<Playlist>>,
-    /// The displayed cards came from a shared playlist-name search rather
-    /// than Spotify's personalized Home section.
-    pub made_for_you_shared_fallback: bool,
     /// Saved podcasts with their newest episodes, in library order, for the
     /// podcast shelf. A refresh replaces them only once it answers.
     pub podcasts: Vec<(Show, Vec<Episode>)>,

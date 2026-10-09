@@ -34,7 +34,7 @@ local playback:
    `Retry-After` cooldown. A failed refresh keeps previously shown cards.
    If the Home read fails or playback is not set up, the shared Web API searches
    Spotify-owned playlists named Discover Weekly, Release Radar, Daily Mix,
-   and daylist. These results appear as **Playlists** because search
+   and daylist. The shelf keeps its **Made for you** heading, although search
    cannot recover the account's Home ordering or every personalized card.
    Shared rate limits can still prevent this fallback from loading. This
    private response can change without notice. Radio pages come only from

@@ -369,7 +369,6 @@ pub enum ApiResponse {
     MadeForYou {
         generation: u64,
         result: ApiResult<Vec<Playlist>>,
-        shared_fallback: bool,
     },
     MyPlaylists {
         offset: u32,
@@ -2457,6 +2456,7 @@ impl Worker {
         });
     }
 
+    /// Cancels in-flight account work and drops cached Home data on sign-out.
     fn sign_out(&mut self) {
         self.spotify_restore_started = true;
         self.cancel_search();
@@ -3261,6 +3261,7 @@ impl Worker {
         self.search_tasks.push(self.dispatch(request));
     }
 
+    /// Runs an API request under the current sign-in generation and leases.
     fn dispatch(&self, request: ApiRequest) -> tokio::task::AbortHandle {
         let api = Arc::clone(&self.api);
         let made_for_you = Arc::clone(&self.made_for_you);
@@ -3330,6 +3331,7 @@ fn friendly_connect_error(error: &anyhow::Error) -> String {
     }
 }
 
+/// Selects the Web API capability required when an operation needs a grant.
 fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
     match request {
         ApiRequest::Me => Operation::CanonicalAccount,
@@ -3397,6 +3399,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
     }
 }
 
+/// Records returned playlist ownership for later metadata and item routing.
 fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
     match response {
         ApiResponse::MadeForYou {
@@ -3462,7 +3465,7 @@ const SHARED_MADE_FOR_YOU_TERMS: [&str; 4] =
 const UNSUPPORTED_DJ_URI: &str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq";
 
 /// Search is an approximation, used only when Spotify's personalized Home
-/// section cannot be read. Keep it visibly distinct from the real shelf.
+/// section cannot be read.
 async fn shared_made_for_you(api: &ApiGateway) -> ApiResult<Vec<Playlist>> {
     let client = api.client_for(Operation::PlaylistSearch).await?;
     let mut playlists = Vec::new();
@@ -3483,6 +3486,7 @@ async fn shared_made_for_you(api: &ApiGateway) -> ApiResult<Vec<Playlist>> {
     Ok(playlists)
 }
 
+/// Accepts only Spotify-owned fallback matches with supported playlist URIs.
 fn shared_made_for_you_match(playlist: &Playlist, term: &str) -> bool {
     let name = playlist.name.trim();
     let matches_name = name.eq_ignore_ascii_case(term)
@@ -3496,23 +3500,25 @@ fn shared_made_for_you_match(playlist: &Playlist, term: &str) -> bool {
             || playlist.owner.display_name.as_deref() == Some("Spotify"))
 }
 
+/// Searches through the shared app only when the playback-session read fails.
 async fn with_shared_made_for_you_fallback<F, Fut>(
     session_result: ApiResult<Vec<Playlist>>,
     fallback: F,
-) -> (ApiResult<Vec<Playlist>>, bool)
+) -> ApiResult<Vec<Playlist>>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = ApiResult<Vec<Playlist>>>,
 {
     match session_result {
-        Ok(playlists) => (Ok(playlists), false),
+        Ok(playlists) => Ok(playlists),
         Err(error) => {
             log::warn!("Made for you session read failed; trying shared search fallback: {error}");
-            (fallback().await, true)
+            fallback().await
         }
     }
 }
 
+/// Tries the session Home route before the shared fallback and routes other API work.
 async fn handle(
     api: &ApiGateway,
     made_for_you: &crate::made_for_you::MadeForYou,
@@ -3536,11 +3542,10 @@ async fn handle(
                 message: "The playback session is unavailable for Made for you.".into(),
             }),
         };
-        let (result, shared_fallback) =
-            with_shared_made_for_you_fallback(session_result, || async {
-                shared_made_for_you(api).await
-            })
-            .await;
+        let result = with_shared_made_for_you_fallback(session_result, || async {
+            shared_made_for_you(api).await
+        })
+        .await;
         if let Ok(playlists) = &result {
             api.observe_playlists(playlists);
         }
@@ -3548,14 +3553,7 @@ async fn handle(
             Err(ApiError::SignInExpired { api_source }) => Some(*api_source),
             _ => None,
         };
-        return (
-            ApiResponse::MadeForYou {
-                generation,
-                result,
-                shared_fallback,
-            },
-            expired,
-        );
+        return (ApiResponse::MadeForYou { generation, result }, expired);
     }
     let operation = operation_for(api, &request);
     // A session whose long-lived connection has dropped still answers over
@@ -6298,23 +6296,20 @@ mod tests {
             id: "session".into(),
             ..Default::default()
         };
-        let (result, shared) =
+        let result =
             with_shared_made_for_you_fallback(Ok(vec![session_playlist.clone()]), || async {
                 panic!("the successful session must not search")
             })
             .await;
-        assert!(!shared);
         assert_eq!(result.unwrap(), vec![session_playlist]);
 
-        let (result, shared) =
-            with_shared_made_for_you_fallback(Err(ApiError::RateLimited), || async {
-                Ok(vec![Playlist {
-                    id: "shared".into(),
-                    ..Default::default()
-                }])
-            })
-            .await;
-        assert!(shared);
+        let result = with_shared_made_for_you_fallback(Err(ApiError::RateLimited), || async {
+            Ok(vec![Playlist {
+                id: "shared".into(),
+                ..Default::default()
+            }])
+        })
+        .await;
         assert_eq!(result.unwrap()[0].id, "shared");
     }
 
