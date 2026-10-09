@@ -1252,6 +1252,10 @@ msgid "Gapless playback"
 msgstr "Відтворення без пауз"
 
 #: src/ui/settings.rs:444
+msgid "Crossfade"
+msgstr "Перехресне згасання"
+
+#: src/ui/settings.rs:445
 msgid "Keep music playing when the window closes"
 msgstr "Продовжувати відтворення після закриття вікна"
 
@@ -1369,6 +1373,13 @@ msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "Показувати інтерактивний віджет «Відтворюється» під час наведення на виріз."
 
+#: src/ui/settings.rs:536
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr ""
+"Кінець пісні переходить у початок наступної. Вимкнено залишає перехід як є."
+
 #: src/ui/settings.rs:545
 msgid "Reconnect"
 msgstr "Під’єднатися знову"
@@ -1384,6 +1395,12 @@ msgstr "Висока · 160 кбіт/с"
 #: src/ui/settings.rs:579
 msgid "Very high · 320 kbps"
 msgstr "Дуже висока · 320 кбіт/с"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:686
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} с"
 
 #: src/ui/settings.rs:791
 msgid "Playback settings applied."
@@ -3196,10 +3213,7 @@ msgid "Spotifast cannot open its window"
 msgstr "Spotifast не може відкрити своє вікно"
 
 #: src/window.rs:35
-msgid ""
-"On Windows on ARM, the OpenGL that Spotifast draws with comes from "
-"Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft "
-"Store page to install or repair it?"
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr ""
 "У Windows на ARM Spotifast використовує OpenGL із пакета Microsoft OpenCL, "
 "OpenGL & Vulkan Compatibility Pack. Відкрити його сторінку в Microsoft "
