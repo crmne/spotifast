@@ -4004,7 +4004,16 @@ mod tests {
     /// to it at once; Up and Down move the choice first.
     #[test]
     fn typing_in_the_playlist_filter_chooses_the_first_match() {
-        let (ctx, mut app) = accessible_app("playlist-filter-choice");
+        check_playlist_keyboard_choice(false);
+    }
+
+    #[test]
+    fn recent_playlist_sorting_keeps_the_keyboard_choice_on_the_same_playlist() {
+        check_playlist_keyboard_choice(true);
+    }
+
+    fn check_playlist_keyboard_choice(detailed: bool) {
+        let (ctx, mut app) = accessible_app(&format!("playlist-filter-choice-{detailed}"));
         app.backend.set_offline(true);
         let owner = app.user_id().unwrap().to_string();
         let make = |id: &str, name: &str| Playlist {
@@ -4035,13 +4044,19 @@ mod tests {
                     ..Default::default()
                 },
                 |ui| {
-                    let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                    let field = if detailed {
+                        crate::ui::playlist_picker::show(ui, app, &items[0], query)
+                    } else {
+                        crate::ui::widgets::playlist_picker(ui, app, &items, query)
+                    };
                     if focus {
                         field.request_focus();
                     }
                 },
             );
             output.textures_delta.clear();
+            app.actions
+                .retain(|action| !matches!(action, Action::ReadPlaylistMembership));
         };
         let added = |app: &App| match app.actions.as_slice() {
             [crate::model::Action::AddToPlaylist { playlist_id, .. }] => Some(playlist_id.clone()),
@@ -4082,6 +4097,14 @@ mod tests {
         }
         draw(&mut app, &mut query, false, key(egui::Key::ArrowUp));
         assert_eq!(query, "night", "the arrows do not edit the filter");
+        if detailed {
+            // A date arriving between selection and Enter must not change its target.
+            app.playlist_picker
+                .entries
+                .entry("owls".into())
+                .or_default()
+                .updated_at_ms = Some(20);
+        }
         draw(&mut app, &mut query, false, key(egui::Key::Enter));
 
         // #then the choice it reached is added

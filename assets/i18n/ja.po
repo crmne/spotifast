@@ -3160,3 +3160,7 @@ msgstr "Windows on ARM では、Spotifast の描画に使う OpenGL は Microsof
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "保存先"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "最近更新したプレイリスト"

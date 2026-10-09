@@ -3170,3 +3170,7 @@ msgstr "I Windows på ARM kommer OpenGL, som Spotifast ritar med, från Microsof
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "Sparad i"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "Nyligen uppdaterade"

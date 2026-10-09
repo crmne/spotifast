@@ -17,33 +17,58 @@ pub fn show(ui: &mut Ui, app: &mut App, item: &PlayableItem, query: &mut String)
     let choice_id = ui.make_persistent_id("playlist-choice");
     let frame = ui.ctx().cumulative_frame_nr();
     let (previous_query, mut chosen) = ui
-        .data(|data| data.get_temp::<(u64, String, Option<usize>)>(choice_id))
+        .data(|data| data.get_temp::<(u64, String, Option<String>)>(choice_id))
         .filter(|(last, _, _)| frame.saturating_sub(*last) <= 1)
         .map(|(_, query, chosen)| (query, chosen))
         .unwrap_or_default();
-    let count = app
-        .editable_playlists()
+    let mut playlists: Vec<_> = app
+        .library
+        .playlists
+        .get()
+        .into_iter()
+        .flatten()
+        .filter(|playlist| app.can_edit_playlist(playlist))
+        .cloned()
+        .collect();
+    playlists.sort_by(|left, right| app.playlist_picker.compare_updated(&left.id, &right.id));
+    let choices: Vec<_> = playlists
         .iter()
-        .filter(|(id, name)| {
-            name.to_lowercase().contains(&query.trim().to_lowercase())
-                && app
-                    .playlist_picker
-                    .entries
-                    .get(id)
-                    .and_then(|entry| entry.contains)
-                    != Some(true)
+        .filter(|playlist| {
+            playlist
+                .name
+                .to_lowercase()
+                .contains(&query.trim().to_lowercase())
         })
-        .count();
+        .filter(|playlist| {
+            app.playlist_picker
+                .entries
+                .get(&playlist.id)
+                .and_then(|entry| entry.contains)
+                != Some(true)
+        })
+        .map(|playlist| playlist.id.clone())
+        .collect();
+    let count = choices.len();
+    if chosen.as_ref().is_some_and(|id| !choices.contains(id)) {
+        chosen = None;
+    }
     let mut moved = false;
     let mut enter = false;
     if ui.memory(|memory| memory.has_focus(field_id)) {
         ui.input_mut(|input| {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) && count > 0 {
-                chosen = Some(chosen.map_or(0, |index| (index + 1).min(count - 1)));
+                let index = chosen
+                    .as_ref()
+                    .and_then(|id| choices.iter().position(|choice| choice == id));
+                chosen = Some(choices[index.map_or(0, |index| (index + 1).min(count - 1))].clone());
                 moved = true;
             }
             if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) && count > 0 {
-                chosen = Some(chosen.map_or(count - 1, |index| index.saturating_sub(1)));
+                let index = chosen
+                    .as_ref()
+                    .and_then(|id| choices.iter().position(|choice| choice == id));
+                chosen =
+                    Some(choices[index.map_or(count - 1, |index| index.saturating_sub(1))].clone());
                 moved = true;
             }
             enter = chosen.is_some() && input.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
@@ -59,9 +84,28 @@ pub fn show(ui: &mut Ui, app: &mut App, item: &PlayableItem, query: &mut String)
         ui.available_width(),
     );
     if *query != previous_query {
-        chosen = (!query.trim().is_empty()).then_some(0);
+        chosen = None;
     }
-    ui.data_mut(|data| data.insert_temp(choice_id, (frame, query.clone(), chosen)));
+    // Apply text typed in this pass before drawing or choosing a playlist.
+    playlists.retain(|playlist| {
+        playlist
+            .name
+            .to_lowercase()
+            .contains(&query.trim().to_lowercase())
+    });
+    if *query != previous_query && !query.trim().is_empty() {
+        chosen = playlists
+            .iter()
+            .find(|playlist| {
+                app.playlist_picker
+                    .entries
+                    .get(&playlist.id)
+                    .and_then(|entry| entry.contains)
+                    != Some(true)
+            })
+            .map(|playlist| playlist.id.clone());
+    }
+    ui.data_mut(|data| data.insert_temp(choice_id, (frame, query.clone(), chosen.clone())));
     if widgets::menu_item(
         ui,
         &palette,
@@ -76,21 +120,6 @@ pub fn show(ui: &mut Ui, app: &mut App, item: &PlayableItem, query: &mut String)
     }
     widgets::menu_separator(ui, &palette);
     app.actions.push(Action::ReadPlaylistMembership);
-    let playlists: Vec<_> = app
-        .library
-        .playlists
-        .get()
-        .into_iter()
-        .flatten()
-        .filter(|playlist| app.can_edit_playlist(playlist))
-        .filter(|playlist| {
-            playlist
-                .name
-                .to_lowercase()
-                .contains(&query.trim().to_lowercase())
-        })
-        .cloned()
-        .collect();
     egui::ScrollArea::vertical()
         .id_salt("player-playlist-picker")
         .max_height(320.0)
@@ -124,10 +153,23 @@ pub fn show(ui: &mut Ui, app: &mut App, item: &PlayableItem, query: &mut String)
                     },
                 );
             }
-            let mut index = 0;
             for saved in [true, false] {
                 if !saved {
-                    theme::subtle(ui, &palette, &gettext(locale, "Playlists"));
+                    let has_dates = playlists.iter().any(|playlist| {
+                        app.playlist_picker
+                            .entries
+                            .get(&playlist.id)
+                            .is_some_and(|entry| entry.updated_at_ms.is_some())
+                    });
+                    theme::subtle(
+                        ui,
+                        &palette,
+                        &if has_dates {
+                            gettext(locale, "Recently updated")
+                        } else {
+                            gettext(locale, "Playlists")
+                        },
+                    );
                 }
                 for playlist in &playlists {
                     let entry = (app.playlist_picker.uri == item.uri())
@@ -137,10 +179,7 @@ pub fn show(ui: &mut Ui, app: &mut App, item: &PlayableItem, query: &mut String)
                     if (contains == Some(true)) != saved {
                         continue;
                     }
-                    let highlighted = !saved && chosen == Some(index);
-                    if !saved {
-                        index += 1;
-                    }
+                    let highlighted = !saved && chosen.as_deref() == Some(playlist.id.as_str());
                     let count = locale.song_count(playlist.track_total());
                     let response = ui
                         .push_id(&playlist.id, |ui| {

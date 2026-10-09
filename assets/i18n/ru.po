@@ -3203,3 +3203,7 @@ msgstr "В Windows на ARM OpenGL, с помощью которого рису�
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "Сохранено в"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "Недавно обновлённые"

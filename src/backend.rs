@@ -3475,7 +3475,8 @@ async fn handle(
     // A session whose long-lived connection has dropped still answers over
     // its HTTP client, so the engine's presence is the only liveness test;
     // a read the session truly cannot make falls back to the Web API below.
-    if api.session_serves(operation)
+    // The picker also needs Spotify's last-updated date, which the Web API omits.
+    if (matches!(request, ApiRequest::PlaylistMembership { .. }) || api.session_serves(operation))
         && let Some(engine) = engine
             .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
         && let Some(response) = over_session(engine, &request).await

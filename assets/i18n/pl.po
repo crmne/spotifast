@@ -3208,3 +3208,7 @@ msgstr "W systemie Windows na ARM OpenGL, którego Spotifast używa do rysowania
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "Zapisano w"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "Ostatnio zaktualizowane"

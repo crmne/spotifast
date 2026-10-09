@@ -3089,3 +3089,7 @@ msgstr "在 ARM 版 Windows 上，Spotifast 用來繪製介面的 OpenGL 由 Mic
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "已儲存至"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "最近更新"

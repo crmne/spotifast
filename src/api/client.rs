@@ -795,6 +795,7 @@ impl ApiClient {
                 .any(|item| item.uri() == uri),
             next_offset: page.next_offset(),
             snapshot: None,
+            updated_at_ms: None,
         })
     }
 
