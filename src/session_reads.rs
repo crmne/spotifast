@@ -7,7 +7,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use base64::Engine as _;
 use librespot_core::{FileId, Session, SpotifyUri, error::ErrorKind, spotify_id::SpotifyId};
-use librespot_metadata::artist::Artist as SessionArtist;
+use librespot_metadata::artist::{Artist as SessionArtist, CountryTopTracks};
 use librespot_metadata::image::Images;
 use librespot_metadata::playlist::attribute::PlaylistAttributes;
 use librespot_metadata::playlist::item::PlaylistItem as SessionRow;
@@ -28,6 +28,37 @@ use crate::api::models::{
 };
 
 const IMAGE_HOST: &str = "https://i.scdn.co/image/";
+
+/// Popular tracks in the playback account's market, retaining Spotify's ranking.
+pub async fn artist_top_tracks(session: &Session, id: &str) -> Result<Vec<Track>, Failure> {
+    use librespot_metadata::Metadata as _;
+    let uri = SpotifyUri::Artist {
+        id: SpotifyId::from_base62(id)?,
+    };
+    let artist = SessionArtist::get(session, &uri).await?;
+    let uris = artist_top_track_uris(&artist.top_tracks, &session.country()).ok_or_else(|| {
+        Failure::Retry(anyhow::anyhow!(
+            "artist metadata has no popular tracks for this market"
+        ))
+    })?;
+    let found = metadata(session, uris.iter()).await?;
+    Ok(uris
+        .iter()
+        .filter_map(|uri| uri.to_uri().ok())
+        .filter_map(|uri| match found.get(&uri) {
+            Some(PlayableItem::Track(track)) => Some(track.clone()),
+            _ => None,
+        })
+        .collect())
+}
+
+fn artist_top_track_uris(top_tracks: &CountryTopTracks, country: &str) -> Option<Vec<SpotifyUri>> {
+    top_tracks
+        .iter()
+        .find(|top| top.country == country)
+        .or_else(|| top_tracks.iter().find(|top| top.country == "ZZ"))
+        .map(|top| top.tracks.iter().take(10).cloned().collect())
+}
 
 /// Why the session could not answer a read.
 #[derive(Debug)]
@@ -630,6 +661,55 @@ mod tests {
 
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const EPISODE: &str = "spotify:episode:7GhIk7Il098yCjg4BQjzvb";
+
+    #[test]
+    fn popular_tracks_prefer_the_account_market_and_preserve_its_first_ten() {
+        use librespot_metadata::artist::TopTracks;
+        use librespot_metadata::track::Tracks;
+        let ranked: Vec<SpotifyUri> = (1..=12)
+            .map(|id| SpotifyUri::Track {
+                id: SpotifyId::from_base62(&format!("{id:022}")).unwrap(),
+            })
+            .collect();
+        let world = SpotifyUri::from_uri(TRACK).unwrap();
+        let lists = CountryTopTracks(vec![
+            TopTracks {
+                country: "ZZ".into(),
+                tracks: Tracks(vec![world.clone()]),
+            },
+            TopTracks {
+                country: "US".into(),
+                tracks: Tracks(ranked.clone()),
+            },
+        ]);
+        assert_eq!(
+            artist_top_track_uris(&lists, "US"),
+            Some(ranked[..10].to_vec())
+        );
+        assert_eq!(artist_top_track_uris(&lists, "HU"), Some(vec![world]));
+        let only_other_market = CountryTopTracks(vec![TopTracks {
+            country: "DE".into(),
+            tracks: Tracks(ranked),
+        }]);
+        assert_eq!(
+            artist_top_track_uris(&only_other_market, "US"),
+            None,
+            "do not substitute another market's ranking"
+        );
+        assert_eq!(
+            artist_top_track_uris(&CountryTopTracks::default(), "US"),
+            None
+        );
+        let empty_market = CountryTopTracks(vec![TopTracks {
+            country: "US".into(),
+            tracks: Tracks::default(),
+        }]);
+        assert_eq!(
+            artist_top_track_uris(&empty_market, "US"),
+            Some(Vec::new()),
+            "a known empty ranking is successful"
+        );
+    }
 
     fn playlist_uri() -> SpotifyUri {
         SpotifyUri::Playlist {

@@ -92,17 +92,21 @@ pub enum Operation {
     PlaylistSearch,
     CatalogSearch,
     Catalog,
+    ArtistTopTracks,
     PlaylistMetadata(PlaylistAccess),
     PlaylistItems(PlaylistAccess),
     PlaylistMutation(PlaylistAccess),
     UnsupportedDevelopmentMode,
 }
 
-/// The streaming session reads every playlist the shared app would have
+/// The streaming session reads popular tracks and every playlist the shared app would have
 /// been asked for: other people's, which no personal app may read, and the
 /// account's own when it has no personal app. A personal app keeps its own
 /// playlists, which it reads quickly and with every field.
 fn session_serves(operation: Operation, personal_ready: bool) -> bool {
+    if operation == Operation::ArtistTopTracks {
+        return true;
+    }
     matches!(
         operation,
         Operation::PlaylistMetadata(_) | Operation::PlaylistItems(_)
@@ -114,9 +118,11 @@ fn session_serves(operation: Operation, personal_ready: bool) -> bool {
 fn plan(operation: Operation, personal_ready: bool) -> ApiSource {
     use Operation::*;
     match operation {
-        CanonicalAccount | PlaylistLibrary | PlaylistSearch | UnsupportedDevelopmentMode => {
-            ApiSource::Shared
-        }
+        CanonicalAccount
+        | PlaylistLibrary
+        | PlaylistSearch
+        | ArtistTopTracks
+        | UnsupportedDevelopmentMode => ApiSource::Shared,
         PlaylistMetadata(PlaylistAccess::External | PlaylistAccess::Unknown)
         | PlaylistItems(PlaylistAccess::External | PlaylistAccess::Unknown)
         | PlaylistMutation(PlaylistAccess::External | PlaylistAccess::Unknown) => ApiSource::Shared,
@@ -442,6 +448,18 @@ mod tests {
         ] {
             assert!(!session_serves(operation, personal), "{operation:?}");
         }
+    }
+
+    #[test]
+    fn artist_popular_tracks_can_use_the_playback_session_with_or_without_personal_access() {
+        let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        assert!(gateway.session_serves(Operation::ArtistTopTracks));
+        assert!(session_serves(Operation::ArtistTopTracks, true));
+        assert_eq!(
+            plan(Operation::ArtistTopTracks, true),
+            ApiSource::Shared,
+            "the unavailable-session fallback retains its coverage"
+        );
     }
 
     #[test]

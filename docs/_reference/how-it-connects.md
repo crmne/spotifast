@@ -31,6 +31,20 @@ consent dialog. The playback session uses the account ID verified by either
 Web API grant. A verified personal app can complete sign-in while the shared
 app's verification is still waiting.
 
+Artist pages read popular tracks over the verified account's local playback
+session when it is ready. The list uses that account's country, or Spotify's
+worldwide (`ZZ`) ranking when its country is absent, and keeps the first ten
+tracks in Spotify's order. Track details arrive in one metadata batch. If the
+session is unavailable or cannot answer, the existing shared Web API route
+remains the fallback, including its rate limits. A different account's playback
+session never supplies this list.
+
+Background reads have separate four-request budgets for the shared Web API,
+the personal Web API, and the playback session. Waiting for shared sign-in or
+rate-limit recovery therefore cannot occupy the personal app's or playback
+session's slots. A failed session read releases its slot before trying the Web
+API. Foreground requests retain their existing transport concurrency limit.
+
 Since 0.8.0, local playback retains the artist IDs
 already supplied by librespot. Artist links in the player bar work before the
 Web API's track metadata arrives, without an extra request.
