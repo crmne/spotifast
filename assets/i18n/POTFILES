@@ -1,6 +1,7 @@
 src/ui/sidebar.rs
 src/i18n.rs
 src/ui/player_bar.rs
+src/ui/playlist_picker.rs
 src/ui/queue.rs
 src/ui/lyrics.rs
 src/ui/widgets.rs

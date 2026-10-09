@@ -3200,3 +3200,7 @@ msgstr "Unter Windows on ARM stammt das OpenGL, mit dem Spotifast zeichnet, aus 
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Songtextanimation reduzieren"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Gespeichert in"

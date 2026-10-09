@@ -585,6 +585,8 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             let query_id = popup_id.with("query");
             let fresh = response.clicked() && !egui::Popup::is_id_open(ui.ctx(), popup_id);
             if fresh {
+                app.actions
+                    .push(Action::OpenPlaylistPicker(now.uri.clone()));
                 ui.data_mut(|data| {
                     data.insert_temp(popup_id, now.uri.clone());
                     data.remove::<String>(query_id);
@@ -598,7 +600,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .frame(super::widgets::menu_frame(&palette))
                 .show(|ui| {
-                    let field = super::widgets::playlist_picker(ui, app, &[item], &mut query);
+                    let field = super::playlist_picker::show(ui, app, &item, &mut query);
                     if fresh {
                         field.request_focus();
                     }

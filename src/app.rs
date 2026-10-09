@@ -356,6 +356,7 @@ pub struct App {
     pub queue_tab: QueueTab,
     pub search: SearchState,
     pub playlist_pages: HashMap<String, PlaylistPage>,
+    pub playlist_picker: crate::playlist_picker::Picker,
     /// One checkpoint snapshot at a time, including pages evicted while it writes.
     playlist_cache_write_in_flight: bool,
     load_generation: u64,
@@ -826,6 +827,7 @@ impl App {
                 .unwrap_or_default(),
             search: SearchState::default(),
             playlist_pages: HashMap::new(),
+            playlist_picker: Default::default(),
             playlist_cache_write_in_flight: false,
             load_generation: 0,
             album_pages: HashMap::new(),
@@ -2123,6 +2125,7 @@ impl App {
         self.liked_recheck_at = None;
         self.home = HomeData::default();
         self.playlist_pages.clear();
+        self.playlist_picker.begin(String::new(), Vec::new());
         self.album_pages.clear();
         self.artist_pages.clear();
         self.show_pages.clear();
@@ -5428,6 +5431,17 @@ impl App {
                     self.load_more(Page::Playlist(id));
                 }
             }
+            ApiResponse::PlaylistMembership {
+                id,
+                generation,
+                result,
+            } => {
+                self.playlist_picker.receive(
+                    &id,
+                    generation,
+                    result.map_err(|error| friendly_page_error(self.locale, &error)),
+                );
+            }
             ApiResponse::PlaylistSample {
                 id,
                 generation,
@@ -8541,6 +8555,22 @@ impl App {
                 }
                 if !uris.is_empty() {
                     self.backend.api(ApiRequest::SetSaved { uris, saved });
+                }
+            }
+            Action::OpenPlaylistPicker(uri) => {
+                let ids = self
+                    .editable_playlists()
+                    .into_iter()
+                    .map(|(id, _)| id)
+                    .collect();
+                self.playlist_picker.begin(uri, ids);
+            }
+            Action::ReadPlaylistMembership => {
+                self.load_more(Page::Home);
+                self.playlist_picker
+                    .extend(self.editable_playlists().into_iter().map(|(id, _)| id));
+                if let Some(request) = self.playlist_picker.next_request() {
+                    self.backend.api(request);
                 }
             }
             Action::ToggleSaved(uri) => {

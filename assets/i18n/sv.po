@@ -3166,3 +3166,7 @@ msgstr "I Windows på ARM kommer OpenGL, som Spotifast ritar med, från Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Minska låttextrörelse"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Sparad i"

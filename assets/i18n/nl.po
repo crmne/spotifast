@@ -3184,3 +3184,7 @@ msgstr "Op Windows on ARM komt de OpenGL waarmee Spotifast tekent uit het OpenCL
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Songtekstbeweging verminderen"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Opgeslagen in"

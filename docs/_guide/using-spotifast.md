@@ -41,7 +41,9 @@ podcast page, a saved episode, or a search result.
 
 Click the heart in the player bar to save the song to Liked Songs.
 For a song already liked, click the heart to choose a playlist. The popup
-also offers **New playlist** and **Remove from Liked Songs**.
+shows playlist covers and song counts. **Saved in** lists Liked Songs and
+playlists confirmed to contain the song. You can also choose **New playlist**
+or **Remove from Liked Songs**.
 
 ## Dragging beyond the visible list
 

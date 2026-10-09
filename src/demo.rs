@@ -1716,6 +1716,18 @@ mod tests {
                 },
                 |ui| crate::ui::player_bar::show(app, ui),
             );
+            let actions = std::mem::take(&mut app.actions);
+            for action in actions {
+                if matches!(
+                    action,
+                    crate::model::Action::OpenPlaylistPicker(_)
+                        | crate::model::Action::ReadPlaylistMembership
+                ) {
+                    app.apply(action, &ctx);
+                } else {
+                    app.actions.push(action);
+                }
+            }
             output.textures_delta.clear();
             output.platform_output.accesskit_update.unwrap()
         };
@@ -3879,7 +3891,7 @@ mod tests {
     #[test]
     fn playlist_filter_preserves_edit_permissions_and_keyboard_selection() {
         use egui::accesskit::Role;
-        for count in [1, 2] {
+        for (count, detailed) in [(1, false), (2, false), (1, true)] {
             let (ctx, mut app) = accessible_app(&format!("playlist-filter-{count}"));
             app.backend.set_offline(true);
             let owner = app.user_id().unwrap().to_string();
@@ -3917,12 +3929,18 @@ mod tests {
                         ..Default::default()
                     },
                     |ui| {
-                        let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                        let field = if detailed {
+                            crate::ui::playlist_picker::show(ui, app, &items[0], query)
+                        } else {
+                            crate::ui::widgets::playlist_picker(ui, app, &items, query)
+                        };
                         if focus {
                             field.request_focus();
                         }
                     },
                 );
+                app.actions
+                    .retain(|action| !matches!(action, Action::ReadPlaylistMembership));
                 output.textures_delta.clear();
                 output
             };

@@ -3156,3 +3156,7 @@ msgstr "Windows on ARM では、Spotifast の描画に使う OpenGL は Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "保存先"
