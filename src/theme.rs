@@ -197,6 +197,16 @@ pub const PLAYER_BAR_HEIGHT: f32 = 88.0;
 /// has to suit the other, or the window would jump on the swap.
 pub const SIDE_PANEL_MIN_WIDTH: f32 = 280.0;
 pub const TOP_BAR_HEIGHT: f32 = 56.0;
+pub const CUSTOM_TOP_BAR_HEIGHT: f32 = 48.0;
+
+/// Keep the custom Windows header close to its 36-point caption controls.
+pub fn top_bar_height() -> f32 {
+    if crate::window::custom_titlebar() {
+        CUSTOM_TOP_BAR_HEIGHT
+    } else {
+        TOP_BAR_HEIGHT
+    }
+}
 
 /// macOS hides the titlebar and draws the window content all the way to the
 /// top edge, so whatever sits at the top of the window has to leave room for
