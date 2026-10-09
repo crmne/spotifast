@@ -236,6 +236,9 @@ pub struct App {
     settings_dirty: bool,
     last_settings_save: Instant,
     pub backend: Backend,
+    pub mcp_status: crate::mcp::Status,
+    mcp_enabled_applied: bool,
+    mcp_port_applied: u16,
     media_controls: Option<MediaControls>,
     /// The desktop's light or dark preference, for "Follow system".
     #[cfg(target_os = "linux")]
@@ -687,6 +690,14 @@ impl App {
             waker.clone(),
             options.restore_sign_in,
         );
+        if options.restore_sign_in && settings.mcp_enabled {
+            backend.send(Command::ConfigureMcp {
+                enabled: true,
+                port: settings.mcp_port,
+            });
+        }
+        let mcp_enabled_applied = settings.mcp_enabled;
+        let mcp_port_applied = settings.mcp_port;
         let locale = settings.language.resolve();
         let applied_proxy = if options.restore_sign_in {
             crate::settings::ProxyConfig::Invalid(
@@ -747,6 +758,9 @@ impl App {
             settings_dirty: false,
             last_settings_save: Instant::now(),
             backend,
+            mcp_status: crate::mcp::Status::Disabled,
+            mcp_enabled_applied,
+            mcp_port_applied,
             media_controls,
             #[cfg(target_os = "linux")]
             system_appearance,
@@ -1826,6 +1840,16 @@ impl App {
                 continue;
             }
             match event {
+                Event::McpStatus(status) => self.mcp_status = status,
+                Event::McpPlaylistChanged { id, snapshot } => {
+                    self.load_playlists();
+                    if let Some(id) = id {
+                        if let Some(page) = self.playlist_pages.get_mut(&id) {
+                            page.optimistic_snapshot = snapshot;
+                        }
+                        self.reload(Page::Playlist(id));
+                    }
+                }
                 Event::PlaylistCoverChecked {
                     id,
                     request,
@@ -9112,7 +9136,24 @@ impl App {
             Action::OpenThemesFolder => {
                 self.backend.send(Command::OpenThemesFolder);
             }
+            Action::RestartMcp => {
+                self.backend.send(Command::ConfigureMcp {
+                    enabled: self.settings.mcp_enabled,
+                    port: self.settings.mcp_port,
+                });
+            }
             Action::SettingsChanged => {
+                if (self.settings.mcp_enabled != self.mcp_enabled_applied
+                    || self.settings.mcp_port != self.mcp_port_applied)
+                    && !self.offline
+                {
+                    self.mcp_enabled_applied = self.settings.mcp_enabled;
+                    self.mcp_port_applied = self.settings.mcp_port;
+                    self.backend.send(Command::ConfigureMcp {
+                        enabled: self.settings.mcp_enabled,
+                        port: self.settings.mcp_port,
+                    });
+                }
                 self.settings_dirty = true;
                 ctx.set_theme(self.theme_preference());
             }

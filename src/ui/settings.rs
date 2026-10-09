@@ -1173,6 +1173,62 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
     }
 
+    let agents = gettext(locale, "Agents");
+    let mcp_title = gettext(locale, "Local MCP server");
+    let mcp_description = gettext(
+        locale,
+        "Let agents search Spotify, control playback and edit playlists.",
+    );
+    let mcp_rows = [RowText::new(mcp_title.clone(), mcp_description)];
+    if section_matches(&needle, &agents, &mcp_rows) {
+        any_visible = true;
+        section(ui, &palette, &agents, |ui| {
+            filtered_row(ui, &palette, &needle, &agents, &mcp_rows[0], |ui| {
+                changed |= widgets::switch(ui, &palette, &mcp_title, &mut app.settings.mcp_enabled)
+                    .changed();
+            });
+            if app.settings.mcp_enabled {
+                ui.horizontal(|ui| {
+                    ui.label(gettext(locale, "Local port (0 selects an available port)"));
+                    changed |= ui
+                        .add(egui::DragValue::new(&mut app.settings.mcp_port).range(0..=u16::MAX))
+                        .changed();
+                });
+                match &app.mcp_status {
+                    crate::mcp::Status::Running(connection) => {
+                        ui.label(connection.url());
+                        if theme::soft_button(
+                            ui,
+                            &palette,
+                            None,
+                            &gettext(locale, "Copy MCP configuration"),
+                            false,
+                        )
+                        .clicked()
+                        {
+                            ui.ctx().copy_text(connection.client_config());
+                        }
+                        ui.label(gettext(
+                            locale,
+                            "The access token changes whenever the server restarts.",
+                        ));
+                    }
+                    crate::mcp::Status::Failed(error) => {
+                        ui.colored_label(palette.text, error);
+                        if theme::soft_button(ui, &palette, None, &gettext(locale, "Retry"), false)
+                            .clicked()
+                        {
+                            app.actions.push(Action::RestartMcp);
+                        }
+                    }
+                    crate::mcp::Status::Disabled => {
+                        ui.spinner();
+                    }
+                }
+            }
+        });
+    }
+
     let proxy = gettext(locale, "Proxy");
     let proxy_rows = [RowText::new(
         gettext(locale, "Mode, host, port, username and password"),

@@ -3156,3 +3156,27 @@ msgstr "Windows on ARM では、Spotifast の描画に使う OpenGL は Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#: src/ui/settings.rs:1176
+msgid "Agents"
+msgstr "エージェント"
+
+#: src/ui/settings.rs:1177
+msgid "Local MCP server"
+msgstr "ローカルMCPサーバー"
+
+#: src/ui/settings.rs:1180
+msgid "Let agents search Spotify, control playback and edit playlists."
+msgstr "エージェントによるSpotifyの検索、再生操作、プレイリストの編集を許可します。"
+
+#: src/ui/settings.rs:1192
+msgid "Local port (0 selects an available port)"
+msgstr "ローカルポート（0で空きポートを選択）"
+
+#: src/ui/settings.rs:1204
+msgid "Copy MCP configuration"
+msgstr "MCP設定をコピー"
+
+#: src/ui/settings.rs:1213
+msgid "The access token changes whenever the server restarts."
+msgstr "サーバーを再起動するたびにアクセストークンが変わります。"

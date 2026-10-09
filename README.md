@@ -142,3 +142,17 @@ Spotifast is an independent project and is not affiliated with Spotify.
 Spotify is a trademark of Spotify AB.
 
 Licensed under the [MIT License](LICENSE).
+
+## Agent access
+
+Enable **Settings > Agents > Local MCP server**, then use **Copy MCP
+configuration** and paste it into your agent's MCP settings. The server runs inside Spotifast,
+uses its existing Spotify sign-in, and supports search, playback, devices,
+queue reads, and playlist creation and editing.
+
+Access uses Streamable HTTP on loopback with a bearer token. The token changes
+when the server restarts; copy the configuration again. Set a local port to
+keep the endpoint stable, or leave it at zero to choose an available port.
+Turning the switch off closes the endpoint and cancels pending requests.
+Playlist writes need Spotify edit permission. A timed-out write may already
+have reached Spotify; read the playlist before retrying.

@@ -11,7 +11,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use librespot_core::authentication::Credentials;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio_util::sync::CancellationToken;
 
 use crate::api::models::*;
 use crate::api::{
@@ -562,6 +563,15 @@ struct PlaylistCacheWrite {
 }
 
 pub enum Command {
+    ConfigureMcp {
+        enabled: bool,
+        port: u16,
+    },
+    Mcp {
+        request: ApiRequest,
+        reply: oneshot::Sender<Result<serde_json::Value, String>>,
+        cancel: CancellationToken,
+    },
     OpenThemesFolder,
     ProxyRestored {
         lease: CredentialLease,
@@ -604,6 +614,7 @@ pub enum Command {
     Player(PlayerCommand),
     Api(ApiRequest),
     ApiFinished {
+        mcp_reply: Option<crate::mcp::Completion>,
         generation: u64,
         response: Box<ApiResponse>,
         expired: Option<ApiSource>,
@@ -747,6 +758,11 @@ pub struct LyricsRequest {
 }
 
 pub enum Event {
+    McpStatus(crate::mcp::Status),
+    McpPlaylistChanged {
+        id: Option<String>,
+        snapshot: Option<String>,
+    },
     ProxyRestored {
         config: ProxyConfig,
         password: Option<crate::credentials::ProxyPassword>,
@@ -1312,6 +1328,7 @@ impl AlbumTypeLookup {
 }
 
 struct Worker {
+    mcp: Option<crate::mcp::Server>,
     dirs: AppDirs,
     credentials: CredentialStore,
     web_tokens: [Option<Arc<WebTokens>>; 2],
@@ -1383,6 +1400,7 @@ impl Worker {
         waker: Waker,
     ) -> Self {
         Self {
+            mcp: None,
             #[cfg(not(test))]
             credentials: CredentialStore::new(dirs.clone()),
             #[cfg(test)]
@@ -1665,7 +1683,31 @@ impl Worker {
                         waker.wake();
                     });
                 }
-                Command::Shutdown => break,
+                Command::Shutdown => {
+                    self.mcp = None;
+                    break;
+                }
+                Command::ConfigureMcp { enabled, port } => {
+                    self.mcp = None;
+                    let status = if enabled {
+                        match crate::mcp::Server::start(self.commands.clone(), port).await {
+                            Ok(server) => {
+                                let connection = server.connection.clone();
+                                self.mcp = Some(server);
+                                crate::mcp::Status::Running(connection)
+                            }
+                            Err(error) => crate::mcp::Status::Failed(error.to_string()),
+                        }
+                    } else {
+                        crate::mcp::Status::Disabled
+                    };
+                    self.emit(Event::McpStatus(status));
+                }
+                Command::Mcp {
+                    request,
+                    reply,
+                    cancel,
+                } => self.dispatch_mcp(request, reply, cancel),
                 Command::SignIn { request, config } => self.change_proxy(request, config, true),
                 Command::CancelSignIn => {
                     self.authorization_attempt += 1;
@@ -1710,6 +1752,7 @@ impl Worker {
                     self.dispatch(request);
                 }
                 Command::ApiFinished {
+                    mcp_reply,
                     generation,
                     response,
                     expired,
@@ -1747,7 +1790,36 @@ impl Worker {
                             user.product.as_deref().map(|product| product == "premium"),
                         );
                     }
-                    self.emit(Event::Api(response));
+                    if let Some(completion) = mcp_reply {
+                        if completion.result.is_ok() {
+                            match response.as_ref() {
+                                ApiResponse::PlaylistCreated(_) => {
+                                    self.emit(Event::McpPlaylistChanged {
+                                        id: None,
+                                        snapshot: None,
+                                    })
+                                }
+                                ApiResponse::PlaylistUpdated { id, .. } => {
+                                    self.emit(Event::McpPlaylistChanged {
+                                        id: Some(id.clone()),
+                                        snapshot: None,
+                                    })
+                                }
+                                ApiResponse::PlaylistItemsChanged {
+                                    id,
+                                    result: Ok(snapshot),
+                                    ..
+                                } => self.emit(Event::McpPlaylistChanged {
+                                    id: Some(id.clone()),
+                                    snapshot: snapshot.clone(),
+                                }),
+                                _ => {}
+                            }
+                        }
+                        let _ = completion.reply.send(completion.result);
+                    } else {
+                        self.emit(Event::Api(response));
+                    }
                 }
                 Command::Accent { url } => self.accent(url),
                 Command::WebSignedIn {
@@ -3258,6 +3330,43 @@ impl Worker {
         self.search_tasks.push(self.dispatch(request));
     }
 
+    fn dispatch_mcp(
+        &self,
+        request: ApiRequest,
+        reply: oneshot::Sender<Result<serde_json::Value, String>>,
+        cancel: CancellationToken,
+    ) {
+        if cancel.is_cancelled() || self.mcp.is_none() {
+            let _ = reply.send(Err("MCP is disabled".into()));
+            return;
+        }
+        let api = Arc::clone(&self.api);
+        let engine = self.engine.clone();
+        let commands = self.commands.clone();
+        let mut session = self.session.subscribe();
+        let generation = *session.borrow_and_update();
+        let shared_lease = self.credentials.lease(CredentialSlot::Shared);
+        let personal_lease = self.credentials.lease(CredentialSlot::Personal);
+        tokio::spawn(async move {
+            let outcome = tokio::select! {
+                _ = session.changed() => return,
+                _ = cancel.cancelled() => return,
+                result = handle_mcp(&api, engine.as_deref(), request) => result,
+            };
+            let _ = commands.send(Command::ApiFinished {
+                mcp_reply: Some(crate::mcp::Completion {
+                    reply,
+                    result: outcome.result,
+                }),
+                generation,
+                response: Box::new(outcome.response),
+                expired: outcome.expired,
+                shared_lease,
+                personal_lease,
+            });
+        });
+    }
+
     fn dispatch(&self, request: ApiRequest) -> tokio::task::AbortHandle {
         let api = Arc::clone(&self.api);
         let shared_lease = self.credentials.lease(CredentialSlot::Shared);
@@ -3283,6 +3392,7 @@ impl Worker {
             // Apply completion on the command loop. A late response cannot
             // clear or repopulate a session created after sign-out.
             let _ = commands.send(Command::ApiFinished {
+                mcp_reply: None,
                 generation,
                 response: Box::new(response),
                 expired,
@@ -3450,6 +3560,78 @@ fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
             api.invalidate_playlist_access(&PlaylistId::new(id.clone()));
         }
         _ => {}
+    }
+}
+
+struct McpOutcome {
+    response: ApiResponse,
+    expired: Option<ApiSource>,
+    result: Result<serde_json::Value, String>,
+}
+
+async fn handle_mcp(api: &ApiGateway, engine: Option<&Engine>, request: ApiRequest) -> McpOutcome {
+    // Read metadata before playlist operations so routing knows ownership, and
+    // page readers receive the revision needed for later positional edits.
+    let playlist_id = match &request {
+        ApiRequest::PlaylistItems { id, .. } | ApiRequest::UpdatePlaylist { id, .. } => Some(id),
+        ApiRequest::AddToPlaylist { playlist_id, .. }
+        | ApiRequest::RemoveFromPlaylist { playlist_id, .. }
+        | ApiRequest::ReorderPlaylist { playlist_id, .. } => Some(playlist_id),
+        _ => None,
+    };
+    let mut snapshot = None;
+    if let Some(id) = playlist_id {
+        let (response, expired) = handle(
+            api,
+            engine,
+            ApiRequest::Playlist {
+                id: id.clone(),
+                generation: 0,
+            },
+        )
+        .await;
+        match &response {
+            ApiResponse::Playlist {
+                result: Ok(playlist),
+                ..
+            } => snapshot = playlist.snapshot_id.clone(),
+            ApiResponse::Playlist {
+                result: Err(error), ..
+            } => {
+                let result = Err(error.to_string());
+                return McpOutcome {
+                    response,
+                    expired,
+                    result,
+                };
+            }
+            _ => {}
+        }
+        let expected = match &request {
+            ApiRequest::RemoveFromPlaylist { snapshot_id, .. }
+            | ApiRequest::ReorderPlaylist { snapshot_id, .. } => snapshot_id,
+            _ => &None,
+        };
+        if expected.is_some() && expected != &snapshot {
+            return McpOutcome {
+                response,
+                expired,
+                result: Err(
+                    "The playlist changed. Read playlist_tracks again before editing.".into(),
+                ),
+            };
+        }
+    }
+    let is_page = matches!(request, ApiRequest::PlaylistItems { .. });
+    let (response, expired) = handle(api, engine, request).await;
+    let mut result = crate::mcp::response(&response);
+    if is_page && let Ok(data) = &mut result {
+        data["snapshot_id"] = serde_json::json!(snapshot);
+    }
+    McpOutcome {
+        response,
+        expired,
+        result,
     }
 }
 
@@ -5396,6 +5578,76 @@ mod authorization_tests {
     }
 
     #[test]
+    fn mcp_completion_cannot_cross_an_account_change() {
+        let (runtime, mut worker, events) = worker("mcp-stale-completion");
+        let _entered = runtime.enter();
+        let generation = *worker.session.borrow();
+        let shared_lease = worker.credentials.lease(CredentialSlot::Shared);
+        let personal_lease = worker.credentials.lease(CredentialSlot::Personal);
+        worker.sign_out();
+        let _ = events.try_iter().collect::<Vec<_>>();
+        let (reply, result) = oneshot::channel();
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::ApiFinished {
+                mcp_reply: Some(crate::mcp::Completion {
+                    reply,
+                    result: Ok(serde_json::json!({"status":"confirmed"})),
+                }),
+                generation,
+                response: Box::new(ApiResponse::PlaylistUpdated {
+                    id: "playlist123".into(),
+                    result: Ok(()),
+                }),
+                expired: None,
+                shared_lease,
+                personal_lease,
+            })
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+        assert!(runtime.block_on(result).is_err());
+        assert!(
+            events
+                .try_iter()
+                .all(|event| !matches!(event, Event::McpPlaylistChanged { .. } | Event::Api(_)))
+        );
+    }
+
+    #[test]
+    fn mcp_confirmed_edit_replies_without_delivering_a_ui_command_response() {
+        let (runtime, mut worker, events) = worker("mcp-confirmed-completion");
+        let (reply, result) = oneshot::channel();
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::ApiFinished {
+                mcp_reply: Some(crate::mcp::Completion {
+                    reply,
+                    result: Ok(serde_json::json!({"snapshot_id":"revision123"})),
+                }),
+                generation: *worker.session.borrow(),
+                response: Box::new(ApiResponse::PlaylistItemsChanged {
+                    id: "playlist123".into(),
+                    message: String::new(),
+                    result: Ok(Some("revision123".into())),
+                }),
+                expired: None,
+                shared_lease: worker.credentials.lease(CredentialSlot::Shared),
+                personal_lease: worker.credentials.lease(CredentialSlot::Personal),
+            })
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+        assert_eq!(
+            runtime.block_on(result).unwrap().unwrap()["snapshot_id"],
+            "revision123"
+        );
+        let events: Vec<_> = events.try_iter().collect();
+        assert!(events.iter().any(|event| matches!(event, Event::McpPlaylistChanged { id: Some(id), snapshot: Some(snapshot) } if id == "playlist123" && snapshot == "revision123")));
+        assert!(!events.iter().any(|event| matches!(event, Event::Api(_))));
+    }
+
+    #[test]
     fn old_api_and_verification_errors_cannot_sign_out_a_new_session() {
         let (runtime, mut worker, events) = worker("old-api-after-sign-in");
         let _entered = runtime.enter();
@@ -5409,6 +5661,7 @@ mod authorization_tests {
         let (commands, receiver) = mpsc::unbounded_channel();
         commands
             .send(Command::ApiFinished {
+                mcp_reply: None,
                 generation,
                 response: Box::new(ApiResponse::Me(Err(ApiError::SignInExpired {
                     api_source: ApiSource::Shared,

@@ -698,7 +698,7 @@ pub struct DeviceList {
     pub devices: Vec<Device>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct PlaybackState {
     #[serde(default)]
     pub device: Option<Device>,
@@ -721,7 +721,7 @@ pub struct PlaybackState {
     pub currently_playing_type: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Queue {
     #[serde(default)]
     pub currently_playing: Option<PlayableItem>,
@@ -729,7 +729,7 @@ pub struct Queue {
     pub queue: Vec<PlayableItem>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct SearchResults {
     #[serde(default)]
     pub tracks: Option<Page<Track>>,

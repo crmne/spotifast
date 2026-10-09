@@ -223,6 +223,10 @@ fn proxy_mode_is_system(mode: &ProxyMode) -> bool {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Allow authenticated agents to use this running app over loopback HTTP.
+    pub mcp_enabled: bool,
+    /// Zero selects an available local port.
+    pub mcp_port: u16,
     /// The Spotify Connect name other devices see.
     pub device_name: String,
     /// 96, 160, or 320 kbps.
@@ -414,6 +418,8 @@ impl std::fmt::Debug for Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            mcp_enabled: false,
+            mcp_port: 0,
             device_name: "Spotifast".to_string(),
             bitrate: 320,
             normalisation: false,
@@ -1629,5 +1635,27 @@ mod session_tests {
         );
         assert!(!path.with_extension("json.tmp").exists());
         let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod mcp_tests {
+    use super::Settings;
+
+    #[test]
+    fn mcp_is_opt_in_and_only_preferences_are_saved() {
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!old.mcp_enabled);
+        assert_eq!(old.mcp_port, 0);
+        let enabled = Settings {
+            mcp_enabled: true,
+            mcp_port: 0,
+            ..old
+        };
+        let saved = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(saved["mcp_enabled"], true);
+        assert!(saved.get("mcp_token").is_none());
+        let restored: Settings = serde_json::from_value(saved).unwrap();
+        assert!(restored.mcp_enabled);
     }
 }

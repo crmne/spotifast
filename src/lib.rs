@@ -29,6 +29,7 @@ pub mod mac_menu;
 pub mod mac_notch;
 #[cfg(target_os = "macos")]
 pub mod mac_touchbar_crash_guard;
+pub mod mcp;
 pub mod milkdrop;
 pub mod model;
 pub mod notch;

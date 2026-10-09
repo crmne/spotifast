@@ -3166,3 +3166,27 @@ msgstr "I Windows på ARM kommer OpenGL, som Spotifast ritar med, från Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Minska låttextrörelse"
+
+#: src/ui/settings.rs:1176
+msgid "Agents"
+msgstr "Agenter"
+
+#: src/ui/settings.rs:1177
+msgid "Local MCP server"
+msgstr "Lokal MCP-server"
+
+#: src/ui/settings.rs:1180
+msgid "Let agents search Spotify, control playback and edit playlists."
+msgstr "Låt agenter söka på Spotify, styra uppspelning och redigera spellistor."
+
+#: src/ui/settings.rs:1192
+msgid "Local port (0 selects an available port)"
+msgstr "Lokal port (0 väljer en ledig port)"
+
+#: src/ui/settings.rs:1204
+msgid "Copy MCP configuration"
+msgstr "Kopiera MCP-konfiguration"
+
+#: src/ui/settings.rs:1213
+msgid "The access token changes whenever the server restarts."
+msgstr "Åtkomsttoken ändras varje gång servern startas om."
