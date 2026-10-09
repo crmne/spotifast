@@ -361,7 +361,7 @@ msgid "Load more"
 msgstr ""
 
 #: src/ui/lyrics.rs:90
-msgid "Full screen lyrics"
+msgid "Expand lyrics"
 msgstr ""
 
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
@@ -406,7 +406,7 @@ msgid "Loading…"
 msgstr ""
 
 #: src/ui/lyrics.rs:534
-msgid "Leave full screen (Esc)"
+msgid "Collapse lyrics (Esc)"
 msgstr ""
 
 #: src/ui/widgets.rs:582 src/ui/widgets.rs:815 src/ui/widgets.rs:1019
@@ -2337,7 +2337,7 @@ msgid "Show the lyrics"
 msgstr ""
 
 #: src/ui/keys.rs:215
-msgid "Lyrics: leave full screen"
+msgid "Collapse lyrics or leave full screen"
 msgstr ""
 
 #: src/ui/keys.rs:218
@@ -3055,4 +3055,8 @@ msgstr ""
 
 #: src/window.rs:35
 msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr ""
+
+#: src/ui/keys.rs src/ui/topbar.rs
+msgid "Toggle full screen"
 msgstr ""

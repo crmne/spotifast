@@ -87,11 +87,11 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                     18.0,
                     palette.secondary,
                     palette.text,
-                    &gettext(app.locale, "Full screen lyrics"),
+                    &gettext(app.locale, "Expand lyrics"),
                 )
                 .clicked()
                 {
-                    app.actions.push(Action::SetLyricsFullscreen(true));
+                    app.actions.push(Action::SetLyricsExpanded(true));
                 }
                 let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
                 if loaded
@@ -291,7 +291,9 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             let rect = ui.max_rect();
             background(app, ui, rect);
-            let top = theme::titlebar_inset(ui.ctx()) + 24.0;
+            let caption_space =
+                super::window_controls_reservation(ui.ctx(), false, true, rect.width());
+            let top = theme::titlebar_inset(ui.ctx()).max(caption_space.lyrics_top) + 24.0;
             if app.now_playing().is_some() && rect.width() >= COVER_BESIDE_MIN_WIDTH {
                 with_cover(app, ui, rect, top);
                 return;
@@ -531,11 +533,11 @@ fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
                 18.0,
                 palette.text,
                 palette.text,
-                &gettext(app.locale, "Leave full screen (Esc)"),
+                &gettext(app.locale, "Collapse lyrics (Esc)"),
             )
             .clicked()
             {
-                app.actions.push(Action::SetLyricsFullscreen(false));
+                app.actions.push(Action::SetLyricsExpanded(false));
             }
             let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
             if loaded

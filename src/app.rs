@@ -406,10 +406,10 @@ pub struct App {
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
-    pub lyrics_fullscreen: Option<bool>,
-    pub lyrics_fullscreen_seen: bool,
-    lyrics_fullscreen_restoring: Option<bool>,
-    lyrics_restore_maximized: bool,
+    main_fullscreen_from: Option<crate::settings::WindowMode>,
+    main_fullscreen_seen: bool,
+    main_fullscreen_restoring: Option<crate::settings::WindowMode>,
+    pub lyrics_expanded: bool,
     pub lyrics_backdrop: crate::images::LyricsBackdrop,
     pub softened_covers: crate::images::SoftenedCovers,
     /// The track the lyrics below are for.
@@ -857,10 +857,10 @@ impl App {
             uploaded_covers: Default::default(),
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
-            lyrics_fullscreen: None,
-            lyrics_fullscreen_seen: false,
-            lyrics_fullscreen_restoring: None,
-            lyrics_restore_maximized: false,
+            main_fullscreen_from: session.main_fullscreen_from,
+            main_fullscreen_seen: false,
+            main_fullscreen_restoring: None,
+            lyrics_expanded: false,
             lyrics_backdrop: Default::default(),
             softened_covers: Default::default(),
             lyrics_uri: None,
@@ -983,11 +983,7 @@ impl App {
         if let Some(tray) = &mut self.tray {
             tray.attach();
         }
-        // eframe restores the full screen fullscreen lyrics left behind when
-        // the app closed in them, without the lyrics. The mode they came
-        // from is known, or on Windows, where only fullscreen lyrics make
-        // the frameless main window full screen and nothing else could
-        // leave it, it was an ordinary window.
+        // Older versions saved a temporary native mode for fullscreen lyrics.
         let lyrics_left = self.session_lyrics_fullscreen_from.take();
         if self.settings.winamp_window {
             // The mini player sizes itself; the big window's geometry
@@ -1008,6 +1004,12 @@ impl App {
             if self.settings.winamp_on_top && self.window_level_supported {
                 self.winamp_level_reassert = 3;
             }
+            return;
+        }
+        if self.main_fullscreen_from.is_some() {
+            self.main_fullscreen_seen = false;
+            self.main_fullscreen_restoring = None;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
             return;
         }
         let restored_full_screen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
@@ -8210,14 +8212,43 @@ impl App {
         }
     }
 
-    fn leave_lyrics_fullscreen(&mut self, ctx: &egui::Context) {
-        if let Some(was_fullscreen) = self.lyrics_fullscreen.take() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(was_fullscreen));
-            if self.lyrics_restore_maximized {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+    pub(crate) fn main_fullscreen(&self, ctx: &egui::Context) -> bool {
+        !self.settings.winamp_window
+            && (self.main_fullscreen_from.is_some()
+                || (self.main_fullscreen_restoring.is_none()
+                    && ctx.input(|input| input.viewport().fullscreen.unwrap_or(false))))
+    }
+
+    fn leave_main_fullscreen(&mut self, ctx: &egui::Context) {
+        let mode = self.main_fullscreen_from.take().unwrap_or_default();
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        if mode.maximized {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        } else {
+            if let Some(size) = self.last_window_size.or(self.session_window_size)
+                && (400.0..=3000.0).contains(&size[0])
+                && (300.0..=2000.0).contains(&size[1])
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    size[0], size[1],
+                )));
             }
-            self.lyrics_fullscreen_restoring = Some(was_fullscreen);
-            self.lyrics_fullscreen_seen = false;
+            if let Some(pos) = self.last_window_pos.or(self.session_window_pos)
+                && crate::window::can_restore(pos, ctx.pixels_per_point())
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                    pos[0], pos[1],
+                )));
+            }
+        }
+        self.main_fullscreen_restoring = Some(mode);
+        self.main_fullscreen_seen = false;
+        self.session_dirty = true;
+    }
+
+    fn collapse_lyrics(&mut self) {
+        if self.lyrics_expanded {
+            self.lyrics_expanded = false;
             self.lyrics_line_shown = None;
         }
     }
@@ -8236,7 +8267,7 @@ impl App {
                 | Action::ToggleWinampWindow
                 | Action::ToggleQueuePanel
         ) {
-            self.leave_lyrics_fullscreen(ctx);
+            self.collapse_lyrics();
         }
         match action {
             Action::Open(page) => self.open(page),
@@ -8929,7 +8960,7 @@ impl App {
                 }
             }
             Action::ToggleLyricsPanel => {
-                self.leave_lyrics_fullscreen(ctx);
+                self.collapse_lyrics();
                 self.show_lyrics_panel = !self.show_lyrics_panel;
                 if self.show_lyrics_panel {
                     self.show_queue_panel = false;
@@ -8937,39 +8968,58 @@ impl App {
                     self.request_lyrics();
                 }
             }
-            Action::SetLyricsFullscreen(fullscreen) => {
-                if fullscreen && self.lyrics_fullscreen.is_none() {
-                    self.lyrics_fullscreen =
-                        Some(self.lyrics_fullscreen_restoring.take().unwrap_or_else(|| {
-                            ctx.input(|input| input.viewport().fullscreen.unwrap_or(false))
-                        }));
-                    #[cfg(windows)]
-                    {
-                        // Winit's undecorated maximized Windows client area is
-                        // constrained to the work area, even in fullscreen.
-                        // Clear maximization before entering, then restore it
-                        // together with the original window mode on exit.
-                        self.lyrics_restore_maximized |= self.lyrics_fullscreen == Some(false)
-                            && ctx.input(|input| input.viewport().maximized.unwrap_or(false));
-                        if self.lyrics_restore_maximized {
+            Action::ToggleFullscreen => {
+                if !self.settings.winamp_window {
+                    if self.main_fullscreen(ctx) {
+                        self.leave_main_fullscreen(ctx);
+                    } else {
+                        let restoring = self.main_fullscreen_restoring.take();
+                        let mode = restoring.unwrap_or_else(|| crate::settings::WindowMode {
+                            fullscreen: false,
+                            maximized: ctx
+                                .input(|input| input.viewport().maximized.unwrap_or(false)),
+                        });
+                        if !mode.maximized && restoring.is_none() {
+                            ctx.input(|input| {
+                                if let Some(rect) = input.viewport().inner_rect
+                                    && !input.viewport().fullscreen.unwrap_or(false)
+                                {
+                                    self.last_window_size = Some([rect.width(), rect.height()]);
+                                }
+                                if let Some(rect) = input.viewport().outer_rect
+                                    && !input.viewport().fullscreen.unwrap_or(false)
+                                {
+                                    self.last_window_pos = Some([rect.min.x, rect.min.y]);
+                                }
+                            });
+                        }
+                        self.main_fullscreen_from = Some(mode);
+                        self.main_fullscreen_seen = false;
+                        #[cfg(windows)]
+                        if mode.maximized {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
                         }
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                        self.session_dirty = true;
                     }
-                    self.lyrics_fullscreen_seen = false;
+                }
+            }
+            Action::SetLyricsExpanded(expanded) => {
+                if expanded && !self.lyrics_expanded {
+                    self.lyrics_expanded = true;
                     self.show_lyrics_panel = true;
                     self.show_queue_panel = false;
                     self.lyrics_following = true;
                     self.lyrics_line_shown = None;
                     self.request_lyrics();
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
-                } else if !fullscreen {
-                    self.leave_lyrics_fullscreen(ctx);
+                } else if !expanded {
+                    self.collapse_lyrics();
                 }
             }
             Action::LyricsLineShown(line) => {
                 // Escape or navigation may already have left the view earlier
                 // in this frame. The returning panel still needs to reposition.
-                if self.lyrics_fullscreen.is_some() {
+                if self.lyrics_expanded {
                     self.lyrics_line_shown = Some(line);
                 }
             }
@@ -9847,19 +9897,23 @@ impl App {
         } else {
             self.scrolling.apply(ctx);
         }
-        if self.lyrics_fullscreen_restoring.is_some()
-            && self.lyrics_fullscreen_restoring == ctx.input(|input| input.viewport().fullscreen)
-            && (!self.lyrics_restore_maximized
-                || ctx.input(|input| input.viewport().maximized == Some(true)))
-        {
-            self.lyrics_fullscreen_restoring = None;
-            self.lyrics_restore_maximized = false;
-        }
-        if self.lyrics_fullscreen.is_some() {
-            if ctx.input(|input| input.viewport().fullscreen.unwrap_or(false)) {
-                self.lyrics_fullscreen_seen = true;
-            } else if self.lyrics_fullscreen_seen {
-                self.leave_lyrics_fullscreen(ctx);
+        if !self.settings.winamp_window && !self.switch_intent {
+            if let Some(mode) = self.main_fullscreen_restoring
+                && ctx.input(|input| {
+                    input.viewport().fullscreen == Some(false)
+                        && (!mode.maximized || input.viewport().maximized == Some(true))
+                })
+            {
+                self.main_fullscreen_restoring = None;
+            }
+            if self.main_fullscreen_from.is_some() {
+                if ctx.input(|input| input.viewport().fullscreen == Some(true)) {
+                    self.main_fullscreen_seen = true;
+                } else if self.main_fullscreen_seen
+                    && ctx.input(|input| input.viewport().fullscreen == Some(false))
+                {
+                    self.leave_main_fullscreen(ctx);
+                }
             }
         }
         // Switch to the main window when sign-in is required.
@@ -9893,8 +9947,9 @@ impl App {
 
         if !self.settings.winamp_window
             && !self.switch_intent
-            && self.lyrics_fullscreen.is_none()
-            && self.lyrics_fullscreen_restoring.is_none()
+            && self.main_fullscreen_from.is_none()
+            && self.main_fullscreen_restoring.is_none()
+            && !ctx.input(|input| input.viewport().fullscreen.unwrap_or(false))
         {
             if let Some(rect) = ctx.input(|input| input.viewport().inner_rect) {
                 self.last_window_size = Some([rect.width(), rect.height()]);
@@ -9979,12 +10034,8 @@ impl App {
                 queue_tab: Some(self.queue_tab.encode().to_string()),
                 winamp_pos: self.winamp.last_pos.or(self.winamp.restore_pos),
                 milkdrop_pos: self.milkdrop_pos,
-                lyrics_fullscreen_from: self.lyrics_fullscreen.map(|fullscreen| {
-                    crate::settings::WindowMode {
-                        fullscreen,
-                        maximized: self.lyrics_restore_maximized,
-                    }
-                }),
+                main_fullscreen_from: self.main_fullscreen_from,
+                lyrics_fullscreen_from: None,
             }
             .save(&self.dirs.session_file());
         }
@@ -11988,8 +12039,8 @@ mod tests {
     }
 
     /// Closing the app in fullscreen lyrics leaves eframe to restore the
-    /// window full screen without them, and on Windows nothing else could
-    /// leave it. The next start returns it to the mode the lyrics came from.
+    /// window full screen without them. The next start returns it to the
+    /// mode the lyrics came from.
     #[test]
     fn a_window_closed_in_fullscreen_lyrics_returns_to_its_previous_mode() {
         use crate::settings::WindowMode;
@@ -12055,31 +12106,15 @@ mod tests {
         }
     }
 
-    /// The session remembers fullscreen lyrics and the mode they left, and a
-    /// session file from before the field existed still loads.
+    /// Expanded lyrics no longer leave a temporary native mode to restore.
     #[test]
-    fn the_session_remembers_the_mode_fullscreen_lyrics_left() {
-        let mut app = test_app("lyrics-fullscreen-session");
-        app.lyrics_fullscreen = Some(false);
-        app.lyrics_restore_maximized = true;
+    fn expanded_lyrics_do_not_save_a_native_fullscreen_override() {
+        let mut app = test_app("lyrics-expanded-session");
+        app.lyrics_expanded = true;
         app.save_session();
         let session = SessionState::load(&app.dirs.session_file());
-        assert_eq!(
-            session.lyrics_fullscreen_from,
-            Some(crate::settings::WindowMode {
-                fullscreen: false,
-                maximized: true,
-            })
-        );
-
-        app.lyrics_fullscreen = None;
-        app.save_session();
-        let text = std::fs::read_to_string(app.dirs.session_file()).unwrap();
-        assert!(!text.contains("lyrics_fullscreen_from"));
-        assert_eq!(
-            SessionState::load(&app.dirs.session_file()).lyrics_fullscreen_from,
-            None
-        );
+        assert_eq!(session.lyrics_fullscreen_from, None);
+        assert_eq!(session.main_fullscreen_from, None);
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
     }
@@ -17021,121 +17056,198 @@ mod tests {
     }
 
     #[test]
-    fn lyrics_fullscreen_restores_the_previous_window_mode() {
-        for was_fullscreen in [false, true] {
+    fn main_fullscreen_restores_size_and_windows_maximization() {
+        use egui::ViewportCommand::{Fullscreen, InnerSize, Maximized};
+        for maximized in [false, true] {
             let mut app = headless_app();
             let ctx = egui::Context::default();
-            let mut input = egui::RawInput::default();
-            input
-                .viewports
-                .get_mut(&egui::ViewportId::ROOT)
-                .unwrap()
-                .fullscreen = Some(was_fullscreen);
-            let mut output = ctx.run_ui(input, |ui| {
-                app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
-                assert!(app.show_lyrics_panel);
-                assert_eq!(app.lyrics_fullscreen, Some(was_fullscreen));
-                app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
-                assert_eq!(app.lyrics_fullscreen, Some(was_fullscreen));
-                app.apply(Action::SetLyricsFullscreen(false), ui.ctx());
-                assert!(app.show_lyrics_panel);
-                assert_eq!(app.lyrics_fullscreen, None);
-            });
-            output.textures_delta.clear();
-            let commands: Vec<_> = output.viewport_output[&egui::ViewportId::ROOT]
-                .commands
-                .iter()
-                .filter_map(|command| {
-                    if let egui::ViewportCommand::Fullscreen(value) = command {
-                        Some(*value)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            assert_eq!(commands, vec![true, was_fullscreen]);
-        }
-    }
-
-    #[test]
-    fn native_fullscreen_exit_restores_the_previous_window_mode() {
-        for was_fullscreen in [false, true] {
-            let mut app = headless_app();
-            app.lyrics_fullscreen = Some(was_fullscreen);
-            app.lyrics_fullscreen_seen = true;
-            let ctx = egui::Context::default();
-            crate::theme::install(&ctx);
-            let mut input = egui::RawInput::default();
-            input
-                .viewports
-                .get_mut(&egui::ViewportId::ROOT)
-                .unwrap()
-                .fullscreen = Some(false);
-            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
-            output.textures_delta.clear();
-            assert_eq!(app.lyrics_fullscreen, None);
-            assert!(!app.lyrics_fullscreen_seen);
-            let commands: Vec<_> = output.viewport_output[&egui::ViewportId::ROOT]
-                .commands
-                .iter()
-                .filter_map(|command| {
-                    if let egui::ViewportCommand::Fullscreen(value) = command {
-                        Some(*value)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            assert_eq!(commands, vec![was_fullscreen]);
-        }
-    }
-
-    #[test]
-    fn leaving_lyrics_fullscreen_keeps_window_bounds_until_native_restore() {
-        let mut app = headless_app();
-        let ctx = egui::Context::default();
-        crate::theme::install(&ctx);
-        app.lyrics_fullscreen = Some(false);
-        app.lyrics_fullscreen_seen = true;
-        app.last_window_size = Some([900.0, 650.0]);
-        app.last_window_pos = Some([100.0, 80.0]);
-        // Escape is applied while the viewport still reports the old screen.
-        app.actions.push(Action::SetLyricsFullscreen(false));
-        for _ in 0..2 {
             let mut input = egui::RawInput::default();
             let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
-            viewport.fullscreen = Some(true);
+            viewport.fullscreen = Some(false);
+            viewport.maximized = Some(maximized);
             viewport.inner_rect = Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(1920.0, 1080.0),
+                egui::vec2(1000.0, 700.0),
             ));
-            viewport.outer_rect = viewport.inner_rect;
-            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            let mut output = ctx.run_ui(input, |ui| {
+                app.apply(Action::ToggleFullscreen, ui.ctx());
+                assert!(app.main_fullscreen(ui.ctx()));
+                app.apply(Action::ToggleFullscreen, ui.ctx());
+                assert!(!app.main_fullscreen(ui.ctx()));
+            });
             output.textures_delta.clear();
-            assert_eq!(app.lyrics_fullscreen, None);
-            assert_eq!(app.last_window_size, Some([900.0, 650.0]));
-            assert_eq!(app.last_window_pos, Some([100.0, 80.0]));
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            let mut expected = Vec::new();
+            if cfg!(windows) && maximized {
+                expected.push(Maximized(false));
+            }
+            expected.extend([Fullscreen(true), Fullscreen(false)]);
+            if maximized {
+                expected.push(Maximized(true));
+            } else {
+                expected.push(InnerSize(egui::vec2(1000.0, 700.0)));
+            }
+            let modes: Vec<_> = commands
+                .iter()
+                .filter(|command| matches!(command, Fullscreen(_) | Maximized(_) | InnerSize(_)))
+                .cloned()
+                .collect();
+            assert_eq!(modes, expected);
+            app.backend.shutdown();
         }
-        let mut input = egui::RawInput::default();
-        let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
-        viewport.fullscreen = Some(false);
-        viewport.inner_rect = Some(egui::Rect::from_min_size(
-            egui::pos2(120.0, 100.0),
-            egui::vec2(940.0, 680.0),
-        ));
-        viewport.outer_rect = viewport.inner_rect;
-        let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+    }
+
+    #[test]
+    fn collapsing_lyrics_preserves_main_fullscreen() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.apply(Action::ToggleFullscreen, ui.ctx());
+            app.apply(Action::SetLyricsExpanded(true), ui.ctx());
+            assert!(app.lyrics_expanded);
+            app.apply(Action::SetLyricsExpanded(false), ui.ctx());
+            assert!(app.main_fullscreen(ui.ctx()));
+            app.apply(Action::ToggleFullscreen, ui.ctx());
+            assert!(!app.main_fullscreen(ui.ctx()));
+        });
         output.textures_delta.clear();
-        assert_eq!(app.last_window_size, Some([940.0, 680.0]));
-        assert_eq!(app.last_window_pos, Some([120.0, 100.0]));
+        let modes: Vec<_> = output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .iter()
+            .filter_map(|command| {
+                if let egui::ViewportCommand::Fullscreen(value) = command {
+                    Some(*value)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(modes, [true, false]);
         app.backend.shutdown();
     }
 
     #[test]
-    fn reopening_lyrics_during_native_exit_keeps_the_original_window_mode() {
+    fn main_fullscreen_survives_restart_and_keeps_restore_geometry() {
+        let mut app = test_app("main-fullscreen-session");
+        let mode = crate::settings::WindowMode::default();
+        app.main_fullscreen_from = Some(mode);
+        app.last_window_size = Some([1000.0, 700.0]);
+        app.save_session();
+        let session = SessionState::load(&app.dirs.session_file());
+        assert_eq!(session.main_fullscreen_from, Some(mode));
+        app.session_window_size = session.window_size;
+        app.last_window_size = None;
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.attach(ui.ctx()));
+        output.textures_delta.clear();
+        let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(commands.contains(&egui::ViewportCommand::Fullscreen(true)));
+        assert!(!commands.contains(&egui::ViewportCommand::Fullscreen(false)));
+        assert_eq!(app.session_window_size, Some([1000.0, 700.0]));
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.apply(Action::ToggleFullscreen, ui.ctx())
+        });
+        output.textures_delta.clear();
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::InnerSize(egui::vec2(1000.0, 700.0)))
+        );
+        app.save_session();
+        assert_eq!(
+            SessionState::load(&app.dirs.session_file()).main_fullscreen_from,
+            None
+        );
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+    }
+
+    #[test]
+    fn main_fullscreen_keys_preserve_dialog_and_lyrics_escape_order() {
         let mut app = headless_app();
         let ctx = egui::Context::default();
-        app.lyrics_fullscreen = Some(false);
+        crate::theme::install(&ctx);
+        let press = |app: &mut App, key, fullscreen| {
+            let mut input = egui::RawInput {
+                events: vec![egui::Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            };
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .fullscreen = Some(fullscreen);
+            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+        };
+        press(&mut app, egui::Key::F11, false);
+        assert!(app.main_fullscreen_from.is_some());
+        app.dialog = Some(Dialog::Shortcuts);
+        press(&mut app, egui::Key::Escape, true);
+        assert!(app.dialog.is_none());
+        assert!(app.main_fullscreen_from.is_some());
+        app.lyrics_expanded = true;
+        press(&mut app, egui::Key::Escape, true);
+        assert!(!app.lyrics_expanded);
+        assert!(app.main_fullscreen_from.is_some());
+        press(&mut app, egui::Key::Escape, true);
+        assert!(app.main_fullscreen_from.is_none());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn f11_toggles_the_window_without_collapsing_lyrics() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.apply(Action::SetLyricsExpanded(true), ui.ctx());
+            app.apply(Action::ToggleFullscreen, ui.ctx());
+            assert!(app.lyrics_expanded);
+            assert!(app.main_fullscreen(ui.ctx()));
+            app.apply(Action::ToggleFullscreen, ui.ctx());
+            assert!(app.lyrics_expanded);
+            assert!(!app.main_fullscreen(ui.ctx()));
+        });
+        output.textures_delta.clear();
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn native_main_fullscreen_exit_keeps_the_restore_size() {
+        let mut app = headless_app();
+        app.main_fullscreen_from = Some(crate::settings::WindowMode::default());
+        app.main_fullscreen_seen = true;
+        app.last_window_size = Some([1000.0, 700.0]);
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut input = egui::RawInput::default();
+        let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+        viewport.fullscreen = Some(false);
+        viewport.inner_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1920.0, 1080.0),
+        ));
+        let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+        output.textures_delta.clear();
+        assert!(app.main_fullscreen_from.is_none());
+        assert!(app.main_fullscreen_restoring.is_some());
+        assert_eq!(app.last_window_size, Some([1000.0, 700.0]));
+        app.backend.shutdown();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reattaching_main_window_keeps_restored_fullscreen() {
+        use egui::ViewportCommand::{Fullscreen, Maximized};
+        let mut app = headless_app();
+        app.main_fullscreen_from = Some(crate::settings::WindowMode::default());
+        let ctx = egui::Context::default();
         let mut input = egui::RawInput::default();
         input
             .viewports
@@ -17143,74 +17255,76 @@ mod tests {
             .unwrap()
             .fullscreen = Some(true);
         let mut output = ctx.run_ui(input, |ui| {
-            app.apply(Action::SetLyricsFullscreen(false), ui.ctx());
-            app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
+            app.switch_intent = true;
+            app.attach(ui.ctx());
+            assert!(!app.switch_intent);
         });
         output.textures_delta.clear();
-        assert_eq!(app.lyrics_fullscreen, Some(false));
-        assert_eq!(app.lyrics_fullscreen_restoring, None);
+        let modes: Vec<_> = output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .iter()
+            .filter(|command| matches!(command, Fullscreen(_) | Maximized(_)))
+            .cloned()
+            .collect();
+        assert_eq!(modes, [Fullscreen(true)]);
+        assert!(app.main_fullscreen_from.is_some());
         app.backend.shutdown();
     }
 
-    #[cfg(windows)]
     #[test]
-    fn lyrics_fullscreen_clears_and_restores_windows_maximization() {
+    fn mini_player_does_not_take_main_fullscreen() {
         let mut app = headless_app();
+        app.settings.winamp_window = true;
+        app.main_fullscreen_from = Some(crate::settings::WindowMode::default());
         let ctx = egui::Context::default();
-        crate::theme::install(&ctx);
-        let mut input = egui::RawInput::default();
-        let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
-        viewport.fullscreen = Some(false);
-        viewport.maximized = Some(true);
-        let mut output = ctx.run_ui(input, |ui| {
-            app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
-            app.apply(Action::SetLyricsFullscreen(false), ui.ctx());
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.attach(ui.ctx());
+            app.apply(Action::ToggleFullscreen, ui.ctx());
+            assert!(!app.main_fullscreen(ui.ctx()));
         });
         output.textures_delta.clear();
-        assert_eq!(
-            output.viewport_output[&egui::ViewportId::ROOT]
+        assert!(app.main_fullscreen_from.is_some());
+        assert!(
+            !output.viewport_output[&egui::ViewportId::ROOT]
                 .commands
-                .iter()
-                .filter(|command| {
-                    matches!(
-                        command,
-                        egui::ViewportCommand::Maximized(_) | egui::ViewportCommand::Fullscreen(_)
-                    )
-                })
-                .cloned()
-                .collect::<Vec<_>>(),
-            vec![
-                egui::ViewportCommand::Maximized(false),
-                egui::ViewportCommand::Fullscreen(true),
-                egui::ViewportCommand::Fullscreen(false),
-                egui::ViewportCommand::Maximized(true),
-            ]
+                .contains(&egui::ViewportCommand::Fullscreen(true))
         );
-        app.last_window_size = Some([900.0, 650.0]);
-        // A native exit can report windowed before maximization catches up.
-        // Do not save that intermediate size over the restored geometry.
-        for maximized in [false, true] {
-            let mut input = egui::RawInput::default();
-            let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
-            viewport.fullscreen = Some(false);
-            viewport.maximized = Some(maximized);
-            viewport.inner_rect = Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1440.0, 852.0),
-            ));
-            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
-            output.textures_delta.clear();
-            assert_eq!(app.lyrics_fullscreen_restoring.is_none(), maximized);
-            assert_eq!(
-                app.last_window_size,
-                Some(if maximized {
-                    [1440.0, 852.0]
-                } else {
-                    [900.0, 650.0]
-                })
-            );
-        }
         app.backend.shutdown();
+    }
+
+    #[test]
+    fn expanding_and_collapsing_lyrics_never_changes_window_mode() {
+        for fullscreen in [false, true] {
+            for maximized in [false, true] {
+                let mut app = headless_app();
+                let ctx = egui::Context::default();
+                let mut input = egui::RawInput::default();
+                let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+                viewport.fullscreen = Some(fullscreen);
+                viewport.maximized = Some(maximized);
+                let mut output = ctx.run_ui(input, |ui| {
+                    app.apply(Action::SetLyricsExpanded(true), ui.ctx());
+                    assert!(app.lyrics_expanded);
+                    assert!(app.show_lyrics_panel);
+                    app.apply(Action::SetLyricsExpanded(false), ui.ctx());
+                    assert!(!app.lyrics_expanded);
+                    assert!(app.show_lyrics_panel);
+                });
+                output.textures_delta.clear();
+                assert!(
+                    !output.viewport_output[&egui::ViewportId::ROOT]
+                        .commands
+                        .iter()
+                        .any(|command| matches!(
+                            command,
+                            egui::ViewportCommand::Fullscreen(_)
+                                | egui::ViewportCommand::Maximized(_)
+                                | egui::ViewportCommand::InnerSize(_)
+                        ))
+                );
+                app.backend.shutdown();
+            }
+        }
     }
 
     #[cfg(feature = "demo")]
@@ -17221,7 +17335,7 @@ mod tests {
         app.attach(&ctx);
         crate::demo::populate(&mut app);
         crate::demo::apply_flags(&mut app, None, Some("lyrics"));
-        app.lyrics_fullscreen = Some(false);
+        app.lyrics_expanded = true;
         let mut input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
@@ -17243,7 +17357,7 @@ mod tests {
             .fullscreen = Some(true);
         let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
         output.textures_delta.clear();
-        assert_eq!(app.lyrics_fullscreen, None);
+        assert!(!app.lyrics_expanded);
         assert_eq!(
             app.lyrics_line_shown, None,
             "the fullscreen line cannot stop the returning panel from positioning itself"
@@ -17252,18 +17366,18 @@ mod tests {
     }
 
     #[test]
-    fn closing_lyrics_leaves_fullscreen() {
+    fn closing_expanded_lyrics_leaves_window_mode_unchanged() {
         let mut app = headless_app();
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(Default::default(), |ui| {
-            app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
+            app.apply(Action::SetLyricsExpanded(true), ui.ctx());
             app.apply(Action::ToggleLyricsPanel, ui.ctx());
         });
         output.textures_delta.clear();
         assert!(!app.show_lyrics_panel);
-        assert_eq!(app.lyrics_fullscreen, None);
+        assert!(!app.lyrics_expanded);
         assert!(
-            output.viewport_output[&egui::ViewportId::ROOT]
+            !output.viewport_output[&egui::ViewportId::ROOT]
                 .commands
                 .contains(&egui::ViewportCommand::Fullscreen(false))
         );

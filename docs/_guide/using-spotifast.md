@@ -213,6 +213,13 @@ This is the first part of screen-reader support. Windows testing with NVDA
 remains tracked in [#262](https://github.com/crmne/spotifast/issues/262).
 Winamp skins do not yet have equivalent accessibility coverage.
 
+## Full screen
+
+Press `F11` or choose **Toggle full screen** in the profile menu to fill
+the display with the main window. Press `F11` again or `Esc` to return to
+the previous window size. Spotifast remembers this mode across restarts.
+The lyrics expand button changes the layout independently of full screen.
+
 ## Keyboard shortcuts
 
 | Shortcut | What it does |
@@ -225,6 +232,8 @@ Winamp skins do not yet have equivalent accessibility coverage.
 | `B` | Like or unlike the playing song |
 | `S` / `R` | Shuffle / cycle repeat |
 | `Q` | Queue panel |
+| `F11` | Toggle full screen |
+| `Esc` | Close the dialog, collapse lyrics, or leave full screen |
 | `Ctrl+F` or `/` | Search |
 | `Ctrl+B` | Show or hide the sidebar |
 | `Alt+←` / `Alt+→` | Back or forward |
@@ -493,15 +502,14 @@ Choose the microphone button in the player bar, or press **L**, to open lyrics.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
 
-The expand button opens lyrics in full screen. Press **Esc** or choose the
-shrink button to return to your previous window size. Full-screen lyrics
+The expand button fills the window with lyrics. Press **Esc** or choose the
+shrink button to return to the side panel. Press **F11** to enter or leave
+full screen independently. Expanded lyrics
 scroll smoothly and highlight the playing line automatically. Scrolling by
 hand pauses following; choose **Follow** to resume. Since 0.11.0, a wide
 window shows the song's cover beside the lyrics, the two centred together,
 and a song without words, such as an instrumental, shows just its cover in
 the middle of the screen.
-Since 0.10.0, quitting while lyrics are full screen no longer leaves
-the next launch stuck in full screen: the window returns to its previous size.
 
 | Dark theme | Light theme |
 | --- | --- |

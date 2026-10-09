@@ -354,8 +354,8 @@ msgid "Load more"
 msgstr "載入更多"
 
 #: src/ui/lyrics.rs:90
-msgid "Full screen lyrics"
-msgstr "全螢幕歌詞"
+msgid "Expand lyrics"
+msgstr "展開歌詞"
 
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
 msgctxt "lyrics"
@@ -399,8 +399,8 @@ msgid "Loading…"
 msgstr "載入中…"
 
 #: src/ui/lyrics.rs:534
-msgid "Leave full screen (Esc)"
-msgstr "退出全螢幕 (Esc)"
+msgid "Collapse lyrics (Esc)"
+msgstr "收合歌詞 (Esc)"
 
 #: src/ui/widgets.rs:582 src/ui/widgets.rs:815 src/ui/widgets.rs:1019
 msgid "Add to queue"
@@ -2355,8 +2355,8 @@ msgid "Show the lyrics"
 msgstr "顯示歌詞"
 
 #: src/ui/keys.rs:215
-msgid "Lyrics: leave full screen"
-msgstr "歌詞：退出全螢幕"
+msgid "Collapse lyrics or leave full screen"
+msgstr "收合歌詞或離開全螢幕"
 
 #: src/ui/keys.rs:218
 msgid "Song list: extend or shrink the selection"
@@ -3085,3 +3085,7 @@ msgstr "在 ARM 版 Windows 上，Spotifast 用來繪製介面的 OpenGL 由 Mic
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "減少歌詞動畫"
+
+#: src/ui/keys.rs src/ui/topbar.rs
+msgid "Toggle full screen"
+msgstr "切換全螢幕"
