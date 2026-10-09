@@ -1109,6 +1109,7 @@ pub enum Action {
     OpenThemesFolder,
     SetCustomTheme(String),
     ReloadThemes,
+    SetLibraryByYou(bool),
     SetLibrarySort {
         shelf: crate::settings::LibraryShelf,
         sort: crate::settings::LibrarySort,

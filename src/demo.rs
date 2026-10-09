@@ -748,6 +748,8 @@ fn demo_sound() -> Vec<f64> {
         .collect()
 }
 
+/// Select sample pages and UI states for deterministic, unauthenticated demos.
+/// The By You fixtures cover owned rows and an intentionally unmatched search.
 #[cfg(feature = "demo")]
 pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     // Default screenshots to the main window regardless of saved settings.
@@ -772,6 +774,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 } else {
                     380.0
                 };
+            }
+            "library-by-you" => app.settings.library_by_you = true,
+            "library-by-you-empty" => {
+                app.settings.library_by_you = true;
+                app.library.filter = "No matching playlist".into();
             }
             "queue" => app.show_queue_panel = true,
             "playing-next" => {
@@ -1493,6 +1500,65 @@ mod tests {
             "focused Space must pause once, without firing the global shortcut too"
         );
         assert_eq!(tree.focus, pause);
+        app.backend.shutdown();
+    }
+
+    /// Drive By You through accessible button actions, verify owned rows remain
+    /// visible, and confirm switching shelves preserves the remembered choice.
+    #[test]
+    fn by_you_sidebar_filter_can_be_toggled_and_survives_shelf_switches() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("by-you");
+        app.settings.art_expanded = false;
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Discover Weekly", Role::Button);
+        let by_you = accessible_node(&tree, "By You", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(by_you, AccessibleAction::Click, None)],
+        );
+        assert!(app.settings.library_by_you);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Liked Songs", Role::Button);
+        accessible_node(&tree, "Late night focus", Role::Button);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Discover Weekly"))
+        );
+        let albums = accessible_node(&tree, "Albums", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(albums, AccessibleAction::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("By You"))
+        );
+        let playlists = accessible_node(&tree, "Playlists", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(playlists, AccessibleAction::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let by_you = accessible_node(&tree, "By You", Role::Button);
+        assert!(app.settings.library_by_you);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(by_you, AccessibleAction::Click, None)],
+        );
+        assert!(!app.settings.library_by_you);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Discover Weekly", Role::Button);
         app.backend.shutdown();
     }
 

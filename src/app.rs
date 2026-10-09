@@ -8241,6 +8241,8 @@ impl App {
         }
     }
 
+    /// Apply one queued UI action after drawing, updating optimistic local state
+    /// and scheduling any backend work or preference persistence it requires.
     pub(crate) fn apply(&mut self, action: Action, ctx: &egui::Context) {
         if matches!(
             &action,
@@ -9043,6 +9045,10 @@ impl App {
                         arguments: self.update_restart_arguments.clone(),
                     });
                 }
+            }
+            Action::SetLibraryByYou(by_you) => {
+                self.settings.library_by_you = by_you;
+                self.mark_settings_dirty();
             }
             Action::SetLibrarySort { shelf, sort } => {
                 if sort.supports(shelf) {

@@ -306,6 +306,15 @@ Portable archives identify themselves with `spotifast-portable.txt`.
 
 ## Library order
 
+Select **By You** under Playlists to show only playlists owned by your signed-in
+account, alongside Liked Songs. Followed playlists and collaborative playlists
+owned by someone else are hidden, including pinned ones. Search and the selected
+sort still apply. Matching playlists appear in a flat list, including those in
+collapsed folders. Turn By You off to restore the full list and folder view.
+The choice is remembered on this computer and only affects the Playlists shelf.
+It uses the ownership information already loaded with your library and makes no
+additional Spotify requests.
+
 Since 0.8.0, the menu below the Library filters selects an order
 for each section. **Name** and **Recently played** are available throughout.
 Albums and podcasts also offer **Recently added**, using their actual save
