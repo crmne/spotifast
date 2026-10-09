@@ -385,6 +385,7 @@ mod tests {
     use super::*;
     use std::future::Future;
 
+    /// Rejects a token whose provider changed while resolution was pending.
     #[tokio::test]
     async fn home_context_grant_stays_bound_to_the_playback_account() {
         let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));

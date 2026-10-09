@@ -318,6 +318,7 @@ pub enum ApiRequest {
 }
 
 impl ApiRequest {
+    /// Identifies reads that share the background request concurrency limit.
     fn background(&self) -> bool {
         matches!(
             self,
@@ -1370,6 +1371,7 @@ struct Worker {
 }
 
 impl Worker {
+    /// Creates the command worker with separate API and Home readers.
     #[allow(clippy::too_many_arguments)]
     fn new(
         dirs: AppDirs,
@@ -6290,6 +6292,7 @@ mod cover_routing_tests {
 mod tests {
     use super::*;
 
+    /// Avoids shared playlist search after a successful session read.
     #[tokio::test]
     async fn made_for_you_uses_shared_search_only_after_session_failure() {
         let session_playlist = Playlist {
@@ -6313,6 +6316,7 @@ mod tests {
         assert_eq!(result.unwrap()[0].id, "shared");
     }
 
+    /// Limits fallback results to Spotify-owned lists with playable contexts.
     #[test]
     fn shared_suggestions_are_spotify_owned_and_exclude_dj() {
         let mut playlist = Playlist {

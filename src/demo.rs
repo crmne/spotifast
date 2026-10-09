@@ -265,6 +265,7 @@ fn page<T>(items: Vec<T>) -> ApiPage<T> {
     }
 }
 
+/// Populates the offline app with cards for screenshots and UI tests.
 pub fn populate(app: &mut App) {
     app.backend.set_offline(true);
     app.offline = true;
