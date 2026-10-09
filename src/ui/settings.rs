@@ -441,6 +441,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let normalize_volume = gettext(locale, "Normalize volume");
     let autoplay = gettext(locale, "Autoplay");
     let gapless = gettext(locale, "Gapless playback");
+    let crossfade = gettext(locale, "Crossfade");
     let keep_playing = gettext(locale, "Keep music playing when the window closes");
     let update_checks = gettext(locale, "Automatic update checks");
     let audio_cache = gettext(locale, "Audio cache");
@@ -500,6 +501,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         )
         .when(cfg!(target_os = "linux")),
         RowText::new(
+            gettext(locale, "Output device"),
+            gettext(
+                locale,
+                "Where music on this computer is heard. System default follows the device your computer uses.",
+            ),
+        ),
+        RowText::new(
             gettext(locale, "Output buffer"),
             gettext(
                 locale,
@@ -528,6 +536,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
         )
         .when(cfg!(target_os = "macos")),
+        RowText::new(
+            crossfade.clone(),
+            gettext(
+                locale,
+                "Fade the end of a song into the start of the next. Off keeps the handover as it is.",
+            ),
+        ),
     ];
     if section_matches(&needle, &playback, &playback_rows) {
         any_visible = true;
@@ -652,6 +667,44 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     playback_dirty = true;
                 }
             });
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[16], |ui| {
+                // The control area lays out right-to-left: the switch is the
+                // rightmost item, and the slider sits to its left.
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if widgets::switch(ui, &palette, &crossfade, &mut app.settings.crossfade)
+                        .changed()
+                    {
+                        changed = true;
+                        playback_dirty = true;
+                    }
+                    let mut seconds = app
+                        .settings
+                        .crossfade_secs
+                        .min(crate::sink::CROSSFADE_MAX.as_secs() as u32);
+                    // Translators: {seconds} is a crossfade length, such as 4.
+                    let unit = gettext(locale, "{seconds} s");
+                    let suffix = unit
+                        .split_once("{seconds}")
+                        .map(|(_, rest)| rest.to_owned())
+                        .unwrap_or_else(|| " s".to_owned());
+                    if setting_slider(
+                        ui,
+                        &palette,
+                        &mut seconds,
+                        0..=crate::sink::CROSSFADE_MAX.as_secs() as u32,
+                        |slider| slider.integer().suffix(suffix.clone()),
+                        |value| value.suffix(suffix.clone()),
+                    )
+                    .changed()
+                        && app.settings.crossfade_secs != seconds
+                    {
+                        app.settings.crossfade_secs = seconds;
+                        changed = true;
+                        playback_dirty = true;
+                    }
+                });
+            });
             filtered_row(ui, &palette, &needle, &playback, &playback_rows[6], |ui| {
                 if widgets::switch(
                     ui,
@@ -665,7 +718,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             #[cfg(target_os = "macos")]
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[14], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[15], |ui| {
                 if widgets::switch(
                     ui,
                     &palette,
@@ -689,7 +742,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     changed = true;
                 }
             });
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[13], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[14], |ui| {
                 if widgets::switch(
                     ui,
                     &palette,
@@ -727,8 +780,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     });
                 });
             }
-            #[cfg(windows)]
             filtered_row(ui, &palette, &needle, &playback, &playback_rows[9], |ui| {
+                output_device_picker(app, ui, &mut changed, &mut playback_dirty);
+            });
+            #[cfg(windows)]
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[10], |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let current = app.settings.audio_buffer_ms;
@@ -744,7 +800,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     }
                 });
             });
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[10], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[11], |ui| {
                 // The control area lays out right-to-left: add the rightmost item first.
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
@@ -777,8 +833,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
             ui.add_space(4.0);
             if playback_dirty
-                || playback_rows[11].matches(&needle, &playback)
                 || playback_rows[12].matches(&needle, &playback)
+                || playback_rows[13].matches(&needle, &playback)
             {
                 ui.horizontal(|ui| {
                     if playback_dirty {
@@ -1939,6 +1995,110 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// A band's frequency the short way: 60, 170, 1K, 16K.
+/// The output device local playback opens: the system default, or one of
+/// the devices the machine listed.
+///
+/// The list is asked for the first time the row is shown, and again from
+/// Refresh. Asking the audio system can take a moment, so it happens off
+/// the UI thread and the row says it is looking until the answer arrives.
+/// A device that was saved and is no longer connected stays selectable, so
+/// plugging it back in keeps the choice.
+fn output_device_picker(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    changed: &mut bool,
+    playback_dirty: &mut bool,
+) {
+    let locale = app.locale;
+    let system = gettext(locale, "System default");
+    let saved = app
+        .settings
+        .audio_device
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string);
+    let listed = app.output_devices().map(<[String]>::to_vec);
+    if listed.is_none() {
+        app.refresh_output_devices(ui.ctx());
+    }
+    let selected = saved.clone().unwrap_or_else(|| system.to_string());
+    let title = gettext(locale, "Output device");
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let response = egui::ComboBox::from_id_salt("output_device")
+            .selected_text(&selected)
+            .width(240.0_f32.min(ui.available_width()))
+            .height(1000.0)
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(saved.is_none(), system.as_ref())
+                    .clicked()
+                    && saved.is_some()
+                {
+                    app.settings.audio_device = None;
+                    *changed = true;
+                    *playback_dirty = true;
+                }
+                let Some(devices) = listed else {
+                    ui.add_enabled(
+                        false,
+                        egui::Button::new(gettext(locale, "Looking for devices…").as_ref()),
+                    );
+                    return;
+                };
+                let mut names: Vec<String> = devices
+                    .into_iter()
+                    .filter(|name| !name.trim().is_empty())
+                    .collect();
+                if let Some(saved) = &saved
+                    && !names.iter().any(|name| name == saved)
+                {
+                    names.insert(0, saved.clone());
+                }
+                if names.is_empty() {
+                    ui.add_enabled(
+                        false,
+                        egui::Button::new(gettext(locale, "No other device found").as_ref()),
+                    );
+                    return;
+                }
+                ui.separator();
+                for name in names {
+                    if ui
+                        .selectable_label(saved.as_deref() == Some(name.as_str()), &name)
+                        .clicked()
+                        && saved.as_deref() != Some(name.as_str())
+                    {
+                        app.settings.audio_device = Some(name);
+                        *changed = true;
+                        *playback_dirty = true;
+                    }
+                }
+            });
+        response.response.widget_info(|| {
+            let mut info = egui::WidgetInfo::labeled(
+                egui::WidgetType::ComboBox,
+                ui.is_enabled(),
+                title.as_ref(),
+            );
+            info.current_text_value = Some(selected.clone());
+            info
+        });
+        if theme::soft_button(
+            ui,
+            &app.palette,
+            Some(Icon::Refresh),
+            &gettext(locale, "Refresh"),
+            false,
+        )
+        .clicked()
+        {
+            app.refresh_output_devices(ui.ctx());
+        }
+    });
+}
+
 /// The interface language: System first, then each language by its own name,
 /// so a reader can find theirs whatever language the app is showing.
 fn language_picker(app: &mut App, ui: &mut egui::Ui) {

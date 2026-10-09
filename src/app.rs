@@ -310,6 +310,10 @@ pub struct App {
     last_session_save: Instant,
     /// The saved zoom has been applied to the context once.
     zoom_applied: bool,
+    /// Output devices found for the Settings picker. `None` until the first
+    /// scan finishes; the scan itself runs off the UI thread.
+    output_devices: Option<Vec<String>>,
+    output_scan: Option<std::sync::mpsc::Receiver<Vec<String>>>,
     /// Frames left to re-send the Winamp window's always-on-top level after the
     /// window opens. X11 window managers drop `_NET_WM_STATE_ABOVE` set before
     /// the window is mapped, so the creation-time level does not stick; a level
@@ -787,6 +791,8 @@ impl App {
             session_dirty: false,
             last_session_save: Instant::now(),
             zoom_applied: false,
+            output_devices: None,
+            output_scan: None,
             winamp_level_reassert: 0,
             devices: Vec::new(),
             receivers: Vec::new(),
@@ -2736,6 +2742,7 @@ impl App {
 
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
+        self.poll_output_devices(ctx);
         let now = Instant::now();
         if self.winamp_level_reassert > 0 {
             self.winamp_level_reassert -= 1;
@@ -3185,6 +3192,51 @@ impl App {
         }
         if self.custom_themes.poll() {
             self.adopt_custom_themes(ctx);
+        }
+    }
+
+    /// Names of the output devices the Settings picker can offer.
+    ///
+    /// `None` until the first scan has answered. An empty list means the
+    /// machine reported no device, so the picker stays on the system default.
+    pub(crate) fn output_devices(&self) -> Option<&[String]> {
+        self.output_devices.as_deref()
+    }
+
+    /// Asks for the output devices again, off the UI thread.
+    ///
+    /// Listing can take a moment and the audio system is not free to ask
+    /// from the interface. A scan already running is left to finish; its
+    /// answer is what the next frame shows.
+    pub(crate) fn refresh_output_devices(&mut self, ctx: &egui::Context) {
+        if self.output_scan.is_some() {
+            return;
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let wake = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(crate::sink::output_device_names());
+            wake.request_repaint();
+        });
+        self.output_scan = Some(receiver);
+    }
+
+    fn poll_output_devices(&mut self, ctx: &egui::Context) {
+        let Some(scan) = &self.output_scan else {
+            return;
+        };
+        match scan.try_recv() {
+            Ok(names) => {
+                self.output_devices = Some(names);
+                self.output_scan = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(Duration::from_millis(200));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.output_devices.get_or_insert_with(Vec::new);
+                self.output_scan = None;
+            }
         }
     }
 
@@ -10210,6 +10262,12 @@ pub fn engine_config(
         normalisation: settings.normalisation,
         autoplay: settings.autoplay,
         gapless: settings.gapless,
+        crossfade: std::time::Duration::from_secs(u64::from(
+            u32::from(settings.crossfade)
+                * settings
+                    .crossfade_secs
+                    .min(crate::sink::CROSSFADE_MAX.as_secs() as u32),
+        )),
         backend: settings.platform_backend(),
         buffer_ms: settings.audio_buffer_ms,
         audio_device: settings

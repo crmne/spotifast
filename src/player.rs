@@ -49,6 +49,8 @@ pub struct EngineConfig {
     pub normalisation: bool,
     pub autoplay: bool,
     pub gapless: bool,
+    /// Overlap between songs. Zero leaves the handover untouched.
+    pub crossfade: std::time::Duration,
     pub backend: Option<String>,
     pub audio_device: Option<String>,
     pub initial_volume: u16,
@@ -370,7 +372,7 @@ impl Engine {
             ..LocalState::default()
         }));
         let session = Session::new(session_config, Some(cache));
-        let audio = AudioControl::new(config.buffer_ms);
+        let audio = AudioControl::with_crossfade(config.buffer_ms, config.crossfade);
         let (sink_builder, volume) = sink_builder(
             config,
             Arc::clone(&state),
@@ -1650,6 +1652,7 @@ mod tests {
             normalisation: false,
             autoplay: true,
             gapless: true,
+            crossfade: std::time::Duration::ZERO,
             backend: None,
             audio_device: None,
             initial_volume: 1,
