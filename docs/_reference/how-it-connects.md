@@ -38,6 +38,8 @@ tracks in Spotify's order. Track details arrive in one metadata batch. If the
 session is unavailable or cannot answer, the existing shared Web API route
 remains the fallback, including its rate limits. A different account's playback
 session never supplies this list.
+An explicitly empty ranking is kept. If a nonempty ranking resolves to no
+tracks, the Web API gets its turn rather than showing a false empty answer.
 
 Background reads have separate four-request budgets for the shared Web API,
 the personal Web API, and the playback session. Waiting for shared sign-in or

@@ -42,16 +42,31 @@ pub async fn artist_top_tracks(session: &Session, id: &str) -> Result<Vec<Track>
         ))
     })?;
     let found = metadata(session, uris.iter()).await?;
-    Ok(uris
+    resolved_artist_top_tracks(&uris, &found)
+}
+
+/// Keep a genuinely empty ranking, but retry another source if no ranked song resolved.
+fn resolved_artist_top_tracks(
+    uris: &[SpotifyUri],
+    found: &HashMap<String, PlayableItem>,
+) -> Result<Vec<Track>, Failure> {
+    let tracks: Vec<Track> = uris
         .iter()
         .filter_map(|uri| uri.to_uri().ok())
         .filter_map(|uri| match found.get(&uri) {
             Some(PlayableItem::Track(track)) => Some(track.clone()),
             _ => None,
         })
-        .collect())
+        .collect();
+    if tracks.is_empty() && !uris.is_empty() {
+        return Err(Failure::Retry(anyhow::anyhow!(
+            "no popular track details were available from the session"
+        )));
+    }
+    Ok(tracks)
 }
 
+/// Select the account's market or the worldwide ranking, retaining its first ten URIs.
 fn artist_top_track_uris(top_tracks: &CountryTopTracks, country: &str) -> Option<Vec<SpotifyUri>> {
     top_tracks
         .iter()
@@ -662,6 +677,7 @@ mod tests {
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const EPISODE: &str = "spotify:episode:7GhIk7Il098yCjg4BQjzvb";
 
+    /// Another market's ranking must not replace the account's own or worldwide list.
     #[test]
     fn popular_tracks_prefer_the_account_market_and_preserve_its_first_ten() {
         use librespot_metadata::artist::TopTracks;
@@ -708,6 +724,76 @@ mod tests {
             artist_top_track_uris(&empty_market, "US"),
             Some(Vec::new()),
             "a known empty ranking is successful"
+        );
+    }
+
+    /// An artist with an explicitly empty ranking needs no Web API fallback.
+    #[test]
+    fn an_empty_popular_ranking_is_a_successful_empty_answer() {
+        assert!(
+            resolved_artist_top_tracks(&[], &HashMap::new())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// A nonempty ranking whose metadata is entirely 404/451 must try the Web API.
+    #[test]
+    fn popular_tracks_retry_when_every_ranked_track_is_unavailable() {
+        let gone = "spotify:track:0000000000000000000001";
+        let uris: Vec<_> = [TRACK, gone]
+            .into_iter()
+            .map(|uri| SpotifyUri::from_uri(uri).unwrap())
+            .collect();
+        let found = answers(
+            &asked(&[TRACK, gone]),
+            response([
+                answer(ExtensionKind::TRACK_V4, TRACK, 404, None),
+                answer(ExtensionKind::TRACK_V4, gone, 451, None),
+            ]),
+        )
+        .unwrap();
+        assert!(matches!(
+            resolved_artist_top_tracks(&uris, &found),
+            Err(Failure::Retry(_))
+        ));
+    }
+
+    /// A resolved episode cannot stand in for the only ranked artist track.
+    #[test]
+    fn popular_tracks_retry_when_metadata_contains_only_non_tracks() {
+        let uris = [SpotifyUri::from_uri(TRACK).unwrap()];
+        let found = HashMap::from([(TRACK.to_string(), PlayableItem::Episode(Episode::default()))]);
+        assert!(matches!(
+            resolved_artist_top_tracks(&uris, &found),
+            Err(Failure::Retry(_))
+        ));
+    }
+
+    /// Partial metadata preserves the remaining tracks in ranking order without fallback.
+    #[test]
+    fn partial_popular_metadata_keeps_the_available_ranking_order() {
+        let other = "spotify:track:0000000000000000000001";
+        let gone = "spotify:track:0000000000000000000002";
+        let uris: Vec<_> = [other, gone, TRACK]
+            .into_iter()
+            .map(|uri| SpotifyUri::from_uri(uri).unwrap())
+            .collect();
+        let mut found = playables();
+        found.insert(
+            other.to_string(),
+            PlayableItem::Track(Track {
+                uri: other.into(),
+                ..Default::default()
+            }),
+        );
+        let tracks = resolved_artist_top_tracks(&uris, &found).unwrap();
+        assert_eq!(
+            tracks
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect::<Vec<_>>(),
+            [other, TRACK]
         );
     }
 

@@ -450,6 +450,7 @@ mod tests {
         }
     }
 
+    /// Popular tracks use local playback even when a personal Web API app is ready.
     #[test]
     fn artist_popular_tracks_can_use_the_playback_session_with_or_without_personal_access() {
         let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));

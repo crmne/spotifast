@@ -339,6 +339,7 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
+    /// Give one authorized source independent foreground and background request budgets.
     pub fn new(
         http: impl Into<Http>,
         activity: Arc<NetActivity>,
@@ -1183,6 +1184,7 @@ impl ApiClient {
 mod tests {
     use super::*;
 
+    /// Exhausting Shared background slots leaves Personal and foreground capacity usable.
     #[tokio::test]
     async fn shared_background_work_cannot_starve_personal_or_foreground_work() {
         let shared = ApiClient::new(

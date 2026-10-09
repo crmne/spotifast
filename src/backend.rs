@@ -1371,6 +1371,7 @@ struct Worker {
 
 impl Worker {
     #[allow(clippy::too_many_arguments)]
+    /// Initialize account-scoped dispatch state and the independent session background budget.
     fn new(
         dirs: AppDirs,
         engine_config: EngineConfig,
@@ -3258,6 +3259,7 @@ impl Worker {
         self.search_tasks.push(self.dispatch(request));
     }
 
+    /// Cancel requests on sign-out and report completion under their original generation.
     fn dispatch(&self, request: ApiRequest) -> tokio::task::AbortHandle {
         let api = Arc::clone(&self.api);
         let shared_lease = self.credentials.lease(CredentialSlot::Shared);
@@ -3320,6 +3322,7 @@ fn friendly_connect_error(error: &anyhow::Error) -> String {
     }
 }
 
+/// Classify a request by the coverage and playlist permissions its source must provide.
 fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
     match request {
         ApiRequest::Me => Operation::CanonicalAccount,
@@ -3448,6 +3451,7 @@ fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
     }
 }
 
+/// Try a same-account session read, then the authorized Web API with its own background budget.
 async fn handle(
     api: &ApiGateway,
     engine: Option<&Engine>,
@@ -6059,6 +6063,7 @@ mod session_tests {
     use super::*;
     use crate::session_reads::Failure;
 
+    /// Queued Shared and session work must not delay a Personal background read.
     #[tokio::test]
     async fn shared_and_session_saturation_do_not_block_personal_background_reads() {
         let api = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
@@ -6098,6 +6103,7 @@ mod session_tests {
         assert_eq!(expired, None);
     }
 
+    /// Popular-track responses retain artist identity and the existing fallback/error policy.
     #[test]
     fn popular_tracks_keep_the_requested_artist_and_existing_failure_policy() {
         let api = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
