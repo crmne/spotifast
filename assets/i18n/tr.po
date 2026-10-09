@@ -3194,3 +3194,55 @@ msgstr "Spotifast penceresini açamıyor"
 #: src/window.rs:35
 msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr "ARM üzerinde Windows'ta Spotifast'in çizim için kullandığı OpenGL, Microsoft'un OpenCL, OpenGL & Vulkan Compatibility Pack paketinden gelir. Yüklemek veya onarmak için Microsoft Store sayfası açılsın mı?"
+
+#: src/ui/details.rs
+msgid "Credits"
+msgstr "Katkıda bulunanlar"
+
+#: src/ui/details.rs
+msgid "No contributor credits are available."
+msgstr "Katkıda bulunanlara ilişkin bilgi yok."
+
+#: src/ui/details.rs
+msgid "Label"
+msgstr "Plak şirketi"
+
+#: src/details.rs
+msgid "Main Artist"
+msgstr "Ana sanatçı"
+
+#: src/details.rs
+msgid "Featured Artist"
+msgstr "Konuk sanatçı"
+
+#: src/details.rs
+msgid "Remixer"
+msgstr "Remiksçi"
+
+#: src/details.rs
+msgid "Actor"
+msgstr "Oyuncu"
+
+#: src/details.rs
+msgid "Composer"
+msgstr "Besteci"
+
+#: src/details.rs
+msgid "Conductor"
+msgstr "Orkestra şefi"
+
+#: src/details.rs
+msgid "Orchestra"
+msgstr "Orkestra"
+
+#: src/ui/details.rs
+msgid "Composition & Lyrics"
+msgstr "Beste ve sözler"
+
+#: src/ui/settings.rs
+msgid "Faithful UI"
+msgstr "Aslına uygun arayüz"
+
+#: src/ui/settings.rs
+msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
+msgstr "Spotify tarzı paneller, gezinme ve oynatma kontrolleri kullanır. Şimdi Çalıyor görünümünü ekler."

@@ -400,6 +400,7 @@ pub struct App {
     accent_pending: HashSet<String>,
 
     pub dialog: Option<Dialog>,
+    pub details: HashMap<String, Loadable<crate::details::Details>>,
     cover_request: u64,
     cover_uploads: HashMap<String, u64>,
     /// Successful uploads stay visible while Spotify propagates the new image.
@@ -830,6 +831,7 @@ impl App {
             load_generation: 0,
             album_pages: HashMap::new(),
             artist_pages: HashMap::new(),
+            details: HashMap::new(),
             show_pages: HashMap::new(),
             radio_pages: HashMap::new(),
             track_cache: HashMap::new(),
@@ -1348,6 +1350,10 @@ impl App {
             duration_ms: now.duration_ms,
             ..Track::default()
         }))
+    }
+
+    pub fn now_playing_panel_visible(&self) -> bool {
+        self.settings.faithful_visuals && !self.show_queue_panel && !self.show_lyrics_panel
     }
 
     pub fn now_playing(&self) -> Option<NowPlaying> {
@@ -1911,6 +1917,24 @@ impl App {
                     }
                     Err(error) => log::warn!("rootlist unavailable: {error}"),
                 },
+                Event::Details {
+                    account,
+                    uri,
+                    result,
+                } => {
+                    if self.user.as_ref().is_some_and(|user| user.id == account) {
+                        if let Ok(details) = &result {
+                            self.request_contains(
+                                details
+                                    .credits
+                                    .iter()
+                                    .filter_map(|credit| credit.uri.clone())
+                                    .collect(),
+                            );
+                        }
+                        self.details.insert(uri, Loadable::from_result(result));
+                    }
+                }
                 Event::Lyrics { uri, result } => {
                     if self.lyrics_uri.as_deref() == Some(uri.as_str()) {
                         self.lyrics = match result {
@@ -2125,6 +2149,7 @@ impl App {
         self.playlist_pages.clear();
         self.album_pages.clear();
         self.artist_pages.clear();
+        self.details.clear();
         self.show_pages.clear();
         self.album_types_requested.clear();
         self.audiobook_shows.clear();
@@ -2670,6 +2695,7 @@ impl App {
         }
         if matches!(self.page(), Page::Queue)
             || self.show_queue_panel
+            || self.now_playing_panel_visible()
             || (self.settings.winamp_window && self.settings.playlist_open)
         {
             self.refresh_queue(true);
@@ -2790,7 +2816,10 @@ impl App {
                 self.refresh_devices();
             }
             let playlist_open = self.settings.winamp_window && self.settings.playlist_open;
-            if (self.show_queue_panel || matches!(self.page(), Page::Queue) || playlist_open)
+            if (self.show_queue_panel
+                || self.now_playing_panel_visible()
+                || matches!(self.page(), Page::Queue)
+                || playlist_open)
                 && !self.queue.is_loading()
                 && self
                     .queue_fetched_at
@@ -3235,6 +3264,9 @@ impl App {
         }
         let dark = ctx.theme() == egui::Theme::Dark;
         let palette = self.custom_palette().unwrap_or_else(|| {
+            if self.settings.faithful_visuals {
+                return Palette::faithful(dark);
+            }
             if dark {
                 Palette::dark()
             } else {
@@ -8709,6 +8741,20 @@ impl App {
                 }
             }
             Action::ShowDialog(mut dialog) => {
+                let details_uri = match &dialog {
+                    Dialog::TrackCredits { uri, .. } => Some(uri.clone()),
+                    _ => None,
+                };
+                if let Some(uri) = details_uri
+                    && self.details.get(&uri).is_none_or(Loadable::needs_load)
+                    && let Some(user) = &self.user
+                {
+                    self.details.insert(uri.clone(), Loadable::Loading);
+                    self.backend.send(Command::Details {
+                        account: user.id.clone(),
+                        uri,
+                    });
+                }
                 if let Dialog::EditPlaylist { id, cover, .. } = &mut dialog
                     && let Some(request) = self.cover_uploads.get(id)
                 {
@@ -9112,6 +9158,43 @@ impl App {
             Action::OpenThemesFolder => {
                 self.backend.send(Command::OpenThemesFolder);
             }
+            Action::LoadNowPlayingArtists => {
+                if let Some(now) = self
+                    .now_playing()
+                    .filter(|_| self.settings.faithful_visuals)
+                {
+                    let uris = if now.is_episode {
+                        Vec::new()
+                    } else {
+                        vec![now.uri.clone()]
+                    };
+                    if let Some(user) = &self.user {
+                        for uri in uris {
+                            if self
+                                .details
+                                .get(&uri)
+                                .is_none_or(|details| matches!(details, Loadable::NotLoaded))
+                            {
+                                self.details.insert(uri.clone(), Loadable::Loading);
+                                self.backend.send(Command::Details {
+                                    account: user.id.clone(),
+                                    uri,
+                                });
+                            }
+                        }
+                    }
+                    for artist in now.artists {
+                        if let Some(id) = artist.id {
+                            let page = self.artist_pages.entry(id.clone()).or_default();
+                            if matches!(page.artist, Loadable::NotLoaded) {
+                                page.artist = Loadable::Loading;
+                                self.backend.api(ApiRequest::Artist { id: id.clone() });
+                                self.request_contains(vec![format!("spotify:artist:{id}")]);
+                            }
+                        }
+                    }
+                }
+            }
             Action::SettingsChanged => {
                 self.settings_dirty = true;
                 ctx.set_theme(self.theme_preference());
@@ -9259,6 +9342,28 @@ impl App {
                     self.settings.winamp_on_top = !self.settings.winamp_on_top;
                     self.settings_dirty = true;
                     self.push_winamp_level(ctx);
+                }
+            }
+            Action::SetFaithfulVisuals(enabled) => {
+                if self.settings.faithful_visuals != enabled {
+                    self.settings.faithful_visuals = enabled;
+                    #[cfg(windows)]
+                    {
+                        let custom = if enabled {
+                            self.settings.faithful_visuals_previous_titlebar =
+                                Some(self.settings.custom_titlebar);
+                            Some(true)
+                        } else {
+                            self.settings.faithful_visuals_previous_titlebar.take()
+                        };
+                        if let Some(custom) = custom {
+                            self.apply(Action::SetCustomTitlebar(custom), ctx);
+                        }
+                    }
+                    self.mark_settings_dirty();
+                    if enabled {
+                        self.refresh_queue(true);
+                    }
                 }
             }
             Action::SetCustomTitlebar(custom) => {
@@ -10851,6 +10956,7 @@ mod tests {
                     crate::ui::widgets::shelf(
                         ui,
                         &app.palette,
+                        app.settings.faithful_visuals,
                         "wheel-test-shelf",
                         "Shelf",
                         |ui| {
@@ -11295,6 +11401,69 @@ mod tests {
         assert!(!app.settings.custom_titlebar);
         assert!(!app.switch_intent, "the mini player is not the main window");
         assert!(!crate::window::custom_titlebar());
+    }
+
+    #[test]
+    fn faithful_ui_restores_the_windows_titlebar_choice_after_restart() {
+        // Window decorations use process-wide state; isolate this test from
+        // parallel layout tests that draw with the standard title bar.
+        const CHILD: &str = "SPOTIFAST_FAITHFUL_TITLEBAR_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "app::tests::faithful_ui_restores_the_windows_titlebar_choice_after_restart",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        for original in [false, true] {
+            let mut app = headless_app();
+            let ctx = egui::Context::default();
+            app.settings.custom_titlebar = original;
+            app.apply(Action::SetFaithfulVisuals(true), &ctx);
+            assert!(app.settings.faithful_visuals);
+            assert_eq!(app.settings.custom_titlebar, cfg!(windows) || original);
+            assert_eq!(app.switch_intent, cfg!(windows) && !original);
+            assert_eq!(
+                app.settings.faithful_visuals_previous_titlebar,
+                if cfg!(windows) { Some(original) } else { None }
+            );
+
+            // Repeated enables must not overwrite the original choice.
+            app.apply(Action::SetFaithfulVisuals(true), &ctx);
+            // The separate title bar switch still works while the mode is on.
+            app.apply(Action::SetCustomTitlebar(false), &ctx);
+            assert!(!app.settings.custom_titlebar);
+            app.settings =
+                serde_json::from_str(&serde_json::to_string(&app.settings).unwrap()).unwrap();
+            app.apply(Action::SetFaithfulVisuals(false), &ctx);
+            assert!(!app.settings.faithful_visuals);
+            assert_eq!(app.settings.custom_titlebar, cfg!(windows) && original);
+            assert_eq!(app.settings.faithful_visuals_previous_titlebar, None);
+            app.backend.shutdown();
+        }
+    }
+
+    #[test]
+    fn disabling_existing_faithful_ui_keeps_the_titlebar_without_a_saved_choice() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.settings.faithful_visuals = true;
+        app.settings.custom_titlebar = true;
+        app.apply(Action::SetFaithfulVisuals(false), &ctx);
+        assert!(app.settings.custom_titlebar);
+        assert!(!app.switch_intent);
+        app.backend.shutdown();
     }
 
     #[test]
@@ -16517,6 +16686,73 @@ mod tests {
                 data: None,
             })],
         )
+    }
+
+    #[test]
+    fn details_ignore_another_account_and_retry_failures() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.user = Some(User {
+            id: "current".into(),
+            ..Default::default()
+        });
+        let uri = "spotify:track:demo".to_string();
+        app.handle_backend_events(vec![Event::Details {
+            account: "previous".into(),
+            uri: uri.clone(),
+            result: Ok(crate::details::Details::default()),
+        }]);
+        assert!(!app.details.contains_key(&uri));
+        let dialog = Dialog::TrackCredits {
+            uri: uri.clone(),
+            name: "Demo".into(),
+        };
+        app.apply(Action::ShowDialog(dialog.clone()), &ctx);
+        assert!(matches!(app.details.get(&uri), Some(Loadable::Loading)));
+        app.handle_backend_events(vec![Event::Details {
+            account: "current".into(),
+            uri: uri.clone(),
+            result: Err("temporary failure".into()),
+        }]);
+        assert!(matches!(app.details.get(&uri), Some(Loadable::Failed(_))));
+        app.apply(Action::ShowDialog(dialog), &ctx);
+        assert!(matches!(app.details.get(&uri), Some(Loadable::Loading)));
+        app.handle_backend_events(vec![Event::Details {
+            account: "current".into(),
+            uri: uri.clone(),
+            result: Ok(crate::details::Details {
+                label: Some("Returned label".into()),
+                ..Default::default()
+            }),
+        }]);
+        assert_eq!(
+            app.details
+                .get(&uri)
+                .and_then(Loadable::get)
+                .and_then(|details| details.label.as_deref()),
+            Some("Returned label")
+        );
+        app.apply(Action::CloseDialog, &ctx);
+        assert!(app.dialog.is_none());
+    }
+
+    #[test]
+    fn now_playing_returns_after_other_panels_close() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        assert!(!app.now_playing_panel_visible());
+        app.settings.faithful_visuals = true;
+        assert!(app.now_playing_panel_visible());
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(!app.now_playing_panel_visible());
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.now_playing_panel_visible());
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert!(!app.now_playing_panel_visible());
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert!(app.now_playing_panel_visible());
+        app.settings.faithful_visuals = false;
+        assert!(!app.now_playing_panel_visible());
     }
 
     /// #369: Go to song radio opens the radio's page, as in Spotify's app,

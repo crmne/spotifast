@@ -805,6 +805,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let middle_click = gettext(locale, "Middle-click autoscroll");
     let custom_titlebar = gettext(locale, "Custom title bar");
     let player_bar_vis = gettext(locale, "Player bar visualizer");
+    let faithful_visuals = gettext(locale, "Faithful UI");
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
             let detail = theme::catalog_detail(
@@ -881,6 +882,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 locale,
                 "Show the song moving behind the player bar's controls while it plays here.",
             ),
+        ),
+        RowText::new(
+            faithful_visuals.clone(),
+            gettext(locale, "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."),
         ),
     ];
     if section_matches(&needle, &appearance, &appearance_rows) {
@@ -1170,6 +1175,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     },
                 );
             }
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &appearance,
+                &appearance_rows[9],
+                |ui| {
+                    let mut faithful = app.settings.faithful_visuals;
+                    if widgets::switch(ui, &palette, &faithful_visuals, &mut faithful).changed() {
+                        app.actions.push(Action::SetFaithfulVisuals(faithful));
+                    }
+                },
+            );
         });
     }
 

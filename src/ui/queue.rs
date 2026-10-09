@@ -41,7 +41,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         "queue-panel",
         theme::SIDE_PANEL_MIN_WIDTH..=560.0,
         app.settings.queue_width,
-        ui.available_width() - super::topbar::least_width(ui.ctx()),
+        ui.available_width() - super::page_min_width(app, ui.ctx()),
     );
     let panel = egui::Panel::right("queue-panel")
         .resizable(true)
@@ -51,16 +51,22 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         .frame(
             Frame::new()
                 .fill(palette.panel)
+                .corner_radius(if app.settings.faithful_visuals { 8 } else { 0 })
+                .outer_margin(if app.settings.faithful_visuals { 4 } else { 0 })
                 .inner_margin(Margin::symmetric(12, 12)),
         );
+    let panel_style = super::begin_panel_resize(app, ui);
     let response = panel.show(ui, |ui| {
-        let window_controls = super::window_controls_reservation(
-            ui.ctx(),
-            app.show_queue_panel,
-            app.show_lyrics_panel,
-            ui.available_width(),
-        );
-        ui.add_space(window_controls.queue_top);
+        ui.set_style(panel_style.clone());
+        if !app.settings.faithful_visuals {
+            let controls = super::window_controls_reservation(
+                ui.ctx(),
+                app.show_queue_panel,
+                app.show_lyrics_panel,
+                ui.available_width(),
+            );
+            ui.add_space(controls.queue_top);
+        }
         // Measure buttons first and give the remaining width to the chips.
         // Without `shrink_left`, wrapped chips can overlap the close button.
         let tab = app.queue_tab;
@@ -126,6 +132,14 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             },
         );
     });
+    super::finish_panel_resize(
+        app,
+        ui,
+        panel_style,
+        "queue-panel",
+        true,
+        response.response.rect,
+    );
     let width = response.response.rect.width();
     if (width - app.settings.queue_width).abs() > 1.0
         && super::panel_width_chosen(ui.ctx(), "queue-panel", &fit)
@@ -298,7 +312,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         widgets::empty_state(
             ui,
             &palette,
-            Icon::ListVideo,
+            if app.settings.faithful_visuals {
+                Icon::ListMusic
+            } else {
+                Icon::ListVideo
+            },
             &gettext(app.locale, "Nothing queued"),
             &gettext(app.locale, "Queued songs appear here."),
         );

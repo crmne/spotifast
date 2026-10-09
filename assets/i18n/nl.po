@@ -3184,3 +3184,55 @@ msgstr "Op Windows on ARM komt de OpenGL waarmee Spotifast tekent uit het OpenCL
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Songtekstbeweging verminderen"
+
+#: src/ui/details.rs
+msgid "Credits"
+msgstr "Credits"
+
+#: src/ui/details.rs
+msgid "No contributor credits are available."
+msgstr "Er zijn geen gegevens over medewerkers beschikbaar."
+
+#: src/ui/details.rs
+msgid "Label"
+msgstr "Platenlabel"
+
+#: src/details.rs
+msgid "Main Artist"
+msgstr "Hoofdartiest"
+
+#: src/details.rs
+msgid "Featured Artist"
+msgstr "Gastartiest"
+
+#: src/details.rs
+msgid "Remixer"
+msgstr "Remixer"
+
+#: src/details.rs
+msgid "Actor"
+msgstr "Acteur"
+
+#: src/details.rs
+msgid "Composer"
+msgstr "Componist"
+
+#: src/details.rs
+msgid "Conductor"
+msgstr "Dirigent"
+
+#: src/details.rs
+msgid "Orchestra"
+msgstr "Orkest"
+
+#: src/ui/details.rs
+msgid "Composition & Lyrics"
+msgstr "Compositie en tekst"
+
+#: src/ui/settings.rs
+msgid "Faithful UI"
+msgstr "Getrouwe interface"
+
+#: src/ui/settings.rs
+msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
+msgstr "Gebruik panelen, navigatie en afspeelknoppen in Spotify-stijl. Voegt een weergave van het huidige nummer toe."

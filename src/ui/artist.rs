@@ -202,7 +202,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             {
                 let artist_label = gettext(locale, "Artist");
                 let title = gettext(locale, "Fans also like");
-                widgets::shelf(ui, &palette, "related", &title, |ui| {
+                let fade_edge = app.settings.faithful_visuals;
+                widgets::shelf(ui, &palette, fade_edge, "related", &title, |ui| {
                     for artist in related {
                         let playing_here = app.playing_context_uri().as_deref()
                             == Some(artist.uri.as_str())

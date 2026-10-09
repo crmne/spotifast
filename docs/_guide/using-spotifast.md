@@ -343,6 +343,18 @@ has no place in Spotify's playlist tree. Returning to **Local custom order**
 restores its saved position. Dragging a song onto Liked Songs still saves that
 song, wherever the row sits.
 
+**Faithful UI**, at the bottom of **Settings > Appearance**, adds
+Spotify-style panels, navigation, playback icons, and a Now Playing view.
+It is off by default. The Now Playing view shows artwork, artists, credits,
+and the next track; Queue and Lyrics replace it, and narrow windows hide it.
+Credits requires local playback sign-in. You can switch the option without
+restarting; light, dark, and custom themes remain available.
+On Windows, enabling Faithful UI also enables the custom title bar.
+You can change the title bar separately afterward. Disabling Faithful UI
+restores the title bar setting from before you enabled it, including after a restart.
+In very narrow windows, Settings, MilkDrop, and the mini player are available
+from the account menu to leave room for Home and search.
+
 **Player bar visualizer** in **Settings > Appearance** shows the song moving
 behind the player bar's controls: **Spectrum** draws glowing bars from bass
 to treble with peaks that hang and fall, and **Waveform** draws the sound's

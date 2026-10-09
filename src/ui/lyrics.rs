@@ -40,7 +40,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         "lyrics-panel",
         theme::SIDE_PANEL_MIN_WIDTH..=640.0,
         app.settings.lyrics_width,
-        ui.available_width() - super::topbar::least_width(ui.ctx()),
+        ui.available_width() - super::page_min_width(app, ui.ctx()),
     );
     let panel = egui::Panel::right("lyrics-panel")
         .resizable(true)
@@ -50,16 +50,22 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         .frame(
             Frame::new()
                 .fill(palette.panel)
+                .corner_radius(if app.settings.faithful_visuals { 8 } else { 0 })
+                .outer_margin(if app.settings.faithful_visuals { 4 } else { 0 })
                 .inner_margin(Margin::symmetric(12, 12)),
         );
+    let panel_style = super::begin_panel_resize(app, ui);
     let response = panel.show(ui, |ui| {
-        let window_controls = super::window_controls_reservation(
-            ui.ctx(),
-            app.show_queue_panel,
-            app.show_lyrics_panel,
-            ui.available_width(),
-        );
-        ui.add_space(window_controls.lyrics_top);
+        ui.set_style(panel_style.clone());
+        if !app.settings.faithful_visuals {
+            let controls = super::window_controls_reservation(
+                ui.ctx(),
+                app.show_queue_panel,
+                app.show_lyrics_panel,
+                ui.available_width(),
+            );
+            ui.add_space(controls.lyrics_top);
+        }
         ui.horizontal(|ui| {
             ui.add_space(4.0);
             theme::text(
@@ -112,6 +118,14 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(8.0);
         contents(app, ui);
     });
+    super::finish_panel_resize(
+        app,
+        ui,
+        panel_style,
+        "lyrics-panel",
+        true,
+        response.response.rect,
+    );
     let current_width = response.response.rect.width();
     if (app.settings.lyrics_width - current_width).abs() > 1.0
         && super::panel_width_chosen(ui.ctx(), "lyrics-panel", &fit)
@@ -127,7 +141,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         widgets::empty_state(
             ui,
             &palette,
-            Icon::Mic,
+            if app.settings.faithful_visuals {
+                Icon::MicVocal
+            } else {
+                Icon::Mic
+            },
             &gettext(app.locale, "Nothing playing"),
             &gettext(app.locale, "Play a song to see its lyrics."),
         );
@@ -158,7 +176,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             widgets::empty_state(
                 ui,
                 &palette,
-                Icon::Mic,
+                if app.settings.faithful_visuals {
+                    Icon::MicVocal
+                } else {
+                    Icon::Mic
+                },
                 &gettext(app.locale, "No lyrics"),
                 &gettext(app.locale, "No lyrics found for this track."),
             );
@@ -596,7 +618,11 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
         widgets::empty_state(
             ui,
             &palette,
-            Icon::Mic,
+            if app.settings.faithful_visuals {
+                Icon::MicVocal
+            } else {
+                Icon::Mic
+            },
             &gettext(app.locale, "Nothing playing"),
             &gettext(app.locale, "Play a song to see its lyrics."),
         );
@@ -627,7 +653,11 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
             widgets::empty_state(
                 ui,
                 &palette,
-                Icon::Mic,
+                if app.settings.faithful_visuals {
+                    Icon::MicVocal
+                } else {
+                    Icon::Mic
+                },
                 &gettext(app.locale, "No lyrics"),
                 &gettext(app.locale, "No lyrics found for this track."),
             );

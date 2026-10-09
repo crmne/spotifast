@@ -14,7 +14,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let palette = app.palette;
     let locale = app.locale;
     let frame = Frame::new()
-        .fill(palette.overlay)
+        .fill(if matches!(dialog, Dialog::TrackCredits { .. }) {
+            palette.window
+        } else {
+            palette.overlay
+        })
         .stroke(Stroke::new(1.0, palette.outline))
         .corner_radius(CornerRadius::same(theme::RADIUS + 4))
         .inner_margin(Margin::same(24))
@@ -34,6 +38,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_width(420.0);
             match dialog {
+                Dialog::TrackCredits { uri, name } => {
+                    super::details::credits(app, ui, &uri, &name);
+                }
                 Dialog::PersonalAppIntro => {
                     theme::text(ui, gettext(locale, "Spend less time waiting for Spotify"), theme::bold(20.0), palette.text);
                     ui.add_space(12.0);

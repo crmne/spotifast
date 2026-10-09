@@ -388,3 +388,7 @@ On startup, network work waits for the protected proxy password to be restored.
 That lookup runs on the credential worker and does not block the interface or
 shutdown. The password belongs to its host, port, and username; editing any of
 these fields clears it. See [password storage and migration](/settings-and-files/).
+
+Faithful UI reads artist cards through the Web API and track contributor
+roles and release labels through the local playback session. Results stay in
+memory until sign-out. Failed credit reads can be retried in the Credits dialog.

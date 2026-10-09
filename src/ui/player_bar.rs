@@ -46,7 +46,11 @@ pub(crate) fn end_tint_session(ctx: &egui::Context) {
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let fill = eased_fill(ui.ctx(), palette.panel, app.now_playing_tint());
+    let fill = if app.settings.faithful_visuals {
+        palette.window
+    } else {
+        eased_fill(ui.ctx(), palette.panel, app.now_playing_tint())
+    };
     egui::Panel::bottom("player-bar")
         .exact_size(theme::PLAYER_BAR_HEIGHT)
         .resizable(false)
@@ -84,11 +88,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if empty.clicked() {
                 app.actions.push(Action::CyclePlayerBarVis);
             }
-            ui.painter().hline(
-                rect.x_range(),
-                rect.top() + 0.5,
-                egui::Stroke::new(1.0, palette.outline),
-            );
+            if !app.settings.faithful_visuals {
+                ui.painter().hline(
+                    rect.x_range(),
+                    rect.top() + 0.5,
+                    egui::Stroke::new(1.0, palette.outline),
+                );
+            }
+            let rect = if app.settings.faithful_visuals {
+                rect.translate(vec2(0.0, -3.0))
+            } else {
+                rect
+            };
             let width = rect.width();
             let side = (width * 0.3).clamp(200.0, 420.0);
             let cy = rect.center().y;
@@ -533,13 +544,21 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         let saved = app.is_saved(&now.uri).unwrap_or(false);
         let (icon, color, tooltip) = if saved {
             (
-                Icon::HeartFilled,
+                if app.settings.faithful_visuals {
+                    Icon::CircleCheck
+                } else {
+                    Icon::HeartFilled
+                },
                 palette.accent,
                 gettext(app.locale, "Remove from Liked Songs"),
             )
         } else {
             (
-                Icon::Heart,
+                if app.settings.faithful_visuals {
+                    Icon::CirclePlus
+                } else {
+                    Icon::Heart
+                },
                 palette.secondary,
                 gettext(app.locale, "Save to Liked Songs"),
             )
@@ -578,10 +597,14 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     //
     // The buttons row (36) and the progress row (~15, after a 6px gap) form
     // one cluster, centred as a group in the 88px bar: the buttons sit 8px
-    // above the bar's midline and the progress row 23px below it. Measured
-    // on screen this puts equal breathing room above and beneath the
-    // cluster.
-    let cy = region.center().y - 8.0;
+    // above the bar's midline. Faithful UI centers the combined
+    // button and progress rows, including the time labels.
+    let cy = region.center().y
+        - if app.settings.faithful_visuals {
+            10.5
+        } else {
+            8.0
+        };
     let enabled = now.is_some_and(|now| now.can_control) || app.is_connected();
     let playing = now.is_some_and(|now| now.playing);
     let loading = now.is_some_and(|now| now.loading);
@@ -893,7 +916,11 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
     let queue_button = theme::icon_button(
         ui,
-        Icon::ListVideo,
+        if app.settings.faithful_visuals {
+            Icon::ListMusic
+        } else {
+            Icon::ListVideo
+        },
         18.0,
         if queue_open {
             palette.accent
@@ -919,7 +946,11 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     }
     if theme::icon_button(
         ui,
-        Icon::Mic,
+        if app.settings.faithful_visuals {
+            Icon::MicVocal
+        } else {
+            Icon::Mic
+        },
         18.0,
         if app.show_lyrics_panel {
             palette.accent

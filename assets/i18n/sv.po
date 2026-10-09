@@ -3166,3 +3166,55 @@ msgstr "I Windows på ARM kommer OpenGL, som Spotifast ritar med, från Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Minska låttextrörelse"
+
+#: src/ui/details.rs
+msgid "Credits"
+msgstr "Medverkande"
+
+#: src/ui/details.rs
+msgid "No contributor credits are available."
+msgstr "Ingen information om medverkande finns tillgänglig."
+
+#: src/ui/details.rs
+msgid "Label"
+msgstr "Skivbolag"
+
+#: src/details.rs
+msgid "Main Artist"
+msgstr "Huvudartist"
+
+#: src/details.rs
+msgid "Featured Artist"
+msgstr "Gästartist"
+
+#: src/details.rs
+msgid "Remixer"
+msgstr "Remixare"
+
+#: src/details.rs
+msgid "Actor"
+msgstr "Skådespelare"
+
+#: src/details.rs
+msgid "Composer"
+msgstr "Kompositör"
+
+#: src/details.rs
+msgid "Conductor"
+msgstr "Dirigent"
+
+#: src/details.rs
+msgid "Orchestra"
+msgstr "Orkester"
+
+#: src/ui/details.rs
+msgid "Composition & Lyrics"
+msgstr "Komposition och text"
+
+#: src/ui/settings.rs
+msgid "Faithful UI"
+msgstr "Troget gränssnitt"
+
+#: src/ui/settings.rs
+msgid "Use Spotify-style panels, navigation, and playback controls. Adds Now Playing view."
+msgstr "Använd paneler, navigering och uppspelningskontroller i Spotify-stil. Lägger till en vy för det som spelas nu."

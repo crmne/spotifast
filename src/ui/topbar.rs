@@ -198,8 +198,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let width = ui.available_width();
     let window_controls = super::window_controls_reservation(
         ui.ctx(),
-        app.show_queue_panel,
-        app.show_lyrics_panel,
+        app.show_queue_panel && !app.settings.faithful_visuals,
+        app.show_lyrics_panel && !app.settings.faithful_visuals,
         width,
     );
     // Where the titlebar used to be: the bar grows upwards into that space and
@@ -240,6 +240,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.add_space(2.0);
             }
             if !app.settings.sidebar_visible
+                && !app.settings.faithful_visuals
                 && nav_button(ui, &palette, Icon::House, true, &gettext(locale, "Home")).clicked()
             {
                 app.actions.push(Action::Open(Page::Home));
@@ -308,7 +309,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 badge_width(device_galley.as_ref(), DEVICE_BADGE_PADDING, labels)
                     + badge_width(update_galley.as_ref(), UPDATE_BADGE_PADDING, labels)
             };
-            let controls = RIGHT_CONTROLS_WIDTH
+            let mut controls = RIGHT_CONTROLS_WIDTH
                 + if busy {
                     SPINNER_SIZE + ITEM_SPACING
                 } else {
@@ -321,18 +322,72 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // keep room for it (`least_width`).
             let lead = width - ui.available_width() + window_controls.topbar_width;
             ui.ctx().data_mut(|data| data.insert_temp(lead_id(), lead));
-            let fit = topbar_fit(search_room, controls, badges(true), badges(false));
+            let home_width = if app.settings.faithful_visuals {
+                48.0
+            } else {
+                0.0
+            };
+            let search_gap = if app.settings.faithful_visuals {
+                ITEM_SPACING
+            } else {
+                0.0
+            };
+            // Below the usual window minimum, keep Home and search usable by
+            // moving secondary controls to the account menu before they collide.
+            let compact = app.settings.faithful_visuals
+                && search_room < controls + badges(false) + home_width + search_gap + SEARCH_MIN;
+            if compact {
+                controls -= 3.0 * (ICON_BUTTON_SIZE + ITEM_SPACING);
+            }
+            let fit = topbar_fit(
+                search_room,
+                controls + home_width + search_gap,
+                badges(true),
+                badges(false),
+            );
             let search_width = fit.search;
+            if app.settings.faithful_visuals {
+                let group_width = home_width + search_width;
+                let ideal_left = ui.max_rect().center().x - group_width * 0.5;
+                let rightmost = ui.max_rect().right()
+                    - window_controls.topbar_width
+                    - controls
+                    - badges(fit.labels)
+                    - search_gap
+                    - group_width;
+                let start = ideal_left.min(rightmost).max(ui.cursor().left());
+                ui.add_space((start - ui.cursor().left()).max(0.0));
+                if theme::circle_button(
+                    ui,
+                    Icon::House,
+                    40.0,
+                    palette.surface,
+                    palette.surface_hover,
+                    palette.text,
+                    &gettext(locale, "Home"),
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::Open(Page::Home));
+                }
+            }
             let id = egui::Id::new("global-search");
             let before = app.search.query.clone();
-            let response = super::widgets::search_field(
+            let response = super::widgets::search_field_sized(
                 ui,
                 &palette,
                 app.locale,
                 id,
                 &mut app.search.query,
                 &gettext(locale, "What do you want to play?"),
-                search_width,
+                vec2(
+                    search_width,
+                    if app.settings.faithful_visuals {
+                        40.0
+                    } else {
+                        34.0
+                    },
+                ),
             );
             if app.search.focus_requested {
                 app.search.focus_requested = false;
@@ -444,6 +499,32 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         ) {
                             app.actions.push(Action::Open(Page::Settings));
                         }
+                        if compact {
+                            for (icon, label, action) in [
+                                (
+                                    Icon::AudioLines,
+                                    super::keys::platform_shortcut(
+                                        &gettext(locale, "MilkDrop visualiser (Ctrl+Shift+K)"),
+                                        &gettext(locale, "MilkDrop visualiser (Cmd+Shift+K)"),
+                                    )
+                                    .to_owned(),
+                                    Action::ToggleWinampMilkdrop,
+                                ),
+                                (
+                                    Icon::Shrink,
+                                    super::keys::platform_shortcut(
+                                        &gettext(locale, "Winamp mini player (Ctrl+M)"),
+                                        &gettext(locale, "Winamp mini player (Cmd+Shift+M)"),
+                                    )
+                                    .to_owned(),
+                                    Action::ToggleWinampWindow,
+                                ),
+                            ] {
+                                if super::widgets::menu_item(ui, &palette, Some(icon), &label) {
+                                    app.actions.push(action);
+                                }
+                            }
+                        }
                         if super::widgets::menu_item(
                             ui,
                             &palette,
@@ -464,51 +545,53 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         }
                     });
                 ui.add_space(4.0);
-                if theme::icon_button(
-                    ui,
-                    Icon::Settings,
-                    ICON_BUTTON_ICON,
-                    palette.secondary,
-                    palette.text,
-                    &gettext(locale, "Settings"),
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::Open(Page::Settings));
-                }
-                if theme::icon_button(
-                    ui,
-                    Icon::AudioLines,
-                    ICON_BUTTON_ICON,
-                    if app.settings.milkdrop_open {
-                        palette.accent
-                    } else {
-                        palette.secondary
-                    },
-                    palette.text,
-                    super::keys::platform_shortcut(
-                        &gettext(locale, "MilkDrop visualiser (Ctrl+Shift+K)"),
-                        &gettext(locale, "MilkDrop visualiser (Cmd+Shift+K)"),
-                    ),
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::ToggleWinampMilkdrop);
-                }
-                if theme::icon_button(
-                    ui,
-                    Icon::Shrink,
-                    ICON_BUTTON_ICON,
-                    palette.secondary,
-                    palette.text,
-                    super::keys::platform_shortcut(
-                        &gettext(locale, "Winamp mini player (Ctrl+M)"),
-                        &gettext(locale, "Winamp mini player (Cmd+Shift+M)"),
-                    ),
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::ToggleWinampWindow);
+                if !compact {
+                    if theme::icon_button(
+                        ui,
+                        Icon::Settings,
+                        ICON_BUTTON_ICON,
+                        palette.secondary,
+                        palette.text,
+                        &gettext(locale, "Settings"),
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::Open(Page::Settings));
+                    }
+                    if theme::icon_button(
+                        ui,
+                        Icon::AudioLines,
+                        ICON_BUTTON_ICON,
+                        if app.settings.milkdrop_open {
+                            palette.accent
+                        } else {
+                            palette.secondary
+                        },
+                        palette.text,
+                        super::keys::platform_shortcut(
+                            &gettext(locale, "MilkDrop visualiser (Ctrl+Shift+K)"),
+                            &gettext(locale, "MilkDrop visualiser (Cmd+Shift+K)"),
+                        ),
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::ToggleWinampMilkdrop);
+                    }
+                    if theme::icon_button(
+                        ui,
+                        Icon::Shrink,
+                        ICON_BUTTON_ICON,
+                        palette.secondary,
+                        palette.text,
+                        super::keys::platform_shortcut(
+                            &gettext(locale, "Winamp mini player (Ctrl+M)"),
+                            &gettext(locale, "Winamp mini player (Cmd+Shift+M)"),
+                        ),
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::ToggleWinampWindow);
+                    }
                 }
                 // A quiet spinner once the app has been talking to Spotify for a
                 // while, long enough that fast requests never flash it.

@@ -79,6 +79,39 @@ impl Palette {
         }
     }
 
+    /// Neutral surfaces for the optional Spotify-style layout.
+    pub fn faithful(dark: bool) -> Self {
+        if dark {
+            Self {
+                window: Color32::BLACK,
+                panel: Color32::from_gray(18),
+                surface: Color32::from_gray(31),
+                surface_hover: Color32::from_gray(42),
+                surface_active: Color32::from_gray(55),
+                outline: Color32::from_gray(63),
+                text: Color32::WHITE,
+                secondary: Color32::from_gray(179),
+                dim: Color32::from_gray(115),
+                accent: Color32::from_rgb(29, 185, 84),
+                accent_hover: Color32::from_rgb(30, 215, 96),
+                on_accent: Color32::BLACK,
+                overlay: Color32::from_gray(40),
+                ..Self::dark()
+            }
+        } else {
+            Self {
+                window: Color32::from_gray(230),
+                panel: Color32::from_gray(250),
+                surface: Color32::from_gray(238),
+                surface_hover: Color32::from_gray(224),
+                surface_active: Color32::from_gray(210),
+                text: Color32::from_gray(18),
+                secondary: Color32::from_gray(85),
+                ..Self::light()
+            }
+        }
+    }
+
     /// A colour derived from album art, softened so it can sit behind text.
     pub fn tint_from_art(&self, rgb: [u8; 3]) -> Color32 {
         let [r, g, b] = rgb.map(|c| c as f32 / 255.0);
@@ -431,6 +464,7 @@ fastframe_icons::icons! {
         Lock => lucide "lock",
         LogOut => lucide "log-out",
         Mic => lucide "mic",
+        MicVocal => "mic-vocal",
         Minus => lucide "minus",
         Monitor => lucide "monitor",
         Moon => lucide "moon",

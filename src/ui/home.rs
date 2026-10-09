@@ -218,6 +218,7 @@ fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
     widgets::shelf(
         ui,
         &palette,
+        app.settings.faithful_visuals,
         "made-for-you",
         &gettext(app.locale, "Made for you"),
         |ui| {
@@ -289,6 +290,7 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
             widgets::shelf(
                 ui,
                 &palette,
+                app.settings.faithful_visuals,
                 "recent",
                 &gettext(app.locale, "Recently played"),
                 |ui| widgets::loading_row(ui, &palette, app.locale),
@@ -299,6 +301,7 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
             widgets::shelf(
                 ui,
                 &palette,
+                app.settings.faithful_visuals,
                 "recent",
                 &gettext(app.locale, "Recently played"),
                 |ui| {
@@ -326,6 +329,7 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
     widgets::shelf(
         ui,
         &palette,
+        app.settings.faithful_visuals,
         "recent",
         &gettext(app.locale, "Recently played"),
         |ui| {
@@ -462,6 +466,7 @@ fn podcasts(app: &mut App, ui: &mut egui::Ui) {
     widgets::shelf(
         ui,
         &palette,
+        app.settings.faithful_visuals,
         "podcasts",
         &gettext(app.locale, "Your podcasts"),
         |ui| {
@@ -523,6 +528,7 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
             widgets::shelf(
                 ui,
                 &palette,
+                app.settings.faithful_visuals,
                 "top-artists",
                 &gettext(app.locale, "Your top artists"),
                 |ui| widgets::loading_row(ui, &palette, app.locale),
@@ -533,6 +539,7 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
             widgets::shelf(
                 ui,
                 &palette,
+                app.settings.faithful_visuals,
                 "top-artists",
                 &gettext(app.locale, "Your top artists"),
                 |ui| {
@@ -548,6 +555,7 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
     widgets::shelf(
         ui,
         &palette,
+        app.settings.faithful_visuals,
         "top-artists",
         &gettext(app.locale, "Your top artists"),
         |ui| {
