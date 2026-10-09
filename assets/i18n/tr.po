@@ -3331,3 +3331,7 @@ msgstr ""
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "Kaydedildiği yer"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "Yakın zamanda güncellenenler"

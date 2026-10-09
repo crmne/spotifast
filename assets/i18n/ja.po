@@ -3313,3 +3313,7 @@ msgstr ""
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "保存先"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "最近更新したプレイリスト"

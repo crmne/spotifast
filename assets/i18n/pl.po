@@ -3366,3 +3366,7 @@ msgstr ""
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "Zapisano w"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "Ostatnio zaktualizowane"

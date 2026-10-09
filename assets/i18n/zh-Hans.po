@@ -3230,3 +3230,7 @@ msgstr ""
 #: src/ui/playlist_picker.rs
 msgid "Saved in"
 msgstr "已保存至"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "最近更新"

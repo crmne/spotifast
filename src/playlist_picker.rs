@@ -8,12 +8,14 @@ pub struct MembershipPage {
     pub contains: bool,
     pub next_offset: Option<u32>,
     pub snapshot: Option<String>,
+    pub updated_at_ms: Option<i64>,
 }
 
 #[derive(Default)]
 pub struct Entry {
     pub contains: Option<bool>,
     pub error: Option<String>,
+    pub updated_at_ms: Option<i64>,
     offset: u32,
     snapshot: Option<String>,
 }
@@ -46,6 +48,12 @@ impl Picker {
                 self.order.push(id);
             }
         }
+    }
+
+    /// Unknown dates keep library order after playlists with a known date.
+    pub fn compare_updated(&self, left: &str, right: &str) -> std::cmp::Ordering {
+        let updated = |id| self.entries.get(id).and_then(|entry| entry.updated_at_ms);
+        updated(right).cmp(&updated(left))
     }
 
     pub fn next_request(&mut self) -> Option<crate::backend::ApiRequest> {
@@ -86,6 +94,7 @@ impl Picker {
                     return;
                 }
                 entry.snapshot = page.snapshot;
+                entry.updated_at_ms = page.updated_at_ms.filter(|timestamp| *timestamp > 0);
                 if page.contains {
                     entry.contains = Some(true);
                 } else if let Some(next) = page.next_offset.filter(|next| *next > entry.offset) {
@@ -109,7 +118,34 @@ mod tests {
             contains,
             next_offset: next,
             snapshot: Some("one".into()),
+            updated_at_ms: Some(100),
         }
+    }
+
+    #[test]
+    fn recent_updates_sort_newest_first_and_unknown_dates_last() {
+        let mut picker = Picker::default();
+        let ids = ["old", "unknown", "new", "same", "zero"];
+        picker.begin("track".into(), ids.map(String::from).to_vec());
+        for (id, updated) in ids
+            .into_iter()
+            .zip([Some(10), None, Some(20), Some(20), Some(0)])
+        {
+            picker.next_request();
+            let mut result = page(false, None);
+            result.updated_at_ms = updated;
+            picker.receive(id, picker.generation, Ok(result));
+        }
+        let mut sorted = ids.to_vec();
+        sorted.sort_by(|left, right| picker.compare_updated(left, right));
+        assert_eq!(sorted, ["new", "same", "old", "unknown", "zero"]);
+        picker.begin("other-track".into(), ids.map(String::from).to_vec());
+        assert!(
+            picker
+                .entries
+                .values()
+                .all(|entry| entry.updated_at_ms.is_none())
+        );
     }
 
     #[test]
