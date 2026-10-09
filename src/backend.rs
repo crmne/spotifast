@@ -1374,10 +1374,16 @@ impl PlaylistHeaderLookup {
         true
     }
 
+    fn requeue(&mut self, id: String) {
+        if !self.pending.contains(&id) {
+            self.pending.push_front(id);
+        }
+    }
+
     fn requeue_active_for_new_engine(&mut self) {
         self.engine_generation = self.engine_generation.wrapping_add(1);
         if let Some(request) = self.active.take() {
-            self.pending.push_front(request.id);
+            self.requeue(request.id);
         }
     }
 
@@ -3209,14 +3215,18 @@ impl Worker {
         request: PlaylistHeaderRequest,
         header: Option<crate::api::models::Playlist>,
     ) {
-        // A read that finishes while the sign-in has lapsed still frees the
-        // queue, so the rest are read once the sign-in comes back.
         if !self.playlist_header_lookup.finish(&request) {
             return;
         }
-        if self.signed_in
-            && let Some(header) = header
-        {
+        // A read that finishes while the sign-in has lapsed is not shown. It
+        // goes back to the front of the queue and is read again, with the
+        // rest, once the sign-in comes back. Signing out clears the queue
+        // instead, so its answer never arrives here.
+        if !self.signed_in {
+            self.playlist_header_lookup.requeue(request.id);
+            return;
+        }
+        if let Some(header) = header {
             self.emit(Event::PlaylistHeader(header));
         }
         self.start_playlist_header_lookup();
@@ -6105,10 +6115,10 @@ mod authorization_tests {
     /// finishes. A cached web token can finish that before the engine
     /// connects, so the request has to wait rather than be dropped.
     /// A header read that finishes while the sign-in has lapsed is not
-    /// shown, but it frees the queue, so the rest are read once the sign-in
-    /// comes back instead of waiting forever behind it.
+    /// shown. It frees the queue rather than holding it forever, and goes
+    /// back to the front so it is read again first once the sign-in returns.
     #[test]
-    fn a_playlist_header_finishing_while_signed_out_frees_the_queue() {
+    fn a_playlist_header_finishing_while_signed_out_is_read_again() {
         let (runtime, mut worker, events) = worker("playlist-header-lapse");
         let _entered = runtime.enter();
         worker
@@ -6130,13 +6140,20 @@ mod authorization_tests {
         );
 
         assert!(worker.playlist_header_lookup.active.is_none());
-        assert_eq!(worker.playlist_header_lookup.pending, ["next"]);
+        assert_eq!(worker.playlist_header_lookup.pending, ["read", "next"]);
         assert!(
             !events
                 .try_iter()
                 .any(|event| matches!(event, Event::PlaylistHeader(_))),
             "nothing is shown while signed out"
         );
+
+        worker.signed_in = true;
+        let retry = worker
+            .playlist_header_lookup
+            .next(*worker.session.borrow())
+            .expect("read again after the sign-in returns");
+        assert_eq!(retry.id, "read");
     }
 
     #[test]
