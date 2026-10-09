@@ -2956,6 +2956,9 @@ impl Worker {
             return;
         }
         self.resume_engine();
+        // A sign-in restored over a running engine picks up the headers the
+        // lapse held back.
+        self.start_playlist_header_lookup();
     }
 
     // ---- receivers on the local network -----------------------------------
@@ -3169,6 +3172,9 @@ impl Worker {
     /// as it arrives so the rows fill in turn. Without a session they wait; a
     /// header that cannot be read leaves its row as listed.
     fn start_playlist_header_lookup(&mut self) {
+        if !self.signed_in {
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -3203,10 +3209,14 @@ impl Worker {
         request: PlaylistHeaderRequest,
         header: Option<crate::api::models::Playlist>,
     ) {
-        if !self.signed_in || !self.playlist_header_lookup.finish(&request) {
+        // A read that finishes while the sign-in has lapsed still frees the
+        // queue, so the rest are read once the sign-in comes back.
+        if !self.playlist_header_lookup.finish(&request) {
             return;
         }
-        if let Some(header) = header {
+        if self.signed_in
+            && let Some(header) = header
+        {
             self.emit(Event::PlaylistHeader(header));
         }
         self.start_playlist_header_lookup();
@@ -6094,6 +6104,41 @@ mod authorization_tests {
     /// invitation, and its request is sent once, when the playlist library
     /// finishes. A cached web token can finish that before the engine
     /// connects, so the request has to wait rather than be dropped.
+    /// A header read that finishes while the sign-in has lapsed is not
+    /// shown, but it frees the queue, so the rest are read once the sign-in
+    /// comes back instead of waiting forever behind it.
+    #[test]
+    fn a_playlist_header_finishing_while_signed_out_frees_the_queue() {
+        let (runtime, mut worker, events) = worker("playlist-header-lapse");
+        let _entered = runtime.enter();
+        worker
+            .playlist_header_lookup
+            .enqueue(vec!["read".into(), "next".into()]);
+        let request = worker
+            .playlist_header_lookup
+            .next(*worker.session.borrow())
+            .expect("read before the lapse");
+        worker.signed_in = false;
+
+        worker.on_playlist_header_resolved(
+            request,
+            Some(crate::api::models::Playlist {
+                id: "read".into(),
+                name: "This Is TUYU".into(),
+                ..Default::default()
+            }),
+        );
+
+        assert!(worker.playlist_header_lookup.active.is_none());
+        assert_eq!(worker.playlist_header_lookup.pending, ["next"]);
+        assert!(
+            !events
+                .try_iter()
+                .any(|event| matches!(event, Event::PlaylistHeader(_))),
+            "nothing is shown while signed out"
+        );
+    }
+
     #[test]
     fn a_rootlist_request_before_the_engine_waits_for_it() {
         let (runtime, mut worker, events) = worker("rootlist-before-engine");
