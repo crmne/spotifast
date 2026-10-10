@@ -553,8 +553,9 @@ pub enum PlaylistCacheRows {
 /// Work for the playlist cache writer, done in the order it was queued.
 enum PlaylistCacheJob {
     Write(PlaylistCacheWrite),
-    /// Remove every account's cached library, after the writes before it.
-    Purge(crate::paths::AppDirs),
+    /// Remove every account's cached playlist pages, after the writes
+    /// before it and before the ones after it.
+    Purge(std::path::PathBuf),
 }
 
 impl PlaylistCacheJob {
@@ -1760,13 +1761,18 @@ impl Worker {
                 }
                 Command::SignOut => {
                     self.sign_out();
-                    // Behind any playlist page still being written, so none
-                    // comes back after the purge.
-                    let writes = cache_writes.clone();
-                    let purge = PlaylistCacheJob::Purge(self.dirs.clone());
-                    tokio::spawn(async move {
-                        let _ = writes.send(purge).await;
-                    });
+                    // The account caches go in command order, so nothing a
+                    // sign-in after this stores goes with them. This loop
+                    // writes the snapshots, so they go now. The playlist
+                    // pages queue behind a page still being written and
+                    // ahead of the next account's.
+                    for dir in self.dirs.account_snapshot_dirs() {
+                        log_cache_removal(&dir, tokio::fs::remove_dir_all(&dir).await);
+                    }
+                    let purge = PlaylistCacheJob::Purge(self.dirs.playlist_cache_dir());
+                    if cache_writes.send(purge).await.is_err() {
+                        log::warn!("unable to remove the playlist caches: writer unavailable");
+                    }
                 }
                 Command::AuthorizePlayback => self.authorize_playback(),
                 Command::RestartEngine(mut config) => {
@@ -4255,18 +4261,19 @@ fn playlist_data_path(path: &std::path::Path, data_file: u64) -> std::path::Path
     path.with_extension(format!("rows.{data_file:016x}"))
 }
 
-/// Removes every account's cached library. Each account's playlist pages
-/// are emptied under its lock, so a reader never sees half of them; the
-/// unlocked lock file and its directory go after.
-fn purge_account_caches(dirs: &crate::paths::AppDirs) {
-    let remove = |path: &std::path::Path, result: std::io::Result<()>| {
-        if let Err(error) = result
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            log::warn!("unable to remove {}: {error}", path.display());
-        }
-    };
-    if let Ok(accounts) = std::fs::read_dir(dirs.playlist_cache_dir()) {
+fn log_cache_removal(path: &std::path::Path, result: std::io::Result<()>) {
+    if let Err(error) = result
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        log::warn!("unable to remove {}: {error}", path.display());
+    }
+}
+
+/// Removes every account's cached playlist pages. Each account's pages are
+/// emptied under its lock, so a reader never sees half of them; the
+/// unlocked lock file and the directories go after.
+fn purge_playlist_caches(root: &std::path::Path) {
+    if let Ok(accounts) = std::fs::read_dir(root) {
         for account in accounts.flatten() {
             let dir = account.path();
             if !dir.is_dir() {
@@ -4289,14 +4296,12 @@ fn purge_account_caches(dirs: &crate::paths::AppDirs) {
                 } else {
                     std::fs::remove_file(&path)
                 };
-                remove(&path, removed);
+                log_cache_removal(&path, removed);
             }
             drop(lock);
         }
     }
-    for dir in dirs.account_cache_dirs() {
-        remove(&dir, std::fs::remove_dir_all(&dir));
-    }
+    log_cache_removal(root, std::fs::remove_dir_all(root));
 }
 
 fn playlist_cache_lock(path: &std::path::Path) -> std::io::Result<std::fs::File> {
@@ -4431,10 +4436,10 @@ async fn store_playlist_caches(
     while let Some(job) = writes.recv().await {
         let write = match job {
             PlaylistCacheJob::Write(write) => write,
-            PlaylistCacheJob::Purge(dirs) => {
-                let purged = tokio::task::spawn_blocking(move || purge_account_caches(&dirs));
+            PlaylistCacheJob::Purge(root) => {
+                let purged = tokio::task::spawn_blocking(move || purge_playlist_caches(&root));
                 if let Err(error) = purged.await {
-                    log::warn!("unable to remove the account caches: {error}");
+                    log::warn!("unable to remove the playlist caches: {error}");
                 }
                 continue;
             }
@@ -5275,6 +5280,89 @@ mod authorization_tests {
 
         for dir in &dirs {
             assert!(!dir.exists(), "{} was left behind", dir.display());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The account caches go in command order: an account that signs in
+    /// right after a sign-out keeps what it stores, even while a page of
+    /// the previous account still holds the removal of the pages back.
+    #[test]
+    fn a_sign_in_right_after_sign_out_keeps_its_caches() {
+        let (runtime, mut worker, events) = worker("sign-out-then-sign-in");
+        worker
+            .api
+            .install(ApiSource::Shared, AccountId::new("alice"))
+            .unwrap();
+        let api = worker.api.clone();
+        let root = worker.dirs.cache.parent().unwrap().to_path_buf();
+        let theirs = [
+            worker.dirs.library_cache_file("alice"),
+            worker.dirs.home_cache_file("alice"),
+        ];
+        for file in &theirs {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"{}").unwrap();
+        }
+        let mine = [
+            worker.dirs.library_cache_file("carol"),
+            worker.dirs.home_cache_file("carol"),
+        ];
+        let path = worker
+            .dirs
+            .account_playlist_cache_dir("alice")
+            .join("mix.json");
+        let lock = playlist_cache_lock(&path).unwrap();
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::StorePlaylistCache {
+                id: "mix".into(),
+                generation: 1,
+                snapshot: "old".into(),
+                rows: PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+                total: 1,
+                next_offset: None,
+            })
+            .unwrap();
+        commands.send(Command::SignOut).unwrap();
+        let thread = std::thread::spawn(move || runtime.block_on(worker.run(receiver)));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let signed_out = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match events.recv_timeout(remaining) {
+                Ok(Event::Auth(AuthStatus::SignedOut)) => break true,
+                Ok(_) => continue,
+                Err(_) => break false,
+            }
+        };
+        api.install(ApiSource::Shared, AccountId::new("carol"))
+            .unwrap();
+        commands
+            .send(Command::StoreLibraryCache(
+                crate::account_cache::Cache::new("carol".into(), Vec::new()),
+            ))
+            .unwrap();
+        commands
+            .send(Command::StoreHomeCache(crate::account_cache::Cache::new(
+                "carol".into(),
+                crate::model::HomeSnapshot::default(),
+            )))
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        drop(lock);
+        thread.join().unwrap();
+
+        assert!(signed_out);
+        for file in &theirs {
+            assert!(!file.exists(), "{} was left behind", file.display());
+        }
+        assert!(
+            !path.exists(),
+            "the previous account's page was left behind"
+        );
+        for file in &mine {
+            assert!(file.exists(), "{} was removed", file.display());
         }
         std::fs::remove_dir_all(root).unwrap();
     }

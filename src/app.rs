@@ -3852,14 +3852,20 @@ impl App {
     /// Fills the Home shelves Spotify has not answered for yet.
     fn restore_home(&mut self, cached: HomeSnapshot) {
         let home = &mut self.home;
-        if home.recently_played.get().is_none() {
-            home.recently_played = Loadable::Loaded(cached.recently_played);
+        if let Some(recent) = cached.recently_played
+            && home.recently_played.get().is_none()
+        {
+            home.recently_played = Loadable::Loaded(recent);
         }
-        if home.top_artists.get().is_none() {
-            home.top_artists = Loadable::Loaded(cached.top_artists);
+        if let Some(artists) = cached.top_artists
+            && home.top_artists.get().is_none()
+        {
+            home.top_artists = Loadable::Loaded(artists);
         }
-        if home.top_tracks.get().is_none() {
-            home.top_tracks = Loadable::Loaded(cached.top_tracks);
+        if let Some(tracks) = cached.top_tracks
+            && home.top_tracks.get().is_none()
+        {
+            home.top_tracks = Loadable::Loaded(tracks);
         }
         for (term, playlists) in cached.discover {
             let shelf = home.discover.entry(term).or_default();
@@ -3888,9 +3894,9 @@ impl App {
         };
         let home = &self.home;
         let snapshot = HomeSnapshot {
-            recently_played: home.recently_played.get().cloned().unwrap_or_default(),
-            top_artists: home.top_artists.get().cloned().unwrap_or_default(),
-            top_tracks: home.top_tracks.get().cloned().unwrap_or_default(),
+            recently_played: home.recently_played.get().cloned(),
+            top_artists: home.top_artists.get().cloned(),
+            top_tracks: home.top_tracks.get().cloned(),
             discover: home
                 .discover
                 .iter()
@@ -12296,12 +12302,12 @@ mod tests {
 
     fn cached_home() -> HomeSnapshot {
         HomeSnapshot {
-            recently_played: vec![played("spotify:track:cached-recent")],
-            top_artists: vec![Artist {
+            recently_played: Some(vec![played("spotify:track:cached-recent")]),
+            top_artists: Some(vec![Artist {
                 id: "cached-artist".into(),
                 ..Artist::default()
-            }],
-            top_tracks: vec![song("spotify:track:cached-top")],
+            }]),
+            top_tracks: Some(vec![song("spotify:track:cached-top")]),
             discover: [(
                 "Discover Weekly".to_string(),
                 cached_playlists(&["weekly"]).unwrap(),
@@ -12384,15 +12390,53 @@ mod tests {
         assert_eq!(saved.account_id, "alice");
         assert_eq!(
             saved.data.recently_played,
-            vec![played("spotify:track:fresh")]
+            Some(vec![played("spotify:track:fresh")])
         );
         assert_eq!(saved.data.top_artists, cached_home().top_artists);
-        assert_eq!(saved.data.top_tracks, vec![song("spotify:track:fresh-top")]);
+        assert_eq!(
+            saved.data.top_tracks,
+            Some(vec![song("spotify:track:fresh-top")])
+        );
         assert_eq!(
             saved.data.discover.get("Discover Weekly").map(Vec::len),
             Some(1)
         );
         assert_eq!(saved.data.podcasts.len(), 1);
+    }
+
+    /// A shelf Spotify has not answered for is saved as unanswered, not as
+    /// empty, so the next start shows it loading, and later its error,
+    /// rather than an empty shelf. Older files with every shelf read back.
+    #[test]
+    fn an_unanswered_home_shelf_is_not_saved_as_empty() {
+        let mut app = listener_app();
+        app.load_home(false);
+        app.handle_api(ApiResponse::RecentlyPlayed {
+            who: RecentsFor::Home,
+            generation: app.home.generation,
+            limit: HOME_RECENTS,
+            result: Ok(crate::api::models::CursorPage {
+                items: vec![played("spotify:track:fresh")],
+                ..Default::default()
+            }),
+        });
+        let saved = app.backend.take_home_cache_stores().pop().unwrap().data;
+        assert!(saved.recently_played.is_some());
+        assert_eq!(saved.top_artists, None);
+        assert_eq!(saved.top_tracks, None);
+
+        let mut next = listener_app();
+        next.load_home(false);
+        next.receive_account_caches("alice", 7, None, Some(saved));
+        assert!(next.home.recently_played.get().is_some());
+        assert!(next.home.top_artists.is_loading());
+        assert!(next.home.top_tracks.is_loading());
+
+        let older: HomeSnapshot = serde_json::from_str(
+            r#"{"recently_played":[],"top_artists":[],"top_tracks":[],"discover":{},"podcasts":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(older.top_artists, Some(Vec::new()));
     }
 
     /// Shelves Spotify already answered for are newer than the cache.

@@ -140,16 +140,21 @@ impl AppDirs {
         self.cache.join("home").join(account_file_name(account_id))
     }
 
-    /// Every cache that holds an account's library: the playlist pages
-    /// first, then the playlist list, Home and Liked Songs. Signing out
-    /// removes them all.
-    pub fn account_cache_dirs(&self) -> [PathBuf; 4] {
+    /// The account snapshots the backend writes as it goes: the playlist
+    /// list, Home and Liked Songs.
+    pub fn account_snapshot_dirs(&self) -> [PathBuf; 3] {
         [
-            self.playlist_cache_dir(),
             self.cache.join("library"),
             self.cache.join("home"),
             self.cache.join("liked-songs"),
         ]
+    }
+
+    /// Every cache that holds an account's library: the playlist pages and
+    /// the snapshots. Signing out removes them all.
+    pub fn account_cache_dirs(&self) -> [PathBuf; 4] {
+        let [library, home, liked] = self.account_snapshot_dirs();
+        [self.playlist_cache_dir(), library, home, liked]
     }
 
     pub fn ensure(&self) -> std::io::Result<()> {
