@@ -399,8 +399,7 @@ impl ApiClient {
         client_token: &str,
         query: &serde_json::Value,
     ) -> Result<serde_json::Value> {
-        let mut cooldown = self.partner_cooldown_until.lock().await;
-        if *cooldown > Instant::now() {
+        if *self.partner_cooldown_until.lock().await > Instant::now() {
             return Err(ApiError::RateLimited);
         }
         let endpoint = "https://api-partner.spotify.com/pathfinder/v2/query".to_string();
@@ -426,7 +425,9 @@ impl ApiClient {
                 .and_then(|value| value.to_str().ok())
                 .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(1);
-            *cooldown = Instant::now() + Duration::from_secs(seconds);
+            let wait = Duration::from_secs(seconds).min(MAX_RETRY_AFTER);
+            let mut cooldown = self.partner_cooldown_until.lock().await;
+            *cooldown = (*cooldown).max(Instant::now() + wait);
             return Err(ApiError::RateLimited);
         }
         if !status.is_success() {
@@ -1227,6 +1228,168 @@ impl ApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An unrelated Pathfinder request can finish while another reply is slow.
+    #[tokio::test]
+    async fn partner_slow_request_does_not_hold_other_callers() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (arrived, observed) = tokio::sync::oneshot::channel();
+        let (release, held) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            assert!(first.read(&mut bytes).await.unwrap() > 0);
+            arrived.send(()).unwrap();
+            let delayed = tokio::spawn(async move {
+                held.await.unwrap();
+                first.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}").await.unwrap();
+            });
+            let (mut second, _) = listener.accept().await.unwrap();
+            assert!(second.read(&mut bytes).await.unwrap() > 0);
+            second.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}").await.unwrap();
+            delayed.await.unwrap();
+        });
+        let mut client = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            20,
+            50,
+            ApiSource::Personal,
+        );
+        client.base_url = Some(format!("http://{address}"));
+        let client = Arc::new(client);
+        let first_client = Arc::clone(&client);
+        let first = tokio::spawn(async move {
+            first_client
+                .partner_request("dummy", "dummy", &serde_json::json!({}))
+                .await
+        });
+        observed.await.unwrap();
+        let second = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.partner_request("dummy", "dummy", &serde_json::json!({})),
+        )
+        .await;
+        release.send(()).unwrap();
+        assert!(first.await.unwrap().is_ok());
+        if second.is_err() {
+            server.abort();
+        } else {
+            server.await.unwrap();
+        }
+        assert!(
+            second.is_ok(),
+            "a slow network reply must not block another caller"
+        );
+        assert_eq!(second.unwrap().unwrap()["ok"], true);
+    }
+
+    /// An extreme server header cannot turn a short recovery into a day-long wait.
+    #[tokio::test]
+    async fn partner_extreme_retry_after_is_bounded() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            assert!(socket.read(&mut bytes).await.unwrap() > 0);
+            socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 86400\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        });
+        let mut client = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            20,
+            50,
+            ApiSource::Personal,
+        );
+        client.base_url = Some(format!("http://{address}"));
+        assert!(matches!(
+            client
+                .partner_request("dummy", "dummy", &serde_json::json!({}))
+                .await,
+            Err(ApiError::RateLimited)
+        ));
+        server.await.unwrap();
+        let remaining = client
+            .partner_cooldown_until
+            .lock()
+            .await
+            .saturating_duration_since(Instant::now());
+        assert!(
+            remaining <= Duration::from_secs(30),
+            "a header cannot exceed the 30-second recovery bound"
+        );
+        assert!(
+            !remaining.is_zero(),
+            "a bounded cooldown must still respect rate limiting"
+        );
+    }
+
+    /// A reply from an older in-flight request cannot erase a longer wait.
+    #[tokio::test]
+    async fn partner_older_reply_keeps_a_later_cooldown() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (arrived, observed) = tokio::sync::oneshot::channel();
+        let (release, held) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            assert!(first.read(&mut bytes).await.unwrap() > 0);
+            arrived.send(()).unwrap();
+            let delayed = tokio::spawn(async move {
+                held.await.unwrap();
+                first.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            });
+            let (mut second, _) = listener.accept().await.unwrap();
+            assert!(second.read(&mut bytes).await.unwrap() > 0);
+            second.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 3\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            delayed.await.unwrap();
+        });
+        let mut client = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            20,
+            50,
+            ApiSource::Personal,
+        );
+        client.base_url = Some(format!("http://{address}"));
+        let client = Arc::new(client);
+        let first_client = Arc::clone(&client);
+        let first = tokio::spawn(async move {
+            first_client
+                .partner_request("dummy", "dummy", &serde_json::json!({}))
+                .await
+        });
+        observed.await.unwrap();
+        let newer = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.partner_request("dummy", "dummy", &serde_json::json!({})),
+        )
+        .await;
+        release.send(()).unwrap();
+        assert!(matches!(first.await.unwrap(), Err(ApiError::RateLimited)));
+        if newer.is_err() {
+            server.abort();
+        } else {
+            server.await.unwrap();
+        }
+        assert!(matches!(newer.unwrap(), Err(ApiError::RateLimited)));
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert!(
+            matches!(
+                client
+                    .partner_request("dummy", "dummy", &serde_json::json!({}))
+                    .await,
+                Err(ApiError::RateLimited)
+            ),
+            "older reply must not shorten the newer three-second wait"
+        );
+    }
 
     #[tokio::test]
     async fn partner_retry_after_survives_refresh_and_is_separate_from_shared_cooldown() {

@@ -413,10 +413,13 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
                 || (response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter))))
             && let Some(track) = track
         {
-            let start = playable
+            let start = data
+                .tracks
                 .iter()
-                .position(|uri| uri == &track.uri)
-                .unwrap_or(0);
+                .take(index)
+                .flatten()
+                .filter(|track| track.is_playable == Some(true))
+                .count();
             app.actions.push(Action::PlayFromRow {
                 context: RowContext::View {
                     uris: Arc::clone(&playable),
@@ -436,9 +439,12 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
 
 fn countdown(ui: &mut egui::Ui, parts: [i64; 4], locale: crate::i18n::Locale, color: Color32) {
     let column_width = ((ui.available_width() - 27.0) / 4.0).clamp(36.0, 78.0);
-    let values = parts
-        .into_iter()
-        .zip(["days", "hours", "minutes", "seconds"]);
+    let values = parts.into_iter().zip([
+        gettext(locale, "days"),
+        gettext(locale, "hours"),
+        gettext(locale, "minutes"),
+        gettext(locale, "seconds"),
+    ]);
     Frame::new()
         .fill(Color32::from_black_alpha(105))
         .corner_radius(6)
@@ -459,15 +465,144 @@ fn countdown(ui: &mut egui::Ui, parts: [i64; 4], locale: crate::i18n::Locale, co
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             theme::text(ui, number.to_string(), theme::bold(24.0), color);
-                            theme::text(
-                                ui,
-                                gettext(locale, label),
-                                theme::regular(11.0),
-                                color.gamma_multiply(0.7),
-                            );
+                            theme::text(ui, label, theme::regular(11.0), color.gamma_multiply(0.7));
                         },
                     );
                 }
             });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::models::Track;
+    use crate::app::AppOptions;
+    use crate::paths::AppDirs;
+    use crate::settings::Settings;
+
+    fn texts(shape: &egui::epaint::Shape, found: &mut Vec<egui::Rect>) {
+        match shape {
+            egui::epaint::Shape::Text(text) if text.galley.job.text == "Repeated track" => {
+                found.push(text.galley.rect.translate(text.pos.to_vec2()));
+            }
+            egui::epaint::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    texts(shape, found);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn clicking_a_repeated_preview_track_starts_that_occurrence() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-prerelease-occurrence-{}",
+            std::process::id()
+        ));
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        app.local_ready = true;
+        let mut data = Prerelease::decode(
+            include_bytes!("../testdata/prerelease.pb"),
+            "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL",
+        )
+        .unwrap();
+        data.album.images.clear();
+        data.artist_image = None;
+        data.release_unix = None;
+        let track = |uri: &str, name: &str, playable| {
+            Some(Track {
+                uri: uri.into(),
+                name: name.into(),
+                is_playable: Some(playable),
+                ..Default::default()
+            })
+        };
+        data.tracks = vec![
+            None,
+            track("spotify:track:repeated", "Repeated track", true),
+            track("spotify:track:hidden", "Unavailable track", false),
+            track("spotify:track:other", "Other track", true),
+            track("spotify:track:repeated", "Repeated track", true),
+        ];
+        let mut frame = |time, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        vec2(1600.0, 1400.0),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| show(&mut app, ui, &data),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let _ = frame(0.0, vec![]);
+        let output = frame(0.1, vec![]);
+        let mut matches = vec![];
+        for shape in &output.shapes {
+            texts(&shape.shape, &mut matches);
+        }
+        matches.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        assert_eq!(matches.len(), 2, "both occurrences must be rendered");
+        let last = matches.last().unwrap();
+        let point = egui::pos2(last.left() - 28.0, last.top() + 19.0);
+        let _ = frame(0.2, vec![egui::Event::PointerMoved(point)]);
+        for (time, pressed) in [(0.3, true), (0.4, false)] {
+            let _ = frame(
+                time,
+                vec![egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::default(),
+                }],
+            );
+        }
+        let plays: Vec<_> = app
+            .actions
+            .iter()
+            .filter_map(|action| match action {
+                Action::PlayFromRow {
+                    index,
+                    context: RowContext::View { uris, .. },
+                    ..
+                } => Some((*index, uris.to_vec())),
+                _ => None,
+            })
+            .collect();
+        app.backend.shutdown();
+        assert_eq!(plays.len(), 1, "one click emits one playback action");
+        assert_eq!(plays[0].0, 2, "start at the clicked second occurrence");
+        assert_eq!(
+            plays[0].1,
+            vec![
+                "spotify:track:repeated",
+                "spotify:track:other",
+                "spotify:track:repeated"
+            ]
+        );
+    }
 }
