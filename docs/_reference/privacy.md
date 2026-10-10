@@ -30,7 +30,8 @@ current release.
   attach it to a bug report.
 
 [Settings & Files](/settings-and-files/) lists every location and what is safe
-to delete. **Sign out** in Settings removes the stored credentials.
+to delete. **Sign out** in Settings removes the stored credentials and the
+cached library metadata: playlists, Home and Liked Songs.
 
 ## What is sent, and to whom
 

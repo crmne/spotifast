@@ -12478,6 +12478,18 @@ mod tests {
         assert_eq!(app.background_activity(), None);
     }
 
+    /// Signing out removes the account's caches from disk; a read of them
+    /// that answers after it shows nothing.
+    #[test]
+    fn account_caches_read_before_sign_out_show_nothing_after_it() {
+        let mut app = listener_app();
+        app.handle_auth(AuthStatus::SignedOut);
+        app.receive_account_caches("alice", 7, cached_playlists(&["a"]), Some(cached_home()));
+        assert!(app.library.playlists.get().is_none());
+        assert!(app.home.recently_played.get().is_none());
+        assert!(app.home.discover.is_empty());
+    }
+
     /// The streaming session does not always name a playlist's owner. The
     /// account's own name stands in for its own lists, the library list's
     /// for the rest it holds, in whichever order the answers arrive, and

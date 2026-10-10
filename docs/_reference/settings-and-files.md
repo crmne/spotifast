@@ -34,7 +34,10 @@ Spotifast follows each platform's conventions. On Linux:
 | Crash log | `~/.local/state/spotifast/panic.log` | Always |
 
 Clearing caches never signs you out. Sign-out from Settings covers the shared
-and personal Web API grants and the independent playback credential.
+and personal Web API grants and the independent playback credential. It also
+removes the cached library of every account: playlist pages, the playlist
+list, Home shelves and Liked Songs metadata. The audio, artwork and lyrics
+caches stay, since they belong to no account.
 
 The following credential storage is available since 0.8.0.
 
@@ -146,6 +149,7 @@ requests current data immediately. Partial caches resume from their next page.
 Like and Unlike change the rows immediately, and confirmed edits survive a
 restart even if Spotify's next read still reports the old state. This cache
 contains metadata, not offline audio, and can be deleted without signing out.
+Signing out deletes it.
 
 The last good playlist folder tree is kept in `session.json`, scoped to the
 account that supplied it. This keeps folders visible when local playback is

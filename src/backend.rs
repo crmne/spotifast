@@ -550,6 +550,22 @@ pub enum PlaylistCacheRows {
     },
 }
 
+/// Work for the playlist cache writer, done in the order it was queued.
+enum PlaylistCacheJob {
+    Write(PlaylistCacheWrite),
+    /// Remove every account's cached library, after the writes before it.
+    Purge(crate::paths::AppDirs),
+}
+
+impl PlaylistCacheJob {
+    fn into_write(self) -> Option<PlaylistCacheWrite> {
+        match self {
+            Self::Write(write) => Some(write),
+            Self::Purge(_) => None,
+        }
+    }
+}
+
 struct PlaylistCacheWrite {
     path: std::path::PathBuf,
     account_id: String,
@@ -1742,7 +1758,16 @@ impl Worker {
                     }
                     self.pending_authorization = None;
                 }
-                Command::SignOut => self.sign_out(),
+                Command::SignOut => {
+                    self.sign_out();
+                    // Behind any playlist page still being written, so none
+                    // comes back after the purge.
+                    let writes = cache_writes.clone();
+                    let purge = PlaylistCacheJob::Purge(self.dirs.clone());
+                    tokio::spawn(async move {
+                        let _ = writes.send(purge).await;
+                    });
+                }
                 Command::AuthorizePlayback => self.authorize_playback(),
                 Command::RestartEngine(mut config) => {
                     // Audio settings must not revert a proxy change whose UI
@@ -1969,17 +1994,19 @@ impl Worker {
                             .dirs
                             .account_playlist_cache_dir(&account_id)
                             .join(format!("{id}.json"));
-                        if let Err(error) = cache_writes.try_send(PlaylistCacheWrite {
-                            path,
-                            account_id,
-                            id,
-                            generation,
-                            snapshot,
-                            rows,
-                            total,
-                            next_offset,
-                        }) {
-                            let write = error.into_inner();
+                        if let Err(error) =
+                            cache_writes.try_send(PlaylistCacheJob::Write(PlaylistCacheWrite {
+                                path,
+                                account_id,
+                                id,
+                                generation,
+                                snapshot,
+                                rows,
+                                total,
+                                next_offset,
+                            }))
+                            && let Some(write) = error.into_inner().into_write()
+                        {
                             log::warn!(
                                 "unable to queue playlist cache {}: writer unavailable",
                                 write.path.display()
@@ -4228,6 +4255,50 @@ fn playlist_data_path(path: &std::path::Path, data_file: u64) -> std::path::Path
     path.with_extension(format!("rows.{data_file:016x}"))
 }
 
+/// Removes every account's cached library. Each account's playlist pages
+/// are emptied under its lock, so a reader never sees half of them; the
+/// unlocked lock file and its directory go after.
+fn purge_account_caches(dirs: &crate::paths::AppDirs) {
+    let remove = |path: &std::path::Path, result: std::io::Result<()>| {
+        if let Err(error) = result
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("unable to remove {}: {error}", path.display());
+        }
+    };
+    if let Ok(accounts) = std::fs::read_dir(dirs.playlist_cache_dir()) {
+        for account in accounts.flatten() {
+            let dir = account.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let lock = match playlist_cache_lock(&dir.join(".purge")) {
+                Ok(lock) => lock,
+                Err(error) => {
+                    log::warn!("unable to lock {}: {error}", dir.display());
+                    continue;
+                }
+            };
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if entry.file_name() == ".playlist-cache.lock" {
+                    continue;
+                }
+                let removed = if path.is_dir() {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    std::fs::remove_file(&path)
+                };
+                remove(&path, removed);
+            }
+            drop(lock);
+        }
+    }
+    for dir in dirs.account_cache_dirs() {
+        remove(&dir, std::fs::remove_dir_all(&dir));
+    }
+}
+
 fn playlist_cache_lock(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(
@@ -4353,11 +4424,21 @@ fn read_incremental_playlist_cache_file(path: &std::path::Path) -> std::io::Resu
 
 /// Keep writes in command order without making the command loop wait for disk.
 async fn store_playlist_caches(
-    mut writes: mpsc::Receiver<PlaylistCacheWrite>,
+    mut writes: mpsc::Receiver<PlaylistCacheJob>,
     events: std::sync::mpsc::Sender<Event>,
     waker: Waker,
 ) {
-    while let Some(write) = writes.recv().await {
+    while let Some(job) = writes.recv().await {
+        let write = match job {
+            PlaylistCacheJob::Write(write) => write,
+            PlaylistCacheJob::Purge(dirs) => {
+                let purged = tokio::task::spawn_blocking(move || purge_account_caches(&dirs));
+                if let Err(error) = purged.await {
+                    log::warn!("unable to remove the account caches: {error}");
+                }
+                continue;
+            }
+        };
         let PlaylistCacheWrite {
             path,
             account_id,
@@ -5140,6 +5221,61 @@ mod authorization_tests {
             "a pending disk write blocked the command loop"
         );
         assert_eq!(read_playlist_manifest(&path).unwrap().snapshot, "old");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Signing out removes every account's cached library: playlist pages,
+    /// the playlist list, Home and Liked Songs. A playlist page still being
+    /// written when it happens is removed with the rest, not left behind.
+    #[test]
+    fn signing_out_removes_the_account_caches_after_pending_writes() {
+        let (runtime, mut worker, _events) = worker("sign-out-purges-caches");
+        worker
+            .api
+            .install(ApiSource::Shared, AccountId::new("alice"))
+            .unwrap();
+        let root = worker.dirs.cache.parent().unwrap().to_path_buf();
+        let others = [
+            worker.dirs.library_cache_file("alice"),
+            worker.dirs.home_cache_file("alice"),
+            worker.dirs.liked_songs_cache_file("alice"),
+            worker
+                .dirs
+                .account_playlist_cache_dir("bob")
+                .join("theirs.json"),
+        ];
+        for file in &others {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"{}").unwrap();
+        }
+        let path = worker
+            .dirs
+            .account_playlist_cache_dir("alice")
+            .join("mix.json");
+        let dirs = worker.dirs.account_cache_dirs();
+        // The page write waits on this lock while the sign-out arrives.
+        let lock = playlist_cache_lock(&path).unwrap();
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::StorePlaylistCache {
+                id: "mix".into(),
+                generation: 1,
+                snapshot: "old".into(),
+                rows: PlaylistCacheRows::Replace(vec![PlaylistItem::default()]),
+                total: 1,
+                next_offset: None,
+            })
+            .unwrap();
+        commands.send(Command::SignOut).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        let thread = std::thread::spawn(move || runtime.block_on(worker.run(receiver)));
+        std::thread::sleep(Duration::from_millis(200));
+        drop(lock);
+        thread.join().unwrap();
+
+        for dir in &dirs {
+            assert!(!dir.exists(), "{} was left behind", dir.display());
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 
