@@ -2356,6 +2356,17 @@ impl Worker {
                 }
             }
         };
+        let listener = match crate::auth::listen_for_redirect(grant.redirect_port) {
+            Ok(listener) => listener,
+            Err(error) => {
+                if source == ApiSource::Shared {
+                    self.emit(Event::Auth(AuthStatus::Failed(error.to_string())));
+                } else {
+                    self.emit(Event::Error(error.to_string()));
+                }
+                return;
+            }
+        };
         self.credentials.invalidate(web_slot(source));
         self.restore_pending[web_slot(source).index()] = false;
         let lease = self.credentials.lease(web_slot(source));
@@ -2382,8 +2393,8 @@ impl Worker {
         let commands = self.commands.clone();
         tokio::spawn(async move {
             let result = async {
-                let code =
-                    crate::auth::wait_for_code(grant.redirect_port, &flow.state, cancel_rx).await?;
+                let code = crate::auth::wait_for_code_on_listener(listener, &flow.state, cancel_rx)
+                    .await?;
                 let response =
                     crate::auth::exchange_code(&http, &grant, &code, &flow.verifier).await?;
                 crate::auth::StoredToken::from_response(&grant.client_id, response, None)
@@ -5478,6 +5489,30 @@ mod authorization_tests {
             Waker::default(),
         );
         (runtime, worker, events)
+    }
+
+    #[test]
+    fn occupied_login_port_reports_persistent_failure_before_browser_sign_in() {
+        let (runtime, mut worker, events) = worker("occupied-login-port");
+        let _entered = runtime.enter();
+        let _occupied =
+            std::net::TcpListener::bind(("127.0.0.1", crate::auth::WEB_REDIRECT_PORT)).unwrap();
+        for _ in 0..2 {
+            worker.sign_in_source(ApiSource::Shared);
+            let received: Vec<_> = events.try_iter().collect();
+            assert!(received.iter().any(|event| matches!(event,
+                Event::Auth(AuthStatus::Failed(message)) if message.contains("8989")
+            )));
+            assert!(
+                !received.iter().any(|event| matches!(
+                    event,
+                    Event::Auth(AuthStatus::WaitingForBrowser { .. })
+                ))
+            );
+            assert!(worker.cancel_signin.is_none());
+            assert!(worker.authorizing_source.is_none());
+            assert_eq!(worker.authorization_attempt, 0);
+        }
     }
 
     #[test]

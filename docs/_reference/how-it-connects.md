@@ -31,6 +31,10 @@ consent dialog. The playback session uses the account ID verified by either
 Web API grant. A verified personal app can complete sign-in while the shared
 app's verification is still waiting.
 
+Web API sign-in opens the browser only after its local callback port is available. If
+port 8989 is occupied, the sign-in screen keeps the error visible. Close the
+app using that port, then choose **Try again**.
+
 Since 0.8.0, local playback retains the artist IDs
 already supplied by librespot. Artist links in the player bar work before the
 Web API's track metadata arrives, without an extra request.
