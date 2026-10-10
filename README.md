@@ -145,3 +145,12 @@ Spotifast is an independent project and is not affiliated with Spotify.
 Spotify is a trademark of Spotify AB.
 
 Licensed under the [MIT License](LICENSE).
+
+## Star history
+
+<a href="https://www.star-history.com/?repos=crmne%2Fspotifast&amp;type=date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date&amp;theme=dark">
+    <img alt="Spotifast GitHub stars over time" src="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date">
+  </picture>
+</a>
