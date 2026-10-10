@@ -1563,6 +1563,11 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let Some(page) = app.album_pages.remove(id) else {
         return;
     };
+    if let Some(data) = &page.prerelease {
+        super::prerelease::show(app, ui, data);
+        app.album_pages.insert(id.to_string(), page);
+        return;
+    }
     let preview =
         super::loading_preview(ui.ctx(), id, &page.album, || app.known_album(id).cloned());
     let palette = app.palette;

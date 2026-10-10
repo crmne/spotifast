@@ -388,3 +388,23 @@ On startup, network work waits for the protected proxy password to be restored.
 That lookup runs on the credential worker and does not block the interface or
 shutdown. The password belongs to its host, port, and username; editing any of
 these fields clears it. See [password storage and migration](/settings-and-files/).
+
+## Upcoming albums and countdown links
+
+`spotify:prerelease:` and Spotify prerelease share links require the same-account
+local playback session. The session's extended metadata kind 138 resolves the
+prerelease URI to its real album URI, cover, artist and release instant. They
+are different IDs. Pathfinder `getAlbum` reads the ordered track preview and
+playability using Login5 and the client token through the existing configured
+HTTP client. These reads do not use the shared Web API quota. Hidden positions
+remain visible, and unavailable rows never enter playback or shuffle lists.
+
+Collection membership uses `/collection/v2/contains`. Pressing Pre-save or
+Pre-saved sends one explicit `/collection/v2/write` for the resolved album URI and
+then checks membership. Writes use the configured proxy with transport retries
+and redirects disabled. Opening the page never changes the library. Both use
+the existing session's authorization, with no new OAuth permissions or stored
+credentials. Failed confirmation leaves state unknown and offers a fresh read;
+it never automatically repeats a mutation. Requests have a 20-second deadline.
+Sign-out cancels work, stale session/page generations are ignored, and a new
+link or history navigation cannot be overwritten by an older response.

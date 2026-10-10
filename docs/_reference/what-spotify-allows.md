@@ -64,6 +64,11 @@ clients. Spotifast uses its session for:
   cache. A song the session reads first has unknown availability; if it cannot
   play, it is skipped when reached, as it would be anywhere else.
 - **Lyrics** when Spotify has them.
+- **Upcoming album pages.** Prerelease metadata supplies the real album mapping,
+  cover and release time. Pathfinder supplies ordered preview rows and explicit
+  playability; unpublished rows stay visible without entering playback. The
+  session collection service reads pre-save state and writes it only after the
+  user presses the button. No Web API grant implements this operation.
 - **Display names** for the user IDs attached to songs in a playlist.
 - **Precise EP types** for releases that the Web API groups with singles.
 - **Radio and autoplay** through Spotify's context resolver: stations seeded

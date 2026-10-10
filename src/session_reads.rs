@@ -66,6 +66,170 @@ fn refused(error: librespot_core::Error) -> Failure {
     }
 }
 
+/// A future album's own mapping and ordered preview rows, through the same
+/// playback session. An unknown row remains a non-playable placeholder.
+pub async fn prerelease(
+    session: &Session,
+    web: &crate::api::ApiClient,
+    uri: &str,
+) -> anyhow::Result<crate::prerelease::Prerelease> {
+    anyhow::ensure!(
+        crate::link::parse(uri).as_deref() == Some(uri) && uri.starts_with("spotify:prerelease:"),
+        "invalid prerelease URI"
+    );
+    let mut request = BatchedEntityRequest::new();
+    request.entity_request.push(EntityRequest {
+        entity_uri: uri.into(),
+        query: vec![ExtensionQuery {
+            extension_kind: EnumOrUnknown::new(ExtensionKind::PRERELEASE),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    let response = session.spclient().get_extended_metadata(request).await?;
+    let mut page = None;
+    for array in &response.extended_metadata {
+        if array.extension_kind.enum_value() != Ok(ExtensionKind::PRERELEASE) {
+            continue;
+        }
+        anyhow::ensure!(
+            matches!(array.header.provider_error_status, 0 | 200),
+            "Spotify could not resolve this prerelease"
+        );
+        for data in &array.extension_data {
+            if data.entity_uri != uri {
+                continue;
+            }
+            anyhow::ensure!(
+                matches!(data.header.status_code, 0 | 200),
+                "Spotify prerelease answered {}",
+                data.header.status_code
+            );
+            let bytes = &data
+                .extension_data
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("empty prerelease response"))?
+                .value;
+            page = Some(crate::prerelease::Prerelease::decode(bytes, uri)?);
+        }
+    }
+    let mut page = page.ok_or_else(|| anyhow::anyhow!("Spotify did not return this prerelease"))?;
+    let login = session.login5().auth_token().await?;
+    let client_token = session.spclient().client_token().await?;
+    let mut offset = 0;
+    loop {
+        let query = serde_json::json!({
+            "operationName":"getAlbum",
+            "variables":{"uri":page.album.uri,"locale":"","offset":offset,"limit":50},
+            "extensions":{"persistedQuery":{"version":1,"sha256Hash":"b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"}}
+        });
+        let body = web
+            .partner_request(&login.access_token, &client_token, &query)
+            .await?;
+        let (rows, total) = page.album_preview(&body)?;
+        anyhow::ensure!(
+            offset == 0 || page.album.total_tracks == Some(total),
+            "Spotify changed this track list while loading"
+        );
+        page.album.total_tracks = Some(total);
+        offset += rows.len();
+        page.tracks.extend(rows);
+        if offset >= total as usize {
+            break;
+        }
+        anyhow::ensure!(
+            offset > 0 && offset <= 1000,
+            "Spotify returned an incomplete track list"
+        );
+    }
+    match prerelease_saved(session, &page.album.uri).await {
+        Ok(saved) => page.saved = Some(saved),
+        Err(_) => {
+            page.save_error =
+                Some("Could not check pre-save state. Open the link again to retry.".into())
+        }
+    }
+    Ok(page)
+}
+
+fn collection_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    let value =
+        reqwest::header::HeaderValue::from_static("application/vnd.collection-v2.spotify.proto");
+    headers.insert(reqwest::header::CONTENT_TYPE, value.clone());
+    headers.insert(reqwest::header::ACCEPT, value);
+    headers
+}
+
+/// Whether this account has already pre-saved the album resolved from the countdown page.
+pub async fn prerelease_saved(session: &Session, uri: &str) -> anyhow::Result<bool> {
+    let body = crate::prerelease::contains_request(&session.username(), uri)?;
+    let bytes = session
+        .spclient()
+        .request(
+            &reqwest::Method::POST,
+            "/collection/v2/contains",
+            Some(collection_headers()),
+            Some(&body),
+        )
+        .await?;
+    crate::prerelease::contains_response(&bytes)
+}
+
+/// Pre-save or remove only after a user action, then confirm the collection's
+/// answer. Opening a page never calls this mutation.
+pub async fn set_prerelease_saved(
+    session: &Session,
+    http: &reqwest::Client,
+    uri: &str,
+    saved: bool,
+) -> anyhow::Result<()> {
+    let body = crate::prerelease::write_request(
+        &session.username(),
+        uri,
+        saved,
+        jiff::Timestamp::now().as_second(),
+    )?;
+    let endpoint = format!(
+        "{}/collection/v2/write",
+        session.spclient().base_url().await?
+    );
+    let login = session.login5().auth_token().await?;
+    let client_token = session.spclient().client_token().await?;
+    // SpClient retries failed requests, including writes. Only this transport
+    // disables retry and redirect policies; concurrent playback keeps its own.
+    write_collection(http, &endpoint, &login.access_token, &client_token, body).await?;
+    anyhow::ensure!(
+        prerelease_saved(session, uri).await? == saved,
+        "Spotify has not confirmed the pre-save change. Open the link again to check."
+    );
+    Ok(())
+}
+
+async fn write_collection(
+    http: &reqwest::Client,
+    endpoint: &str,
+    bearer: &str,
+    client_token: &str,
+    body: Vec<u8>,
+) -> anyhow::Result<()> {
+    let response = http
+        .post(endpoint)
+        .bearer_auth(bearer)
+        .header("client-token", client_token)
+        .headers(collection_headers())
+        .body(body)
+        .send()
+        .await
+        .map_err(reqwest::Error::without_url)?;
+    anyhow::ensure!(
+        response.status().is_success(),
+        "Spotify did not accept pre-save (HTTP {}). Open the link again to check.",
+        response.status().as_u16()
+    );
+    Ok(())
+}
+
 /// A playlist's header: name, owner, cover, and snapshot.
 pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> {
     let list = window(session, id, 0, 0).await?;
@@ -623,6 +787,55 @@ fn iso8601(timestamp_ms: i64) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// A lost reply is uncertain, including when the server accepted the write.
+    /// HTTP errors and redirect responses must never resend the mutation either.
+    #[tokio::test]
+    async fn presave_writes_are_not_replayed_after_failure_or_redirect() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        for status in [None, Some(429), Some(503), Some(307)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let endpoint = format!("http://{address}/collection/v2/write");
+            let location = endpoint.clone();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0u8; 4096];
+                while !bytes.ends_with(b"mutation") {
+                    let received = socket.read(&mut buffer).await.unwrap();
+                    assert!(received > 0);
+                    bytes.extend_from_slice(&buffer[..received]);
+                }
+                assert!(bytes.starts_with(b"POST /collection/v2/write "));
+                if let Some(status) = status {
+                    let response = format!(
+                        "HTTP/1.1 {status} Test\r\nRetry-After: 0\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                }
+                drop(socket);
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(250), listener.accept())
+                        .await
+                        .is_err(),
+                    "one button press must send exactly one write"
+                );
+            });
+            let http =
+                crate::http::build_collection_client(&crate::settings::ProxyConfig::Off).unwrap();
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                write_collection(&http, &endpoint, "dummy", "dummy", b"mutation".to_vec()),
+            )
+            .await
+            .expect("write must return without retrying");
+            assert!(result.is_err());
+            server.await.unwrap();
+        }
+    }
     use librespot_metadata::Metadata as _;
     use librespot_protocol::playlist4_external::{Item, SelectedListContent};
 

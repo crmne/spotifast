@@ -330,6 +330,7 @@ pub struct ApiClient {
     limiter: Semaphore,
     queue_writes: tokio::sync::Mutex<()>,
     cooldown_until: tokio::sync::Mutex<Instant>,
+    partner_cooldown_until: tokio::sync::Mutex<Instant>,
     search_limit: u32,
     artist_albums_limit: u32,
     source: ApiSource,
@@ -352,6 +353,7 @@ impl ApiClient {
             limiter: Semaphore::new(MAX_IN_FLIGHT),
             queue_writes: tokio::sync::Mutex::new(()),
             cooldown_until: tokio::sync::Mutex::new(Instant::now()),
+            partner_cooldown_until: tokio::sync::Mutex::new(Instant::now()),
             search_limit,
             artist_albums_limit,
             source,
@@ -383,6 +385,58 @@ impl ApiClient {
             .unwrap_or_else(|p| p.into_inner())
             .clone()
             .ok_or(ApiError::NotSignedIn)
+    }
+
+    fn http_client(&self) -> Result<reqwest::Client> {
+        self.http.client().map_err(ApiError::Network)
+    }
+
+    /// Pathfinder has a separate cooldown: a shared Web API throttle must not
+    /// block it, and a prerelease refresh must not erase its own Retry-After.
+    pub(crate) async fn partner_request(
+        &self,
+        bearer: &str,
+        client_token: &str,
+        query: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        if *self.partner_cooldown_until.lock().await > Instant::now() {
+            return Err(ApiError::RateLimited);
+        }
+        let endpoint = "https://api-partner.spotify.com/pathfinder/v2/query".to_string();
+        #[cfg(test)]
+        let endpoint = self
+            .base_url
+            .as_ref()
+            .map(|base| format!("{base}/partner"))
+            .unwrap_or(endpoint);
+        let response = self
+            .http_client()?
+            .post(endpoint)
+            .bearer_auth(bearer)
+            .header("client-token", client_token)
+            .json(query)
+            .send()
+            .await?;
+        let status = response.status();
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            let seconds = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(1);
+            let wait = Duration::from_secs(seconds).min(MAX_RETRY_AFTER);
+            let mut cooldown = self.partner_cooldown_until.lock().await;
+            *cooldown = (*cooldown).max(Instant::now() + wait);
+            return Err(ApiError::RateLimited);
+        }
+        if !status.is_success() {
+            return Err(ApiError::Status {
+                status: status.as_u16(),
+                message: "Spotify upcoming-album request failed".into(),
+            });
+        }
+        response.json().await.map_err(ApiError::from)
     }
 
     async fn wait_for_cooldown(&self) {
@@ -1174,6 +1228,219 @@ impl ApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An unrelated Pathfinder request can finish while another reply is slow.
+    #[tokio::test]
+    async fn partner_slow_request_does_not_hold_other_callers() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (arrived, observed) = tokio::sync::oneshot::channel();
+        let (release, held) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            assert!(first.read(&mut bytes).await.unwrap() > 0);
+            arrived.send(()).unwrap();
+            let delayed = tokio::spawn(async move {
+                held.await.unwrap();
+                first.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}").await.unwrap();
+            });
+            let (mut second, _) = listener.accept().await.unwrap();
+            assert!(second.read(&mut bytes).await.unwrap() > 0);
+            second.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}").await.unwrap();
+            delayed.await.unwrap();
+        });
+        let mut client = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            20,
+            50,
+            ApiSource::Personal,
+        );
+        client.base_url = Some(format!("http://{address}"));
+        let client = Arc::new(client);
+        let first_client = Arc::clone(&client);
+        let first = tokio::spawn(async move {
+            first_client
+                .partner_request("dummy", "dummy", &serde_json::json!({}))
+                .await
+        });
+        observed.await.unwrap();
+        let second = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.partner_request("dummy", "dummy", &serde_json::json!({})),
+        )
+        .await;
+        release.send(()).unwrap();
+        assert!(first.await.unwrap().is_ok());
+        if second.is_err() {
+            server.abort();
+        } else {
+            server.await.unwrap();
+        }
+        assert!(
+            second.is_ok(),
+            "a slow network reply must not block another caller"
+        );
+        assert_eq!(second.unwrap().unwrap()["ok"], true);
+    }
+
+    /// An extreme server header cannot turn a short recovery into a day-long wait.
+    #[tokio::test]
+    async fn partner_extreme_retry_after_is_bounded() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            assert!(socket.read(&mut bytes).await.unwrap() > 0);
+            socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 86400\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        });
+        let mut client = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            20,
+            50,
+            ApiSource::Personal,
+        );
+        client.base_url = Some(format!("http://{address}"));
+        assert!(matches!(
+            client
+                .partner_request("dummy", "dummy", &serde_json::json!({}))
+                .await,
+            Err(ApiError::RateLimited)
+        ));
+        server.await.unwrap();
+        let remaining = client
+            .partner_cooldown_until
+            .lock()
+            .await
+            .saturating_duration_since(Instant::now());
+        assert!(
+            remaining <= Duration::from_secs(30),
+            "a header cannot exceed the 30-second recovery bound"
+        );
+        assert!(
+            !remaining.is_zero(),
+            "a bounded cooldown must still respect rate limiting"
+        );
+    }
+
+    /// A reply from an older in-flight request cannot erase a longer wait.
+    #[tokio::test]
+    async fn partner_older_reply_keeps_a_later_cooldown() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (arrived, observed) = tokio::sync::oneshot::channel();
+        let (release, held) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            assert!(first.read(&mut bytes).await.unwrap() > 0);
+            arrived.send(()).unwrap();
+            let delayed = tokio::spawn(async move {
+                held.await.unwrap();
+                first.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            });
+            let (mut second, _) = listener.accept().await.unwrap();
+            assert!(second.read(&mut bytes).await.unwrap() > 0);
+            second.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 3\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            delayed.await.unwrap();
+        });
+        let mut client = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            20,
+            50,
+            ApiSource::Personal,
+        );
+        client.base_url = Some(format!("http://{address}"));
+        let client = Arc::new(client);
+        let first_client = Arc::clone(&client);
+        let first = tokio::spawn(async move {
+            first_client
+                .partner_request("dummy", "dummy", &serde_json::json!({}))
+                .await
+        });
+        observed.await.unwrap();
+        let newer = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.partner_request("dummy", "dummy", &serde_json::json!({})),
+        )
+        .await;
+        release.send(()).unwrap();
+        assert!(matches!(first.await.unwrap(), Err(ApiError::RateLimited)));
+        if newer.is_err() {
+            server.abort();
+        } else {
+            server.await.unwrap();
+        }
+        assert!(matches!(newer.unwrap(), Err(ApiError::RateLimited)));
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert!(
+            matches!(
+                client
+                    .partner_request("dummy", "dummy", &serde_json::json!({}))
+                    .await,
+                Err(ApiError::RateLimited)
+            ),
+            "older reply must not shorten the newer three-second wait"
+        );
+    }
+
+    #[tokio::test]
+    async fn partner_retry_after_survives_refresh_and_is_separate_from_shared_cooldown() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            let received = socket.read(&mut bytes).await.unwrap();
+            assert!(received > 0);
+            socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            assert!(
+                tokio::time::timeout(Duration::from_millis(150), listener.accept())
+                    .await
+                    .is_err(),
+                "refresh must not send a request during the cooldown"
+            );
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let received = socket.read(&mut bytes).await.unwrap();
+            assert!(received > 0);
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}").await.unwrap();
+        });
+        let mut client = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            20,
+            50,
+            ApiSource::Personal,
+        );
+        client.base_url = Some(format!("http://{address}"));
+        client.extend_cooldown(Duration::from_secs(60)).await;
+        let query = serde_json::json!({});
+        assert!(matches!(
+            client.partner_request("dummy", "dummy", &query).await,
+            Err(ApiError::RateLimited)
+        ));
+        assert!(matches!(
+            client.partner_request("dummy", "dummy", &query).await,
+            Err(ApiError::RateLimited)
+        ));
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert_eq!(
+            client
+                .partner_request("dummy", "dummy", &query)
+                .await
+                .unwrap()["ok"],
+            true
+        );
+        server.await.unwrap();
+    }
 
     #[tokio::test]
     async fn revoked_provider_cannot_return_or_persist_its_token() {

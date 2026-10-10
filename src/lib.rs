@@ -37,6 +37,7 @@ pub mod paths;
 pub mod player;
 pub mod playlist_cover;
 pub mod power;
+pub mod prerelease;
 pub mod resample;
 pub mod session_reads;
 pub mod settings;
