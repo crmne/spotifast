@@ -275,7 +275,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
             // The badges sit at the right end but grow with their text, so
             // measure them here, before the search field takes its share.
-            let device_galley = app.now_playing().filter(|now| !now.local).map(|now| {
+            let remote_now = app.now_playing().filter(|now| !now.local);
+            let device_icon = remote_now
+                .as_ref()
+                .and_then(|now| now.device_kind.as_deref())
+                .map_or(Icon::Speaker, crate::ui::devices::device_icon);
+            let device_galley = remote_now.map(|now| {
                 let label = match now.device_name {
                     Some(device) => {
                         // Translators: {device} is the name of the device playing the music.
@@ -527,7 +532,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     let response = badge(
                         ui,
                         &palette,
-                        Icon::Speaker,
+                        device_icon,
                         galley,
                         DEVICE_BADGE_PADDING,
                         fit.labels,

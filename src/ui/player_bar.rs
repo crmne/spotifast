@@ -872,9 +872,14 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     }
     ui.add_space(4.0);
     let remote = now.is_some_and(|now| !now.local);
+    // Playing elsewhere, the button shows that device's own icon.
+    let icon = now
+        .filter(|now| !now.local)
+        .and_then(|now| now.device_kind.as_deref())
+        .map_or(Icon::Speaker, super::devices::device_icon);
     let devices = theme::icon_button(
         ui,
-        Icon::Speaker,
+        icon,
         18.0,
         if remote {
             palette.accent
