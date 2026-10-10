@@ -1351,6 +1351,10 @@ struct Worker {
     /// True while a playback grant or engine connection is in flight, so a
     /// second attempt does not pile up.
     engine_busy: bool,
+    /// An engine that connected before the Web API verified the sign-in,
+    /// waiting for `on_account_checked` to adopt or discard it. Connecting
+    /// early overlaps the engine's handshake with the `/me` round trip.
+    early_engine: Option<Engine>,
     search_tasks: Vec<tokio::task::AbortHandle>,
     /// A user changed engine-affecting settings while the current connection
     /// attempt was in flight. Its result is stale and must not be installed.
@@ -1414,6 +1418,7 @@ impl Worker {
             audiobook_lookup: BTreeSet::new(),
             radio_waiting: BTreeMap::new(),
             engine_busy: false,
+            early_engine: None,
             search_tasks: Vec::new(),
             engine_restart_pending: false,
             signed_in: false,
@@ -1808,7 +1813,11 @@ impl Worker {
                     error,
                     lease,
                 } => {
-                    if lease.current() && self.signed_in {
+                    // An engine that connected before the Web API verified
+                    // the sign-in is still wanted: it is parked until the
+                    // account check can judge it. Only a superseded
+                    // credential makes its result worthless.
+                    if lease.current() {
                         self.on_engine_connected(session_generation, *engine, error)
                     } else if let Some(engine) = *engine {
                         engine.shutdown();
@@ -2469,6 +2478,9 @@ impl Worker {
         self.web_tokens = [None, None];
         self.playback_grant = None;
         self.engine_busy = false;
+        if let Some(engine) = self.early_engine.take() {
+            engine.shutdown();
+        }
         self.premium = None;
         self.resume = None;
         self.resume_verify = None;
@@ -2529,16 +2541,18 @@ impl Worker {
     /// Bring the engine up from a credential stored by a previous playback
     /// authorization, if there is one. Silent when there is nothing to resume.
     fn resume_engine(&mut self) {
-        if !self.signed_in
-            || self.engine.is_some()
-            || self.engine_busy
-            || self.premium == Some(false)
-        {
+        if self.engine.is_some() || self.engine_busy || self.premium == Some(false) {
             return;
         }
         if let Some(credentials) = self.playback_grant.clone() {
-            if credentials.username.as_deref()
-                != self.api.account().as_ref().map(|account| account.as_str())
+            // Before the Web API verifies the login the account is unknown,
+            // but the engine can already connect: its handshake, the access
+            // point and the dealer then overlap with the /me round trip, and
+            // on_engine_connected re-checks the grant against the account
+            // once known, shutting a mismatched engine down.
+            if self.signed_in
+                && credentials.username.as_deref()
+                    != self.api.account().as_ref().map(|account| account.as_str())
             {
                 self.emit(Event::Playback(LocalPlayback::Failed(
                     "Stored playback belongs to another Spotify account. Enable playback again."
@@ -2555,6 +2569,13 @@ impl Worker {
     /// setting is not the session falling over.
     fn replace_engine(&mut self) {
         if !self.signed_in {
+            // Settings changed while an early engine was parked before the
+            // sign-in was verified: it carries the old configuration, so
+            // discard it and let the account check start a fresh one.
+            if let Some(engine) = self.early_engine.take() {
+                engine.shutdown();
+                self.engine_busy = false;
+            }
             return;
         }
         if defer_engine_replace(self.engine_busy, &mut self.engine_restart_pending) {
@@ -2571,6 +2592,13 @@ impl Worker {
     /// sit there reconnecting forever.
     fn reconnect_engine(&mut self) {
         if !self.signed_in {
+            // A parked engine's session ended before the sign-in was
+            // verified; it must not be adopted dead. Drop it and let the
+            // account check connect a fresh one.
+            if let Some(engine) = self.early_engine.take() {
+                engine.shutdown();
+                self.engine_busy = false;
+            }
             return;
         }
         if self.engine_busy {
@@ -2774,7 +2802,27 @@ impl Worker {
         engine: Option<Engine>,
         error: Option<String>,
     ) {
-        if !self.signed_in || session_generation != self.album_type_lookup.session_generation {
+        if !self.signed_in {
+            // The engine's handshake can beat the Web API's `/me` answer;
+            // that overlap is why it started early. Park the engine until
+            // the account check can judge it. `engine_busy` stays true so
+            // nothing starts a second connection alongside the parked one.
+            match engine {
+                Some(engine) => {
+                    if self.engine_restart_pending
+                        || session_generation != self.album_type_lookup.session_generation
+                    {
+                        engine.shutdown();
+                        self.engine_busy = false;
+                    } else {
+                        self.early_engine = Some(engine);
+                    }
+                }
+                None => self.engine_busy = false,
+            }
+            return;
+        }
+        if session_generation != self.album_type_lookup.session_generation {
             if let Some(engine) = engine {
                 engine.shutdown();
             }
@@ -2791,47 +2839,52 @@ impl Worker {
             return;
         }
         match engine {
-            Some(engine) => {
-                if let Some(grant) = engine.credentials() {
-                    if !playback_account_matches(&grant, self.api.account()) {
-                        engine.shutdown();
-                        self.emit(Event::Playback(LocalPlayback::Failed("Playback was authorized for another Spotify account. Enable playback again with the signed-in account.".into())));
-                        return;
-                    }
-                    self.playback_grant = Some(grant.clone());
-                    let lease = self.credentials.lease(CredentialSlot::Playback);
-                    let notice = self.storage_notice(lease.clone());
-                    let pending = lease.save(StoredGrant::Playback(grant));
-                    tokio::spawn(async move {
-                        if let Err(error) = pending.await {
-                            notice(error);
-                        }
-                    });
-                }
-                let device_id = engine.device_id().to_string();
-                let engine = Arc::new(engine);
-                self.heard = Some(engine.heard());
-                if let Some(spec) = self.resume.take() {
-                    // Delay resume until Spirc finishes registering. An early
-                    // load can return 400 and leave playback stopped. Verify
-                    // the load and retry if needed.
-                    self.resume_verify = Some((spec, 0));
-                    self.schedule_resume_check(1_500);
-                }
-                self.engine = Some(engine);
-                self.start_rootlist();
-                self.reconnects.clear();
-                self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
-                self.start_album_type_lookup();
-                self.start_audiobook_lookup();
-                self.start_radio();
-            }
+            Some(engine) => self.adopt_engine(engine),
             None => {
                 self.resume = None;
                 let message = error.unwrap_or_else(|| "Local playback is unavailable".into());
                 self.emit(Event::Playback(LocalPlayback::Failed(message)));
             }
         }
+    }
+
+    /// Installs a connected engine whose account matches the sign-in: keeps
+    /// its reusable grant, starts the work that needs a streaming session,
+    /// and reports the device ready.
+    fn adopt_engine(&mut self, engine: Engine) {
+        if let Some(grant) = engine.credentials() {
+            if !playback_account_matches(&grant, self.api.account()) {
+                engine.shutdown();
+                self.emit(Event::Playback(LocalPlayback::Failed("Playback was authorized for another Spotify account. Enable playback again with the signed-in account.".into())));
+                return;
+            }
+            self.playback_grant = Some(grant.clone());
+            let lease = self.credentials.lease(CredentialSlot::Playback);
+            let notice = self.storage_notice(lease.clone());
+            let pending = lease.save(StoredGrant::Playback(grant));
+            tokio::spawn(async move {
+                if let Err(error) = pending.await {
+                    notice(error);
+                }
+            });
+        }
+        let device_id = engine.device_id().to_string();
+        let engine = Arc::new(engine);
+        self.heard = Some(engine.heard());
+        if let Some(spec) = self.resume.take() {
+            // Delay resume until Spirc finishes registering. An early
+            // load can return 400 and leave playback stopped. Verify
+            // the load and retry if needed.
+            self.resume_verify = Some((spec, 0));
+            self.schedule_resume_check(1_500);
+        }
+        self.engine = Some(engine);
+        self.start_rootlist();
+        self.reconnects.clear();
+        self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
+        self.start_album_type_lookup();
+        self.start_audiobook_lookup();
+        self.start_radio();
     }
 
     /// Starts the engine only for Premium accounts. librespot 0.8 calls
@@ -2845,12 +2898,29 @@ impl Worker {
             if let Some(engine) = self.engine.take() {
                 engine.shutdown();
             }
+            if let Some(engine) = self.early_engine.take() {
+                engine.shutdown();
+            }
+            self.engine_busy = false;
             let credential_stored = self.playback_grant.is_some();
             if credential_stored {
                 self.emit(Event::Playback(LocalPlayback::Failed(
                     PREMIUM_NEEDED.into(),
                 )));
             }
+            return;
+        }
+        if let Some(engine) = self.early_engine.take() {
+            // The engine connected while the account was still unverified.
+            // Adopt it now that the plan is known, or discard it when the
+            // settings or the account changed underneath it.
+            self.engine_busy = false;
+            if std::mem::take(&mut self.engine_restart_pending) {
+                engine.shutdown();
+                self.resume_engine();
+                return;
+            }
+            self.adopt_engine(engine);
             return;
         }
         self.resume_engine();
@@ -5732,6 +5802,55 @@ mod authorization_tests {
                 .try_iter()
                 .any(|event| matches!(event, Event::Playback(LocalPlayback::Failed(_))))
         );
+    }
+
+    /// The engine connects while the Web API is still verifying the sign-in.
+    /// An attempt that fails before the answer arrives must free the worker
+    /// for another try, and the answer itself must retry: parking the result
+    /// of a lost race used to strand `engine_busy` and leave local playback
+    /// dead for the whole run.
+    #[test]
+    fn an_early_engine_attempt_never_strands_the_worker() {
+        let (runtime, mut worker, events) = worker("early-engine-race");
+        let _entered = runtime.enter();
+        worker.playback_grant = Some(Credentials::with_password("alice", "dummy-reusable-grant"));
+        assert!(!worker.signed_in);
+
+        // The stored grant starts connecting before the account is verified,
+        // so the engine's handshake overlaps the /me round trip.
+        worker.resume_engine();
+        assert!(worker.engine_busy);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+
+        // The attempt fails while the account is still unknown.
+        worker.on_engine_connected(
+            worker.album_type_lookup.session_generation,
+            None,
+            Some("early failure".into()),
+        );
+        assert!(
+            !worker.engine_busy,
+            "a failed early attempt frees the worker"
+        );
+
+        // The verification arrives and must be able to start the engine.
+        verify(&mut worker, ApiSource::Shared, "alice");
+        assert!(worker.signed_in);
+        assert!(worker.engine_busy, "sign-in retries the engine");
+        assert!(worker.engine.is_none());
+
+        // A late result from the first attempt cannot pose as this one.
+        worker.on_engine_connected(
+            worker.album_type_lookup.session_generation,
+            None,
+            Some("late failure".into()),
+        );
+        assert!(!worker.engine_busy);
+        assert!(worker.engine.is_none());
     }
 
     #[test]
