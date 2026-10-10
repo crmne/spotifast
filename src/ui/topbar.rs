@@ -7,7 +7,7 @@ use egui::{Align, CornerRadius, Galley, Layout, Sense, Vec2, pos2, vec2};
 use crate::api::models::pick_image;
 use crate::app::App;
 use crate::i18n::gettext;
-use crate::model::{Action, Page};
+use crate::model::{Action, BackgroundActivity, Page};
 use crate::theme::{self, Icon, Palette};
 
 /// The gap the bar keeps between everything it lays out.
@@ -305,10 +305,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
             // Ask once, so the bar reserves room for exactly the spinner it
             // then draws.
-            let busy = app
-                .backend
-                .activity()
-                .busy(std::time::Duration::from_millis(1000));
+            let activity = app.background_activity();
+            let busy = activity.is_some();
             let badges = |labels: bool| {
                 badge_width(device_galley.as_ref(), DEVICE_BADGE_PADDING, labels)
                     + badge_width(update_galley.as_ref(), UPDATE_BADGE_PADDING, labels)
@@ -515,11 +513,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::ToggleWinampWindow);
                 }
-                // A quiet spinner once the app has been talking to Spotify for a
-                // while, long enough that fast requests never flash it.
-                if busy {
+                // A quiet spinner once the app has been at something in the
+                // background for a while, long enough that fast requests
+                // never flash it.
+                if let Some(activity) = activity {
+                    let hint = match activity {
+                        BackgroundActivity::Library => gettext(locale, "Updating your library…"),
+                        BackgroundActivity::Updates => gettext(locale, "Checking for updates…"),
+                        BackgroundActivity::Spotify => gettext(locale, "Waiting for Spotify…"),
+                    };
                     theme::spinner(ui, SPINNER_SIZE, palette.secondary)
-                        .on_hover_text(gettext(locale, "Waiting for Spotify…").as_ref());
+                        .on_hover_text(hint.as_ref());
                 }
                 // Where playback is.
                 if let Some(galley) = device_galley {

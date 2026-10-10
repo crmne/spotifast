@@ -44,6 +44,9 @@ const HEADLESS_SLEEP: Duration = Duration::from_secs(2);
 /// How long a playlist list Spotify turned away waits before it is asked
 /// for again.
 const PLAYLISTS_RETRY: Duration = Duration::from_secs(60);
+/// How long background work goes on before the top bar's spinner shows it,
+/// so fast answers never flash it.
+const BACKGROUND_QUIET: Duration = Duration::from_secs(1);
 /// How far into a song Previous restarts it rather than stepping back,
 /// matching what librespot does during playback.
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
@@ -2815,6 +2818,20 @@ impl App {
             self.ensure_resume_context_loaded();
         }
 
+        // The spinner appears once background work outlasts the quiet
+        // spell, even when nothing else repaints by then.
+        if let Some(remaining) = self
+            .background_work_since()
+            .into_iter()
+            .flatten()
+            .map(|since| since.elapsed())
+            .filter(|elapsed| *elapsed < BACKGROUND_QUIET)
+            .map(|elapsed| BACKGROUND_QUIET - elapsed)
+            .min()
+        {
+            ctx.request_repaint_after(remaining);
+        }
+
         if let Some(at) = self.library.playlists_retry_at {
             if !self.is_connected() || self.offline {
                 self.library.playlists_retry_at = None;
@@ -3794,6 +3811,41 @@ impl App {
             }
             self.apply_playlist_edits();
             self.note_listed_playlists();
+        }
+    }
+
+    /// When each kind of background work under way began: refreshing the
+    /// library, then checking for updates.
+    fn background_work_since(&self) -> [Option<Instant>; 2] {
+        let home = self.home.loaded_at.filter(|_| self.home.awaiting > 0);
+        [
+            self.library
+                .playlists_loading_since
+                .into_iter()
+                .chain(home)
+                .min(),
+            self.last_update_check.filter(|_| self.update_checking),
+        ]
+    }
+
+    /// What the top bar's spinner shows, once background work has gone on
+    /// for a while. Refreshing the library comes first, as the work people
+    /// wait on; other requests to Spotify come last.
+    pub fn background_activity(&self) -> Option<BackgroundActivity> {
+        if self.offline {
+            return None;
+        }
+        let long =
+            |since: Option<Instant>| since.is_some_and(|at| at.elapsed() >= BACKGROUND_QUIET);
+        let [library, updates] = self.background_work_since();
+        if long(library) {
+            Some(BackgroundActivity::Library)
+        } else if long(updates) {
+            Some(BackgroundActivity::Updates)
+        } else if self.backend.activity().busy(BACKGROUND_QUIET) {
+            Some(BackgroundActivity::Spotify)
+        } else {
+            None
         }
     }
 
@@ -12383,6 +12435,47 @@ mod tests {
             result: Ok(vec![Artist::default()]),
         });
         assert!(app.home.top_artists.is_loading());
+    }
+
+    /// The top bar's spinner names the background work that has gone on
+    /// for a moment, the library before an update check, and none of it
+    /// while the app is offline.
+    #[test]
+    fn the_spinner_names_background_work_that_outlasts_a_moment() {
+        let mut app = listener_app();
+        let a_while_ago = || Some(Instant::now() - BACKGROUND_QUIET);
+        assert_eq!(app.background_activity(), None);
+
+        app.update_checking = true;
+        app.last_update_check = Some(Instant::now());
+        assert_eq!(app.background_activity(), None, "a fast check never shows");
+        app.last_update_check = a_while_ago();
+        assert_eq!(app.background_activity(), Some(BackgroundActivity::Updates));
+
+        app.load_playlists();
+        assert_eq!(
+            app.background_activity(),
+            Some(BackgroundActivity::Updates),
+            "a reload that has just begun does not show yet"
+        );
+        app.library.playlists_loading_since = a_while_ago();
+        assert_eq!(app.background_activity(), Some(BackgroundActivity::Library));
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: Ok(playlist_page(&["a"], 0, 1)),
+        });
+        assert_eq!(
+            app.background_activity(),
+            Some(BackgroundActivity::Updates),
+            "a whole list ends the library's work"
+        );
+
+        app.load_home(false);
+        app.home.loaded_at = a_while_ago();
+        assert_eq!(app.background_activity(), Some(BackgroundActivity::Library));
+        app.offline = true;
+        assert_eq!(app.background_activity(), None);
     }
 
     /// The streaming session does not always name a playlist's owner. The
