@@ -384,6 +384,11 @@ pub struct App {
     pub audiobook_shows: HashSet<String>,
     /// Saved shows already asked about.
     audiobooks_requested: HashSet<String>,
+    /// Headers the streaming session read for library playlists the Web API
+    /// listed blank, by playlist id, so a reloaded list fills at once.
+    playlist_headers: HashMap<String, Playlist>,
+    /// Blank library playlists already asked about.
+    playlist_headers_requested: HashSet<String>,
     /// Album URIs positively identified as EPs by librespot.
     confirmed_ep_albums: HashSet<String>,
     /// Built table rows, keyed by page. Capped; dropped on reset and eviction.
@@ -856,6 +861,8 @@ impl App {
             album_types_requested: HashSet::new(),
             audiobook_shows: HashSet::new(),
             audiobooks_requested: HashSet::new(),
+            playlist_headers: HashMap::new(),
+            playlist_headers_requested: HashSet::new(),
             confirmed_ep_albums: HashSet::new(),
             table_rows: HashMap::new(),
             page_used: HashMap::new(),
@@ -1106,6 +1113,31 @@ impl App {
     }
 
     /// The library list's entry for a playlist, when it holds one.
+    /// Fills library playlists the Web API listed blank from the headers
+    /// the streaming session read, and asks it once about the rest.
+    fn fill_blank_playlists(&mut self) {
+        let Some(playlists) = self.library.playlists.get_mut() else {
+            return;
+        };
+        let mut unread = Vec::new();
+        for playlist in playlists
+            .iter_mut()
+            .filter(|playlist| playlist.name.is_empty() && !playlist.id.is_empty())
+        {
+            match self.playlist_headers.get(&playlist.id) {
+                Some(header) => playlist.fill_blank_from(header),
+                None => {
+                    if self.playlist_headers_requested.insert(playlist.id.clone()) {
+                        unread.push(playlist.id.clone());
+                    }
+                }
+            }
+        }
+        if !unread.is_empty() {
+            self.backend.send(Command::PlaylistHeaders(unread));
+        }
+    }
+
     fn library_entry(&self, id: &str) -> Option<&Playlist> {
         self.library
             .playlists
@@ -1981,6 +2013,10 @@ impl App {
                 Event::AudiobookShows(uris) => {
                     self.audiobook_shows.extend(uris);
                 }
+                Event::PlaylistHeader(header) => {
+                    self.playlist_headers.insert(header.id.clone(), header);
+                    self.fill_blank_playlists();
+                }
                 Event::Radio {
                     seed,
                     generation,
@@ -2155,6 +2191,8 @@ impl App {
         self.album_types_requested.clear();
         self.audiobook_shows.clear();
         self.audiobooks_requested.clear();
+        self.playlist_headers.clear();
+        self.playlist_headers_requested.clear();
         self.confirmed_ep_albums.clear();
         self.saved.clear();
         self.saved_pending.clear();
@@ -5221,6 +5259,7 @@ impl App {
                         Loadable::Loaded(existing) if offset > 0 => existing.extend(page.items),
                         slot => *slot = Loadable::Loaded(page.items),
                     }
+                    self.fill_blank_playlists();
                     self.library.playlists_next = next_offset;
                     if next_offset.is_some() {
                         self.load_more(Page::Home);
@@ -11594,6 +11633,96 @@ mod tests {
 
     fn playlist_ids(ids: &[&str]) -> Option<Vec<String>> {
         Some(ids.iter().map(|id| (*id).to_string()).collect())
+    }
+
+    /// Spotify's Web API lists some of its own playlists, "This Is" ones
+    /// among them, with no name, cover or songs, which drew a blank sidebar
+    /// row. The streaming session reads their headers whole: each row takes
+    /// its header as it arrives, is asked about once, and a reloaded list
+    /// fills at once.
+    #[test]
+    fn a_playlist_the_library_lists_blank_takes_its_session_header() {
+        let mut app = headless_app();
+        let listed = || {
+            Ok(crate::api::models::Page {
+                items: vec![
+                    Playlist {
+                        id: "blank".into(),
+                        uri: "spotify:playlist:blank".into(),
+                        description: Some(String::new()),
+                        items_count: Some(TrackCount { total: 0 }),
+                        ..Playlist::default()
+                    },
+                    Playlist {
+                        id: "later".into(),
+                        uri: "spotify:playlist:later".into(),
+                        ..Playlist::default()
+                    },
+                    Playlist {
+                        id: "named".into(),
+                        name: "Mix".into(),
+                        ..Playlist::default()
+                    },
+                ],
+                ..Default::default()
+            })
+        };
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: listed(),
+        });
+        assert_eq!(
+            app.playlist_headers_requested,
+            HashSet::from(["blank".to_string(), "later".to_string()]),
+            "only the blank entries are asked about"
+        );
+
+        let cover = Image {
+            url: "https://i.scdn.co/image/this-is".into(),
+            width: Some(300),
+            height: None,
+        };
+        app.handle_backend_events(vec![Event::PlaylistHeader(Playlist {
+            id: "blank".into(),
+            name: "This Is TUYU".into(),
+            description: Some("The essential tracks.".into()),
+            images: vec![cover.clone()],
+            items_count: Some(TrackCount { total: 50 }),
+            ..Playlist::default()
+        })]);
+        let entry = app.library_entry("blank").unwrap();
+        assert_eq!(entry.name, "This Is TUYU");
+        assert_eq!(entry.images, vec![cover.clone()]);
+        assert_eq!(entry.description.as_deref(), Some("The essential tracks."));
+        assert_eq!(entry.track_total(), 50);
+        assert_eq!(
+            app.library_entry("later").unwrap().name,
+            "",
+            "a row fills when its own header arrives, not before"
+        );
+        assert_eq!(app.library_entry("named").unwrap().name, "Mix");
+
+        app.handle_backend_events(vec![Event::PlaylistHeader(Playlist {
+            id: "later".into(),
+            name: "This Is YOASOBI".into(),
+            ..Playlist::default()
+        })]);
+        assert_eq!(app.library_entry("later").unwrap().name, "This Is YOASOBI");
+
+        app.load_playlists();
+        app.playlist_headers_requested.clear();
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: listed(),
+        });
+        assert_eq!(app.library_entry("blank").unwrap().name, "This Is TUYU");
+        assert_eq!(app.library_entry("later").unwrap().name, "This Is YOASOBI");
+        assert!(
+            app.playlist_headers_requested.is_empty(),
+            "a header already read is not asked for again"
+        );
     }
 
     /// Following, unfollowing or editing a playlist reads the library's

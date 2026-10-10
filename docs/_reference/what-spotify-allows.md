@@ -63,6 +63,11 @@ clients. Spotifast uses its session for:
   account, and a newer Web API answer takes precedence over an older disk
   cache. A song the session reads first has unknown availability; if it cannot
   play, it is skipped when reached, as it would be anywhere else.
+- **Library playlists the Web API lists blank.** The library list gives
+  some of Spotify's own playlists, "This Is" ones among them, no name,
+  cover, description, or songs. Spotifast reads each one's header over the
+  session once per sign-in to fill its row. Without local playback those
+  rows stay blank.
 - **Lyrics** when Spotify has them.
 - **Display names** for the user IDs attached to songs in a playlist.
 - **Precise EP types** for releases that the Web API groups with singles.
