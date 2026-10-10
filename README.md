@@ -135,6 +135,11 @@ is described in [PACKAGING.md](PACKAGING.md).
 is Spotifast's sibling. Both are built on
 [fastframe](https://github.com/crmne/fastframe).
 
+## Sonos playback
+
+Sonos speakers use the Spotify Connect session for playback control. Enable
+local playback first, then select the speaker in the device picker.
+
 ## Acknowledgements
 
 Spotifast uses [librespot](https://github.com/librespot-org/librespot),

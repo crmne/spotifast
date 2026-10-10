@@ -300,6 +300,35 @@ save another copy of the credential.
 The receiver then signs in and appears in Spotify's device list. Spotifast
 uses the Web API for subsequent control requests.
 
+### Restricted devices and Sonos
+
+Spotify marks some devices as restricted, Sonos players among them. The Web
+API refuses every player command for one with "Restriction violated" and
+leaves an idle one out of the device list. Spotifast sends commands for a
+restricted device over the playback session's Connect state service instead,
+as Spotify's own apps do: a transfer, then player commands (play, pause,
+resume, skip, seek, shuffle, repeat, queue) and volume, all sent from this
+computer's Connect device to that one. This needs local playback enabled,
+because the session belongs to it. Playback state is still read from the Web
+API, which reports a restricted device while it plays.
+
+Shuffle Play enables shuffle before starting the context, as it does for
+Web API devices. If enabling shuffle fails, playback does not start.
+
+Individual and album queue additions use the same Connect route, one song at
+a time. A later addition waits for the whole album, repeated songs keep their
+places, and a failed write stops the remaining songs. Signing out cancels
+pending commands and forgets the account's restricted-device state. The
+playback session must belong to the verified Web API account before it can
+control another device.
+
+A Sonos is recognised by its receiver endpoint (`/spotifyzc` on port 1400)
+and is offered in the picker from the network even while Spotify does not list
+it. Its receiver asks for an OAuth authorization code instead of the librespot
+credential. Spotifast does not send a login blob or access token to that HTTP
+endpoint. Transfer and player commands go through Spotify using the existing
+playback session. Other receivers keep the encrypted login blob described above.
+
 ## The engine
 
 Playback runs on a separate runtime. Librespot maintains the Spotify Connect

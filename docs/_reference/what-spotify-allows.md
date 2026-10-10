@@ -80,6 +80,9 @@ librespot provides:
 - Spotify Connect, so another Spotify client can transfer playback to this
   computer.
 - Shuffle, repeat, seek, and volume.
+- Control of restricted Connect devices, including Sonos, through the signed-in
+  playback session. Sonos receivers are discovered on the local network;
+  the Web API alone cannot start or control them.
 - Songs and podcast episodes.
 
 Spotify Premium is required. librespot cannot play audio with a free account.

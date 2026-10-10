@@ -1329,6 +1329,7 @@ struct Worker {
     web_client_id: Option<String>,
     http: Http,
     api: Arc<ApiGateway>,
+    connect: Arc<crate::sonos::Controller>,
     background_api: Arc<tokio::sync::Semaphore>,
     art: ArtLoader,
     events: std::sync::mpsc::Sender<Event>,
@@ -1401,6 +1402,7 @@ impl Worker {
             engine_proxy: None,
             web_client_id,
             api: Arc::new(ApiGateway::new(http.clone(), activity)),
+            connect: Arc::default(),
             background_api: Arc::new(tokio::sync::Semaphore::new(4)),
             http,
             art,
@@ -1746,6 +1748,19 @@ impl Worker {
                         self.on_account_checked(
                             user.product.as_deref().map(|product| product == "premium"),
                         );
+                    }
+                    match response.as_ref() {
+                        ApiResponse::Devices(Ok(devices)) => self.connect.observe_devices(devices),
+                        ApiResponse::PlaybackState {
+                            seq,
+                            result: Ok(state),
+                        } => {
+                            self.connect.observe_playing(
+                                *seq,
+                                state.as_ref().and_then(|state| state.device.as_ref()),
+                            );
+                        }
+                        _ => {}
                     }
                     self.emit(Event::Api(response));
                 }
@@ -2461,6 +2476,7 @@ impl Worker {
         self.signed_in = false;
         self.rootlist_pending = false;
         self.session.send_modify(|generation| *generation += 1);
+        self.connect = Arc::default();
         self.authorization_attempt += 1;
         if let Err(error) = self.credentials.revoke_spotify() {
             self.emit(Event::Error(error.to_string()));
@@ -2863,11 +2879,13 @@ impl Worker {
     fn discover_receivers(&self) {
         let events = self.events.clone();
         let waker = self.waker.clone();
+        let connect = Arc::clone(&self.connect);
         tokio::task::spawn_blocking(move || {
             match crate::zeroconf::discover(std::time::Duration::from_secs(3))
                 .and_then(crate::zeroconf::resolve_receivers)
             {
                 Ok(receivers) => {
+                    connect.remember(&receivers);
                     let _ = events.send(Event::Receivers(receivers));
                     waker.wake();
                 }
@@ -3260,6 +3278,7 @@ impl Worker {
 
     fn dispatch(&self, request: ApiRequest) -> tokio::task::AbortHandle {
         let api = Arc::clone(&self.api);
+        let connect = Arc::clone(&self.connect);
         let shared_lease = self.credentials.lease(CredentialSlot::Shared);
         let personal_lease = self.credentials.lease(CredentialSlot::Personal);
         let background_api = Arc::clone(&self.background_api);
@@ -3277,7 +3296,7 @@ impl Worker {
                     } else {
                         None
                     };
-                    handle(&api, engine.as_deref(), request).await
+                    handle(&api, &connect, engine.as_deref(), request).await
                 } => result,
             };
             // Apply completion on the command loop. A late response cannot
@@ -3455,6 +3474,7 @@ fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
 
 async fn handle(
     api: &ApiGateway,
+    connect: &crate::sonos::Controller,
     engine: Option<&Engine>,
     request: ApiRequest,
 ) -> (ApiResponse, Option<ApiSource>) {
@@ -3469,6 +3489,13 @@ async fn handle(
     {
         log::debug!("Spotify route operation={operation:?} source=session");
         observe_playlists(api, &response);
+        return (response, None);
+    }
+    if let Some(engine) =
+        engine.filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
+        && let Some(response) = over_connect(engine, connect, &request).await
+    {
+        log::debug!("Spotify route operation={operation:?} source=connect");
         return (response, None);
     }
     let selected = api.client_for(operation).await;
@@ -3871,6 +3898,107 @@ async fn handle(
     };
     observe_playlists(api, &response);
     (response, expired.get())
+}
+
+/// Player commands for a device the Web API refuses (a Sonos, say) go over
+/// the session's Connect state service instead. `None` leaves the request
+/// to the Web API. See [`crate::sonos`].
+async fn over_connect(
+    engine: &Engine,
+    connect: &crate::sonos::Controller,
+    request: &ApiRequest,
+) -> Option<ApiResponse> {
+    let session = engine.session();
+    Some(match request {
+        ApiRequest::Remote {
+            action,
+            device_id,
+            play,
+            position_ms,
+            percent,
+            flag,
+            repeat,
+        } => {
+            let to = connect.restricted_target(device_id.as_deref())?;
+            let result = match crate::sonos::command_body(
+                *action,
+                play.as_ref(),
+                *position_ms,
+                *flag,
+                repeat,
+            ) {
+                Some(body) => crate::sonos::command(session, &to, &body).await,
+                None => crate::sonos::set_volume(session, &to, *percent).await,
+            };
+            ApiResponse::Remote {
+                action: *action,
+                result,
+            }
+        }
+        ApiRequest::ShufflePlay { device_id, play } => {
+            let to = connect.restricted_target(device_id.as_deref())?;
+            let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "")?;
+            let start = crate::sonos::command_body(RemoteAction::Play, Some(play), 0, false, "")?;
+            let result = shuffle_then_play(shuffle, start, |body| {
+                let to = &to;
+                async move { crate::sonos::command(session, to, &body).await }
+            })
+            .await;
+            ApiResponse::Remote {
+                action: RemoteAction::Play,
+                result,
+            }
+        }
+        ApiRequest::Transfer { device_id, .. } => {
+            connect.restricted_target(Some(device_id))?;
+            ApiResponse::Transferred {
+                result: connect.transfer(session, device_id).await,
+                device_id: device_id.clone(),
+            }
+        }
+        ApiRequest::AddToQueue {
+            uri,
+            device_id,
+            label,
+        } => {
+            let to = connect.restricted_target(device_id.as_deref())?;
+            let (_, result) = connect
+                .add_to_queue(session, &to, std::slice::from_ref(uri))
+                .await;
+            ApiResponse::QueueAdded {
+                result,
+                label: label.clone(),
+            }
+        }
+        ApiRequest::AddManyToQueue {
+            request,
+            uris,
+            device_id,
+        } => {
+            let to = connect.restricted_target(device_id.as_deref())?;
+            let (added, result) = connect.add_to_queue(session, &to, uris).await;
+            ApiResponse::QueueBatchAdded {
+                request: *request,
+                added,
+                result,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// Waits for shuffle to succeed before starting playback, preserving either error.
+async fn shuffle_then_play<F, Fut>(
+    shuffle: serde_json::Value,
+    play: serde_json::Value,
+    mut send: F,
+) -> ApiResult<()>
+where
+    F: FnMut(serde_json::Value) -> Fut,
+    Fut: std::future::Future<Output = ApiResult<()>>,
+{
+    send(shuffle).await?;
+    send(play).await
 }
 
 /// Whether a session signed in as `username` answers for the Web API's
@@ -5268,6 +5396,34 @@ mod authorization_tests {
     }
 
     #[test]
+    fn signing_out_discards_restricted_devices_and_late_discovery_results() {
+        let (runtime, mut worker, _) = worker("sign-out-connect");
+        let _entered = runtime.enter();
+        let previous = Arc::clone(&worker.connect);
+        let device = Device {
+            id: Some("sonos".into()),
+            is_restricted: true,
+            ..Default::default()
+        };
+        previous.observe_playing(1, Some(&device));
+        assert_eq!(
+            worker.connect.restricted_target(None).as_deref(),
+            Some("sonos")
+        );
+        worker.sign_out();
+        previous.remember(&[crate::zeroconf::Receiver {
+            name: "Old discovery".into(),
+            device_id: Some("late-speaker".into()),
+            address: "127.0.0.1".parse().unwrap(),
+            port: 1400,
+            path: "/spotifyzc".into(),
+        }]);
+        assert_eq!(worker.connect.restricted_target(None), None);
+        assert_eq!(worker.connect.restricted_target(Some("sonos")), None);
+        assert_eq!(worker.connect.restricted_target(Some("late-speaker")), None);
+    }
+
+    #[test]
     fn an_invalid_saved_proxy_keeps_restored_network_work_blocked() {
         let (runtime, mut worker, events) = worker("proxy-restore-invalid");
         let _entered = runtime.enter();
@@ -6200,6 +6356,68 @@ mod cover_routing_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn connect_shuffle_play_waits_for_shuffle_before_starting_playback() {
+        let request = PlayRequest::context("spotify:playlist:abc");
+        let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "").unwrap();
+        let play =
+            crate::sonos::command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
+        let sent = std::sync::Mutex::new(Vec::new());
+        let shuffled = tokio::sync::Notify::new();
+        let sending = shuffle_then_play(shuffle.clone(), play.clone(), |body| {
+            let is_shuffle = body["command"]["endpoint"] == "set_shuffling_context";
+            sent.lock().unwrap().push(body);
+            let shuffled = &shuffled;
+            async move {
+                if is_shuffle {
+                    shuffled.notified().await;
+                }
+                Ok(())
+            }
+        });
+        tokio::pin!(sending);
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(sending.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(
+            sent.lock().unwrap().as_slice(),
+            std::slice::from_ref(&shuffle)
+        );
+        assert_eq!(shuffle["command"]["value"], true);
+        shuffled.notify_one();
+        sending.await.unwrap();
+        assert_eq!(*sent.lock().unwrap(), [shuffle, play]);
+    }
+
+    #[tokio::test]
+    async fn connect_shuffle_play_preserves_errors_and_skips_play_when_shuffle_fails() {
+        let request = PlayRequest::context("spotify:playlist:abc");
+        let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "").unwrap();
+        let play =
+            crate::sonos::command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
+        for failed_endpoint in ["set_shuffling_context", "play"] {
+            let mut sent = Vec::new();
+            let result = shuffle_then_play(shuffle.clone(), play.clone(), |body| {
+                let failed = body["command"]["endpoint"] == failed_endpoint;
+                sent.push(body);
+                std::future::ready(if failed {
+                    Err(ApiError::Network(failed_endpoint.into()))
+                } else {
+                    Ok(())
+                })
+            })
+            .await;
+            assert!(matches!(result, Err(ApiError::Network(error)) if error == failed_endpoint));
+            if failed_endpoint == "set_shuffling_context" {
+                assert_eq!(sent.as_slice(), std::slice::from_ref(&shuffle));
+            } else {
+                assert_eq!(sent, [shuffle.clone(), play.clone()]);
+            }
+        }
+    }
 
     #[test]
     fn six_session_drops_in_ten_minutes_give_up() {
