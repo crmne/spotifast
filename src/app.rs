@@ -4884,7 +4884,10 @@ impl App {
                             }
                         }
                         if let Some(selected) = &self.selected_device
-                            && crate::sonos::speaker(selected).is_none()
+                            && !self.receivers.iter().any(|receiver| {
+                                crate::sonos::is_sonos(receiver)
+                                    && receiver.device_id.as_deref() == Some(selected.as_str())
+                            })
                             && !self
                                 .devices
                                 .iter()
@@ -22189,6 +22192,59 @@ mod tests {
             app.control_devices_snapshot(),
             crate::single_instance::NO_DEVICES
         );
+    }
+
+    #[test]
+    fn an_idle_sonos_selection_survives_spotifys_device_list() {
+        let mut app = headless_app();
+        app.receivers = vec![crate::zeroconf::Receiver {
+            name: "Office".into(),
+            device_id: Some("office".into()),
+            address: "192.168.1.10".parse().unwrap(),
+            port: 1400,
+            path: "/spotifyzc".into(),
+        }];
+        app.selected_device = Some("office".into());
+        app.handle_api(ApiResponse::Devices(Ok(Vec::new())));
+        assert_eq!(app.selected_device.as_deref(), Some("office"));
+        app.selected_device = Some("departed-phone".into());
+        app.handle_api(ApiResponse::Devices(Ok(Vec::new())));
+        assert_eq!(app.selected_device, None);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn restricted_remote_controls_require_a_ready_playback_session() {
+        let mut app = headless_app();
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                item: Some(queued_song("spotify:track:song")),
+                device: Some(Device {
+                    id: Some("office".into()),
+                    is_restricted: true,
+                    supports_volume: Some(true),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        for ready in [false, true] {
+            app.local_ready = ready;
+            let now = app.now_playing_live().unwrap();
+            assert_eq!(now.can_control, ready);
+            assert_eq!(now.can_set_volume, ready);
+        }
+        app.remote
+            .as_mut()
+            .unwrap()
+            .state
+            .device
+            .as_mut()
+            .unwrap()
+            .supports_volume = Some(false);
+        assert!(!app.now_playing_live().unwrap().can_set_volume);
+        app.backend.shutdown();
     }
 
     /// Spotify device responses update the control snapshot.

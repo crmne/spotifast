@@ -43,6 +43,11 @@ request. To look at the interface without a Spotify account, run
 see [Translating Spotifast](docs/_reference/translating.md). Release
 packaging is described in [PACKAGING.md](PACKAGING.md).
 
+## Sonos playback
+
+Sonos speakers use the Spotify Connect session for playback control. Enable
+local playback first, then select the speaker in the device picker.
+
 ## Acknowledgements
 
 Spotifast uses [librespot](https://github.com/librespot-org/librespot),

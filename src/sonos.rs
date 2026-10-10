@@ -10,15 +10,13 @@
 //!
 //! A Sonos does not appear in the device list while idle, so it is found by
 //! its ZeroConf endpoint (`/spotifyzc` on port 1400) and offered from there.
-//! It asks for an OAuth token rather than librespot's login blob
-//! (`tokenType: authorization_code`); before a transfer it is handed a
-//! streaming token minted for its own client id. It answers OK to any
-//! login, so that step cannot be confirmed; the transfer that follows is.
+//! It asks for an OAuth authorization code rather than librespot's login
+//! blob. No credential is sent to its HTTP receiver: the existing session
+//! transfers and controls playback through Spotify instead.
 
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::Mutex;
 
 use librespot_core::session::Session;
 use serde_json::{Value, json};
@@ -45,41 +43,87 @@ struct Known {
     restricted: HashSet<String>,
     /// The device Spotify last reported as playing, when it is restricted.
     active_restricted: Option<String>,
+    playback_seq: Option<u64>,
 }
 
-fn known() -> std::sync::MutexGuard<'static, Known> {
-    static KNOWN: OnceLock<Mutex<Known>> = OnceLock::new();
-    KNOWN
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
+/// Receiver identities and queue writes belong to one signed-in backend.
+#[derive(Default)]
+pub struct Controller {
+    known: Mutex<Known>,
+    queue_writes: tokio::sync::Mutex<()>,
 }
 
-/// Whether a ZeroConf receiver is a Sonos player.
-pub fn is_sonos(receiver: &crate::zeroconf::Receiver) -> bool {
-    receiver.port == PORT && receiver.path.trim_end_matches('/') == ZEROCONF_PATH
-}
+impl Controller {
+    fn known(&self) -> std::sync::MutexGuard<'_, Known> {
+        self.known.lock().unwrap_or_else(|p| p.into_inner())
+    }
 
-/// Remembers the Sonos players among resolved receivers.
-pub fn remember(receivers: &[crate::zeroconf::Receiver]) {
-    let mut known = known();
-    for receiver in receivers.iter().filter(|receiver| is_sonos(receiver)) {
-        if let Some(id) = &receiver.device_id {
-            known.speakers.insert(
-                id.clone(),
-                Speaker {
-                    device_id: id.clone(),
-                    name: receiver.name.clone(),
-                    address: receiver.address,
-                },
-            );
+    /// Remembers the Sonos players among resolved receivers.
+    pub fn remember(&self, receivers: &[crate::zeroconf::Receiver]) {
+        let mut known = self.known();
+        known.speakers = receivers
+            .iter()
+            .filter(|receiver| is_sonos(receiver))
+            .filter_map(|receiver| {
+                let id = receiver.device_id.as_ref()?;
+                Some((
+                    id.clone(),
+                    Speaker {
+                        device_id: id.clone(),
+                        name: receiver.name.clone(),
+                        address: receiver.address,
+                    },
+                ))
+            })
+            .collect();
+    }
+
+    /// The Sonos player behind a Connect device id, if it is one.
+    pub fn speaker(&self, device_id: &str) -> Option<Speaker> {
+        self.known().speakers.get(device_id).cloned()
+    }
+
+    /// Notes which devices Spotify reports as restricted.
+    pub fn observe_devices(&self, devices: &[Device]) {
+        let mut known = self.known();
+        for device in devices.iter().filter(|device| device.is_restricted) {
+            if let Some(id) = &device.id {
+                known.restricted.insert(id.clone());
+            }
+        }
+    }
+
+    pub fn observe_playing(&self, seq: u64, device: Option<&Device>) {
+        let mut known = self.known();
+        if known.playback_seq.is_some_and(|latest| seq < latest) {
+            return;
+        }
+        known.playback_seq = Some(seq);
+        known.active_restricted = device
+            .filter(|device| device.is_restricted)
+            .and_then(|device| device.id.clone());
+        if let Some(id) = known.active_restricted.clone() {
+            known.restricted.insert(id);
+        }
+    }
+
+    /// An explicit target takes precedence over the last active device.
+    pub fn restricted_target(&self, device_id: Option<&str>) -> Option<String> {
+        let known = self.known();
+        match device_id {
+            Some(id) if known.restricted.contains(id) || known.speakers.contains_key(id) => {
+                Some(id.to_string())
+            }
+            Some(_) => None,
+            None => known.active_restricted.clone(),
         }
     }
 }
 
-/// The Sonos player behind a Connect device id, if it is one.
-pub fn speaker(device_id: &str) -> Option<Speaker> {
-    known().speakers.get(device_id).cloned()
+/// Whether a ZeroConf receiver is a Sonos player.
+pub fn is_sonos(receiver: &crate::zeroconf::Receiver) -> bool {
+    receiver.port == PORT
+        && receiver.path.trim_matches('/') == ZEROCONF_PATH.trim_start_matches('/')
 }
 
 /// A device row for a Sonos receiver, which Spotify does not list while idle.
@@ -88,7 +132,7 @@ pub fn device_row(receiver: &crate::zeroconf::Receiver, active: bool) -> Option<
         return None;
     }
     Some(Device {
-        id: receiver.device_id.clone(),
+        id: Some(receiver.device_id.clone().filter(|id| !id.is_empty())?),
         name: receiver.name.clone(),
         is_active: active,
         is_restricted: false,
@@ -96,40 +140,6 @@ pub fn device_row(receiver: &crate::zeroconf::Receiver, active: bool) -> Option<
         supports_volume: Some(true),
         kind: "speaker".into(),
     })
-}
-
-/// Notes which devices Spotify reports as restricted, and which one plays.
-pub fn observe_devices(devices: &[Device]) {
-    let mut known = known();
-    for device in devices.iter().filter(|device| device.is_restricted) {
-        if let Some(id) = &device.id {
-            known.restricted.insert(id.clone());
-        }
-    }
-}
-
-pub fn observe_playing(device: Option<&Device>) {
-    let mut known = known();
-    known.active_restricted = device
-        .filter(|device| device.is_restricted)
-        .and_then(|device| device.id.clone());
-    if let Some(id) = &known.active_restricted {
-        let id = id.clone();
-        known.restricted.insert(id);
-    }
-}
-
-/// The restricted device a command is for: the one named, or with none
-/// named, the restricted device that is playing.
-pub fn restricted_target(device_id: Option<&str>) -> Option<String> {
-    let known = known();
-    match device_id {
-        Some(id) if known.restricted.contains(id) || known.speakers.contains_key(id) => {
-            Some(id.to_string())
-        }
-        Some(_) => None,
-        None => known.active_restricted.clone(),
-    }
 }
 
 /// The Connect state service's player command for a remote action.
@@ -254,107 +264,65 @@ pub async fn set_volume(
         .map_err(failure)
 }
 
-/// Moves playback to a restricted device. A Sonos is first handed a token,
-/// so it can join Connect when it is idle.
-pub async fn transfer(session: &Session, to: &str) -> Result<(), crate::api::client::ApiError> {
-    if let Some(speaker) = speaker(to)
-        && let Err(error) = sign_in(session, &speaker).await
-    {
-        log::warn!("Sonos sign-in for {} failed: {error}", speaker.name);
-    }
-    let spclient = session.spclient();
-    // `to` as the source too means "from whichever device is active".
-    match spclient.transfer(to, to, None).await {
-        Ok(_) => Ok(()),
-        Err(first) => {
-            log::debug!("Connect transfer from the active device failed: {first}");
-            spclient
-                .transfer(session.device_id(), to, None)
-                .await
-                .map(drop)
-                .map_err(failure)
+impl Controller {
+    /// Moves playback to a restricted device through Spotify Connect.
+    pub async fn transfer(
+        &self,
+        session: &Session,
+        to: &str,
+    ) -> Result<(), crate::api::client::ApiError> {
+        let spclient = session.spclient();
+        // `to` as the source too means "from whichever device is active".
+        match spclient.transfer(to, to, None).await {
+            Ok(_) => Ok(()),
+            Err(first) => {
+                log::debug!("Connect transfer from the active device failed: {first}");
+                spclient
+                    .transfer(session.device_id(), to, None)
+                    .await
+                    .map(drop)
+                    .map_err(failure)
+            }
         }
     }
-}
 
-/// Signs a Sonos in before playback is started on it, so an idle speaker
-/// can take the command. Repeated at most every ten minutes.
-pub async fn wake(session: &Session, to: &str) {
-    static WOKEN: OnceLock<Mutex<HashMap<String, std::time::Instant>>> = OnceLock::new();
-    let Some(speaker) = speaker(to) else { return };
+    /// Serializes complete batches with individual additions, as the Web API does.
+    pub async fn add_to_queue(
+        &self,
+        session: &Session,
+        to: &str,
+        uris: &[String],
+    ) -> (usize, Result<(), crate::api::client::ApiError>) {
+        self.append_many(uris, |uri| async move {
+            command(
+                session,
+                to,
+                &json!({
+                    "command": { "endpoint": "add_to_queue", "track": { "uri": uri } }
+                }),
+            )
+            .await
+        })
+        .await
+    }
+
+    async fn append_many<F, Fut>(
+        &self,
+        uris: &[String],
+        mut append: F,
+    ) -> (usize, Result<(), crate::api::client::ApiError>)
+    where
+        F: FnMut(String) -> Fut,
+        Fut: std::future::Future<Output = Result<(), crate::api::client::ApiError>>,
     {
-        let mut woken = WOKEN
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        if woken
-            .get(to)
-            .is_some_and(|at| at.elapsed() < Duration::from_secs(600))
-        {
-            return;
+        let _write = self.queue_writes.lock().await;
+        for (added, uri) in uris.iter().enumerate() {
+            if let Err(error) = append(uri.clone()).await {
+                return (added, Err(error));
+            }
         }
-        woken.insert(to.to_string(), std::time::Instant::now());
+        (uris.len(), Ok(()))
     }
-    if let Err(error) = sign_in(session, &speaker).await {
-        log::warn!("Sonos sign-in for {} failed: {error}", speaker.name);
-    }
-}
-
-/// Hands a Sonos a streaming token for its own client id. It answers OK to
-/// anything, so the result only reports transport failures.
-async fn sign_in(session: &Session, speaker: &Speaker) -> anyhow::Result<()> {
-    let http = reqwest::Client::builder()
-        // Private LAN address: keep it off any configured proxy.
-        .no_proxy()
-        .timeout(Duration::from_secs(5))
-        .build()?;
-    let host = match speaker.address {
-        IpAddr::V6(address) => format!("[{address}]"),
-        IpAddr::V4(address) => address.to_string(),
-    };
-    let base = format!("http://{host}:{PORT}{ZEROCONF_PATH}");
-    let info: Value = http
-        .get(format!("{base}?action=getInfo"))
-        .send()
-        .await?
-        .json()
-        .await?;
-    let client_id = info["clientID"].as_str().unwrap_or_default();
-    if client_id.is_empty() {
-        anyhow::bail!("the speaker named no client id");
-    }
-    let token = session
-        .token_provider()
-        .get_token_with_client_id("streaming", client_id)
-        .await?;
-    let username = session.username();
-    let device_id: String = <sha1::Sha1 as sha1::Digest>::digest(b"Spotifast")
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    // Not used for a token login, but the field must hold a valid key.
-    let client_key = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        librespot_core::diffie_hellman::DhLocalKeys::random(&mut rand::rng()).public_key(),
-    );
-    let form = [
-        ("action", "addUser"),
-        ("version", "2.9.0"),
-        ("tokenType", "accesstoken"),
-        ("clientKey", client_key.as_str()),
-        ("loginId", username.as_str()),
-        ("userName", username.as_str()),
-        ("blob", token.access_token.as_str()),
-        ("deviceName", "Spotifast"),
-        ("deviceId", device_id.as_str()),
-        ("clientID", client_id),
-    ];
-    http.post(&base)
-        .form(&form)
-        .send()
-        .await?
-        .error_for_status()?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -374,6 +342,7 @@ mod tests {
     #[test]
     fn recognises_sonos_receivers_by_their_endpoint() {
         assert!(is_sonos(&receiver(1400, "/spotifyzc")));
+        assert!(is_sonos(&receiver(1400, "spotifyzc/")));
         assert!(!is_sonos(&receiver(80, "/spotifyzc")));
         assert!(!is_sonos(&receiver(1400, "/zc")));
     }
@@ -412,17 +381,130 @@ mod tests {
 
     #[test]
     fn commands_find_the_restricted_device_that_plays() {
+        let controller = Controller::default();
         let device = Device {
             id: Some("restricted-one".into()),
             is_restricted: true,
             ..Device::default()
         };
-        observe_playing(Some(&device));
-        assert_eq!(restricted_target(None).as_deref(), Some("restricted-one"));
+        controller.observe_playing(2, Some(&device));
         assert_eq!(
-            restricted_target(Some("restricted-one")).as_deref(),
+            controller.restricted_target(None).as_deref(),
             Some("restricted-one")
         );
-        assert_eq!(restricted_target(Some("someone-else")), None);
+        assert_eq!(
+            controller
+                .restricted_target(Some("restricted-one"))
+                .as_deref(),
+            Some("restricted-one")
+        );
+        assert_eq!(controller.restricted_target(Some("someone-else")), None);
+        controller.observe_playing(1, None);
+        assert_eq!(
+            controller.restricted_target(None).as_deref(),
+            Some("restricted-one")
+        );
+        controller.observe_playing(3, None);
+        assert_eq!(controller.restricted_target(None), None);
+    }
+
+    #[test]
+    fn discovery_updates_addresses_and_only_offers_resolved_identities() {
+        let controller = Controller::default();
+        let mut found = receiver(1400, "/spotifyzc");
+        controller.remember(std::slice::from_ref(&found));
+        found.address = "192.168.2.48".parse().unwrap();
+        controller.remember(std::slice::from_ref(&found));
+        assert_eq!(controller.speaker("d0c4").unwrap().address, found.address);
+        assert_eq!(device_row(&found, false).unwrap().id, found.device_id);
+        found.device_id = None;
+        assert!(device_row(&found, false).is_none());
+        controller.remember(&[]);
+        assert_eq!(controller.restricted_target(Some("d0c4")), None);
+    }
+
+    #[test]
+    fn filtered_tracks_preserve_duplicates_offsets_and_resume_position() {
+        let mut request = PlayRequest::tracks(vec![
+            "spotify:track:a".into(),
+            "spotify:track:b".into(),
+            "spotify:track:a".into(),
+        ]);
+        request.offset_position = Some(2);
+        request.position_ms = 12_345;
+        let body = command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
+        let command = &body["command"];
+        assert_eq!(
+            command["context"]["pages"][0]["tracks"],
+            json!([
+                {"uri": "spotify:track:a"}, {"uri": "spotify:track:b"}, {"uri": "spotify:track:a"}
+            ])
+        );
+        assert_eq!(command["options"]["skip_to"]["track_index"], 2);
+        assert_eq!(command["options"]["seek_to"], 12_345);
+    }
+
+    #[tokio::test]
+    async fn queue_batches_keep_order_and_duplicates_and_stop_at_a_failed_write() {
+        let controller = Controller::default();
+        let uris = vec!["a".to_string(), "b".to_string(), "a".to_string()];
+        for fail in [false, true] {
+            let mut written = Vec::new();
+            let (added, result) = controller
+                .append_many(&uris, |uri| {
+                    written.push(uri);
+                    std::future::ready(if fail && written.len() == 2 {
+                        Err(crate::api::client::ApiError::Network(
+                            "test-only refusal".into(),
+                        ))
+                    } else {
+                        Ok(())
+                    })
+                })
+                .await;
+            assert_eq!(added, if fail { 1 } else { 3 });
+            assert_eq!(result.is_err(), fail);
+            assert_eq!(
+                written,
+                if fail {
+                    uris[..2].to_vec()
+                } else {
+                    uris.clone()
+                }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_individual_queue_add_waits_for_the_whole_album() {
+        let controller = Controller::default();
+        let written = Mutex::new(Vec::new());
+        let first = tokio::sync::Notify::new();
+        let album = vec!["a".to_string(), "b".to_string(), "a".to_string()];
+        let later = vec!["later".to_string()];
+        let (batch, single) = tokio::join!(
+            controller.append_many(&album, |uri| {
+                written.lock().unwrap().push(uri);
+                first.notify_one();
+                async {
+                    tokio::task::yield_now().await;
+                    Ok(())
+                }
+            }),
+            async {
+                first.notified().await;
+                controller
+                    .append_many(&later, |uri| {
+                        written.lock().unwrap().push(uri);
+                        std::future::ready(Ok(()))
+                    })
+                    .await
+            }
+        );
+        assert_eq!(batch.0, 3);
+        batch.1.unwrap();
+        assert_eq!(single.0, 1);
+        single.1.unwrap();
+        assert_eq!(*written.lock().unwrap(), ["a", "b", "a", "later"]);
     }
 }

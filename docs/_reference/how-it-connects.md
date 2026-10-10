@@ -307,13 +307,19 @@ computer's Connect device to that one. This needs local playback enabled,
 because the session belongs to it. Playback state is still read from the Web
 API, which reports a restricted device while it plays.
 
+Individual and album queue additions use the same Connect route, one song at
+a time. A later addition waits for the whole album, repeated songs keep their
+places, and a failed write stops the remaining songs. Signing out cancels
+pending commands and forgets the account's restricted-device state. The
+playback session must belong to the verified Web API account before it can
+control another device.
+
 A Sonos is recognised by its receiver endpoint (`/spotifyzc` on port 1400)
 and is offered in the picker from the network even while Spotify does not list
-it. Its receiver asks for a token instead of the librespot credential, so
-before a transfer, and before starting playback on it at most every ten
-minutes, Spotifast hands it a streaming access token minted by the session for
-the client ID the speaker reports. The token goes only to that speaker on the
-local network and is never stored or logged.
+it. Its receiver asks for an OAuth authorization code instead of the librespot
+credential. Spotifast does not send a login blob or access token to that HTTP
+endpoint. Transfer and player commands go through Spotify using the existing
+playback session. Other receivers keep the encrypted login blob described above.
 
 ## The engine
 
