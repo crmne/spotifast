@@ -3939,10 +3939,11 @@ async fn over_connect(
             let to = connect.restricted_target(device_id.as_deref())?;
             let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "")?;
             let start = crate::sonos::command_body(RemoteAction::Play, Some(play), 0, false, "")?;
-            let result = match crate::sonos::command(session, &to, &start).await {
-                Ok(()) => crate::sonos::command(session, &to, &shuffle).await,
-                Err(error) => Err(error),
-            };
+            let result = shuffle_then_play(shuffle, start, |body| {
+                let to = &to;
+                async move { crate::sonos::command(session, to, &body).await }
+            })
+            .await;
             ApiResponse::Remote {
                 action: RemoteAction::Play,
                 result,
@@ -3984,6 +3985,20 @@ async fn over_connect(
         }
         _ => return None,
     })
+}
+
+/// Waits for shuffle to succeed before starting playback, preserving either error.
+async fn shuffle_then_play<F, Fut>(
+    shuffle: serde_json::Value,
+    play: serde_json::Value,
+    mut send: F,
+) -> ApiResult<()>
+where
+    F: FnMut(serde_json::Value) -> Fut,
+    Fut: std::future::Future<Output = ApiResult<()>>,
+{
+    send(shuffle).await?;
+    send(play).await
 }
 
 /// Whether a session signed in as `username` answers for the Web API's
@@ -6341,6 +6356,68 @@ mod cover_routing_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn connect_shuffle_play_waits_for_shuffle_before_starting_playback() {
+        let request = PlayRequest::context("spotify:playlist:abc");
+        let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "").unwrap();
+        let play =
+            crate::sonos::command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
+        let sent = std::sync::Mutex::new(Vec::new());
+        let shuffled = tokio::sync::Notify::new();
+        let sending = shuffle_then_play(shuffle.clone(), play.clone(), |body| {
+            let is_shuffle = body["command"]["endpoint"] == "set_shuffling_context";
+            sent.lock().unwrap().push(body);
+            let shuffled = &shuffled;
+            async move {
+                if is_shuffle {
+                    shuffled.notified().await;
+                }
+                Ok(())
+            }
+        });
+        tokio::pin!(sending);
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(sending.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(
+            sent.lock().unwrap().as_slice(),
+            std::slice::from_ref(&shuffle)
+        );
+        assert_eq!(shuffle["command"]["value"], true);
+        shuffled.notify_one();
+        sending.await.unwrap();
+        assert_eq!(*sent.lock().unwrap(), [shuffle, play]);
+    }
+
+    #[tokio::test]
+    async fn connect_shuffle_play_preserves_errors_and_skips_play_when_shuffle_fails() {
+        let request = PlayRequest::context("spotify:playlist:abc");
+        let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "").unwrap();
+        let play =
+            crate::sonos::command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
+        for failed_endpoint in ["set_shuffling_context", "play"] {
+            let mut sent = Vec::new();
+            let result = shuffle_then_play(shuffle.clone(), play.clone(), |body| {
+                let failed = body["command"]["endpoint"] == failed_endpoint;
+                sent.push(body);
+                std::future::ready(if failed {
+                    Err(ApiError::Network(failed_endpoint.into()))
+                } else {
+                    Ok(())
+                })
+            })
+            .await;
+            assert!(matches!(result, Err(ApiError::Network(error)) if error == failed_endpoint));
+            if failed_endpoint == "set_shuffling_context" {
+                assert_eq!(sent.as_slice(), std::slice::from_ref(&shuffle));
+            } else {
+                assert_eq!(sent, [shuffle.clone(), play.clone()]);
+            }
+        }
+    }
 
     #[test]
     fn six_session_drops_in_ten_minutes_give_up() {

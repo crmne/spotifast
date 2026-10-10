@@ -93,6 +93,7 @@ impl Controller {
         }
     }
 
+    /// Updates the active restricted device, ignoring older playback polls.
     pub fn observe_playing(&self, seq: u64, device: Option<&Device>) {
         let mut known = self.known();
         if known.playback_seq.is_some_and(|latest| seq < latest) {
@@ -171,6 +172,7 @@ pub fn command_body(
     Some(json!({ "command": command }))
 }
 
+/// Keeps a Spotify context intact or builds an ordered page for explicit tracks.
 fn play_command(request: &PlayRequest) -> Value {
     let single = request
         .context_uri
@@ -306,6 +308,7 @@ impl Controller {
         .await
     }
 
+    /// Locks the whole batch and reports only the prefix accepted before a failure.
     async fn append_many<F, Fut>(
         &self,
         uris: &[String],

@@ -307,6 +307,9 @@ computer's Connect device to that one. This needs local playback enabled,
 because the session belongs to it. Playback state is still read from the Web
 API, which reports a restricted device while it plays.
 
+Shuffle Play enables shuffle before starting the context, as it does for
+Web API devices. If enabling shuffle fails, playback does not start.
+
 Individual and album queue additions use the same Connect route, one song at
 a time. A later addition waits for the whole album, repeated songs keep their
 places, and a failed write stops the remaining songs. Signing out cancels
