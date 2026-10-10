@@ -10173,6 +10173,11 @@ impl App {
         self.load_more(Page::LikedSongs);
     }
 
+    /// Whether Liked Songs at `revision` is a prefix of the rows shown now.
+    pub(crate) fn liked_view_extends(&self, revision: u64) -> bool {
+        self.liked_songs.view_extends(&self.library.liked, revision)
+    }
+
     fn sync_liked_songs(&mut self) {
         self.liked_songs.sync_view(&mut self.library.liked);
         for (uri, saved) in self.liked_songs.intents() {
@@ -23231,6 +23236,71 @@ mod tests {
         app.receive_liked_cache("bob", generation, Some(cache));
         assert!(!app.liked_songs.cache_checked);
         assert!(app.library.liked.items.is_empty());
+    }
+
+    #[test]
+    fn liked_rows_added_page_by_page_match_rows_made_at_once() {
+        use crate::api::models::SavedTrack;
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
+        app.liked_songs.cache_checked = true;
+        app.liked_songs.generation = 1;
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let song = |n: u32| SavedTrack {
+            track: Track {
+                uri: format!("spotify:track:{n}"),
+                name: format!("Song {n}"),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let pages = 6;
+        for page in 0..pages {
+            let offset = page * 50;
+            app.handle_api(ApiResponse::SavedTracks {
+                offset,
+                generation: 1,
+                account_id: Some("alice".into()),
+                result: Ok(crate::api::models::Page {
+                    items: (offset..offset + 50).map(song).collect(),
+                    total: pages * 50,
+                    limit: 50,
+                    offset,
+                    next: (page + 1 < pages).then(|| "next".into()),
+                }),
+            });
+            if page == 3 {
+                // An unlike between pages; through the model, since a click
+                // would also start a refresh of a list this old.
+                app.liked_songs
+                    .change("spotify:track:20".into(), false, song(20).track);
+                app.sync_liked_songs();
+            }
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                crate::ui::collection::liked(&mut app, ui)
+            });
+            output.textures_delta.clear();
+            let shown: Vec<String> = app.table_rows[&Page::LikedSongs]
+                .items
+                .iter()
+                .map(|(item, _, _)| item.uri().to_string())
+                .collect();
+            let expected: Vec<String> = app
+                .library
+                .liked
+                .items
+                .iter()
+                .map(|saved| saved.track.uri.clone())
+                .collect();
+            assert_eq!(shown, expected, "after page {page}");
+        }
+        assert_eq!(app.library.liked.items.len(), 299);
+        app.backend.shutdown();
     }
 
     #[test]

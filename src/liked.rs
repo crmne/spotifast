@@ -52,6 +52,22 @@ struct Refresh {
     through: usize,
 }
 
+/// What the last [`LikedSongs::sync_view`] made of the view. While nothing
+/// but new pages at the end of the server rows has happened since, the next
+/// sync appends those pages instead of rebuilding every row, which made
+/// loading a large library quadratic.
+struct Synced {
+    server_len: usize,
+    view_revision: u64,
+    view_len: usize,
+    /// The view's revision after the last full rebuild: every revision from
+    /// it to `view_revision` is a prefix of the view.
+    run_start: u64,
+    /// Whether each change added a row (true) or removed one (false), in
+    /// order, for recounting the total.
+    counted: Vec<bool>,
+}
+
 #[derive(Default)]
 pub struct LikedSongs {
     pub generation: u64,
@@ -62,10 +78,12 @@ pub struct LikedSongs {
     changes: BTreeMap<String, Change>,
     refreshed_at: i64,
     saved_through: Option<u32>,
+    synced: Option<Synced>,
 }
 
 impl LikedSongs {
     pub fn restore(&mut self, cache: Cache) {
+        self.synced = None;
         self.server
             .restore_cached(cache.items, cache.total, cache.next_offset);
         self.refreshed_at = if cache.changes.is_empty() {
@@ -122,6 +140,7 @@ impl LikedSongs {
                 return true;
             }
             self.server = self.refresh.take().expect("refresh exists").rows;
+            self.synced = None;
             self.refreshed_at = now;
             self.saved_through = None;
             let complete = self.server.is_complete();
@@ -136,6 +155,17 @@ impl LikedSongs {
                     })
             });
         } else {
+            // A page at the end of the loaded rows leaves those rows as they
+            // were; any other page may replace them.
+            let appends = self.server.loaded_once
+                && offset != 0
+                && offset as usize == self.server.items.len()
+                && self.server.base_offset == 0
+                && self.server.window_request.is_none()
+                && self.server.windows.is_empty();
+            if !appends {
+                self.synced = None;
+            }
             self.server.absorb(offset, page);
         }
         false
@@ -147,6 +177,7 @@ impl LikedSongs {
     }
 
     pub fn change(&mut self, uri: String, saved: bool, track: Track) {
+        self.synced = None;
         let item = self
             .server
             .items
@@ -170,6 +201,7 @@ impl LikedSongs {
     }
 
     pub fn confirm(&mut self, uri: &str, saved: bool, success: bool) {
+        self.synced = None;
         if let Some(change) = self.changes.get_mut(uri)
             && change.saved == saved
         {
@@ -185,6 +217,7 @@ impl LikedSongs {
 
     pub fn update_track(&mut self, track: &Track) -> bool {
         if let Some(change) = self.changes.get_mut(&track.uri) {
+            self.synced = None;
             change.item.track = track.clone();
             return true;
         }
@@ -205,28 +238,69 @@ impl LikedSongs {
     /// Demo fixtures and already loaded UI data can seed the same model.
     pub fn seed(&mut self, view: &PagedList<SavedTrack>) {
         if !self.server.loaded_once && view.loaded_once {
+            self.synced = None;
             self.server = view.clone();
         }
     }
 
-    pub fn sync_view(&self, view: &mut PagedList<SavedTrack>) {
+    pub fn sync_view(&mut self, view: &mut PagedList<SavedTrack>) {
+        if !self.append_to_view(view) {
+            self.rebuild_view(view);
+        }
+        view.next_offset = self.server.next_offset;
+        view.loading = self.cache_loading || self.refresh.is_some() || self.server.loading;
+        view.loaded_once = self.server.loaded_once || !self.changes.is_empty();
+        view.error = self.server.error.clone();
+    }
+
+    /// Adds the server rows that arrived since the last sync to the end of
+    /// the view, when that is all that changed and no change concerns them.
+    fn append_to_view(&mut self, view: &mut PagedList<SavedTrack>) -> bool {
+        let Some(synced) = &mut self.synced else {
+            return false;
+        };
+        let Some(tail) = self.server.items.get(synced.server_len..) else {
+            return false;
+        };
+        if synced.view_revision != view.revision
+            || synced.view_len != view.items.len()
+            || tail
+                .iter()
+                .any(|item| self.changes.contains_key(&item.track.uri))
+        {
+            return false;
+        }
+        let total = count(self.server.total.unwrap_or(0), &synced.counted);
+        if !tail.is_empty() || view.total != Some(total) {
+            view.revision = view.revision.wrapping_add(1);
+            view.items.extend_from_slice(tail);
+            view.total = Some(total);
+        }
+        synced.server_len = self.server.items.len();
+        synced.view_revision = view.revision;
+        synced.view_len = view.items.len();
+        true
+    }
+
+    fn rebuild_view(&mut self, view: &mut PagedList<SavedTrack>) {
         let mut items = self.server.items.clone();
-        let mut total = self.server.total.unwrap_or(0);
         let mut additions = Vec::new();
+        let mut counted = Vec::new();
         for (uri, change) in &self.changes {
             let index = items.iter().position(|item| &item.track.uri == uri);
             match (change.saved, index) {
                 (true, None) => {
                     additions.push(change.item.clone());
-                    total = total.saturating_add(1);
+                    counted.push(true);
                 }
                 (false, Some(index)) => {
                     items.remove(index);
-                    total = total.saturating_sub(1);
+                    counted.push(false);
                 }
                 _ => {}
             }
         }
+        let total = count(self.server.total.unwrap_or(0), &counted);
         additions.sort_by(|a, b| b.added_at.cmp(&a.added_at));
         items.splice(0..0, additions);
         if view.items != items || view.total != Some(total) {
@@ -234,10 +308,24 @@ impl LikedSongs {
             view.items = items;
             view.total = Some(total);
         }
-        view.next_offset = self.server.next_offset;
-        view.loading = self.cache_loading || self.refresh.is_some() || self.server.loading;
-        view.loaded_once = self.server.loaded_once || !self.changes.is_empty();
-        view.error = self.server.error.clone();
+        self.synced = Some(Synced {
+            server_len: self.server.items.len(),
+            view_revision: view.revision,
+            view_len: view.items.len(),
+            run_start: view.revision,
+            counted,
+        });
+    }
+
+    /// Whether the view at `revision` is the start of the view as it is now,
+    /// with only appended pages after it, so rows made from it can be kept.
+    pub fn view_extends(&self, view: &PagedList<SavedTrack>, revision: u64) -> bool {
+        self.synced.as_ref().is_some_and(|synced| {
+            synced.view_revision == view.revision
+                && synced.view_len == view.items.len()
+                && revision.wrapping_sub(synced.run_start)
+                    <= view.revision.wrapping_sub(synced.run_start)
+        })
     }
 
     pub fn checkpoint(&mut self, account_id: String, force: bool) -> Option<Cache> {
@@ -270,6 +358,17 @@ impl LikedSongs {
                 .collect(),
         })
     }
+}
+
+/// The server total with each change's row added or removed, in order.
+fn count(total: u32, counted: &[bool]) -> u32 {
+    counted.iter().fold(total, |total, &added| {
+        if added {
+            total.saturating_add(1)
+        } else {
+            total.saturating_sub(1)
+        }
+    })
 }
 
 pub async fn read(path: &std::path::Path, account: &str) -> Option<Cache> {
@@ -473,6 +572,64 @@ mod tests {
         assert_eq!(view.items[0].track.uri, item(888).track.uri);
         assert_eq!(view.items[1].track.uri, item(999).track.uri);
         assert_eq!(view.items[2].track.uri, item(0).track.uri);
+    }
+
+    /// Syncs, then checks the view against a rebuild from scratch, so the
+    /// shortcut for appended pages can never show other rows than a full
+    /// sync would.
+    fn sync_and_compare(songs: &mut LikedSongs, view: &mut PagedList<SavedTrack>) {
+        songs.sync_view(view);
+        let held = songs.synced.take();
+        let mut rebuilt = PagedList::default();
+        songs.rebuild_view(&mut rebuilt);
+        songs.synced = held;
+        assert_eq!(view.items, rebuilt.items);
+        assert_eq!(view.total, rebuilt.total);
+    }
+
+    #[test]
+    fn appended_pages_show_what_a_full_sync_shows() {
+        let mut songs = loaded(50, 400);
+        let mut view = PagedList::default();
+        sync_and_compare(&mut songs, &mut view);
+        let revision = view.revision;
+        songs.absorb(50, page(50, 50, 400), 10_000);
+        sync_and_compare(&mut songs, &mut view);
+        assert_eq!(view.items.len(), 100);
+        assert_ne!(view.revision, revision, "new rows are a new revision");
+        let revision = view.revision;
+        sync_and_compare(&mut songs, &mut view);
+        assert_eq!(view.revision, revision, "nothing new, nothing redrawn");
+        // A like and an unlike while pages are still arriving, one of them
+        // for a song in a page that has not come yet.
+        songs.change(item(999).track.uri, true, item(999).track);
+        songs.change(item(10).track.uri, false, item(10).track);
+        songs.change(item(170).track.uri, false, item(170).track);
+        sync_and_compare(&mut songs, &mut view);
+        songs.absorb(100, page(100, 50, 400), 10_000);
+        sync_and_compare(&mut songs, &mut view);
+        songs.absorb(150, page(150, 50, 400), 10_000);
+        sync_and_compare(&mut songs, &mut view);
+        assert!(
+            !view
+                .items
+                .iter()
+                .any(|row| row.track.uri == item(170).track.uri)
+        );
+        songs.confirm(&item(10).track.uri, false, true);
+        songs.absorb(200, page(200, 50, 400), 10_000);
+        sync_and_compare(&mut songs, &mut view);
+        // Rows dropped from the view by something else are not built on.
+        view.retain(|row| row.track.uri != item(60).track.uri);
+        songs.absorb(250, page(250, 50, 400), 10_000);
+        sync_and_compare(&mut songs, &mut view);
+        // A page that is not the next one replaces rows instead of adding.
+        songs.absorb(0, page(0, 50, 380), 10_000);
+        sync_and_compare(&mut songs, &mut view);
+        assert_eq!(view.items.len(), 50);
+        songs.absorb(50, page(50, 50, 380), 10_000);
+        sync_and_compare(&mut songs, &mut view);
+        assert_eq!(view.total, Some(380));
     }
 
     #[tokio::test]

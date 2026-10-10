@@ -1872,6 +1872,38 @@ fn album_hero(
     );
 }
 
+fn liked_row(saved: &crate::api::models::SavedTrack) -> TableItem {
+    (
+        PlayableItem::Track(saved.track.clone()),
+        saved.added_at.clone(),
+        None,
+    )
+}
+
+/// A page that only adds songs after the loaded ones adds their rows to the
+/// cached rows, rather than every row being made again for each page.
+fn extend_liked_rows(app: &mut App, revision: u64, names: u64) -> Option<Arc<Vec<TableItem>>> {
+    let cached = app.table_rows.get(&Page::LikedSongs)?;
+    if cached.user_names_revision != names || !app.liked_view_extends(cached.items_revision) {
+        return None;
+    }
+    let rows: Vec<TableItem> = app
+        .library
+        .liked
+        .items
+        .get(cached.items.len()..)?
+        .iter()
+        .map(liked_row)
+        .collect();
+    let cached = app.table_rows.get_mut(&Page::LikedSongs)?;
+    Arc::make_mut(&mut cached.items).extend(rows);
+    cached.generation = revision;
+    cached.items_revision = revision;
+    let items = Arc::clone(&cached.items);
+    app.retain_table_rows(&Page::LikedSongs);
+    Some(items)
+}
+
 pub fn liked(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let revision = app.library.liked.revision;
@@ -1879,20 +1911,10 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
     let items =
         if let Some(items) = table_items_hit(app, &Page::LikedSongs, revision, revision, names) {
             items
+        } else if let Some(items) = extend_liked_rows(app, revision, names) {
+            items
         } else {
-            let rows = app
-                .library
-                .liked
-                .items
-                .iter()
-                .map(|saved| {
-                    (
-                        PlayableItem::Track(saved.track.clone()),
-                        saved.added_at.clone(),
-                        None,
-                    )
-                })
-                .collect();
+            let rows = app.library.liked.items.iter().map(liked_row).collect();
             remember_table_items(app, Page::LikedSongs, revision, revision, names, rows)
         };
     let total = app.library.liked.total.unwrap_or(items.len() as u32);
