@@ -232,6 +232,11 @@ run when Home refreshes: on opening Home, at most once every ten minutes, and
 on a manual refresh. A rate limit, exhausted quota or expired sign-in stops the
 remaining shows for that refresh; the shelf keeps what it showed before.
 
+The playlist list and Made for you searches go through the shared app even
+when a personal app is set up. While the shared app waits out Spotify's
+limits, the sidebar and Home show what they last showed for the account,
+from the cache described in [Settings & Files](/settings-and-files/).
+
 ## Album queueing
 
 Since 0.9.0, adding an album, single, or EP to the queue resolves

@@ -28,11 +28,16 @@ Spotifast follows each platform's conventions. On Linux:
 | Artwork cache | `~/.cache/spotifast/art/` | Always |
 | Lyrics cache | `~/.cache/spotifast/lyrics/` | Always |
 | Account-scoped playlist page cache | `~/.cache/spotifast/playlists/<account-id>/` | Always |
+| Account-scoped playlist list | `~/.cache/spotifast/library/` | Always |
+| Account-scoped Home shelves | `~/.cache/spotifast/home/` | Always |
 | Last run's log | `~/.local/state/spotifast/spotifast.log` | Always |
 | Crash log | `~/.local/state/spotifast/panic.log` | Always |
 
 Clearing caches never signs you out. Sign-out from Settings covers the shared
-and personal Web API grants and the independent playback credential.
+and personal Web API grants and the independent playback credential. It also
+removes the cached library of every account: playlist pages, the playlist
+list, Home shelves and Liked Songs metadata. The audio, artwork and lyrics
+caches stay, since they belong to no account.
 
 The following credential storage is available since 0.8.0.
 
@@ -144,10 +149,29 @@ requests current data immediately. Partial caches resume from their next page.
 Like and Unlike change the rows immediately, and confirmed edits survive a
 restart even if Spotify's next read still reports the old state. This cache
 contains metadata, not offline audio, and can be deleted without signing out.
+Signing out deletes it.
 
 The last good playlist folder tree is kept in `session.json`, scoped to the
 account that supplied it. This keeps folders visible when local playback is
 temporarily unavailable. Live session data is still required for edit grants.
+
+The library's playlist list is stored under `library/` in the cache
+directory, one JSON file per account. It is shown as soon as the account is
+verified, while the list is read from Spotify again. Spotify reads the
+complete list only through the shared app, so on a busy day this keeps the
+sidebar usable while that app waits out Spotify's limits. The new list
+replaces the shown one once all its pages have arrived. A failed read keeps
+the shown list; a rate limited, network or server failure is also read again
+a minute later, while other refusals wait for the next reload.
+Playlists created or deleted in the meantime stay that way. The list is
+saved again only when Spotify has confirmed every change in it. This cache
+contains metadata only and can be deleted at any time.
+
+Home's Recently played, Your top artists, Top tracks, Made for you and Your
+podcasts shelves are stored the same way under `home/`. They are shown when
+the account is verified and replaced shelf by shelf as Spotify answers. A
+shelf Spotify turns away keeps what it showed. Each shelf is saved as soon
+as its new answer arrives.
 
 Since 0.8.0, memory caches retain the open page,
 the playing context, and a limited set of recently used playlist, album,

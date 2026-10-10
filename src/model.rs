@@ -569,12 +569,35 @@ pub struct Library {
     /// The later playlist page on its way, so a second answer for a page
     /// already taken adds nothing.
     pub playlists_asked: Option<u32>,
+    /// When the load on its way began, or `None` when none is.
+    pub playlists_loading_since: Option<Instant>,
+    /// The pages of a reload while the previous list stays shown. The new
+    /// list replaces it whole once its last page arrives, so the sidebar
+    /// never shrinks to the first page and grows back.
+    pub playlists_incoming: Option<Vec<Playlist>>,
+    /// Playlists created or removed here, held over loads that may not
+    /// show the change yet.
+    pub playlists_edits: Vec<PlaylistEdit>,
+    /// When a load that Spotify turned away is asked for again.
+    pub playlists_retry_at: Option<Instant>,
     pub liked: PagedList<SavedTrack>,
     pub albums: PagedList<SavedAlbum>,
     pub artists: CursorList<Artist>,
     pub shows: PagedList<SavedShow>,
     pub episodes: PagedList<SavedEpisode>,
     pub filter: String,
+}
+
+/// A playlist created or removed here, shown that way whatever a load that
+/// began before Spotify confirmed it says.
+#[derive(Clone, Debug)]
+pub struct PlaylistEdit {
+    pub uri: String,
+    /// The playlist to list, or `None` when it was removed.
+    pub added: Option<Playlist>,
+    /// The first load that can tell of the change: one asked for after
+    /// Spotify confirmed it. `None` while it is unconfirmed.
+    pub settled_by: Option<u64>,
 }
 
 #[derive(Default)]
@@ -599,6 +622,34 @@ pub struct HomeData {
     pub top_songs_generation: u64,
     pub requested: bool,
     pub loaded_at: Option<Instant>,
+    /// Answers the current refresh still waits for.
+    pub awaiting: usize,
+}
+
+/// What the top bar's spinner says the app is waiting for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundActivity {
+    /// The playlist list or Home is being read again behind what it shows.
+    Library,
+    /// A check for a newer release.
+    Updates,
+    /// Any other request to Spotify.
+    Spotify,
+}
+
+/// What Home last showed for one account, shown at the next start while
+/// Home is read again.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct HomeSnapshot {
+    /// `None` for a shelf Spotify had not answered for, so it loads again
+    /// at the next start instead of showing as empty.
+    pub recently_played: Option<Vec<PlayHistory>>,
+    pub top_artists: Option<Vec<Artist>>,
+    pub top_tracks: Option<Vec<Track>>,
+    /// Made for you, by search term, for the searches that answered.
+    pub discover: std::collections::BTreeMap<String, Vec<Playlist>>,
+    pub podcasts: Vec<(Show, Vec<Episode>)>,
 }
 
 pub const DISCOVER_TERMS: &[&str] = &["Discover Weekly", "Release Radar", "Daily Mix", "daylist"];

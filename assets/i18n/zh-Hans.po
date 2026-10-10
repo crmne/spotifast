@@ -2700,7 +2700,15 @@ msgstr "Winamp 迷你播放器 (Ctrl+M)"
 msgid "Winamp mini player (Cmd+Shift+M)"
 msgstr "Winamp 迷你播放器 (Cmd+Shift+M)"
 
-#: src/ui/topbar.rs:517
+#: src/ui/topbar.rs:521
+msgid "Updating your library…"
+msgstr "正在更新音乐库…"
+
+#: src/ui/topbar.rs:522
+msgid "Checking for updates…"
+msgstr "正在检查更新…"
+
+#: src/ui/topbar.rs:523
 msgid "Waiting for Spotify…"
 msgstr "正在等待 Spotify…"
 
