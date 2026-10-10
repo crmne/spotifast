@@ -75,13 +75,15 @@ fn cover_play_button(
     index: usize,
     cover_rect: Rect,
     parent: &egui::Response,
-    playing: bool,
+    current_context: bool,
 ) -> bool {
     let Some(uri) = entry_play_uri(app, entry) else {
         return false;
     };
-    // The row's playing state drives the control: the context that is
-    // playing offers pause on its cover, every other row plays.
+    // The control pauses only while this context is actually playing; a
+    // paused one keeps the play glyph, but pressing it resumes in place
+    // instead of restarting the context.
+    let playing = current_context && app.believed_playing();
     let play = ui.interact(
         cover_rect,
         ui.id().with(("library-cover-play", index)),
@@ -126,7 +128,7 @@ fn cover_play_button(
     }
     // The first click of a double click plays; the second must not play again.
     if !play.double_clicked() {
-        if playing {
+        if current_context {
             app.actions.push(Action::TogglePlay);
         } else {
             app.actions.push(Action::PlayContext {
@@ -1297,8 +1299,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 let active = entry.folder.is_none() && entry.page == current_page;
                 // Liked Songs has no URI of its own here; Spotify plays it
                 // as the account's collection context.
-                let playing =
-                    context_playing && entry_is_playing_context(entry, playing_context.as_deref());
+                let current = entry_is_playing_context(entry, playing_context.as_deref());
+                let playing = context_playing && current;
                 let pinned = pins.iter().any(|key| key == entry.ordering_key());
                 let (_, rect) = ui.allocate_space(vec2(ui.available_width(), row_height));
                 let id = ui.id().with((
@@ -1488,7 +1490,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                         );
                         // Hovering the art offers to play right from here.
                         cover_took_click = cover_play_button(
-                            app, ui, entry, index, cover_rect, &response, playing,
+                            app, ui, entry, index, cover_rect, &response, current,
                         );
                     }
                     if playing {

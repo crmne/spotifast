@@ -45,8 +45,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let id = album.id.clone();
                 let uri = album.uri.clone();
                 let subtitle = join_names(album.artists.iter().map(|artist| artist.name.as_str()));
-                let playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
-                    && app.believed_playing();
+                let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
+                let playing_here = context_here && app.believed_playing();
                 let card = widgets::card(
                     ui,
                     app,
@@ -56,7 +56,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                     widgets::CardCover::square(playing_here),
                 );
                 if card.play {
-                    if playing_here {
+                    if context_here {
                         app.actions.push(Action::TogglePlay);
                     } else {
                         app.actions.push(Action::PlayContext {
@@ -102,8 +102,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let artist = app.library.artists.items[index].clone();
                 let id = artist.id.clone();
                 let uri = artist.uri.clone();
-                let playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
-                    && app.believed_playing();
+                let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
+                let playing_here = context_here && app.believed_playing();
                 let card = widgets::card(
                     ui,
                     app,
@@ -113,7 +113,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                     widgets::CardCover::portrait(playing_here),
                 );
                 if card.play {
-                    if playing_here {
+                    if context_here {
                         app.actions.push(Action::TogglePlay);
                     } else {
                         app.actions.push(Action::PlayContext {

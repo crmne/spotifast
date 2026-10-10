@@ -6799,6 +6799,34 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A paused context keeps the play glyph, and pressing it resumes where
+    /// the song was instead of starting the context over.
+    #[test]
+    fn clicking_the_cover_of_the_paused_playlist_resumes() {
+        let (ctx, mut app) = accessible_app("sidebar-cover-resume");
+        // The demo's remote snapshot plays "Late night focus"; pause it.
+        app.remote.as_mut().unwrap().state.is_playing = false;
+        let view = crate::ui::sidebar::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let name = sidebar_text(&painted, "Late night focus");
+        let cover = egui::pos2(name.left() - 34.0, name.center().y + 9.0);
+        app.actions.clear();
+        let [click, _] = double_click(cover);
+        view_frame(&ctx, &mut app, click, view);
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::TogglePlay)),
+            "the paused playlist's cover resumes"
+        );
+        assert!(
+            played_contexts(&app).is_empty(),
+            "the paused playlist must not be started over"
+        );
+        app.backend.shutdown();
+    }
+
     /// The cover and title in the bottom-left player are a song source, not
     /// just links. The sidebar can therefore receive the same complete row it
     /// receives when a table song is dragged.

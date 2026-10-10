@@ -129,9 +129,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 album.year().unwrap_or(""),
                                 app.album_kind_label(album)
                             );
-                            let playing_here = app.playing_context_uri().as_deref()
-                                == Some(album.uri.as_str())
-                                && app.believed_playing();
+                            let context_here =
+                                app.playing_context_uri().as_deref() == Some(album.uri.as_str());
+                            let playing_here = context_here && app.believed_playing();
                             let card = widgets::card(
                                 ui,
                                 app,
@@ -141,7 +141,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 widgets::CardCover::square(playing_here),
                             );
                             if card.play {
-                                if playing_here {
+                                if context_here {
                                     app.actions.push(Action::TogglePlay);
                                 } else {
                                     app.actions.push(Action::PlayContext {
@@ -204,9 +204,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 let title = gettext(locale, "Fans also like");
                 widgets::shelf(ui, &palette, "related", &title, |ui| {
                     for artist in related {
-                        let playing_here = app.playing_context_uri().as_deref()
-                            == Some(artist.uri.as_str())
-                            && app.believed_playing();
+                        let context_here =
+                            app.playing_context_uri().as_deref() == Some(artist.uri.as_str());
+                        let playing_here = context_here && app.believed_playing();
                         let card = widgets::card(
                             ui,
                             app,
@@ -216,7 +216,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                             widgets::CardCover::portrait(playing_here),
                         );
                         if card.play {
-                            if playing_here {
+                            if context_here {
                                 app.actions.push(Action::TogglePlay);
                             } else {
                                 app.actions.push(Action::PlayContext {

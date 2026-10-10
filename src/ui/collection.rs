@@ -178,8 +178,8 @@ pub fn actions_row(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         if let Some(uri) = &actions.play_uri {
-            let now_playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
-                && app.believed_playing();
+            let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
+            let now_playing_here = context_here && app.believed_playing();
             let is_filtered = filter.as_ref().is_some_and(|f| !f.trim().is_empty());
             // A radio is mixed afresh each time Spotify is asked, so it
             // always plays the songs on screen.
@@ -200,7 +200,7 @@ pub fn actions_row(
                     &gettext(locale, "Starting…"),
                 );
             } else if ui
-                .add_enabled_ui(now_playing_here || can_start, |ui| {
+                .add_enabled_ui(context_here || can_start, |ui| {
                     theme::circle_button(
                         ui,
                         icon,
@@ -219,7 +219,9 @@ pub fn actions_row(
                 .on_disabled_hover_text(gettext(locale, "No playable songs in this view").as_ref())
                 .clicked()
             {
-                if now_playing_here {
+                // The context this page belongs to resumes where it was,
+                // paused or playing; only another context starts over.
+                if context_here {
                     app.actions.push(Action::TogglePlay);
                 } else if let Some(uris) = actions.view.clone()
                     && play_view
