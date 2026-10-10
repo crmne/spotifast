@@ -569,12 +569,35 @@ pub struct Library {
     /// The later playlist page on its way, so a second answer for a page
     /// already taken adds nothing.
     pub playlists_asked: Option<u32>,
+    /// When the load on its way began, or `None` when none is.
+    pub playlists_loading_since: Option<Instant>,
+    /// The pages of a reload while the previous list stays shown. The new
+    /// list replaces it whole once its last page arrives, so the sidebar
+    /// never shrinks to the first page and grows back.
+    pub playlists_incoming: Option<Vec<Playlist>>,
+    /// Playlists created or removed here, held over loads that may not
+    /// show the change yet.
+    pub playlists_edits: Vec<PlaylistEdit>,
+    /// When a load that Spotify turned away is asked for again.
+    pub playlists_retry_at: Option<Instant>,
     pub liked: PagedList<SavedTrack>,
     pub albums: PagedList<SavedAlbum>,
     pub artists: CursorList<Artist>,
     pub shows: PagedList<SavedShow>,
     pub episodes: PagedList<SavedEpisode>,
     pub filter: String,
+}
+
+/// A playlist created or removed here, shown that way whatever a load that
+/// began before Spotify confirmed it says.
+#[derive(Clone, Debug)]
+pub struct PlaylistEdit {
+    pub uri: String,
+    /// The playlist to list, or `None` when it was removed.
+    pub added: Option<Playlist>,
+    /// The first load that can tell of the change: one asked for after
+    /// Spotify confirmed it. `None` while it is unconfirmed.
+    pub settled_by: Option<u64>,
 }
 
 #[derive(Default)]
