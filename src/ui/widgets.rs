@@ -2852,9 +2852,13 @@ pub fn search_field(
     ui.ctx()
         .accesskit_node_builder(response.id, |node| node.set_label(hint));
     if !text.is_empty() {
+        // The box must fit what `theme::icon_button` allocates around the
+        // glyph; a smaller child makes egui clamp its centered layout to
+        // the child's top edge, dropping the glyph below the midline.
+        let clear_size = 15.0;
         let clear_rect = Rect::from_center_size(
             pos2(rect.right() - 17.0, rect.center().y),
-            Vec2::splat(24.0),
+            Vec2::splat(clear_size + theme::ICON_BUTTON_PAD),
         );
         let mut clear = ui.new_child(
             UiBuilder::new()
@@ -2864,7 +2868,7 @@ pub fn search_field(
         if theme::icon_button(
             &mut clear,
             Icon::X,
-            15.0,
+            clear_size,
             palette.secondary,
             palette.text,
             &gettext(locale, "Clear"),
@@ -3399,6 +3403,59 @@ mod tests {
                 .unwrap();
             assert!(node.is_disabled(), "{label} needs a selection");
         }
+    }
+
+    /// The clear button sits on the search pill's midline. The button
+    /// allocates its glyph plus [`theme::ICON_BUTTON_PAD`] on every side,
+    /// so the box handed to it must be that wide: in a tighter one egui
+    /// clamps the centered layout to the box's top edge and the glyph
+    /// lands below the midline.
+    #[test]
+    fn the_clear_button_sits_on_the_search_pill_midline() {
+        use egui::accesskit::Role;
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let mut text = "michael".to_string();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(600.0, 400.0))),
+                ..Default::default()
+            },
+            |ui| {
+                search_field(
+                    ui,
+                    &Palette::dark(),
+                    Locale::English,
+                    egui::Id::new("clear-midline"),
+                    &mut text,
+                    "Search",
+                    300.0,
+                );
+            },
+        );
+        output.textures_delta.clear();
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("screen-reader tree");
+        let midline = |label: &str, role: Role| {
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(label) && node.role() == role)
+                .unwrap_or_else(|| panic!("missing {label:?} {role:?}"))
+                .1
+                .bounds()
+                .expect("bounds");
+            (bounds.y0 + bounds.y1) / 2.0
+        };
+        let field = midline("Search", Role::TextInput);
+        let clear = midline("Clear", Role::Button);
+        assert!(
+            (field - clear).abs() < 0.6,
+            "the clear button must sit on the search pill's midline: got {clear}, expected {field}"
+        );
     }
 
     fn test_app() -> App {

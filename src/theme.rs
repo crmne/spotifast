@@ -507,6 +507,12 @@ pub fn focus_ring(ui: &egui::Ui, response: &Response) {
     }
 }
 
+/// The padding [`icon_button`] keeps around its glyph on every side. A
+/// caller that places an icon button inside a fixed box must give the box
+/// at least `size + ICON_BUTTON_PAD`: in a tighter one, egui clamps the
+/// centered layout to the box's top edge and the glyph lands off-center.
+pub const ICON_BUTTON_PAD: f32 = 12.0;
+
 /// A frameless icon control whose colour lifts on hover.
 pub fn icon_button(
     ui: &mut egui::Ui,
@@ -516,7 +522,7 @@ pub fn icon_button(
     hover: Color32,
     tooltip: &str,
 ) -> Response {
-    let edge = size + 12.0;
+    let edge = size + ICON_BUTTON_PAD;
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(edge), Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip)
