@@ -710,6 +710,11 @@ pub enum Command {
         generation: u64,
     },
     StoreLikedSongsCache(crate::liked::Cache),
+    /// Read the verified account's last playlist list.
+    LoadAccountCaches {
+        generation: u64,
+    },
+    StoreLibraryCache(crate::account_cache::Cache<Vec<Playlist>>),
     /// Resolve the precise type of Web API singles through the streaming session.
     AlbumTypes(Vec<String>),
     /// Ask the streaming session which saved shows are audiobooks.
@@ -848,6 +853,11 @@ pub enum Event {
         generation: u64,
         cache: Option<crate::liked::Cache>,
     },
+    AccountCaches {
+        account_id: String,
+        generation: u64,
+        playlists: Option<Vec<Playlist>>,
+    },
 }
 
 /// The state of playback on this computer, independent of Web API sign-in.
@@ -900,6 +910,8 @@ pub struct Backend {
     album_type_requests: std::sync::Mutex<Vec<Vec<String>>>,
     #[cfg(test)]
     home_episode_requests: std::sync::Mutex<Vec<(Vec<String>, u64)>>,
+    #[cfg(test)]
+    library_cache_stores: std::sync::Mutex<Vec<crate::account_cache::Cache<Vec<Playlist>>>>,
 }
 
 impl Backend {
@@ -986,6 +998,8 @@ impl Backend {
             album_type_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             home_episode_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            library_cache_stores: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -1002,6 +1016,13 @@ impl Backend {
     }
 
     pub fn send(&self, command: Command) {
+        #[cfg(test)]
+        if let Command::StoreLibraryCache(cache) = &command {
+            self.library_cache_stores
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(cache.clone());
+        }
         if self.offline
             && !matches!(
                 command,
@@ -1118,6 +1139,18 @@ impl Backend {
                 ));
         }
         self.send(Command::Api(request));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_library_cache_stores(
+        &self,
+    ) -> Vec<crate::account_cache::Cache<Vec<Playlist>>> {
+        std::mem::take(
+            &mut *self
+                .library_cache_stores
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
     }
 
     #[cfg(test)]
@@ -1970,6 +2003,35 @@ impl Worker {
                         let path = self.dirs.liked_songs_cache_file(&cache.account_id);
                         if let Err(error) = crate::liked::write(&path, &cache).await {
                             log::warn!("unable to store Liked Songs cache: {error}");
+                        }
+                    }
+                }
+                Command::LoadAccountCaches { generation } => {
+                    if let Some(account) = self.api.account() {
+                        let account_id = account.as_str().to_string();
+                        let library = self.dirs.library_cache_file(&account_id);
+                        let events = self.events.clone();
+                        let waker = self.waker.clone();
+                        tokio::spawn(async move {
+                            let playlists = crate::account_cache::read(&library, &account_id).await;
+                            let _ = events.send(Event::AccountCaches {
+                                account_id,
+                                generation,
+                                playlists,
+                            });
+                            waker.wake();
+                        });
+                    }
+                }
+                Command::StoreLibraryCache(cache) => {
+                    if self
+                        .api
+                        .account()
+                        .is_some_and(|account| account.as_str() == cache.account_id)
+                    {
+                        let path = self.dirs.library_cache_file(&cache.account_id);
+                        if let Err(error) = crate::account_cache::write(&path, &cache).await {
+                            log::warn!("unable to store the playlist list cache: {error}");
                         }
                     }
                 }

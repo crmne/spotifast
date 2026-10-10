@@ -28,6 +28,7 @@ Spotifast follows each platform's conventions. On Linux:
 | Artwork cache | `~/.cache/spotifast/art/` | Always |
 | Lyrics cache | `~/.cache/spotifast/lyrics/` | Always |
 | Account-scoped playlist page cache | `~/.cache/spotifast/playlists/<account-id>/` | Always |
+| Account-scoped playlist list | `~/.cache/spotifast/library/` | Always |
 | Last run's log | `~/.local/state/spotifast/spotifast.log` | Always |
 | Crash log | `~/.local/state/spotifast/panic.log` | Always |
 
@@ -148,6 +149,17 @@ contains metadata, not offline audio, and can be deleted without signing out.
 The last good playlist folder tree is kept in `session.json`, scoped to the
 account that supplied it. This keeps folders visible when local playback is
 temporarily unavailable. Live session data is still required for edit grants.
+
+The library's playlist list is stored under `library/` in the cache
+directory, one JSON file per account. It is shown as soon as the account is
+verified, while the list is read from Spotify again. Spotify reads the
+complete list only through the shared app, so on a busy day this keeps the
+sidebar usable while that app waits out Spotify's limits. The new list
+replaces the shown one once all its pages have arrived; a failed or rate
+limited read keeps the shown list and is tried again a minute later.
+Playlists created or deleted in the meantime stay that way. The list is
+saved again only when Spotify has confirmed every change in it. This cache
+contains metadata only and can be deleted at any time.
 
 Since 0.8.0, memory caches retain the open page,
 the playing context, and a limited set of recently used playlist, album,
