@@ -1478,6 +1478,9 @@ fn track_row_contents(
         );
         match row.item {
             PlayableItem::Track(track) => {
+                if woven_suggestion(app, row.context, &track.uri) {
+                    smart_badge(&mut child, &palette);
+                }
                 if track.explicit {
                     explicit_badge(&mut child, &palette);
                 }
@@ -1572,6 +1575,9 @@ fn track_row_contents(
             ui.set_max_width(title_rect.width());
             match row.item {
                 PlayableItem::Track(track) => {
+                    if woven_suggestion(app, row.context, &track.uri) {
+                        smart_badge(ui, &palette);
+                    }
                     if track.explicit {
                         explicit_badge(ui, &palette);
                     }
@@ -1978,6 +1984,32 @@ pub fn drag_ghost(ctx: &egui::Context, palette: &Palette, locale: Locale) {
                     });
                 });
         });
+}
+
+/// Marks a song smart shuffle wove into the play order. Without it a
+/// suggestion is indistinguishable from a song the user put in the playlist
+/// themselves.
+pub fn smart_badge(ui: &mut Ui, palette: &Palette) {
+    theme::icon(ui, Icon::Sparkles, 12.0, palette.accent)
+        .on_hover_text("Suggested by smart shuffle");
+}
+
+/// Whether a row is a song smart shuffle wove into the play order that is
+/// playing now. The same song sitting in another visible collection is not
+/// one: only the order the suggestions were woven into carries the mark, so
+/// a playlist row and a queue row with the same track do not both light up.
+fn woven_suggestion(app: &App, context: &RowContext, uri: &str) -> bool {
+    if !app.smart_rows.contains(uri) {
+        return false;
+    }
+    match context {
+        RowContext::Queue => true,
+        RowContext::Context { uri, .. } => app.smart_context.as_deref() == Some(uri.as_str()),
+        RowContext::View { context_uri, .. } => {
+            app.smart_context.as_deref() == Some(context_uri.as_str())
+        }
+        RowContext::Uris(_) => app.smart_context.is_none(),
+    }
 }
 
 pub fn explicit_badge(ui: &mut Ui, palette: &Palette) {

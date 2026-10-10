@@ -216,6 +216,57 @@ impl QueueTab {
     }
 }
 
+/// What the shuffle button is set to. Smart shuffle weaves songs Spotify
+/// recommends into the shuffled context. It needs playback on this computer:
+/// on a remote device the Web API can only queue one song per request, which
+/// cannot express a woven play order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ShuffleMode {
+    #[default]
+    Off,
+    On,
+    Smart,
+}
+
+impl ShuffleMode {
+    /// The mode the button moves to. Smart is only offered where it works,
+    /// so a remote device cycles between off and shuffle alone.
+    pub fn next(self, local: bool) -> Self {
+        match (self, local) {
+            (Self::Off, _) => Self::On,
+            (Self::On, true) => Self::Smart,
+            (Self::On, false) => Self::Off,
+            (Self::Smart, _) => Self::Off,
+        }
+    }
+
+    /// Whether the context plays in a random order. Smart shuffle does too.
+    pub fn shuffles(self) -> bool {
+        matches!(self, Self::On | Self::Smart)
+    }
+
+    /// Whether songs Spotify recommends are woven into the play order.
+    pub fn is_smart(self) -> bool {
+        matches!(self, Self::Smart)
+    }
+
+    /// Reads the mode from the two saved fields. `smart_shuffle` was added
+    /// after `shuffle_on`, so a settings file written before it loads as the
+    /// plain shuffle its user last chose, never as smart.
+    pub fn from_settings(shuffle_on: bool, smart_shuffle: bool) -> Self {
+        match (shuffle_on, smart_shuffle) {
+            (false, _) => Self::Off,
+            (true, false) => Self::On,
+            (true, true) => Self::Smart,
+        }
+    }
+
+    /// The two saved fields for this mode.
+    pub fn to_settings(self) -> (bool, bool) {
+        (self.shuffles(), self.is_smart())
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Loadable<T> {
     #[default]
