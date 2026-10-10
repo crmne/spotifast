@@ -3183,3 +3183,11 @@ msgstr "No Windows on ARM, o OpenGL que o Spotifast usa para desenhar vem do Ope
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Reduzir movimento da letra"
+
+#: src/ui/settings.rs
+msgid "Click player bar to change visualizer"
+msgstr "Clicar na barra de reprodução para mudar o visualizador"
+
+#: src/ui/settings.rs
+msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgstr "Permitir que os cliques no espaço vazio da barra de reprodução alternem o visualizador."

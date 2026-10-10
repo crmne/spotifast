@@ -4578,6 +4578,16 @@ mod tests {
                 .any(|action| matches!(action, Action::CyclePlayerBarVis))
         );
 
+        app.actions.clear();
+        app.settings.player_bar_vis_click = false;
+        draw(&mut app, pointer_click(empty, egui::PointerButton::Primary));
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CyclePlayerBarVis))
+        );
+        app.settings.player_bar_vis_click = true;
+
         // The play button, in the middle of the bar, is still the play button.
         app.actions.clear();
         let play = egui::pos2(640.0, 800.0 - crate::theme::PLAYER_BAR_HEIGHT / 2.0 - 10.0);

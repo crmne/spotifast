@@ -3154,3 +3154,11 @@ msgstr "Windows on ARM では、Spotifast の描画に使う OpenGL は Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#: src/ui/settings.rs
+msgid "Click player bar to change visualizer"
+msgstr "再生バーのクリックでビジュアライザーを切り替える"
+
+#: src/ui/settings.rs
+msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgstr "再生バーの空いている部分をクリックしてビジュアライザーを切り替えられるようにします。"
