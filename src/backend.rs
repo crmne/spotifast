@@ -3772,23 +3772,49 @@ async fn handle(
             shows: asked,
             generation,
         } => {
-            let mut shows = Vec::new();
-            let mut failure = None;
-            for show in asked {
-                match routed!(show_episodes(&show.id, 0, HOME_EPISODES_PER_SHOW)) {
-                    Ok(page) => shows.push((show, page.items)),
+            let mut answers = Vec::new();
+            let mut failure = selected.as_ref().err().cloned();
+            let mut reads = tokio::task::JoinSet::new();
+            if let Ok(client) = &selected {
+                for (index, show) in asked.into_iter().enumerate() {
+                    let client = Arc::clone(client);
+                    reads.spawn(async move {
+                        let result = client
+                            .show_episodes(&show.id, 0, HOME_EPISODES_PER_SHOW)
+                            .await;
+                        (index, show, result)
+                    });
+                }
+            }
+            while let Some(joined) = reads.join_next().await {
+                // A read that panicked has already reported it; the others
+                // still answer for their own shows.
+                let Ok((index, show, result)) = joined else {
+                    continue;
+                };
+                match result {
+                    Ok(page) => answers.push((index, show, page.items)),
                     // A show that is gone answers on its own; a rate limit,
                     // an exhausted quota or a lost sign-in would answer the
-                    // same for every show still to come, so stop asking.
+                    // same for every show still to come, so stop the rest.
                     Err(error) => {
+                        if let ApiError::SignInExpired { api_source } = &error {
+                            expired.set(Some(*api_source));
+                        }
                         let stop = !matches!(error, ApiError::Status { .. } | ApiError::Decode(_));
                         failure.get_or_insert(error);
                         if stop {
+                            reads.abort_all();
                             break;
                         }
                     }
                 }
             }
+            answers.sort_by_key(|(index, ..)| *index);
+            let shows: Vec<_> = answers
+                .into_iter()
+                .map(|(_, show, items)| (show, items))
+                .collect();
             ApiResponse::HomeEpisodes {
                 generation,
                 result: match failure {

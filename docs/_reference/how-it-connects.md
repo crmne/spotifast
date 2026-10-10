@@ -224,8 +224,8 @@ existing playlist requests and adds no periodic polling.
 Since 0.10.0, Home's **Your podcasts** shelf reads the first page of
 saved shows, the same request the library's Podcasts shelf makes, if it has
 not been read yet. It then asks for the five newest episodes of each of the
-eight most recently saved shows, one show at a time, through the normal
-personal/shared app routing. Spotify includes each episode's resume point in
+eight most recently saved shows, all at once within the Web API session's
+concurrency limit, through the normal personal/shared app routing. Spotify includes each episode's resume point in
 those answers. Play uses that position so an in-progress episode continues
 rather than starting over. Shows known to be audiobooks are not asked for. These requests
 run when Home refreshes: on opening Home, at most once every ten minutes, and
