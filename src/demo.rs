@@ -9109,6 +9109,84 @@ mod tests {
         app.backend.shutdown();
     }
     #[test]
+    fn saved_toggles_stay_green_while_hovered() {
+        // alb0 is saved, its first song is liked, and so is the song in
+        // the player bar, so all three save toggles show their on state.
+        type Pick = fn(&egui::accesskit::Rect) -> bool;
+        let targets: [(&str, &str, Pick); 3] = [
+            ("album header", "Remove from Your Library", |_| true),
+            ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
+            ("player bar", "Remove from Liked Songs", |b| b.y0 > 700.0),
+        ];
+        for theme in ["dark", "light"] {
+            for (place, label, pick) in targets {
+                let (ctx, mut app) = accessible_app(&format!("saved-hover-{theme}"));
+                app.open(Page::Album("alb0".into()));
+                app.settings.theme = if theme == "light" {
+                    crate::settings::ThemeChoice::Light
+                } else {
+                    crate::settings::ThemeChoice::Dark
+                };
+                app.actions.push(Action::SettingsChanged);
+                let mut frame = |events| {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(1280.0, 800.0),
+                            )),
+                            events,
+                            ..Default::default()
+                        },
+                        |ui| app.frame_ui(ui),
+                    );
+                    output.textures_delta.clear();
+                    output
+                };
+                frame(vec![]);
+                let tree = frame(vec![])
+                    .platform_output
+                    .accesskit_update
+                    .expect("screen-reader tree");
+                let bounds = tree
+                    .nodes
+                    .iter()
+                    .filter(|(_, node)| {
+                        node.label() == Some(label) && node.role() == egui::accesskit::Role::Button
+                    })
+                    .filter_map(|(_, node)| node.bounds())
+                    .find(pick)
+                    .unwrap_or_else(|| panic!("missing {place} {label:?}"));
+                let centre = egui::pos2(
+                    (bounds.x0 + bounds.x1) as f32 / 2.0,
+                    (bounds.y0 + bounds.y1) as f32 / 2.0,
+                );
+                frame(vec![egui::Event::PointerMoved(centre)]);
+                let output = frame(vec![egui::Event::PointerMoved(centre)]);
+                // Icons are textured rects tinted by their fill.
+                let tints: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| match &shape.shape {
+                        egui::Shape::Rect(rect)
+                            if rect.brush.is_some() && rect.rect.contains(centre) =>
+                        {
+                            Some(rect.fill)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert!(
+                    tints.contains(&app.palette.accent_hover),
+                    "a hovered {place} button in {theme} must still look saved: {tints:?}"
+                );
+                assert!(!tints.contains(&app.palette.text), "{place} in {theme}");
+                app.backend.shutdown();
+            }
+        }
+    }
+
+    #[test]
     fn side_panels_keep_their_full_height_beside_the_page_toolbar() {
         for theme in ["dark", "light"] {
             let (ctx, mut app) = accessible_app(&format!("full-height-panels-{theme}"));

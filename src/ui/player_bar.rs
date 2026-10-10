@@ -531,16 +531,19 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 
     if !now.is_episode {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
-        let (icon, color, tooltip) = if saved {
+        // A liked heart stays green under the pointer, like shuffle.
+        let (icon, color, hover, tooltip) = if saved {
             (
                 Icon::HeartFilled,
                 palette.accent,
+                palette.accent_hover,
                 gettext(app.locale, "Remove from Liked Songs"),
             )
         } else {
             (
                 Icon::Heart,
                 palette.secondary,
+                palette.text,
                 gettext(app.locale, "Save to Liked Songs"),
             )
         };
@@ -564,7 +567,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        if theme::icon_button(&mut heart_ui, icon, 17.0, color, palette.text, &tooltip).clicked() {
+        if theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip).clicked() {
             app.actions.push(Action::ToggleSaved(now.uri.clone()));
         }
     }

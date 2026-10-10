@@ -1727,17 +1727,18 @@ fn track_row_contents(
             {
                 child.set_opacity(0.0);
             }
-            let (icon, color) = if saved == Some(true) {
-                (Icon::HeartFilled, palette.accent)
+            // A liked heart stays green under the pointer.
+            let (icon, color, hover) = if saved == Some(true) {
+                (Icon::HeartFilled, palette.accent, palette.accent_hover)
             } else {
-                (Icon::Heart, palette.secondary)
+                (Icon::Heart, palette.secondary, palette.text)
             };
             let tooltip = if saved == Some(true) {
                 gettext(app.locale, "Remove from Liked Songs")
             } else {
                 gettext(app.locale, "Save to Liked Songs")
             };
-            if theme::icon_button(&mut child, icon, 16.0, color, palette.text, &tooltip).clicked() {
+            if theme::icon_button(&mut child, icon, 16.0, color, hover, &tooltip).clicked() {
                 app.actions
                     .push(Action::ToggleSaved(row.item.uri().to_string()));
             }
