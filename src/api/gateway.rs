@@ -87,7 +87,13 @@ pub enum Operation {
     CanonicalAccount,
     Playback,
     UserData,
+    /// The first page of the account's playlist library: the read that
+    /// starts a load.
     PlaylistLibrary,
+    /// A later page of a library load the shared app started; it stays
+    /// there, since a personal app's list is shorter and its offsets do not
+    /// continue the shared app's.
+    PlaylistLibraryContinuation,
     PlaylistCreation,
     PlaylistSearch,
     CatalogSearch,
@@ -101,12 +107,29 @@ pub enum Operation {
 /// The streaming session reads every playlist the shared app would have
 /// been asked for: other people's, which no personal app may read, and the
 /// account's own when it has no personal app. A personal app keeps its own
-/// playlists, which it reads quickly and with every field.
+/// playlists, which it reads quickly and with every field. The session also
+/// reads the whole playlist library from the rootlist, Spotify's own
+/// playlists included, which no personal app is shown.
 fn session_serves(operation: Operation, personal_ready: bool) -> bool {
-    matches!(
-        operation,
-        Operation::PlaylistMetadata(_) | Operation::PlaylistItems(_)
-    ) && plan(operation, personal_ready) == ApiSource::Shared
+    match operation {
+        Operation::PlaylistLibrary | Operation::PlaylistLibraryContinuation => true,
+        Operation::PlaylistMetadata(_) | Operation::PlaylistItems(_) => {
+            plan(operation, personal_ready) == ApiSource::Shared
+        }
+        _ => false,
+    }
+}
+
+/// Where a request goes, given whether the shared app can answer now: it
+/// is signed in and not waiting out a rate limit. A library load the
+/// session cannot serve starts on a personal app rather than wait for a
+/// shared app that cannot answer, at the cost of Spotify's own playlists,
+/// which Development Mode leaves out. Everything else keeps its plan.
+fn route(operation: Operation, personal_ready: bool, shared_available: bool) -> ApiSource {
+    match operation {
+        Operation::PlaylistLibrary if personal_ready && !shared_available => ApiSource::Personal,
+        _ => plan(operation, personal_ready),
+    }
 }
 
 /// A playlist with unknown access dispatches to the shared app, which can
@@ -114,9 +137,11 @@ fn session_serves(operation: Operation, personal_ready: bool) -> bool {
 fn plan(operation: Operation, personal_ready: bool) -> ApiSource {
     use Operation::*;
     match operation {
-        CanonicalAccount | PlaylistLibrary | PlaylistSearch | UnsupportedDevelopmentMode => {
-            ApiSource::Shared
-        }
+        CanonicalAccount
+        | PlaylistLibrary
+        | PlaylistLibraryContinuation
+        | PlaylistSearch
+        | UnsupportedDevelopmentMode => ApiSource::Shared,
         PlaylistMetadata(PlaylistAccess::External | PlaylistAccess::Unknown)
         | PlaylistItems(PlaylistAccess::External | PlaylistAccess::Unknown)
         | PlaylistMutation(PlaylistAccess::External | PlaylistAccess::Unknown) => ApiSource::Shared,
@@ -269,12 +294,30 @@ impl ApiGateway {
             .or_else(|| self.state(ApiSource::Personal).account().cloned())
     }
 
+    /// The client of a session that is signed in now, without waiting.
+    pub fn ready_client(&self, source: ApiSource) -> Option<Arc<ApiClient>> {
+        let session = self.session(source);
+        matches!(session.state(), SessionState::Ready { .. }).then(|| session.client())
+    }
+
     pub fn personal_ready(&self) -> bool {
         matches!(self.state(ApiSource::Personal), SessionState::Ready { .. })
     }
 
+    /// Whether the shared app can answer now rather than after sign-in
+    /// verification or a rate limit.
+    pub async fn shared_available(&self) -> bool {
+        matches!(self.state(ApiSource::Shared), SessionState::Ready { .. })
+            && !self.shared.client().cooling_down().await
+    }
+
     pub async fn client_for(&self, operation: Operation) -> Result<Arc<ApiClient>, ApiError> {
-        let source = plan(operation, self.personal_ready());
+        let personal_ready = self.personal_ready();
+        // Only a library load with a personal app to fall back on asks.
+        let shared_available = operation != Operation::PlaylistLibrary
+            || !personal_ready
+            || self.shared_available().await;
+        let source = route(operation, personal_ready, shared_available);
         let session = self.session(source);
         let mut state = session.state.subscribe();
         let generation = state.borrow().0;
@@ -352,7 +395,7 @@ mod tests {
         gateway
             .install(ApiSource::Personal, AccountId::new("same"))
             .unwrap();
-        let mut waiting = Box::pin(gateway.client_for(Operation::PlaylistLibrary));
+        let mut waiting = Box::pin(gateway.client_for(Operation::PlaylistSearch));
         std::future::poll_fn(|cx| {
             assert!(waiting.as_mut().poll(cx).is_pending());
             std::task::Poll::Ready(())
@@ -427,6 +470,10 @@ mod tests {
                 Operation::PlaylistItems(PlaylistAccess::Collaborative),
                 false,
             ),
+            // The rootlist holds the whole library, Spotify's own lists too.
+            (Operation::PlaylistLibrary, false),
+            (Operation::PlaylistLibrary, true),
+            (Operation::PlaylistLibraryContinuation, true),
         ] {
             assert!(session_serves(operation, personal), "{operation:?}");
         }
@@ -438,7 +485,8 @@ mod tests {
             ),
             (Operation::PlaylistMutation(PlaylistAccess::External), true),
             (Operation::Catalog, false),
-            (Operation::PlaylistLibrary, false),
+            (Operation::CanonicalAccount, true),
+            (Operation::PlaylistSearch, true),
         ] {
             assert!(!session_serves(operation, personal), "{operation:?}");
         }
@@ -463,6 +511,7 @@ mod tests {
         for operation in [
             Operation::CanonicalAccount,
             Operation::PlaylistLibrary,
+            Operation::PlaylistLibraryContinuation,
             Operation::PlaylistSearch,
             Operation::UnsupportedDevelopmentMode,
             Operation::PlaylistMetadata(PlaylistAccess::External),
@@ -487,6 +536,82 @@ mod tests {
         ] {
             assert_eq!(plan(operation, false), ApiSource::Shared);
         }
+    }
+
+    /// A library load the session cannot serve starts on a personal app
+    /// only when the shared app cannot answer now; a later page of a load
+    /// the shared app started, and every other shared-only read, stays.
+    #[test]
+    fn a_library_load_falls_to_a_personal_app_only_while_the_shared_app_cannot_answer() {
+        assert_eq!(
+            route(Operation::PlaylistLibrary, true, false),
+            ApiSource::Personal
+        );
+        assert_eq!(
+            route(Operation::PlaylistLibrary, true, true),
+            ApiSource::Shared
+        );
+        assert_eq!(
+            route(Operation::PlaylistLibrary, false, false),
+            ApiSource::Shared,
+            "nothing to fall back on"
+        );
+        for operation in [
+            Operation::PlaylistLibraryContinuation,
+            Operation::CanonicalAccount,
+            Operation::PlaylistSearch,
+            Operation::UnsupportedDevelopmentMode,
+            Operation::PlaylistItems(PlaylistAccess::External),
+        ] {
+            assert_eq!(
+                route(operation, true, false),
+                ApiSource::Shared,
+                "{operation:?}"
+            );
+        }
+        assert_eq!(
+            route(Operation::Catalog, true, true),
+            ApiSource::Personal,
+            "the plan is kept"
+        );
+    }
+
+    /// The library does not wait on a shared app still verifying when a
+    /// personal app for the account is ready; a continuation still does.
+    #[tokio::test]
+    async fn a_library_load_skips_a_shared_app_still_verifying() {
+        let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        gateway.begin_verification(ApiSource::Shared, provider("verifying", ApiSource::Shared));
+        gateway.begin_verification(
+            ApiSource::Personal,
+            provider("ready-library", ApiSource::Personal),
+        );
+        gateway
+            .install(ApiSource::Personal, AccountId::new("same"))
+            .unwrap();
+        assert!(!gateway.shared_available().await);
+        let client = gateway
+            .client_for(Operation::PlaylistLibrary)
+            .await
+            .unwrap();
+        assert_eq!(client.source(), ApiSource::Personal);
+        let mut continuation = Box::pin(gateway.client_for(Operation::PlaylistLibraryContinuation));
+        std::future::poll_fn(|cx| {
+            assert!(continuation.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+
+        gateway
+            .install(ApiSource::Shared, AccountId::new("same"))
+            .unwrap();
+        assert!(gateway.shared_available().await);
+        let client = gateway
+            .client_for(Operation::PlaylistLibrary)
+            .await
+            .unwrap();
+        assert_eq!(client.source(), ApiSource::Shared, "normal routing resumes");
+        assert_eq!(continuation.await.unwrap().source(), ApiSource::Shared);
     }
 
     #[test]

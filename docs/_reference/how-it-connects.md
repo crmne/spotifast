@@ -12,24 +12,50 @@ local playback:
 1. **The shared Web API app** keeps full catalogue and playlist coverage.
 2. **Your optional personal Web API app** handles supported playback, library,
    catalog, catalogue search, playlist creation, and owned or collaborative
-   playlist requests without using the shared app's quota. Complete
-   playlist-library views and the playlist half of a search stay on the shared
-   app so Spotify-owned results are not filtered out. Both Web API grants must
-   verify as the same Spotify account.
+   playlist requests without using the shared app's quota. The playlist half
+   of a search stays on the shared app so Spotify-owned results are not
+   filtered out. Both Web API grants must verify as the same Spotify account.
 3. **Local playback** uses
    [librespot](https://github.com/librespot-org/librespot). It needs one more
    browser approval and keeps an independent reusable credential. Spotify Premium
    is required. While it is signed in, its session also reads the playlists
    the shared app would otherwise be asked for: other people's, and the
-   account's own when there is no personal app. Radio pages come only from
-   this session: the Web API has no stations. Opening one resolves the
-   station and reads its songs' details in one batched request.
+   account's own when there is no personal app, and the playlist library
+   itself. Radio pages come only from this session: the Web API has no
+   stations. Opening one resolves the station and reads its songs' details
+   in one batched request.
 
 Local playback authorization stays separate from both Web API grants. Its
 browser approval requests only the streaming permission and always shows the
 consent dialog. The playback session uses the account ID verified by either
 Web API grant. A verified personal app can complete sign-in while the shared
 app's verification is still waiting.
+
+## The playlist library
+
+The sidebar's playlist list is the account's rootlist: every playlist it
+created, saved, or follows, Spotify's own included, in Spotify's order. While
+local playback is signed in, Spotifast reads it over the playback session
+with one request per 500 entries, which carries each playlist's name, cover,
+owner, song count, and, when Spotify includes it, public flag, and uses none
+of the shared app's quota. The session names no owner, so the account's own
+name stands in for its own playlists and other people's show their user ID.
+If the session comes up after the list was asked for, while the list is still
+waiting on the Web API, failed there, or came from a personal app, the list
+is read again through the session. The rows on screen stay until the complete
+list replaces them.
+
+Without that session, or when its read fails, the list is read through the
+shared app in pages of 50. When the shared app cannot answer, because it is
+still verifying sign-in or waiting out a rate limit, and a personal app is
+ready, the list is read through the personal app instead of waiting. The same
+happens when the shared app gives up on the list's first page after its
+rate-limit retries. Spotify's Development Mode leaves Spotify-owned playlists
+(Daily Mixes, Discover Weekly, and editorial playlists) out of a personal
+app's list, so they are missing until the list is next read through the
+playback session or the shared app. A list read this way never replaces a
+complete one already on screen. Once the shared app can answer again, later
+loads of the list use it as before.
 
 Since 0.8.0, local playback retains the artist IDs
 already supplied by librespot. Artist links in the player bar work before the
@@ -186,10 +212,13 @@ rows are placeholders until their page arrives; scrolling never starts playback.
 
 Each Web API session has separate concurrency and rate limits. A `Retry-After`
 response pauses only that session. Spotifast routes each request once and
-does not retry it through the other app. A playlist read the librespot session
-refuses outright, because the playlist is gone or private, is shown as such. A
-dropped connection, a read that takes longer than 30 seconds, or a page whose
-song details Spotify did not supply in full, hands the read to the Web API
+does not retry it through the other app, except the first page of the
+playlist library, which a ready personal app reads in full when the shared
+app stays rate limited (see [The playlist library](#the-playlist-library)).
+A playlist read the librespot session refuses outright, because the playlist
+is gone or private, is shown as such. A dropped connection, a read that takes
+longer than 30 seconds, or a page whose song details Spotify did not supply in
+full, hands the read to the Web API
 instead of caching rows without songs. A song Spotify no longer has, or
 withholds for legal reasons, is an empty row, as the Web API shows it.
 

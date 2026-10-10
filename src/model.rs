@@ -558,6 +558,13 @@ impl<T> CursorList<T> {
     }
 }
 
+/// The pages a reread of the playlists has brought so far, and whether its
+/// first page said the list leaves Spotify's own playlists out.
+pub struct PlaylistsReread {
+    pub rows: Vec<Playlist>,
+    pub partial: bool,
+}
+
 #[derive(Default)]
 pub struct Library {
     pub playlists: Loadable<Vec<Playlist>>,
@@ -569,6 +576,13 @@ pub struct Library {
     /// The later playlist page on its way, so a second answer for a page
     /// already taken adds nothing.
     pub playlists_asked: Option<u32>,
+    /// The list came from a personal app, which leaves out Spotify's own
+    /// playlists, so a complete read replaces it when one can be made.
+    pub playlists_partial: bool,
+    /// A reread from the top over a list already on screen gathers its
+    /// pages here, so the list on screen changes once, when the last page
+    /// has arrived, and never shows a reread's first pages alone.
+    pub playlists_reread: Option<PlaylistsReread>,
     pub liked: PagedList<SavedTrack>,
     pub albums: PagedList<SavedAlbum>,
     pub artists: CursorList<Artist>,

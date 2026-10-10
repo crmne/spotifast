@@ -50,8 +50,11 @@ Spotify allows personal apps ten search results at a time for each type,
 compared with twenty on the shared connection.
 
 Setting up playback on this computer also helps playlists load faster.
-Spotifast can load playlists that would otherwise use the shared allowance
-through its music connection instead.
+Spotifast can load your playlist list, and playlists that would otherwise use
+the shared allowance, through its music connection instead. Without it, when
+the shared connection is busy, your personal app loads your playlist list so
+you are not left waiting; Spotify's own playlists, such as Daily Mixes, are
+missing from that list until it is next loaded through the shared connection.
 [How it connects](/how-it-connects/) explains which connection each feature uses.
 
 ## Make a Spotify app

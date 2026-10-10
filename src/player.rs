@@ -518,32 +518,11 @@ impl Engine {
     /// Account playlist tree in Spotify order, including folder markers,
     /// and which of its playlists the account may add songs to.
     pub async fn rootlist(&self) -> Result<Rootlist> {
-        use protobuf::Message as _;
         let mut uris = Vec::new();
         let mut editable = std::collections::BTreeSet::new();
-        let mut from = 0usize;
-        loop {
-            let bytes = self
-                .session
-                .spclient()
-                .get_rootlist(from, Some(500))
-                .await
-                .map_err(|error| anyhow!("rootlist: {error}"))?;
-            let content =
-                librespot_protocol::playlist4_external::SelectedListContent::parse_from_bytes(
-                    &bytes,
-                )?;
-            let Some(contents) = content.contents.into_option() else {
-                break;
-            };
-            let count = contents.items.len();
-            let truncated = contents.truncated();
+        for contents in crate::session_reads::rootlist(&self.session).await? {
             editable.extend(editable_uris(&contents));
             uris.extend(contents.items.into_iter().filter_map(|item| item.uri));
-            if !truncated || count == 0 {
-                break;
-            }
-            from += count;
         }
         Ok(Rootlist {
             entries: parse_rootlist(&uris),

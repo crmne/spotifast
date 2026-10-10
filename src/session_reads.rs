@@ -19,6 +19,7 @@ use librespot_protocol::extended_metadata::{
     BatchedEntityRequest, BatchedExtensionResponse, EntityRequest, ExtensionQuery,
 };
 use librespot_protocol::extension_kind::ExtensionKind;
+use librespot_protocol::playlist4_external::{Item, ListItems, MetaItem, SelectedListContent};
 use protobuf::{EnumOrUnknown, Message as _};
 
 use crate::api::ApiError;
@@ -149,6 +150,128 @@ fn page(items: Vec<PlaylistItem>, total: u32, offset: u32, limit: u32) -> Page<P
         offset,
         next,
     }
+}
+
+/// The account's rootlist, page by page in Spotify's order: one request per
+/// 500 rows, each row decorated with its playlist's name, cover, owner,
+/// length, and what the account may do to it.
+pub async fn rootlist(session: &Session) -> anyhow::Result<Vec<ListItems>> {
+    let mut pages = Vec::new();
+    let mut from = 0usize;
+    loop {
+        let bytes = session
+            .spclient()
+            .get_rootlist(from, Some(ROOTLIST_PAGE))
+            .await
+            .map_err(|error| anyhow::anyhow!("rootlist: {error}"))?;
+        let Some((contents, more)) =
+            rootlist_answer_page(SelectedListContent::parse_from_bytes(&bytes)?, from)?
+        else {
+            break;
+        };
+        let count = contents.items.len();
+        pages.push(contents);
+        if !more {
+            break;
+        }
+        from += count;
+    }
+    Ok(pages)
+}
+
+/// One rootlist answer read at `from`: its page, and whether rows follow
+/// it; `None` when the list ends before `from`. An answer that leaves rows
+/// out while saying some remain, either with no page where the list's
+/// length says rows are or with an empty page marked as cut short, is an
+/// error, so the read is retried rather than taken as the whole list.
+fn rootlist_answer_page(
+    response: SelectedListContent,
+    from: usize,
+) -> anyhow::Result<Option<(ListItems, bool)>> {
+    let length = response
+        .has_length()
+        .then(|| usize::try_from(response.length()).unwrap_or_default());
+    let Some(contents) = response.contents.into_option() else {
+        if let Some(length) = length.filter(|length| *length > from) {
+            anyhow::bail!("rootlist answered no rows at {from} of {length}");
+        }
+        return Ok(None);
+    };
+    let truncated = contents.truncated();
+    if truncated && contents.items.is_empty() {
+        anyhow::bail!("rootlist answered an empty page at {from} marked as cut short");
+    }
+    Ok(Some((contents, truncated)))
+}
+
+const ROOTLIST_PAGE: usize = 500;
+
+/// The account's playlist library, as the Web API's list of the account's
+/// playlists gives it: every playlist it saved or follows, Spotify's own
+/// among them, in the order Spotify keeps them, read from the rootlist in
+/// one request per 500 rows. Folders are left to the rootlist read that
+/// places them. The owner's display name, which the rootlist does not
+/// carry, is filled in for the account's own lists by the app.
+pub async fn library(session: &Session) -> Result<Vec<Playlist>, Failure> {
+    let pages = rootlist(session).await.map_err(Failure::Retry)?;
+    library_rows(&pages)
+}
+
+/// The playlists among the rootlist's rows. A page whose rows came without
+/// the details Spotify decorates them with would list nameless playlists,
+/// so it is a retry, for the Web API to answer instead.
+fn library_rows(pages: &[ListItems]) -> Result<Vec<Playlist>, Failure> {
+    let mut playlists = Vec::new();
+    for page in pages {
+        if page.meta_items.len() != page.items.len() {
+            return Err(Failure::Retry(anyhow::anyhow!(
+                "rootlist page answered {} rows with {} details",
+                page.items.len(),
+                page.meta_items.len()
+            )));
+        }
+        for (item, meta) in page.items.iter().zip(&page.meta_items) {
+            if let Some(playlist) = library_row(item, meta) {
+                playlists.push(playlist);
+            }
+        }
+    }
+    Ok(playlists)
+}
+
+/// One playlist row of the rootlist; `None` for a folder marker, and for a
+/// playlist Spotify says is gone or hidden from this account, which the
+/// Web API leaves out of the list too.
+fn library_row(item: &Item, meta: &MetaItem) -> Option<Playlist> {
+    let id = item.uri().strip_prefix("spotify:playlist:")?;
+    if !matches!(meta.status_code(), 0 | 200) {
+        return None;
+    }
+    let attributes = PlaylistAttributes::try_from(&*meta.attributes).ok()?;
+    let owner = non_empty(meta.owner_username());
+    Some(Playlist {
+        id: id.to_string(),
+        uri: item.uri().to_string(),
+        description: non_empty(&attributes.description),
+        images: playlist_images(&attributes),
+        owner: Owner {
+            uri: owner.as_ref().map(|owner| format!("spotify:user:{owner}")),
+            id: owner,
+            display_name: None,
+        },
+        public: item
+            .attributes
+            .as_ref()
+            .filter(|attributes| attributes.has_public())
+            .map(|attributes| attributes.public()),
+        collaborative: attributes.is_collaborative,
+        snapshot_id: meta.has_revision().then(|| snapshot(meta.revision())),
+        items_count: meta.has_length().then(|| TrackCount {
+            total: u32::try_from(meta.length()).unwrap_or_default(),
+        }),
+        name: attributes.name,
+        ..Default::default()
+    })
 }
 
 /// The songs of Spotify's radio `station`, in Spotify's order, with their
@@ -624,7 +747,6 @@ fn iso8601(timestamp_ms: i64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use librespot_metadata::Metadata as _;
-    use librespot_protocol::playlist4_external::{Item, SelectedListContent};
 
     use super::*;
 
@@ -1325,5 +1447,156 @@ mod tests {
                 "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
             ]
         );
+    }
+
+    /// A rootlist row and the details Spotify decorates it with.
+    fn listed(uri: &str, decorate: impl FnOnce(&mut MetaItem)) -> (Item, MetaItem) {
+        let mut item = Item::new();
+        item.set_uri(uri.into());
+        let mut meta = MetaItem::new();
+        decorate(&mut meta);
+        (item, meta)
+    }
+
+    fn rootlist_page(rows: Vec<(Item, MetaItem)>) -> ListItems {
+        let mut page = ListItems::new();
+        for (item, meta) in rows {
+            page.items.push(item);
+            page.meta_items.push(meta);
+        }
+        page
+    }
+
+    fn rootlist_answer(length: Option<i32>, contents: Option<ListItems>) -> SelectedListContent {
+        let mut response = SelectedListContent::new();
+        if let Some(length) = length {
+            response.set_length(length);
+        }
+        if let Some(contents) = contents {
+            response.contents = protobuf::MessageField::some(contents);
+        }
+        response
+    }
+
+    fn rootlist_contents(rows: usize, truncated: bool) -> ListItems {
+        let mut contents = ListItems::new();
+        contents.set_truncated(truncated);
+        contents.items = (0..rows).map(|_| Item::new()).collect();
+        contents
+    }
+
+    /// An answer that leaves rows out while saying some remain is retried,
+    /// not taken as the whole list; one with no rows left ends the read,
+    /// and so does a present empty page, the empty library's answer.
+    #[test]
+    fn a_rootlist_answer_missing_rows_it_owes_is_an_error() {
+        let page =
+            |length, contents, from| rootlist_answer_page(rootlist_answer(length, contents), from);
+
+        assert!(
+            page(Some(700), None, 500).is_err(),
+            "no page with rows left"
+        );
+        assert!(page(Some(500), None, 500).unwrap().is_none(), "none left");
+        assert!(page(None, None, 0).unwrap().is_none(), "no length at all");
+        assert!(
+            page(Some(700), Some(rootlist_contents(0, true)), 500).is_err(),
+            "an empty page cut short"
+        );
+
+        let (empty, more) = page(Some(0), Some(rootlist_contents(0, false)), 0)
+            .unwrap()
+            .unwrap();
+        assert!(empty.items.is_empty());
+        assert!(!more);
+
+        let (first, more) = page(Some(700), Some(rootlist_contents(500, true)), 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.items.len(), 500);
+        assert!(more);
+        let (last, more) = page(Some(700), Some(rootlist_contents(200, false)), 500)
+            .unwrap()
+            .unwrap();
+        assert_eq!(last.items.len(), 200);
+        assert!(!more);
+    }
+
+    /// The rootlist's playlists become the library's rows in Spotify's
+    /// order, Spotify's own among them, with the name, cover, owner, song
+    /// count, snapshot, and public flag the Web API's list would carry.
+    /// Folder markers, and playlists Spotify says are gone, are not rows.
+    #[test]
+    fn the_rootlist_becomes_the_playlist_library() {
+        let mine = listed("spotify:playlist:mine", |meta| {
+            meta.set_owner_username("me".into());
+            meta.set_length(12);
+            meta.set_revision(vec![1, 2, 3]);
+            let attributes = meta.attributes.mut_or_insert_default();
+            attributes.set_name("Road trip".into());
+            attributes.set_description("Loud".into());
+            let mut picture = librespot_protocol::playlist4_external::PictureSize::new();
+            picture.set_target_name("default".into());
+            picture.set_url("spotify:image:ab67".into());
+            attributes.picture_size.push(picture);
+        });
+        let (mut item, meta) = listed("spotify:playlist:daily", |meta| {
+            meta.set_owner_username("spotify".into());
+            meta.set_status_code(200);
+            meta.attributes
+                .mut_or_insert_default()
+                .set_name("Daily Mix 1".into());
+        });
+        item.attributes.mut_or_insert_default().set_public(false);
+        let gone = listed("spotify:playlist:gone", |meta| {
+            meta.set_status_code(404);
+            meta.attributes
+                .mut_or_insert_default()
+                .set_name("Gone".into());
+        });
+        let pages = [
+            rootlist_page(vec![
+                listed("spotify:start-group:f1:Mixes", |_| {}),
+                (item, meta),
+                listed("spotify:end-group:f1", |_| {}),
+            ]),
+            rootlist_page(vec![gone, mine]),
+        ];
+        let Ok(rows) = library_rows(&pages) else {
+            panic!("expected the library");
+        };
+        let ids: Vec<_> = rows.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, ["daily", "mine"]);
+
+        let daily = &rows[0];
+        assert_eq!(daily.name, "Daily Mix 1");
+        assert_eq!(daily.uri, "spotify:playlist:daily");
+        assert_eq!(daily.owner.id.as_deref(), Some("spotify"));
+        assert_eq!(daily.owner_name(), "Spotify");
+        assert_eq!(daily.public, Some(false));
+        assert_eq!(daily.items_count, None, "no length given");
+
+        let mine = &rows[1];
+        assert_eq!(mine.name, "Road trip");
+        assert_eq!(mine.description.as_deref(), Some("Loud"));
+        assert_eq!(mine.owner.uri.as_deref(), Some("spotify:user:me"));
+        assert_eq!(mine.track_total(), 12);
+        assert_eq!(mine.public, None, "unknown, not private");
+        assert_eq!(mine.snapshot_id.as_deref(), Some("AQID"));
+        assert_eq!(mine.images.len(), 1);
+        assert_eq!(mine.images[0].url, "https://i.scdn.co/image/ab67");
+        assert_eq!(mine.images[0].width, Some(300));
+    }
+
+    /// A page whose rows came without their details would list nameless
+    /// playlists, so the Web API is asked instead.
+    #[test]
+    fn an_undecorated_rootlist_page_is_left_to_the_web_api() {
+        let mut page = rootlist_page(vec![listed("spotify:playlist:a", |_| {})]);
+        let mut bare = Item::new();
+        bare.set_uri("spotify:playlist:b".into());
+        page.items.push(bare);
+        assert!(matches!(library_rows(&[page]), Err(Failure::Retry(_))));
+        assert!(matches!(library_rows(&[]), Ok(rows) if rows.is_empty()));
     }
 }
