@@ -806,6 +806,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let custom_titlebar = gettext(locale, "Custom title bar");
     let show_custom_titlebar = cfg!(target_os = "linux") || app.windows_controls_visible();
     let player_bar_vis = gettext(locale, "Player bar visualizer");
+    let player_bar_vis_click = gettext(locale, "Click to change visualizer");
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
             let detail = theme::catalog_detail(
@@ -881,6 +882,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             gettext(
                 locale,
                 "Show the song moving behind the player bar's controls while it plays here.",
+            ),
+        ),
+        RowText::new(
+            player_bar_vis_click.clone(),
+            gettext(
+                locale,
+                "Click the player bar's empty space to change the visualizer. Off makes that click do nothing.",
             ),
         ),
     ];
@@ -1067,6 +1075,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     },
                 );
             }
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &appearance,
+                &appearance_rows[9],
+                |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        &player_bar_vis_click,
+                        &mut app.settings.player_bar_vis_click,
+                    )
+                    .changed()
+                    {
+                        changed = true;
+                    }
+                },
+            );
             filtered_row(
                 ui,
                 &palette,

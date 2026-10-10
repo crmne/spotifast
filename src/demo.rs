@@ -4589,6 +4589,18 @@ mod tests {
             "{:?}",
             app.actions
         );
+
+        // With the setting off, the empty space does nothing.
+        app.actions.clear();
+        app.settings.player_bar_vis_click = false;
+        draw(&mut app, pointer_click(empty, egui::PointerButton::Primary));
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CyclePlayerBarVis)),
+            "{:?}",
+            app.actions
+        );
         app.backend.shutdown();
     }
 
