@@ -871,6 +871,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 }
             }
             "devices" => app.show_devices = true,
+            // The phone plays instead of the speaker, for captures of how
+            // remote playback names and draws the playing device.
+            "phone-playing" => {
+                for device in &mut app.devices {
+                    device.is_active = device.kind == "smartphone";
+                }
+                if let Some(remote) = &mut app.remote {
+                    remote.state.device =
+                        app.devices.iter().find(|device| device.is_active).cloned();
+                }
+            }
             // These paired states capture both outcomes of the collection
             // Shuffle click for the PR visual comparison.
             "shuffle-selected" => {
