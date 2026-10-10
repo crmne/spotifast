@@ -740,7 +740,7 @@ pub enum Command {
         session_generation: u64,
         uri: String,
         generation: u64,
-        result: Result<crate::prerelease::Prerelease, String>,
+        result: Result<Box<crate::prerelease::Prerelease>, String>,
     },
     /// Internal: a radio finished resolving for the session it started in.
     RadioResolved {
@@ -2049,7 +2049,7 @@ impl Worker {
                         self.emit(Event::Prerelease {
                             uri,
                             generation,
-                            result: result.map(Box::new),
+                            result,
                         });
                     }
                 }
@@ -3282,7 +3282,7 @@ impl Worker {
                 session_generation,
                 uri,
                 generation,
-                result,
+                result: result.map(Box::new),
             });
         });
     }
