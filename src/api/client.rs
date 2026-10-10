@@ -70,6 +70,13 @@ fn is_quota_exhausted(body: &str) -> bool {
         .is_some_and(|reason| reason == "QUOTA_EXCEEDED")
 }
 
+/// The endpoint a request asked for, without the host or query: enough to
+/// tell which endpoint spends which app's quota.
+fn logged_path(path: &str) -> &str {
+    let path = path.strip_prefix(BASE_URL).unwrap_or(path);
+    path.split('?').next().unwrap_or_default()
+}
+
 /// Where bearer tokens come from.
 ///
 /// The Web API is driven by a registered application's PKCE grant, refreshed
@@ -511,9 +518,10 @@ impl ApiClient {
             }
             let text = response.text().await?;
             log::debug!(
-                "Spotify request source={} method={} status={} duration_ms={}",
+                "Spotify request source={} method={} path={} status={} duration_ms={}",
                 self.source,
                 method,
+                logged_path(path),
                 status.as_u16(),
                 started.elapsed().as_millis()
             );
@@ -1482,6 +1490,16 @@ mod tests {
         assert!(!is_quota_exhausted(
             r#"{"error":{"status":429,"message":"Too many requests"}}"#
         ));
+    }
+
+    #[test]
+    fn logged_path_drops_the_host_and_query() {
+        assert_eq!(logged_path("/me/playlists"), "/me/playlists");
+        assert_eq!(
+            logged_path("https://api.spotify.com/v1/me/playlists?offset=50&limit=50"),
+            "/me/playlists"
+        );
+        assert_eq!(logged_path("/search?q=secret&type=track"), "/search");
     }
 
     #[tokio::test]
