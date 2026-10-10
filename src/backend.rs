@@ -710,11 +710,12 @@ pub enum Command {
         generation: u64,
     },
     StoreLikedSongsCache(crate::liked::Cache),
-    /// Read the verified account's last playlist list.
+    /// Read the verified account's last playlist list and Home shelves.
     LoadAccountCaches {
         generation: u64,
     },
     StoreLibraryCache(crate::account_cache::Cache<Vec<Playlist>>),
+    StoreHomeCache(crate::account_cache::Cache<crate::model::HomeSnapshot>),
     /// Resolve the precise type of Web API singles through the streaming session.
     AlbumTypes(Vec<String>),
     /// Ask the streaming session which saved shows are audiobooks.
@@ -857,6 +858,7 @@ pub enum Event {
         account_id: String,
         generation: u64,
         playlists: Option<Vec<Playlist>>,
+        home: Option<crate::model::HomeSnapshot>,
     },
 }
 
@@ -912,6 +914,9 @@ pub struct Backend {
     home_episode_requests: std::sync::Mutex<Vec<(Vec<String>, u64)>>,
     #[cfg(test)]
     library_cache_stores: std::sync::Mutex<Vec<crate::account_cache::Cache<Vec<Playlist>>>>,
+    #[cfg(test)]
+    home_cache_stores:
+        std::sync::Mutex<Vec<crate::account_cache::Cache<crate::model::HomeSnapshot>>>,
 }
 
 impl Backend {
@@ -1000,6 +1005,8 @@ impl Backend {
             home_episode_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             library_cache_stores: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            home_cache_stores: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -1019,6 +1026,13 @@ impl Backend {
         #[cfg(test)]
         if let Command::StoreLibraryCache(cache) = &command {
             self.library_cache_stores
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(cache.clone());
+        }
+        #[cfg(test)]
+        if let Command::StoreHomeCache(cache) = &command {
+            self.home_cache_stores
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(cache.clone());
@@ -1148,6 +1162,18 @@ impl Backend {
         std::mem::take(
             &mut *self
                 .library_cache_stores
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_home_cache_stores(
+        &self,
+    ) -> Vec<crate::account_cache::Cache<crate::model::HomeSnapshot>> {
+        std::mem::take(
+            &mut *self
+                .home_cache_stores
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
@@ -2010,14 +2036,17 @@ impl Worker {
                     if let Some(account) = self.api.account() {
                         let account_id = account.as_str().to_string();
                         let library = self.dirs.library_cache_file(&account_id);
+                        let home = self.dirs.home_cache_file(&account_id);
                         let events = self.events.clone();
                         let waker = self.waker.clone();
                         tokio::spawn(async move {
                             let playlists = crate::account_cache::read(&library, &account_id).await;
+                            let home = crate::account_cache::read(&home, &account_id).await;
                             let _ = events.send(Event::AccountCaches {
                                 account_id,
                                 generation,
                                 playlists,
+                                home,
                             });
                             waker.wake();
                         });
@@ -2032,6 +2061,18 @@ impl Worker {
                         let path = self.dirs.library_cache_file(&cache.account_id);
                         if let Err(error) = crate::account_cache::write(&path, &cache).await {
                             log::warn!("unable to store the playlist list cache: {error}");
+                        }
+                    }
+                }
+                Command::StoreHomeCache(cache) => {
+                    if self
+                        .api
+                        .account()
+                        .is_some_and(|account| account.as_str() == cache.account_id)
+                    {
+                        let path = self.dirs.home_cache_file(&cache.account_id);
+                        if let Err(error) = crate::account_cache::write(&path, &cache).await {
+                            log::warn!("unable to store the Home cache: {error}");
                         }
                     }
                 }

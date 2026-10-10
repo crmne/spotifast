@@ -135,6 +135,11 @@ impl AppDirs {
             .join(account_file_name(account_id))
     }
 
+    /// The account's last Home shelves, shown while Home is read again.
+    pub fn home_cache_file(&self, account_id: &str) -> PathBuf {
+        self.cache.join("home").join(account_file_name(account_id))
+    }
+
     pub fn ensure(&self) -> std::io::Result<()> {
         for dir in [&self.config, &self.state, &self.cache] {
             std::fs::create_dir_all(dir)?;

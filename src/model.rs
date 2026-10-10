@@ -622,6 +622,21 @@ pub struct HomeData {
     pub top_songs_generation: u64,
     pub requested: bool,
     pub loaded_at: Option<Instant>,
+    /// Answers the current refresh still waits for.
+    pub awaiting: usize,
+}
+
+/// What Home last showed for one account, shown at the next start while
+/// Home is read again.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct HomeSnapshot {
+    pub recently_played: Vec<PlayHistory>,
+    pub top_artists: Vec<Artist>,
+    pub top_tracks: Vec<Track>,
+    /// Made for you, by search term.
+    pub discover: std::collections::BTreeMap<String, Vec<Playlist>>,
+    pub podcasts: Vec<(Show, Vec<Episode>)>,
 }
 
 pub const DISCOVER_TERMS: &[&str] = &["Discover Weekly", "Release Radar", "Daily Mix", "daylist"];

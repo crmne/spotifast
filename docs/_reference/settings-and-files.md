@@ -29,6 +29,7 @@ Spotifast follows each platform's conventions. On Linux:
 | Lyrics cache | `~/.cache/spotifast/lyrics/` | Always |
 | Account-scoped playlist page cache | `~/.cache/spotifast/playlists/<account-id>/` | Always |
 | Account-scoped playlist list | `~/.cache/spotifast/library/` | Always |
+| Account-scoped Home shelves | `~/.cache/spotifast/home/` | Always |
 | Last run's log | `~/.local/state/spotifast/spotifast.log` | Always |
 | Crash log | `~/.local/state/spotifast/panic.log` | Always |
 
@@ -160,6 +161,12 @@ limited read keeps the shown list and is tried again a minute later.
 Playlists created or deleted in the meantime stay that way. The list is
 saved again only when Spotify has confirmed every change in it. This cache
 contains metadata only and can be deleted at any time.
+
+Home's Recently played, Your top artists, Top tracks, Made for you and Your
+podcasts shelves are stored the same way under `home/`. They are shown when
+the account is verified and replaced shelf by shelf as Spotify answers. A
+shelf Spotify turns away keeps what it showed. Each shelf is saved as soon
+as its new answer arrives.
 
 Since 0.8.0, memory caches retain the open page,
 the playing context, and a limited set of recently used playlist, album,
