@@ -2178,7 +2178,7 @@ impl Worker {
                     let _ = commands.send(Command::SignInEnded { source, attempt });
                     return;
                 }
-                match client.me().await {
+                match crate::api::client::unseen(client.me()).await {
                     Ok(user) => {
                         let _ = commands.send(Command::WebVerified {
                             source,

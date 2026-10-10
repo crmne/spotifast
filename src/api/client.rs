@@ -313,8 +313,31 @@ impl NetActivity {
     }
 }
 
+tokio::task_local! {
+    static UNSEEN: ();
+}
+
+/// Runs requests nothing on screen waits for without showing them as
+/// activity. Checking a grant in the background retries through rate
+/// limits for as long as Spotify keeps refusing, and would otherwise hold
+/// the "Waiting for Spotify" spinner up over an app that is ready to use.
+pub async fn unseen<F: std::future::Future>(future: F) -> F::Output {
+    UNSEEN.scope((), future).await
+}
+
 /// Decrements the in-flight count even if the request future is dropped.
 struct ActivityGuard<'a>(&'a NetActivity);
+
+impl<'a> ActivityGuard<'a> {
+    /// Counts a request as activity, unless it runs [`unseen`].
+    fn begin(activity: &'a NetActivity) -> Option<Self> {
+        if UNSEEN.try_with(|_| ()).is_ok() {
+            return None;
+        }
+        activity.begin();
+        Some(Self(activity))
+    }
+}
 
 impl Drop for ActivityGuard<'_> {
     fn drop(&mut self) {
@@ -434,8 +457,7 @@ impl ApiClient {
         // This is one logical request even when it waits for another request
         // or for a Retry-After cooldown. Keep the interface's activity signal
         // alive for that whole wait, not only while bytes are on the wire.
-        self.activity.begin();
-        let _activity = ActivityGuard(&self.activity);
+        let _activity = ActivityGuard::begin(&self.activity);
 
         let mut attempt = 0;
         let queue_write = method == Method::POST && path == "/me/player/queue";
@@ -1482,6 +1504,21 @@ mod tests {
         assert!(!is_quota_exhausted(
             r#"{"error":{"status":429,"message":"Too many requests"}}"#
         ));
+    }
+
+    /// A background check of a grant is not activity the interface shows;
+    /// any other request is, and stops being once it ends.
+    #[tokio::test]
+    async fn unseen_requests_are_not_activity() {
+        let activity = NetActivity::default();
+        let seen = ActivityGuard::begin(&activity);
+        assert!(seen.is_some());
+        assert!(activity.busy(Duration::ZERO));
+        drop(seen);
+        assert!(!activity.busy(Duration::ZERO));
+        let hidden = unseen(async { ActivityGuard::begin(&activity).is_none() }).await;
+        assert!(hidden);
+        assert!(!activity.busy(Duration::ZERO));
     }
 
     #[tokio::test]
