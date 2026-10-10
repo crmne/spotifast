@@ -830,6 +830,20 @@ mod tests {
         assert!(terminal_art_error(&LoadError::NotSupported));
     }
 
+    /// Spotify's CDN serves some playlist covers, often uploaded ones, as
+    /// WebP. They decode for painting like JPEG and PNG covers do, rather
+    /// than failing as unsupported and leaving the placeholder.
+    #[test]
+    fn webp_covers_decode_for_painting() {
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(4, 3, image::Rgba([20, 30, 40, 255]))
+            .write_to(&mut encoded, image::ImageFormat::WebP)
+            .unwrap();
+        let decoded = egui_extras::image::load_image_bytes(encoded.get_ref()).unwrap();
+        assert_eq!(decoded.size, [4, 3]);
+        assert!(image::load_from_memory(encoded.get_ref()).is_ok());
+    }
+
     fn cached_png(loader: &ArtLoader, uri: &str, rgb: [u8; 3]) {
         let mut encoded = std::io::Cursor::new(Vec::new());
         image::RgbImage::from_pixel(64, 64, image::Rgb(rgb))
