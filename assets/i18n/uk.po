@@ -3204,3 +3204,52 @@ msgstr ""
 "У Windows на ARM Spotifast використовує OpenGL із пакета Microsoft OpenCL, "
 "OpenGL & Vulkan Compatibility Pack. Відкрити його сторінку в Microsoft "
 "Store, щоб установити або відновити пакет?"
+
+#: src/ui/prerelease.rs
+msgid "Releases"
+msgstr "Виходить"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save"
+msgstr "Передзберегти"
+
+#: src/ui/prerelease.rs
+msgid "Pre-saved"
+msgstr "Передзбережено"
+
+#: src/ui/prerelease.rs
+msgid "Saving…"
+msgstr "Збереження…"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save on Spotify"
+msgstr "Передзберегти у Spotify"
+
+#: src/ui/prerelease.rs
+msgid "Track list preview"
+msgstr "Попередній перегляд треків"
+
+#: src/ui/prerelease.rs
+msgid "Track {number}"
+msgstr "Трек {number}"
+
+#: src/ui/prerelease.rs
+msgid "days"
+msgstr "днів"
+
+#: src/ui/prerelease.rs
+msgid "hours"
+msgstr "годин"
+
+#: src/ui/prerelease.rs
+msgid "minutes"
+msgstr "хвилин"
+
+#: src/ui/prerelease.rs
+msgid "seconds"
+msgstr "секунд"
+
+#: src/ui/prerelease.rs
+msgctxt "column"
+msgid "Title"
+msgstr "Назва"

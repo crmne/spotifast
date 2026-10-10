@@ -101,6 +101,18 @@ It is not included in the Windows on ARM download.
 [Read the MilkDrop guide](https://spotifast.rocks/milkdrop/) for presets,
 controls, and fullscreen mode.
 
+## Upcoming albums
+
+Open a `spotify:prerelease:` URI or an `open.spotify.com/prerelease/` link
+with Spotifast to see the artwork, release countdown and track-list preview.
+This requires local playback authorization. Pre-save adds the resolved album
+to your Spotify library and confirms its saved state. Unavailable preview
+tracks cannot start playback.
+
+The browser's **Open in app** action uses the registered `spotify:` handler.
+Pasting an HTTPS address into the browser opens Spotify's website; Spotifast
+does not take over HTTP or HTTPS associations.
+
 ## Guides and help
 
 The complete guide lives at **[spotifast.rocks](https://spotifast.rocks/)**.

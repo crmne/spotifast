@@ -3200,3 +3200,52 @@ msgstr "В Windows на ARM OpenGL, с помощью которого рису�
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Уменьшить анимацию текста"
+
+#: src/ui/prerelease.rs
+msgid "Releases"
+msgstr "Выходит"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save"
+msgstr "Предсохранить"
+
+#: src/ui/prerelease.rs
+msgid "Pre-saved"
+msgstr "Предсохранено"
+
+#: src/ui/prerelease.rs
+msgid "Saving…"
+msgstr "Сохранение…"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save on Spotify"
+msgstr "Предсохранить в Spotify"
+
+#: src/ui/prerelease.rs
+msgid "Track list preview"
+msgstr "Обзор треков"
+
+#: src/ui/prerelease.rs
+msgid "Track {number}"
+msgstr "Трек {number}"
+
+#: src/ui/prerelease.rs
+msgid "days"
+msgstr "дней"
+
+#: src/ui/prerelease.rs
+msgid "hours"
+msgstr "часов"
+
+#: src/ui/prerelease.rs
+msgid "minutes"
+msgstr "минут"
+
+#: src/ui/prerelease.rs
+msgid "seconds"
+msgstr "секунд"
+
+#: src/ui/prerelease.rs
+msgctxt "column"
+msgid "Title"
+msgstr "Название"

@@ -3078,3 +3078,52 @@ msgstr "在 ARM 版 Windows 上，Spotifast 用于绘制界面的 OpenGL 由 Mic
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "减少歌词动画"
+
+#: src/ui/prerelease.rs
+msgid "Releases"
+msgstr "发行日期"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save"
+msgstr "预保存"
+
+#: src/ui/prerelease.rs
+msgid "Pre-saved"
+msgstr "已预保存"
+
+#: src/ui/prerelease.rs
+msgid "Saving…"
+msgstr "正在保存…"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save on Spotify"
+msgstr "在 Spotify 预保存"
+
+#: src/ui/prerelease.rs
+msgid "Track list preview"
+msgstr "曲目列表预览"
+
+#: src/ui/prerelease.rs
+msgid "Track {number}"
+msgstr "曲目 {number}"
+
+#: src/ui/prerelease.rs
+msgid "days"
+msgstr "天"
+
+#: src/ui/prerelease.rs
+msgid "hours"
+msgstr "小时"
+
+#: src/ui/prerelease.rs
+msgid "minutes"
+msgstr "分钟"
+
+#: src/ui/prerelease.rs
+msgid "seconds"
+msgstr "秒"
+
+#: src/ui/prerelease.rs
+msgctxt "column"
+msgid "Title"
+msgstr "标题"

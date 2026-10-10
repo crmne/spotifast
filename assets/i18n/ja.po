@@ -3154,3 +3154,52 @@ msgstr "Windows on ARM では、Spotifast の描画に使う OpenGL は Microsof
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#: src/ui/prerelease.rs
+msgid "Releases"
+msgstr "リリース日"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save"
+msgstr "事前保存"
+
+#: src/ui/prerelease.rs
+msgid "Pre-saved"
+msgstr "事前保存済み"
+
+#: src/ui/prerelease.rs
+msgid "Saving…"
+msgstr "保存中…"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save on Spotify"
+msgstr "Spotifyで事前保存"
+
+#: src/ui/prerelease.rs
+msgid "Track list preview"
+msgstr "トラックリストのプレビュー"
+
+#: src/ui/prerelease.rs
+msgid "Track {number}"
+msgstr "トラック {number}"
+
+#: src/ui/prerelease.rs
+msgid "days"
+msgstr "日"
+
+#: src/ui/prerelease.rs
+msgid "hours"
+msgstr "時間"
+
+#: src/ui/prerelease.rs
+msgid "minutes"
+msgstr "分"
+
+#: src/ui/prerelease.rs
+msgid "seconds"
+msgstr "秒"
+
+#: src/ui/prerelease.rs
+msgctxt "column"
+msgid "Title"
+msgstr "タイトル"

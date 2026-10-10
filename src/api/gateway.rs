@@ -273,6 +273,15 @@ impl ApiGateway {
         matches!(self.state(ApiSource::Personal), SessionState::Ready { .. })
     }
 
+    /// Reuse configured HTTP transport only after verifying the account.
+    /// Pathfinder itself receives the playback session's Login5 credentials.
+    pub(crate) fn prerelease_http_client(&self) -> Option<Arc<ApiClient>> {
+        [ApiSource::Personal, ApiSource::Shared]
+            .into_iter()
+            .find(|source| matches!(self.state(*source), SessionState::Ready { .. }))
+            .map(|source| self.verification_client(source))
+    }
+
     pub async fn client_for(&self, operation: Operation) -> Result<Arc<ApiClient>, ApiError> {
         let source = plan(operation, self.personal_ready());
         let session = self.session(source);

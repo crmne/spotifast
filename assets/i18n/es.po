@@ -3184,3 +3184,52 @@ msgstr "En Windows en ARM, el OpenGL con el que Spotifast dibuja viene del OpenC
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Reducir movimiento de la letra"
+
+#: src/ui/prerelease.rs
+msgid "Releases"
+msgstr "Se publica"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save"
+msgstr "Preguardar"
+
+#: src/ui/prerelease.rs
+msgid "Pre-saved"
+msgstr "Preguardado"
+
+#: src/ui/prerelease.rs
+msgid "Saving…"
+msgstr "Guardando…"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save on Spotify"
+msgstr "Preguardar en Spotify"
+
+#: src/ui/prerelease.rs
+msgid "Track list preview"
+msgstr "Vista previa de canciones"
+
+#: src/ui/prerelease.rs
+msgid "Track {number}"
+msgstr "Canción {number}"
+
+#: src/ui/prerelease.rs
+msgid "days"
+msgstr "días"
+
+#: src/ui/prerelease.rs
+msgid "hours"
+msgstr "horas"
+
+#: src/ui/prerelease.rs
+msgid "minutes"
+msgstr "minutos"
+
+#: src/ui/prerelease.rs
+msgid "seconds"
+msgstr "segundos"
+
+#: src/ui/prerelease.rs
+msgctxt "column"
+msgid "Title"
+msgstr "Título"

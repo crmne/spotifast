@@ -3191,3 +3191,52 @@ msgstr "Su Windows on ARM, l’OpenGL con cui Spotifast disegna proviene dall’
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Riduci animazioni del testo"
+
+#: src/ui/prerelease.rs
+msgid "Releases"
+msgstr "In uscita"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save"
+msgstr "Presalva"
+
+#: src/ui/prerelease.rs
+msgid "Pre-saved"
+msgstr "Presalvato"
+
+#: src/ui/prerelease.rs
+msgid "Saving…"
+msgstr "Salvataggio…"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save on Spotify"
+msgstr "Presalva su Spotify"
+
+#: src/ui/prerelease.rs
+msgid "Track list preview"
+msgstr "Anteprima dei brani"
+
+#: src/ui/prerelease.rs
+msgid "Track {number}"
+msgstr "Brano {number}"
+
+#: src/ui/prerelease.rs
+msgid "days"
+msgstr "giorni"
+
+#: src/ui/prerelease.rs
+msgid "hours"
+msgstr "ore"
+
+#: src/ui/prerelease.rs
+msgid "minutes"
+msgstr "minuti"
+
+#: src/ui/prerelease.rs
+msgid "seconds"
+msgstr "secondi"
+
+#: src/ui/prerelease.rs
+msgctxt "column"
+msgid "Title"
+msgstr "Titolo"

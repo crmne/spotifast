@@ -12,6 +12,7 @@ pub mod library;
 pub mod login;
 mod lyrics;
 pub mod player_bar;
+mod prerelease;
 pub mod queue;
 pub mod radio;
 pub mod search;

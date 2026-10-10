@@ -752,11 +752,42 @@ fn demo_sound() -> Vec<f64> {
 pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     // Default screenshots to the main window regardless of saved settings.
     app.settings.winamp_window = false;
+    if page == Some("prerelease") {
+        let uri = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
+        if let Ok(mut data) =
+            crate::prerelease::Prerelease::decode(include_bytes!("testdata/prerelease.pb"), uri)
+        {
+            let body =
+                serde_json::from_str(include_str!("testdata/prerelease-album.json")).unwrap();
+            let (tracks, total) = data.album_preview(&body).unwrap();
+            data.tracks = tracks;
+            data.album.total_tracks = Some(total);
+            data.saved = Some(false);
+            let id = data.album.id.clone();
+            app.album_pages.insert(
+                id.clone(),
+                AlbumPage {
+                    album: Loadable::Loaded(data.album.clone()),
+                    prerelease: Some(data),
+                    ..Default::default()
+                },
+            );
+            app.local_ready = true;
+            app.open(Page::Album(id));
+        }
+    }
     if let Some(page) = page.and_then(Page::decode) {
         app.open(page);
     }
     for surface in show.unwrap_or("").split(',').map(str::trim) {
         match surface {
+            "presaved" => {
+                for page in app.album_pages.values_mut() {
+                    if let Some(data) = &mut page.prerelease {
+                        data.saved = Some(true);
+                    }
+                }
+            }
             "library-list"
             | "library-list-narrow"
             | "library-list-wide"

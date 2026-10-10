@@ -553,6 +553,8 @@ pub struct App {
     /// A Spotify link handed over from outside, waiting for the account
     /// to be signed in and, for a song, for its album to be known.
     pending_link: Option<String>,
+    prerelease_request: Option<u64>,
+    prerelease_serial: u64,
     /// The songs behind the links last copied from a track table, so a
     /// paste of those links adds rows with their names straight away.
     copied_songs: Vec<PlayableItem>,
@@ -953,6 +955,8 @@ impl App {
             rootlist_cache: session.rootlist.clone(),
             editable_by_grant: std::collections::BTreeSet::new(),
             pending_link: None,
+            prerelease_request: None,
+            prerelease_serial: 0,
             copied_songs: Vec::new(),
             pending_pastes: Vec::new(),
             collapsed_folders: session.collapsed_folders.clone(),
@@ -1986,6 +1990,17 @@ impl App {
                     generation,
                     result,
                 } => self.receive_radio(&seed, generation, result),
+                Event::Prerelease {
+                    uri,
+                    generation,
+                    result,
+                } => self.receive_prerelease(&uri, generation, result.map(|data| *data)),
+                Event::PrereleaseSaved {
+                    uri,
+                    saved,
+                    generation,
+                    result,
+                } => self.receive_prerelease_saved(&uri, saved, generation, result),
                 Event::AlbumType { uri, result } => match result {
                     Ok(true) => {
                         self.confirmed_ep_albums.insert(uri);
@@ -2150,6 +2165,7 @@ impl App {
         self.home = HomeData::default();
         self.playlist_pages.clear();
         self.album_pages.clear();
+        self.prerelease_request = None;
         self.artist_pages.clear();
         self.show_pages.clear();
         self.album_types_requested.clear();
@@ -6027,6 +6043,16 @@ impl App {
                 }
             }
             ApiResponse::Album { id, result } => {
+                // An earlier Web API header has no page generation. Once the
+                // session resolves a countdown page, its preview and playable
+                // cache own this album; a late generic header cannot replace it.
+                if self
+                    .album_pages
+                    .get(&id)
+                    .is_some_and(|page| page.prerelease.is_some())
+                {
+                    return;
+                }
                 let mut uris = Vec::new();
                 if let Ok(album) = &result {
                     self.request_album_types(std::iter::once(album));
@@ -6281,6 +6307,8 @@ impl App {
     // ---- navigation ------------------------------------------------------------
 
     pub fn open(&mut self, page: Page) {
+        self.pending_link = None;
+        self.prerelease_request = None;
         self.touch_page(&page);
         if *self.page() == page {
             self.ensure_loaded(page.clone());
@@ -6329,6 +6357,16 @@ impl App {
         }
         let id = util::uri_id(&uri).unwrap_or_default().to_string();
         match util::uri_kind(&uri) {
+            Some("prerelease") => {
+                if self.prerelease_request.is_none() {
+                    self.prerelease_serial = self.prerelease_serial.wrapping_add(1);
+                    self.prerelease_request = Some(self.prerelease_serial);
+                    self.backend.send(Command::Prerelease {
+                        uri,
+                        generation: self.prerelease_serial,
+                    });
+                }
+            }
             Some("track") => {
                 if let Some(track) = self.read_cached_track(&id) {
                     self.pending_link = None;
@@ -6360,6 +6398,91 @@ impl App {
                     self.locale,
                     "Spotifast cannot open this kind of Spotify link",
                 ));
+            }
+        }
+    }
+
+    fn receive_prerelease(
+        &mut self,
+        uri: &str,
+        generation: u64,
+        result: Result<crate::prerelease::Prerelease, String>,
+    ) {
+        if self.user.is_none()
+            || self.pending_link.as_deref() != Some(uri)
+            || self.prerelease_request != Some(generation)
+        {
+            return;
+        }
+        self.pending_link = None;
+        self.prerelease_request = None;
+        match result {
+            Ok(data) => {
+                let id = data.album.id.clone();
+                self.load_generation = self.load_generation.wrapping_add(1);
+                let mut tracks = PagedList::default();
+                tracks.absorb(
+                    0,
+                    crate::api::models::Page {
+                        items: data
+                            .tracks
+                            .iter()
+                            .flatten()
+                            .filter(|track| track.is_playable == Some(true))
+                            .cloned()
+                            .collect(),
+                        total: data
+                            .tracks
+                            .iter()
+                            .flatten()
+                            .filter(|track| track.is_playable == Some(true))
+                            .count() as u32,
+                        ..Default::default()
+                    },
+                );
+                self.album_pages.insert(
+                    id.clone(),
+                    AlbumPage {
+                        generation: self.load_generation,
+                        album: Loadable::Loaded(data.album.clone()),
+                        prerelease: Some(data),
+                        tracks,
+                    },
+                );
+                self.open(Page::Album(id));
+            }
+            Err(error) => self.toast_error(error),
+        }
+    }
+
+    fn receive_prerelease_saved(
+        &mut self,
+        uri: &str,
+        saved: bool,
+        generation: u64,
+        result: Result<(), String>,
+    ) {
+        for page in self
+            .album_pages
+            .values_mut()
+            .filter(|page| page.generation == generation)
+        {
+            if let Some(data) = &mut page.prerelease
+                && data.album.uri == uri
+                && data.saving
+                && data.saved == Some(saved)
+            {
+                data.saving = false;
+                match result {
+                    Ok(()) => data.save_error = None,
+                    Err(error) => {
+                        // A timeout may have committed remotely. Unknown is
+                        // more honest than guessing or silently sending again.
+                        data.saved = None;
+                        data.save_error = Some(error);
+                    }
+                }
+                break;
             }
         }
     }
@@ -8290,12 +8413,15 @@ impl App {
             Action::OpenLink(uri) => {
                 // The window first: a link is the user asking for the
                 // app, signed in or not, and the page follows when it can.
+                self.prerelease_request = None;
                 self.pending_link = Some(uri);
                 self.open_pending_link();
                 self.actions.push(Action::ShowWindow);
             }
             Action::Back => {
                 if self.can_go_back() {
+                    self.pending_link = None;
+                    self.prerelease_request = None;
                     self.history_index -= 1;
                     let page = self.page().clone();
                     self.touch_page(&page);
@@ -8306,6 +8432,8 @@ impl App {
             }
             Action::Forward => {
                 if self.can_go_forward() {
+                    self.pending_link = None;
+                    self.prerelease_request = None;
                     self.history_index += 1;
                     let page = self.page().clone();
                     self.touch_page(&page);
@@ -9210,6 +9338,27 @@ impl App {
                         self.locale,
                         "Opening your browser to set up local playback",
                     ));
+                }
+            }
+            Action::SetPrereleaseSaved { uri, saved } => {
+                if self.local_ready {
+                    for page in self.album_pages.values_mut() {
+                        if let Some(data) = &mut page.prerelease
+                            && data.uri == uri
+                            && data.saved.is_some()
+                            && !data.saving
+                        {
+                            data.saved = Some(saved);
+                            data.saving = true;
+                            data.save_error = None;
+                            self.backend.send(Command::SetPrereleaseSaved {
+                                uri: data.album.uri.clone(),
+                                saved,
+                                generation: page.generation,
+                            });
+                            break;
+                        }
+                    }
                 }
             }
             Action::OpenUrl(url) => {
@@ -15243,6 +15392,191 @@ mod tests {
         app.set_user_name("nobody".into(), None);
         assert_eq!(app.user_names.get("nobody"), Some(&None));
         app.backend.shutdown();
+    }
+
+    #[test]
+    fn prerelease_answers_cannot_replace_newer_links_or_manual_navigation() {
+        let mut app = test_app("prerelease-stale");
+        let uri = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
+        let data = || {
+            crate::prerelease::Prerelease::decode(include_bytes!("testdata/prerelease.pb"), uri)
+                .unwrap()
+        };
+        app.user = Some(crate::api::models::User::default());
+        app.pending_link = Some(uri.into());
+        app.prerelease_request = Some(2);
+        app.receive_prerelease(uri, 1, Ok(data()));
+        assert!(app.album_pages.is_empty());
+        assert_eq!(app.pending_link.as_deref(), Some(uri));
+        app.open(Page::Home);
+        app.receive_prerelease(uri, 2, Ok(data()));
+        assert!(
+            app.album_pages.is_empty(),
+            "manual navigation cancels the external link"
+        );
+        app.pending_link = Some(uri.into());
+        app.prerelease_request = Some(3);
+        app.receive_prerelease(uri, 3, Ok(data()));
+        assert_eq!(app.page(), &Page::Album("5BYKG4MHfySZthe2W6r7n4".into()));
+        assert!(app.pending_link.is_none());
+        assert!(
+            app.album_pages["5BYKG4MHfySZthe2W6r7n4"]
+                .prerelease
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn uncertain_presave_does_not_claim_the_library_changed_or_replay() {
+        let mut app = test_app("prerelease-presave");
+        let uri = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
+        let mut data =
+            crate::prerelease::Prerelease::decode(include_bytes!("testdata/prerelease.pb"), uri)
+                .unwrap();
+        data.saved = Some(true);
+        data.saving = true;
+        app.album_pages.insert(
+            data.album.id.clone(),
+            AlbumPage {
+                generation: 7,
+                prerelease: Some(data),
+                ..Default::default()
+            },
+        );
+        app.receive_prerelease_saved(
+            "spotify:album:5BYKG4MHfySZthe2W6r7n4",
+            true,
+            6,
+            Err("stale".into()),
+        );
+        assert!(
+            app.album_pages["5BYKG4MHfySZthe2W6r7n4"]
+                .prerelease
+                .as_ref()
+                .unwrap()
+                .saving
+        );
+        app.receive_prerelease_saved(
+            "spotify:album:5BYKG4MHfySZthe2W6r7n4",
+            true,
+            7,
+            Err("confirmation timed out".into()),
+        );
+        let data = app.album_pages["5BYKG4MHfySZthe2W6r7n4"]
+            .prerelease
+            .as_ref()
+            .unwrap();
+        assert_eq!(data.saved, None);
+        assert!(!data.saving);
+        assert_eq!(data.save_error.as_deref(), Some("confirmation timed out"));
+    }
+
+    #[test]
+    fn history_and_logout_cancel_pending_prerelease_navigation() {
+        let mut app = test_app("prerelease-history");
+        let uri = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
+        app.user = Some(crate::api::models::User::default());
+        app.open(Page::Search);
+        let ctx = egui::Context::default();
+        for (action, generation) in [(Action::Back, 1), (Action::Forward, 2)] {
+            app.pending_link = Some(uri.into());
+            app.prerelease_request = Some(generation);
+            app.apply(action, &ctx);
+            let page = app.page().clone();
+            let data = crate::prerelease::Prerelease::decode(
+                include_bytes!("testdata/prerelease.pb"),
+                uri,
+            )
+            .unwrap();
+            app.receive_prerelease(uri, generation, Ok(data));
+            assert_eq!(app.page(), &page);
+            assert!(app.album_pages.is_empty());
+        }
+        app.pending_link = Some(uri.into());
+        app.prerelease_request = Some(3);
+        app.reset_data();
+        let data =
+            crate::prerelease::Prerelease::decode(include_bytes!("testdata/prerelease.pb"), uri)
+                .unwrap();
+        app.receive_prerelease(uri, 3, Ok(data));
+        assert!(app.album_pages.is_empty());
+    }
+
+    #[test]
+    fn cold_prerelease_link_waits_for_backend_playback_restore_once() {
+        let mut app = test_app("prerelease-cold-start");
+        let uri = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
+        app.user = Some(crate::api::models::User::default());
+        app.local_playback = LocalPlayback::Unavailable;
+        app.pending_link = Some(uri.into());
+        app.open_pending_link();
+        assert_eq!(app.pending_link.as_deref(), Some(uri));
+        let request = app.prerelease_request;
+        assert!(request.is_some());
+        app.open_pending_link();
+        assert_eq!(app.prerelease_request, request);
+        app.handle_playback(LocalPlayback::Ready {
+            device_id: "local".into(),
+        });
+        app.open_pending_link();
+        assert_eq!(
+            app.prerelease_request, request,
+            "readiness must not duplicate the queued request"
+        );
+    }
+
+    #[test]
+    fn generic_album_playback_excludes_unreleased_preview_rows() {
+        let mut app = test_app("prerelease-playable-context");
+        let uri = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
+        let mut data =
+            crate::prerelease::Prerelease::decode(include_bytes!("testdata/prerelease.pb"), uri)
+                .unwrap();
+        let body = serde_json::from_str(include_str!("testdata/prerelease-album.json")).unwrap();
+        let (tracks, _) = data.album_preview(&body).unwrap();
+        data.tracks = tracks;
+        let expected: Vec<_> = data
+            .tracks
+            .iter()
+            .flatten()
+            .filter(|track| track.is_playable == Some(true))
+            .map(|track| track.uri.clone())
+            .collect();
+        app.user = Some(crate::api::models::User::default());
+        app.pending_link = Some(uri.into());
+        app.prerelease_request = Some(1);
+        let album_uri = data.album.uri.clone();
+        app.receive_prerelease(uri, 1, Ok(data));
+        assert_eq!(app.context_track_uris(&album_uri), Some(expected.clone()));
+        assert!(
+            app.album_pages["5BYKG4MHfySZthe2W6r7n4"]
+                .prerelease
+                .as_ref()
+                .unwrap()
+                .tracks
+                .len()
+                > expected.len()
+        );
+        app.handle_api(ApiResponse::Album {
+            id: "5BYKG4MHfySZthe2W6r7n4".into(),
+            result: Ok(crate::api::models::Album {
+                tracks: Some(crate::api::models::Page {
+                    items: vec![crate::api::models::Track {
+                        uri: "spotify:track:unavailable".into(),
+                        is_playable: Some(false),
+                        ..Default::default()
+                    }],
+                    total: 1,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        });
+        assert_eq!(
+            app.context_track_uris(&album_uri),
+            Some(expected),
+            "a late generic header cannot restore hidden playback rows"
+        );
     }
 
     /// With Random on, each switch to the mini player shows a skin other

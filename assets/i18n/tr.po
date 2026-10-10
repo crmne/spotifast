@@ -3193,3 +3193,51 @@ msgstr "Spotifast penceresini açamıyor"
 #: src/window.rs:35
 msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr "ARM üzerinde Windows'ta Spotifast'in çizim için kullandığı OpenGL, Microsoft'un OpenCL, OpenGL & Vulkan Compatibility Pack paketinden gelir. Yüklemek veya onarmak için Microsoft Store sayfası açılsın mı?"
+#: src/ui/prerelease.rs
+msgid "Releases"
+msgstr "Yayın tarihi"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save"
+msgstr "Önceden kaydet"
+
+#: src/ui/prerelease.rs
+msgid "Pre-saved"
+msgstr "Önceden kaydedildi"
+
+#: src/ui/prerelease.rs
+msgid "Saving…"
+msgstr "Kaydediliyor…"
+
+#: src/ui/prerelease.rs
+msgid "Pre-save on Spotify"
+msgstr "Spotify’da önceden kaydet"
+
+#: src/ui/prerelease.rs
+msgid "Track list preview"
+msgstr "Parça listesi önizlemesi"
+
+#: src/ui/prerelease.rs
+msgid "Track {number}"
+msgstr "Parça {number}"
+
+#: src/ui/prerelease.rs
+msgid "days"
+msgstr "gün"
+
+#: src/ui/prerelease.rs
+msgid "hours"
+msgstr "saat"
+
+#: src/ui/prerelease.rs
+msgid "minutes"
+msgstr "dakika"
+
+#: src/ui/prerelease.rs
+msgid "seconds"
+msgstr "saniye"
+
+#: src/ui/prerelease.rs
+msgctxt "column"
+msgid "Title"
+msgstr "Başlık"
