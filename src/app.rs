@@ -2170,6 +2170,8 @@ impl App {
         self.devices_fetched_at = None;
         self.search.results = Loadable::NotLoaded;
         self.search.committed.clear();
+        self.search.committed_run = None;
+        self.search.typed_entry = None;
         self.search.playlists = None;
         self.search.serial += 1;
         self.search.catalogue_pending = false;
@@ -2850,7 +2852,7 @@ impl App {
             if typed.elapsed() >= SEARCH_DEBOUNCE {
                 self.search.typed_at = None;
                 let query = self.search.query.trim().to_string();
-                self.run_search(query);
+                self.run_typed_search(query);
             } else {
                 ctx.request_repaint_after(SEARCH_DEBOUNCE - typed.elapsed());
             }
@@ -4593,6 +4595,7 @@ impl App {
         }
         self.search.serial += 1;
         self.search.committed = query.clone();
+        self.search.committed_run = None;
         self.search.playlists = None;
         self.search.error = None;
         self.search.catalogue_pending = !query.is_empty();
@@ -4609,6 +4612,56 @@ impl App {
             query,
             serial: self.search.serial,
         });
+    }
+
+    /// A search the debounce started while the user may still be typing.
+    fn run_typed_search(&mut self, query: String) {
+        let serial = self.search.serial;
+        self.run_search(query);
+        if self.search.serial != serial {
+            self.search.committed_run = Some((self.search.edit_run, true));
+        }
+    }
+
+    /// Searches for what the field holds, ending its run of typing.
+    fn submit_typed_search(&mut self, query: String) {
+        let run = self.search.edit_run;
+        self.search.edit_run += 1;
+        let serial = self.search.serial;
+        self.run_search(query);
+        if self.search.serial != serial
+            || self.search.catalogue_pending
+            || self.search.playlists_pending
+        {
+            self.search.committed_run = Some((run, false));
+        }
+    }
+
+    /// Records a query that found results. While typing, a pause commits
+    /// each prefix in turn, so a query that extends or shortens the one the
+    /// same run recorded takes its place instead of adding another. Only an
+    /// entry the run itself added is replaced.
+    fn remember_search(&mut self, query: &str) {
+        let query = query.trim();
+        if let Some((run, typing)) = self.search.committed_run
+            && self.search.typed_entry != Some((run, query.to_string()))
+        {
+            if let Some((entry_run, entry)) = self.search.typed_entry.take()
+                && entry_run == run
+                && (query.starts_with(entry.as_str()) || entry.starts_with(query))
+                && self.settings.search_history.first() == Some(&entry)
+            {
+                self.settings.search_history.remove(0);
+            }
+            let added = !self
+                .settings
+                .search_history
+                .iter()
+                .any(|entry| entry == query);
+            self.search.typed_entry = (typing && added).then(|| (run, query.to_string()));
+        }
+        self.settings.remember_search(query);
+        self.settings_dirty = true;
     }
 
     fn show_search_playlists(&mut self) {
@@ -5945,8 +5998,7 @@ impl App {
                     Ok(page) => {
                         self.search.playlists = Some((serial, page));
                         self.show_search_playlists();
-                        self.settings.remember_search(&query);
-                        self.settings_dirty = true;
+                        self.remember_search(&query);
                     }
                     Err(error) => self.search_failed(&gettext(self.locale, "Playlists"), error),
                 }
@@ -5969,8 +6021,7 @@ impl App {
                             .map(|track| track.uri.clone())
                             .collect();
                         self.request_contains(uris);
-                        self.settings.remember_search(&query);
-                        self.settings_dirty = true;
+                        self.remember_search(&query);
                         self.search.results = Loadable::Loaded(results);
                         self.search.results_serial = serial;
                         self.show_search_playlists();
@@ -8864,11 +8915,20 @@ impl App {
                 }
             }
             Action::Search(query) => {
+                // Enter submits what was typed; a recent search or a link
+                // starts afresh.
+                let typed = query == self.search.query;
                 self.search.query = query.clone();
                 self.search.typed_at = None;
                 self.open(Page::Search);
-                self.run_search(query.trim().to_string());
+                if typed {
+                    self.submit_typed_search(query.trim().to_string());
+                } else {
+                    self.search.edit_run += 1;
+                    self.run_search(query.trim().to_string());
+                }
             }
+            Action::EndSearchRun => self.search.edit_run += 1,
             Action::ForgetSearch(query) => {
                 self.settings.search_history.retain(|entry| entry != &query);
                 self.settings_dirty = true;
@@ -14839,6 +14899,126 @@ mod tests {
             assert!(!app.search.catalogue_pending && !app.search.playlists_pending);
             app.backend.shutdown();
         }
+    }
+
+    fn answer_search(app: &mut App, query: &str, serial: u64) {
+        app.handle_api(ApiResponse::Search {
+            query: query.into(),
+            serial,
+            result: Ok(catalogue_answer()),
+        });
+    }
+
+    /// A query the debounce committed after a pause, answered with results.
+    fn typed_search(app: &mut App, query: &str) {
+        app.search.query = query.into();
+        app.run_typed_search(query.into());
+        let serial = app.search.serial;
+        answer_search(app, query, serial);
+    }
+
+    /// The field emptied, or its selection typed over.
+    fn end_search_run(app: &mut App) {
+        app.actions.push(Action::EndSearchRun);
+        app.apply_actions(&egui::Context::default());
+    }
+
+    /// Enter in the search field.
+    fn submit_search(app: &mut App, query: &str) {
+        app.search.query = query.into();
+        app.actions.push(Action::Search(query.into()));
+        app.apply_actions(&egui::Context::default());
+    }
+
+    #[test]
+    fn pauses_while_typing_record_only_the_final_query() {
+        let mut app = test_app("search-typing-prefixes");
+        app.settings.search_history = vec!["older".into()];
+        for query in ["ab", "abs", "absolut", "abso", "absolutely"] {
+            typed_search(&mut app, query);
+        }
+        assert_eq!(app.settings.search_history, ["absolutely", "older"]);
+
+        // Enter on a query whose typed search is still on its way ends the
+        // run, and its answer still replaces the run's prefix.
+        end_search_run(&mut app);
+        app.settings.search_history.clear();
+        typed_search(&mut app, "abs");
+        app.search.query = "absolutely".into();
+        app.run_typed_search("absolutely".into());
+        let serial = app.search.serial;
+        submit_search(&mut app, "absolutely");
+        assert_eq!(app.search.serial, serial);
+        answer_search(&mut app, "absolutely", serial);
+        assert_eq!(app.settings.search_history, ["absolutely"]);
+        typed_search(&mut app, "absolutely sweet");
+        assert_eq!(
+            app.settings.search_history,
+            ["absolutely sweet", "absolutely"]
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_new_query_or_a_finished_search_keeps_its_own_recent_entry() {
+        let mut app = test_app("search-typing-separate");
+        // Typing over the whole query starts a different search, even when
+        // the new query is a prefix of the old one.
+        typed_search(&mut app, "beatles");
+        end_search_run(&mut app);
+        typed_search(&mut app, "beat");
+        assert_eq!(app.settings.search_history, ["beat", "beatles"]);
+
+        // A different query typed after deleting the old one.
+        typed_search(&mut app, "queen");
+        assert_eq!(app.settings.search_history, ["queen", "beat", "beatles"]);
+
+        // Emptying the field ends the run.
+        app.settings.search_history.clear();
+        typed_search(&mut app, "ab");
+        end_search_run(&mut app);
+        app.run_typed_search(String::new());
+        typed_search(&mut app, "abba");
+        assert_eq!(app.settings.search_history, ["abba", "ab"]);
+
+        // A search submitted with Enter is kept even if typing extends it.
+        end_search_run(&mut app);
+        app.settings.search_history.clear();
+        submit_search(&mut app, "ab");
+        let serial = app.search.serial;
+        answer_search(&mut app, "ab", serial);
+        typed_search(&mut app, "abba");
+        assert_eq!(app.settings.search_history, ["abba", "ab"]);
+
+        // So is Enter on a query that already has results.
+        end_search_run(&mut app);
+        app.settings.search_history.clear();
+        typed_search(&mut app, "ab");
+        submit_search(&mut app, "ab");
+        typed_search(&mut app, "abba");
+        assert_eq!(app.settings.search_history, ["abba", "ab"]);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn typing_never_replaces_a_recent_search_it_did_not_add() {
+        let mut app = test_app("search-typing-existing");
+        app.settings.search_history = vec!["older".into(), "ab".into()];
+        typed_search(&mut app, "ab");
+        typed_search(&mut app, "abc");
+        assert_eq!(app.settings.search_history, ["abc", "ab", "older"]);
+
+        // An answer for the run before a selection was typed over belongs
+        // to that run.
+        app.settings.search_history.clear();
+        app.search.query = "beatles".into();
+        app.run_typed_search("beatles".into());
+        let serial = app.search.serial;
+        end_search_run(&mut app);
+        answer_search(&mut app, "beatles", serial);
+        typed_search(&mut app, "beat");
+        assert_eq!(app.settings.search_history, ["beat", "beatles"]);
+        app.backend.shutdown();
     }
 
     fn cover_dialog(request: Option<u64>) -> Dialog {
