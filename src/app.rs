@@ -308,6 +308,8 @@ pub struct App {
     pub local_ready: bool,
     pub local_playback: LocalPlayback,
     pub local: LocalState,
+    #[cfg(target_os = "macos")]
+    playback_activity: crate::mac_playback::PlaybackActivity,
     pub remote: Option<RemoteSnapshot>,
     remote_polled_at: Instant,
     remote_poll_pending: bool,
@@ -797,6 +799,8 @@ impl App {
             local_ready: false,
             local_playback: LocalPlayback::Unavailable,
             local: LocalState::default(),
+            #[cfg(target_os = "macos")]
+            playback_activity: crate::mac_playback::PlaybackActivity::default(),
             remote: None,
             remote_polled_at: Instant::now() - REMOTE_POLL_UNSEEN,
             remote_poll_pending: false,
@@ -9729,6 +9733,8 @@ impl App {
         #[cfg(feature = "milkdrop")]
         self.sync_milkdrop(ctx);
         self.apply_actions(ctx);
+        #[cfg(target_os = "macos")]
+        self.playback_activity.sync(&self.local);
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
         #[cfg(target_os = "macos")]

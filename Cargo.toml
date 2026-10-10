@@ -169,7 +169,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 # NSAppleEventManager and NSAppleEventDescriptor carry the Spotify links
 # macOS hands an app registered for the scheme (src/mac_links.rs), and
 # NSRunLoop has the delayed perform the title bar uses (src/window.rs).
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSProcessInfo", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }
