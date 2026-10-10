@@ -241,7 +241,12 @@ fn page_tint(app: &mut App) -> Option<Color32> {
             .and_then(|show| pick_image(&show.images, 64))
             .map(str::to_string),
         Page::Radio(seed) => pick_image(&app.radio_images(seed), 64).map(str::to_string),
-        Page::LikedSongs => return Some(Color32::from_rgb(0x50, 0x38, 0xc8)),
+        Page::LikedSongs => {
+            return app
+                .settings
+                .accent_from_art
+                .then_some(Color32::from_rgb(0x50, 0x38, 0xc8));
+        }
         _ => None,
     };
     if !app.settings.accent_from_art && image.is_some() {
