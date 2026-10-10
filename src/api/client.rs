@@ -21,6 +21,7 @@ use crate::http::Http;
 
 const BASE_URL: &str = "https://api.spotify.com/v1";
 const MAX_IN_FLIGHT: usize = 6;
+const MAX_BACKGROUND_IN_FLIGHT: usize = 4;
 const RATE_LIMIT_RETRIES: u32 = 3;
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 
@@ -328,6 +329,7 @@ pub struct ApiClient {
     http: Http,
     tokens: Mutex<Option<TokenProvider>>,
     limiter: Semaphore,
+    background_limiter: Semaphore,
     queue_writes: tokio::sync::Mutex<()>,
     cooldown_until: tokio::sync::Mutex<Instant>,
     search_limit: u32,
@@ -337,6 +339,7 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
+    /// Give one authorized source independent foreground and background request budgets.
     pub fn new(
         http: impl Into<Http>,
         activity: Arc<NetActivity>,
@@ -350,6 +353,7 @@ impl ApiClient {
             http: http.into(),
             tokens: Mutex::new(None),
             limiter: Semaphore::new(MAX_IN_FLIGHT),
+            background_limiter: Semaphore::new(MAX_BACKGROUND_IN_FLIGHT),
             queue_writes: tokio::sync::Mutex::new(()),
             cooldown_until: tokio::sync::Mutex::new(Instant::now()),
             search_limit,
@@ -361,6 +365,11 @@ impl ApiClient {
 
     pub fn set_token_provider(&self, provider: Option<TokenProvider>) {
         *self.tokens.lock().unwrap_or_else(|p| p.into_inner()) = provider;
+    }
+
+    /// A throttled shared app must not occupy the personal app's background slots.
+    pub(crate) async fn background_permit(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
+        self.background_limiter.acquire().await.ok()
     }
 
     /// A new authorization gets its own provider and request cooldown. An old
@@ -1174,6 +1183,40 @@ impl ApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Exhausting Shared background slots leaves Personal and foreground capacity usable.
+    #[tokio::test]
+    async fn shared_background_work_cannot_starve_personal_or_foreground_work() {
+        let shared = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            20,
+            50,
+            ApiSource::Shared,
+        );
+        let personal = ApiClient::new(
+            reqwest::Client::new(),
+            Arc::new(NetActivity::default()),
+            10,
+            10,
+            ApiSource::Personal,
+        );
+        let mut held = Vec::new();
+        for _ in 0..MAX_BACKGROUND_IN_FLIGHT {
+            held.push(shared.background_permit().await.unwrap());
+        }
+        assert!(shared.background_limiter.try_acquire().is_err());
+        assert!(personal.background_limiter.try_acquire().is_ok());
+        assert!(
+            shared.limiter.try_acquire().is_ok(),
+            "foreground transport retains capacity"
+        );
+        drop(held.pop());
+        assert!(
+            shared.background_limiter.try_acquire().is_ok(),
+            "cancelled work releases its slot"
+        );
+    }
 
     #[tokio::test]
     async fn revoked_provider_cannot_return_or_persist_its_token() {
