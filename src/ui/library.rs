@@ -248,6 +248,19 @@ fn footer(
     icon: Icon,
 ) {
     let palette = app.palette;
+    if !app.network_reachable && empty {
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::WifiOff,
+            &gettext(app.locale, "You're offline"),
+            &gettext(
+                app.locale,
+                "Spotifast will reconnect automatically when your connection returns.",
+            ),
+        );
+        return;
+    }
     if loading {
         ui.add_space(8.0);
         widgets::loading_row(ui, &palette, app.locale);

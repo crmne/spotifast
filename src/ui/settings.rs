@@ -423,6 +423,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             gettext(locale, "Connecting to Spotify…"),
             None,
         ),
+        crate::backend::LocalPlayback::WaitingForNetwork => (
+            pgettext(locale, "playback status", "Waiting for network"),
+            gettext(
+                locale,
+                "Waiting for network connectivity to resume playback.",
+            ),
+            None,
+        ),
         crate::backend::LocalPlayback::Failed(message) => (
             pgettext(locale, "playback status", "Unavailable"),
             message.clone().into(),

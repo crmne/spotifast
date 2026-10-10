@@ -655,7 +655,10 @@ pub enum Command {
         engine: Box<Option<Engine>>,
         error: Option<String>,
         lease: CredentialLease,
+        attempt: u64,
     },
+    /// OS reports network reachability changed.
+    NetworkStatus(bool),
     /// Internal: librespot's session ended on its own.
     Reconnect,
     /// Look for Spotify Connect receivers on the local network.
@@ -848,6 +851,8 @@ pub enum Event {
         generation: u64,
         cache: Option<crate::liked::Cache>,
     },
+    /// OS reports network reachability changed.
+    NetworkStatus(bool),
 }
 
 /// The state of playback on this computer, independent of Web API sign-in.
@@ -859,6 +864,8 @@ pub enum LocalPlayback {
     Authorizing,
     /// Connecting the librespot engine.
     Connecting,
+    /// Network path is unavailable; reconnection suspended pending reachability.
+    WaitingForNetwork,
     /// This computer is a ready Spotify Connect device.
     Ready {
         device_id: String,
@@ -880,6 +887,7 @@ pub struct Backend {
     activity: Arc<NetActivity>,
     thread: Option<std::thread::JoinHandle<()>>,
     offline: bool,
+    _reachability: Option<crate::reachability::ReachabilityGuard>,
     #[cfg(test)]
     playlist_item_requests: std::sync::Mutex<Vec<(String, u32, u64)>>,
     #[cfg(test)]
@@ -959,6 +967,8 @@ impl Backend {
             })
             .expect("unable to start the backend thread");
 
+        let reachability = crate::reachability::watch(command_tx.clone());
+
         Self {
             commands: command_tx,
             events: event_rx,
@@ -966,6 +976,7 @@ impl Backend {
             activity,
             thread: Some(thread),
             offline: false,
+            _reachability: reachability,
             #[cfg(test)]
             playlist_item_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
@@ -1200,6 +1211,10 @@ impl Backend {
         self.send(Command::Player(command));
     }
 
+    pub fn network_status(&self, reachable: bool) {
+        self.send(Command::NetworkStatus(reachable));
+    }
+
     pub(crate) fn album_types(&self, uris: Vec<String>) {
         #[cfg(test)]
         self.album_type_requests
@@ -1316,6 +1331,10 @@ struct Worker {
     credentials: CredentialStore,
     web_tokens: [Option<Arc<WebTokens>>; 2],
     playback_grant: Option<Credentials>,
+    /// Credentials retained from a connection attempt while offline before
+    /// a durable grant has been stored, so recovery can reconnect when the
+    /// network returns.
+    pending_playback_grant: Option<Credentials>,
     restore_pending: [bool; 3],
     restoring_proxy: bool,
     waiting_for_proxy: VecDeque<Command>,
@@ -1367,6 +1386,9 @@ struct Worker {
     resume: Option<PlaybackResume>,
     /// A pickup in flight: the load to repeat and how often it was tried.
     resume_verify: Option<(PlaybackResume, u8)>,
+    network_reachable: bool,
+    waiting_for_network: bool,
+    engine_attempt: u64,
 }
 
 impl Worker {
@@ -1389,6 +1411,7 @@ impl Worker {
             credentials: CredentialStore::in_memory(dirs.clone()),
             web_tokens: [None, None],
             playback_grant: None,
+            pending_playback_grant: None,
             restore_pending: [false; 3],
             restoring_proxy: false,
             waiting_for_proxy: VecDeque::new(),
@@ -1424,6 +1447,9 @@ impl Worker {
             reconnects: Vec::new(),
             resume: None,
             resume_verify: None,
+            network_reachable: true,
+            waiting_for_network: false,
+            engine_attempt: 0,
         }
     }
 
@@ -1695,16 +1721,21 @@ impl Worker {
                 Command::ApplyProxy { request, config } => {
                     self.change_proxy(request, config, false)
                 }
-                Command::Player(command) => match &self.engine {
-                    Some(engine) => {
-                        if let Err(error) = engine.command(command) {
-                            self.emit(Event::Error(format!("Playback error: {error}")));
-                        }
+                Command::Player(command) => {
+                    if matches!(&command, PlayerCommand::Load(_)) {
+                        self.resume = None;
                     }
-                    None => self.emit(Event::Error(
-                        "Local playback isn't set up on this computer yet".into(),
-                    )),
-                },
+                    match &self.engine {
+                        Some(engine) => {
+                            if let Err(error) = engine.command(command) {
+                                self.emit(Event::Error(format!("Playback error: {error}")));
+                            }
+                        }
+                        None => self.emit(Event::Error(
+                            "Local playback isn't set up on this computer yet".into(),
+                        )),
+                    }
+                }
                 Command::Api(ApiRequest::Search { query, serial }) => self.search(query, serial),
                 Command::Api(request) => {
                     self.dispatch(request);
@@ -1807,11 +1838,24 @@ impl Worker {
                     engine,
                     error,
                     lease,
+                    attempt,
                 } => {
                     if lease.current() && self.signed_in {
-                        self.on_engine_connected(session_generation, *engine, error)
+                        self.on_engine_connected(session_generation, *engine, error, attempt);
                     } else if let Some(engine) = *engine {
                         engine.shutdown();
+                    }
+                }
+                Command::NetworkStatus(reachable) => {
+                    self.network_reachable = reachable;
+                    self.emit(Event::NetworkStatus(reachable));
+                    if !reachable {
+                        self.waiting_for_network = true;
+                    } else if self.engine.is_some() {
+                        self.waiting_for_network = false;
+                    } else if self.waiting_for_network && !self.engine_busy {
+                        self.waiting_for_network = false;
+                        self.resume_engine();
                     }
                 }
                 Command::SignInEnded { source, attempt } => {
@@ -2468,10 +2512,12 @@ impl Worker {
         self.restore_pending = [false; 3];
         self.web_tokens = [None, None];
         self.playback_grant = None;
+        self.pending_playback_grant = None;
         self.engine_busy = false;
         self.premium = None;
         self.resume = None;
         self.resume_verify = None;
+        self.waiting_for_network = false;
         self.album_type_lookup.reset_session();
         self.audiobook_lookup.clear();
         self.radio_waiting.clear();
@@ -2536,10 +2582,20 @@ impl Worker {
         {
             return;
         }
-        if let Some(credentials) = self.playback_grant.clone() {
+        let credentials = self
+            .pending_playback_grant
+            .clone()
+            .or_else(|| self.playback_grant.clone());
+        if let Some(credentials) = credentials {
+            if !self.network_reachable {
+                self.waiting_for_network = true;
+                self.emit(Event::Playback(LocalPlayback::WaitingForNetwork));
+                return;
+            }
             if credentials.username.as_deref()
                 != self.api.account().as_ref().map(|account| account.as_str())
             {
+                self.pending_playback_grant = None;
                 self.emit(Event::Playback(LocalPlayback::Failed(
                     "Stored playback belongs to another Spotify account. Enable playback again."
                         .into(),
@@ -2574,6 +2630,12 @@ impl Worker {
             return;
         }
         if self.engine_busy {
+            return;
+        }
+        if !self.network_reachable {
+            self.take_engine_for_resume();
+            self.waiting_for_network = true;
+            self.emit(Event::Playback(LocalPlayback::WaitingForNetwork));
             return;
         }
         let now = Instant::now();
@@ -2694,6 +2756,7 @@ impl Worker {
     /// this worker receives the connected engine and persists them securely.
     fn connect_engine(&mut self, credentials: Credentials) {
         if let Err(error) = self.http.client() {
+            self.pending_playback_grant = None;
             self.emit(Event::Playback(LocalPlayback::Failed(error)));
             return;
         }
@@ -2701,13 +2764,17 @@ impl Worker {
             return;
         }
         if self.premium == Some(false) {
+            self.pending_playback_grant = None;
             self.emit(Event::Playback(LocalPlayback::Failed(
                 PREMIUM_NEEDED.into(),
             )));
             return;
         }
+        self.pending_playback_grant = Some(credentials.clone());
         self.cancel_signin = None;
         self.engine_busy = true;
+        self.engine_attempt = self.engine_attempt.wrapping_add(1);
+        let attempt = self.engine_attempt;
         self.emit(Event::Playback(LocalPlayback::Connecting));
         let lease = self.credentials.lease(CredentialSlot::Playback);
         let config = self.engine_config.clone();
@@ -2727,11 +2794,12 @@ impl Worker {
                         session_generation,
                         engine: Box::new(None),
                         error: Some(error.to_string()),
+                        attempt,
                     });
                     return;
                 }
             };
-            let attempt = connect_engine_with_deadline(Engine::connect(
+            let connect_outcome = connect_engine_with_deadline(Engine::connect(
                 &config,
                 proxy,
                 credentials,
@@ -2739,12 +2807,13 @@ impl Worker {
                 notify,
             ))
             .await;
-            let outcome = match attempt {
+            let outcome = match connect_outcome {
                 Ok(Ok(engine)) => Command::EngineConnected {
                     lease: lease.clone(),
                     session_generation,
                     engine: Box::new(Some(engine)),
                     error: None,
+                    attempt,
                 },
                 Ok(Err(error)) => {
                     log::error!("engine connect failed: {error:#}");
@@ -2753,6 +2822,7 @@ impl Worker {
                         session_generation,
                         engine: Box::new(None),
                         error: Some(friendly_connect_error(&error)),
+                        attempt,
                     }
                 }
                 Err(_) => Command::EngineConnected {
@@ -2760,6 +2830,7 @@ impl Worker {
                     session_generation,
                     engine: Box::new(None),
                     error: Some("Connecting to Spotify timed out".into()),
+                    attempt,
                 },
             };
             let _ = commands.send(outcome);
@@ -2773,8 +2844,15 @@ impl Worker {
         session_generation: u64,
         engine: Option<Engine>,
         error: Option<String>,
+        attempt: u64,
     ) {
         if !self.signed_in || session_generation != self.album_type_lookup.session_generation {
+            if let Some(engine) = engine {
+                engine.shutdown();
+            }
+            return;
+        }
+        if attempt != self.engine_attempt {
             if let Some(engine) = engine {
                 engine.shutdown();
             }
@@ -2792,6 +2870,8 @@ impl Worker {
         }
         match engine {
             Some(engine) => {
+                self.waiting_for_network = false;
+                self.pending_playback_grant = None;
                 if let Some(grant) = engine.credentials() {
                     if !playback_account_matches(&grant, self.api.account()) {
                         engine.shutdown();
@@ -2827,9 +2907,31 @@ impl Worker {
                 self.start_radio();
             }
             None => {
-                self.resume = None;
-                let message = error.unwrap_or_else(|| "Local playback is unavailable".into());
-                self.emit(Event::Playback(LocalPlayback::Failed(message)));
+                if !self.network_reachable {
+                    self.waiting_for_network = true;
+                    self.emit(Event::Playback(LocalPlayback::WaitingForNetwork));
+                } else if self.waiting_for_network
+                    && !is_terminal_credential_error(error.as_deref())
+                {
+                    self.waiting_for_network = false;
+                    let now = Instant::now();
+                    if session_drops_exhausted(&mut self.reconnects, now) {
+                        self.pending_playback_grant = None;
+                        self.resume = None;
+                        self.emit(Event::Playback(LocalPlayback::Failed(
+                            "Local playback keeps dropping. Re-enable it from Settings.".into(),
+                        )));
+                    } else {
+                        self.reconnects.push(now);
+                        self.resume_engine();
+                    }
+                } else {
+                    self.waiting_for_network = false;
+                    self.pending_playback_grant = None;
+                    self.resume = None;
+                    let message = error.unwrap_or_else(|| "Local playback is unavailable".into());
+                    self.emit(Event::Playback(LocalPlayback::Failed(message)));
+                }
             }
         }
     }
@@ -2845,6 +2947,7 @@ impl Worker {
             if let Some(engine) = self.engine.take() {
                 engine.shutdown();
             }
+            self.pending_playback_grant = None;
             let credential_stored = self.playback_grant.is_some();
             if credential_stored {
                 self.emit(Event::Playback(LocalPlayback::Failed(
@@ -3324,6 +3427,16 @@ fn friendly_connect_error(error: &anyhow::Error) -> String {
     } else {
         text
     }
+}
+
+fn is_terminal_credential_error(error: Option<&str>) -> bool {
+    error.is_some_and(|msg| {
+        let lower = msg.to_lowercase();
+        lower.contains("badcredentials")
+            || lower.contains("bad credentials")
+            || lower.contains("rejected the saved sign-in")
+            || lower.contains("premium")
+    })
 }
 
 fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
@@ -5435,7 +5548,7 @@ mod authorization_tests {
         assert!(events.try_iter().next().is_none());
     }
 
-    fn worker(
+    pub(super) fn worker(
         name: &str,
     ) -> (
         tokio::runtime::Runtime,
@@ -5693,6 +5806,7 @@ mod authorization_tests {
                 engine: Box::new(None),
                 error: Some("late engine error".into()),
                 lease: playback,
+                attempt,
             })
             .unwrap();
         commands.send(Command::Shutdown).unwrap();
@@ -5707,6 +5821,7 @@ mod authorization_tests {
             Event::Auth(AuthStatus::Connected { .. })
                 | Event::Playback(
                     LocalPlayback::Connecting
+                        | LocalPlayback::WaitingForNetwork
                         | LocalPlayback::Ready { .. }
                         | LocalPlayback::Failed(_)
                 )
@@ -5822,7 +5937,7 @@ mod authorization_tests {
         });
     }
 
-    fn verify(worker: &mut Worker, source: ApiSource, account: &str) {
+    pub(super) fn verify(worker: &mut Worker, source: ApiSource, account: &str) {
         worker.api.set_state(source, SessionState::Authorizing);
         worker.on_web_verified(
             source,
@@ -6237,5 +6352,344 @@ mod tests {
         assert!(pending);
         assert!(!defer_engine_replace(false, &mut pending));
         assert!(pending, "finishing the attempt owns clearing the request");
+    }
+
+    #[test]
+    fn test_session_drop_when_unreachable_preserves_resume_and_skips_drop_counter() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("drop-unreachable");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.network_reachable = false;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        worker.reconnect_engine();
+        assert!(worker.resume.is_some());
+        assert!(worker.waiting_for_network);
+        assert!(worker.reconnects.is_empty());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+    }
+
+    #[test]
+    fn test_network_restored_triggers_resume_and_reconnection() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("network-restored");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.network_reachable = false;
+        worker.waiting_for_network = true;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(!worker.waiting_for_network);
+        assert!(worker.network_reachable);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_stale_connection_outcome_ignored() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("stale-outcome");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.engine_attempt = 2;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        let session_generation = worker.album_type_lookup.session_generation;
+
+        worker.on_engine_connected(session_generation, None, Some("stale failure".into()), 1);
+
+        assert!(worker.resume.is_some());
+        assert!(
+            events
+                .try_iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::Failed(_))))
+        );
+    }
+
+    #[test]
+    fn test_user_stop_clears_waiting_resume() {
+        let (runtime, mut worker, _events) = super::authorization_tests::worker("user-load-clears");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.waiting_for_network = true;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::Player(PlayerCommand::Load(
+                crate::player::LoadSpec::default(),
+            )))
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(worker.resume.is_none());
+        assert!(worker.waiting_for_network);
+    }
+
+    #[test]
+    fn test_connection_failure_while_offline_does_not_clear_resume() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("offline-failure");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.network_reachable = false;
+        worker.engine_attempt = 1;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        let session_generation = worker.album_type_lookup.session_generation;
+
+        worker.on_engine_connected(session_generation, None, Some("timed out".into()), 1);
+
+        assert!(worker.resume.is_some());
+        assert!(worker.waiting_for_network);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+    }
+
+    #[test]
+    fn test_offline_first_connection_failure_retains_credentials_for_recovery() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("offline-first-connect");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        assert!(worker.playback_grant.is_none());
+        assert!(worker.pending_playback_grant.is_none());
+
+        worker.network_reachable = false;
+        let creds = Credentials::with_password("alice", "streaming-token");
+        worker.connect_engine(creds);
+        assert!(worker.pending_playback_grant.is_some());
+
+        let session_generation = worker.album_type_lookup.session_generation;
+        let attempt = worker.engine_attempt;
+        worker.on_engine_connected(session_generation, None, Some("timed out".into()), attempt);
+
+        assert!(worker.waiting_for_network);
+        assert!(worker.pending_playback_grant.is_some());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(!worker.waiting_for_network);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_online_connection_failure_clears_pending_credentials() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("online-connect-failure");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.network_reachable = true;
+        let creds = Credentials::with_password("alice", "bad-token");
+        worker.connect_engine(creds);
+        assert!(worker.pending_playback_grant.is_some());
+
+        let session_generation = worker.album_type_lookup.session_generation;
+        let attempt = worker.engine_attempt;
+        worker.on_engine_connected(
+            session_generation,
+            None,
+            Some("bad credentials".into()),
+            attempt,
+        );
+
+        assert!(!worker.waiting_for_network);
+        assert!(worker.pending_playback_grant.is_none());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Failed(_))))
+        );
+    }
+
+    #[test]
+    fn test_reauthorization_during_outage_prefers_new_credentials_over_older_grant() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("reauth-during-outage");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        // Existing older playback grant
+        worker.playback_grant = Some(Credentials::with_password("alice", "stale-grant"));
+
+        // User reauthorizes with new credentials while offline
+        worker.network_reachable = false;
+        let new_creds = Credentials::with_password("alice", "fresh-token");
+        worker.connect_engine(new_creds.clone());
+
+        // Attempt fails while offline
+        let session_generation = worker.album_type_lookup.session_generation;
+        let attempt = worker.engine_attempt;
+        worker.on_engine_connected(session_generation, None, Some("timed out".into()), attempt);
+
+        assert!(worker.waiting_for_network);
+        assert_eq!(worker.pending_playback_grant, Some(new_creds.clone()));
+
+        // When network returns, resume_engine must prefer the new pending credentials over stale grant
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(!worker.waiting_for_network);
+        assert_eq!(worker.pending_playback_grant, Some(new_creds));
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_resume_engine_while_offline_suspends_and_does_not_connect() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("offline-resume-guard");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.network_reachable = false;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+
+        worker.resume_engine();
+
+        assert!(worker.waiting_for_network);
+        assert!(!worker.engine_busy);
+        assert!(worker.resume.is_some());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+        assert!(
+            events
+                .try_iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_resume_engine_without_credentials_does_not_emit_waiting_for_network() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("offline-no-grant");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        assert!(worker.playback_grant.is_none());
+        assert!(worker.pending_playback_grant.is_none());
+        worker.network_reachable = false;
+
+        worker.resume_engine();
+
+        assert!(!worker.waiting_for_network);
+        assert!(
+            events
+                .try_iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+    }
+
+    #[test]
+    fn test_outage_ending_before_failed_attempt_reports_retries_and_preserves_resume() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("outage-ends-before-failure");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.engine_attempt = 1;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        let session_generation = worker.album_type_lookup.session_generation;
+
+        // Connection was in flight when outage occurred
+        worker.engine_busy = true;
+        let (commands, receiver) = mpsc::unbounded_channel();
+        // Network went down
+        commands.send(Command::NetworkStatus(false)).unwrap();
+        // Network returned before engine attempt finished
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(worker.network_reachable);
+        assert!(worker.waiting_for_network);
+
+        // Now the failed engine connection from during the outage reports
+        worker.on_engine_connected(
+            session_generation,
+            None,
+            Some("Connecting to Spotify timed out".into()),
+            1,
+        );
+
+        // It must preserve resume, not emit Failed, and schedule a retry
+        assert!(worker.resume.is_some());
+        let recorded = events.try_iter().collect::<Vec<_>>();
+        assert!(
+            recorded
+                .iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::Failed(_))))
+        );
+        assert!(
+            recorded
+                .iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_terminal_credential_failure_after_outage_is_not_retried() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("terminal-failure-after-outage");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.engine_attempt = 1;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        let session_generation = worker.album_type_lookup.session_generation;
+
+        // Waiting for network flagged from an outage
+        worker.waiting_for_network = true;
+        worker.network_reachable = true;
+
+        // Terminal credential error reported
+        worker.on_engine_connected(
+            session_generation,
+            None,
+            Some("Spotify rejected the saved sign-in. Please sign in again.".into()),
+            1,
+        );
+
+        assert!(!worker.waiting_for_network);
+        assert!(worker.resume.is_none());
+        assert!(worker.pending_playback_grant.is_none());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Failed(_))))
+        );
     }
 }

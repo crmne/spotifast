@@ -52,7 +52,9 @@ fn enable_playback_row(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let authorizing = matches!(
         app.local_playback,
-        crate::backend::LocalPlayback::Authorizing | crate::backend::LocalPlayback::Connecting
+        crate::backend::LocalPlayback::Authorizing
+            | crate::backend::LocalPlayback::Connecting
+            | crate::backend::LocalPlayback::WaitingForNetwork
     );
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), Sense::click());
     if response.hovered() && !authorizing {

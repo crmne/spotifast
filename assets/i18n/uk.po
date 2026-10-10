@@ -1485,11 +1485,10 @@ msgstr ""
 
 #: src/ui/settings.rs:874
 msgid ""
-"Draw Spotifast's own title bar and window buttons instead of the standard "
-"Windows ones."
+"Draw Spotifast's own title bar and window buttons instead of the desktop's."
 msgstr ""
 "Використовувати власний рядок заголовка й кнопки вікна Spotifast замість "
-"стандартних елементів Windows."
+"елементів стільниці."
 
 #: src/ui/settings.rs:882
 msgid ""

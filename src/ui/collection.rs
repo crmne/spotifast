@@ -559,6 +559,32 @@ fn view_context(base: &RowContext, view_uris: Option<&Arc<[String]>>) -> RowCont
 pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     let palette = app.palette;
     let locale = app.locale;
+    if table.items.is_empty() && !app.network_reachable {
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::WifiOff,
+            &gettext(locale, "You're offline"),
+            &gettext(
+                locale,
+                "Spotifast will reconnect automatically when your connection returns.",
+            ),
+        );
+        return;
+    }
+    if !app.network_reachable {
+        ui.add_enabled_ui(false, |ui| {
+            ui.multiply_opacity(0.55);
+            table_contents(app, ui, table);
+        });
+    } else {
+        table_contents(app, ui, table);
+    }
+}
+
+fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
+    let palette = app.palette;
+    let locale = app.locale;
     let needle = table.filter.trim().to_lowercase();
     let sort = app.table_sorts.get(&table.page).copied();
     let entry = prepare_table_view(
@@ -724,22 +750,18 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 && !table.loading
                 && ui.cursor().top() >= ui.clip_rect().top();
             retry_shown |= retry;
-            if placeholder_row(
-                ui,
-                &palette,
-                locale,
-                row_height,
-                &if unavailable {
-                    gettext(locale, "Unavailable")
-                } else if retry {
-                    Cow::Borrowed(table.error.unwrap_or_default())
-                } else if table.error.is_some() && !table.loading {
-                    Cow::Borrowed("")
-                } else {
-                    gettext(locale, "Loading…")
-                },
-                retry,
-            ) {
+            let label = if unavailable {
+                gettext(locale, "Unavailable")
+            } else if retry {
+                widgets::sanitize_error_message(table.error.unwrap_or_default(), locale)
+            } else if table.error.is_some() && !table.loading {
+                Cow::Borrowed("")
+            } else if !app.network_reachable {
+                gettext(locale, "You're offline. Reconnect to load more songs.")
+            } else {
+                gettext(locale, "Loading…")
+            };
+            if placeholder_row(ui, &palette, locale, row_height, &label, retry) {
                 app.actions.push(Action::RetryWindow(table.page.clone()));
             }
             return;
@@ -1426,6 +1448,19 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 playlist.owner.id.as_deref(),
                 playlist.owner_name(),
             );
+            if items.is_empty() && !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &app.palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+                return;
+            }
             let count = page
                 .items
                 .total
@@ -1479,19 +1514,18 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 page.items.revision,
             );
             let view_play = table_view.view_uris.as_ref().map(Arc::clone);
-            actions_row(
-                app,
-                ui,
-                playlist_actions(
-                    app.locale,
-                    playlist,
-                    owned,
-                    saved,
-                    view_play,
-                    Some((Page::Playlist(id.to_string()), page.items.loading)),
-                ),
-                Some(&mut page.filter),
-            );
+            let reload_action = if app.network_reachable {
+                Some((Page::Playlist(id.to_string()), page.items.loading))
+            } else {
+                None
+            };
+            let actions =
+                playlist_actions(app.locale, playlist, owned, saved, view_play, reload_action);
+            if !app.network_reachable {
+                disabled_actions_row(app, ui, actions, Some(&mut page.filter));
+            } else {
+                actions_row(app, ui, actions, Some(&mut page.filter));
+            }
             if page.items.base_offset > 0 && !page.filter.trim().is_empty() {
                 app.actions
                     .push(Action::LoadMore(Page::Playlist(id.to_string())));
@@ -1540,7 +1574,20 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             } else {
                 ui.add_space(40.0);
             }
-            widgets::loading_row(ui, &app.palette, app.locale);
+            if !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &app.palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                widgets::loading_row(ui, &app.palette, app.locale);
+            }
         }
         Loadable::Failed(error) => {
             let error = error.clone();
@@ -1550,7 +1597,23 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             } else {
                 ui.add_space(40.0);
             }
-            widgets::error_row(ui, app, &error, Some(Page::Playlist(id.to_string())));
+            if !app.network_reachable
+                || error.contains("network error")
+                || error.contains("Network connection error")
+            {
+                widgets::empty_state(
+                    ui,
+                    &app.palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                widgets::error_row(ui, app, &error, Some(Page::Playlist(id.to_string())));
+            }
         }
     }
     app.playlist_pages.insert(id.to_string(), page);
@@ -1568,7 +1631,6 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let palette = app.palette;
     match &page.album {
         Loadable::Loaded(album) => {
-            album_hero(app, ui, album, &page.tracks, preview.as_deref());
             let generation = page.generation;
             let revision = page.tracks.revision;
             let names = app.user_names_revision;
@@ -1597,6 +1659,20 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     .collect();
                 remember_table_items(app, key, generation, revision, names, rows)
             };
+            if items.is_empty() && !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+                return;
+            }
+            album_hero(app, ui, album, &page.tracks, preview.as_deref());
             let saved = app.is_saved(&album.uri).unwrap_or(false);
             let sort = app.table_sorts.get(&Page::Album(id.to_string())).copied();
             let table_view = prepare_table_view(
@@ -1609,12 +1685,12 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 page.tracks.revision,
             );
             let album_view = table_view.view_uris.as_ref().map(Arc::clone);
-            actions_row(
-                app,
-                ui,
-                album_actions(app.locale, album, saved, album_view),
-                None,
-            );
+            let actions = album_actions(app.locale, album, saved, album_view);
+            if !app.network_reachable {
+                disabled_actions_row(app, ui, actions, None);
+            } else {
+                actions_row(app, ui, actions, None);
+            }
             table(
                 app,
                 ui,
@@ -1692,7 +1768,20 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
             } else {
                 ui.add_space(40.0);
             }
-            widgets::loading_row(ui, &app.palette, app.locale);
+            if !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &app.palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                widgets::loading_row(ui, &app.palette, app.locale);
+            }
         }
         Loadable::Failed(error) => {
             let error = error.clone();
@@ -1702,7 +1791,23 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
             } else {
                 ui.add_space(40.0);
             }
-            widgets::error_row(ui, app, &error, Some(Page::Album(id.to_string())));
+            if !app.network_reachable
+                || error.contains("network error")
+                || error.contains("Network connection error")
+            {
+                widgets::empty_state(
+                    ui,
+                    &app.palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                widgets::error_row(ui, app, &error, Some(Page::Album(id.to_string())));
+            }
         }
     }
     app.album_pages.insert(id.to_string(), page);
@@ -1895,6 +2000,19 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
                 .collect();
             remember_table_items(app, Page::LikedSongs, revision, revision, names, rows)
         };
+    if items.is_empty() && !app.network_reachable {
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::WifiOff,
+            &gettext(app.locale, "You're offline"),
+            &gettext(
+                app.locale,
+                "Spotifast will reconnect automatically when your connection returns.",
+            ),
+        );
+        return;
+    }
     let total = app.library.liked.total.unwrap_or(items.len() as u32);
     let user = app
         .user
@@ -1941,22 +2059,22 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         app.library.liked.revision,
     );
     let liked_view = table_view.view_uris.as_ref().map(Arc::clone);
-    actions_row(
-        app,
-        ui,
-        Actions {
-            play_uri: collection_uri.clone(),
-            view: liked_view,
-            saved: None,
-            saved_icons: (Icon::Heart, Icon::HeartFilled),
-            saved_tooltips: Default::default(),
-            owned_playlist: None,
-            reload: None,
-            name: &liked_title,
-            save_radio: None,
-        },
-        Some(&mut filter),
-    );
+    let actions = Actions {
+        play_uri: collection_uri.clone(),
+        view: liked_view,
+        saved: None,
+        saved_icons: (Icon::Heart, Icon::HeartFilled),
+        saved_tooltips: Default::default(),
+        owned_playlist: None,
+        reload: None,
+        name: &liked_title,
+        save_radio: None,
+    };
+    if !app.network_reachable {
+        disabled_actions_row(app, ui, actions, Some(&mut filter));
+    } else {
+        actions_row(app, ui, actions, Some(&mut filter));
+    }
     ui.data_mut(|data| data.insert_temp(filter_id, filter.clone()));
     let uris: Arc<[String]> = items
         .iter()
