@@ -86,8 +86,11 @@ fastframe-now-playing = { git = "https://github.com/dennisgr7/fastframe", rev = 
 # to the few pages of each font that name it. fastframe-fonts uses both.
 skrifa = "0.44"
 memmap2 = "0.9"
-# bmp is for Winamp skins, whose bitmaps are BMP files.
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
+# bmp is for Winamp skins, whose bitmaps are BMP files. webp is for
+# playlist covers Spotify's CDN serves as WebP, often the ones people
+# upload themselves; without it those covers stay blank. It adds the pure
+# Rust image-webp decoder from the same image-rs project.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "webp"] }
 # Inflating the zip a Winamp skin comes as (src/skin/zip.rs). Already
 # compiled for reqwest's gzip support, so this adds no code to the build.
 flate2 = "1"
