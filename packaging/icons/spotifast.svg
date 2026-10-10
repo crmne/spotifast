@@ -3,10 +3,9 @@
     <linearGradient id="rim" x1="0" y1="2" x2="0" y2="126" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#18c055"/><stop offset="1" stop-color="#0c8a3a"/></linearGradient>
     <linearGradient id="face" x1="0" y1="8" x2="0" y2="120" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#5cf095"/><stop offset="0.55" stop-color="#1ed760"/><stop offset="1" stop-color="#15b650"/></linearGradient>
     <linearGradient id="edge" x1="0" y1="8" x2="0" y2="120" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d9ffe8"/><stop offset="0.5" stop-color="#7bf0aa" stop-opacity="0.35"/><stop offset="1" stop-color="#0a6e2e" stop-opacity="0.9"/></linearGradient>
-    <filter id="lift" color-interpolation-filters="sRGB" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="1.6"/><feOffset dy="1.6"/><feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   </defs>
   <circle cx="64" cy="64" r="62" fill="url(#rim)"/>
   <circle cx="64" cy="64" r="54.4" fill="url(#face)"/>
   <circle cx="64" cy="64" r="55" fill="none" stroke="url(#edge)" stroke-width="1.2"/>
-  <path d="M44.2 43.5 A5 5 0 0 1 51.63 39.13 L88.53 59.63 A5 5 0 0 1 88.53 68.37 L51.63 88.87 A5 5 0 0 1 44.2 84.5 Z" fill="#0b0e0c" filter="url(#lift)"/>
+  <path d="M44.2 43.5 A5 5 0 0 1 51.63 39.13 L88.53 59.63 A5 5 0 0 1 88.53 68.37 L51.63 88.87 A5 5 0 0 1 44.2 84.5 Z" fill="#0b0e0c"/>
 </svg>
