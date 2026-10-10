@@ -626,6 +626,17 @@ pub struct HomeData {
     pub awaiting: usize,
 }
 
+/// What the top bar's spinner says the app is waiting for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundActivity {
+    /// The playlist list or Home is being read again behind what it shows.
+    Library,
+    /// A check for a newer release.
+    Updates,
+    /// Any other request to Spotify.
+    Spotify,
+}
+
 /// What Home last showed for one account, shown at the next start while
 /// Home is read again.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]

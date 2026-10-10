@@ -2687,7 +2687,15 @@ msgstr ""
 msgid "Winamp mini player (Cmd+Shift+M)"
 msgstr ""
 
+#: src/ui/topbar.rs:521
+msgid "Updating your library…"
+msgstr ""
+
 #: src/ui/topbar.rs:522
+msgid "Checking for updates…"
+msgstr ""
+
+#: src/ui/topbar.rs:523
 msgid "Waiting for Spotify…"
 msgstr ""
 

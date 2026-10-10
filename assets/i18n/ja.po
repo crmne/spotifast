@@ -2773,7 +2773,15 @@ msgstr "Winampミニプレイヤー (Ctrl+M)"
 msgid "Winamp mini player (Cmd+Shift+M)"
 msgstr "Winampミニプレイヤー (Cmd+Shift+M)"
 
-#: src/ui/topbar.rs:517
+#: src/ui/topbar.rs:521
+msgid "Updating your library…"
+msgstr "ライブラリを更新しています…"
+
+#: src/ui/topbar.rs:522
+msgid "Checking for updates…"
+msgstr "アップデートを確認しています…"
+
+#: src/ui/topbar.rs:523
 msgid "Waiting for Spotify…"
 msgstr "Spotifyを待っています…"
 
