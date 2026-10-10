@@ -363,8 +363,8 @@ msgid "Load more"
 msgstr "Загрузить ещё"
 
 #: src/ui/lyrics.rs:90
-msgid "Full screen lyrics"
-msgstr "Текст песни на весь экран"
+msgid "Expand lyrics"
+msgstr "Развернуть текст песни"
 
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
 msgctxt "lyrics"
@@ -408,8 +408,8 @@ msgid "Loading…"
 msgstr "Загрузка…"
 
 #: src/ui/lyrics.rs:534
-msgid "Leave full screen (Esc)"
-msgstr "Выйти из полноэкранного режима (Esc)"
+msgid "Collapse lyrics (Esc)"
+msgstr "Свернуть текст песни (Esc)"
 
 #: src/ui/widgets.rs:582 src/ui/widgets.rs:815 src/ui/widgets.rs:1019
 msgid "Add to queue"
@@ -2454,8 +2454,8 @@ msgid "Show the lyrics"
 msgstr "Показать текст песни"
 
 #: src/ui/keys.rs:215
-msgid "Lyrics: leave full screen"
-msgstr "Текст песни: выйти из полноэкранного режима"
+msgid "Collapse lyrics or leave full screen"
+msgstr "Свернуть текст песни или выйти из полноэкранного режима"
 
 #: src/ui/keys.rs:218
 msgid "Song list: extend or shrink the selection"
@@ -3200,3 +3200,7 @@ msgstr "В Windows на ARM OpenGL, с помощью которого рису�
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Уменьшить анимацию текста"
+
+#: src/ui/keys.rs src/ui/topbar.rs
+msgid "Toggle full screen"
+msgstr "Переключить полноэкранный режим"

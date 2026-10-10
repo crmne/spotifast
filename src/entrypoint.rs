@@ -44,7 +44,7 @@ struct Cli {
 
     /// Extra demo surfaces: a comma-separated list of `queue`, `playing-next`,
     /// `devices`, `shortcuts`, `create`, `light`, `focus`, `update`, `personal-app`,
-    /// `windows-taskbar`, `german`, `lyrics`, `lyrics-fullscreen`, `collection-loading`,
+    /// `windows-taskbar`, `german`, `lyrics`, `lyrics-expanded`, `lyrics-fullscreen`, `collection-loading`,
     /// `shuffle-selected`, `shuffle-started`, `undated-mix`, `signed-out`, `connecting`, `library-list`,
     /// `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
     /// or `library-grid-wide`.
@@ -1316,6 +1316,13 @@ impl eframe::App for Shell {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        #[cfg(windows)]
+        if let Some(window) = _frame.winit_window() {
+            use winit::platform::windows::WindowExtWindows as _;
+            // The Windows shadow reserves a one-pixel strip above the client.
+            // A fullscreen window must fill that strip too.
+            window.set_undecorated_shadow(!window.is_decorated() && window.fullscreen().is_none());
+        }
         let app = &mut *self.app;
         app.frame_ui(ui);
         if let Some(receipt) = app.update_receipt.take() {

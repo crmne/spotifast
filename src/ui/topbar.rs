@@ -452,6 +452,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         if super::widgets::menu_item(
                             ui,
                             &palette,
+                            Some(Icon::Expand),
+                            &gettext(locale, "Toggle full screen"),
+                        ) {
+                            app.actions.push(Action::ToggleFullscreen);
+                        }
+                        if super::widgets::menu_item(
+                            ui,
+                            &palette,
                             Some(Icon::Info),
                             &gettext(locale, "Keyboard shortcuts"),
                         ) {

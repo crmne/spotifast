@@ -358,8 +358,8 @@ msgid "Load more"
 msgstr "Weitere laden"
 
 #: src/ui/lyrics.rs:90
-msgid "Full screen lyrics"
-msgstr "Songtext im Vollbild"
+msgid "Expand lyrics"
+msgstr "Songtext vergrößern"
 
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:546
 msgctxt "lyrics"
@@ -403,8 +403,8 @@ msgid "Loading…"
 msgstr "Laden…"
 
 #: src/ui/lyrics.rs:534
-msgid "Leave full screen (Esc)"
-msgstr "Vollbild verlassen (Esc)"
+msgid "Collapse lyrics (Esc)"
+msgstr "Songtext verkleinern (Esc)"
 
 #: src/ui/widgets.rs:582 src/ui/widgets.rs:815 src/ui/widgets.rs:1019
 msgid "Add to queue"
@@ -2456,8 +2456,8 @@ msgid "Show the lyrics"
 msgstr "Songtext anzeigen"
 
 #: src/ui/keys.rs:215
-msgid "Lyrics: leave full screen"
-msgstr "Songtext: Vollbild verlassen"
+msgid "Collapse lyrics or leave full screen"
+msgstr "Songtext verkleinern oder Vollbild verlassen"
 
 #: src/ui/keys.rs:218
 msgid "Song list: extend or shrink the selection"
@@ -3199,3 +3199,7 @@ msgstr "Unter Windows on ARM stammt das OpenGL, mit dem Spotifast zeichnet, aus 
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Songtextanimation reduzieren"
+
+#: src/ui/keys.rs src/ui/topbar.rs
+msgid "Toggle full screen"
+msgstr "Vollbild umschalten"
