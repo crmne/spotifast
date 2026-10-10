@@ -160,8 +160,9 @@ directory, one JSON file per account. It is shown as soon as the account is
 verified, while the list is read from Spotify again. Spotify reads the
 complete list only through the shared app, so on a busy day this keeps the
 sidebar usable while that app waits out Spotify's limits. The new list
-replaces the shown one once all its pages have arrived; a failed or rate
-limited read keeps the shown list and is tried again a minute later.
+replaces the shown one once all its pages have arrived. A failed read keeps
+the shown list; a rate limited, network or server failure is also read again
+a minute later, while other refusals wait for the next reload.
 Playlists created or deleted in the meantime stay that way. The list is
 saved again only when Spotify has confirmed every change in it. This cache
 contains metadata only and can be deleted at any time.

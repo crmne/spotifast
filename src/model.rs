@@ -642,10 +642,12 @@ pub enum BackgroundActivity {
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct HomeSnapshot {
-    pub recently_played: Vec<PlayHistory>,
-    pub top_artists: Vec<Artist>,
-    pub top_tracks: Vec<Track>,
-    /// Made for you, by search term.
+    /// `None` for a shelf Spotify had not answered for, so it loads again
+    /// at the next start instead of showing as empty.
+    pub recently_played: Option<Vec<PlayHistory>>,
+    pub top_artists: Option<Vec<Artist>>,
+    pub top_tracks: Option<Vec<Track>>,
+    /// Made for you, by search term, for the searches that answered.
     pub discover: std::collections::BTreeMap<String, Vec<Playlist>>,
     pub podcasts: Vec<(Show, Vec<Episode>)>,
 }
