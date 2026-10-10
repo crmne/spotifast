@@ -349,7 +349,10 @@ to treble with peaks that hang and fall, and **Waveform** draws the sound's
 wave as a glowing line, both in colours drawn from the cover. It follows the equalizer, not the volume, and moves only while the
 song plays on this computer. It is off by default. Clicking the player
 bar's empty space switches it, as Winamp's visualizer did: off, then
-Spectrum, then Waveform, then off again.
+Spectrum, then Waveform, then off again. **Frame rate**, under it while
+a visualizer is on, sets how often it moves: 60 frames a second by default,
+down to 30 to save power, or up to your screen's rate. Each frame redraws
+the whole window, so lower rates use less of the graphics card.
 
 In **Settings > Appearance**, **Compact track list** puts each song on one
 line. In narrow lists, the added date follows the artist credits with a spaced

@@ -658,6 +658,49 @@ fn resize_direction(
     }
 }
 
+/// How long before an animation's frame is due its pass is woken: half a
+/// frame at sixty a second, time enough to lay out and draw it before the
+/// display shows it.
+const FRAME_EARLY: std::time::Duration = std::time::Duration::from_millis(8);
+
+/// Asks for an animation's next frame `interval` after its last one, so it
+/// moves at that rate whatever the display's own. Every frame redraws the
+/// whole window, so the rate is what the animation costs.
+///
+/// egui wakes a delayed repaint one predicted frame early, and predicts a
+/// sixtieth of a second on every display: asking for a sixtieth comes back
+/// at once and runs at the display's rate, 144 times a second on a 144 Hz
+/// screen. So the frames are timed here, against a target that moves on by
+/// `interval` each frame, and the prediction is given back to egui.
+pub(crate) fn pace_frames(ctx: &Context, id: Id, interval: std::time::Duration) {
+    let now = std::time::Instant::now();
+    let due = next_frame_due(ctx.data(|data| data.get_temp(id)), now, interval);
+    ctx.data_mut(|data| data.insert_temp(id, due));
+    let predicted = std::time::Duration::try_from_secs_f32(ctx.input(|input| input.predicted_dt))
+        .unwrap_or_default();
+    let wake = due
+        .saturating_duration_since(now)
+        .saturating_sub(FRAME_EARLY);
+    ctx.request_repaint_after(wake + predicted);
+}
+
+/// When an animation's next frame is due, given when the last was due. A
+/// pass woken for some other reason before the frame keeps its target; the
+/// frame's own pass aims one interval past the last target rather than past
+/// now, so lateness does not slow the rate; and a frame long overdue, or the
+/// first, starts again from now.
+fn next_frame_due(
+    last: Option<std::time::Instant>,
+    now: std::time::Instant,
+    interval: std::time::Duration,
+) -> std::time::Instant {
+    match last {
+        Some(due) if now + FRAME_EARLY < due => due,
+        Some(due) if now < due + interval => due + interval,
+        _ => now + interval,
+    }
+}
+
 pub fn blend(base: Color32, tint: Color32, amount: f32) -> Color32 {
     let a = egui::Rgba::from(base);
     let b = egui::Rgba::from(tint);
@@ -850,6 +893,55 @@ mod window_chrome_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An animation's frames come one interval apart by the clock: an
+    /// extra pass keeps the target, a late frame does not push the next
+    /// one later, and a stopped animation starts again from now.
+    #[test]
+    fn animation_frames_are_paced_by_the_clock() {
+        let interval = std::time::Duration::from_micros(33_333);
+        let ms = std::time::Duration::from_millis;
+        let start = std::time::Instant::now();
+        // #given a first frame
+        let due = next_frame_due(None, start, interval);
+        assert_eq!(due, start + interval);
+        // #when something else wakes the window before it is due
+        assert_eq!(next_frame_due(Some(due), start + ms(5), interval), due);
+        // #when its own pass runs, early or late
+        assert_eq!(
+            next_frame_due(Some(due), due - FRAME_EARLY, interval),
+            due + interval
+        );
+        assert_eq!(
+            next_frame_due(Some(due), due + ms(10), interval),
+            due + interval
+        );
+        // #when the animation was still for a while
+        let later = due + ms(500);
+        assert_eq!(next_frame_due(Some(due), later, interval), later + interval);
+    }
+
+    /// The repaint asked for undoes egui's predicted frame, so it is not
+    /// asked for at once, and it wakes before the frame is due.
+    #[test]
+    fn paced_frames_do_not_run_at_the_displays_rate() {
+        let ctx = egui::Context::default();
+        let interval = std::time::Duration::from_micros(33_333);
+        // A new context asks for an immediate pass of its own at first; the
+        // steady state is what matters.
+        let mut output = egui::FullOutput::default();
+        for _ in 0..3 {
+            output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                pace_frames(ui.ctx(), Id::new("paced"), interval);
+            });
+            output.textures_delta.clear();
+        }
+        let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+        assert!(
+            delay > interval / 2 && delay <= interval,
+            "asked for the next frame after {delay:?}"
+        );
+    }
 
     /// The header casts a shadow only on a page scrolled under it, and it
     /// is black in both themes, never the page's own colour.

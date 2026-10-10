@@ -4533,6 +4533,16 @@ mod tests {
         let output = draw(&mut app);
         assert!(waveform(&output), "the waveform is drawn");
         assert!(!spectrum(&output));
+        assert!(wants_frames(&output));
+
+        // #when the song is silent and the spectrum has come to rest
+        app.winamp.tap.clear();
+        let output = draw(&mut app);
+        assert!(!wants_frames(&output), "a flat line needs no frames");
+        app.settings.player_bar_vis = PlayerBarVis::Spectrum;
+        app.player_bar_analyser = Default::default();
+        let output = draw(&mut app);
+        assert!(!wants_frames(&output), "nothing standing needs no frames");
 
         // #when it is turned off
         app.settings.player_bar_vis = PlayerBarVis::Off;
@@ -5783,6 +5793,84 @@ mod tests {
             );
         }
         app.backend.shutdown();
+    }
+
+    /// The player bar's visualizer has its own frame-rate dial under its
+    /// choice in Appearance, shown only while a visualizer is chosen.
+    #[test]
+    fn the_player_bar_visualizer_has_a_frame_rate_dial_while_on() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-vis-fps-dial-test-{}",
+            std::process::id()
+        ));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+        // A rate no other dial on the page is on.
+        app.settings.player_bar_vis_fps = 144;
+        app.open(Page::Settings);
+
+        let drawn = |app: &mut App, ctx: &egui::Context| -> Vec<String> {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 4000.0),
+                )),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+            let mut said = Vec::new();
+            fn walk(shape: &egui::epaint::Shape, said: &mut Vec<String>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => said.push(text.galley.job.text.clone()),
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| walk(shape, said))
+                    }
+                    _ => {}
+                }
+            }
+            for clipped in &output.shapes {
+                walk(&clipped.shape, &mut said);
+            }
+            said
+        };
+
+        // #given the visualizer is off
+        for _ in 0..3 {
+            let said = drawn(&mut app, &ctx);
+            assert!(
+                !said.iter().any(|text| text == "144 fps"),
+                "no dial without a visualizer: {said:?}"
+            );
+        }
+
+        // #when the spectrum is chosen
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Spectrum;
+        let said = drawn(&mut app, &ctx);
+        assert!(
+            said.iter().any(|text| text == "144 fps"),
+            "the dial names the rate it is on: {said:?}"
+        );
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Rule: side-panel headers stay on one line at their narrowest width.
