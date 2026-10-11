@@ -1194,6 +1194,10 @@ pub enum Action {
         playlist_order: Option<Vec<String>>,
     },
     RestartEngine,
+    /// Open the native folder picker for a local files source.
+    ChooseLocalFilesSource,
+    /// Add the folder the picker chose as a local files source.
+    AddLocalFilesSource(std::path::PathBuf),
     /// Rebuild the HTTP client with the proxy in settings. Local playback
     /// restarts only when its HTTP proxy changed.
     ApplyProxy,

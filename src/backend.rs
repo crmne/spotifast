@@ -601,6 +601,11 @@ pub enum Command {
         selected:
             std::pin::Pin<Box<dyn std::future::Future<Output = Option<rfd::FileHandle>> + Send>>,
     },
+    /// The folder picker for a local files source answered.
+    ChooseLocalFilesSource {
+        selected:
+            std::pin::Pin<Box<dyn std::future::Future<Output = Option<rfd::FileHandle>> + Send>>,
+    },
     /// Start (or restart) the Web API sign-in in the browser.
     SignIn {
         request: u64,
@@ -843,6 +848,13 @@ pub enum Event {
     Rootlist {
         result: Result<crate::player::Rootlist, String>,
     },
+    /// The local files found in the chosen folders, named as the engine
+    /// will match them. An empty list also clears whatever was shown, so
+    /// turning local files off cannot leave a stale one behind.
+    LocalFilesScanned(Vec<crate::local_files::LocalFileTrack>),
+    /// The folder picked as a local files source, or `None` when the
+    /// picker was dismissed.
+    LocalFilesSourceChosen(Option<std::path::PathBuf>),
     /// The result of reading a playlist cache for this load generation.
     PlaylistCache {
         account_id: String,
@@ -1108,6 +1120,21 @@ impl Backend {
         self.send(Command::ChoosePlaylistCover {
             id,
             request,
+            selected: Box::pin(selected),
+        });
+    }
+
+    /// Pick a folder of local files the same way the playlist cover is
+    /// picked: the native dialog on the UI thread, the answer awaited on
+    /// the runtime.
+    pub fn choose_local_files_source(&self) {
+        if self.offline {
+            return;
+        }
+        let selected = rfd::AsyncFileDialog::new()
+            .set_title("Add a local files source")
+            .pick_folder();
+        self.send(Command::ChooseLocalFilesSource {
             selected: Box::pin(selected),
         });
     }
@@ -1875,6 +1902,15 @@ impl Worker {
                     });
                 }
                 Command::Shutdown => break,
+                Command::ChooseLocalFilesSource { selected } => {
+                    let events = self.events.clone();
+                    let waker = self.waker.clone();
+                    tokio::spawn(async move {
+                        let folder = selected.await.map(|folder| folder.path().to_path_buf());
+                        let _ = events.send(Event::LocalFilesSourceChosen(folder));
+                        waker.wake();
+                    });
+                }
                 Command::SignIn { request, config } => self.change_proxy(request, config, true),
                 Command::CancelSignIn => {
                     self.authorization_attempt += 1;
@@ -1913,6 +1949,7 @@ impl Worker {
                     // acknowledgement was still in flight when this was clicked.
                     config.proxy = self.engine_config.proxy.clone();
                     self.engine_config = config;
+                    self.start_local_files_scan();
                     self.replace_engine();
                 }
                 Command::ApplyProxy { request, config } => {
@@ -3187,6 +3224,7 @@ impl Worker {
                 }
                 self.engine = Some(engine);
                 self.start_rootlist();
+                self.start_local_files_scan();
                 self.reconnects.clear();
                 self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
                 self.start_album_type_lookup();
@@ -3384,6 +3422,23 @@ impl Worker {
                 .map_err(|error| format!("{error:#}"))
         });
         self.start_pending_rootlist(fetch);
+    }
+
+    /// Scans the chosen local file folders off the runtime's blocking
+    /// pool and reports what it found, so the list shows what the engine
+    /// will play. The engine builds its own lookup only when it starts,
+    /// so the scan runs whenever one (re)connects and whenever Apply
+    /// hands it new folders; folders turned off report an empty list,
+    /// which clears whatever was shown.
+    fn start_local_files_scan(&self) {
+        let directories = self.engine_config.local_file_directories.clone();
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::task::spawn_blocking(move || {
+            let tracks = crate::local_files::scan(&directories);
+            let _ = events.send(Event::LocalFilesScanned(tracks));
+            waker.wake();
+        });
     }
 
     // Keep the read injectable so startup ordering can be tested without
@@ -6222,6 +6277,38 @@ mod authorization_tests {
             [std::path::PathBuf::from("/music/albums")],
             "the replacement engine must scan the chosen folders"
         );
+    }
+
+    /// Applying folders reports what the app-side scan found, so the list
+    /// mirrors the engine's lookup instead of guessing. A temporary
+    /// directory cannot hold a file the probe accepts, so the honest
+    /// expectation is the empty list its scan produces; the event firing
+    /// is what matters, the engine still builds its own lookup.
+    #[test]
+    fn applying_local_file_folders_reports_what_the_scan_found() {
+        let (runtime, mut worker, events) = worker("local-folders-scan");
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-local-scan-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("notes.txt"), "not audio").unwrap();
+        let mut audio = worker.engine_config.clone();
+        audio.local_file_directories = vec![root.clone()];
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::RestartEngine(audio)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+        let scanned = events
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the scan must report its result");
+        assert!(
+            matches!(&scanned, Event::LocalFilesScanned(tracks) if tracks.is_empty()),
+            "a folder without playable files scans to an empty list"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

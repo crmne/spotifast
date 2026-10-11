@@ -11,7 +11,10 @@ use crate::theme::{self, Icon, Palette};
 
 use super::widgets;
 
-const PLAYBACK_DIRTY_ID: &str = "playback-settings-dirty";
+/// The playback Apply row's dirty flag, also raised by local file source
+/// changes, which ride the same engine restart. Public to the app, which
+/// raises it when the folder picker answers.
+pub(crate) const PLAYBACK_DIRTY_ID: &str = "playback-settings-dirty";
 pub(crate) const PERSONAL_APP_FOCUS_ID: &str = "focus-personal-app-setup";
 const SETTINGS_FILTER_ID: &str = "settings-filter";
 
@@ -799,6 +802,108 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         theme::subtle(ui, &palette, &gettext(locale, "Playback settings applied."));
                     }
                 });
+            }
+        });
+    }
+
+    let local_files_title = gettext(locale, "Local files");
+    let show_local_files = gettext(locale, "Show local files");
+    let add_a_source = gettext(locale, "Add a source");
+    // The chosen sources are rows too, so a folder's name or path finds its
+    // row in the search. They only exist while local files are enabled,
+    // like the controls below.
+    let enabled = app.settings.local_files.enabled;
+    let sources = app.settings.local_files.directories.clone();
+    let mut local_files_rows = vec![
+        RowText::new(
+            show_local_files.clone(),
+            gettext(
+                locale,
+                "Play tagged MP3 and FLAC files from folders chosen below.",
+            ),
+        ),
+        RowText::new(
+            add_a_source.clone(),
+            gettext(locale, "Choose a folder of audio files to scan."),
+        )
+        .when(enabled),
+    ];
+    for directory in &sources {
+        local_files_rows.push(
+            RowText::new(
+                directory
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| directory.display().to_string()),
+                directory.display().to_string(),
+            )
+            .when(enabled),
+        );
+    }
+    if section_matches(&needle, &local_files_title, &local_files_rows) {
+        any_visible = true;
+        section(ui, &palette, &local_files_title, |ui| {
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &local_files_title,
+                &local_files_rows[0],
+                |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        &show_local_files,
+                        &mut app.settings.local_files.enabled,
+                    )
+                    .changed()
+                    {
+                        changed = true;
+                        playback_dirty = true;
+                    }
+                },
+            );
+            // The sources and their add and remove controls are dependent
+            // settings: off, the toggle is all the section shows.
+            if enabled {
+                filtered_row(
+                    ui,
+                    &palette,
+                    &needle,
+                    &local_files_title,
+                    &local_files_rows[1],
+                    |ui| {
+                        if theme::soft_button(ui, &palette, Some(Icon::Plus), &add_a_source, false)
+                            .clicked()
+                        {
+                            app.actions.push(Action::ChooseLocalFilesSource);
+                        }
+                    },
+                );
+                for (index, directory) in sources.iter().enumerate() {
+                    let row = &local_files_rows[index + 2];
+                    filtered_row(ui, &palette, &needle, &local_files_title, row, |ui| {
+                        if theme::icon_button(
+                            ui,
+                            Icon::X,
+                            16.0,
+                            palette.secondary,
+                            palette.text,
+                            &gettext(locale, "Remove"),
+                        )
+                        .clicked()
+                        {
+                            // The row goes now; Apply hands the shorter
+                            // list to the engine, which rescans.
+                            app.settings
+                                .local_files
+                                .directories
+                                .retain(|each| each != directory);
+                            changed = true;
+                            playback_dirty = true;
+                        }
+                    });
+                }
             }
         });
     }

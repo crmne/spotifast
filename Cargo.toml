@@ -129,6 +129,17 @@ librespot-playback = { version = "0.8", default-features = false, features = ["r
 librespot-connect = { version = "0.8", default-features = false }
 librespot-metadata = { version = "0.8", default-features = false }
 librespot-protocol = { version = "0.8", default-features = false }
+# The app-side scan of the local file folders the engine is handed above
+# (src/local_files.rs): the same version and feature set
+# librespot-playback already compiles, so this adds no new build work.
+# Mirroring librespot's matching here (librespot PR #1595) keeps the list
+# to files the engine can play; exposing its lookup for reuse is proposed
+# in librespot PR #1792. mp4 and m4p stay out: without isomp4 the
+# engine's probe never matches them.
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "ogg", "vorbis", "flac"] }
+# The parts of a spotify:local URI, encoded exactly as librespot encodes
+# them, so a scanned file is named the way the engine names it.
+form_urlencoded = "1.2"
 # Parses the rootlist's playlist4 protobuf, the same crate librespot generates with.
 protobuf = "3"
 # Local playback's audio sink is this crate's own (src/sink.rs): librespot's
