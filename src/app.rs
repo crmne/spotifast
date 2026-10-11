@@ -4127,7 +4127,9 @@ impl App {
         match page {
             Page::Home => {
                 if self.network_reachable {
-                    self.load_home(false);
+                    // A refresh that failed behind cached shelves is read
+                    // again on opening Home, without waiting ten minutes.
+                    self.load_home(self.home.refresh_failed);
                 }
             }
             Page::TopSongs => {
@@ -13013,6 +13015,69 @@ mod tests {
         app.handle_backend_events(vec![Event::NetworkStatus(true)]);
         assert_ne!(app.library.playlists_generation, cut_off);
         assert!(app.library.playlists_loading_since.is_some());
+    }
+
+    /// With no list shown yet, a load cut off between pages keeps the pages
+    /// that arrived, is not saved as the account's list, and is read again
+    /// once the network is back.
+    #[test]
+    fn a_first_load_cut_off_between_pages_keeps_its_pages_and_resumes() {
+        let mut app = connected_listener();
+        app.load_playlists();
+        app.handle_backend_events(vec![Event::NetworkStatus(false)]);
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: Ok(playlist_page(&["a", "b"], 0, 3)),
+        });
+        assert_eq!(listed_playlists(&app), playlist_ids(&["a", "b"]));
+        assert!(!app.library.playlists_whole);
+        assert_eq!(app.library.playlists_loading_since, None);
+        assert!(app.library.playlists_retry_at.is_some());
+        assert!(stored_playlists(&app).is_empty());
+
+        let cut_off = app.library.playlists_generation;
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+        assert_ne!(app.library.playlists_generation, cut_off);
+        assert_eq!(
+            listed_playlists(&app),
+            playlist_ids(&["a", "b"]),
+            "the pages shown stay while the list is read again"
+        );
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: Ok(playlist_page(&["a", "b", "c"], 0, 3)),
+        });
+        assert!(app.library.playlists_whole);
+        assert_eq!(
+            stored_playlists(&app),
+            vec![(
+                "alice".to_string(),
+                vec!["a".into(), "b".into(), "c".into()]
+            )]
+        );
+    }
+
+    /// Opening Home after a refresh failed behind cached shelves reads it
+    /// again at once, rather than after ten minutes.
+    #[test]
+    fn opening_home_after_a_failed_refresh_reads_it_again() {
+        let mut app = connected_listener();
+        app.load_home(false);
+        let generation = app.home.generation;
+        app.handle_api(ApiResponse::TopArtists {
+            generation,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        app.ensure_loaded(Page::Home);
+        assert_ne!(app.home.generation, generation);
+        let again = app.home.generation;
+        app.ensure_loaded(Page::Home);
+        assert_eq!(
+            app.home.generation, again,
+            "a fresh refresh is not repeated"
+        );
     }
 
     /// Starting offline, the cached list shows and is read again once the

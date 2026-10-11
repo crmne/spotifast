@@ -190,17 +190,17 @@ rows are placeholders until their page arrives; scrolling never starts playback.
 
 Each Web API session has separate concurrency and rate limits. A `Retry-After`
 response pauses only that session. Spotifast routes each request once and
-does not retry it through the other app.
-
-The playlist list and Made for you searches go through the shared app even
-when a personal app is set up. While the shared app waits out Spotify's
-limits, the sidebar and Home show what they last showed for the account,
-from the cache described in [Settings & Files](/settings-and-files/). A playlist read the librespot session
+does not retry it through the other app. A playlist read the librespot session
 refuses outright, because the playlist is gone or private, is shown as such. A
 dropped connection, a read that takes longer than 30 seconds, or a page whose
 song details Spotify did not supply in full, hands the read to the Web API
 instead of caching rows without songs. A song Spotify no longer has, or
 withholds for legal reasons, is an empty row, as the Web API shows it.
+
+The playlist list and Made for you searches go through the shared app even
+when a personal app is set up. While the shared app waits out Spotify's
+limits, the sidebar and Home show what they last showed for the account,
+from the cache described in [Settings & Files](/settings-and-files/).
 
 Spotify can also explicitly refuse the key needed to decrypt a track. When
 that happens, Spotifast stops local playback and leaves the rest of the queue
