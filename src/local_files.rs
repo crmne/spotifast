@@ -30,11 +30,12 @@ use symphonia::core::probe::{Hint, ProbeResult};
 
 use crate::images::ArtLoader;
 
-/// The extensions the engine can probe and decode. librespot's list also
-/// carries mp4 and m4p, but its symphonia builds without isomp4, so those
-/// entries never probe successfully; they stay out here so the list never
-/// promises a file the engine cannot play.
-const SUPPORTED_FILE_EXTENSIONS: &[&str; 2] = &["mp3", "flac"];
+/// The extensions the engine can probe and decode, mirroring the pinned
+/// fork: MP3 and FLAC from the start, and MP4 audio (m4a, mp4, m4p)
+/// through Symphonia's isomp4 container and AAC decoder. A
+/// FairPlay-protected m4p file indexes but will not decode, exactly as in
+/// librespot.
+const SUPPORTED_FILE_EXTENSIONS: &[&str; 5] = &["mp3", "mp4", "m4p", "m4a", "flac"];
 
 /// One tagged audio file, as the engine matched it to a `spotify:local`
 /// URI. The display fields are decoded from the URI, so what a row says
@@ -291,6 +292,7 @@ fn embedded_cover(audio_path: &Path, lowercase_extension: &str) -> Option<Vec<u8
     match lowercase_extension {
         "mp3" => id3v2_cover(&mut src).ok().flatten(),
         "flac" => flac_cover(&mut src).ok().flatten(),
+        "mp4" | "m4a" | "m4p" => mp4_cover(&mut src).ok().flatten(),
         _ => None,
     }
 }
@@ -478,6 +480,96 @@ fn flac_picture(block: &[u8]) -> Option<(bool, Vec<u8>)> {
     at += 4;
     let picture = block.get(at..at + data_len)?.to_vec();
     (!picture.is_empty()).then_some((picture_type == 3, picture))
+}
+
+/// The picture in an MP4 family file's tags (m4a, mp4, m4p): the `covr`
+/// item of the iTunes-style tag list, which lives at
+/// moov > udta > meta > ilst. A file can carry more than one moov or
+/// udta, and only some of them hold the tag list, so every one is visited
+/// until a cover reads. The walk stays within each parent atom's bounds,
+/// so a malformed box never reads outside the file.
+fn mp4_cover(src: &mut (impl Read + Seek)) -> io::Result<Option<Vec<u8>>> {
+    let end = src.seek(SeekFrom::End(0))?;
+    visit_atoms(src, 0, end, b"moov", |src, start, stop| {
+        visit_atoms(src, start, stop, b"udta", |src, start, stop| {
+            visit_atoms(src, start, stop, b"meta", |src, start, stop| {
+                // meta's content begins with four bytes of version and
+                // flags before its child atoms.
+                visit_atoms(src, start + 4, stop, b"ilst", |src, start, stop| {
+                    visit_atoms(src, start, stop, b"covr", |src, start, stop| {
+                        let mut body = vec![0u8; (stop - start) as usize];
+                        src.read_exact(&mut body)?;
+                        Ok(covr_data(&body))
+                    })
+                })
+            })
+        })
+    })
+}
+
+/// Visits every `wanted` atom among the sibling atoms between `start` and
+/// `stop`, in order, each with the bounds of its content, until `visit`
+/// answers `Some`. Siblings are skipped by their own declared size, never
+/// by reading them; a size of 0 runs to `stop`, and a 64-bit size follows
+/// a size of 1. A malformed or out-of-bounds size ends the walk.
+fn visit_atoms<S, T>(
+    src: &mut S,
+    start: u64,
+    stop: u64,
+    wanted: &[u8; 4],
+    mut visit: impl FnMut(&mut S, u64, u64) -> io::Result<Option<T>>,
+) -> io::Result<Option<T>>
+where
+    S: Read + Seek,
+{
+    let mut at = start;
+    while at + 8 <= stop {
+        src.seek(SeekFrom::Start(at))?;
+        let mut header = [0u8; 8];
+        src.read_exact(&mut header)?;
+        let mut size = u64::from(be_u32([header[0], header[1], header[2], header[3]]));
+        let kind = [header[4], header[5], header[6], header[7]];
+        let mut content = at + 8;
+        if size == 1 {
+            let mut big = [0u8; 8];
+            src.read_exact(&mut big)?;
+            size = u64::from_be_bytes(big);
+            content += 8;
+        } else if size == 0 {
+            size = stop - at;
+        }
+        if size < content - at || at + size > stop {
+            return Ok(None); // A malformed size ends the walk.
+        }
+        if &kind == wanted
+            && let Some(found) = visit(src, content, at + size)?
+        {
+            return Ok(Some(found));
+        }
+        at += size;
+    }
+    Ok(None)
+}
+
+/// The picture inside a `covr` tag item: a `data` atom whose type code
+/// names JPEG (13) or PNG (14), carrying the picture after its header.
+fn covr_data(covr: &[u8]) -> Option<Vec<u8>> {
+    let mut at = 0;
+    while at + 8 <= covr.len() {
+        let size = be_u32(covr.get(at..at + 4)?.try_into().ok()?) as usize;
+        if size < 8 || at + size > covr.len() {
+            return None;
+        }
+        if covr.get(at + 4..at + 8)? == b"data"
+            && let Some(picture) = covr.get(at + 16..at + size)
+            && matches!(be_u32(covr.get(at + 8..at + 12)?.try_into().ok()?), 13 | 14)
+            && !picture.is_empty()
+        {
+            return Some(picture.to_vec());
+        }
+        at += size;
+    }
+    None
 }
 
 /// The title a file is matched and listed under: its title tag, or the
@@ -871,6 +963,112 @@ mod tests {
             Some(picture),
             "the PICTURE block's bytes are the cover"
         );
+    }
+
+    /// An MP4 atom: a big-endian size that counts the whole atom, then
+    /// its four-character type, then its content.
+    fn mp4_atom(kind: &[u8; 4], content: &[u8]) -> Vec<u8> {
+        let mut atom = Vec::new();
+        atom.extend_from_slice(&((content.len() as u64 + 8) as u32).to_be_bytes());
+        atom.extend_from_slice(kind);
+        atom.extend_from_slice(content);
+        atom
+    }
+
+    /// A `data` atom inside a tag item: the type code, a locale nobody
+    /// reads, then the value. Code 13 is JPEG, 14 PNG.
+    fn mp4_data_atom(code: u32, value: &[u8]) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&code.to_be_bytes());
+        data.extend_from_slice(&[0, 0, 0, 0]);
+        data.extend_from_slice(value);
+        mp4_atom(b"data", &data)
+    }
+
+    /// An m4a-shaped stream: ftyp, then moov holding the tag list, then a
+    /// data atom's worth of media after it.
+    fn mp4_stream(ilst: &[u8]) -> Vec<u8> {
+        let covr = mp4_atom(b"covr", &[mp4_data_atom(13, b"jpeg data")].concat());
+        let mut ilst_all = covr;
+        ilst_all.extend_from_slice(ilst);
+        let ilst = mp4_atom(b"ilst", &ilst_all);
+        // meta's four bytes of version and flags precede its children.
+        let meta = mp4_atom(b"meta", &[vec![0, 0, 0, 0], ilst].concat());
+        let udta = mp4_atom(b"udta", &meta);
+        let moov = mp4_atom(b"moov", &udta);
+        [
+            mp4_atom(b"ftyp", b"M4A "),
+            moov,
+            mp4_atom(b"mdat", b"media bytes"),
+        ]
+        .concat()
+    }
+
+    fn mp4_cover_of(bytes: &[u8]) -> Option<Vec<u8>> {
+        super::mp4_cover(&mut Cursor::new(bytes)).expect("the atoms read")
+    }
+
+    #[test]
+    fn an_m4as_covr_item_is_read() {
+        let picture = b"\xff\xd8 jpeg cover".to_vec();
+        let ilst = mp4_atom(
+            b"ilst",
+            &[
+                mp4_atom(b"\xa9nam", &[mp4_data_atom(1, b"Title")].concat()),
+                mp4_atom(b"covr", &[mp4_data_atom(14, &picture)].concat()),
+            ]
+            .concat(),
+        );
+        // meta's four bytes of version and flags precede its children.
+        let meta = mp4_atom(b"meta", &[vec![0, 0, 0, 0], ilst].concat());
+        let tag_udta = mp4_atom(b"udta", &meta);
+        // Real files carry other udta atoms too, some of them before the
+        // one that holds the tag list; the walk must keep going.
+        let plain_udta = mp4_atom(b"udta", &mp4_atom(b"ludt", b"loudness"));
+        let moov = mp4_atom(b"moov", &[plain_udta, tag_udta].concat());
+        let stream = [
+            mp4_atom(b"ftyp", b"M4A "),
+            mp4_atom(b"moov", &mp4_atom(b"trak", b"a track")),
+            moov,
+            mp4_atom(b"mdat", b"media bytes"),
+        ]
+        .concat();
+        assert_eq!(
+            mp4_cover_of(&stream),
+            Some(picture),
+            "the covr item's PNG data is the cover, found past two moov and two udta atoms"
+        );
+    }
+
+    #[test]
+    fn mp4_covers_need_a_picture_data_atom() {
+        assert_eq!(
+            mp4_cover_of(&mp4_stream(&[])),
+            Some(b"jpeg data".to_vec()),
+            "the stream's own cover reads"
+        );
+
+        // A data atom of another type is not a picture.
+        let text = mp4_stream(
+            &[mp4_atom(
+                b"\xa9cmt",
+                &[mp4_data_atom(1, b"a note")].concat(),
+            )]
+            .concat(),
+        );
+        assert_eq!(mp4_cover_of(&text), Some(b"jpeg data".to_vec()));
+
+        // No tag list at all, or a stream that is not atoms: no picture.
+        assert_eq!(mp4_cover_of(b"not an mp4"), None);
+        assert_eq!(mp4_cover_of(&mp4_atom(b"ftyp", b"M4A ")), None);
+
+        // A covr whose data atom is truncated or miscounted reads as none,
+        // never as bytes outside the file.
+        let mut short = Vec::new();
+        short.extend_from_slice(&100u32.to_be_bytes());
+        short.extend_from_slice(b"covr");
+        short.extend_from_slice(&mp4_data_atom(13, b"jpeg"));
+        assert_eq!(mp4_cover_of(&short), None);
     }
 
     #[test]

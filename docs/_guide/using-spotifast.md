@@ -150,7 +150,7 @@ sidebar is not in compact mode.
 ## Local files
 
 Turn on **Show local files** in Settings, under **Local files**, and choose
-folders of MP3 and FLAC files. A file is named by its title tag, or by its
+folders of MP3, M4A, and FLAC files. A file is named by its title tag, or by its
 file name when it has none. A picture embedded in the file's tags is its
 cover art, on its row and in the player bar; a file without one shows the
 placeholder. The files appear on the Local files page

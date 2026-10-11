@@ -3314,7 +3314,7 @@ dependencies = [
 [[package]]
 name = "librespot-audio"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
+source = "git+https://github.com/notdezzi/librespot?rev=87741d8fe24784a3421db0889b26e09d2198bc24#87741d8fe24784a3421db0889b26e09d2198bc24"
 dependencies = [
  "aes 0.8.4",
  "bytes",
@@ -3333,7 +3333,7 @@ dependencies = [
 [[package]]
 name = "librespot-connect"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
+source = "git+https://github.com/notdezzi/librespot?rev=87741d8fe24784a3421db0889b26e09d2198bc24#87741d8fe24784a3421db0889b26e09d2198bc24"
 dependencies = [
  "futures-util",
  "librespot-core",
@@ -3352,7 +3352,7 @@ dependencies = [
 [[package]]
 name = "librespot-core"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
+source = "git+https://github.com/notdezzi/librespot?rev=87741d8fe24784a3421db0889b26e09d2198bc24#87741d8fe24784a3421db0889b26e09d2198bc24"
 dependencies = [
  "aes 0.8.4",
  "base64",
@@ -3409,7 +3409,7 @@ dependencies = [
 [[package]]
 name = "librespot-metadata"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
+source = "git+https://github.com/notdezzi/librespot?rev=87741d8fe24784a3421db0889b26e09d2198bc24#87741d8fe24784a3421db0889b26e09d2198bc24"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3426,7 +3426,7 @@ dependencies = [
 [[package]]
 name = "librespot-oauth"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
+source = "git+https://github.com/notdezzi/librespot?rev=87741d8fe24784a3421db0889b26e09d2198bc24#87741d8fe24784a3421db0889b26e09d2198bc24"
 dependencies = [
  "log",
  "oauth2",
@@ -3439,7 +3439,7 @@ dependencies = [
 [[package]]
 name = "librespot-playback"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
+source = "git+https://github.com/notdezzi/librespot?rev=87741d8fe24784a3421db0889b26e09d2198bc24#87741d8fe24784a3421db0889b26e09d2198bc24"
 dependencies = [
  "form_urlencoded",
  "futures-util",
@@ -3462,7 +3462,7 @@ dependencies = [
 [[package]]
 name = "librespot-protocol"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
+source = "git+https://github.com/notdezzi/librespot?rev=87741d8fe24784a3421db0889b26e09d2198bc24#87741d8fe24784a3421db0889b26e09d2198bc24"
 dependencies = [
  "protobuf",
  "protobuf-codegen",
@@ -6019,8 +6019,10 @@ dependencies = [
  "lazy_static",
  "symphonia-bundle-flac",
  "symphonia-bundle-mp3",
+ "symphonia-codec-aac",
  "symphonia-codec-vorbis",
  "symphonia-core",
+ "symphonia-format-isomp4",
  "symphonia-format-ogg",
  "symphonia-metadata",
 ]
@@ -6050,6 +6052,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "symphonia-codec-aac"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c263845aa86881416849c1729a54c7f55164f8b96111dba59de46849e73a790"
+dependencies = [
+ "lazy_static",
+ "log",
+ "symphonia-core",
+]
+
+[[package]]
 name = "symphonia-codec-vorbis"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6071,6 +6084,19 @@ dependencies = [
  "bytemuck",
  "lazy_static",
  "log",
+]
+
+[[package]]
+name = "symphonia-format-isomp4"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "243739585d11f81daf8dac8d9f3d18cc7898f6c09a259675fc364b382c30e0a5"
+dependencies = [
+ "encoding_rs",
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+ "symphonia-utils-xiph",
 ]
 
 [[package]]
