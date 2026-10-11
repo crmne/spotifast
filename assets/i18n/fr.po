@@ -388,7 +388,7 @@ msgstr "Lancez un titre pour voir ses paroles."
 #: src/ui/library.rs:256 src/ui/search.rs:91 src/ui/show.rs:58
 #: src/ui/show.rs:104 src/ui/show.rs:134
 msgid "You're offline"
-msgstr ""
+msgstr "Vous êtes hors ligne"
 
 #: src/ui/lyrics.rs:146 src/ui/lyrics.rs:163 src/ui/artist.rs:273
 #: src/ui/artist.rs:301 src/ui/collection.rs:582 src/ui/collection.rs:1471
@@ -398,7 +398,7 @@ msgstr ""
 #: src/ui/library.rs:259 src/ui/show.rs:61 src/ui/show.rs:107
 #: src/ui/show.rs:137
 msgid "Spotifast will reconnect automatically when your connection returns."
-msgstr ""
+msgstr "Spotifast se reconnectera automatiquement dès le retour de votre connexion."
 
 #. Translators: Keep {error} unchanged. It is the original failure detail.
 #: src/ui/lyrics.rs:171 src/ui/lyrics.rs:404 src/ui/lyrics.rs:640
@@ -598,7 +598,7 @@ msgstr "Trier par durée"
 
 #: src/ui/widgets.rs:2529 src/app.rs:11453 src/app.rs:11467
 msgid "Network connection error. Check your connection."
-msgstr ""
+msgstr "Erreur de connexion réseau. Vérifiez votre connexion."
 
 #: src/ui/widgets.rs:2787
 msgid "Cut"
@@ -1250,11 +1250,11 @@ msgstr "Connexion à Spotify…"
 #: src/ui/settings.rs:430
 msgctxt "playback status"
 msgid "Waiting for network"
-msgstr ""
+msgstr "En attente du réseau"
 
 #: src/ui/settings.rs:433
 msgid "Waiting for network connectivity to resume playback."
-msgstr ""
+msgstr "En attente d'une connexion réseau pour reprendre la lecture."
 
 #: src/ui/settings.rs:438
 msgctxt "playback status"
@@ -2142,7 +2142,7 @@ msgstr "Indisponible"
 
 #: src/ui/collection.rs:772
 msgid "You're offline. Reconnect to load more songs."
-msgstr ""
+msgstr "Vous êtes hors ligne. Reconnectez-vous pour charger plus de titres."
 
 #: src/ui/collection.rs:921
 msgid "Nothing here yet"
@@ -2781,7 +2781,7 @@ msgstr "Vérifiez l’orthographe ou essayez avec moins de mots."
 
 #: src/ui/search.rs:94
 msgid "Connect to the internet to search songs, artists, and playlists."
-msgstr ""
+msgstr "Connectez-vous à internet pour rechercher des titres, des artistes et des listes de lecture."
 
 #: src/ui/search.rs:104 src/ui/winamp/playlist.rs:647
 msgid "Search Spotify"
@@ -2888,7 +2888,7 @@ msgstr "Que souhaitez-vous écouter ?"
 #: src/ui/topbar.rs:509
 msgid ""
 "Spotifast is offline. Reconnecting automatically when connection returns."
-msgstr ""
+msgstr "Spotifast est hors ligne. La reconnexion sera automatique dès le retour de la connexion."
 
 #: src/ui/topbar.rs:536
 msgid "MilkDrop visualiser (Ctrl+Shift+K)"
