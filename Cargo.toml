@@ -302,10 +302,10 @@ hyper-proxy2 = { git = "https://github.com/crmne/hyper-proxy2", rev = "efca48113
 # also carries the earlier patches, so Spotifast pins it until the
 # maintainer's fork carries the change; every librespot crate comes from
 # the one fork so one copy exists. Drop patches as upstream takes them.
-librespot-audio = { git = "https://github.com/notdezzi/librespot", rev = "116013d638ed14a5048d9cac16754615de645a60" }
-librespot-connect = { git = "https://github.com/notdezzi/librespot", rev = "116013d638ed14a5048d9cac16754615de645a60" }
-librespot-core = { git = "https://github.com/notdezzi/librespot", rev = "116013d638ed14a5048d9cac16754615de645a60" }
-librespot-metadata = { git = "https://github.com/notdezzi/librespot", rev = "116013d638ed14a5048d9cac16754615de645a60" }
-librespot-oauth = { git = "https://github.com/notdezzi/librespot", rev = "116013d638ed14a5048d9cac16754615de645a60" }
-librespot-playback = { git = "https://github.com/notdezzi/librespot", rev = "116013d638ed14a5048d9cac16754615de645a60" }
-librespot-protocol = { git = "https://github.com/notdezzi/librespot", rev = "116013d638ed14a5048d9cac16754615de645a60" }
+librespot-audio = { git = "https://github.com/notdezzi/librespot", rev = "b010fdbdf9c20565ce2e53d000764f4b9f4f22a8" }
+librespot-connect = { git = "https://github.com/notdezzi/librespot", rev = "b010fdbdf9c20565ce2e53d000764f4b9f4f22a8" }
+librespot-core = { git = "https://github.com/notdezzi/librespot", rev = "b010fdbdf9c20565ce2e53d000764f4b9f4f22a8" }
+librespot-metadata = { git = "https://github.com/notdezzi/librespot", rev = "b010fdbdf9c20565ce2e53d000764f4b9f4f22a8" }
+librespot-oauth = { git = "https://github.com/notdezzi/librespot", rev = "b010fdbdf9c20565ce2e53d000764f4b9f4f22a8" }
+librespot-playback = { git = "https://github.com/notdezzi/librespot", rev = "b010fdbdf9c20565ce2e53d000764f4b9f4f22a8" }
+librespot-protocol = { git = "https://github.com/notdezzi/librespot", rev = "b010fdbdf9c20565ce2e53d000764f4b9f4f22a8" }

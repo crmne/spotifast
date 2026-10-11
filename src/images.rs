@@ -18,7 +18,9 @@ use crate::http::Http;
 ///
 /// Size-based eviction keeps visible images stable.
 const HELD_BYTES: usize = 64 * 1024 * 1024;
-const MAX_ART_BYTES: usize = 8 * 1024 * 1024;
+/// The largest artwork this loader accepts, from the network or embedded
+/// in a local file's tags.
+pub(crate) const MAX_ART_BYTES: usize = 8 * 1024 * 1024;
 
 /// Decoded ColorImage plus the GPU texture, both RGBA.
 fn decoded_and_texture_bytes(width: usize, height: usize) -> usize {
@@ -26,9 +28,22 @@ fn decoded_and_texture_bytes(width: usize, height: usize) -> usize {
 }
 
 /// What this loader answers for. egui offers it every URI, and artwork that
-/// is not fetched over the network belongs to another loader.
+/// is neither fetched over the network nor embedded in a scanned local file
+/// belongs to another loader.
 fn is_http(uri: &str) -> bool {
     uri.starts_with("https://") || uri.starts_with("http://")
+}
+
+/// Embedded artwork from a scanned local file. The URI names no host and
+/// no path: it is an opaque key whose bytes the scan has already written
+/// into the disk cache, so a load answers from the cache and never asks
+/// the network for one.
+pub fn is_local_cover(uri: &str) -> bool {
+    uri.starts_with("local-cover:")
+}
+
+fn is_art(uri: &str) -> bool {
+    is_http(uri) || is_local_cover(uri)
 }
 
 enum Entry {
@@ -160,6 +175,26 @@ impl ArtLoader {
         true
     }
 
+    /// Places a scanned local file's embedded artwork in the disk cache, so
+    /// its `local-cover:` URI loads like any other artwork. Written
+    /// atomically, as a download would be, so a file that is there at all
+    /// holds a complete picture; empty or oversized pictures are refused.
+    /// Loading stays lazy: nothing is held in memory until something draws
+    /// the URI, the same as artwork from the network.
+    pub fn embed(&self, url: &str, bytes: &[u8]) -> bool {
+        if !is_local_cover(url) || bytes.is_empty() || bytes.len() > MAX_ART_BYTES {
+            return false;
+        }
+        let path = self.inner.cache_path(url);
+        let temporary = path.with_extension("part");
+        let written =
+            std::fs::write(&temporary, bytes).is_ok() && std::fs::rename(&temporary, &path).is_ok();
+        if !written {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        written
+    }
+
     /// Drops held JPEG bytes once egui has made a texture. The disk cache
     /// remains for later reloads.
     pub fn release_bytes(&self, url: &str) {
@@ -253,6 +288,9 @@ impl Inner {
         .flatten();
         let bytes: Arc<[u8]> = match cached {
             Some(bytes) if !bytes.is_empty() => Arc::from(bytes),
+            // An embedded cover exists only as the cache file the scan
+            // wrote; there is no server behind it to ask.
+            _ if !is_http(url) => return Err("local cover is not in the cache".to_string()),
             _ => {
                 let response = self
                     .http
@@ -327,7 +365,7 @@ impl BytesLoader for ArtLoader {
     }
 
     fn load(&self, ctx: &egui::Context, uri: &str) -> BytesLoadResult {
-        if !is_http(uri) {
+        if !is_art(uri) {
             return Err(LoadError::NotSupported);
         }
         let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
@@ -480,7 +518,7 @@ impl LyricsBackdrop {
         }
         let uri = uri?;
         let due = self.retry_at.is_none_or(|at| Instant::now() >= at);
-        if !self.requested && due && is_http(uri) {
+        if !self.requested && due && is_art(uri) {
             self.requested = true;
             self.retry_at = None;
             let (tx, rx) = std::sync::mpsc::channel();
@@ -1154,6 +1192,48 @@ mod tests {
         assert_eq!(loader.cached_file(url), Some(path));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An embedded cover exists only as the cache file the scan wrote:
+    /// loading it answers from the cache, never the network, and a URI
+    /// with nothing behind it is an honest failure.
+    #[test]
+    fn embedded_covers_live_only_in_the_cache() {
+        let dir = std::env::temp_dir().join(format!("spotifast-embed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("a runtime to hand the loader");
+        let loader = ArtLoader::new(
+            reqwest::Client::new(),
+            runtime.handle().clone(),
+            dir.clone(),
+        );
+        let url = "local-cover:abc";
+
+        assert!(is_local_cover(url) && !is_http(url));
+        runtime.block_on(async {
+            assert_eq!(
+                loader.fetch(url).await.unwrap_err(),
+                "local cover is not in the cache"
+            );
+        });
+
+        // Refused: not a local-cover URI, empty, or oversized.
+        assert!(!loader.embed("https://i.scdn.co/image/x", b"picture"));
+        assert!(!loader.embed(url, b""));
+        assert!(!loader.embed(url, &vec![0; MAX_ART_BYTES + 1]));
+
+        let picture = b"\x89PNG embedded".to_vec();
+        assert!(loader.embed(url, &picture));
+        runtime.block_on(async {
+            assert_eq!(&*loader.fetch(url).await.unwrap(), picture.as_slice());
+        });
+        assert!(loader.cached_file(url).is_some());
+
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(5));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

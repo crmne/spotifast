@@ -554,7 +554,8 @@ pub fn populate(app: &mut App) {
     ];
     // The scan's answer: a handful of matched files, in the order the
     // engine will play them. With the remote speaker active they read as
-    // unavailable, the way they do on any other device.
+    // unavailable, the way they do on any other device. None carries an
+    // embedded picture, so their rows show the placeholder.
     let local =
         |artist: &str, album: &str, title: &str, secs: u64| crate::local_files::LocalFileTrack {
             uri: crate::local_files::uri_from_parts(Some(artist), Some(album), Some(title), secs),
@@ -562,6 +563,7 @@ pub fn populate(app: &mut App) {
             artist: artist.into(),
             album: album.into(),
             duration_secs: secs,
+            art: None,
         };
     app.local_files.scanned(vec![
         local("Bonobo", "Fragments", "Otomo", 246),
