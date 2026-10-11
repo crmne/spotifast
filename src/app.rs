@@ -10101,10 +10101,12 @@ impl App {
 
     /// Whether automatic downloads wait: on a metered connection, or while
     /// the system reports no way to the internet, where a download would
-    /// only fail and stop the next automatic one.
+    /// only fail and stop the next automatic one. That report counts only
+    /// where the app follows it (macOS): Windows's hint can say there is no
+    /// internet where Spotify and GitHub still answer.
     fn downloads_wait(&self) -> bool {
         let conditions = self.power.conditions();
-        conditions.metered || !conditions.online
+        conditions.metered || (self.follows_reachability && !conditions.online)
     }
 
     /// Takes an automatic update step now, or holds it until the connection
@@ -17702,16 +17704,26 @@ mod tests {
     }
 
     /// The daily update check waits for a connection that is not metered,
-    /// and for the internet.
+    /// and, where the app follows the system's word on it, for the internet.
+    /// Where it does not (Windows), a "no internet" hint holds nothing back.
     #[test]
     fn a_metered_connection_puts_off_the_update_check() {
-        for (metered, online, why) in [
-            (true, true, "checked on a metered network"),
-            (false, false, "checked without internet"),
+        for (metered, online, follows, checked, why) in [
+            (false, true, true, true, "not checked on a free network"),
+            (true, true, false, false, "checked on a metered network"),
+            (false, false, true, false, "checked without internet"),
+            (
+                false,
+                false,
+                false,
+                true,
+                "held by a hint it does not follow",
+            ),
         ] {
             let mut app = headless_app();
             app.settings.check_for_updates = true;
             app.last_update_check = None;
+            app.follows_reachability = follows;
             change_power(&app, |conditions| {
                 conditions.metered = metered;
                 conditions.online = online;
@@ -17721,7 +17733,7 @@ mod tests {
                 app.background_frame(ui.ctx());
             });
             output.textures_delta.clear();
-            assert!(app.last_update_check.is_none(), "{why}");
+            assert_eq!(app.last_update_check.is_some(), checked, "{why}");
         }
     }
 
@@ -17735,6 +17747,8 @@ mod tests {
         let mut app = headless_app();
         app.settings.download_updates_automatically = true;
         app.settings.check_for_updates = false;
+        // Where the app follows the system's word on reaching the internet.
+        app.follows_reachability = true;
         app.update = Some(crate::updates::Release {
             version: "9.9.9".into(),
             url: "https://example.invalid/release".into(),

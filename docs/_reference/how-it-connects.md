@@ -136,8 +136,8 @@ current-track pickup.
   is also in the application menu. On a connection the system reports as
   metered (Windows), the daily check, automatic downloads, and the large cover
   the media controls show wait for one that is not; a check by hand still
-  runs. The daily check and automatic downloads also wait while the system
-  reports no internet connection.
+  runs. On macOS, the daily check and automatic downloads also wait while the
+  system reports no internet connection.
 
   On Windows, macOS, and Linux, downloading an update fetches release metadata and
   `checksums.txt` from the project's GitHub release, then the matching binary
