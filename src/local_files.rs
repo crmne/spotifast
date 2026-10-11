@@ -3,8 +3,9 @@
 //!
 //! This mirrors the pinned librespot's `playback/src/local_file.rs`
 //! (librespot PR #1595): the same extension filter, the same symphonia
-//! probe, the same tags and duration, and the same `spotify:local` URI
-//! built from them, byte for byte. A list built any other way could
+//! probe, the same tags and duration, the same title falling back to the
+//! file stem, and the same `spotify:local` URI built from them, byte for
+//! byte. A list built any other way could
 //! show a file the engine cannot match, or hide one it can. librespot
 //! builds its lookup only when an engine starts; Spotifast rescans the
 //! folders whenever the engine (re)connects or Apply hands it new ones.
@@ -137,8 +138,9 @@ fn visit_dir(dir: &Path, tracks: &mut Vec<LocalFileTrack>) -> io::Result<()> {
 /// The tags and duration of one file, as the URI the engine builds from
 /// them. `None` is the warn-and-skip of librespot's loader: the file
 /// cannot be opened or probed, has no audio track, or its duration
-/// cannot be computed. A file without a title is skipped too, since a
-/// row that names nothing cannot be told apart from any other.
+/// cannot be computed. A file without a title tag is named by its file
+/// stem, exactly as the engine names it, so untagged collections that
+/// carry their track names in the file name still list and play.
 fn track_from_file(audio_path: &Path, file_extension: &str) -> Option<LocalFileTrack> {
     let skipped = |reason: &str| {
         log::warn!(
@@ -188,10 +190,7 @@ fn track_from_file(audio_path: &Path, file_extension: &str) -> Option<LocalFileT
             }
         }
     }
-    let Some(title) = track_title else {
-        skipped("No track title tag");
-        return None;
-    };
+    let title = matched_title(track_title, audio_path);
 
     let Some(first_track) = probed.format.default_track() else {
         skipped("Failed to find an audio track");
@@ -210,9 +209,21 @@ fn track_from_file(audio_path: &Path, file_extension: &str) -> Option<LocalFileT
     Some(track_from_uri(uri_from_parts(
         artist.as_deref(),
         album_title.as_deref(),
-        Some(title.as_str()),
+        title.as_deref(),
         seconds,
     )))
+}
+
+/// The title a file is matched and listed under: its title tag, or the
+/// file stem when the tag is missing or empty. This mirrors the fork's
+/// `matched_title` byte for byte, so the URI a row carries is always the
+/// URI the engine built for the same file.
+fn matched_title(track_title: Option<String>, audio_path: &Path) -> Option<String> {
+    track_title.filter(|title| !title.is_empty()).or_else(|| {
+        audio_path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+    })
 }
 
 /// The tags of the latest metadata revision librespot reads: the
@@ -276,7 +287,30 @@ fn track_from_uri(uri: String) -> LocalFileTrack {
 
 #[cfg(test)]
 mod tests {
-    use super::{LocalFileTrack, deduplicate_and_sort, track_from_uri, uri_from_parts};
+    use super::{
+        LocalFileTrack, deduplicate_and_sort, matched_title, track_from_uri, uri_from_parts,
+    };
+    use std::path::Path;
+
+    #[test]
+    fn the_title_tag_wins_over_the_file_name() {
+        assert_eq!(
+            matched_title(Some("Snomads Island".into()), Path::new("bootleg.mp3")).as_deref(),
+            Some("Snomads Island")
+        );
+    }
+
+    #[test]
+    fn a_missing_or_empty_title_falls_back_to_the_file_stem() {
+        assert_eq!(
+            matched_title(None, Path::new("10 Feet (v1.2).mp3")).as_deref(),
+            Some("10 Feet (v1.2)")
+        );
+        assert_eq!(
+            matched_title(Some(String::new()), Path::new("10 Feet (v1.2).mp3")).as_deref(),
+            Some("10 Feet (v1.2)")
+        );
+    }
 
     #[test]
     fn missing_tags_become_empty_parts() {

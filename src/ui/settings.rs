@@ -817,10 +817,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let mut local_files_rows = vec![
         RowText::new(
             show_local_files.clone(),
-            gettext(
-                locale,
-                "Play tagged MP3 and FLAC files from folders chosen below.",
-            ),
+            gettext(locale, "Play MP3 and FLAC files from folders chosen below."),
         ),
         RowText::new(
             add_a_source.clone(),

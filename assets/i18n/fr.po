@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-11 15:42+0200\n"
+"POT-Creation-Date: 2026-10-11 17:27+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: French\n"
@@ -1187,7 +1187,7 @@ msgstr "Client ID"
 msgid "Setup guide"
 msgstr "Guide de configuration"
 
-#: src/ui/settings.rs:388 src/ui/settings.rs:404 src/ui/settings.rs:884
+#: src/ui/settings.rs:388 src/ui/settings.rs:404 src/ui/settings.rs:881
 #: src/ui/dialogs.rs:96
 msgid "Remove"
 msgstr "Retirer"
@@ -1404,101 +1404,101 @@ msgstr "Afficher les fichiers locaux"
 msgid "Add a source"
 msgstr "Ajouter une source"
 
-#: src/ui/settings.rs:814
-msgid "Play tagged MP3 and FLAC files from folders chosen below."
-msgstr "Lit les fichiers MP3 et FLAC tagués des dossiers choisis ci-dessous."
+#: src/ui/settings.rs:812
+msgid "Play MP3 and FLAC files from folders chosen below."
+msgstr "Lit les fichiers MP3 et FLAC des dossiers choisis ci-dessous."
 
-#: src/ui/settings.rs:819
+#: src/ui/settings.rs:816
 msgid "Choose a folder of audio files to scan."
 msgstr "Choisissez un dossier de fichiers audio à analyser."
 
-#: src/ui/settings.rs:903
+#: src/ui/settings.rs:900
 msgid "Appearance"
 msgstr "Apparence"
 
-#: src/ui/settings.rs:904
+#: src/ui/settings.rs:901
 msgid "Theme"
 msgstr "Thème"
 
-#: src/ui/settings.rs:905
+#: src/ui/settings.rs:902
 msgid "How to make a theme"
 msgstr "Créer un thème"
 
-#: src/ui/settings.rs:906
+#: src/ui/settings.rs:903
 msgid "Open themes folder"
 msgstr "Ouvrir le dossier des thèmes"
 
-#: src/ui/settings.rs:907
+#: src/ui/settings.rs:904
 msgid "Colour from album art"
 msgstr "Couleur de la pochette"
 
-#: src/ui/settings.rs:908
+#: src/ui/settings.rs:905
 msgid "Compact library sidebar"
 msgstr "Barre latérale compacte"
 
-#: src/ui/settings.rs:909
+#: src/ui/settings.rs:906
 msgid "Compact track list"
 msgstr "Liste de titres compacte"
 
-#: src/ui/settings.rs:910
+#: src/ui/settings.rs:907
 msgid "Middle-click autoscroll"
 msgstr "Défilement automatique au clic du milieu"
 
-#: src/ui/settings.rs:911
+#: src/ui/settings.rs:908
 msgid "Custom title bar"
 msgstr "Barre de titre personnalisée"
 
-#: src/ui/settings.rs:913
+#: src/ui/settings.rs:910
 msgid "Player bar visualizer"
 msgstr "Visualiseur dans la barre de lecture"
 
-#: src/ui/settings.rs:924
+#: src/ui/settings.rs:921
 msgid "Follow system uses your Omarchy colours."
 msgstr "Suivre le système utilise vos couleurs Omarchy."
 
-#: src/ui/settings.rs:928
+#: src/ui/settings.rs:925
 msgid "Follow system uses your desktop's light or dark appearance."
 msgstr ""
 "Suivre le système utilise l’apparence claire ou sombre de votre bureau."
 
-#: src/ui/settings.rs:933 src/ui/settings.rs:2079
+#: src/ui/settings.rs:930 src/ui/settings.rs:2076
 msgid "Language"
 msgstr "Langue"
 
-#: src/ui/settings.rs:936
+#: src/ui/settings.rs:933
 msgid ""
 "System follows your computer's language. Untranslated text stays in English."
 msgstr ""
 "Système suit la langue de votre ordinateur. Le texte non traduit reste en "
 "anglais."
 
-#: src/ui/settings.rs:943
+#: src/ui/settings.rs:940
 msgid "Use the current cover's colour on pages and the player bar."
 msgstr ""
 "Utilise la couleur de la pochette en cours sur les pages et la barre de "
 "lecture."
 
-#: src/ui/settings.rs:948
+#: src/ui/settings.rs:945
 msgid "Show names without covers in the sidebar."
 msgstr "Affiche les noms sans pochette dans la barre latérale."
 
-#: src/ui/settings.rs:952
+#: src/ui/settings.rs:949
 msgid "Show each track on one line without a cover."
 msgstr "Affiche chaque titre sur une ligne, sans pochette."
 
-#: src/ui/settings.rs:955
+#: src/ui/settings.rs:952
 msgid "Interface zoom"
 msgstr "Zoom de l’interface"
 
-#: src/ui/settings.rs:959
+#: src/ui/settings.rs:956
 msgid "Ctrl+Plus and Ctrl+Minus work anywhere; Ctrl+0 resets."
 msgstr "Ctrl+Plus et Ctrl+Moins fonctionnent partout ; Ctrl+0 réinitialise."
 
-#: src/ui/settings.rs:963
+#: src/ui/settings.rs:960
 msgid "Cmd+Plus and Cmd+Minus work anywhere; Cmd+0 resets."
 msgstr "Cmd+Plus et Cmd+Moins fonctionnent partout ; Cmd+0 réinitialise."
 
-#: src/ui/settings.rs:972
+#: src/ui/settings.rs:969
 msgid ""
 "Middle-click a list, then move the pointer to scroll it. Off by default, "
 "because a middle click usually pastes on Linux."
@@ -1507,50 +1507,50 @@ msgstr ""
 "pour la faire défiler. Désactivé par défaut, car le clic du milieu colle "
 "généralement sous Linux."
 
-#: src/ui/settings.rs:980
+#: src/ui/settings.rs:977
 msgid ""
 "Draw Spotifast's own title bar and window buttons instead of the desktop's."
 msgstr ""
 "Dessine la barre de titre et les boutons de fenêtre de Spotifast au lieu de "
 "ceux du bureau."
 
-#: src/ui/settings.rs:988
+#: src/ui/settings.rs:985
 msgid ""
 "Show the song moving behind the player bar's controls while it plays here."
 msgstr ""
 "Montre le titre en mouvement derrière les commandes de la barre de lecture "
 "pendant qu’il est lu ici."
 
-#: src/ui/settings.rs:1123
+#: src/ui/settings.rs:1120
 msgid "Off"
 msgstr "Désactivé"
 
-#: src/ui/settings.rs:1124
+#: src/ui/settings.rs:1121
 msgid "Spectrum"
 msgstr "Spectre"
 
-#: src/ui/settings.rs:1125
+#: src/ui/settings.rs:1122
 msgid "Waveform"
 msgstr "Forme d’onde"
 
-#: src/ui/settings.rs:1282
+#: src/ui/settings.rs:1279
 msgid "Proxy"
 msgstr "Proxy"
 
-#: src/ui/settings.rs:1284
+#: src/ui/settings.rs:1281
 msgid "Mode, host, port, username and password"
 msgstr "Mode, hôte, port, nom d’utilisateur et mot de passe"
 
-#: src/ui/settings.rs:1287
+#: src/ui/settings.rs:1284
 msgid "Off, System, HTTP or SOCKS5 proxy for network requests."
 msgstr "Proxy désactivé, système, HTTP ou SOCKS5 pour les requêtes réseau."
 
-#: src/ui/settings.rs:1297
+#: src/ui/settings.rs:1294
 msgctxt "proxy"
 msgid "Mode"
 msgstr "Mode"
 
-#: src/ui/settings.rs:1300
+#: src/ui/settings.rs:1297
 msgid ""
 "Off ignores environment variables. System uses them, and the OS proxy on "
 "macOS and Windows."
@@ -1558,35 +1558,35 @@ msgstr ""
 "Désactivé ignore les variables d’environnement. Système les utilise, ainsi "
 "que le proxy du système sur macOS et Windows."
 
-#: src/ui/settings.rs:1352 src/ui/login.rs:249
+#: src/ui/settings.rs:1349 src/ui/login.rs:249
 msgid "Apply settings"
 msgstr "Appliquer les paramètres"
 
-#: src/ui/settings.rs:1364
+#: src/ui/settings.rs:1361
 msgid "Not using a proxy."
 msgstr "Aucun proxy utilisé."
 
-#: src/ui/settings.rs:1365
+#: src/ui/settings.rs:1362
 msgid "Using the system proxy."
 msgstr "Proxy du système utilisé."
 
-#: src/ui/settings.rs:1376
+#: src/ui/settings.rs:1373
 msgid "Winamp skins"
 msgstr "Skins Winamp"
 
-#: src/ui/settings.rs:1377 src/ui/winamp/mod.rs:706 src/ui/winamp/mod.rs:852
+#: src/ui/settings.rs:1374 src/ui/winamp/mod.rs:706 src/ui/winamp/mod.rs:852
 msgid "Always on top"
 msgstr "Toujours au premier plan"
 
-#: src/ui/settings.rs:1378
+#: src/ui/settings.rs:1375
 msgid "Show Winamp in taskbar"
 msgstr "Afficher Winamp dans la barre des tâches"
 
-#: src/ui/settings.rs:1381
+#: src/ui/settings.rs:1378
 msgid "Mini player"
 msgstr "Mini-lecteur"
 
-#: src/ui/settings.rs:1385
+#: src/ui/settings.rs:1382
 msgid ""
 "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
 "return. Drop a skin on either window to add it."
@@ -1595,7 +1595,7 @@ msgstr ""
 "le logo de la skin pour revenir. Déposez une skin sur l’une des fenêtres "
 "pour l’ajouter."
 
-#: src/ui/settings.rs:1389
+#: src/ui/settings.rs:1386
 msgid ""
 "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
 "return. Drop a skin on either window to add it."
@@ -1604,36 +1604,36 @@ msgstr ""
 "cliquez sur le logo de la skin pour revenir. Déposez une skin sur l’une des "
 "fenêtres pour l’ajouter."
 
-#: src/ui/settings.rs:1395
+#: src/ui/settings.rs:1392
 msgid "Skin"
 msgstr "Skin"
 
 #. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1399
+#: src/ui/settings.rs:1396
 #, rust-format
 msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
 msgstr ""
 "Les skins installées sont dans {folder}. Trouvez-en d’autres sur le Winamp "
 "Skin Museum."
 
-#: src/ui/settings.rs:1404 src/ui/winamp/mod.rs:693
+#: src/ui/settings.rs:1401 src/ui/winamp/mod.rs:693
 msgid "Size"
 msgstr "Taille"
 
-#: src/ui/settings.rs:1405
+#: src/ui/settings.rs:1402
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr ""
 "Une mise à l’échelle par nombre entier garde les pixels de la skin nets."
 
-#: src/ui/settings.rs:1410
+#: src/ui/settings.rs:1407
 msgid "Keep the Winamp window above everything else."
 msgstr "Garde la fenêtre Winamp au-dessus de tout le reste."
 
-#: src/ui/settings.rs:1416 src/ui/winamp/mod.rs:716
+#: src/ui/settings.rs:1413 src/ui/winamp/mod.rs:716
 msgid "Show in taskbar"
 msgstr "Afficher dans la barre des tâches"
 
-#: src/ui/settings.rs:1419
+#: src/ui/settings.rs:1416
 msgid ""
 "Keep a taskbar button for the mini player. The tray icon stays available "
 "when hidden."
@@ -1641,34 +1641,34 @@ msgstr ""
 "Garde un bouton du mini-lecteur dans la barre des tâches. L’icône de la zone "
 "de notification reste disponible quand il est masqué."
 
-#: src/ui/settings.rs:1424
+#: src/ui/settings.rs:1421
 msgid "Installed skins"
 msgstr "Skins installées"
 
-#: src/ui/settings.rs:1437
+#: src/ui/settings.rs:1434
 msgid "Switch to it"
 msgstr "Y passer"
 
-#: src/ui/settings.rs:1450
+#: src/ui/settings.rs:1447
 msgid "Skin Museum"
 msgstr "Skin Museum"
 
-#: src/ui/settings.rs:1476
+#: src/ui/settings.rs:1473
 msgid "Random"
 msgstr "Aléatoire"
 
-#: src/ui/settings.rs:1515
+#: src/ui/settings.rs:1512
 #, rust-format
 msgid ""
 "Now showing {skin}. Another one is picked each time the mini player opens."
 msgstr ""
 "Affiché : {skin}. Un autre est choisi à chaque ouverture du mini-lecteur."
 
-#: src/ui/settings.rs:1569
+#: src/ui/settings.rs:1566
 msgid "MilkDrop window"
 msgstr "Fenêtre MilkDrop"
 
-#: src/ui/settings.rs:1577
+#: src/ui/settings.rs:1574
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1678,7 +1678,7 @@ msgstr ""
 "barre du haut, avec Ctrl+Shift+K ou depuis le menu V du mini-lecteur. "
 "Appuyez sur ? ou F1 pour voir ses raccourcis."
 
-#: src/ui/settings.rs:1581
+#: src/ui/settings.rs:1578
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1688,12 +1688,12 @@ msgstr ""
 "barre du haut, avec Cmd+Shift+K ou depuis le menu V du mini-lecteur. Appuyez "
 "sur ? ou F1 pour voir ses raccourcis."
 
-#: src/ui/settings.rs:1587 src/ui/settings.rs:1817
+#: src/ui/settings.rs:1584 src/ui/settings.rs:1814
 msgid "Presets"
 msgstr "Presets"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1592
+#: src/ui/settings.rs:1589
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -1704,7 +1704,7 @@ msgstr ""
 "vide."
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1598
+#: src/ui/settings.rs:1595
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -1714,7 +1714,7 @@ msgstr ""
 "des presets la première fois que MilkDrop s’ouvre avec un dossier vide."
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1604
+#: src/ui/settings.rs:1601
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -1731,26 +1731,26 @@ msgstr[1] ""
 "télécharge des presets la première fois que MilkDrop s’ouvre avec un dossier "
 "vide."
 
-#: src/ui/settings.rs:1613
+#: src/ui/settings.rs:1610
 msgid "Time per preset"
 msgstr "Durée par preset"
 
-#: src/ui/settings.rs:1616
+#: src/ui/settings.rs:1613
 msgid "How long each preset plays before the next fades in."
 msgstr "Durée de chaque preset avant le fondu vers le suivant."
 
-#: src/ui/settings.rs:1620
+#: src/ui/settings.rs:1617
 msgid "Frame rate"
 msgstr "Images par seconde"
 
-#: src/ui/settings.rs:1624
+#: src/ui/settings.rs:1621
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr ""
 "Des valeurs plus basses consomment moins de ressources. Illimité dessine "
 "aussi vite que possible."
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:1629
+#: src/ui/settings.rs:1626
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -1759,51 +1759,51 @@ msgstr ""
 "Votre écran se rafraîchit à {hz} Hz. Des valeurs plus élevées n’ajoutent pas "
 "d’images visibles. Illimité dessine aussi vite que possible."
 
-#: src/ui/settings.rs:1636
+#: src/ui/settings.rs:1633
 msgid "Resolution"
 msgstr "Résolution"
 
-#: src/ui/settings.rs:1639
+#: src/ui/settings.rs:1636
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr ""
 "Moitié et Quart consomment moins de ressources et remettent l’image à "
 "l’échelle."
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:1646
+#: src/ui/settings.rs:1643
 msgid "Get presets"
 msgstr "Obtenir des presets"
 
-#: src/ui/settings.rs:1684
+#: src/ui/settings.rs:1681
 msgid "Fetching..."
 msgstr "Récupération..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:1687
+#: src/ui/settings.rs:1684
 #, rust-format
 msgid "Get {pack}"
 msgstr "Obtenir {pack}"
 
-#: src/ui/settings.rs:1789
+#: src/ui/settings.rs:1786
 msgctxt "resolution"
 msgid "Full"
 msgstr "Complète"
 
-#: src/ui/settings.rs:1790
+#: src/ui/settings.rs:1787
 msgctxt "resolution"
 msgid "Half"
 msgstr "Moitié"
 
-#: src/ui/settings.rs:1791
+#: src/ui/settings.rs:1788
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "Quart"
 
-#: src/ui/settings.rs:1805
+#: src/ui/settings.rs:1802
 msgid "Equalizer"
 msgstr "Égaliseur"
 
-#: src/ui/settings.rs:1811
+#: src/ui/settings.rs:1808
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
@@ -1812,101 +1812,101 @@ msgstr ""
 "pas les autres appareils."
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1819
+#: src/ui/settings.rs:1816
 msgid "Preamp"
 msgstr "Préampli"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:1821
+#: src/ui/settings.rs:1818
 msgid "Bands"
 msgstr "Bandes"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:1871
+#: src/ui/settings.rs:1868
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "Pré"
 
-#: src/ui/settings.rs:1888
+#: src/ui/settings.rs:1885
 msgid "Storage"
 msgstr "Stockage"
 
-#: src/ui/settings.rs:1891
+#: src/ui/settings.rs:1888
 msgid "Artwork cache"
 msgstr "Cache des pochettes"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:1893 src/ui/settings.rs:1899
+#: src/ui/settings.rs:1890 src/ui/settings.rs:1896
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "Stocké dans {folder}"
 
-#: src/ui/settings.rs:1905
+#: src/ui/settings.rs:1902
 msgid "Play history"
 msgstr "Historique d’écoute"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:1909
+#: src/ui/settings.rs:1906
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr ""
 "Les titres écoutés ici sont stockés dans {file}. Ce fichier n’est jamais "
 "envoyé."
 
-#: src/ui/settings.rs:1914
+#: src/ui/settings.rs:1911
 msgid "Sign-in"
 msgstr "Connexion"
 
-#: src/ui/settings.rs:1917
+#: src/ui/settings.rs:1914
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr ""
 "Les connexions sont enregistrées dans le gestionnaire d’identifiants du "
 "système lorsqu’il est disponible."
 
-#: src/ui/settings.rs:1929
+#: src/ui/settings.rs:1926
 msgid "Clear artwork"
 msgstr "Effacer les pochettes"
 
-#: src/ui/settings.rs:1943
+#: src/ui/settings.rs:1940
 msgid "Clear history"
 msgstr "Effacer l’historique"
 
-#: src/ui/settings.rs:1955 src/ui/show.rs:34
+#: src/ui/settings.rs:1952 src/ui/show.rs:34
 msgid "About"
 msgstr "À propos"
 
-#: src/ui/settings.rs:1958
+#: src/ui/settings.rs:1955
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr "Conçu avec Rust, egui et librespot. Non affilié à Spotify."
 
-#: src/ui/settings.rs:1960
+#: src/ui/settings.rs:1957
 msgid "Check for updates"
 msgstr "Rechercher des mises à jour"
 
-#: src/ui/settings.rs:1961
+#: src/ui/settings.rs:1958
 msgid "Checking…"
 msgstr "Vérification…"
 
-#: src/ui/settings.rs:1962 src/ui/dialogs.rs:153 src/ui/keys.rs:300
+#: src/ui/settings.rs:1959 src/ui/dialogs.rs:153 src/ui/keys.rs:300
 #: src/ui/topbar.rs:456
 msgid "Keyboard shortcuts"
 msgstr "Raccourcis clavier"
 
-#: src/ui/settings.rs:1963
+#: src/ui/settings.rs:1960
 msgid "Source code"
 msgstr "Code source"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:2035
+#: src/ui/settings.rs:2032
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "Aucun paramètre pour « {query} »"
 
-#: src/ui/settings.rs:2036
+#: src/ui/settings.rs:2033
 msgid "Try fewer words, or check the spelling."
 msgstr "Essayez avec moins de mots ou vérifiez l’orthographe."
 
-#: src/ui/settings.rs:2052
+#: src/ui/settings.rs:2049
 msgctxt "language"
 msgid "System"
 msgstr "Système"
@@ -3230,6 +3230,10 @@ msgstr ""
 "Sous Windows sur ARM, l’OpenGL avec lequel Spotifast dessine provient de "
 "l’OpenCL, OpenGL & Vulkan Compatibility Pack de Microsoft. Ouvrir sa page du "
 "Microsoft Store pour l’installer ou le réparer ?"
+
+#~ msgid "Play tagged MP3 and FLAC files from folders chosen below."
+#~ msgstr ""
+#~ "Lit les fichiers MP3 et FLAC tagués des dossiers choisis ci-dessous."
 
 #~ msgid "MacBook notch interactive widget"
 #~ msgstr "Widget interactif d’encoche MacBook"

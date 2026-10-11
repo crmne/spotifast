@@ -89,8 +89,9 @@ librespot provides:
   playback session. Sonos receivers are discovered on the local network;
   the Web API alone cannot start or control them.
 - Songs and podcast episodes.
-- Local files, since librespot 0.8: tagged mp3 and flac files from folders
-  you choose, played on this computer alongside catalogue songs.
+- Local files, since librespot 0.8: mp3 and flac files from folders
+  you choose, named by their title tags or file names, played on this
+  computer alongside catalogue songs.
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 
