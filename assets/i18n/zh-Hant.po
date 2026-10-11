@@ -384,7 +384,7 @@ msgstr "播放歌曲以查看歌詞。"
 #: src/ui/library.rs:256 src/ui/search.rs:91 src/ui/show.rs:58
 #: src/ui/show.rs:104 src/ui/show.rs:134
 msgid "You're offline"
-msgstr "你已离線"
+msgstr "你已離線"
 
 #: src/ui/lyrics.rs:146 src/ui/lyrics.rs:163 src/ui/artist.rs:273
 #: src/ui/artist.rs:301 src/ui/collection.rs:598 src/ui/collection.rs:1487
