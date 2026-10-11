@@ -404,10 +404,12 @@ follow the window manager's skip-taskbar state. Wayland has no standard way
 for an app to leave the taskbar, so the option is not offered there; use your
 desktop's window rules instead. It does not change the macOS Dock.
 
-On Windows, since 0.8.0, the mini player starts on the current desktop if its
-saved title bar is outside every connected monitor’s work area. Positions on
-connected secondary monitors still restore. Reinstalling preserves settings;
-it is not needed to recover a position left on an unplugged display.
+A window saved on a display that is no longer connected opens on the
+primary display instead: on Windows and X11 it moves to the middle of the
+primary monitor as it opens, and on macOS a position whose title bar would be
+on no screen is not used. Positions on connected secondary displays still
+restore. Reinstalling preserves settings; it is not needed to recover a
+position left on an unplugged display.
 
 ## macOS Dock menu
 

@@ -377,14 +377,13 @@ pub async fn read(path: &std::path::Path, account: &str) -> Option<Cache> {
     cache.valid_for(account).then_some(cache)
 }
 
+/// Replaces the cache whole, on a file worker: the write waits for the disk.
 pub async fn write(path: &std::path::Path, cache: &Cache) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
     let bytes = serde_json::to_vec(cache).map_err(std::io::Error::other)?;
-    let temporary = path.with_extension("json.tmp");
-    tokio::fs::write(&temporary, bytes).await?;
-    crate::util::replace_file(&temporary, path)
+    let path = path.to_owned();
+    tokio::task::spawn_blocking(move || fastframe_file::write(&path, bytes))
+        .await
+        .map_err(std::io::Error::other)?
 }
 
 #[cfg(test)]
@@ -643,14 +642,21 @@ mod tests {
         write(&path, &cache).await.unwrap();
         assert!(read(&path, "alice").await.is_some());
         assert!(read(&path, "bob").await.is_none());
-        tokio::fs::create_dir(path.with_extension("json.tmp"))
-            .await
-            .unwrap();
-        assert!(write(&path, &cache).await.is_err());
+        // What an interrupted write leaves behind, under this version's
+        // temporary name and an older one's, is never read as the cache and
+        // does not stand in the next write's way.
+        for stale in [
+            path.with_extension("json.tmp"),
+            root.join(".liked.json.1.0.tmp"),
+        ] {
+            tokio::fs::write(stale, b"{\"half").await.unwrap();
+        }
         assert!(
             read(&path, "alice").await.is_some(),
             "interrupted replacement preserves previous data"
         );
+        write(&path, &cache).await.unwrap();
+        assert!(read(&path, "alice").await.is_some());
         tokio::fs::write(&path, b"broken JSON").await.unwrap();
         assert!(read(&path, "alice").await.is_none());
         tokio::fs::remove_dir_all(root).await.unwrap();

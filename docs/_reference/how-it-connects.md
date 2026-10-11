@@ -338,6 +338,16 @@ playback session. Other receivers keep the encrypted login blob described above.
 Playback runs on a separate runtime. Librespot maintains the Spotify Connect
 session, exposes this computer as a device, receives transfers, and reports
 playback state. If the session drops, it reconnects with the stored credential.
+On macOS, while the system reports no route to the internet at all, the
+reconnection waits for one instead of retrying. Spotifast asks the system
+about the internet as a whole rather than about a Spotify host, so the check
+looks up no name and sends nothing over the network.
+
+On macOS, local playback and track loading declare a user-initiated activity
+so App Nap does not throttle them when another application covers Spotifast.
+Pausing, stopping, an output error, or disconnecting releases the activity;
+remote playback does not hold it. The activity permits idle system sleep
+and does not keep the display awake.
 
 Since 0.9.0, selecting this computer in the device picker asks
 librespot to transfer playback from the active Connect device. Spotify supplies

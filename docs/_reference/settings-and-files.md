@@ -158,10 +158,14 @@ even if this temporarily exceeds the usual page limit. Track metadata is
 limited to 800 cached tracks; navigation and periodic cleanup trim old entries.
 
 The session remembers separate positions for the main window and the Winamp
-mini player. The shade modes are kept in `settings.json`. Wayland compositors
-may ignore saved positions. On Windows, a position
-whose title bar is no longer on an available monitor's work area is discarded
-when reopening the window, keeping its initial on-screen placement instead.
+mini player, and the main window's size and whether it was maximized. Sizes
+and positions are in logical pixels, so they do not change with the interface
+zoom. Each window is created at its remembered place rather than moved there
+afterwards. The shade modes are kept in `settings.json`. Wayland compositors
+may ignore saved positions. A window that opens on no connected monitor (a
+display unplugged since) moves to the middle of the primary one on Windows
+and X11; on macOS, a position whose title bar would be on no screen is not
+used.
 
 Since 0.8.0, a main window left maximized or full
 screen reopens that way, and comes back that way from the mini player. The

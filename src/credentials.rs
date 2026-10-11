@@ -355,17 +355,14 @@ impl Store {
     }
 
     fn write_marker(&self, slot: Slot, revoked: bool) -> Result<(), Error> {
-        let path = self.marker_path(slot);
-        let parent = path.parent().ok_or(Error::Filesystem)?;
-        std::fs::create_dir_all(parent).map_err(|_| Error::Filesystem)?;
         let bytes = serde_json::to_vec(&Marker {
             version: 1,
             revoked,
         })
         .map_err(|_| Error::Invalid)?;
-        let temporary = path.with_extension("json.tmp");
-        std::fs::write(&temporary, bytes).map_err(|_| Error::Filesystem)?;
-        crate::util::replace_file(&temporary, &path).map_err(|_| Error::Filesystem)
+        // It holds no secret, but it lives with the credentials, which only
+        // their owner reads.
+        fastframe_file::write_private(&self.marker_path(slot), bytes).map_err(|_| Error::Filesystem)
     }
 
     fn legacy_paths(&self, slot: Slot) -> Vec<PathBuf> {

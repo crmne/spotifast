@@ -216,120 +216,6 @@ mod x11 {
     }
 }
 
-/// Whether the window already covers the screen, maximized or full screen.
-///
-/// eframe restores that state as it creates the window, and sizing or moving
-/// the window afterwards restores it down again.
-pub fn fills_the_screen(viewport: &egui::ViewportInfo) -> bool {
-    viewport.maximized.unwrap_or(false) || viewport.fullscreen.unwrap_or(false)
-}
-
-/// Checks a position in egui points against the fixed coordinate limits.
-#[cfg(not(any(windows, target_os = "macos")))]
-pub fn can_restore(pos: [f32; 2], _pixels_per_point: f32) -> bool {
-    // Wayland ignores window moves; keep the old limits on other platforms.
-    within_fixed_limits(pos)
-}
-
-#[cfg(not(windows))]
-fn within_fixed_limits(pos: [f32; 2]) -> bool {
-    (-1000.0..=5000.0).contains(&pos[0]) && (-1000.0..=5000.0).contains(&pos[1])
-}
-
-/// Checks that the saved position leaves the title bar on a connected
-/// display, outside the menu bar and the Dock.
-///
-/// AppKit creates and moves a borderless window wherever it is told, even
-/// onto a display that has since been unplugged.
-#[cfg(target_os = "macos")]
-pub fn can_restore(pos: [f32; 2], _pixels_per_point: f32) -> bool {
-    use objc2::MainThreadMarker;
-    use objc2_app_kit::NSScreen;
-
-    // winit places macOS windows in points, which saved positions already are.
-    let Some(anchor) = titlebar_anchor(pos, 1.0) else {
-        return false;
-    };
-    // AppKit answers only on the main thread, where windows are restored.
-    // Without it, or without a display to ask about, keep the old limits.
-    let Some(mtm) = MainThreadMarker::new() else {
-        return within_fixed_limits(pos);
-    };
-    let screens = NSScreen::screens(mtm);
-    let Some(primary) = screens.iter().next() else {
-        return within_fixed_limits(pos);
-    };
-    let primary = primary.frame();
-    let primary_top = primary.origin.y + primary.size.height;
-    screens.iter().any(|screen| {
-        let area = screen.visibleFrame();
-        visible_area(
-            primary_top,
-            [
-                area.origin.x,
-                area.origin.y,
-                area.size.width,
-                area.size.height,
-            ],
-        )
-        .contains(anchor)
-    })
-}
-
-/// Turns an AppKit screen rectangle `[x, y, width, height]` into window
-/// coordinates. AppKit measures up from the bottom of the primary display,
-/// and winit down from its top.
-#[cfg(any(target_os = "macos", test))]
-fn visible_area(primary_top: f64, [x, y, width, height]: [f64; 4]) -> egui::Rect {
-    egui::Rect::from_min_size(
-        egui::pos2(x as f32, (primary_top - y - height) as f32),
-        egui::vec2(width as f32, height as f32),
-    )
-}
-
-#[cfg(any(windows, target_os = "macos", test))]
-fn titlebar_anchor(pos: [f32; 2], pixels_per_point: f32) -> Option<egui::Pos2> {
-    // A maximized window can start at (-8, -8), so check a point inside
-    // its title bar. Convert from egui points to pixels for Win32.
-    let anchor = (egui::pos2(pos[0], pos[1]) + egui::vec2(32.0, 16.0)) * pixels_per_point;
-    (pixels_per_point.is_finite() && pixels_per_point > 0.0 && anchor.is_finite()).then_some(anchor)
-}
-
-/// Checks that the saved position leaves the title bar in a monitor's work area.
-#[cfg(windows)]
-pub fn can_restore(pos: [f32; 2], pixels_per_point: f32) -> bool {
-    use windows_sys::Win32::Foundation::POINT;
-    use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint,
-    };
-
-    let Some(anchor) = titlebar_anchor(pos, pixels_per_point) else {
-        return false;
-    };
-    let point = POINT {
-        x: anchor.x as i32,
-        y: anchor.y as i32,
-    };
-    let mut info = MONITORINFO {
-        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-    unsafe {
-        // Asking for the nearest monitor would also accept off-screen positions.
-        let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONULL);
-        if monitor.is_null() || GetMonitorInfoW(monitor, &mut info) == 0 {
-            return false;
-        }
-    }
-    // Use the work area so the title bar cannot end up behind the taskbar.
-    let area = info.rcWork;
-    egui::Rect::from_min_max(
-        egui::pos2(area.left as f32, area.top as f32),
-        egui::pos2(area.right as f32, area.bottom as f32),
-    )
-    .contains(anchor)
-}
-
 /// The main window's smallest size with no side panel open. The page and
 /// its top bar fit beside the narrowest sidebar from here.
 pub const MAIN_MIN_SIZE: [f32; 2] = [760.0, 520.0];
@@ -368,26 +254,25 @@ static LINUX_CONTROLS: std::sync::OnceLock<LinuxWindowControls> = std::sync::Onc
 pub(crate) static LINUX_ICONS: std::sync::OnceLock<[Option<Vec<u8>>; 4]> =
     std::sync::OnceLock::new();
 
-/// Read desktop preferences at startup, before any UI is drawn. No GTK
-/// dependency or desktop subprocess is needed while rendering a frame.
+/// Read desktop preferences at startup, before any UI is drawn. They come
+/// through the desktop portal, which answers inside a Flatpak too, and each
+/// read gives up after about a second. No GTK dependency or desktop
+/// subprocess is needed while rendering a frame.
 #[cfg(target_os = "linux")]
 pub fn init_linux_window_controls() {
     LINUX_CONTROLS.get_or_init(|| {
-        let gnome = std::env::var("XDG_CURRENT_DESKTOP")
-            .unwrap_or_default()
-            .split(':')
-            .any(|desktop| desktop.eq_ignore_ascii_case("gnome"));
-        if gnome {
-            let layout = desktop_setting("org.gnome.desktop.wm.preferences", "button-layout")
-                .and_then(|layout| parse_linux_controls(&layout))
-                .filter(|controls| !controls.left.is_empty() || !controls.right.is_empty());
+        if fastframe_desktop::is_gnome() {
+            let layout =
+                fastframe_desktop::setting("org.gnome.desktop.wm.preferences", "button-layout")
+                    .and_then(|layout| parse_linux_controls(&layout))
+                    .filter(|controls| !controls.left.is_empty() || !controls.right.is_empty());
             layout.unwrap_or_else(|| parse_linux_controls(":close").unwrap())
         } else {
             parse_linux_controls(":minimize,maximize,close").unwrap()
         }
     });
     LINUX_ICONS.get_or_init(|| {
-        let theme = desktop_setting("org.gnome.desktop.interface", "icon-theme")
+        let theme = fastframe_desktop::setting("org.gnome.desktop.interface", "icon-theme")
             .map(|theme| theme.trim().trim_matches('\'').to_owned())
             .filter(|theme| !theme.contains('/') && theme != "." && theme != "..")
             .unwrap_or_else(|| "Adwaita".into());
@@ -436,62 +321,6 @@ pub fn init_linux_window_controls() {
             None
         })
     });
-}
-
-/// Optional desktop settings must not hold up startup. Bound both elapsed time
-/// and output, then kill and reap the child on timeout or failure.
-#[cfg(target_os = "linux")]
-fn desktop_setting(schema: &str, key: &str) -> Option<String> {
-    use std::io::Read;
-    use std::os::fd::OwnedFd;
-    use std::os::unix::net::UnixStream;
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-
-    // A nonblocking socket lets us enforce the deadline even if a child keeps
-    // stdout open or fills it before exiting.
-    let (mut reader, writer) = UnixStream::pair().ok()?;
-    reader.set_nonblocking(true).ok()?;
-    let mut child = Command::new("gsettings")
-        .args(["get", schema, key])
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(OwnedFd::from(writer)))
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let result = (|| {
-        let deadline = Instant::now() + Duration::from_millis(500);
-        let mut output = Vec::new();
-        loop {
-            let eof = match reader
-                .by_ref()
-                .take((4097 - output.len()) as u64)
-                .read_to_end(&mut output)
-            {
-                Ok(_) => true,
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => false,
-                Err(_) => return None,
-            };
-            if output.len() > 4096 {
-                return None;
-            }
-            if let Some(status) = child.try_wait().ok()?
-                && (!status.success() || eof)
-            {
-                return status
-                    .success()
-                    .then(|| String::from_utf8(output).ok())
-                    .flatten();
-            }
-            if Instant::now() >= deadline {
-                return None;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    })();
-    let _ = child.kill();
-    let _ = child.wait();
-    result
 }
 
 #[cfg(target_os = "linux")]
@@ -553,6 +382,23 @@ const fn custom_titlebar_for(supported: bool, chosen: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The portal gives GNOME's button layout as a plain string, where
+    /// gsettings quoted it; both read the same, and a side may be empty.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gnome_button_layouts_read_with_or_without_quotes() {
+        use WindowButton::*;
+        for layout in ["appmenu:minimize,close", "'appmenu:minimize,close'\n"] {
+            let controls = parse_linux_controls(layout).unwrap();
+            assert!(controls.left.is_empty());
+            assert_eq!(controls.right, [Minimize, Close]);
+        }
+        let controls = parse_linux_controls("close,maximize,close:").unwrap();
+        assert_eq!(controls.left, [Close, Maximize], "each button once");
+        assert!(controls.right.is_empty());
+        assert!(parse_linux_controls("close").is_none(), "no side marker");
+    }
 
     #[test]
     fn supported_platforms_draw_the_custom_title_bar_only_when_chosen() {
@@ -671,91 +517,5 @@ mod tests {
         connection.destroy_window(window).unwrap();
         connection.flush().unwrap();
         assert_eq!(states, vec![above, skip]);
-    }
-
-    fn reachable(pos: [f32; 2], scale: f32, area: [f32; 4]) -> bool {
-        let rect =
-            egui::Rect::from_min_max(egui::pos2(area[0], area[1]), egui::pos2(area[2], area[3]));
-        titlebar_anchor(pos, scale).is_some_and(|anchor| rect.contains(anchor))
-    }
-
-    #[test]
-    fn disconnected_monitor_position_is_not_restored() {
-        assert!(!reachable([1912.0, -8.0], 1.0, [0.0, 0.0, 1920.0, 1032.0]));
-        assert!(reachable(
-            [1912.0, -8.0],
-            1.0,
-            [1920.0, 0.0, 3840.0, 1080.0]
-        ));
-    }
-
-    #[test]
-    fn visible_positions_include_maximized_and_negative_coordinates() {
-        assert!(reachable([-8.0, -8.0], 1.0, [0.0, 0.0, 1920.0, 1032.0]));
-        assert!(reachable(
-            [-1920.0, 100.0],
-            1.0,
-            [-1920.0, 0.0, 0.0, 1080.0]
-        ));
-    }
-
-    #[test]
-    fn logical_coordinates_are_scaled_to_monitor_pixels() {
-        assert!(reachable([900.0, 100.0], 2.0, [0.0, 0.0, 1920.0, 1080.0]));
-        assert!(!reachable([1000.0, 100.0], 2.0, [0.0, 0.0, 1920.0, 1080.0]));
-    }
-
-    /// A 1512×982 built-in display with a 33-point menu bar, and a 1920×1080
-    /// display to its right, bottom-aligned, so its top sits 98 points higher.
-    fn on_mac_screens(pos: [f32; 2]) -> bool {
-        let primary_top = 982.0;
-        [[0.0, 0.0, 1512.0, 949.0], [1512.0, 0.0, 1920.0, 1080.0]]
-            .into_iter()
-            .any(|area| {
-                titlebar_anchor(pos, 1.0)
-                    .is_some_and(|anchor| visible_area(primary_top, area).contains(anchor))
-            })
-    }
-
-    #[test]
-    fn mac_positions_on_an_unplugged_display_are_not_restored() {
-        assert!(on_mac_screens([2000.0, 100.0]));
-        // Below the right display, right of both, and left of both.
-        assert!(!on_mac_screens([2000.0, 1000.0]));
-        assert!(!on_mac_screens([3500.0, 100.0]));
-        assert!(!on_mac_screens([-300.0, 100.0]));
-    }
-
-    #[test]
-    fn mac_screens_are_flipped_against_the_primary_display() {
-        // The right display reaches 98 points above the primary's top edge.
-        assert!(on_mac_screens([1600.0, -80.0]));
-        assert!(!on_mac_screens([100.0, -80.0]));
-        // The menu bar is not part of the visible area.
-        assert!(!on_mac_screens([100.0, 0.0]));
-        assert!(on_mac_screens([100.0, 40.0]));
-    }
-
-    #[test]
-    fn only_a_maximized_or_full_screen_window_fills_the_screen() {
-        let state = |maximized, fullscreen| {
-            fills_the_screen(&egui::ViewportInfo {
-                maximized,
-                fullscreen,
-                ..Default::default()
-            })
-        };
-        assert!(state(Some(true), Some(false)));
-        assert!(state(Some(false), Some(true)));
-        assert!(!state(Some(false), Some(false)));
-        // A backend that does not report the state leaves the window ordinary.
-        assert!(!state(None, None));
-    }
-
-    #[test]
-    fn invalid_coordinates_and_scale_are_rejected() {
-        assert!(titlebar_anchor([f32::NAN, 0.0], 1.0).is_none());
-        assert!(titlebar_anchor([0.0, f32::INFINITY], 1.0).is_none());
-        assert!(titlebar_anchor([0.0, 0.0], 0.0).is_none());
     }
 }

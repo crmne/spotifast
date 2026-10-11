@@ -290,6 +290,16 @@ pub struct App {
     tray_playing: bool,
     /// The system's power and session state.
     power: crate::power::Power,
+    /// Whether the system's word on reaching the internet goes to the
+    /// backend, which then holds reconnection while there is none. macOS
+    /// only: Windows's connectivity hint can say "no internet" on networks
+    /// where Spotify still answers (a proxy, a blocked probe), and Linux
+    /// reports nothing.
+    follows_reachability: bool,
+    /// The reachability the backend was last told.
+    reachable: bool,
+    /// Keeps local playback out of App Nap while it plays (macOS).
+    playback_activity: Option<crate::power::Activity>,
     /// What the app may spend on drawing and polling, from the power state
     /// and the window's; worked out in each logic pass.
     pub budget: crate::power::Budget,
@@ -497,18 +507,16 @@ pub struct App {
     remote_recheck_at: Option<Instant>,
     pub seek_preview: Option<f32>,
     pub volume_preview: Option<f32>,
-    /// Window geometry to restore on next attach, from the session file.
-    session_window_size: Option<[f32; 2]>,
+    /// The main window's size, position and maximized state: from the
+    /// session file, followed in each logic pass while that window is open,
+    /// and given to the next one before it is made.
+    pub window_geometry: fastframe_shell::window::Geometry,
     /// The mode to return the window to when the app closed in
     /// fullscreen lyrics.
     session_lyrics_fullscreen_from: Option<crate::settings::WindowMode>,
-    session_window_pos: Option<[f32; 2]>,
-    /// Last observed window geometry, updated each frame for saving.
-    last_window_size: Option<[f32; 2]>,
     /// Where the open dialog drew itself, so its own layout can be held
     /// to the window it has to fit inside.
     pub dialog_rect: Option<egui::Rect>,
-    last_window_pos: Option<[f32; 2]>,
     /// Where the MilkDrop window last was, as it reported, for restoring it.
     pub milkdrop_pos: Option<[f32; 2]>,
     /// The MilkDrop child process; `None` until it is first opened. Its
@@ -815,6 +823,9 @@ impl App {
             tray,
             tray_playing: false,
             power,
+            follows_reachability: cfg!(target_os = "macos"),
+            reachable: true,
+            playback_activity: None,
             budget: crate::power::Budget::default(),
             window_hidden: false,
             hide_intent: false,
@@ -946,12 +957,13 @@ impl App {
             remote_recheck_at: None,
             seek_preview: None,
             volume_preview: None,
-            session_window_size: session.window_size,
+            window_geometry: fastframe_shell::window::Geometry {
+                size: session.window_size,
+                position: session.window_pos,
+                maximized: session.window_maximized,
+            },
             session_lyrics_fullscreen_from: session.lyrics_fullscreen_from,
-            session_window_pos: session.window_pos,
-            last_window_size: None,
             dialog_rect: None,
-            last_window_pos: None,
             milkdrop_pos: session.milkdrop_pos,
             #[cfg(feature = "milkdrop")]
             milkdrop_host: None,
@@ -1062,13 +1074,6 @@ impl App {
             // window's fullscreen/maximized state before creating this one.
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
-            if let Some(pos) = self.winamp.restore_pos
-                && crate::window::can_restore(pos, ctx.pixels_per_point())
-            {
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                    pos[0], pos[1],
-                )));
-            }
             // Re-assert the on-top level over the
             // first frames, once the window is mapped, because the level set
             // at creation does not stick on X11.
@@ -1089,41 +1094,14 @@ impl App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
             }
         }
-        // The session's geometry describes an ordinary window; applying it to
-        // one eframe restored maximized or full screen would restore it down.
-        let filling_the_screen = match lyrics_left {
-            Some(mode) if restored_full_screen => mode.fullscreen || mode.maximized,
-            _ => ctx.input(|input| crate::window::fills_the_screen(input.viewport())),
-        };
-        if let Some(size) = self.session_window_size.take()
-            && !filling_the_screen
-            && !self.offline
-        {
-            // Clamp to a sane range so a stale session never creates an
-            // unusable window; the OS will further clamp to the monitor.
-            if (400.0..=3000.0).contains(&size[0]) && (300.0..=2000.0).contains(&size[1]) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    size[0], size[1],
-                )));
-            }
-        }
-        // If the saved position is off-screen, leave the window where eframe put it.
-        if let Some(pos) = self.session_window_pos.take()
-            && !filling_the_screen
-            && !self.offline
-            && crate::window::can_restore(pos, ctx.pixels_per_point())
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                pos[0], pos[1],
-            )));
-        }
+        // egui's memory, which carried the zoom from one window to the next,
+        // is not restored any more; each main window takes the saved zoom.
+        self.zoom_applied = false;
     }
 
     /// The window is gone but the process stays: audio, the tray, and the
     /// media controls keep running until Show or Quit.
     pub fn window_gone(&mut self) {
-        // The Winamp window went with it; it comes back where it was.
-        self.winamp.remember_position();
         self.winamp.forget_textures();
         self.window_hidden = true;
         self.hide_intent = false;
@@ -3108,13 +3086,16 @@ impl App {
                 ctx.request_repaint();
             }
         }
-        if !self.zoom_applied {
+        // The zoom is the main window's: a pass without a window, or in the
+        // mini player at its own scale, neither applies nor saves it.
+        let main_window = !self.window_hidden && !self.settings.winamp_window;
+        if main_window && !self.zoom_applied {
             self.zoom_applied = true;
             let zoom = self.settings.zoom.clamp(0.5, 2.5);
             if (zoom - 1.0).abs() > 0.001 {
                 ctx.set_zoom_factor(zoom);
             }
-        } else {
+        } else if main_window {
             let zoom = ctx.zoom_factor();
             if (zoom - self.settings.zoom).abs() > 0.001 {
                 // Ctrl+plus/minus zoomed; remembered for the next start.
@@ -9737,6 +9718,9 @@ impl App {
                 if self.window_hidden {
                     // No window exists; the outer loop creates one.
                     self.wants_show = true;
+                } else if fastframe_shell::window::raise_on_compositor() {
+                    // Wayland drops a window's own request for focus; niri
+                    // focuses it on request, switching to its workspace.
                 } else {
                     // A minimized window has to be restored before it can be
                     // focused: Focus alone leaves it in the Dock, and the
@@ -9818,9 +9802,7 @@ impl App {
             Action::ToggleWinampWindow => {
                 // One window at a time: this one closes and the loop in
                 // `main` opens the other kind where each was last.
-                if self.settings.winamp_window {
-                    self.winamp.remember_position();
-                } else if self.settings.random_skin {
+                if !self.settings.winamp_window && self.settings.random_skin {
                     self.winamp.refresh_choices(&self.dirs.skins_dir());
                     let candidates: Vec<Option<String>> = std::iter::once(None)
                         .chain(
@@ -9836,8 +9818,6 @@ impl App {
                         &mut rand::rng(),
                     );
                 }
-                self.session_window_size = self.last_window_size.or(self.session_window_size);
-                self.session_window_pos = self.last_window_pos.or(self.session_window_pos);
                 self.settings.winamp_window = !self.settings.winamp_window;
                 self.settings_dirty = true;
                 self.switch_intent = true;
@@ -9887,7 +9867,6 @@ impl App {
                         // This window attribute is fixed at creation. Keep
                         // the visible mini player, its position, and playback
                         // while replacing only its native window.
-                        self.winamp.remember_position();
                         self.switch_intent = true;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -10300,6 +10279,7 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
+        self.remember_geometry(ctx);
         #[cfg(target_os = "macos")]
         self.sync_notch_widget(ctx);
         let close_requested = ctx.input(|input| input.viewport().close_requested());
@@ -10319,21 +10299,48 @@ impl App {
         }
     }
 
+    /// Follows the open window's size, position and maximized state, so the
+    /// next window of its kind opens as it was left. Not while one window
+    /// switches to the other, whose closing frames describe the window going
+    /// away, nor while fullscreen lyrics own the main window.
+    fn remember_geometry(&mut self, ctx: &egui::Context) {
+        if self.window_hidden || self.switch_intent {
+            return;
+        }
+        if self.settings.winamp_window {
+            self.winamp.geometry.remember(ctx);
+        } else if self.lyrics_fullscreen.is_none() && self.lyrics_fullscreen_restoring.is_none() {
+            self.window_geometry.remember(ctx);
+        }
+    }
+
     /// Follows the system's power and session state: works out the budget
-    /// for drawing and polling, and answers what the system is about to do.
+    /// for drawing and polling, tells the backend whether the internet can
+    /// be reached, keeps local playback out of App Nap, and answers what the
+    /// system is about to do.
     fn sync_power(&mut self, ctx: &egui::Context) {
-        self.power.refresh();
+        let conditions = self.power.conditions();
         let shown =
             !self.window_hidden && !ctx.input(|input| input.viewport().minimized.unwrap_or(false));
         let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
-        let budget = crate::power::budget(self.power.conditions(), shown, focused);
+        let budget = crate::power::budget(conditions, shown, focused);
         if budget != self.budget {
             log::debug!("budget: {budget:?}");
             self.budget = budget;
             self.power
                 .set_background(budget == crate::power::Budget::Background);
         }
-        for event in self.power.take_events() {
+        if self.follows_reachability && conditions.online != self.reachable {
+            self.reachable = conditions.online;
+            self.backend.network_status(conditions.online);
+        }
+        if crate::power::playback_needs_activity(&self.local) {
+            self.playback_activity
+                .get_or_insert_with(|| crate::power::Activity::begin("Spotify playback"));
+        } else {
+            self.playback_activity = None;
+        }
+        for event in self.power.events() {
             use crate::power::Event;
             match event {
                 Event::Suspending(ack) | Event::EndingSession(ack) => {
@@ -10582,19 +10589,6 @@ impl App {
         self.refresh_frame_now();
         self.sync_media_controls(ctx);
 
-        if !self.settings.winamp_window
-            && !self.switch_intent
-            && self.lyrics_fullscreen.is_none()
-            && self.lyrics_fullscreen_restoring.is_none()
-        {
-            if let Some(rect) = ctx.input(|input| input.viewport().inner_rect) {
-                self.last_window_size = Some([rect.width(), rect.height()]);
-            }
-            if let Some(rect) = ctx.input(|input| input.viewport().outer_rect) {
-                self.last_window_pos = Some([rect.min.x, rect.min.y]);
-            }
-        }
-
         if !self.toasts.is_empty() {
             ctx.request_repaint_after(TOAST_FRAME);
         }
@@ -10662,11 +10656,12 @@ impl App {
                     .iter()
                     .map(|(page, sort)| (page.encode(), *sort))
                     .collect(),
-                window_size: self.last_window_size.or(self.session_window_size),
-                window_pos: self.last_window_pos.or(self.session_window_pos),
+                window_size: self.window_geometry.size,
+                window_pos: self.window_geometry.position,
+                window_maximized: self.window_geometry.maximized,
                 queue_open: Some(self.show_queue_panel),
                 queue_tab: Some(self.queue_tab.encode().to_string()),
-                winamp_pos: self.winamp.last_pos.or(self.winamp.restore_pos),
+                winamp_pos: self.winamp.geometry.position,
                 milkdrop_pos: self.milkdrop_pos,
                 lyrics_fullscreen_from: self.lyrics_fullscreen.map(|fullscreen| {
                     crate::settings::WindowMode {
@@ -12725,9 +12720,13 @@ mod tests {
         let mut app = headless_app();
         app.settings.winamp_window = true;
         app.settings.winamp_shaded = true;
-        app.winamp.last_pos = Some([300.0, 200.0]);
-        app.last_window_size = Some([1024.0, 768.0]);
-        app.last_window_pos = Some([100.0, 100.0]);
+        app.winamp.geometry.position = Some([300.0, 200.0]);
+        let main = fastframe_shell::window::Geometry {
+            size: Some([1024.0, 768.0]),
+            position: Some([100.0, 100.0]),
+            maximized: false,
+        };
+        app.window_geometry = main;
 
         let main_ctx = egui::Context::default();
         app.apply(Action::ToggleWinampWindow, &main_ctx);
@@ -12742,13 +12741,15 @@ mod tests {
         assert!(app.settings.winamp_shaded);
         assert!(commands.contains(&egui::ViewportCommand::Fullscreen(false)));
         assert!(commands.contains(&egui::ViewportCommand::Maximized(false)));
+        // The position goes to the window's builder before it exists
+        // (entrypoint's native_options), not after it in a command.
         assert!(
-            commands.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(
-                300.0, 200.0
-            )))
+            !commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::OuterPosition(_)))
         );
-        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
-        assert_eq!(app.session_window_pos, Some([100.0, 100.0]));
+        assert_eq!(app.winamp.geometry.position, Some([300.0, 200.0]));
+        assert_eq!(app.window_geometry, main);
     }
 
     /// A window left maximized or full screen comes back that way, instead of
@@ -12768,8 +12769,8 @@ mod tests {
         };
         for &(name, maximized, fullscreen) in cases {
             let mut app = headless_app();
-            app.session_window_size = Some([1024.0, 768.0]);
-            app.session_window_pos = Some([100.0, 150.0]);
+            app.window_geometry.size = Some([1024.0, 768.0]);
+            app.window_geometry.position = Some([100.0, 150.0]);
 
             let ctx = egui::Context::default();
             let mut raw_input = egui::RawInput::default();
@@ -12814,14 +12815,10 @@ mod tests {
             fullscreen: true,
             ..WindowMode::default()
         };
-        for (left, expected, resized) in [
-            (Some(ordinary), vec![Fullscreen(false)], true),
-            (
-                Some(maximized),
-                vec![Fullscreen(false), Maximized(true)],
-                false,
-            ),
-            (Some(full_screen), vec![Fullscreen(true)], false),
+        for (left, expected) in [
+            (Some(ordinary), vec![Fullscreen(false)]),
+            (Some(maximized), vec![Fullscreen(false), Maximized(true)]),
+            (Some(full_screen), vec![Fullscreen(true)]),
             // A session from before this was remembered: Windows can only
             // have been in fullscreen lyrics, other desktops keep the state.
             (
@@ -12831,11 +12828,10 @@ mod tests {
                 } else {
                     vec![]
                 },
-                cfg!(windows),
             ),
         ] {
             let mut app = headless_app();
-            app.session_window_size = Some([1024.0, 768.0]);
+            app.window_geometry.size = Some([1024.0, 768.0]);
             app.session_lyrics_fullscreen_from = left;
 
             let ctx = egui::Context::default();
@@ -12854,12 +12850,11 @@ mod tests {
                 .cloned()
                 .collect();
             assert_eq!(modes, expected, "{left:?}");
-            assert_eq!(
-                commands
+            assert!(
+                !commands
                     .iter()
                     .any(|command| matches!(command, InnerSize(_))),
-                resized,
-                "{left:?}: an ordinary window takes the session's size back"
+                "{left:?}: the size was the builder's, before the window existed"
             );
             assert_eq!(app.session_lyrics_fullscreen_from, None);
             app.backend.shutdown();
@@ -12899,8 +12894,8 @@ mod tests {
     fn a_demo_window_keeps_its_requested_geometry_over_the_saved_session() {
         let mut app = headless_app();
         crate::demo::populate(&mut app);
-        app.session_window_size = Some([1100.0, 700.0]);
-        app.session_window_pos = Some([100.0, 150.0]);
+        app.window_geometry.size = Some([1100.0, 700.0]);
+        app.window_geometry.position = Some([100.0, 150.0]);
 
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(Default::default(), |_ui| app.attach(&ctx));
@@ -18448,8 +18443,8 @@ mod tests {
         crate::theme::install(&ctx);
         app.lyrics_fullscreen = Some(false);
         app.lyrics_fullscreen_seen = true;
-        app.last_window_size = Some([900.0, 650.0]);
-        app.last_window_pos = Some([100.0, 80.0]);
+        app.window_geometry.size = Some([900.0, 650.0]);
+        app.window_geometry.position = Some([100.0, 80.0]);
         // Escape is applied while the viewport still reports the old screen.
         app.actions.push(Action::SetLyricsFullscreen(false));
         for _ in 0..2 {
@@ -18461,11 +18456,14 @@ mod tests {
                 egui::vec2(1920.0, 1080.0),
             ));
             viewport.outer_rect = viewport.inner_rect;
-            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            let mut output = ctx.run_ui(input, |ui| {
+                app.frame_ui(ui);
+                app.remember_geometry(ui.ctx());
+            });
             output.textures_delta.clear();
             assert_eq!(app.lyrics_fullscreen, None);
-            assert_eq!(app.last_window_size, Some([900.0, 650.0]));
-            assert_eq!(app.last_window_pos, Some([100.0, 80.0]));
+            assert_eq!(app.window_geometry.size, Some([900.0, 650.0]));
+            assert_eq!(app.window_geometry.position, Some([100.0, 80.0]));
         }
         let mut input = egui::RawInput::default();
         let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
@@ -18475,10 +18473,13 @@ mod tests {
             egui::vec2(940.0, 680.0),
         ));
         viewport.outer_rect = viewport.inner_rect;
-        let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+        let mut output = ctx.run_ui(input, |ui| {
+            app.frame_ui(ui);
+            app.remember_geometry(ui.ctx());
+        });
         output.textures_delta.clear();
-        assert_eq!(app.last_window_size, Some([940.0, 680.0]));
-        assert_eq!(app.last_window_pos, Some([120.0, 100.0]));
+        assert_eq!(app.window_geometry.size, Some([940.0, 680.0]));
+        assert_eq!(app.window_geometry.position, Some([120.0, 100.0]));
         app.backend.shutdown();
     }
 
@@ -18537,7 +18538,7 @@ mod tests {
                 egui::ViewportCommand::Maximized(true),
             ]
         );
-        app.last_window_size = Some([900.0, 650.0]);
+        app.window_geometry.size = Some([900.0, 650.0]);
         // A native exit can report windowed before maximization catches up.
         // Do not save that intermediate size over the restored geometry.
         for maximized in [false, true] {
@@ -18549,17 +18550,15 @@ mod tests {
                 egui::Pos2::ZERO,
                 egui::vec2(1440.0, 852.0),
             ));
-            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            let mut output = ctx.run_ui(input, |ui| {
+                app.frame_ui(ui);
+                app.remember_geometry(ui.ctx());
+            });
             output.textures_delta.clear();
             assert_eq!(app.lyrics_fullscreen_restoring.is_none(), maximized);
-            assert_eq!(
-                app.last_window_size,
-                Some(if maximized {
-                    [1440.0, 852.0]
-                } else {
-                    [900.0, 650.0]
-                })
-            );
+            // Maximized keeps the normal size behind it, to restore to.
+            assert_eq!(app.window_geometry.size, Some([900.0, 650.0]));
+            assert_eq!(app.window_geometry.maximized, maximized);
         }
         app.backend.shutdown();
     }
@@ -24436,79 +24435,82 @@ mod tests {
     }
 
     /// Switching from Winamp back to the main window preserves the main
-    /// window's size and position across the closing mini-window frame.
+    /// window's size and position across the closing mini-window frame,
+    /// and the mini player's position across the main window's.
     #[test]
     fn closing_winamp_frame_does_not_overwrite_main_window_geometry() {
         let mut app = headless_app();
-        app.last_window_size = Some([1024.0, 768.0]);
-        app.last_window_pos = Some([100.0, 150.0]);
+        let main = fastframe_shell::window::Geometry {
+            size: Some([1024.0, 768.0]),
+            position: Some([100.0, 150.0]),
+            maximized: false,
+        };
+        app.window_geometry = main;
+        let frame = |app: &mut App, ctx: &egui::Context, rect: egui::Rect| {
+            let mut raw_input = egui::RawInput::default();
+            let viewport = raw_input
+                .viewports
+                .entry(egui::ViewportId::ROOT)
+                .or_default();
+            viewport.inner_rect = Some(rect);
+            viewport.outer_rect = Some(rect);
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                app.frame_ui(ui);
+                app.remember_geometry(ui.ctx());
+            });
+            output.textures_delta.clear();
+        };
 
         // Toggle from main window to Winamp window
         let ctx = egui::Context::default();
         app.actions.push(Action::ToggleWinampWindow);
         app.apply_actions(&ctx);
-
         assert!(app.settings.winamp_window);
         assert!(app.switch_intent);
-        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
-        assert_eq!(app.session_window_pos, Some([100.0, 150.0]));
 
-        // Attach the Winamp window (clears switch_intent, keeps session geometry)
-        app.attach(&ctx);
+        // The main window's closing frame is not the mini player's position.
+        let big = egui::Rect::from_min_size(egui::pos2(100.0, 150.0), egui::vec2(1024.0, 768.0));
+        frame(&mut app, &ctx, big);
+        assert_eq!(app.winamp.geometry.position, None);
+
+        // Attach the Winamp window, which follows its own position.
+        let mini_ctx = egui::Context::default();
+        app.attach(&mini_ctx);
         assert!(!app.switch_intent);
-        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
-
-        // Trigger switch back to the main window
-        app.actions.push(Action::ToggleWinampWindow);
-
-        // Run the closing frame of the mini-window with its tiny viewport geometry
-        let mut raw_input = egui::RawInput::default();
         let mini_rect = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(275.0, 116.0));
-        let viewport = raw_input
-            .viewports
-            .entry(egui::ViewportId::ROOT)
-            .or_default();
-        viewport.inner_rect = Some(mini_rect);
-        viewport.outer_rect = Some(mini_rect);
+        frame(&mut app, &mini_ctx, mini_rect);
+        assert_eq!(app.winamp.geometry.position, Some([50.0, 50.0]));
+        assert_eq!(app.window_geometry, main);
 
-        let mut closing_output = ctx.run_ui(raw_input, |ui| {
-            app.frame_ui(ui);
-        });
-        closing_output.textures_delta.clear();
-
-        // The closing frame switched window mode and armed switch_intent...
+        // Switch back: the closing mini frame arms switch_intent, which
+        // keeps its tiny rectangle out of the main window's geometry.
+        app.actions.push(Action::ToggleWinampWindow);
+        frame(&mut app, &mini_ctx, mini_rect);
         assert!(!app.settings.winamp_window);
         assert!(app.switch_intent);
+        assert_eq!(app.window_geometry, main);
 
-        // ...but switch_intent prevented the closing mini-window rect from
-        // overwriting the saved main window size and position.
-        assert_eq!(app.last_window_size, Some([1024.0, 768.0]));
-        assert_eq!(app.last_window_pos, Some([100.0, 150.0]));
-        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
-        assert_eq!(app.session_window_pos, Some([100.0, 150.0]));
-
-        // Attaching the new main window restores the saved geometry via viewport commands
+        // The new main window opens from it (entrypoint's native_options),
+        // so attaching sends no size or position after the fact.
         let main_ctx = egui::Context::default();
         let mut output = main_ctx.run_ui(Default::default(), |_ui| {
             app.attach(&main_ctx);
         });
         output.textures_delta.clear();
-
         let commands = &output
             .viewport_output
             .get(&egui::ViewportId::ROOT)
             .expect("the root viewport")
             .commands;
         assert!(
-            commands.contains(&egui::ViewportCommand::InnerSize(egui::vec2(1024.0, 768.0))),
-            "attach restored the main window size: {commands:?}"
+            !commands.iter().any(|command| matches!(
+                command,
+                egui::ViewportCommand::InnerSize(_) | egui::ViewportCommand::OuterPosition(_)
+            )),
+            "{commands:?}"
         );
-        assert!(
-            commands.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(
-                100.0, 150.0
-            ))),
-            "attach restored the main window position: {commands:?}"
-        );
+        assert_eq!(app.window_geometry, main);
+        app.backend.shutdown();
     }
 
     fn cached_liked_app() -> App {
@@ -24885,6 +24887,56 @@ mod tests {
         app.handle_backend_events(vec![Event::NetworkStatus(true)]);
 
         assert!(app.backend.take_playlist_item_requests().is_empty());
+    }
+
+    /// The system's word on reaching the internet (fastframe-power, on
+    /// macOS) goes to the backend once per change, and not at all where the
+    /// app does not follow it.
+    #[test]
+    fn the_internet_coming_and_going_reaches_the_backend_once_per_change() {
+        use crate::power::{Conditions, Power};
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.power = Power::fixed(Conditions::default());
+        app.follows_reachability = true;
+        app.sync_power(&ctx);
+        assert!(app.backend.take_network_statuses().is_empty(), "online");
+
+        let offline = Conditions {
+            online: false,
+            ..Conditions::default()
+        };
+        app.power.set_conditions(offline);
+        app.sync_power(&ctx);
+        app.sync_power(&ctx);
+        assert_eq!(app.backend.take_network_statuses(), [false]);
+        app.power.set_conditions(Conditions::default());
+        app.sync_power(&ctx);
+        assert_eq!(app.backend.take_network_statuses(), [true]);
+
+        app.follows_reachability = false;
+        app.power.set_conditions(offline);
+        app.sync_power(&ctx);
+        assert!(app.backend.take_network_statuses().is_empty());
+    }
+
+    /// #789: one App Nap activity is held while local playback plays, and
+    /// let go once it pauses.
+    #[test]
+    fn local_playback_holds_one_activity_while_it_plays() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_none());
+        app.local.connected = true;
+        app.local.playback = Playback::Playing;
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_some());
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_some(), "the same one, kept");
+        app.local.playback = Playback::Paused;
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_none());
     }
 
     #[test]
