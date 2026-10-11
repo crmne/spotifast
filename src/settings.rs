@@ -77,6 +77,14 @@ pub struct LocalFilesSettings {
     pub directories: Vec<PathBuf>,
 }
 
+impl LocalFilesSettings {
+    /// Whether the engine is handed folders to scan, which is also when
+    /// the app-side scan has something to look for.
+    pub fn scans(&self) -> bool {
+        self.enabled && !self.directories.is_empty()
+    }
+}
+
 /// What moves behind the player bar's controls.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

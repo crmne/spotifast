@@ -227,6 +227,33 @@ struct Listening {
     recorded: bool,
 }
 
+/// The local files the chosen folders hold, as the playback engine will
+/// match them. The folders themselves live in the settings; this is what
+/// the last scan of them found.
+#[derive(Clone, Debug, Default)]
+pub struct LocalFilesState {
+    /// A scan the settings or a new engine started is outstanding. What
+    /// the list shows stays until the answer lands, so nothing flickers.
+    pub scanning: bool,
+    /// The folder picker is open; a second one must not be.
+    pub picking: bool,
+    /// The matched files, sorted by artist, album, then title.
+    pub tracks: Vec<crate::local_files::LocalFileTrack>,
+    /// The URIs the engine can play from the chosen folders, for
+    /// playability checks elsewhere.
+    pub matched_uris: HashSet<String>,
+}
+
+impl LocalFilesState {
+    /// Replaces the whole list with a scan's answer. The scan is the
+    /// engine's own matching rerun, so its answer supersedes everything.
+    fn scanned(&mut self, tracks: Vec<crate::local_files::LocalFileTrack>) {
+        self.scanning = false;
+        self.matched_uris = tracks.iter().map(|track| track.uri.clone()).collect();
+        self.tracks = tracks;
+    }
+}
+
 pub struct App {
     pub dirs: AppDirs,
     pub settings: Settings,
@@ -310,6 +337,8 @@ pub struct App {
     pub local_ready: bool,
     pub local_playback: LocalPlayback,
     pub local: LocalState,
+    /// The local files chosen in Settings and what the engine matched.
+    pub local_files: LocalFilesState,
     pub remote: Option<RemoteSnapshot>,
     remote_polled_at: Instant,
     remote_poll_pending: bool,
@@ -805,6 +834,7 @@ impl App {
             local_ready: false,
             local_playback: LocalPlayback::Unavailable,
             local: LocalState::default(),
+            local_files: LocalFilesState::default(),
             remote: None,
             remote_polled_at: Instant::now() - REMOTE_POLL_UNSEEN,
             remote_poll_pending: false,
@@ -1931,6 +1961,17 @@ impl App {
                     }
                 }
                 Event::Local(state) => self.handle_local(*state),
+                Event::LocalFilesScanned(tracks) => {
+                    // The scan answers for whatever the settings held when
+                    // it started; it replaces the list wholesale.
+                    self.local_files.scanned(tracks);
+                }
+                Event::LocalFilesSourceChosen(folder) => {
+                    self.local_files.picking = false;
+                    if let Some(folder) = folder {
+                        self.actions.push(Action::AddLocalFilesSource(folder));
+                    }
+                }
                 Event::Api(response) => self.handle_api(*response),
                 Event::Accent { url, color } => {
                     self.accent_pending.remove(&url);
@@ -2135,6 +2176,9 @@ impl App {
                 self.local_ready = false;
                 self.local_device_id = None;
                 self.local_playback = LocalPlayback::Unavailable;
+                // The engine the list was scanned for is gone; a later
+                // sign-in rescans when its engine connects.
+                self.local_files = LocalFilesState::default();
                 self.remote = None;
                 self.rootlist.clear();
                 self.rootlist_cache = None;
@@ -2156,6 +2200,9 @@ impl App {
             LocalPlayback::Ready { device_id } => {
                 self.local_device_id = Some(device_id.clone());
                 self.local_ready = true;
+                // The engine builds its local file lookup now, and the
+                // backend rescans the chosen folders for the list.
+                self.local_files.scanning = self.settings.local_files.scans();
                 if let Some(request) = self.queued_play.take() {
                     self.play_request(request, false);
                 }
@@ -9479,10 +9526,32 @@ impl App {
                     std::sync::Arc::clone(&self.winamp.tap),
                     std::sync::Arc::clone(&self.winamp.eq),
                 );
+                // The backend rescans the folders this config hands over.
+                // Offline, the command never leaves and no answer comes.
+                self.local_files.scanning =
+                    !self.offline && !config.local_file_directories.is_empty();
                 self.backend.send(Command::RestartEngine(config));
                 if self.local_ready {
                     self.toast(gettext(self.locale, "Restarting local playback"));
                 }
+            }
+            Action::ChooseLocalFilesSource => {
+                if self.offline || self.local_files.picking {
+                    return;
+                }
+                self.local_files.picking = true;
+                self.backend.choose_local_files_source();
+            }
+            Action::AddLocalFilesSource(folder) => {
+                // The new source row appears at once; Apply hands it to the
+                // engine, which rescans and refreshes the matched list.
+                if !self.settings.local_files.directories.contains(&folder) {
+                    self.settings.local_files.directories.push(folder);
+                    self.settings_dirty = true;
+                }
+                ctx.data_mut(|data| {
+                    data.insert_temp(egui::Id::new(crate::ui::settings::PLAYBACK_DIRTY_ID), true);
+                });
             }
             Action::ShowWindow => {
                 if self.window_hidden {
@@ -22672,6 +22741,67 @@ mod tests {
             config.local_file_directories.is_empty(),
             "the toggle alone must turn local file playback off"
         );
+    }
+
+    /// A scan's answer replaces the list and the matched URIs wholesale;
+    /// the empty answer that turning local files off produces clears a
+    /// stale one, so the list can never outlive its setting.
+    #[test]
+    fn local_files_scans_replace_the_list_and_can_empty_it() {
+        let mut app = test_app("local-files-scan");
+        app.local_files.scanning = true;
+        let uri =
+            "spotify:local:David+Wise:Donkey+Kong+Country%3A+Tropical+Freeze:Snomads+Island:127";
+        let track = crate::local_files::LocalFileTrack {
+            uri: uri.into(),
+            title: "Snomads Island".into(),
+            artist: "David Wise".into(),
+            album: "Donkey Kong Country: Tropical Freeze".into(),
+            duration_secs: 127,
+        };
+        app.handle_backend_events(vec![Event::LocalFilesScanned(vec![track])]);
+        assert!(!app.local_files.scanning);
+        assert_eq!(app.local_files.tracks.len(), 1);
+        assert!(app.local_files.matched_uris.contains(uri));
+
+        app.handle_backend_events(vec![Event::LocalFilesScanned(Vec::new())]);
+        assert!(!app.local_files.scanning);
+        assert!(app.local_files.tracks.is_empty());
+        assert!(app.local_files.matched_uris.is_empty());
+    }
+
+    /// The folder the picker chooses joins the sources at once and raises
+    /// the same dirty flag the audio rows use, so the Apply button hands
+    /// it to the engine. A repeated choice keeps one row, and a dismissed
+    /// picker changes nothing.
+    #[test]
+    fn a_chosen_local_files_source_joins_the_dirty_audio_settings() {
+        let mut app = test_app("local-files-source");
+        let ctx = egui::Context::default();
+        let dirty = || {
+            ctx.data(|data| {
+                data.get_temp::<bool>(egui::Id::new(crate::ui::settings::PLAYBACK_DIRTY_ID))
+            })
+            .unwrap_or(false)
+        };
+        let folder = std::path::PathBuf::from("Music").join("Ripped CDs");
+        app.handle_backend_events(vec![Event::LocalFilesSourceChosen(Some(folder.clone()))]);
+        app.apply_actions(&ctx);
+        assert_eq!(app.settings.local_files.directories, [folder.as_path()]);
+        assert!(dirty(), "the source must ride the playback Apply button");
+
+        app.handle_backend_events(vec![Event::LocalFilesSourceChosen(Some(folder.clone()))]);
+        app.apply_actions(&ctx);
+        assert_eq!(
+            app.settings.local_files.directories,
+            [folder],
+            "choosing the same folder twice keeps one row"
+        );
+
+        app.handle_backend_events(vec![Event::LocalFilesSourceChosen(None)]);
+        app.apply_actions(&ctx);
+        assert_eq!(app.settings.local_files.directories.len(), 1);
+        assert!(!app.local_files.picking, "a dismissed picker frees the row");
     }
 
     /// Shuffle picks a random loaded track or Web API offset. Local librespot

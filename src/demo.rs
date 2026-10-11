@@ -546,6 +546,13 @@ pub fn populate(app: &mut App) {
     });
     app.settings.search_history = vec!["Khruangbin".into(), "ambient".into(), "Rework".into()];
 
+    // Settings: the Local files section carries two chosen sources.
+    app.settings.local_files.enabled = true;
+    app.settings.local_files.directories = vec![
+        std::path::Path::new("Music").join("Ripped CDs"),
+        std::path::Path::new("Music").join("Bandcamp"),
+    ];
+
     // Playback: a remote speaker is playing the second playlist.
     app.queue = Loadable::Loaded(Queue {
         currently_playing: Some(PlayableItem::Track(tracks[0].clone())),
@@ -3123,6 +3130,39 @@ mod tests {
             crate::backend::LocalPlayback::Failed("Test connection failure".into());
         let text = settings_text(&ctx, &mut app, "connection failure");
         assert!(text.iter().any(|text| text == "Status: Unavailable"));
+        app.backend.shutdown();
+    }
+
+    /// The Local files section lists the chosen sources and carries the
+    /// add control only while the toggle is on; off, the toggle is all
+    /// the section shows.
+    #[test]
+    fn the_local_files_section_lists_sources_only_while_enabled() {
+        let (ctx, mut app) = accessible_app("local-files-section");
+        app.settings.local_files.enabled = true;
+        app.settings.local_files.directories =
+            vec![std::path::Path::new("Music").join("Ripped CDs")];
+        let text = settings_text(&ctx, &mut app, "local files");
+        assert!(
+            text.iter().any(|text| text == "Show local files"),
+            "{text:?}"
+        );
+        assert!(text.iter().any(|text| text == "Add a source"), "{text:?}");
+        let text = settings_text(&ctx, &mut app, "ripped cds");
+        assert!(text.iter().any(|text| text == "Ripped CDs"), "{text:?}");
+
+        app.settings.local_files.enabled = false;
+        let text = settings_text(&ctx, &mut app, "local files");
+        assert!(
+            text.iter().any(|text| text == "Show local files"),
+            "{text:?}"
+        );
+        assert!(!text.iter().any(|text| text == "Add a source"), "{text:?}");
+        let text = settings_text(&ctx, &mut app, "ripped cds");
+        assert!(
+            !text.iter().any(|text| text == "Ripped CDs"),
+            "a disabled section keeps its sources out of the search: {text:?}"
+        );
         app.backend.shutdown();
     }
 
