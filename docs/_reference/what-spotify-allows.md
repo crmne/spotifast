@@ -91,7 +91,9 @@ librespot provides:
 - Songs and podcast episodes.
 - Local files, since librespot 0.8: mp3, m4a, and flac files from folders
   you choose, named by their title tags or file names, played on this
-  computer alongside catalogue songs.
+  computer alongside catalogue songs. Playback runs at 44.1 kHz: a file at
+  another sample rate can be listed but fails to play, and an ALAC-encoded
+  m4a is not decoded.
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 

@@ -1516,19 +1516,6 @@ impl App {
                 .rsplit(':')
                 .next()
                 .and_then(|id| self.track_cache.get(id));
-            // Playback already carries artist IDs. Keep those links available
-            // while the Web API is loading (or its cached credits have no IDs).
-            let artists = if track.artists.iter().any(|artist| artist.id.is_some()) {
-                track.artists.clone()
-            } else {
-                cached
-                    .map(|cached| cached.artists.clone())
-                    .unwrap_or_else(|| track.artists.clone())
-            };
-            let playing = match self.optimistic_playing {
-                Some((playing, at)) if at.elapsed() < PLAYBACK_HOLD => playing,
-                _ => self.local.playback == Playback::Playing,
-            };
             // A scanned local file's row is the fuller account of what
             // plays: the engine reports the tags it read when it loaded
             // the file and no picture at all, while the row carries the
@@ -1544,6 +1531,23 @@ impl App {
                 None
             };
             let display = scanned.as_ref();
+            // Playback already carries artist IDs. Keep those links available
+            // while the Web API is loading (or its cached credits have no IDs).
+            // A scanned row's artists lead when it has them, so every surface
+            // that lists the artists names them as the subtitle does.
+            let artists = if let Some(row) = display.filter(|row| !row.artists.is_empty()) {
+                row.artists.clone()
+            } else if track.artists.iter().any(|artist| artist.id.is_some()) {
+                track.artists.clone()
+            } else {
+                cached
+                    .map(|cached| cached.artists.clone())
+                    .unwrap_or_else(|| track.artists.clone())
+            };
+            let playing = match self.optimistic_playing {
+                Some((playing, at)) if at.elapsed() < PLAYBACK_HOLD => playing,
+                _ => self.local.playback == Playback::Playing,
+            };
             return Some(NowPlaying {
                 local: true,
                 device_name: None,
@@ -2976,11 +2980,17 @@ impl App {
             if now.local && self.resume_track.as_deref() == Some(now.uri.as_str()) {
                 for uri in queued {
                     self.manual_queue.push(uri.clone());
-                    self.backend.api(ApiRequest::AddToQueue {
-                        uri,
-                        device_id: self.local_device_id.clone(),
-                        label: String::new(),
-                    });
+                    if uri.starts_with("spotify:local:") {
+                        // Spotify has no queue entry for a file on this
+                        // computer; the engine takes it, as a queue add would.
+                        self.backend.player(PlayerCommand::AddToQueue(uri));
+                    } else {
+                        self.backend.api(ApiRequest::AddToQueue {
+                            uri,
+                            device_id: self.local_device_id.clone(),
+                            label: String::new(),
+                        });
+                    }
                 }
             }
         }
@@ -13234,6 +13244,53 @@ mod tests {
         assert!(app.session_dirty);
     }
 
+    /// A resumed saved queue restores each entry the way it was first
+    /// queued: a file on this computer joins the engine's queue, never a
+    /// Spotify queue that has no entry for it.
+    #[test]
+    fn a_resumed_file_queue_reaches_the_engine_not_spotify() {
+        let mut app = headless_app();
+        let playing = crate::local_files::uri_from_parts(
+            Some("Artist"),
+            Some("Album"),
+            Some("Resumed song"),
+            150,
+        );
+        let queued_file = crate::local_files::uri_from_parts(
+            Some("Other"),
+            Some("Album"),
+            Some("Queued song"),
+            200,
+        );
+        app.resume_track = Some(playing.clone());
+        app.resume_queue = vec![queued_file.clone(), "spotify:track:q2".into()];
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: playing,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.on_now_playing_changed();
+        assert_eq!(
+            app.manual_queue,
+            vec![queued_file.clone(), "spotify:track:q2".to_string()],
+            "every saved entry is restored to the manual queue"
+        );
+        let commands = app.backend.take_player_commands();
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|command| matches!(command, PlayerCommand::AddToQueue(_)))
+                .count(),
+            1,
+            "one engine queue add, for the file alone"
+        );
+        assert!(
+            matches!(&commands[0], PlayerCommand::AddToQueue(uri) if uri == &queued_file),
+            "the file's queue add reaches the engine"
+        );
+        app.backend.shutdown();
+    }
+
     /// A selected list row loads without shuffle, then enables shuffle.
     #[test]
     fn a_chosen_row_in_a_list_never_loads_shuffled() {
@@ -13865,10 +13922,18 @@ mod tests {
         let now = app.now_playing_live().expect("the engine is playing");
         assert_eq!(now.title, "Matched file", "the row's matched name is shown");
         assert_eq!(now.subtitle, "Artist");
+        assert_eq!(
+            now.artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Artist"],
+            "the artists list names the row's artist, as the subtitle does"
+        );
         assert_eq!(now.album_name, "Album");
         assert_eq!(now.art_url, None, "a file without a picture shows none");
 
-        let art = crate::local_files::cover_uri(&row.uri);
+        let art = crate::local_files::cover_uri(&row.uri, b"picture");
         row.art = Some(art.clone());
         app.local_files.scanned(vec![row.clone()]);
         let now = app.now_playing_live().expect("the engine is playing");
