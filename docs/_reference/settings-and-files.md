@@ -162,7 +162,8 @@ complete list only through the shared app, so on a busy day this keeps the
 sidebar usable while that app waits out Spotify's limits. The new list
 replaces the shown one once all its pages have arrived. A failed read keeps
 the shown list; a rate limited, network or server failure is also read again
-a minute later, while other refusals wait for the next reload.
+a minute later, while other refusals wait for the next reload. Offline, the
+list is read again as soon as the network is back.
 Playlists created or deleted in the meantime stay that way. The list is
 saved again only when Spotify has confirmed every change in it. This cache
 contains metadata only and can be deleted at any time.
@@ -170,8 +171,9 @@ contains metadata only and can be deleted at any time.
 Home's Recently played, Your top artists, Top tracks, Made for you and Your
 podcasts shelves are stored the same way under `home/`. They are shown when
 the account is verified and replaced shelf by shelf as Spotify answers. A
-shelf Spotify turns away keeps what it showed. Each shelf is saved as soon
-as its new answer arrives.
+shelf Spotify turns away keeps what it showed, and Home is read again once
+the network is back. Each shelf is saved as soon as its new answer arrives;
+Made for you once all its searches have answered.
 
 Since 0.8.0, memory caches retain the open page,
 the playing context, and a limited set of recently used playlist, album,

@@ -2780,15 +2780,15 @@ msgstr "Winamp-minispelare (Ctrl+M)"
 msgid "Winamp mini player (Cmd+Shift+M)"
 msgstr "Winamp-minispelare (Cmd+Shift+M)"
 
-#: src/ui/topbar.rs:521
+#: src/ui/topbar.rs:564
 msgid "Updating your library…"
 msgstr "Uppdaterar ditt bibliotek…"
 
-#: src/ui/topbar.rs:522
+#: src/ui/topbar.rs:565
 msgid "Checking for updates…"
 msgstr "Söker efter uppdateringar…"
 
-#: src/ui/topbar.rs:523
+#: src/ui/topbar.rs:566
 msgid "Waiting for Spotify…"
 msgstr "Väntar på Spotify…"
 

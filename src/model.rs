@@ -580,6 +580,9 @@ pub struct Library {
     pub playlists_edits: Vec<PlaylistEdit>,
     /// When a load that Spotify turned away is asked for again.
     pub playlists_retry_at: Option<Instant>,
+    /// The list shown is whole: every page of one load, or a restored
+    /// cache. Only a whole list is saved for the next start.
+    pub playlists_whole: bool,
     pub liked: PagedList<SavedTrack>,
     pub albums: PagedList<SavedAlbum>,
     pub artists: CursorList<Artist>,
@@ -624,6 +627,12 @@ pub struct HomeData {
     pub loaded_at: Option<Instant>,
     /// Answers the current refresh still waits for.
     pub awaiting: usize,
+    /// An answer of the current refresh failed, so the shelves may show
+    /// older, cached rows: the network coming back reads them again.
+    pub refresh_failed: bool,
+    /// Spotify answered for the podcasts, or there are none to ask about,
+    /// so a late cache does not bring back what it showed before.
+    pub podcasts_answered: bool,
 }
 
 /// What the top bar's spinner says the app is waiting for.

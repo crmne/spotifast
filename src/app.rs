@@ -2112,6 +2112,11 @@ impl App {
             AuthStatus::Connected { .. } => {
                 self.sign_in_url = None;
                 self.reset_data();
+                // The same account signing in again: `Me` will not find a
+                // new account to read the cache for.
+                if self.user_id().is_some() {
+                    self.request_account_caches();
+                }
                 self.load_playlists();
                 self.ensure_loaded(self.page().clone());
                 self.poll_remote(true);
@@ -2181,15 +2186,20 @@ impl App {
         if !self.is_connected() {
             return;
         }
-        if self.library.playlists.needs_load() || self.library.playlists_retry_at.is_some() {
+        if self.library.playlists.needs_load()
+            || self.library.playlists_retry_at.is_some()
+            || self.library.playlists_loading_since.is_some()
+        {
             self.load_playlists();
         }
         let page = self.page().clone();
         match page {
             Page::Home => {
+                // A failed answer may have left cached shelves showing.
                 let incomplete = self.home.recently_played.get().is_none()
                     || self.home.top_artists.get().is_none()
-                    || self.home.top_tracks.get().is_none();
+                    || self.home.top_tracks.get().is_none()
+                    || self.home.refresh_failed;
                 if incomplete {
                     self.load_home(true);
                 }
@@ -3868,6 +3878,7 @@ impl App {
         // Nothing is asked for offline: the list loads once the network is
         // back.
         if !self.network_reachable {
+            self.library.playlists_retry_at = Some(Instant::now());
             return;
         }
         let library = &mut self.library;
@@ -3876,6 +3887,7 @@ impl App {
         } else {
             library.playlists = Loadable::Loading;
             library.playlists_incoming = None;
+            library.playlists_whole = false;
         }
         library.playlists_next = None;
         library.playlists_asked = None;
@@ -3952,6 +3964,7 @@ impl App {
     /// Spotify has yet to confirm.
     fn store_library_cache(&mut self) {
         if self.library.playlists_loading_since.is_some()
+            || !self.library.playlists_whole
             || self
                 .library
                 .playlists_edits
@@ -3965,6 +3978,16 @@ impl App {
                 crate::account_cache::Cache::new(account.to_owned(), playlists.clone()),
             ));
         }
+    }
+
+    /// Asks for the verified account's cached library, replacing any read
+    /// still on its way.
+    fn request_account_caches(&mut self) {
+        self.load_generation = self.load_generation.wrapping_add(1);
+        self.account_caches_generation = self.load_generation;
+        self.backend.send(Command::LoadAccountCaches {
+            generation: self.account_caches_generation,
+        });
     }
 
     /// Shows the verified account's last playlist list and Home shelves
@@ -3989,6 +4012,7 @@ impl App {
                 self.reconcile_playlist_cover(&playlist.id, &mut playlist.images);
             }
             self.library.playlists = Loadable::Loaded(playlists);
+            self.library.playlists_whole = true;
             self.fill_blank_playlists();
             if self.library.playlists_loading_since.is_some() {
                 // The load on its way, still before its first page, now
@@ -4059,7 +4083,7 @@ impl App {
                 *shelf = Loadable::Loaded(playlists);
             }
         }
-        if home.podcasts.is_empty() {
+        if !home.podcasts_answered && home.podcasts.is_empty() {
             home.podcasts = cached.podcasts;
         }
     }
@@ -4268,6 +4292,7 @@ impl App {
         // Recently played, top artists, top tracks and each Made for you
         // search. Podcasts follow the saved shows and are not waited for.
         self.home.awaiting = 3 + DISCOVER_TERMS.len();
+        self.home.refresh_failed = false;
         let generation = self.home.generation;
         if self.home.recently_played.get().is_none() {
             self.home.recently_played = Loadable::Loading;
@@ -4334,6 +4359,7 @@ impl App {
             .collect();
         if shows.is_empty() {
             self.home.podcasts.clear();
+            self.home.podcasts_answered = true;
             return;
         }
         self.backend.api(ApiRequest::HomeEpisodes {
@@ -5403,11 +5429,7 @@ impl App {
                             .map(|cached| cached.entries.clone())
                             .unwrap_or_default();
                         self.editable_by_grant.clear();
-                        self.load_generation = self.load_generation.wrapping_add(1);
-                        self.account_caches_generation = self.load_generation;
-                        self.backend.send(Command::LoadAccountCaches {
-                            generation: self.account_caches_generation,
-                        });
+                        self.request_account_caches();
                     }
                     self.user = Some(user);
                     let page = self.page().clone();
@@ -5616,6 +5638,7 @@ impl App {
                         .map(|page| page.items.clone())
                         .map_err(|error| error.to_string());
                     let changed = items.is_ok();
+                    self.home.refresh_failed |= !changed;
                     self.home.recently_played.refresh(items);
                     self.home_answered(changed);
                 }
@@ -5695,6 +5718,7 @@ impl App {
                     if offset == 0 && self.home.top_tracks.get().is_none() {
                         self.home.top_tracks = Loadable::Failed(error.to_string());
                     }
+                    self.home.refresh_failed = true;
                     self.home_answered(false);
                 }
             }
@@ -5703,6 +5727,7 @@ impl App {
                     return;
                 }
                 let changed = result.is_ok();
+                self.home.refresh_failed |= !changed;
                 self.home.top_artists.refresh(result);
                 self.home_answered(changed);
             }
@@ -5738,6 +5763,7 @@ impl App {
                     matching.truncate(6);
                     matching
                 });
+                self.home.refresh_failed |= filtered.is_err();
                 self.home
                     .discover_pending
                     .insert(term, Loadable::from_result(filtered));
@@ -5792,12 +5818,22 @@ impl App {
                     self.library.playlists_next = next_offset;
                     if next_offset.is_some() {
                         self.load_more(Page::Home);
+                        if self.library.playlists_asked.is_none() {
+                            // Offline, the next page was not asked for. The
+                            // load ends with what is shown, and the network
+                            // coming back reads the list again.
+                            let library = &mut self.library;
+                            library.playlists_incoming = None;
+                            library.playlists_loading_since = None;
+                            library.playlists_retry_at = Some(Instant::now());
+                        }
                     } else {
                         let generation = self.library.playlists_generation;
                         let library = &mut self.library;
                         if let Some(incoming) = library.playlists_incoming.take() {
                             library.playlists = Loadable::Loaded(incoming);
                         }
+                        library.playlists_whole = true;
                         library.playlists_loading_since = None;
                         // This load was asked for after these changes were
                         // confirmed, so its list tells of them itself.
@@ -6415,6 +6451,7 @@ impl App {
             ApiResponse::HomeEpisodes { result, .. } => match result {
                 Ok(podcasts) => {
                     self.home.podcasts = podcasts;
+                    self.home.podcasts_answered = true;
                     self.store_home_cache();
                 }
                 // The shelf is an extra: without an answer it keeps what it
@@ -12944,6 +12981,135 @@ mod tests {
             app.home.top_tracks.get(),
             Some(&vec![song("spotify:track:cached-top")])
         );
+    }
+
+    fn connected_listener() -> App {
+        let mut app = listener_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app
+    }
+
+    /// The network dropping between two pages ends the load with the list
+    /// shown, so the spinner stops, and its return reads the list again.
+    #[test]
+    fn a_playlist_load_cut_off_between_pages_ends_and_resumes_with_the_network() {
+        let mut app = connected_listener();
+        app.receive_account_caches("alice", 7, cached_playlists(&["x"]), None);
+        app.load_playlists();
+        app.handle_backend_events(vec![Event::NetworkStatus(false)]);
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: Ok(playlist_page(&["a", "b"], 0, 3)),
+        });
+        assert_eq!(listed_playlists(&app), playlist_ids(&["x"]));
+        assert_eq!(app.library.playlists_loading_since, None);
+        assert_eq!(app.library.playlists_incoming, None);
+        assert_ne!(app.background_activity(), Some(BackgroundActivity::Library));
+
+        let cut_off = app.library.playlists_generation;
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+        assert_ne!(app.library.playlists_generation, cut_off);
+        assert!(app.library.playlists_loading_since.is_some());
+    }
+
+    /// Starting offline, the cached list shows and is read again once the
+    /// network is back.
+    #[test]
+    fn a_cached_list_restored_offline_is_read_again_with_the_network() {
+        let mut app = connected_listener();
+        app.handle_backend_events(vec![Event::NetworkStatus(false)]);
+        let offline = app.library.playlists_generation;
+        app.load_playlists();
+        app.receive_account_caches("alice", 7, cached_playlists(&["x"]), None);
+        assert_eq!(listed_playlists(&app), playlist_ids(&["x"]));
+        assert_eq!(app.library.playlists_generation, offline);
+
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+        assert_ne!(app.library.playlists_generation, offline);
+    }
+
+    /// A list that stopped short of its last page is never saved as the
+    /// account's list, even when a playlist created afterwards would save
+    /// a whole one.
+    #[test]
+    fn a_partial_playlist_list_is_not_saved() {
+        let mut app = connected_listener();
+        app.load_playlists();
+        let generation = app.library.playlists_generation;
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation,
+            result: Ok(playlist_page(&["a", "b"], 0, 3)),
+        });
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 2,
+            generation,
+            result: Err(crate::api::ApiError::Status {
+                status: 403,
+                message: "forbidden".into(),
+            }),
+        });
+        app.handle_api(ApiResponse::PlaylistCreated(Ok(Playlist {
+            id: "n".into(),
+            uri: "spotify:playlist:n".into(),
+            ..Playlist::default()
+        })));
+        assert_eq!(listed_playlists(&app), playlist_ids(&["n", "a", "b"]));
+        assert!(stored_playlists(&app).is_empty());
+    }
+
+    /// A Home refresh that failed behind cached shelves is read again when
+    /// the network comes back, though every shelf shows rows.
+    #[test]
+    fn a_failed_home_refresh_behind_cached_shelves_is_read_again() {
+        let mut app = connected_listener();
+        app.load_home(false);
+        let generation = app.home.generation;
+        app.receive_account_caches("alice", 7, None, Some(cached_home()));
+        app.handle_api(ApiResponse::TopArtists {
+            generation,
+            result: Err(crate::api::ApiError::Network("offline".into())),
+        });
+        assert!(
+            app.home.top_artists.get().is_some(),
+            "the cached shelf stays"
+        );
+
+        app.handle_backend_events(vec![Event::NetworkStatus(false)]);
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+        assert_ne!(app.home.generation, generation);
+        assert!(!app.home.refresh_failed);
+    }
+
+    /// Podcasts Spotify answered for, even with none, are not replaced by a
+    /// cache that arrives late.
+    #[test]
+    fn a_late_cache_does_not_bring_back_answered_podcasts() {
+        let mut app = connected_listener();
+        app.load_home(false);
+        app.handle_api(ApiResponse::HomeEpisodes {
+            generation: app.home.generation,
+            result: Ok(Vec::new()),
+        });
+        app.receive_account_caches("alice", 7, None, Some(cached_home()));
+        assert!(app.home.podcasts.is_empty());
+    }
+
+    /// The same account connecting again reads its cache again: `Me` finds
+    /// no new account to read it for.
+    #[test]
+    fn the_same_account_connecting_again_rereads_its_cache() {
+        let mut app = connected_listener();
+        app.handle_auth(AuthStatus::Connected {
+            username: "alice".into(),
+        });
+        assert_ne!(app.account_caches_generation, 7);
+        let generation = app.account_caches_generation;
+        app.receive_account_caches("alice", generation, cached_playlists(&["x"]), None);
+        assert_eq!(listed_playlists(&app), playlist_ids(&["x"]));
     }
 
     /// Signing out forgets Home, but not which refresh came last: an answer

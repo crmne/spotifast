@@ -190,7 +190,12 @@ rows are placeholders until their page arrives; scrolling never starts playback.
 
 Each Web API session has separate concurrency and rate limits. A `Retry-After`
 response pauses only that session. Spotifast routes each request once and
-does not retry it through the other app. A playlist read the librespot session
+does not retry it through the other app.
+
+The playlist list and Made for you searches go through the shared app even
+when a personal app is set up. While the shared app waits out Spotify's
+limits, the sidebar and Home show what they last showed for the account,
+from the cache described in [Settings & Files](/settings-and-files/). A playlist read the librespot session
 refuses outright, because the playlist is gone or private, is shown as such. A
 dropped connection, a read that takes longer than 30 seconds, or a page whose
 song details Spotify did not supply in full, hands the read to the Web API
@@ -235,11 +240,6 @@ rather than starting over. Shows known to be audiobooks are not asked for. These
 run when Home refreshes: on opening Home, at most once every ten minutes, and
 on a manual refresh. A rate limit, exhausted quota or expired sign-in stops the
 remaining shows for that refresh; the shelf keeps what it showed before.
-
-The playlist list and Made for you searches go through the shared app even
-when a personal app is set up. While the shared app waits out Spotify's
-limits, the sidebar and Home show what they last showed for the account,
-from the cache described in [Settings & Files](/settings-and-files/).
 
 ## Album queueing
 
