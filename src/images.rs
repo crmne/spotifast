@@ -831,17 +831,27 @@ mod tests {
     }
 
     /// Spotify's CDN serves some playlist covers, often uploaded ones, as
-    /// WebP. They decode for painting like JPEG and PNG covers do, rather
-    /// than failing as unsupported and leaving the placeholder.
+    /// WebP. They decode for painting like JPEG and PNG covers do, lossy
+    /// and lossless alike, rather than failing and leaving the placeholder.
     #[test]
     fn webp_covers_decode_for_painting() {
-        let mut encoded = std::io::Cursor::new(Vec::new());
+        // A 4 by 3 lossy (VP8) WebP of one flat colour, as the CDN's covers
+        // are lossy.
+        const LOSSY: [u8; 50] = [
+            0x52, 0x49, 0x46, 0x46, 0x2a, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50,
+            0x38, 0x20, 0x1e, 0x00, 0x00, 0x00, 0x70, 0x01, 0x00, 0x9d, 0x01, 0x2a, 0x04, 0x00,
+            0x03, 0x00, 0x02, 0xc0, 0x4c, 0x25, 0x94, 0x02, 0x74, 0x01, 0x40, 0x00, 0x00, 0xfe,
+            0xf4, 0x84, 0xc0, 0x47, 0x34, 0xbb, 0x00, 0x00,
+        ];
+        let mut lossless = std::io::Cursor::new(Vec::new());
         image::RgbaImage::from_pixel(4, 3, image::Rgba([20, 30, 40, 255]))
-            .write_to(&mut encoded, image::ImageFormat::WebP)
+            .write_to(&mut lossless, image::ImageFormat::WebP)
             .unwrap();
-        let decoded = egui_extras::image::load_image_bytes(encoded.get_ref()).unwrap();
-        assert_eq!(decoded.size, [4, 3]);
-        assert!(image::load_from_memory(encoded.get_ref()).is_ok());
+        for encoded in [&LOSSY[..], lossless.get_ref()] {
+            let decoded = egui_extras::image::load_image_bytes(encoded).unwrap();
+            assert_eq!(decoded.size, [4, 3]);
+            assert!(image::load_from_memory(encoded).is_ok());
+        }
     }
 
     fn cached_png(loader: &ArtLoader, uri: &str, rgb: [u8; 3]) {
