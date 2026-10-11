@@ -6,7 +6,7 @@ use std::sync::Arc;
 use egui::{Align, Layout, Rect, Sense, Vec2, pos2, vec2};
 
 use crate::api::models::{Album, Image, PlayableItem, Playlist, pick_image};
-use crate::app::App;
+use crate::app::{App, Target};
 use crate::i18n::{Locale, gettext, ngettext};
 use crate::model::{
     Action, Dialog, DragTrack, Loadable, Page, PagedList, RowContext, RowPick, SortColumn,
@@ -412,6 +412,10 @@ pub struct TableCache {
     pub needle: String,
     pub items_revision: u64,
     pub user_names_revision: u64,
+    /// Whether a play would land on this computer, the only target a local
+    /// file row can play on; without it a view built while another device
+    /// was active outlives the switch back with its stale rows.
+    pub local_target: bool,
     pub visible: Arc<[usize]>,
     pub view_uris: Option<Arc<[String]>>,
     /// Playback positions for visible rows; unavailable rows have no position.
@@ -502,12 +506,16 @@ pub fn prepare_table_view(
 ) -> Arc<TableCache> {
     let cache_id = egui::Id::new("table-view-cache").with(page);
     let cached = ui.data(|d| d.get_temp::<Arc<TableCache>>(cache_id));
+    // Row availability follows the target as well as the list: a local file
+    // plays only on this computer, so the switch back must rebuild the view.
+    let local_target = matches!(app.target(), Target::Local);
 
     let is_valid = cached.as_ref().is_some_and(|c| {
         c.sort == sort
             && c.needle == needle
             && c.items_revision == items_revision
             && c.user_names_revision == app.user_names_revision
+            && c.local_target == local_target
     });
 
     if let Some(entry) = cached.filter(|_| is_valid) {
@@ -532,6 +540,7 @@ pub fn prepare_table_view(
             needle: needle.to_string(),
             items_revision,
             user_names_revision: app.user_names_revision,
+            local_target,
             visible: visible.into(),
             view_uris,
             view_positions: view_positions.into(),
@@ -2179,12 +2188,17 @@ pub fn local_files(app: &mut App, ui: &mut egui::Ui) {
             round: false,
         },
     );
+    // The view is built before the actions row so its header Play asks for
+    // the displayed order, the same order the rows play, not the raw scan.
+    let sort = app.table_sorts.get(&Page::LocalFiles).copied();
+    let table_view = prepare_table_view(ui, app, &Page::LocalFiles, &items, "", sort, revision);
+    let view_play = table_view.view_uris.as_ref().map(Arc::clone);
     actions_row(
         app,
         ui,
         Actions {
             play_uri: Some(crate::app::LOCAL_FILES_CONTEXT.to_string()),
-            view: None,
+            view: view_play,
             saved: None,
             saved_icons: (Icon::Heart, Icon::HeartFilled),
             saved_tooltips: Default::default(),
@@ -2998,6 +3012,7 @@ mod tests {
             needle: "desp".to_string(),
             items_revision: 5,
             user_names_revision: 2,
+            local_target: true,
             visible: Arc::new([2]),
             view_uris: Some(Arc::new(["spotify:track:t_2".to_string()])),
             view_positions: Arc::new([Some(0)]),
@@ -3009,6 +3024,7 @@ mod tests {
                 && cache.needle == "desp"
                 && cache.items_revision == 5
                 && cache.user_names_revision == 2
+                && cache.local_target
         );
 
         // Cache miss on sort change
@@ -3026,6 +3042,11 @@ mod tests {
 
         // Cache miss on user_names_revision change
         assert_ne!(cache.user_names_revision, 3);
+
+        // Cache miss when playback moved off this computer, the only
+        // target a local file row can play on
+        let target_is_local = false;
+        assert_ne!(cache.local_target, target_is_local);
     }
 
     #[test]

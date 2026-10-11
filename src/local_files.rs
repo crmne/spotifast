@@ -140,9 +140,19 @@ pub(crate) fn scan(directories: &[PathBuf], art: &ArtLoader) -> Vec<LocalFileTra
 
 fn visit_dir(dir: &Path, tracks: &mut Vec<LocalFileTrack>, art: &ArtLoader) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            visit_dir(&path, tracks, art)?;
+        let entry = entry?;
+        let path = entry.path();
+        // The entry's own type never follows a link, so a symlink to a
+        // parent cannot pull the walk back into itself.
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
+            // One unreadable folder costs its own songs, not its siblings'.
+            if let Err(error) = visit_dir(&path, tracks, art) {
+                log::warn!("Skipping {}: {error}", path.display());
+            }
         } else {
             let Some(file_extension) = path.extension().and_then(|extension| extension.to_str())
             else {
@@ -523,7 +533,7 @@ where
     S: Read + Seek,
 {
     let mut at = start;
-    while at + 8 <= stop {
+    while at.checked_add(8).is_some_and(|end| end <= stop) {
         src.seek(SeekFrom::Start(at))?;
         let mut header = [0u8; 8];
         src.read_exact(&mut header)?;
@@ -538,11 +548,16 @@ where
         } else if size == 0 {
             size = stop - at;
         }
-        if size < content - at || at + size > stop {
+        // A size straight from the file can overflow the addition; one
+        // that does is as malformed as one that runs past the parent.
+        let Some(end) = at.checked_add(size) else {
+            return Ok(None); // A malformed size ends the walk.
+        };
+        if size < content - at || end > stop {
             return Ok(None); // A malformed size ends the walk.
         }
         if &kind == wanted
-            && let Some(found) = visit(src, content, at + size)?
+            && let Some(found) = visit(src, content, end)?
         {
             return Ok(Some(found));
         }
@@ -557,17 +572,18 @@ fn covr_data(covr: &[u8]) -> Option<Vec<u8>> {
     let mut at = 0;
     while at + 8 <= covr.len() {
         let size = be_u32(covr.get(at..at + 4)?.try_into().ok()?) as usize;
-        if size < 8 || at + size > covr.len() {
+        let end = at.checked_add(size).filter(|end| end <= &covr.len())?;
+        if size < 8 {
             return None;
         }
         if covr.get(at + 4..at + 8)? == b"data"
-            && let Some(picture) = covr.get(at + 16..at + size)
+            && let Some(picture) = covr.get(at + 16..end)
             && matches!(be_u32(covr.get(at + 8..at + 12)?.try_into().ok()?), 13 | 14)
             && !picture.is_empty()
         {
             return Some(picture.to_vec());
         }
-        at += size;
+        at = end;
     }
     None
 }
@@ -1069,6 +1085,27 @@ mod tests {
         short.extend_from_slice(b"covr");
         short.extend_from_slice(&mp4_data_atom(13, b"jpeg"));
         assert_eq!(mp4_cover_of(&short), None);
+    }
+
+    #[test]
+    fn an_overflowing_64_bit_size_ends_the_walk() {
+        // A size of 1 announces a 64-bit size straight from the file; one
+        // whose end overflows the walk's arithmetic is malformed like one
+        // that runs past the parent, never a panic or a wrapped bound.
+        let mut stream = Vec::new();
+        stream.extend_from_slice(&8u32.to_be_bytes());
+        stream.extend_from_slice(b"ftyp");
+        stream.extend_from_slice(&1u32.to_be_bytes());
+        stream.extend_from_slice(b"moov");
+        stream.extend_from_slice(&u64::MAX.to_be_bytes());
+        assert_eq!(mp4_cover_of(&stream), None);
+
+        // A size that merely runs past the parent reads the same way.
+        let mut past = Vec::new();
+        past.extend_from_slice(&1u32.to_be_bytes());
+        past.extend_from_slice(b"moov");
+        past.extend_from_slice(&1000u64.to_be_bytes());
+        assert_eq!(mp4_cover_of(&past), None);
     }
 
     #[test]
