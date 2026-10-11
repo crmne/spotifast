@@ -308,6 +308,7 @@ fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Optio
         Hero {
             images,
             liked: false,
+            enlarge: false,
             kind: gettext(locale, "Artist"),
             title: &artist.name,
             description: None,

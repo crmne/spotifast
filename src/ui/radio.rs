@@ -72,6 +72,7 @@ pub fn radio(app: &mut App, ui: &mut egui::Ui, seed: &str) {
         app,
         ui,
         Hero {
+            enlarge: false,
             images: hero_images(&images, None, false),
             liked: false,
             kind: gettext(locale, "Radio"),

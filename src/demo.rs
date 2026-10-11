@@ -1226,6 +1226,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::models::pick_image;
     use crate::app::AppOptions;
     use crate::paths::AppDirs;
     use crate::settings::Settings;
@@ -1425,6 +1426,205 @@ mod tests {
             .platform_output
             .accesskit_update
             .expect("screen-reader tree")
+    }
+
+    #[test]
+    fn enlarged_covers_open_from_collection_pages_and_close_without_changing_playback() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        for page in [Page::Album("alb0".into()), Page::Playlist("pl1".into())] {
+            let (ctx, mut app) = accessible_app(&format!("enlarged-cover-{page:?}"));
+            app.open(page.clone());
+            let (url, title) = match &page {
+                Page::Album(id) => {
+                    let album = app.album_pages[id].album.get().unwrap();
+                    (
+                        pick_image(&album.images, 640).unwrap().to_string(),
+                        album.name.clone(),
+                    )
+                }
+                Page::Playlist(id) => {
+                    let playlist = app.playlist_pages[id].playlist.get().unwrap();
+                    (
+                        pick_image(&playlist.images, 640).unwrap().to_string(),
+                        playlist.name.clone(),
+                    )
+                }
+                _ => unreachable!(),
+            };
+            let current = app.now_playing().unwrap().uri;
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let cover = accessible_node(&tree, "Enlarge cover", Role::Button);
+            for dismiss in ["escape", "close", "backdrop"] {
+                accessible_frame(
+                    &ctx,
+                    &mut app,
+                    vec![accessible_action(cover, AccessibleAction::Click, None)],
+                );
+                assert!(matches!(app.dialog, Some(Dialog::CoverArt { .. })));
+                if let Some(Dialog::CoverArt {
+                    url: shown,
+                    title: shown_title,
+                }) = &app.dialog
+                {
+                    assert_eq!(shown, &url);
+                    assert_eq!(shown_title, &title);
+                }
+                let tree = accessible_frame(&ctx, &mut app, vec![]);
+                let events = match dismiss {
+                    "escape" => vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+                    "close" => vec![accessible_action(
+                        accessible_node(&tree, "Close", Role::Button),
+                        AccessibleAction::Click,
+                        None,
+                    )],
+                    _ => pointer_click(egui::pos2(4.0, 400.0), egui::PointerButton::Primary),
+                };
+                accessible_frame(&ctx, &mut app, events);
+                assert!(app.dialog.is_none(), "{dismiss} closes the viewer");
+                assert_eq!(app.page(), &page);
+                assert_eq!(app.now_playing().unwrap().uri, current);
+                accessible_frame(&ctx, &mut app, vec![]);
+            }
+            app.backend.shutdown();
+        }
+    }
+
+    #[test]
+    fn enlarged_cover_viewer_fits_the_window_and_preserves_image_proportions() {
+        let (ctx, mut app) = accessible_app("enlarged-cover-size");
+        let uri = "bytes://enlarged-cover-test.png";
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            120,
+            80,
+            image::Rgba([40, 100, 180, 255]),
+        ))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+        ctx.include_bytes(uri, bytes.into_inner());
+        for size in [
+            egui::vec2(1280.0, 800.0),
+            egui::vec2(760.0, 620.0),
+            egui::vec2(480.0, 320.0),
+        ] {
+            for theme in [
+                crate::settings::ThemeChoice::Light,
+                crate::settings::ThemeChoice::Dark,
+            ] {
+                app.settings.theme = theme;
+                app.dialog = Some(Dialog::CoverArt {
+                    url: uri.into(),
+                    title: "Test artwork".into(),
+                });
+                let draw = |app: &mut App| {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                            ..Default::default()
+                        },
+                        |ui| app.frame_ui(ui),
+                    );
+                    output.textures_delta.clear();
+                    output
+                };
+                for _ in 0..3 {
+                    draw(&mut app);
+                }
+                let output = draw(&mut app);
+                let rect = app.dialog_rect.expect("the cover modal is drawn");
+                assert!(rect.left() >= 0.0 && rect.top() >= 0.0, "{rect:?}");
+                assert!(
+                    rect.right() <= size.x && rect.bottom() <= size.y,
+                    "{rect:?}"
+                );
+                let tree = output.platform_output.accesskit_update.unwrap();
+                let image = tree
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| {
+                        node.role() == egui::accesskit::Role::Image
+                            && node.label() == Some("Test artwork")
+                    })
+                    .expect("the full cover has an accessible name")
+                    .1
+                    .bounds()
+                    .unwrap();
+                let aspect = (image.x1 - image.x0) / (image.y1 - image.y0);
+                assert!(
+                    (aspect - 1.5).abs() < 0.01,
+                    "cover must not be cropped: {aspect}"
+                );
+            }
+        }
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn enlarged_cover_decode_error_keeps_the_close_control_available() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("enlarged-cover-decode-error");
+        let uri = "bytes://broken-cover.png";
+        ctx.include_bytes(uri, b"not an image".as_slice());
+        app.dialog = Some(Dialog::CoverArt {
+            url: uri.into(),
+            title: "Missing artwork".into(),
+        });
+        let draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(480.0, 320.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        draw(&mut app, vec![]);
+        let output = draw(&mut app, vec![]);
+        let rect = app.dialog_rect.unwrap();
+        assert!(rect.left() >= 0.0 && rect.top() >= 0.0);
+        assert!(rect.right() <= 480.0 && rect.bottom() <= 320.0);
+        let tree = output.platform_output.accesskit_update.unwrap();
+        draw(
+            &mut app,
+            vec![accessible_action(
+                accessible_node(&tree, "Close", Role::Button),
+                AccessibleAction::Click,
+                None,
+            )],
+        );
+        assert!(app.dialog.is_none());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn collection_without_artwork_has_no_enlarge_control() {
+        let (ctx, mut app) = accessible_app("enlarged-cover-missing");
+        app.album_pages
+            .get_mut("alb0")
+            .unwrap()
+            .album
+            .get_mut()
+            .unwrap()
+            .images
+            .clear();
+        app.open(Page::Album("alb0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Enlarge cover"))
+        );
+        assert!(app.dialog.is_none());
+        app.backend.shutdown();
     }
 
     fn accessible_node(

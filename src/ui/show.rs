@@ -121,6 +121,7 @@ fn show_hero(app: &mut App, ui: &mut egui::Ui, show: &Show, preview: Option<&Sho
         Hero {
             images,
             liked: false,
+            enlarge: false,
             kind: gettext(locale, "Podcast"),
             title: &show.name,
             description: None,

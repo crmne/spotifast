@@ -32,8 +32,44 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             80
         }))
         .show(ctx, |ui| {
-            ui.set_width(420.0);
+            ui.set_width(if matches!(dialog, Dialog::CoverArt { .. }) {
+                cover_art_size(ctx)
+            } else {
+                420.0
+            });
             match dialog {
+                Dialog::CoverArt { url, title } => {
+                    ui.horizontal(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if theme::pill_button(ui, &palette, &gettext(locale, "Close"), false).clicked() {
+                                app.actions.push(Action::CloseDialog);
+                            }
+                            theme::text(ui, &title, theme::semibold(16.0), palette.text);
+                        });
+                    });
+                    ui.add_space(12.0);
+                    let art = app.backend.art();
+                    art.touch(&url);
+                    let size = egui::Vec2::splat(cover_art_size(ctx));
+                    let image = egui::Image::new(url.as_str())
+                        .fit_to_exact_size(size)
+                        .alt_text(&title)
+                        .show_loading_spinner(false);
+                    let loaded = image.load_for_size(ctx, size);
+                    if let Ok(egui::load::TexturePoll::Ready { texture }) = &loaded {
+                        art.release_bytes(&url);
+                        art.note_decoded(&url, texture.size.x.round() as usize, texture.size.y.round() as usize);
+                    }
+                    ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                        ui.set_clip_rect(ui.clip_rect().intersect(ui.available_rect_before_wrap()));
+                        let response = ui.add(image);
+                        if matches!(loaded, Ok(egui::load::TexturePoll::Pending { .. })) {
+                            egui::Spinner::new().paint_at(ui, egui::Rect::from_center_size(
+                                response.rect.center(), egui::Vec2::splat(32.0),
+                            ));
+                        }
+                    });
+                }
                 Dialog::PersonalAppIntro => {
                     theme::text(ui, gettext(locale, "Spend less time waiting for Spotify"), theme::bold(20.0), palette.text);
                     ui.add_space(12.0);
@@ -230,6 +266,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if response.should_close() {
         app.actions.push(Action::CloseDialog);
     }
+}
+
+/// Leave room for the modal frame and its title/close row on small windows.
+fn cover_art_size(ctx: &egui::Context) -> f32 {
+    let room = ctx.content_rect().size() - egui::vec2(80.0, 140.0);
+    room.x.min(room.y).clamp(1.0, 800.0)
 }
 
 fn duplicate_message(

@@ -870,6 +870,11 @@ pub struct DragEntry {
 
 #[derive(Clone, Debug)]
 pub enum Dialog {
+    /// A larger view of the album or playlist's existing cover image.
+    CoverArt {
+        url: String,
+        title: String,
+    },
     CreatePlaylist {
         name: String,
         public: bool,

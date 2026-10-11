@@ -20,6 +20,7 @@ use super::widgets::{self, TrackRow};
 pub(super) struct Hero<'a> {
     pub images: HeroImages<'a>,
     pub liked: bool,
+    pub enlarge: bool,
     pub kind: Cow<'a, str>,
     pub title: &'a str,
     pub description: Option<String>,
@@ -74,7 +75,15 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
     };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
-        let (rect, _) = ui.allocate_exact_size(Vec2::splat(cover_size), Sense::hover());
+        let enlarge = hero.enlarge && hero.images.image.is_some();
+        let (rect, response) = ui.allocate_exact_size(
+            Vec2::splat(cover_size),
+            if enlarge {
+                Sense::click()
+            } else {
+                Sense::hover()
+            },
+        );
         let radius = if hero.round { cover_size / 2.0 } else { 6.0 };
         widgets::paint_shadow(ui, &palette, rect, radius);
         if hero.liked {
@@ -95,6 +104,21 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
                 if hero.round { Icon::User } else { Icon::Music },
                 Some(app.backend.art()),
             );
+        }
+        if hero.enlarge
+            && let Some(url) = hero.images.image
+        {
+            let label = gettext(app.locale, "Enlarge cover");
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.as_ref())
+            });
+            theme::focus_ring(ui, &response);
+            if response.on_hover_text(label).clicked() {
+                app.actions.push(Action::ShowDialog(Dialog::CoverArt {
+                    url: url.to_string(),
+                    title: hero.title.to_string(),
+                }));
+            }
         }
         ui.vertical(|ui| {
             let width = ui.available_width();
@@ -1732,6 +1756,7 @@ fn playlist_hero<'a>(
         Hero {
             images,
             liked: false,
+            enlarge: true,
             kind: if collaborative {
                 gettext(app.locale, "Collaborative Playlist")
             } else if playlist.public == Some(true) {
@@ -1863,6 +1888,7 @@ fn album_hero(
         Hero {
             images,
             liked: false,
+            enlarge: true,
             kind: app.album_kind_label(album),
             title: &album.name,
             description: None,
@@ -1914,6 +1940,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         Hero {
             images: HeroImages::default(),
             liked: true,
+            enlarge: false,
             kind: gettext(locale, "Playlist"),
             title: &liked_title,
             description: None,
