@@ -2359,6 +2359,8 @@ impl App {
                     self.load_more(Page::LikedSongs);
                 }
             }
+            // The files live on this computer; their scan needs no network.
+            Page::LocalFiles => {}
             Page::Albums => {
                 if !self.library.albums.loaded_once || self.library.albums.error.is_some() {
                     self.library.albums.error = None;
@@ -7612,6 +7614,13 @@ impl App {
                 .map(|track| track.uri.clone())
                 .collect();
             request.context_uri = None;
+            // The scan has not answered yet, or matched nothing: a load
+            // with no URIs plays nothing and names nothing, so the press
+            // ends here rather than reach the engine.
+            if request.uris.is_empty() {
+                self.clear_play_pending();
+                return;
+            }
         }
         // Shuffle applies across contexts until disabled. A selected row still
         // starts first; otherwise choose a random starting track.
@@ -15172,6 +15181,41 @@ mod tests {
         let playing_from = app.playing_from().expect("the page names the play");
         assert_eq!(playing_from.name, "Local files");
         assert_eq!(playing_from.page, Some(Page::LocalFiles));
+        app.backend.shutdown();
+    }
+
+    /// A play of the Local files page before the scan answers, or after it
+    /// matched nothing, has no list to ask for: nothing reaches the engine
+    /// and no pending play is left holding the page's button.
+    #[test]
+    fn a_local_files_play_with_nothing_scanned_reaches_no_engine() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.connected = true;
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:old".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Paused;
+        app.apply(
+            Action::PlayContext {
+                uri: LOCAL_FILES_CONTEXT.into(),
+                offset_uri: None,
+                offset_index: None,
+            },
+            &ctx,
+        );
+        assert!(
+            app.backend
+                .take_player_commands()
+                .into_iter()
+                .all(|command| !matches!(command, PlayerCommand::Load(_))),
+            "no load with an empty list reaches the engine"
+        );
+        assert!(
+            !app.play_pending(LOCAL_FILES_CONTEXT),
+            "the press leaves no pending play"
+        );
         app.backend.shutdown();
     }
 
