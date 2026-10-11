@@ -81,6 +81,9 @@ clients. Spotifast uses its session for:
 librespot provides:
 
 - Spotify catalogue playback at up to 320 kbps.
+- Local file playback: tagged MP3, MP4, M4P, and FLAC files in configured
+  folders, matched by their tags to `spotify:local` entries and played from
+  disk.
 - Gapless playback, normalisation, and a local audio cache.
 - Spotify Connect, so another Spotify client can transfer playback to this
   computer.
@@ -112,9 +115,10 @@ The Web API and librespot do not provide these features:
 - **Lossless audio.** librespot does not receive lossless streams. Spotifast
   will reconsider this if librespot gains lawful support, but it will not
   bypass Spotify's DRM.
-- **Local files.** librespot only streams Spotify's catalogue. It cannot fetch
-  audio for a `spotify:local:` entry. Playing files from disk would require a
-  separate player. See [issue #3](https://github.com/crmne/spotifast/issues/3).
+- **The local files list from Spotify's own apps.** Spotify keeps the folder
+  list its own apps use to itself. librespot does play tagged local files
+  from disk, so Spotifast's local files come from folders chosen in its own
+  settings. See [issue #3](https://github.com/crmne/spotifast/issues/3).
 - **Audiobooks.** librespot does not play them. Spotify lists some
   audiobooks among saved shows; since 0.10.0, Spotifast asks the
   librespot session which ones and leaves them out of the Podcasts shelf.

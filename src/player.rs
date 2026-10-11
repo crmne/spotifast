@@ -57,6 +57,10 @@ pub struct EngineConfig {
     pub audio_cache_limit: Option<u64>,
     /// Output buffer length in milliseconds.
     pub buffer_ms: u32,
+    /// Folders librespot scans for tagged files behind `spotify:local`
+    /// tracks. The lookup is built once per engine, so new folders need an
+    /// engine replace.
+    pub local_file_directories: Vec<PathBuf>,
     pub tap: Arc<AudioTap>,
     /// The equalizer's settings, shared with the window that sets them.
     pub eq: crate::eq::SharedEq,
@@ -350,6 +354,7 @@ impl Engine {
             // the tap can undo it for the visualisers: they show the music,
             // not the loudness housekeeping.
             normalisation_report: Some(Arc::clone(&normalisation_factor)),
+            local_file_directories: config.local_file_directories.clone(),
             ..PlayerConfig::default()
         };
 
@@ -1643,6 +1648,7 @@ mod tests {
     fn device_id_is_stable_hex() {
         let config = EngineConfig {
             buffer_ms: crate::sink::DEFAULT_BUFFER_MS,
+            local_file_directories: Vec::new(),
             tap: AudioTap::new(),
             eq: crate::eq::shared(),
             device_name: "Spotifast".into(),

@@ -5847,6 +5847,26 @@ mod authorization_tests {
         assert_eq!(worker.engine_config.proxy, proxy);
     }
 
+    /// The engine scans its local file folders when it connects, so they
+    /// travel with the other audio settings instead of reaching a running
+    /// engine. The settings view asks for this restart only once a playback
+    /// setting changed; Reconnect reuses it to force a new engine.
+    #[test]
+    fn local_file_folders_arrive_with_the_audio_settings_restart() {
+        let (runtime, mut worker, _) = worker("local-folders-restart");
+        let mut audio = worker.engine_config.clone();
+        audio.local_file_directories = vec![std::path::PathBuf::from("/music/albums")];
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::RestartEngine(audio)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+        assert_eq!(
+            worker.engine_config.local_file_directories,
+            [std::path::PathBuf::from("/music/albums")],
+            "the replacement engine must scan the chosen folders"
+        );
+    }
+
     #[test]
     fn a_rejected_proxy_change_does_not_replace_the_live_configuration() {
         let (runtime, mut worker, events) = worker("rejected-proxy");
