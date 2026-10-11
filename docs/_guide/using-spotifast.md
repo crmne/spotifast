@@ -151,7 +151,9 @@ sidebar is not in compact mode.
 
 Turn on **Show local files** in Settings, under **Local files**, and choose
 folders of MP3 and FLAC files. A file is named by its title tag, or by its
-file name when it has none. The files appear on the Local files page
+file name when it has none. A picture embedded in the file's tags is its
+cover art, on its row and in the player bar; a file without one shows the
+placeholder. The files appear on the Local files page
 in the Library sidebar, sorted by artist, album, and title, and play from this
 computer's disk through the same matching the playback engine uses. **Add to
 queue** works on them too.

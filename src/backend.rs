@@ -3426,16 +3426,19 @@ impl Worker {
 
     /// Scans the chosen local file folders off the runtime's blocking
     /// pool and reports what it found, so the list shows what the engine
-    /// will play. The engine builds its own lookup only when it starts,
+    /// will play. The scan also places each file's embedded picture in
+    /// the artwork cache, under the URI its row then carries. The engine
+    /// builds its own lookup only when it starts,
     /// so the scan runs whenever one (re)connects and whenever Apply
     /// hands it new folders; folders turned off report an empty list,
     /// which clears whatever was shown.
     fn start_local_files_scan(&self) {
         let directories = self.engine_config.local_file_directories.clone();
+        let art = self.art.clone();
         let events = self.events.clone();
         let waker = self.waker.clone();
         tokio::task::spawn_blocking(move || {
-            let tracks = crate::local_files::scan(&directories);
+            let tracks = crate::local_files::scan(&directories, &art);
             let _ = events.send(Event::LocalFilesScanned(tracks));
             waker.wake();
         });

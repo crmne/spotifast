@@ -3314,7 +3314,7 @@ dependencies = [
 [[package]]
 name = "librespot-audio"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=116013d638ed14a5048d9cac16754615de645a60#116013d638ed14a5048d9cac16754615de645a60"
+source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
 dependencies = [
  "aes 0.8.4",
  "bytes",
@@ -3333,7 +3333,7 @@ dependencies = [
 [[package]]
 name = "librespot-connect"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=116013d638ed14a5048d9cac16754615de645a60#116013d638ed14a5048d9cac16754615de645a60"
+source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
 dependencies = [
  "futures-util",
  "librespot-core",
@@ -3352,7 +3352,7 @@ dependencies = [
 [[package]]
 name = "librespot-core"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=116013d638ed14a5048d9cac16754615de645a60#116013d638ed14a5048d9cac16754615de645a60"
+source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
 dependencies = [
  "aes 0.8.4",
  "base64",
@@ -3409,7 +3409,7 @@ dependencies = [
 [[package]]
 name = "librespot-metadata"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=116013d638ed14a5048d9cac16754615de645a60#116013d638ed14a5048d9cac16754615de645a60"
+source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3426,7 +3426,7 @@ dependencies = [
 [[package]]
 name = "librespot-oauth"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=116013d638ed14a5048d9cac16754615de645a60#116013d638ed14a5048d9cac16754615de645a60"
+source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
 dependencies = [
  "log",
  "oauth2",
@@ -3439,7 +3439,7 @@ dependencies = [
 [[package]]
 name = "librespot-playback"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=116013d638ed14a5048d9cac16754615de645a60#116013d638ed14a5048d9cac16754615de645a60"
+source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
 dependencies = [
  "form_urlencoded",
  "futures-util",
@@ -3462,7 +3462,7 @@ dependencies = [
 [[package]]
 name = "librespot-protocol"
 version = "0.8.0"
-source = "git+https://github.com/notdezzi/librespot?rev=116013d638ed14a5048d9cac16754615de645a60#116013d638ed14a5048d9cac16754615de645a60"
+source = "git+https://github.com/notdezzi/librespot?rev=b010fdbdf9c20565ce2e53d000764f4b9f4f22a8#b010fdbdf9c20565ce2e53d000764f4b9f4f22a8"
 dependencies = [
  "protobuf",
  "protobuf-codegen",

@@ -1534,23 +1534,52 @@ impl App {
                 Some((playing, at)) if at.elapsed() < PLAYBACK_HOLD => playing,
                 _ => self.local.playback == Playback::Playing,
             };
+            // A scanned local file's row is the fuller account of what
+            // plays: the engine reports the tags it read when it loaded
+            // the file and no picture at all, while the row carries the
+            // matched name, album, and embedded cover. Progress, position,
+            // and playback state stay the engine's live answers.
+            let scanned = if track.uri.starts_with("spotify:local:") {
+                self.local_files
+                    .tracks
+                    .iter()
+                    .find(|local| local.uri == track.uri)
+                    .map(|local| local.as_track())
+            } else {
+                None
+            };
+            let display = scanned.as_ref();
             return Some(NowPlaying {
                 local: true,
                 device_name: None,
                 uri: track.uri.clone(),
                 id: util::uri_id(&track.uri).map(str::to_string),
-                title: track.title.clone(),
-                subtitle: track.artist_names(),
+                title: display
+                    .map(|row| row.name.clone())
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or_else(|| track.title.clone()),
+                subtitle: display
+                    .map(|row| row.artist_names())
+                    .filter(|names| !names.is_empty())
+                    .unwrap_or_else(|| track.artist_names()),
                 artists,
-                album_name: track.album.clone(),
+                album_name: display
+                    .and_then(|row| row.album.as_ref())
+                    .map(|album| album.name.clone())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| track.album.clone()),
                 album_id: cached
                     .and_then(|cached| cached.album.as_ref())
                     .map(|album| album.id.clone()),
                 show_id: None,
-                art_url: track.art_url.clone(),
-                art_small: track
-                    .art_small_url
-                    .clone()
+                art_url: display
+                    .and_then(|row| row.image(640))
+                    .map(str::to_string)
+                    .or_else(|| track.art_url.clone()),
+                art_small: display
+                    .and_then(|row| row.image(64))
+                    .map(str::to_string)
+                    .or_else(|| track.art_small_url.clone())
                     .or_else(|| track.art_url.clone()),
                 duration_ms: track.duration_ms,
                 position_ms: match self.pending_local_position {
@@ -14915,6 +14944,7 @@ mod tests {
             artist: "Artist".into(),
             album: "Album".into(),
             duration_secs: 150,
+            art: None,
         };
         app.local_files.scanned(vec![local.clone()]);
         app.apply(
@@ -14956,6 +14986,49 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The player bar answers the engine's live report with the scanned
+    /// row's fuller account of the same file: the matched name, album,
+    /// and embedded picture, which the engine reports none of for a file
+    /// whose tags say nothing.
+    #[test]
+    fn a_playing_local_file_shows_its_scanned_row() {
+        let mut app = headless_app();
+        let mut row = crate::local_files::LocalFileTrack {
+            uri: crate::local_files::uri_from_parts(
+                Some("Artist"),
+                Some("Album"),
+                Some("Matched file"),
+                150,
+            ),
+            title: "Matched file".into(),
+            artist: "Artist".into(),
+            album: "Album".into(),
+            duration_secs: 150,
+            art: None,
+        };
+        app.local_files.scanned(vec![row.clone()]);
+        // What the engine knows about an untagged bootleg: no title, no
+        // album, and local playback carries no picture at all.
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: row.uri.clone(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+
+        let now = app.now_playing_live().expect("the engine is playing");
+        assert_eq!(now.title, "Matched file", "the row's matched name is shown");
+        assert_eq!(now.subtitle, "Artist");
+        assert_eq!(now.album_name, "Album");
+        assert_eq!(now.art_url, None, "a file without a picture shows none");
+
+        let art = crate::local_files::cover_uri(&row.uri);
+        row.art = Some(art.clone());
+        app.local_files.scanned(vec![row.clone()]);
+        let now = app.now_playing_live().expect("the engine is playing");
+        assert_eq!(now.art_url.as_deref(), Some(art.as_str()));
+        assert_eq!(now.art_small.as_deref(), Some(art.as_str()));
+    }
+
     /// A local row plays only on this computer: matched and here it plays,
     /// and unmatched, elsewhere, or marked local without a local URI it
     /// reads as unavailable and queues nowhere.
@@ -14974,6 +15047,7 @@ mod tests {
             artist: "Artist".into(),
             album: "Album".into(),
             duration_secs: 150,
+            art: None,
         };
         app.local_files.scanned(vec![local.clone()]);
         app.local.track = Some(crate::player::LocalTrack {
@@ -15061,6 +15135,7 @@ mod tests {
             artist: "Artist".into(),
             album: "Album".into(),
             duration_secs: secs,
+            art: None,
         };
         let first = local("First file", 100);
         let second = local("Second file", 200);
@@ -23644,6 +23719,7 @@ mod tests {
                         artist: "Artist".into(),
                         album: "Album".into(),
                         duration_secs: 180,
+                        art: None,
                     }]);
                 let tracks = [
                     track("other", "03 Other", true, false),
@@ -24477,6 +24553,7 @@ mod tests {
             artist: "David Wise".into(),
             album: "Donkey Kong Country: Tropical Freeze".into(),
             duration_secs: 127,
+            art: None,
         };
         app.handle_backend_events(vec![Event::LocalFilesScanned(vec![track])]);
         assert!(!app.local_files.scanning);
