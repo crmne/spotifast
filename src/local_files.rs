@@ -41,6 +41,33 @@ pub struct LocalFileTrack {
     pub duration_secs: u64,
 }
 
+impl LocalFileTrack {
+    /// The row as the collection table draws it: a local track whose
+    /// artist and album are the tags the engine matched, carrying no
+    /// Spotify ids, so no row interaction can treat it as a catalogue
+    /// item with a page of its own.
+    pub(crate) fn as_track(&self) -> crate::api::models::Track {
+        crate::api::models::Track {
+            uri: self.uri.clone(),
+            name: self.title.clone(),
+            duration_ms: u32::try_from(self.duration_secs.saturating_mul(1000)).unwrap_or(u32::MAX),
+            artists: (!self.artist.is_empty())
+                .then(|| crate::api::models::ArtistRef {
+                    name: self.artist.clone(),
+                    ..Default::default()
+                })
+                .into_iter()
+                .collect(),
+            album: (!self.album.is_empty()).then(|| crate::api::models::Album {
+                name: self.album.clone(),
+                ..Default::default()
+            }),
+            is_local: true,
+            ..Default::default()
+        }
+    }
+}
+
 /// The `spotify:local` URI for these tags, encoded exactly as librespot
 /// encodes them: every part form-urlencoded from its raw bytes, a missing
 /// tag an empty part, the duration plain seconds.

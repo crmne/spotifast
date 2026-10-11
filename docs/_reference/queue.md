@@ -11,9 +11,9 @@ album is playing. Your songs always play first.
 
 Above both, **Playing from** names where the playing song came from: the
 playlist, album, artist, or podcast, which opens when clicked, Liked
-Songs, or a radio named after the song, playlist, album, or artist it is
-based on, which opens the radio's page. The line shows only while a song is
-playing from somewhere Spotify reports.
+Songs, your local files, or a radio named after the song, playlist, album,
+or artist it is based on, which opens the radio's page. The line shows
+only while a song is playing from somewhere the app can name.
 
 These are the rules the app follows. The queue tests in `src/app.rs`
 check every one of them.
@@ -37,11 +37,13 @@ never becomes the beginning. This keeps the full Spotify playlist context;
 the app does not replace it with a shortened list of loaded songs. A request
 waiting for local playback to reconnect keeps the song chosen at the click.
 
-Sorted and filtered views omit unavailable songs and local files from their
-playback requests. The displayed rows keep their positions, and selecting a
-repeated song starts that occurrence. A filtered playlist or Liked Songs view
-plays its matching songs in displayed order, including duplicates. An empty or entirely
-unplayable view disables Play instead of starting the unfiltered context.
+Sorted and filtered views omit unavailable songs and local files that have
+no matching file on this computer from their playback requests; a matched
+local file stays in the request and plays on this computer. The displayed
+rows keep their positions, and selecting a repeated song starts that
+occurrence. A filtered playlist or Liked Songs view plays its matching songs
+in displayed order, including duplicates. An empty or entirely unplayable
+view disables Play instead of starting the unfiltered context.
 
 Since 0.9.0, starting another song on this computer keeps the
 selected Repeat mode, with Shuffle on or off. Loading a playlist no longer

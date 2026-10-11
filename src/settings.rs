@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 /// Local Library identity only. Never sent to Spotify as a context URI.
 pub const LIKED_SONGS_KEY: &str = "spotifast:liked-songs";
 
+/// Local Library identity only. Never sent to Spotify as a context URI;
+/// the page plays a plain list of track URIs.
+pub const LOCAL_FILES_KEY: &str = "spotifast:local-files";
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LibraryShelf {

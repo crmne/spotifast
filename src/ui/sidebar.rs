@@ -3,10 +3,10 @@
 use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Vec2, pos2, vec2};
 
 use crate::api::models::pick_image;
-use crate::app::App;
+use crate::app::{App, LOCAL_FILES_CONTEXT};
 use crate::i18n::{Locale, gettext};
 use crate::model::{Action, Dialog, DragEntry, DragTrack, Loadable, Page};
-use crate::settings::{LIKED_SONGS_KEY, LibraryShelf as Filter, LibrarySort};
+use crate::settings::{LIKED_SONGS_KEY, LOCAL_FILES_KEY, LibraryShelf as Filter, LibrarySort};
 use crate::theme::{self, Icon, Palette};
 
 const DEFAULT_ROW_HEIGHT: f32 = 60.0;
@@ -22,6 +22,9 @@ struct Entry {
     uri: String,
     round: bool,
     liked: bool,
+    /// The Local files pseudo-entry: this app's own scan, played as one
+    /// list on this computer.
+    local_files: bool,
     /// The account's own playlist: the one it may rename and delete.
     owned: bool,
     /// A playlist the account may drop songs on.
@@ -39,6 +42,8 @@ impl Entry {
     fn ordering_key(&self) -> &str {
         if self.liked {
             LIKED_SONGS_KEY
+        } else if self.local_files {
+            LOCAL_FILES_KEY
         } else {
             &self.uri
         }
@@ -47,12 +52,14 @@ impl Entry {
 
 /// The context a library row plays, matching the cover play button and the
 /// right-click menu. Liked Songs has no URI of its own and plays the
-/// account's collection instead.
+/// account's collection instead; Local files plays the scan's own list.
 fn entry_play_uri(app: &App, entry: &Entry) -> Option<String> {
     if entry.liked {
         app.user
             .as_ref()
             .map(|user| format!("spotify:user:{}:collection", user.id))
+    } else if entry.local_files {
+        Some(LOCAL_FILES_CONTEXT.to_string())
     } else if entry.uri.is_empty() {
         None
     } else {
@@ -63,6 +70,8 @@ fn entry_play_uri(app: &App, entry: &Entry) -> Option<String> {
 fn entry_is_playing_context(entry: &Entry, context: Option<&str>) -> bool {
     if entry.liked {
         context.is_some_and(|context| context.ends_with(":collection"))
+    } else if entry.local_files {
+        context == Some(LOCAL_FILES_CONTEXT)
     } else {
         !entry.uri.is_empty() && context == Some(entry.uri.as_str())
     }
@@ -314,6 +323,36 @@ fn liked_entry(app: &App) -> Entry {
         uri: String::new(),
         round: false,
         liked: true,
+        local_files: false,
+        owned: false,
+        editable: false,
+        playlist_index: None,
+        folder: None,
+        depth: 0,
+        added_at: None,
+    }
+}
+
+/// The Local files row: what the last scan of the chosen folders found.
+/// Hidden entirely while the feature is off.
+fn local_files_entry(app: &App) -> Entry {
+    let count = app.local_files.tracks.len() as u32;
+    let subtitle = if app.local_files.scanning && count == 0 {
+        gettext(app.locale, "Loading…").into_owned()
+    } else {
+        app.locale.song_count(count)
+    };
+    Entry {
+        image: None,
+        grid_image: None,
+        name: gettext(app.locale, "Local files").into_owned(),
+        subtitle: subtitle.clone(),
+        grid_subtitle: subtitle,
+        page: Page::LocalFiles,
+        uri: String::new(),
+        round: false,
+        liked: false,
+        local_files: true,
         owned: false,
         editable: false,
         playlist_index: None,
@@ -448,6 +487,8 @@ fn order_entries(app: &App, shelf: Filter, sort: LibrarySort, entries: &mut [Ent
             entries.sort_by_cached_key(|entry| {
                 let key = if entry.liked {
                     liked_uri.as_deref()
+                } else if entry.local_files {
+                    Some(LOCAL_FILES_CONTEXT)
                 } else {
                     Some(entry.uri.as_str())
                 };
@@ -706,6 +747,7 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
                         uri: String::new(),
                         round: false,
                         liked: false,
+                        local_files: false,
                         owned: false,
                         editable: false,
                         playlist_index: None,
@@ -810,6 +852,7 @@ fn playlist_entry(
         uri: playlist.uri.clone(),
         round: false,
         liked: false,
+        local_files: false,
         owned: playlist.owned_by(user_id),
         editable,
         playlist_index: Some(index),
@@ -1064,6 +1107,12 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
             if needle.is_empty() || liked.name.to_lowercase().contains(&needle) {
                 entries.push(liked);
             }
+            if app.settings.local_files.enabled {
+                let local_files = local_files_entry(app);
+                if needle.is_empty() || local_files.name.to_lowercase().contains(&needle) {
+                    entries.push(local_files);
+                }
+            }
             let show_folders = sort == LibrarySort::Spotify && needle.is_empty();
             if show_folders {
                 folder_rows(app, &user_id, &mut entries);
@@ -1115,6 +1164,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     uri: album.uri.clone(),
                     round: false,
                     liked: false,
+                    local_files: false,
                     owned: false,
                     editable: false,
                     playlist_index: None,
@@ -1145,6 +1195,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     uri: artist.uri.clone(),
                     round: true,
                     liked: false,
+                    local_files: false,
                     owned: false,
                     editable: false,
                     playlist_index: None,
@@ -1182,6 +1233,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     uri: show.uri.clone(),
                     round: false,
                     liked: false,
+                    local_files: false,
                     owned: false,
                     editable: false,
                     playlist_index: None,
@@ -1453,7 +1505,13 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                                 entry.image.as_deref(),
                                 cover_rect,
                                 if entry.round { 22.0 } else { 6.0 },
-                                if entry.round { Icon::User } else { Icon::Music },
+                                if entry.local_files {
+                                    Icon::Library
+                                } else if entry.round {
+                                    Icon::User
+                                } else {
+                                    Icon::Music
+                                },
                                 Some(app.backend.art()),
                             );
                         }
@@ -1727,7 +1785,13 @@ fn library_grid(
                                 } else {
                                     6.0
                                 },
-                                if entry.round { Icon::User } else { Icon::Music },
+                                if entry.local_files {
+                                    Icon::Library
+                                } else if entry.round {
+                                    Icon::User
+                                } else {
+                                    Icon::Music
+                                },
                                 Some(app.backend.art()),
                             );
                         }
@@ -1894,6 +1958,26 @@ fn entry_menu(app: &mut App, response: &egui::Response, entry: &Entry, custom_or
                 }
                 pin_menu(app, ui, entry.ordering_key());
             });
+    } else if entry.local_files {
+        egui::Popup::context_menu(response)
+            .frame(super::widgets::menu_frame(&app.palette))
+            .show(|ui| {
+                ui.set_min_width(200.0);
+                ui.set_max_width(300.0);
+                if super::widgets::menu_item(
+                    ui,
+                    &app.palette,
+                    Some(Icon::Play),
+                    &gettext(app.locale, "Play"),
+                ) {
+                    app.actions.push(Action::PlayContext {
+                        uri: LOCAL_FILES_CONTEXT.to_string(),
+                        offset_uri: None,
+                        offset_index: None,
+                    });
+                }
+                pin_menu(app, ui, entry.ordering_key());
+            });
     }
 }
 
@@ -1927,6 +2011,7 @@ fn pin_menu(app: &mut App, ui: &mut egui::Ui, key: &str) {
 /// moved row and saves the full playlist arrangement at the chosen gap.
 fn drop_playlist_row(app: &mut App, entries: &[Entry], pinned_rows: usize, slot: usize, key: &str) {
     if key != LIKED_SONGS_KEY
+        && key != LOCAL_FILES_KEY
         && !app
             .library
             .playlists
@@ -1994,6 +2079,9 @@ fn full_playlist_order(app: &App) -> Vec<String> {
         })
         .collect();
     entries.push(liked_entry(app));
+    if app.settings.local_files.enabled {
+        entries.push(local_files_entry(app));
+    }
     order_entries(
         app,
         Filter::Playlists,
@@ -2108,6 +2196,9 @@ mod ordering_tests {
             },
         );
         crate::demo::populate(&mut app);
+        // These tests arrange playlists. The demo's Local files entry is
+        // unrelated to what they assert, so it stays out of the fixture.
+        app.settings.local_files.enabled = false;
         app.library.playlists = Loadable::Loaded(
             [
                 ("a", "Zebra"),

@@ -519,7 +519,7 @@ pub fn prepare_table_view(
             let mut uris = Vec::new();
             for &index in &visible {
                 let item = &items[index].0;
-                view_positions.push(widgets::row_playable(item).then(|| {
+                view_positions.push(app.item_playable(item).then(|| {
                     let position = uris.len();
                     uris.push(item.uri().to_string());
                     position
@@ -2135,6 +2135,102 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             can_load_more,
             filter: &filter,
             items_revision: app.library.liked.revision,
+        },
+    );
+}
+
+/// The Local files page: the scan's rows, in the order the engine matches
+/// them. Nothing here loads from Spotify, so the page shows the scan's own
+/// answer, or while the first answer is still out, its loading state.
+pub fn local_files(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let locale = app.locale;
+    let revision = app.local_files.revision;
+    let names = app.user_names_revision;
+    let items =
+        if let Some(items) = table_items_hit(app, &Page::LocalFiles, revision, revision, names) {
+            items
+        } else {
+            let rows = app
+                .local_files
+                .tracks
+                .iter()
+                .map(|track| (PlayableItem::Track(track.as_track()), None, None))
+                .collect();
+            remember_table_items(app, Page::LocalFiles, revision, revision, names, rows)
+        };
+    let title = gettext(locale, "Local files");
+    let scanning = app.local_files.scanning;
+    let count = items.len() as u32;
+    let byline = (count > 0)
+        .then(|| songs_and_duration(locale, count, total_duration(&items)))
+        .map(|text| vec![(text, None)])
+        .unwrap_or_default();
+    hero(
+        app,
+        ui,
+        Hero {
+            images: HeroImages::default(),
+            liked: false,
+            kind: gettext(locale, "Library"),
+            title: &title,
+            description: None,
+            byline,
+            round: false,
+        },
+    );
+    actions_row(
+        app,
+        ui,
+        Actions {
+            play_uri: Some(crate::app::LOCAL_FILES_CONTEXT.to_string()),
+            view: None,
+            saved: None,
+            saved_icons: (Icon::Heart, Icon::HeartFilled),
+            saved_tooltips: Default::default(),
+            owned_playlist: None,
+            reload: None,
+            name: &title,
+            save_radio: None,
+        },
+        None,
+    );
+    if items.is_empty() {
+        if scanning {
+            widgets::loading_row(ui, &palette, locale);
+        } else {
+            widgets::empty_state(
+                ui,
+                &palette,
+                Icon::Library,
+                &gettext(locale, "No local files"),
+                &gettext(locale, "Add a folder in Settings, under Local files."),
+            );
+        }
+        return;
+    }
+    let context = RowContext::Context {
+        uri: crate::app::LOCAL_FILES_CONTEXT.to_string(),
+        editable_playlist: None,
+    };
+    table(
+        app,
+        ui,
+        Table {
+            items: &items,
+            row_offset: 0,
+            pagination: None,
+            context,
+            show_album: true,
+            show_cover: true,
+            show_added: false,
+            show_added_by: false,
+            page: Page::LocalFiles,
+            loading: scanning,
+            error: None,
+            can_load_more: false,
+            filter: "",
+            items_revision: revision,
         },
     );
 }

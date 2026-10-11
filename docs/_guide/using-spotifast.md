@@ -116,7 +116,9 @@ When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.
 
-Sorted and filtered views omit unavailable songs and local files from playback.
+Sorted and filtered views omit unavailable songs from playback, and local
+files that have no matching file on this computer; a matched local file
+stays in the view's playback request and plays here.
 The rows stay visible, and selecting a repeated song starts that occurrence. Filtering a playlist or Liked Songs plays only the matching songs,
 including repeated entries. Play is disabled when the view has no playable
 songs; it never falls back to the unfiltered playlist in that case. Clearing
@@ -144,6 +146,18 @@ Double-click a playlist, Liked Songs, album, artist, or podcast row in the
 Library sidebar to start playing it. A single click still opens the row's page.
 Pointing at a row's cover art also shows a play button, but only when the
 sidebar is not in compact mode.
+
+## Local files
+
+Turn on **Show local files** in Settings, under **Local files**, and choose
+folders of tagged MP3 and FLAC files. The files appear on the Local files page
+in the Library sidebar, sorted by artist, album, and title, and play from this
+computer's disk through the same matching the playback engine uses. **Add to
+queue** works on them too.
+
+The files exist only on this computer. While another device is the player, or
+while a file no longer matches one in the chosen folders, its row reads as
+unavailable and is skipped, like any song Spotify cannot play there.
 
 ## Search from a launcher
 
