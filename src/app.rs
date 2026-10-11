@@ -31,6 +31,8 @@ use fastframe_now_playing::{
 };
 
 const REMOTE_POLL_ACTIVE: Duration = Duration::from_secs(4);
+/// While a song just started on another device has yet to report playing.
+const REMOTE_POLL_STARTING: Duration = Duration::from_secs(1);
 const REMOTE_POLL_IDLE: Duration = Duration::from_secs(20);
 /// With nobody able to see the window and nothing playing anywhere.
 const REMOTE_POLL_UNSEEN: Duration = Duration::from_secs(30);
@@ -458,6 +460,9 @@ pub struct App {
     pending_transfer_to: Option<(String, Instant)>,
     /// When to take a confirming look at remote playback after a command.
     remote_recheck_at: Option<Instant>,
+    /// Until when a song just started elsewhere is polled every second, and
+    /// the last poll sent before the command, whose answer is stale.
+    remote_starting: Option<(u64, Instant)>,
     pub seek_preview: Option<f32>,
     pub volume_preview: Option<f32>,
     /// Window geometry to restore on next attach, from the session file.
@@ -906,6 +911,7 @@ impl App {
             local_list: None,
             pending_transfer_to: None,
             remote_recheck_at: None,
+            remote_starting: None,
             seek_preview: None,
             volume_preview: None,
             session_window_size: session.window_size,
@@ -5276,6 +5282,15 @@ impl App {
                                 .map(|item| item.uri().to_string())
                         });
                         self.reconcile_remote_track_intent(seq, uri.as_deref());
+                        if self.remote_starting.is_some_and(|(before, _)| seq > before)
+                            && self.intent_track.is_none()
+                            && self
+                                .remote
+                                .as_ref()
+                                .is_some_and(|remote| remote.state.is_playing)
+                        {
+                            self.remote_starting = None;
+                        }
                         if let Some(remote) = &self.remote
                             && let Some(device) = &remote.state.device
                             && device.id.is_some()
@@ -6485,6 +6500,13 @@ impl App {
                 match result {
                     Ok(()) => {
                         self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
+                        if matches!(
+                            action,
+                            RemoteAction::Play | RemoteAction::Next | RemoteAction::Previous
+                        ) {
+                            self.remote_starting =
+                                Some((self.remote_poll_seq, Instant::now() + PLAYBACK_HOLD));
+                        }
                         if action == RemoteAction::Shuffle {
                             self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
                             if let Some(pending) = &mut self.queue_shuffle_pending {
@@ -10347,7 +10369,17 @@ impl App {
     ///
     /// With nobody able to see the window and nothing playing anywhere, the
     /// poll only keeps a hidden device list fresh, so it runs every 30s.
+    ///
+    /// Right after a song starts on another device, the poll runs every
+    /// second until that device reports it playing, so the progress clock
+    /// starts within a second instead of up to four.
     fn connected_repaint_interval(&self) -> Duration {
+        if self
+            .remote_starting
+            .is_some_and(|(_, until)| Instant::now() < until)
+        {
+            return REMOTE_POLL_STARTING;
+        }
         let unseen = self.budget == crate::power::Budget::Background
             && !self.now_playing().is_some_and(|now| now.playing);
         match self.target() {
@@ -18671,6 +18703,56 @@ mod tests {
             "a hidden window's logic must wake again within 250 ms while playing, \
              without spinning; asked for {soonest:?}"
         );
+    }
+
+    /// A song started on another device is polled every second until that
+    /// device reports it playing, then the usual four-second poll resumes.
+    /// A poll sent before the command describes the old song, so its
+    /// answer does not end the fast poll.
+    #[test]
+    fn a_remote_start_is_polled_every_second_until_it_plays() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local_ready = false;
+        assert_eq!(app.connected_repaint_interval(), REMOTE_POLL_ACTIVE);
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Previous,
+            result: Ok(()),
+        });
+        assert_eq!(app.connected_repaint_interval(), REMOTE_POLL_STARTING);
+
+        let mut state = app.remote.as_ref().unwrap().state.clone();
+        state.is_playing = true;
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: app.remote_poll_seq,
+            result: Ok(Some(state.clone())),
+        });
+        assert_eq!(
+            app.connected_repaint_interval(),
+            REMOTE_POLL_STARTING,
+            "a late answer to a poll sent before the command is stale"
+        );
+
+        app.remote_poll_seq += 1;
+        state.is_playing = false;
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: app.remote_poll_seq,
+            result: Ok(Some(state.clone())),
+        });
+        assert_eq!(
+            app.connected_repaint_interval(),
+            REMOTE_POLL_STARTING,
+            "a device still loading the song keeps the fast poll"
+        );
+
+        state.is_playing = true;
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: app.remote_poll_seq,
+            result: Ok(Some(state)),
+        });
+        assert_eq!(app.connected_repaint_interval(), REMOTE_POLL_ACTIVE);
+        app.backend.shutdown();
     }
 
     #[test]
