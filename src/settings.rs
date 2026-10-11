@@ -1,6 +1,6 @@
 //! User preferences, stored as one readable JSON file.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +65,16 @@ impl Default for HomeShelfSettings {
 pub struct HomeSettings {
     pub made_for_you: HomeShelfSettings,
     pub recommendations: HomeShelfSettings,
+}
+
+/// Folders whose tagged audio files play from disk through librespot.
+/// Disabled, the engine is given no folders and no local track can play;
+/// the list is kept so enabling them again restores the choice.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LocalFilesSettings {
+    pub enabled: bool,
+    pub directories: Vec<PathBuf>,
 }
 
 /// What moves behind the player bar's controls.
@@ -240,6 +250,8 @@ pub struct Settings {
     pub audio_buffer_ms: u32,
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
+    /// Local file playback. Older files without it keep local files off.
+    pub local_files: LocalFilesSettings,
     pub theme: ThemeChoice,
     /// The interface language; older files without it follow the system.
     pub language: LanguageChoice,
@@ -426,6 +438,7 @@ impl Default for Settings {
             audio_buffer_ms: default_buffer_ms(),
             audio_cache: true,
             audio_cache_mb: 1024,
+            local_files: LocalFilesSettings::default(),
             theme: ThemeChoice::System,
             language: LanguageChoice::System,
             custom_theme: None,
@@ -1058,6 +1071,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(settings.volume, 12345);
         assert!(!settings.home.made_for_you.visible);
+    }
+
+    #[test]
+    fn chosen_local_file_folders_round_trip_and_older_settings_keep_them_off() {
+        let older: Settings = serde_json::from_str(r#"{"volume":12345}"#).unwrap();
+        assert_eq!(older.local_files, super::LocalFilesSettings::default());
+        assert_eq!(older.volume, 12345);
+
+        let settings = Settings {
+            local_files: super::LocalFilesSettings {
+                enabled: true,
+                directories: vec!["/music/albums".into(), "/music/unsorted".into()],
+            },
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.local_files, settings.local_files);
     }
 
     #[test]

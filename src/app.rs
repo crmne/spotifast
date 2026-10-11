@@ -11082,6 +11082,13 @@ pub fn engine_config(
         volume_dir: dirs.volume_dir(),
         audio_cache_dir: settings.audio_cache.then(|| dirs.audio_cache_dir()),
         audio_cache_limit: Some(settings.audio_cache_mb.max(64) * 1024 * 1024),
+        // Disabled hands the engine no folders, so the toggle alone turns
+        // local file playback off.
+        local_file_directories: if settings.local_files.enabled {
+            settings.local_files.directories.clone()
+        } else {
+            Vec::new()
+        },
         proxy,
     }
 }
@@ -23962,6 +23969,56 @@ mod tests {
             app.applied_proxy,
             crate::settings::ProxyConfig::Http(_)
         ));
+    }
+
+    /// The engine builds its local file lookup when it connects, so the
+    /// folders travel in the engine configuration and changing them asks
+    /// for a new engine. A disabled list must hand it no folders.
+    #[test]
+    fn local_file_folders_reach_the_engine_only_while_local_files_are_enabled() {
+        let root =
+            std::env::temp_dir().join(format!("spotifast-local-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let local_files = |enabled: bool| crate::settings::LocalFilesSettings {
+            enabled,
+            directories: vec!["/music/albums".into()],
+        };
+        let enabled = Settings {
+            local_files: local_files(true),
+            ..Settings::default()
+        };
+        let config = engine_config(
+            &dirs,
+            &enabled,
+            crate::settings::ProxyConfig::Off,
+            crate::vis::AudioTap::new(),
+            crate::eq::shared(),
+        );
+        assert_eq!(
+            config.local_file_directories,
+            [std::path::PathBuf::from("/music/albums")]
+        );
+
+        let disabled = Settings {
+            local_files: local_files(false),
+            ..Settings::default()
+        };
+        let config = engine_config(
+            &dirs,
+            &disabled,
+            crate::settings::ProxyConfig::Off,
+            crate::vis::AudioTap::new(),
+            crate::eq::shared(),
+        );
+        assert!(
+            config.local_file_directories.is_empty(),
+            "the toggle alone must turn local file playback off"
+        );
     }
 
     /// Shuffle picks a random loaded track or Web API offset. Local librespot
