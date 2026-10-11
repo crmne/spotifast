@@ -416,6 +416,10 @@ pub struct TableCache {
     /// file row can play on; without it a view built while another device
     /// was active outlives the switch back with its stale rows.
     pub local_target: bool,
+    /// The local files scan's revision when the view was built: which local
+    /// rows exist at all changes with a rescan, even when the page's own
+    /// items and the target stay as they were.
+    pub local_revision: u64,
     pub visible: Arc<[usize]>,
     pub view_uris: Option<Arc<[String]>>,
     /// Playback positions for visible rows; unavailable rows have no position.
@@ -509,6 +513,9 @@ pub fn prepare_table_view(
     // Row availability follows the target as well as the list: a local file
     // plays only on this computer, so the switch back must rebuild the view.
     let local_target = matches!(app.target(), Target::Local);
+    // And the scan's answer: which local files exist at all changes with a
+    // rescan, whatever revision the page's own items carry.
+    let local_revision = app.local_files.revision;
 
     let is_valid = cached.as_ref().is_some_and(|c| {
         c.sort == sort
@@ -516,6 +523,7 @@ pub fn prepare_table_view(
             && c.items_revision == items_revision
             && c.user_names_revision == app.user_names_revision
             && c.local_target == local_target
+            && c.local_revision == local_revision
     });
 
     if let Some(entry) = cached.filter(|_| is_valid) {
@@ -523,24 +531,29 @@ pub fn prepare_table_view(
     } else {
         let visible = view_indices(items, needle, sort);
         let mut view_positions = Vec::new();
-        let view_uris = (sort.is_some() || !needle.is_empty()).then(|| {
-            let mut uris = Vec::new();
-            for &index in &visible {
-                let item = &items[index].0;
-                view_positions.push(app.item_playable(item).then(|| {
-                    let position = uris.len();
-                    uris.push(item.uri().to_string());
-                    position
-                }));
-            }
-            Arc::<[String]>::from(uris)
-        });
+        // The Local files page always names its view, even empty and
+        // unfiltered, so its header Play disables when nothing scanned
+        // rather than firing a load that cannot play a song.
+        let view_uris =
+            (sort.is_some() || !needle.is_empty() || *page == Page::LocalFiles).then(|| {
+                let mut uris = Vec::new();
+                for &index in &visible {
+                    let item = &items[index].0;
+                    view_positions.push(app.item_playable(item).then(|| {
+                        let position = uris.len();
+                        uris.push(item.uri().to_string());
+                        position
+                    }));
+                }
+                Arc::<[String]>::from(uris)
+            });
         let entry = Arc::new(TableCache {
             sort,
             needle: needle.to_string(),
             items_revision,
             user_names_revision: app.user_names_revision,
             local_target,
+            local_revision,
             visible: visible.into(),
             view_uris,
             view_positions: view_positions.into(),
@@ -571,7 +584,10 @@ fn view_context(base: &RowContext, view_uris: Option<&Arc<[String]>>) -> RowCont
 pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     let palette = app.palette;
     let locale = app.locale;
-    if table.items.is_empty() && !app.network_reachable {
+    // The local files page answers from this computer's disk: none of its
+    // rows needs the network, so the offline veil never covers it.
+    let local_page = table.page == Page::LocalFiles;
+    if table.items.is_empty() && !app.network_reachable && !local_page {
         widgets::empty_state(
             ui,
             &palette,
@@ -584,7 +600,7 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         );
         return;
     }
-    if !app.network_reachable {
+    if !app.network_reachable && !local_page {
         ui.add_enabled_ui(false, |ui| {
             ui.multiply_opacity(0.55);
             table_contents(app, ui, table);
@@ -3013,6 +3029,7 @@ mod tests {
             items_revision: 5,
             user_names_revision: 2,
             local_target: true,
+            local_revision: 4,
             visible: Arc::new([2]),
             view_uris: Some(Arc::new(["spotify:track:t_2".to_string()])),
             view_positions: Arc::new([Some(0)]),
@@ -3025,6 +3042,7 @@ mod tests {
                 && cache.items_revision == 5
                 && cache.user_names_revision == 2
                 && cache.local_target
+                && cache.local_revision == 4
         );
 
         // Cache miss on sort change
@@ -3047,6 +3065,47 @@ mod tests {
         // target a local file row can play on
         let target_is_local = false;
         assert_ne!(cache.local_target, target_is_local);
+
+        // Cache miss when a rescan changed which local files exist at all,
+        // whatever revision the page's own items carry
+        let rescan_revision = 5;
+        assert_ne!(cache.local_revision, rescan_revision);
+    }
+
+    /// The Local files page names its view even when the scan matched
+    /// nothing, unsorted and unfiltered, so its header Play can disable
+    /// rather than fire a load with no songs; other pages name no view in
+    /// that state and fall back to their context.
+    #[test]
+    fn the_local_files_page_names_an_empty_view() {
+        let ctx = egui::Context::default();
+        let app = test_app();
+        let view = |page: &Page| {
+            let cache_id = egui::Id::new("table-view-cache").with(page);
+            ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1000.0, 600.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    prepare_table_view(ui, &app, page, &[], "", None, 1);
+                },
+            )
+            .textures_delta
+            .clear();
+            ctx.data(|data| data.get_temp::<Arc<TableCache>>(cache_id))
+                .expect("the page stored its view")
+        };
+        let local = view(&Page::LocalFiles);
+        assert!(
+            local.view_uris.as_ref().is_some_and(|uris| uris.is_empty()),
+            "an empty unsorted Local files page still names its view"
+        );
+        let playlist = view(&Page::Playlist("pl1".into()));
+        assert_eq!(
+            playlist.view_uris, None,
+            "another page unsorted and unfiltered names no view"
+        );
     }
 
     #[test]

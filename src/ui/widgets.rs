@@ -1029,6 +1029,9 @@ pub fn context_menu_items(
     ui.set_min_width(200.0);
     ui.set_max_width(300.0);
     let kind = util::uri_kind(uri).unwrap_or("");
+    // The local files context is this computer's own list, not a Spotify
+    // object: it has no library entry, web link, or Spotify page.
+    let local_files = uri == crate::app::LOCAL_FILES_CONTEXT;
     if menu_item(ui, &palette, Some(Icon::Play), &gettext(locale, "Play")) {
         app.actions.push(Action::PlayContext {
             uri: uri.to_string(),
@@ -1066,7 +1069,7 @@ pub fn context_menu_items(
         (_, true) => (Icon::CircleX, gettext(locale, "Remove from Your Library")),
         (_, false) => (Icon::CirclePlus, gettext(locale, "Add to Your Library")),
     };
-    if owned_playlist.is_none() && menu_item(ui, &palette, Some(icon), &text) {
+    if !local_files && owned_playlist.is_none() && menu_item(ui, &palette, Some(icon), &text) {
         app.actions.push(Action::ToggleSaved(uri.to_string()));
     }
     if let Some(playlist) = owned_playlist {
@@ -1097,34 +1100,36 @@ pub fn context_menu_items(
                 }));
         }
     }
-    menu_separator(ui, &palette);
-    let radio = match kind {
-        "playlist" => Some(gettext(locale, "Go to playlist radio")),
-        "album" => Some(gettext(locale, "Go to album radio")),
-        "artist" => Some(gettext(locale, "Go to artist radio")),
-        _ => None,
-    };
-    if let Some(label) = radio
-        && util::station_uri(uri).is_some()
-        && menu_item(ui, &palette, Some(Icon::Radio), &label)
-    {
-        app.actions.push(Action::Open(Page::Radio(uri.to_string())));
-    }
-    if menu_item(
-        ui,
-        &palette,
-        Some(Icon::Copy),
-        &gettext(locale, "Copy link"),
-    ) {
-        app.actions.push(Action::CopyLink(uri.to_string()));
-    }
-    if menu_item(
-        ui,
-        &palette,
-        Some(Icon::ExternalLink),
-        &gettext(locale, "Open in Spotify"),
-    ) {
-        app.actions.push(Action::OpenInSpotify(uri.to_string()));
+    if !local_files {
+        menu_separator(ui, &palette);
+        let radio = match kind {
+            "playlist" => Some(gettext(locale, "Go to playlist radio")),
+            "album" => Some(gettext(locale, "Go to album radio")),
+            "artist" => Some(gettext(locale, "Go to artist radio")),
+            _ => None,
+        };
+        if let Some(label) = radio
+            && util::station_uri(uri).is_some()
+            && menu_item(ui, &palette, Some(Icon::Radio), &label)
+        {
+            app.actions.push(Action::Open(Page::Radio(uri.to_string())));
+        }
+        if menu_item(
+            ui,
+            &palette,
+            Some(Icon::Copy),
+            &gettext(locale, "Copy link"),
+        ) {
+            app.actions.push(Action::CopyLink(uri.to_string()));
+        }
+        if menu_item(
+            ui,
+            &palette,
+            Some(Icon::ExternalLink),
+            &gettext(locale, "Open in Spotify"),
+        ) {
+            app.actions.push(Action::OpenInSpotify(uri.to_string()));
+        }
     }
 }
 

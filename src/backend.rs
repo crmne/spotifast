@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use librespot_core::authentication::Credentials;
@@ -1557,6 +1558,10 @@ struct Worker {
     events: std::sync::mpsc::Sender<Event>,
     commands: mpsc::UnboundedSender<Command>,
     waker: Waker,
+    /// The scan generation now in flight: a scan that finishes after a newer
+    /// one started answers a folder list the engine has already left behind,
+    /// and its result is dropped rather than shown over the newer answer.
+    local_files_scan_generation: Arc<std::sync::atomic::AtomicU64>,
     engine: Option<Arc<Engine>>,
     /// What the engine is heard at, so the engine that replaces it starts
     /// there. `engine_config` alone knows only the level the app launched
@@ -1639,6 +1644,7 @@ impl Worker {
             events,
             commands,
             waker,
+            local_files_scan_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             engine: None,
             heard: None,
             rootlist_pending: false,
@@ -3437,9 +3443,20 @@ impl Worker {
         let art = self.art.clone();
         let events = self.events.clone();
         let waker = self.waker.clone();
+        // A scan's ticket is the counter's value once it is the newest scan;
+        // any later fetch_add leaves the counter past it.
+        let generation = 1 + self
+            .local_files_scan_generation
+            .fetch_add(1, Ordering::SeqCst);
+        let current = Arc::clone(&self.local_files_scan_generation);
         tokio::task::spawn_blocking(move || {
             let tracks = crate::local_files::scan(&directories, &art);
-            let _ = events.send(Event::LocalFilesScanned(tracks));
+            // An older scan that finishes after a newer one started speaks
+            // for folders the engine no longer has; only the newest answer
+            // is shown.
+            if current.load(Ordering::SeqCst) == generation {
+                let _ = events.send(Event::LocalFilesScanned(tracks));
+            }
             waker.wake();
         });
     }

@@ -260,10 +260,15 @@ fn track_from_file(
 
 /// The `local-cover:` artwork URI for a scanned local file's picture.
 /// It is the key the artwork cache files are named by, hashed so the URI
-/// carries no path and stays an opaque key, stable across rescans of the
-/// same matched file.
-pub(crate) fn cover_uri(uri: &str) -> String {
-    let digest = Sha1::digest(uri.as_bytes());
+/// carries no path and stays an opaque key: stable across rescans while
+/// the picture is unchanged, and a different key the moment the picture
+/// bytes change, so the new picture loads instead of the texture the old
+/// one left behind.
+pub(crate) fn cover_uri(uri: &str, picture: &[u8]) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(uri.as_bytes());
+    hasher.update(picture);
+    let digest = hasher.finalize();
     let mut key = String::with_capacity("local-cover:".len() + 2 * digest.len());
     key.push_str("local-cover:");
     for byte in digest {
@@ -285,7 +290,7 @@ fn with_embedded_cover(
     art: &ArtLoader,
 ) -> LocalFileTrack {
     if let Some(picture) = embedded_cover(audio_path, lowercase_extension) {
-        let url = cover_uri(&track.uri);
+        let url = cover_uri(&track.uri, &picture);
         if art.embed(&url, &picture) {
             track.art = Some(url);
         }
@@ -507,6 +512,15 @@ fn mp4_cover(src: &mut (impl Read + Seek)) -> io::Result<Option<Vec<u8>>> {
                 // flags before its child atoms.
                 visit_atoms(src, start + 4, stop, b"ilst", |src, start, stop| {
                     visit_atoms(src, start, stop, b"covr", |src, start, stop| {
+                        // The body is read whole before its data atoms are
+                        // walked, so a body too large to hold a picture the
+                        // artwork cache would accept is refused before that
+                        // allocation. The slack keeps bodies that carry more
+                        // than one picture, each within the cache's limit.
+                        const MAX_COVR_BODY: u64 = crate::images::MAX_ART_BYTES as u64 * 2 + 64;
+                        if stop - start > MAX_COVR_BODY {
+                            return Ok(None);
+                        }
                         let mut body = vec![0u8; (stop - start) as usize];
                         src.read_exact(&mut body)?;
                         Ok(covr_data(&body))
@@ -1025,6 +1039,21 @@ mod tests {
     }
 
     #[test]
+    fn an_oversized_covr_body_is_refused_before_it_is_read() {
+        // A covr body too large to hold a picture the artwork cache accepts
+        // is skipped whole, before its bytes are allocated and read.
+        let body_len = (crate::images::MAX_ART_BYTES + 1) as u64 * 2 + 64;
+        let mut covr = Vec::new();
+        covr.extend_from_slice(&(body_len as u32).to_be_bytes());
+        covr.extend_from_slice(b"covr");
+        covr.resize(8 + body_len as usize, 0);
+        let ilst = mp4_atom(b"ilst", &covr);
+        let meta = mp4_atom(b"meta", &[vec![0, 0, 0, 0], ilst].concat());
+        let moov = mp4_atom(b"moov", &mp4_atom(b"udta", &meta));
+        assert_eq!(mp4_cover_of(&moov), None, "the oversized body is not read");
+    }
+
+    #[test]
     fn an_m4as_covr_item_is_read() {
         let picture = b"\xff\xd8 jpeg cover".to_vec();
         let ilst = mp4_atom(
@@ -1194,7 +1223,7 @@ mod tests {
             &loader,
         );
         let url = row.art.expect("the picture was embedded");
-        assert_eq!(url, cover_uri(&row.uri));
+        assert_eq!(url, cover_uri(&row.uri, &picture));
         assert!(url.starts_with("local-cover:"));
         assert_eq!(
             runtime.block_on(loader.fetch(&url)).unwrap().to_vec(),
@@ -1222,14 +1251,21 @@ mod tests {
 
     #[test]
     fn cover_uris_are_opaque_and_stable() {
+        let picture = b"the cover".to_vec();
         assert_eq!(
-            cover_uri("spotify:local:a:b:c:1"),
-            cover_uri("spotify:local:a:b:c:1")
+            cover_uri("spotify:local:a:b:c:1", &picture),
+            cover_uri("spotify:local:a:b:c:1", &picture)
         );
         assert_ne!(
-            cover_uri("spotify:local:a:b:c:1"),
-            cover_uri("spotify:local:a:b:c:2")
+            cover_uri("spotify:local:a:b:c:1", &picture),
+            cover_uri("spotify:local:a:b:c:2", &picture)
         );
-        assert!(cover_uri("spotify:local:a:b:c:1").starts_with("local-cover:"));
+        // The key follows the picture bytes: an edited file gets a new key,
+        // so its new picture loads instead of the texture the old one left.
+        assert_ne!(
+            cover_uri("spotify:local:a:b:c:1", &picture),
+            cover_uri("spotify:local:a:b:c:1", b"an edited cover")
+        );
+        assert!(cover_uri("spotify:local:a:b:c:1", &picture).starts_with("local-cover:"));
     }
 }
