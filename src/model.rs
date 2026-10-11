@@ -1072,6 +1072,10 @@ pub enum Action {
     QueueMany {
         songs: Vec<(String, String)>,
     },
+    /// Put songs first in the manual queue, in order, only on this computer.
+    PlayNext {
+        items: Vec<PlayableItem>,
+    },
     /// Move a row within the manually queued "Playing next" section, from a
     /// drag dropped back on the queue. Only applied while the local player
     /// is the active target; see [`crate::app::App::queue_locally_reorderable`].

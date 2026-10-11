@@ -123,6 +123,12 @@ order when Shuffle is off. Shuffle chooses a random starting song unless you
 choose a specific row. To resume the current song at its paused position,
 use **Play** in the bottom player bar or press `Space`.
 
+To hear a song immediately after the current one, right-click it and choose
+**Play next**. A selection of songs is inserted in displayed order, ahead of
+the songs already queued. This works while playing or paused on this computer;
+the option is disabled when controlling another device. **Add to queue** puts
+songs after those already queued. See [The Queue's Rules](/queue/).
+
 The **Shuffle** button beside **Play** selects the playback order without
 starting the playlist. Select Shuffle first, then press **Play**.
 

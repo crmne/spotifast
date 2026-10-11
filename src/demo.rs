@@ -4256,6 +4256,88 @@ mod tests {
     }
 
     #[test]
+    fn play_next_menus_queue_the_chosen_rows_only_for_local_playback() {
+        for multiple in [false, true] {
+            for local in [false, true] {
+                let (ctx, mut app) = accessible_app(&format!("play-next-{multiple}-{local}"));
+                let queued = seed_queued_songs(&mut app);
+                if !local {
+                    app.local.playback = crate::player::Playback::Stopped;
+                    app.local_ready = false;
+                }
+                let songs: Vec<_> = if multiple { vec![2, 1, 2] } else { vec![2] }
+                    .into_iter()
+                    .map(|index| PlayableItem::Track(track(index)))
+                    .collect();
+                let draw = |app: &mut App, events| {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(760.0, 620.0),
+                            )),
+                            events,
+                            ..Default::default()
+                        },
+                        |ui| {
+                            if multiple {
+                                crate::ui::widgets::picked_menu(ui, app, &songs, None);
+                            } else {
+                                crate::ui::widgets::item_menu(ui, app, &songs[0], None, None);
+                            }
+                        },
+                    );
+                    output.textures_delta.clear();
+                    output
+                };
+                draw(&mut app, vec![]);
+                let output = draw(&mut app, vec![]);
+                let node = output
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| node.label() == Some("Play next"))
+                    .expect("Play next is present in both song menus")
+                    .1
+                    .clone();
+                assert_eq!(node.is_disabled(), !local);
+                let bounds = node.bounds().unwrap();
+                let pos = egui::pos2(
+                    (bounds.x0 + 20.0) as f32,
+                    ((bounds.y0 + bounds.y1) / 2.0) as f32,
+                );
+                app.actions.clear();
+                draw(&mut app, pointer_click(pos, egui::PointerButton::Primary));
+                assert_eq!(app.manual_queue, queued, "drawing only emits an action");
+                if local {
+                    let actions = std::mem::take(&mut app.actions);
+                    assert!(
+                        matches!(actions.as_slice(), [Action::PlayNext { items }] if items == &songs)
+                    );
+                    for action in actions {
+                        app.apply(action, &ctx);
+                    }
+                    let expected: Vec<_> = songs
+                        .iter()
+                        .map(|item| item.uri().to_string())
+                        .chain(queued)
+                        .collect();
+                    assert_eq!(app.manual_queue, expected);
+                } else {
+                    assert!(
+                        app.actions.is_empty(),
+                        "a disabled entry must not append remotely"
+                    );
+                }
+                app.backend.shutdown();
+            }
+        }
+    }
+
+    #[test]
     fn playlist_submenu_keeps_typing_and_resets_after_the_parent_closes() {
         use egui::accesskit::{Action, Role};
         let (ctx, mut app) = accessible_app("playlist-submenu");

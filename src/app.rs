@@ -9899,6 +9899,13 @@ impl App {
             Action::SetRepeat(mode) => self.set_repeat(mode),
             Action::AddToQueue { uri, label } => self.add_to_queue(uri, label),
             Action::QueueMany { songs } => self.queue_many(songs),
+            Action::PlayNext { items } => {
+                // Unlike a positional drop, Play next must never fall back
+                // to appending if the playback target has changed.
+                if self.queue_locally_reorderable() {
+                    self.apply(Action::InsertInQueue { items, position: 0 }, ctx);
+                }
+            }
             Action::MoveInQueue { from, to } => {
                 if !self.queue_locally_reorderable() {
                     return;
@@ -15654,7 +15661,7 @@ mod tests {
 
     /// Add to queue inserts after manual queue rows and before context rows.
     #[test]
-    fn play_next_queues_after_the_songs_already_queued() {
+    fn add_to_queue_appends_after_the_songs_already_queued() {
         let ctx = egui::Context::default();
         let mut app = headless_app();
         app.local.track = Some(crate::player::LocalTrack {
@@ -16845,6 +16852,89 @@ mod tests {
             ],
         );
         app
+    }
+
+    #[test]
+    fn play_next_preserves_selection_order_and_current_playback() {
+        let ctx = egui::Context::default();
+        for playback in [Playback::Playing, Playback::Paused] {
+            for empty in [false, true] {
+                let mut app = app_with_local_manual_queue();
+                app.backend.set_offline(true);
+                app.local.playback = playback;
+                app.local.position_ms = 42_000;
+                if empty {
+                    app.manual_queue.clear();
+                    app.queue = loaded_queue("spotify:track:playing", &["spotify:track:ctx"]);
+                }
+                let selection = ["spotify:track:b", "spotify:track:new", "spotify:track:b"];
+                let expected: Vec<String> = selection
+                    .iter()
+                    .map(|uri| uri.to_string())
+                    .chain(app.manual_queue.clone())
+                    .collect();
+                let action = Action::PlayNext {
+                    items: selection.iter().map(|uri| queued_song(uri)).collect(),
+                };
+                app.backend.take_player_commands();
+                app.apply(action.clone(), &ctx);
+                assert_eq!(app.manual_queue, expected);
+                assert_eq!(
+                    queue_uris(&app),
+                    (
+                        Some("spotify:track:playing".into()),
+                        expected
+                            .iter()
+                            .cloned()
+                            .chain(["spotify:track:ctx".into()])
+                            .collect(),
+                    )
+                );
+                assert_eq!(app.local.playback, playback);
+                assert_eq!(app.local.position_ms, 42_000);
+                assert!(app.session_dirty);
+                let commands = app.backend.take_player_commands();
+                assert!(matches!(commands.first(), Some(PlayerCommand::ClearQueue)));
+                assert_eq!(commands.len(), expected.len() + 1);
+                for (command, uri) in commands.iter().skip(1).zip(&expected) {
+                    assert!(matches!(command, PlayerCommand::AddToQueue(queued) if queued == uri));
+                }
+                // A repeated click does not double the selection or resync again.
+                app.apply(action, &ctx);
+                assert_eq!(app.manual_queue, expected);
+                assert!(app.backend.take_player_commands().is_empty());
+                app.backend.shutdown();
+            }
+        }
+    }
+
+    #[test]
+    fn play_next_does_nothing_after_the_local_target_stops() {
+        let mut app = app_with_local_manual_queue();
+        app.backend.set_offline(true);
+        let ctx = egui::Context::default();
+        let original = queue_uris(&app);
+        let manual = app.manual_queue.clone();
+        app.backend.take_player_commands();
+        app.apply(Action::PlayNext { items: vec![] }, &ctx);
+        assert!(app.backend.take_player_commands().is_empty());
+
+        // The menu can have been opened before playback moved to another device.
+        app.local.playback = Playback::Stopped;
+        app.local_ready = false;
+        assert!(!app.queue_locally_reorderable());
+        app.apply(
+            Action::PlayNext {
+                items: vec![queued_song("spotify:track:new")],
+            },
+            &ctx,
+        );
+        assert_eq!(queue_uris(&app), original);
+        assert_eq!(app.manual_queue, manual);
+        assert!(app.pending_queue_adds.is_empty());
+        assert!(app.backend.take_player_commands().is_empty());
+        assert!(app.backend.take_queue_requests().is_empty());
+        app.backend.shutdown();
     }
 
     /// Each local move gets the full stale-answer allowance. Moves made in

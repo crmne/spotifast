@@ -704,6 +704,17 @@ pub fn picked_menu(
     });
     ui.add_space(4.0);
     menu_separator(ui, &palette);
+    if menu_item_enabled(
+        ui,
+        &palette,
+        Some(Icon::SkipForward),
+        &gettext(locale, "Play next"),
+        app.queue_locally_reorderable(),
+    ) {
+        app.actions.push(Action::PlayNext {
+            items: songs.to_vec(),
+        });
+    }
     if menu_item(
         ui,
         &palette,
@@ -937,6 +948,17 @@ pub fn item_menu(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
+    if menu_item_enabled(
+        ui,
+        &palette,
+        Some(Icon::SkipForward),
+        &gettext(locale, "Play next"),
+        app.queue_locally_reorderable(),
+    ) {
+        app.actions.push(Action::PlayNext {
+            items: vec![item.clone()],
+        });
+    }
     if menu_item(
         ui,
         &palette,
