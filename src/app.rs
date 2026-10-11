@@ -5738,7 +5738,6 @@ impl App {
                     matching.truncate(6);
                     matching
                 });
-                let changed = filtered.is_ok();
                 self.home
                     .discover_pending
                     .insert(term, Loadable::from_result(filtered));
@@ -5748,11 +5747,15 @@ impl App {
                         .get(*term)
                         .is_some_and(|result| !result.is_loading())
                 });
+                // The shelves change, and are saved, once every search has
+                // answered, whichever answered last.
+                let mut changed = false;
                 if complete {
                     // A search that failed keeps what it showed before.
                     for (term, answer) in std::mem::take(&mut self.home.discover_pending) {
                         let shelf = self.home.discover.entry(term).or_default();
                         if !(matches!(answer, Loadable::Failed(_)) && shelf.get().is_some()) {
+                            changed |= matches!(answer, Loadable::Loaded(_));
                             *shelf = answer;
                         }
                     }
@@ -12824,14 +12827,24 @@ mod tests {
                 ..Default::default()
             }),
         });
+        // The first and the last search are turned away.
         for term in DISCOVER_TERMS {
             app.handle_api(ApiResponse::Discover {
                 term: (*term).to_string(),
                 generation,
-                result: if *term == "Discover Weekly" {
-                    Err(crate::api::ApiError::RateLimited)
-                } else {
-                    Ok(Vec::new())
+                result: match *term {
+                    "Discover Weekly" | "daylist" => Err(crate::api::ApiError::RateLimited),
+                    "Release Radar" => Ok(vec![Playlist {
+                        id: "radar".into(),
+                        uri: "spotify:playlist:radar".into(),
+                        name: "Release Radar".into(),
+                        owner: crate::api::models::Owner {
+                            id: Some("spotify".into()),
+                            ..Default::default()
+                        },
+                        ..Playlist::default()
+                    }]),
+                    _ => Ok(Vec::new()),
                 },
             });
         }
@@ -12846,9 +12859,10 @@ mod tests {
         );
 
         // Every answer that brought something is saved: recently played,
-        // top tracks, and the three searches Spotify answered.
+        // top tracks, and Made for you once its searches have all answered,
+        // though the last was turned away.
         let stored = app.backend.take_home_cache_stores();
-        assert_eq!(stored.len(), 5);
+        assert_eq!(stored.len(), 3);
         let saved = stored.last().unwrap();
         assert_eq!(saved.account_id, "alice");
         assert_eq!(
@@ -12859,6 +12873,11 @@ mod tests {
         assert_eq!(
             saved.data.top_tracks,
             Some(vec![song("spotify:track:fresh-top")])
+        );
+        assert_eq!(
+            saved.data.discover.get("Release Radar").map(Vec::len),
+            Some(1),
+            "the new shelves are saved"
         );
         assert_eq!(
             saved.data.discover.get("Discover Weekly").map(Vec::len),
