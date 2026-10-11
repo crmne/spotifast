@@ -157,7 +157,9 @@ queue** works on them too.
 
 The files exist only on this computer. While another device is the player, or
 while a file no longer matches one in the chosen folders, its row reads as
-unavailable and is skipped, like any song Spotify cannot play there.
+unavailable and is skipped, like any song Spotify cannot play there. A local
+file cannot be added to a Spotify playlist or saved to Liked Songs; Spotify's
+API accepts only catalogue songs there.
 
 ## Search from a launcher
 

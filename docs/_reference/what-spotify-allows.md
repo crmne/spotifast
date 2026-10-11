@@ -84,9 +84,6 @@ clients. Spotifast uses its session for:
 librespot provides:
 
 - Spotify catalogue playback at up to 320 kbps.
-- Local file playback: tagged MP3, MP4, M4P, and FLAC files in configured
-  folders, matched by their tags to `spotify:local` entries and played from
-  disk.
 - Gapless playback, normalisation, and a local audio cache.
 - Spotify Connect, so another Spotify client can transfer playback to this
   computer.
@@ -95,6 +92,8 @@ librespot provides:
   playback session. Sonos receivers are discovered on the local network;
   the Web API alone cannot start or control them.
 - Songs and podcast episodes.
+- Local files, since librespot 0.8: tagged mp3 and flac files from folders
+  you choose, played on this computer alongside catalogue songs.
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 
@@ -118,10 +117,13 @@ The Web API and librespot do not provide these features:
 - **Lossless audio.** librespot does not receive lossless streams. Spotifast
   will reconsider this if librespot gains lawful support, but it will not
   bypass Spotify's DRM.
-- **The local files list from Spotify's own apps.** Spotify keeps the folder
-  list its own apps use to itself. librespot does play tagged local files
-  from disk, so Spotifast's local files come from folders chosen in its own
-  settings. See [issue #3](https://github.com/crmne/spotifast/issues/3).
+- **Local files in Spotify playlists and on other devices.** The Web API
+  refuses a `spotify:local:` URI when adding items, so a local file cannot be
+  added to a Spotify playlist or liked. Another Connect device cannot play or
+  sync it; local files play only on the computer that has them, from folders
+  chosen in Spotifast's own settings, because Spotify keeps its own apps'
+  folder list to itself. See
+  [issue #3](https://github.com/crmne/spotifast/issues/3).
 - **Audiobooks.** librespot does not play them. Spotify lists some
   audiobooks among saved shows; since 0.10.0, Spotifast asks the
   librespot session which ones and leaves them out of the Podcasts shelf.
