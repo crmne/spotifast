@@ -343,7 +343,7 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
     let fullscreen = ui
         .ctx()
         .input(|input| input.viewport().fullscreen.unwrap_or(false));
-    if !cfg!(any(target_os = "macos", windows)) || fullscreen {
+    if fullscreen || !(cfg!(target_os = "macos") || crate::window::custom_titlebar()) {
         return;
     }
     let response = ui.interact(
@@ -374,6 +374,8 @@ const fn titlebar_spans_window(on_macos: bool, custom_titlebar: bool) -> bool {
 }
 
 const WINDOW_RESIZE_BORDER: f32 = 5.0;
+#[cfg(target_os = "linux")]
+const LINUX_CONTROLS_MARGIN: f32 = 14.0;
 const WINDOW_RESIZE_CORNER: f32 = 10.0;
 const WINDOWS_WINDOW_CONTROLS_WIDTH: f32 = 3.0 * 36.0 + WINDOW_RESIZE_BORDER;
 const WINDOWS_WINDOW_CONTROLS_HEIGHT: f32 = 36.0 + WINDOW_RESIZE_BORDER;
@@ -397,12 +399,13 @@ fn windows_chrome_visible_here(ctx: &egui::Context) -> bool {
     windows_chrome_visible(crate::window::custom_titlebar(), fullscreen)
 }
 
-const fn windows_controls_reservation(
+const fn controls_reservation(
     on_windows: bool,
     fullscreen: bool,
     queue: bool,
     lyrics: bool,
     topbar_width: f32,
+    controls_width: f32,
 ) -> WindowControlsReservation {
     let mut space = WindowControlsReservation {
         topbar_width: 0.0,
@@ -410,18 +413,30 @@ const fn windows_controls_reservation(
         queue_top: 0.0,
         lyrics_top: 0.0,
     };
-    if windows_chrome_visible(on_windows, fullscreen) {
+    if windows_chrome_visible(on_windows, fullscreen) && controls_width > 0.0 {
         if queue {
             space.queue_top = WINDOWS_WINDOW_CONTROLS_HEIGHT;
         } else if lyrics {
             space.lyrics_top = WINDOWS_WINDOW_CONTROLS_HEIGHT;
-        } else if topbar_width < WINDOWS_MIN_INLINE_TOPBAR_WIDTH {
+        } else if topbar_width
+            < WINDOWS_MIN_INLINE_TOPBAR_WIDTH - WINDOWS_WINDOW_CONTROLS_WIDTH + controls_width
+        {
             space.topbar_top = WINDOWS_WINDOW_CONTROLS_HEIGHT;
         } else {
-            space.topbar_width = WINDOWS_WINDOW_CONTROLS_WIDTH;
+            space.topbar_width = controls_width;
         }
     }
     space
+}
+
+/// Left-hand Linux controls sit above the sidebar's navigation rows.
+pub(super) fn linux_left_controls_inset(ctx: &egui::Context) -> f32 {
+    #[cfg(target_os = "linux")]
+    if windows_chrome_visible_here(ctx) && !crate::window::linux_window_controls().left.is_empty() {
+        return WINDOWS_WINDOW_CONTROLS_HEIGHT;
+    }
+    let _ = ctx;
+    0.0
 }
 
 pub(super) fn window_controls_reservation(
@@ -431,68 +446,153 @@ pub(super) fn window_controls_reservation(
     topbar_width: f32,
 ) -> WindowControlsReservation {
     let fullscreen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
-    windows_controls_reservation(
+    #[cfg(target_os = "linux")]
+    let width = crate::window::linux_window_controls().right.len() as f32 * 36.0
+        + if crate::window::linux_window_controls().right.is_empty() {
+            0.0
+        } else {
+            LINUX_CONTROLS_MARGIN
+        };
+    #[cfg(not(target_os = "linux"))]
+    let width = WINDOWS_WINDOW_CONTROLS_WIDTH;
+    controls_reservation(
         crate::window::custom_titlebar(),
         fullscreen,
         queue,
         lyrics,
         topbar_width,
+        width,
     )
 }
 
-/// Draws the Windows caption controls over the outermost top-right header.
+/// Draws caption controls over the outermost header on both Windows and Linux.
 pub fn window_controls(ui: &mut egui::Ui, palette: &theme::Palette, locale: crate::i18n::Locale) {
     use crate::i18n::gettext;
+    use crate::window::WindowButton;
     if !windows_chrome_visible_here(ui.ctx()) {
         return;
     }
     let maximized = ui
         .ctx()
         .input(|input| input.viewport().maximized.unwrap_or(false));
-    egui::Area::new(egui::Id::new("windows-window-controls"))
+    #[cfg(target_os = "linux")]
+    let groups = {
+        let controls = crate::window::linux_window_controls();
+        [
+            (false, controls.left.as_slice()),
+            (true, controls.right.as_slice()),
+        ]
+    };
+    #[cfg(not(target_os = "linux"))]
+    let groups = [(
+        true,
+        [
+            crate::window::WindowButton::Minimize,
+            crate::window::WindowButton::Maximize,
+            crate::window::WindowButton::Close,
+        ]
+        .as_slice(),
+    )];
+    let (margin, spacing) = if cfg!(target_os = "linux") {
+        (14.0, 8.0)
+    } else {
+        (WINDOW_RESIZE_BORDER, 0.0)
+    };
+    for (right, buttons) in groups {
+        if buttons.is_empty() {
+            continue;
+        }
+        egui::Area::new(egui::Id::new(if right {
+            "windows-window-controls"
+        } else {
+            "window-controls-left"
+        }))
         .anchor(
-            Align2::RIGHT_TOP,
-            vec2(-WINDOW_RESIZE_BORDER, WINDOW_RESIZE_BORDER),
+            if right {
+                Align2::RIGHT_TOP
+            } else {
+                Align2::LEFT_TOP
+            },
+            vec2(if right { -margin } else { margin }, margin),
         )
         .order(egui::Order::Foreground)
         .show(ui.ctx(), |ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.spacing_mut().item_spacing.x = spacing;
+            // The app's ordinary buttons have wide text padding. Caption icons
+            // need equal padding so a 28-point button stays circular.
+            #[cfg(target_os = "linux")]
+            {
+                ui.spacing_mut().button_padding = vec2(6.0, 6.0);
+            }
             ui.horizontal(|ui| {
-                for (icon, tooltip, command) in [
-                    (
-                        Icon::Minus,
-                        gettext(locale, "Minimize"),
-                        egui::ViewportCommand::Minimized(true),
-                    ),
-                    (
-                        if maximized { Icon::Copy } else { Icon::Square },
-                        if maximized {
-                            gettext(locale, "Restore")
-                        } else {
-                            gettext(locale, "Maximize")
-                        },
-                        egui::ViewportCommand::Maximized(!maximized),
-                    ),
-                    (
-                        Icon::X,
-                        gettext(locale, "Close"),
-                        egui::ViewportCommand::Close,
-                    ),
-                ] {
+                for &button in buttons {
+                    let (icon, tooltip, command, _linux_icon) = match button {
+                        WindowButton::Minimize => (
+                            Icon::Minus,
+                            gettext(locale, "Minimize"),
+                            egui::ViewportCommand::Minimized(true),
+                            (0, "bytes://linux-window-minimize.svg"),
+                        ),
+                        WindowButton::Maximize => (
+                            if maximized { Icon::Copy } else { Icon::Square },
+                            if maximized {
+                                gettext(locale, "Restore")
+                            } else {
+                                gettext(locale, "Maximize")
+                            },
+                            egui::ViewportCommand::Maximized(!maximized),
+                            if maximized {
+                                (3, "bytes://linux-window-restore.svg")
+                            } else {
+                                (1, "bytes://linux-window-maximize.svg")
+                            },
+                        ),
+                        WindowButton::Close => (
+                            Icon::X,
+                            gettext(locale, "Close"),
+                            egui::ViewportCommand::Close,
+                            (2, "bytes://linux-window-close.svg"),
+                        ),
+                    };
+                    #[cfg(target_os = "linux")]
+                    let image = if let Some(bytes) = crate::window::LINUX_ICONS
+                        .get()
+                        .and_then(|icons| icons[_linux_icon.0].as_deref())
+                    {
+                        egui::Image::from_bytes(_linux_icon.1, bytes)
+                            .fit_to_exact_size(vec2(16.0, 16.0))
+                            .tint(palette.text)
+                    } else {
+                        icon.image(palette.text, 16.0)
+                    }
+                    .alt_text(tooltip.as_ref());
+                    #[cfg(not(target_os = "linux"))]
                     let image = icon
                         .image(palette.secondary, 14.0)
                         .alt_text(tooltip.as_ref());
                     let button = egui::Button::image(image).frame_when_inactive(false);
-                    if ui
-                        .add_sized(egui::Vec2::splat(36.0), button)
-                        .on_hover_text(tooltip.as_ref())
-                        .clicked()
-                    {
+                    #[cfg(target_os = "linux")]
+                    let button = button
+                        .frame_when_inactive(true)
+                        .fill(palette.surface_hover)
+                        .corner_radius(egui::CornerRadius::same(14));
+                    let response = ui
+                        .add_sized(
+                            egui::Vec2::splat(if cfg!(target_os = "linux") {
+                                28.0
+                            } else {
+                                36.0
+                            }),
+                            button,
+                        )
+                        .on_hover_text(tooltip.as_ref());
+                    if response.clicked() {
                         ui.ctx().send_viewport_cmd(command);
                     }
                 }
             });
         });
+    }
 }
 
 fn window_resize(ui: &mut egui::Ui) {
@@ -648,7 +748,14 @@ mod window_chrome_tests {
     #[test]
     fn caption_space_belongs_to_the_outermost_header() {
         let values = |queue, lyrics| {
-            let space = windows_controls_reservation(true, false, queue, lyrics, f32::INFINITY);
+            let space = controls_reservation(
+                true,
+                false,
+                queue,
+                lyrics,
+                f32::INFINITY,
+                WINDOWS_WINDOW_CONTROLS_WIDTH,
+            );
             [
                 space.topbar_width,
                 space.topbar_top,
@@ -673,7 +780,14 @@ mod window_chrome_tests {
             [0.0, 0.0, WINDOWS_WINDOW_CONTROLS_HEIGHT, 0.0]
         );
         assert_eq!(
-            windows_controls_reservation(true, true, true, true, f32::INFINITY),
+            controls_reservation(
+                true,
+                true,
+                true,
+                true,
+                f32::INFINITY,
+                WINDOWS_WINDOW_CONTROLS_WIDTH
+            ),
             WindowControlsReservation {
                 topbar_width: 0.0,
                 topbar_top: 0.0,
@@ -686,16 +800,24 @@ mod window_chrome_tests {
     #[test]
     fn minimum_windows_window_stacks_caption_space_above_the_topbar() {
         let available = 760.0 - 250.0;
-        let space = windows_controls_reservation(true, false, false, false, available);
+        let space = controls_reservation(
+            true,
+            false,
+            false,
+            false,
+            available,
+            WINDOWS_WINDOW_CONTROLS_WIDTH,
+        );
         assert_eq!(space.topbar_width, 0.0);
         assert_eq!(space.topbar_top, WINDOWS_WINDOW_CONTROLS_HEIGHT);
 
-        let inline = windows_controls_reservation(
+        let inline = controls_reservation(
             true,
             false,
             false,
             false,
             WINDOWS_MIN_INLINE_TOPBAR_WIDTH,
+            WINDOWS_WINDOW_CONTROLS_WIDTH,
         );
         assert_eq!(inline.topbar_width, WINDOWS_WINDOW_CONTROLS_WIDTH);
         assert_eq!(inline.topbar_top, 0.0);

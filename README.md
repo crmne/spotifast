@@ -24,6 +24,8 @@ Spotifast is a Spotify client written in Rust with
 [librespot](https://github.com/librespot-org/librespot), typically uses
 100–250 MB of RAM, starts in well under a second, and has no browser engine.
 
+The interface includes complete Spanish, Turkish, and Ukrainian translations.
+
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast.
 
@@ -108,6 +110,7 @@ The complete guide lives at **[spotifast.rocks](https://spotifast.rocks/)**.
 | Sign in, set up playback, or configure themes, fonts, and proxies | [Getting started](https://spotifast.rocks/getting-started/) |
 | Learn shortcuts, command-line controls, and updates | [Everyday use](https://spotifast.rocks/using-spotifast/) |
 | Find configuration and stored files | [Settings and files](https://spotifast.rocks/settings-and-files/) |
+| Understand scrolling performance and reduce loading delays | [Make it even faster](https://spotifast.rocks/make-it-even-faster/) |
 | Understand what is stored and sent | [Privacy](https://spotifast.rocks/privacy/) · [How it connects](https://spotifast.rocks/how-it-connects/) |
 | Check Spotify and librespot limitations | [What Spotify allows](https://spotifast.rocks/what-spotify-allows/) |
 | Understand account risk | [Will my account get banned?](https://spotifast.rocks/what-is-spotifast/#will-my-spotify-account-get-banned) |

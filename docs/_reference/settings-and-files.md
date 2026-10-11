@@ -243,7 +243,7 @@ main fields are:
 | `middle_click_autoscroll` | `false` | Linux only: middle-click a list to autoscroll it. Windows always autoscrolls and macOS never does |
 | `winamp_window` | `false` | The window is the Winamp mini player |
 | `winamp_show_taskbar` | `true` | Windows since 0.8.0, and Linux X11 sessions: show the Winamp window's taskbar button; the main window always keeps its button. Wayland and macOS ignore it |
-| `custom_titlebar` | `false` | Windows only, since 0.10.0: draw Spotifast's own title bar and window buttons instead of the standard Windows ones |
+| `custom_titlebar` | `false` | Windows and Linux: draw Spotifast's own title bar and window buttons instead of the desktop's |
 | `skin` | none | File or folder name in the skins folder; blank uses the built-in skin |
 | `random_skin` | `false` | Since 0.11.0: pick a different skin (built-in or installed) each time the mini player opens; `skin` holds the one picked |
 | `skin_scale` | by display | Screen pixels per skin pixel, 1 to 4 |

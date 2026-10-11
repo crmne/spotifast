@@ -57,19 +57,31 @@ impl History {
         self.plays.is_empty()
     }
 
-    /// Writes the history if it changed since the last save.
+    /// Writes the history if it changed since the last save. A write that
+    /// fails leaves it to be written by the next save.
     pub fn save(&mut self, path: &Path) {
         if !self.dirty {
             return;
         }
-        self.dirty = false;
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         match serde_json::to_string(&self.plays) {
             Ok(text) => {
-                if let Err(error) = std::fs::write(path, text) {
-                    log::warn!("could not write the play history: {error}");
+                // Through a temporary file, as settings are: the history is
+                // written when the session ends, and a shutdown that cuts the
+                // write short must not leave half a file behind. The new file
+                // reaches the disk before it replaces the old one, as the
+                // playlist cache's manifest does, so a power cut right after
+                // cannot leave an empty history in its place, and the save
+                // counts only once the replacement itself is on the disk.
+                let temporary = path.with_extension("json.tmp");
+                let written = write_synced(&temporary, text.as_bytes())
+                    .and_then(|()| crate::util::replace_file(&temporary, path))
+                    .and_then(|()| sync_folder(path));
+                match written {
+                    Ok(()) => self.dirty = false,
+                    Err(error) => log::warn!("could not write the play history: {error}"),
                 }
             }
             Err(error) => log::warn!("could not write the play history: {error}"),
@@ -178,6 +190,49 @@ pub fn merged(local: &[PlayHistory], remote: &[PlayHistory]) -> Vec<PlayHistory>
         (None, None) => std::cmp::Ordering::Equal,
     });
     out.into_iter().map(|(_, play)| play).collect()
+}
+
+/// Writes `bytes` to a new file at `path` and waits until they are on the
+/// disk. The file is closed on return, so it can be moved at once.
+///
+/// What someone listened to is theirs: on Unix the file is readable by its
+/// owner only, as it replaces the history whatever that file allowed. The
+/// mode is set before anything is written, also over a temporary file a
+/// failed save left behind.
+fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+/// Waits until the file that replaced `path` is on the disk. On Unix a
+/// rename lasts through a power cut only once its folder is synced; on
+/// Windows `replace_file` already writes the move through.
+fn sync_folder(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let Some(folder) = path
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+    {
+        std::fs::File::open(folder)?.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -312,5 +367,92 @@ mod tests {
             format!("spotify:track:{}", KEPT + 9),
             "the newest is first"
         );
+    }
+
+    /// A save replaces the whole file and leaves no temporary behind, and a
+    /// second save over it reads back the newer history.
+    #[test]
+    fn a_saved_history_reads_back_whole() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-history-{:016x}", rand::random::<u64>()));
+        let path = dir.join("history.json");
+        let at: jiff::Timestamp = "2026-09-01T09:00:00Z".parse().unwrap();
+        let mut history = History::default();
+        for uri in ["spotify:track:a", "spotify:track:b"] {
+            history.record(
+                Track {
+                    uri: uri.into(),
+                    ..Track::default()
+                },
+                at,
+            );
+            history.save(&path);
+        }
+        let read = History::load(&path);
+        let uris: Vec<_> = read
+            .plays()
+            .iter()
+            .map(|play| play.track.uri.as_str())
+            .collect();
+        assert_eq!(uris, ["spotify:track:b", "spotify:track:a"]);
+        assert!(!path.with_extension("json.tmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A save that cannot write keeps the plays to write, so the next save
+    /// still has them rather than losing the song just recorded.
+    #[test]
+    fn a_failed_save_keeps_the_history_to_write() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-history-{:016x}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A file where the history's folder should be: nothing can be
+        // written under it.
+        let blocked = dir.join("blocked");
+        std::fs::write(&blocked, "").unwrap();
+        let mut history = History::default();
+        history.record(
+            Track {
+                uri: "spotify:track:a".into(),
+                ..Track::default()
+            },
+            "2026-09-01T09:00:00Z".parse().unwrap(),
+        );
+        history.save(&blocked.join("history.json"));
+        assert!(history.dirty, "the failed write is still to be done");
+
+        let path = dir.join("history.json");
+        history.save(&path);
+        assert!(!history.dirty);
+        assert_eq!(History::load(&path).plays().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The history is readable by its owner only, even when it replaces a
+    /// file others could read and over a temporary file a failed save left.
+    #[cfg(unix)]
+    #[test]
+    fn the_history_is_kept_from_other_accounts() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-history-{:016x}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("history.json");
+        for stale in [path.clone(), path.with_extension("json.tmp")] {
+            std::fs::write(&stale, "[]").unwrap();
+            std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let mut history = History::default();
+        history.record(
+            Track {
+                uri: "spotify:track:a".into(),
+                ..Track::default()
+            },
+            "2026-09-01T09:00:00Z".parse().unwrap(),
+        );
+        history.save(&path);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

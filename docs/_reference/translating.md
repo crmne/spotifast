@@ -33,6 +33,7 @@ not contact an online translation service.
 | Chinese (Simplified) | `zh-Hans` | Partial |
 | Chinese (Traditional) | `zh-Hant` | Partial |
 | Turkish | `tr` | Complete |
+| Ukrainian | `uk` | Complete |
 
 The interface is marked for translation throughout: navigation, Home, Search,
 Library and collection pages, menus, the player bar, Queue and Lyrics, dialogs,

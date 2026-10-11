@@ -10,7 +10,7 @@
 //! paused player costs no audio work (#636), follows the system's default
 //! output and reopens after a failure. rodio's mixer and queue fill it.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -42,6 +42,52 @@ type Opener = fn(Option<&str>, u32, &AudioControl) -> Result<Output, OpenError>;
 
 /// Maximum queued rodio chunks before `write` blocks, about 200 ms of audio.
 const QUEUE_LIMIT: usize = 12;
+
+/// How much of a full queue rodio plays before `write` is woken to top it
+/// up. librespot's packets hold 4 to 13 ms of sound, so polling every 10 ms
+/// (or waking for every packet) kept the decoder thread awake about 100
+/// times a second; this wakes it about 30 times.
+const REFILL: Duration = Duration::from_millis(20);
+
+/// Longest `write` waits for rodio before it looks at the device again: a
+/// stream that has failed finishes no chunk to wake it.
+const QUEUE_WAIT: Duration = Duration::from_millis(50);
+
+/// How long a full queue may go without rodio finishing a chunk before the
+/// output counts as stuck. A few times the longest device buffer.
+const STALL: Duration = Duration::from_secs(2);
+
+/// Watches a waiting writer's queue for an output that stopped playing.
+struct Stall {
+    consumed: u64,
+    since: Instant,
+    seen: Instant,
+}
+
+impl Stall {
+    fn new(consumed: u64, now: Instant) -> Self {
+        Self {
+            consumed,
+            since: now,
+            seen: now,
+        }
+    }
+
+    /// Notes how far rodio has got; true once it has not moved for `STALL`.
+    fn observe(&mut self, consumed: u64, now: Instant) -> bool {
+        // No wait lasts anywhere near `STALL`, so a gap that long is time
+        // this thread did not run: the system slept or suspended the app,
+        // and the output had no chance to play either. On Windows `Instant`
+        // counts that time.
+        let asleep = now.duration_since(self.seen) >= STALL;
+        self.seen = now;
+        if consumed != self.consumed || asleep {
+            *self = Self::new(consumed, now);
+            return false;
+        }
+        now.duration_since(self.since) >= STALL
+    }
+}
 
 /// Maximum time `stop` waits for the queue to drain.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -183,6 +229,9 @@ impl AudioControl {
 struct Queued {
     appended: AtomicU64,
     consumed: AtomicU64,
+    /// While `write` waits for room, the queued level at or below which it
+    /// is woken; zero while nothing waits.
+    wake_at: AtomicU64,
 }
 
 impl Queued {
@@ -190,6 +239,7 @@ impl Queued {
         Arc::new(Self {
             appended: AtomicU64::new(0),
             consumed: AtomicU64::new(0),
+            wake_at: AtomicU64::new(0),
         })
     }
 
@@ -198,6 +248,41 @@ impl Queued {
         self.appended
             .load(Ordering::Relaxed)
             .saturating_sub(self.consumed.load(Ordering::Relaxed))
+    }
+
+    /// The frames rodio has finished with so far.
+    fn consumed(&self) -> u64 {
+        self.consumed.load(Ordering::Relaxed)
+    }
+
+    /// Sleeps the writer until rodio has played `refill` frames of what is
+    /// queued, or `QUEUE_WAIT` has passed.
+    fn wait_for_room(&self, refill: u64) {
+        let wake_at = self.frames().saturating_sub(refill).max(1);
+        self.wake_at.store(wake_at, Ordering::Relaxed);
+        // Pairs with the fence in `drained`: either the chunk that reaches
+        // the level sees it, or this sees that chunk already gone.
+        fence(Ordering::SeqCst);
+        if self.frames() > wake_at {
+            thread::park_timeout(QUEUE_WAIT);
+        }
+        self.wake_at.store(0, Ordering::Relaxed);
+    }
+
+    /// rodio has finished with a chunk: wakes `writer` once the queue has
+    /// drained to the level it waits for, and only then.
+    fn drained(&self, writer: &thread::Thread) {
+        fence(Ordering::SeqCst);
+        let wake_at = self.wake_at.load(Ordering::Relaxed);
+        if wake_at != 0
+            && self.frames() <= wake_at
+            && self
+                .wake_at
+                .compare_exchange(wake_at, 0, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            writer.unpark();
+        }
     }
 }
 
@@ -313,6 +398,9 @@ struct TransitionSource {
     remaining: u32,
     channel: usize,
     gain: f32,
+    /// The thread that queued this chunk, which may be waiting in `write`
+    /// for room.
+    writer: thread::Thread,
 }
 
 impl TransitionSource {
@@ -331,6 +419,7 @@ impl TransitionSource {
             remaining: frames,
             channel: 0,
             gain: 1.0,
+            writer: thread::current(),
         }
     }
 }
@@ -339,10 +428,14 @@ impl Drop for TransitionSource {
     /// rodio drops whole sources on `stop`, which every track change does, so
     /// a chunk can end without being played. Settling up here is what stops
     /// the count drifting away from the queue it is meant to describe.
+    ///
+    /// rodio drops a chunk once it has taken it out of the sink's count, so
+    /// this is also where a writer waiting for room learns of it.
     fn drop(&mut self) {
         self.queued
             .consumed
             .fetch_add(u64::from(self.remaining), Ordering::Relaxed);
+        self.queued.drained(&self.writer);
     }
 }
 
@@ -746,15 +839,46 @@ impl Sink for RodioSink {
         output.fed = true;
         output.last_write = Some(now);
         // Let rodio drain a little; without this the whole track would be
-        // decoded into memory at once.
+        // decoded into memory at once. A full queue sleeps until rodio has
+        // played `REFILL` of it, then is topped up in one go.
+        let refill = u64::from(output.sample_rate) * REFILL.as_millis() as u64 / 1_000;
+        let mut stall = Stall::new(output.queued.consumed(), Instant::now());
+        let mut stalled = false;
         while output.sink.len() > QUEUE_LIMIT {
             if output.failed() {
-                let message = "The audio output stopped working".to_string();
-                (self.on_error)(message.clone());
-                return Err(SinkError::OnWrite(message));
+                // Headphones that connect, a new default output or a device
+                // that went away: move to the output to use now and carry on
+                // instead of stopping the music. Only an output that will not
+                // open stops it.
+                match output.run(&self.control) {
+                    Ok(replaced) if !output.failed() => {
+                        if replaced {
+                            self.applied_volume = -1.0;
+                        }
+                        stall = Stall::new(output.queued.consumed(), Instant::now());
+                        continue;
+                    }
+                    Ok(_) | Err(_) => {
+                        let message = "The audio output stopped working".to_string();
+                        (self.on_error)(message.clone());
+                        return Err(SinkError::OnWrite(message));
+                    }
+                }
             }
-            thread::sleep(Duration::from_millis(10));
+            if stall.observe(output.queued.consumed(), Instant::now()) {
+                stalled = true;
+                break;
+            }
+            output.queued.wait_for_room(refill);
         }
+        if stalled {
+            // A stream can stop asking for sound without reporting an error,
+            // and then nothing would ever make room. Start it over.
+            log::warn!("the audio output stopped playing for {STALL:?}; opening it again");
+            self.output = None;
+            self.ensure_open()?;
+        }
+        self.apply_volume();
         Ok(())
     }
 }
@@ -1430,5 +1554,73 @@ mod tests {
 
         drop(chunk(40, &interrupt, &transport, &queued));
         assert_eq!(queued.frames(), 0);
+    }
+
+    /// A writer waiting for room sleeps through the chunks that leave the
+    /// queue above its level, and the one that reaches it wakes the writer,
+    /// once. Polling instead woke the decoder thread every 10 ms.
+    #[test]
+    fn a_waiting_writer_wakes_once_the_queue_has_drained_enough() {
+        let queued = Queued::new();
+        let (interrupt, transport) = wide_open();
+        let mut chunks: Vec<_> = (0..4)
+            .map(|_| chunk(10, &interrupt, &transport, &queued))
+            .collect();
+        queued.wake_at.store(20, Ordering::SeqCst);
+
+        drop(chunks.remove(0));
+        assert_eq!(queued.frames(), 30);
+        assert_eq!(queued.wake_at.load(Ordering::SeqCst), 20, "still asleep");
+
+        drop(chunks.remove(0));
+        assert_eq!(queued.wake_at.load(Ordering::SeqCst), 0, "woken, once");
+        // The chunks were queued from this thread, so the wake is its own:
+        // the token is waiting, and parking returns at once.
+        let started = Instant::now();
+        thread::park_timeout(Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(1));
+
+        drop(chunks);
+        assert_eq!(queued.frames(), 0);
+    }
+
+    /// An output whose queue keeps moving is never stuck however long the
+    /// wait; one that finishes nothing for `STALL` is, and the clock starts
+    /// over each time it moves.
+    #[test]
+    fn only_an_output_that_stops_playing_counts_as_stuck() {
+        let start = Instant::now();
+        let mut stall = Stall::new(0, start);
+        assert!(!stall.observe(0, start + STALL / 2));
+        assert!(!stall.observe(441, start + STALL), "it moved");
+        assert!(!stall.observe(441, start + STALL + STALL / 2));
+        assert!(stall.observe(441, start + STALL * 2), "nothing for STALL");
+        assert!(!stall.observe(882, start + STALL * 3), "moving again");
+    }
+
+    /// The time a sleeping system stood still is not the output's fault:
+    /// waking up starts the count again, and only an output that then
+    /// finishes nothing for `STALL` is stuck.
+    #[test]
+    fn a_system_that_slept_is_not_a_stuck_output() {
+        let start = Instant::now();
+        let woke = start + Duration::from_secs(7);
+        let mut stall = Stall::new(0, start);
+        assert!(!stall.observe(0, start + QUEUE_WAIT));
+        assert!(!stall.observe(0, woke), "asleep, not stuck");
+        assert!(!stall.observe(0, woke + STALL / 2));
+        assert!(stall.observe(0, woke + STALL), "stuck after waking");
+    }
+
+    /// A stream that has stopped consuming finishes no chunk, so the wait
+    /// gives up by itself and `write` gets to look at the device.
+    #[test]
+    fn waiting_for_room_gives_up_when_nothing_plays() {
+        let queued = Queued::new();
+        queued.appended.store(1_000, Ordering::SeqCst);
+        let started = Instant::now();
+        queued.wait_for_room(100);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(queued.wake_at.load(Ordering::SeqCst), 0);
     }
 }
