@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upcoming album page: visual review</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;margin:24px;background:#101318;color:#f1f4f8}
+main{max-width:1700px;margin:auto}button,select{font:inherit;padding:8px 12px;margin:4px}
+button[aria-pressed=true]{outline:2px solid #1ed760}img{display:block;max-width:100%;height:auto;border:1px solid #45505e}
+.note{max-width:1000px;color:#c5ced9}.baseline{padding:40px;border:1px solid #45505e;background:#191f29}
+</style>
+<main>
+<h1>Native upcoming album page</h1>
+<p class="note">New page only: cover, artist, release countdown, preview tracks and a confirmed pre-save button. Existing app navigation stays in place. These Windows captures use the repository's demo account, playlists and devices. The album is the public Grand Theft Auto VI prerelease.</p>
+<label>Theme <select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
+<label>Size <select id="size"><option value="normal">Normal</option><option value="narrow">Narrow</option></select></label>
+<label>State <select id="state"><option value="unsaved">Pre-save</option><option value="saved">Pre-saved</option></select></label>
+<div><button id="before" aria-pressed="false">Before (main)</button><button id="after" aria-pressed="true">After (native capture)</button></div>
+<p id="caption" class="note"></p>
+<div id="baseline" class="baseline" hidden>Before: main does not accept prerelease links, so there is no upcoming-album page to capture. This panel is explanatory text, not a screenshot.</div>
+<img id="capture" alt="Spotifast upcoming album page with synthetic demo data">
+<p class="note">Baseline: main commit dd2d5e34e66d4e01e31e595a3022a1de808b449a. Captures came from the earlier tested Windows implementation of this page. This PR ports it onto current main and adds a transport safeguard. They are visual evidence of that implementation, not a claim that this exact rebased commit has been run.</p>
+<p class="note">Dark normal captures include final 8-point text-to-icon spacing and 16-point icons. Light and narrow captures predate that small button adjustment; the narrow capture also predates the artist avatar polish. Uncaptured combinations are reported explicitly. Linux/macOS captures and loading/error/menu screenshots remain review work. Native fonts and regional release data can differ from Spotify's browser page.</p>
+<script>
+const theme=document.getElementById('theme'),size=document.getElementById('size'),state=document.getElementById('state');
+const capture=document.getElementById('capture'),caption=document.getElementById('caption'),baseline=document.getElementById('baseline');
+const before=document.getElementById('before'),after=document.getElementById('after');
+let mode='after';
+function render(){
+  before.setAttribute('aria-pressed',String(mode==='before'));after.setAttribute('aria-pressed',String(mode==='after'));
+  baseline.hidden=mode!=='before';capture.hidden=mode==='before';
+  if(mode==='before'){caption.textContent='Baseline has no prerelease page.';return;}
+  let file,note;
+  if(size.value==='narrow'){
+    if(theme.value==='dark'&&state.value==='unsaved'){file='narrow.png';note='Historical dark narrow preview, 1000 × 780 logical points (Windows, 125% scale).';}
+  }else if(theme.value==='dark'){
+    file=state.value==='saved'?'saved.png':'dark.png';note='Dark normal, 1676 × 947 logical points (Windows, 125% scale).';
+  }else if(state.value==='saved'){
+    file='light.png';note='Light normal saved state, 1676 × 947 logical points (Windows, 125% scale), before final button spacing polish.';
+  }
+  capture.hidden=!file;caption.textContent=file?note:'This theme/size/state combination has no capture yet.';
+  if(file)capture.src=file;else capture.removeAttribute('src');
+}
+for(const control of [theme,size,state])control.addEventListener('change',render);
+before.addEventListener('click',()=>{mode='before';render()});after.addEventListener('click',()=>{mode='after';render()});render();
+</script>
+</main>
+</html>

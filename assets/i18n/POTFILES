@@ -21,6 +21,7 @@ src/ui/keys.rs
 src/ui/library.rs
 src/ui/login.rs
 src/ui/mod.rs
+src/ui/prerelease.rs
 src/ui/radio.rs
 src/ui/search.rs
 src/ui/show.rs

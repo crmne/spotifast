@@ -748,6 +748,29 @@ pub enum Command {
         seed: String,
         generation: u64,
     },
+    SetPrereleaseSaved {
+        uri: String,
+        saved: bool,
+        generation: u64,
+    },
+    PrereleaseSaved {
+        session_generation: u64,
+        uri: String,
+        saved: bool,
+        generation: u64,
+        result: Result<(), String>,
+    },
+    /// Resolve a countdown page once local playback is ready.
+    Prerelease {
+        uri: String,
+        generation: u64,
+    },
+    PrereleaseResolved {
+        session_generation: u64,
+        uri: String,
+        generation: u64,
+        result: Result<Box<crate::prerelease::Prerelease>, String>,
+    },
     /// Internal: a radio finished resolving for the session it started in.
     RadioResolved {
         session_generation: u64,
@@ -873,6 +896,17 @@ pub enum Event {
         seed: String,
         generation: u64,
         result: Result<Vec<crate::api::models::Track>, String>,
+    },
+    Prerelease {
+        uri: String,
+        generation: u64,
+        result: Result<Box<crate::prerelease::Prerelease>, String>,
+    },
+    PrereleaseSaved {
+        uri: String,
+        saved: bool,
+        generation: u64,
+        result: Result<(), String>,
     },
     /// Whether Spotify's internal metadata positively identifies an album as an EP.
     AlbumType {
@@ -1547,6 +1581,7 @@ struct Worker {
     playlist_header_lookup: PlaylistHeaderLookup,
     /// Radios asked for before the streaming session was ready, by seed.
     radio_waiting: BTreeMap<String, u64>,
+    prerelease_waiting: Option<(String, u64)>,
     /// True while a playback grant or engine connection is in flight, so a
     /// second attempt does not pile up.
     engine_busy: bool,
@@ -1619,6 +1654,7 @@ impl Worker {
             audiobook_lookup: BTreeSet::new(),
             playlist_header_lookup: PlaylistHeaderLookup::default(),
             radio_waiting: BTreeMap::new(),
+            prerelease_waiting: None,
             engine_busy: false,
             search_tasks: Vec::new(),
             engine_restart_pending: false,
@@ -2282,6 +2318,45 @@ impl Worker {
                     self.playlist_header_lookup.enqueue(ids);
                     self.start_playlist_header_lookup();
                 }
+                Command::SetPrereleaseSaved {
+                    uri,
+                    saved,
+                    generation,
+                } => self.set_prerelease_saved(uri, saved, generation),
+                Command::PrereleaseSaved {
+                    session_generation,
+                    uri,
+                    saved,
+                    generation,
+                    result,
+                } => {
+                    if self.signed_in && session_generation == *self.session.borrow() {
+                        self.emit(Event::PrereleaseSaved {
+                            uri,
+                            saved,
+                            generation,
+                            result,
+                        });
+                    }
+                }
+                Command::Prerelease { uri, generation } => {
+                    self.prerelease_waiting = Some((uri, generation));
+                    self.start_prerelease();
+                }
+                Command::PrereleaseResolved {
+                    session_generation,
+                    uri,
+                    generation,
+                    result,
+                } => {
+                    if self.signed_in && session_generation == *self.session.borrow() {
+                        self.emit(Event::Prerelease {
+                            uri,
+                            generation,
+                            result,
+                        });
+                    }
+                }
                 Command::Radio { seed, generation } => {
                     self.radio_waiting.insert(seed, generation);
                     self.start_radio();
@@ -2442,6 +2517,9 @@ impl Worker {
                 }
             }
             None | Some(StoredGrant::Proxy(_)) => {}
+        }
+        if slot == CredentialSlot::Playback {
+            self.start_prerelease();
         }
         if slot != CredentialSlot::Playback && self.web_tokens[slot.index()].is_none() {
             self.api.clear(if slot == CredentialSlot::Shared {
@@ -2807,6 +2885,7 @@ impl Worker {
         self.audiobook_lookup.clear();
         self.playlist_header_lookup.clear_engine_work();
         self.radio_waiting.clear();
+        self.prerelease_waiting = None;
         self.carry_volume();
         if let Some(engine) = self.engine.take() {
             engine.shutdown();
@@ -3153,6 +3232,7 @@ impl Worker {
             // Keep `resume`: it belongs to the engine which was replaced,
             // not to this stale attempt. The newest config is already stored.
             self.resume_engine();
+            self.start_prerelease();
             return;
         }
         match engine {
@@ -3162,6 +3242,7 @@ impl Worker {
                 if let Some(grant) = engine.credentials() {
                     if !playback_account_matches(&grant, self.api.account()) {
                         engine.shutdown();
+                        self.fail_waiting_prerelease("Playback was authorized for another Spotify account. Enable playback again with the signed-in account.");
                         self.emit(Event::Playback(LocalPlayback::Failed("Playback was authorized for another Spotify account. Enable playback again with the signed-in account.".into())));
                         return;
                     }
@@ -3193,6 +3274,7 @@ impl Worker {
                 self.start_audiobook_lookup();
                 self.start_playlist_header_lookup();
                 self.start_radio();
+                self.start_prerelease();
             }
             None => {
                 if !self.network_reachable {
@@ -3206,9 +3288,9 @@ impl Worker {
                     if session_drops_exhausted(&mut self.reconnects, now) {
                         self.pending_playback_grant = None;
                         self.resume = None;
-                        self.emit(Event::Playback(LocalPlayback::Failed(
-                            "Local playback keeps dropping. Re-enable it from Settings.".into(),
-                        )));
+                        let message = "Local playback keeps dropping. Re-enable it from Settings.";
+                        self.fail_waiting_prerelease(message);
+                        self.emit(Event::Playback(LocalPlayback::Failed(message.into())));
                     } else {
                         self.reconnects.push(now);
                         self.resume_engine();
@@ -3218,6 +3300,7 @@ impl Worker {
                     self.pending_playback_grant = None;
                     self.resume = None;
                     let message = error.unwrap_or_else(|| "Local playback is unavailable".into());
+                    self.fail_waiting_prerelease(&message);
                     self.emit(Event::Playback(LocalPlayback::Failed(message)));
                 }
             }
@@ -3555,6 +3638,112 @@ impl Worker {
                 });
             });
         }
+    }
+
+    fn set_prerelease_saved(&self, uri: String, saved: bool, generation: u64) {
+        let session_generation = *self.session.borrow();
+        let Some(engine) = self.engine.clone().filter(|_| self.signed_in) else {
+            self.emit(Event::PrereleaseSaved {
+                uri,
+                saved,
+                generation,
+                result: Err("Local playback is unavailable. Try again when connected.".into()),
+            });
+            return;
+        };
+        let http = crate::http::build_collection_client(&self.engine_config.proxy);
+        let commands = self.commands.clone();
+        let mut cancelled = self.session.subscribe();
+        tokio::spawn(async move {
+            let result = match http {
+                Err(error) => Err(error),
+                Ok(http) => tokio::select! {
+                biased;
+                _ = cancelled.changed() => return,
+                result = tokio::time::timeout(RADIO_TIMEOUT, session_reads::set_prerelease_saved(engine.session(), &http, &uri, saved)) => match result {
+                    Ok(result) => result.map_err(|error| format!("{error:#}")),
+                    Err(_) => Err("Spotify took too long to confirm pre-save. Open the link again to check.".into()),
+                }
+                },
+            };
+            let _ = commands.send(Command::PrereleaseSaved {
+                session_generation,
+                uri,
+                saved,
+                generation,
+                result,
+            });
+        });
+    }
+
+    fn fail_waiting_prerelease(&mut self, message: &str) {
+        if let Some((uri, generation)) = self.prerelease_waiting.take() {
+            self.emit(Event::Prerelease {
+                uri,
+                generation,
+                result: Err(message.into()),
+            });
+        }
+    }
+
+    fn start_prerelease(&mut self) {
+        if self.prerelease_waiting.is_none() {
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            if self.restore_pending[CredentialSlot::Playback.index()] || self.engine_busy {
+                return;
+            }
+            let has_credentials =
+                self.playback_grant.is_some() || self.pending_playback_grant.is_some();
+            if has_credentials {
+                self.resume_engine();
+            }
+            if !self.engine_busy && (!self.waiting_for_network || !has_credentials) {
+                self.fail_waiting_prerelease(
+                    "Upcoming albums need playback authorization for this account in Settings.",
+                );
+            }
+            return;
+        };
+        let Some((uri, generation)) = self.prerelease_waiting.take() else {
+            return;
+        };
+        let session_generation = *self.session.borrow();
+        let mut cancelled = self.session.subscribe();
+        let commands = self.commands.clone();
+        let web = self.api.prerelease_http_client();
+        tokio::spawn(async move {
+            let Some(web) = web else {
+                let _ = commands.send(Command::PrereleaseResolved {
+                    session_generation,
+                    uri,
+                    generation,
+                    result: Err("Sign in before opening an upcoming album.".into()),
+                });
+                return;
+            };
+            let started = Instant::now();
+            let result = tokio::select! {
+                biased;
+                _ = cancelled.changed() => return,
+                result = tokio::time::timeout(RADIO_TIMEOUT, session_reads::prerelease(engine.session(), &web, &uri)) => match result {
+                    Ok(result) => result.map_err(|error| format!("{error:#}")),
+                    Err(_) => Err("Spotify took too long to load this upcoming album. Try the link again.".into()),
+                }
+            };
+            log::info!(
+                "Prerelease source=session success={} elapsed_ms={}",
+                result.is_ok(),
+                started.elapsed().as_millis()
+            );
+            let _ = commands.send(Command::PrereleaseResolved {
+                session_generation,
+                uri,
+                generation,
+                result: result.map(Box::new),
+            });
+        });
     }
 
     fn start_album_type_lookup(&mut self) {
@@ -6301,6 +6490,133 @@ mod authorization_tests {
         assert!(worker.signed_in);
         assert_eq!(worker.api.account(), Some(AccountId::new("bob")));
         assert!(events.try_iter().next().is_none());
+    }
+
+    #[test]
+    fn prerelease_waits_for_restore_and_reports_a_missing_playback_grant() {
+        let (_runtime, mut worker, events) = worker("prerelease-cold-start");
+        worker.signed_in = true;
+        worker.restore_pending[CredentialSlot::Playback.index()] = true;
+        worker.prerelease_waiting = Some(("spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL".into(), 4));
+        worker.start_prerelease();
+        assert!(worker.prerelease_waiting.is_some());
+        assert!(events.try_recv().is_err());
+        worker.on_credentials_restored(
+            CredentialSlot::Playback,
+            worker.credentials.lease(CredentialSlot::Playback),
+            Ok(crate::credentials::Loaded {
+                grant: None,
+                warning: None,
+            }),
+        );
+        assert!(worker.prerelease_waiting.is_none());
+        assert!(events.try_iter().any(|event| matches!(
+            event,
+            Event::Prerelease {
+                generation: 4,
+                result: Err(_),
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn offline_prerelease_without_playback_credentials_reports_authorization_before_reconnect() {
+        let (runtime, mut worker, events) = worker("prerelease-offline-no-grant");
+        let _entered = runtime.enter();
+        verify(&mut worker, ApiSource::Shared, "alice");
+        let uri = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::NetworkStatus(false)).unwrap();
+        commands
+            .send(Command::Prerelease {
+                uri: uri.into(),
+                generation: 8,
+            })
+            .unwrap();
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(worker.prerelease_waiting.is_none());
+        assert!(!worker.waiting_for_network);
+        assert!(!worker.engine_busy);
+        let received = events.try_iter().collect::<Vec<_>>();
+        let failure = received.iter().position(|event| {
+            matches!(
+                event,
+                Event::Prerelease {
+                    uri: returned_uri,
+                    generation: 8,
+                    result: Err(error),
+                } if returned_uri == uri && error.contains("playback authorization")
+            )
+        });
+        let reconnected = received
+            .iter()
+            .position(|event| matches!(event, Event::NetworkStatus(true)));
+        assert!(failure.unwrap() < reconnected.unwrap());
+    }
+
+    #[test]
+    fn prerelease_waits_for_network_without_losing_the_pending_page() {
+        let (runtime, mut worker, events) = worker("prerelease-offline");
+        let _entered = runtime.enter();
+        verify(&mut worker, ApiSource::Shared, "alice");
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.network_reachable = false;
+        worker.prerelease_waiting = Some(("spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL".into(), 5));
+        worker.start_prerelease();
+        assert!(worker.prerelease_waiting.is_some());
+        assert!(worker.waiting_for_network);
+        assert!(!worker.engine_busy);
+        assert!(
+            !events
+                .try_iter()
+                .any(|event| matches!(event, Event::Prerelease { .. }))
+        );
+    }
+
+    #[test]
+    fn prerelease_waits_with_fresh_pending_credentials_while_offline() {
+        let (runtime, mut worker, events) = worker("prerelease-pending-offline");
+        let _entered = runtime.enter();
+        verify(&mut worker, ApiSource::Shared, "alice");
+        worker.pending_playback_grant = Some(Credentials::with_password("alice", "fresh-grant"));
+        worker.network_reachable = false;
+        worker.prerelease_waiting = Some(("spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL".into(), 7));
+        worker.start_prerelease();
+        assert!(worker.prerelease_waiting.is_some());
+        assert!(worker.waiting_for_network);
+        assert!(worker.pending_playback_grant.is_some());
+        assert!(
+            !events
+                .try_iter()
+                .any(|event| matches!(event, Event::Prerelease { .. }))
+        );
+    }
+
+    #[test]
+    fn terminal_playback_failure_finishes_a_queued_prerelease() {
+        let (runtime, mut worker, events) = worker("prerelease-terminal-error");
+        let _entered = runtime.enter();
+        verify(&mut worker, ApiSource::Shared, "alice");
+        worker.prerelease_waiting = Some(("spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL".into(), 6));
+        worker.on_engine_connected(
+            worker.album_type_lookup.session_generation,
+            None,
+            Some("bad credentials".into()),
+            worker.engine_attempt,
+        );
+        assert!(worker.prerelease_waiting.is_none());
+        assert!(events.try_iter().any(|event| matches!(
+            event,
+            Event::Prerelease {
+                generation: 6,
+                result: Err(_),
+                ..
+            }
+        )));
     }
 
     pub(super) fn worker(

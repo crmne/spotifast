@@ -796,6 +796,7 @@ pub struct PlaylistCachePending {
 pub struct AlbumPage {
     pub generation: u64,
     pub album: Loadable<Album>,
+    pub prerelease: Option<crate::prerelease::Prerelease>,
     pub tracks: PagedList<Track>,
 }
 
@@ -1131,6 +1132,10 @@ pub enum Action {
     },
     /// Open a web page in the browser.
     OpenUrl(String),
+    SetPrereleaseSaved {
+        uri: String,
+        saved: bool,
+    },
     OpenInSpotify(String),
     Search(String),
     /// The search field was emptied or its selection typed over, so the
