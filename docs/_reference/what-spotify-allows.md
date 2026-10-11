@@ -69,6 +69,9 @@ clients. Spotifast uses its session for:
   session once per sign-in to fill its row. Without local playback those
   rows stay blank.
 - **Lyrics** when Spotify has them.
+- **Artist popular tracks.** The account's market-specific ranking and batched
+  track details, with the shared Web API as fallback when the session cannot
+  supply them. This uses librespot's existing metadata support.
 - **Display names** for the user IDs attached to songs in a playlist.
 - **Precise EP types** for releases that the Web API groups with singles.
 - **Radio and autoplay** through Spotify's context resolver: stations seeded

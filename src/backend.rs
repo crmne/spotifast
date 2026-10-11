@@ -1432,7 +1432,7 @@ struct Worker {
     http: Http,
     api: Arc<ApiGateway>,
     connect: Arc<crate::sonos::Controller>,
-    background_api: Arc<tokio::sync::Semaphore>,
+    background_session: Arc<tokio::sync::Semaphore>,
     art: ArtLoader,
     events: std::sync::mpsc::Sender<Event>,
     commands: mpsc::UnboundedSender<Command>,
@@ -1480,6 +1480,7 @@ struct Worker {
 
 impl Worker {
     #[allow(clippy::too_many_arguments)]
+    /// Initialize account-scoped dispatch state and the independent session background budget.
     fn new(
         dirs: AppDirs,
         engine_config: EngineConfig,
@@ -1512,7 +1513,7 @@ impl Worker {
             web_client_id,
             api: Arc::new(ApiGateway::new(http.clone(), activity)),
             connect: Arc::default(),
-            background_api: Arc::new(tokio::sync::Semaphore::new(4)),
+            background_session: Arc::new(tokio::sync::Semaphore::new(4)),
             http,
             art,
             events,
@@ -3561,13 +3562,13 @@ impl Worker {
         self.search_tasks.push(self.dispatch(request));
     }
 
+    /// Cancel requests on sign-out and report completion under their original generation.
     fn dispatch(&self, request: ApiRequest) -> tokio::task::AbortHandle {
         let api = Arc::clone(&self.api);
         let connect = Arc::clone(&self.connect);
         let shared_lease = self.credentials.lease(CredentialSlot::Shared);
         let personal_lease = self.credentials.lease(CredentialSlot::Personal);
-        let background_api = Arc::clone(&self.background_api);
-        let background = request.background();
+        let background_session = Arc::clone(&self.background_session);
         let engine = self.engine.clone();
         let commands = self.commands.clone();
         let mut session = self.session.subscribe();
@@ -3576,12 +3577,7 @@ impl Worker {
             let (response, expired) = tokio::select! {
                 _ = session.changed() => return,
                 result = async {
-                    let _background_permit = if background {
-                        background_api.acquire_owned().await.ok()
-                    } else {
-                        None
-                    };
-                    handle(&api, &connect, engine.as_deref(), request).await
+                    handle(&api, &connect, engine.as_deref(), &background_session, request).await
                 } => result,
             };
             // Apply completion on the command loop. A late response cannot
@@ -3640,6 +3636,7 @@ fn is_terminal_credential_error(error: Option<&str>) -> bool {
     })
 }
 
+/// Classify a request by the coverage and playlist permissions its source must provide.
 fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
     match request {
         ApiRequest::Me => Operation::CanonicalAccount,
@@ -3691,9 +3688,10 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         | ApiRequest::ReorderPlaylist { playlist_id, .. } => {
             Operation::PlaylistMutation(api.playlist_access(playlist_id))
         }
-        ApiRequest::Recommendations { .. }
-        | ApiRequest::ArtistTopTracks { .. }
-        | ApiRequest::RelatedArtists { .. } => Operation::UnsupportedDevelopmentMode,
+        ApiRequest::ArtistTopTracks { .. } => Operation::ArtistTopTracks,
+        ApiRequest::Recommendations { .. } | ApiRequest::RelatedArtists { .. } => {
+            Operation::UnsupportedDevelopmentMode
+        }
         ApiRequest::Artist { .. }
         | ApiRequest::ArtistAlbums { .. }
         | ApiRequest::Album { .. }
@@ -3767,10 +3765,12 @@ fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
     }
 }
 
+/// Try a same-account session read, then the authorized Web API with its own background budget.
 async fn handle(
     api: &ApiGateway,
     connect: &crate::sonos::Controller,
     engine: Option<&Engine>,
+    background_session: &tokio::sync::Semaphore,
     request: ApiRequest,
 ) -> (ApiResponse, Option<ApiSource>) {
     let operation = operation_for(api, &request);
@@ -3780,11 +3780,20 @@ async fn handle(
     if api.session_serves(operation)
         && let Some(engine) = engine
             .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
-        && let Some(response) = over_session(engine, &request).await
     {
-        log::debug!("Spotify route operation={operation:?} source=session");
-        observe_playlists(api, &response);
-        return (response, None);
+        let response = {
+            let _background_permit = if request.background() {
+                background_session.acquire().await.ok()
+            } else {
+                None
+            };
+            over_session(engine, &request).await
+        };
+        if let Some(response) = response {
+            log::debug!("Spotify route operation={operation:?} source=session");
+            observe_playlists(api, &response);
+            return (response, None);
+        }
     }
     if let Some(engine) =
         engine.filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
@@ -3794,6 +3803,14 @@ async fn handle(
         return (response, None);
     }
     let selected = api.client_for(operation).await;
+    let _background_permit = if request.background() {
+        match &selected {
+            Ok(client) => client.background_permit().await,
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
     let expired = std::cell::Cell::new(None);
     macro_rules! routed {
         ($method:ident($($argument:expr),* $(,)?)) => {{
@@ -4308,7 +4325,7 @@ fn same_account(username: &str, account: Option<&AccountId>) -> bool {
 /// the operating system, which is far longer than a page should spin.
 const SESSION_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Answers a playlist read over the streaming session. `None` when the
+/// Answers a playlist or popular-track read over the streaming session. `None` when the
 /// session could not, leaving the request to the Web API.
 async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiResponse> {
     let session = engine.session();
@@ -4322,6 +4339,9 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
             )?),
             SessionRead::Sample { id, offset } => SessionAnswer::Rows(settle(
                 session_reads::sample(session, id, offset, PLAYLIST_PAGE_SIZE).await,
+            )?),
+            SessionRead::ArtistTop { id } => SessionAnswer::ArtistTop(settle(
+                session_reads::artist_top_tracks(session, id).await,
             )?),
         })
     };
@@ -4338,6 +4358,7 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
 /// where the session serves the operation.
 #[derive(Debug, PartialEq)]
 enum SessionRead<'a> {
+    ArtistTop { id: &'a str },
     Header { id: &'a str },
     Rows { id: &'a str, offset: u32 },
     Sample { id: &'a str, offset: u32 },
@@ -4345,6 +4366,7 @@ enum SessionRead<'a> {
 
 fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
     Some(match request {
+        ApiRequest::ArtistTopTracks { id } => SessionRead::ArtistTop { id },
         ApiRequest::Playlist { id, .. } => SessionRead::Header { id },
         ApiRequest::PlaylistItems { id, offset, .. } => SessionRead::Rows {
             id,
@@ -4360,6 +4382,7 @@ fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
 
 /// What the session read: a playlist's header, or a page of its rows.
 enum SessionAnswer {
+    ArtistTop(ApiResult<Vec<Track>>),
     Header(ApiResult<Playlist>),
     Rows(ApiResult<Page<PlaylistItem>>),
 }
@@ -4368,6 +4391,12 @@ enum SessionAnswer {
 /// offset, and generation so the app matches it to the page that asked.
 fn session_response(request: &ApiRequest, answer: SessionAnswer) -> Option<ApiResponse> {
     Some(match (request, answer) {
+        (ApiRequest::ArtistTopTracks { id }, SessionAnswer::ArtistTop(result)) => {
+            ApiResponse::ArtistTopTracks {
+                id: id.clone(),
+                result,
+            }
+        }
         (ApiRequest::Playlist { id, generation }, SessionAnswer::Header(result)) => {
             ApiResponse::Playlist {
                 id: id.clone(),
@@ -6612,6 +6641,86 @@ fn playback_account_matches(credentials: &Credentials, account: Option<AccountId
 mod session_tests {
     use super::*;
     use crate::session_reads::Failure;
+
+    /// Queued Shared and session work must not delay a Personal background read.
+    #[tokio::test]
+    async fn shared_and_session_saturation_do_not_block_personal_background_reads() {
+        let api = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        for source in [ApiSource::Shared, ApiSource::Personal] {
+            api.set_state(
+                source,
+                SessionState::Ready {
+                    account: AccountId::new("test-account"),
+                },
+            );
+        }
+        let shared = api.client_for(Operation::PlaylistLibrary).await.unwrap();
+        let mut held_shared = Vec::new();
+        for _ in 0..4 {
+            held_shared.push(shared.background_permit().await.unwrap());
+        }
+        let background_session = tokio::sync::Semaphore::new(4);
+        let _held_session = background_session.acquire_many(4).await.unwrap();
+        let (response, expired) = tokio::time::timeout(
+            Duration::from_secs(1),
+            handle(
+                &api,
+                &crate::sonos::Controller::default(),
+                None,
+                &background_session,
+                ApiRequest::TopArtists { generation: 7 },
+            ),
+        )
+        .await
+        .expect("a personal background read must reach its own client");
+        assert!(matches!(
+            response,
+            ApiResponse::TopArtists {
+                generation: 7,
+                result: Err(ApiError::NotSignedIn)
+            }
+        ));
+        assert_eq!(expired, None);
+    }
+
+    /// Popular-track responses retain artist identity and the existing fallback/error policy.
+    #[test]
+    fn popular_tracks_keep_the_requested_artist_and_existing_failure_policy() {
+        let api = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        let request = ApiRequest::ArtistTopTracks {
+            id: "artist1".into(),
+        };
+        assert_eq!(operation_for(&api, &request), Operation::ArtistTopTracks);
+        assert_eq!(
+            session_read(&request),
+            Some(SessionRead::ArtistTop { id: "artist1" })
+        );
+        assert!(
+            matches!(session_response(&request, SessionAnswer::ArtistTop(Ok(Vec::new()))),
+            Some(ApiResponse::ArtistTopTracks { id, result: Ok(tracks) }) if id == "artist1" && tracks.is_empty())
+        );
+        let transient = settle(Err::<Vec<Track>, Failure>(Failure::Retry(anyhow::anyhow!(
+            "connection lost"
+        ))));
+        assert!(
+            transient.is_none(),
+            "transient failures retain Web API fallback"
+        );
+        let refused = settle(Err::<Vec<Track>, Failure>(Failure::Definitive(
+            ApiError::Status {
+                status: 403,
+                message: "Forbidden".into(),
+            },
+        )))
+        .unwrap();
+        assert!(matches!(
+            session_response(&request, SessionAnswer::ArtistTop(refused)),
+            Some(ApiResponse::ArtistTopTracks {
+                result: Err(ApiError::Status { status: 403, .. }),
+                ..
+            })
+        ));
+    }
 
     /// The session answers only for the account the Web API verified.
     #[test]
