@@ -554,7 +554,21 @@ pub fn picked_menu(
     ui.set_min_width(220.0);
     ui.set_max_width(300.0);
     let count = songs.len();
-    let uris: Vec<String> = songs.iter().map(|item| item.uri().to_string()).collect();
+    // A local file lives on this computer: Spotify holds no like, playlist,
+    // or link for it, and it queues only where the engine can play it. The
+    // entries take the songs each can act on.
+    let queueable: Vec<(String, String)> = songs
+        .iter()
+        .filter(|item| {
+            !item.uri().starts_with("spotify:local:") || app.local_uri_playable(item.uri())
+        })
+        .map(|item| (item.uri().to_string(), item.name().to_string()))
+        .collect();
+    let spotify: Vec<&PlayableItem> = songs
+        .iter()
+        .filter(|item| !item.uri().starts_with("spotify:local:"))
+        .collect();
+    let uris: Vec<String> = spotify.iter().map(|item| item.uri().to_string()).collect();
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -575,39 +589,39 @@ pub fn picked_menu(
     });
     ui.add_space(4.0);
     menu_separator(ui, &palette);
-    if menu_item(
-        ui,
-        &palette,
-        Some(Icon::ListEnd),
-        &gettext(locale, "Add to queue"),
-    ) {
-        app.actions.push(Action::QueueMany {
-            songs: songs
-                .iter()
-                .map(|item| (item.uri().to_string(), item.name().to_string()))
-                .collect(),
-        });
+    if !queueable.is_empty()
+        && menu_item(
+            ui,
+            &palette,
+            Some(Icon::ListEnd),
+            &gettext(locale, "Add to queue"),
+        )
+    {
+        app.actions.push(Action::QueueMany { songs: queueable });
     }
     // Set one explicit saved state for the full selection.
-    let all_saved = uris.iter().all(|uri| app.is_saved(uri).unwrap_or(false));
-    let (icon, text) = if all_saved {
-        (
-            Icon::HeartFilled,
-            gettext(locale, "Remove from Liked Songs"),
-        )
-    } else {
-        (Icon::Heart, gettext(locale, "Save to Liked Songs"))
-    };
-    if menu_item(ui, &palette, Some(icon), &text) {
-        app.actions.push(Action::SetSavedMany {
-            uris: uris.clone(),
-            saved: !all_saved,
-        });
+    if !spotify.is_empty() {
+        let all_saved = uris.iter().all(|uri| app.is_saved(uri).unwrap_or(false));
+        let (icon, text) = if all_saved {
+            (
+                Icon::HeartFilled,
+                gettext(locale, "Remove from Liked Songs"),
+            )
+        } else {
+            (Icon::Heart, gettext(locale, "Save to Liked Songs"))
+        };
+        if menu_item(ui, &palette, Some(icon), &text) {
+            app.actions.push(Action::SetSavedMany {
+                uris: uris.clone(),
+                saved: !all_saved,
+            });
+        }
     }
     // Removal is URI-based, so one entry covers the whole selection on
     // both the unsorted context and a sorted or filtered view. The caller
     // only passes a playlist when every picked row shares it.
     if let Some((playlist_id, _)) = editable_playlist
+        && !spotify.is_empty()
         && menu_item(
             ui,
             &palette,
@@ -620,7 +634,10 @@ pub fn picked_menu(
             uris: uris.clone(),
         });
     }
-    add_to_playlist_menu(ui, app, songs);
+    let spotify_songs: Vec<PlayableItem> = spotify.into_iter().cloned().collect();
+    if !spotify_songs.is_empty() {
+        add_to_playlist_menu(ui, app, &spotify_songs);
+    }
 }
 
 fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
@@ -808,6 +825,21 @@ pub fn item_menu(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
+    if uri.starts_with("spotify:local:") {
+        // The file lives on this computer: the queue can take it here,
+        // while Spotify holds no like, playlist, radio, or link for it.
+        if app.local_uri_playable(&uri)
+            && menu_item(
+                ui,
+                &palette,
+                Some(Icon::ListEnd),
+                &gettext(locale, "Add to queue"),
+            )
+        {
+            app.actions.push(Action::AddToQueue { uri, label });
+        }
+        return;
+    }
     if menu_item(
         ui,
         &palette,
@@ -1096,15 +1128,6 @@ pub fn context_menu_items(
     }
 }
 
-/// Whether a row can start playback through Spotify. Unknown availability
-/// remains playable, while local files and missing entries cannot be requested.
-pub(crate) fn row_playable(item: &PlayableItem) -> bool {
-    !item.uri().is_empty()
-        && !item.uri().starts_with("spotify:local:")
-        && !matches!(item, PlayableItem::Track(track)
-            if track.is_local || track.is_playable == Some(false))
-}
-
 /// Describes one row of a track table.
 pub struct TrackRow<'a> {
     pub index: usize,
@@ -1260,7 +1283,7 @@ fn track_row_contents(
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, row_height), Sense::click_and_drag());
     let rect = rect.translate(vec2(0.0, row.shift));
-    let unavailable = !row_playable(row.item);
+    let unavailable = !app.item_playable(row.item);
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::Button,
@@ -1718,7 +1741,8 @@ fn track_row_contents(
     if cols.heart > 0.0 {
         let saved = app.is_saved(row.item.uri());
         let heart_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.heart, row_height));
-        if row.item.is_track() {
+        // Spotify holds no Liked Songs entry for a file on this computer.
+        if row.item.is_track() && !row.item.uri().starts_with("spotify:local:") {
             let mut child = ui.new_child(
                 UiBuilder::new()
                     .max_rect(heart_rect)

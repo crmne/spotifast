@@ -552,6 +552,25 @@ pub fn populate(app: &mut App) {
         std::path::Path::new("Music").join("Ripped CDs"),
         std::path::Path::new("Music").join("Bandcamp"),
     ];
+    // The scan's answer: a handful of matched files, in the order the
+    // engine will play them. With the remote speaker active they read as
+    // unavailable, the way they do on any other device.
+    let local =
+        |artist: &str, album: &str, title: &str, secs: u64| crate::local_files::LocalFileTrack {
+            uri: crate::local_files::uri_from_parts(Some(artist), Some(album), Some(title), secs),
+            title: title.into(),
+            artist: artist.into(),
+            album: album.into(),
+            duration_secs: secs,
+        };
+    app.local_files.scanned(vec![
+        local("Bonobo", "Fragments", "Otomo", 246),
+        local("Bonobo", "Fragments", "Tyst", 296),
+        local("Khruangbin", "Con Todo El Mundo", "August 10", 249),
+        local("Nala Sinephro", "Endlessness", "Continuum", 278),
+        local("Bicep", "Isles", "Apricots", 249),
+        local("Fred again..", "Actual Life 3", "Delilah", 280),
+    ]);
 
     // Playback: a remote speaker is playing the second playlist.
     app.queue = Loadable::Loaded(Queue {
@@ -1258,6 +1277,15 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 let id = "8f2c1d0e4a6b4c3d9e7f5a1b2c3d4e5f".to_string();
                 app.settings.web_client_id = Some(id.clone());
                 app.web_app = Some(id);
+            }
+            // The Local files page's own states: a scan under way, the
+            // empty page that points at Settings, and the rows playable
+            // because this computer is the player.
+            "local-scanning" => app.local_files.scanning = true,
+            "local-empty" => app.local_files.scanned(Vec::new()),
+            "local-here" => {
+                play_here(app);
+                app.local.playback = crate::player::Playback::Paused;
             }
             _ => {}
         }
@@ -3162,6 +3190,43 @@ mod tests {
         assert!(
             !text.iter().any(|text| text == "Ripped CDs"),
             "a disabled section keeps its sources out of the search: {text:?}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// The library lists Local files while the feature is on, and its page
+    /// lists the scan's rows. Off, the entry is gone entirely and a page
+    /// left open steps away rather than draw with no entry behind it.
+    #[test]
+    fn the_library_lists_local_files_and_its_page_lists_the_scan() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("local-files-library");
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let entry = accessible_node(&tree, "Local files", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(entry, Action::Click, None)],
+        );
+        assert!(
+            matches!(app.page(), Page::LocalFiles),
+            "the entry opens the page"
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Play Otomo, Bonobo", Role::Button);
+
+        app.settings.local_files.enabled = false;
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Local files") && node.role() == Role::Button),
+            "the entry hides with the feature"
+        );
+        assert!(
+            !matches!(app.page(), Page::LocalFiles),
+            "the open page steps away once the feature is off"
         );
         app.backend.shutdown();
     }
@@ -7979,8 +8044,9 @@ mod tests {
         }
 
         // Sweep from the top; the first slot inside the list is the one
-        // right under Liked Songs, between what were the first two
-        // unpinned playlists.
+        // right under the Local files row, before the first unpinned
+        // playlist. The saved arrangement carries the Local files key too,
+        // at the end of the block it has no saved place in.
         let mut dropped = false;
         for step in 0..40 {
             let pos = egui::pos2(120.0, 100.0 + step as f32 * 10.0);
@@ -8009,11 +8075,15 @@ mod tests {
                 break;
             }
         }
-        assert!(dropped, "no sweep position landed below Liked Songs");
-        let expected: Vec<String> = [0, 4]
+        assert!(
+            dropped,
+            "no sweep position landed below the Local files row"
+        );
+        let expected: Vec<String> = [4, 0]
             .into_iter()
             .chain((1..PLAYLISTS.len()).filter(|index| *index != 4))
             .map(|index| format!("spotify:playlist:pl{index}"))
+            .chain([crate::settings::LOCAL_FILES_KEY.to_string()])
             .collect();
         assert_eq!(app.settings.sidebar_order, expected);
         assert_eq!(
@@ -8094,9 +8164,13 @@ mod tests {
                 }],
             );
             assert!(!app.settings.liked_songs_pinned);
+            // The Local files row keeps its place at the head of the rows
+            // with no saved position, and Liked Songs lands between the
+            // first two playlists.
             assert_eq!(
-                &app.settings.sidebar_order[..3],
+                &app.settings.sidebar_order[..4],
                 [
+                    crate::settings::LOCAL_FILES_KEY,
                     "spotify:playlist:pl0",
                     LIKED_SONGS_KEY,
                     "spotify:playlist:pl1"
