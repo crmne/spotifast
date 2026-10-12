@@ -45,7 +45,7 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | Feature | What you can do |
 |---|---|
 | **Library and search** | Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own. |
-| **Spotify Connect** | Play on this computer or control playback on your other devices. |
+| **Spotify Connect** | Play on this computer or control playback on your other devices, including Google Cast speakers and groups. |
 | **Themes** | Choose light, dark, system appearance, or custom colours. On Omarchy, follow your desktop theme. |
 | **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings. |
 | **Winamp mini player** | Use classic skins with an equalizer, playlist, and animated sound displays. |
@@ -151,6 +151,12 @@ is Spotifast's sibling. Both are built on
 
 Sonos speakers use the Spotify Connect session for playback control. Enable
 local playback first, then select the speaker in the device picker.
+
+## Google Cast playback
+
+Google Cast speakers and speaker groups appear in the device picker. Enable
+local playback first, then select the speaker. Spotifast starts Spotify on it,
+and the speaker then plays like any other Spotify Connect device.
 
 ## Acknowledgements
 

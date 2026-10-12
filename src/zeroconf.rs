@@ -43,6 +43,9 @@ pub struct Receiver {
     pub port: u16,
     /// Path its HTTP interface answers on, from the `CPath` TXT record.
     pub path: String,
+    /// A Google Cast device, started over Cast v2 instead of ZeroConf
+    /// (`crate::cast`). Its device id is known from its name alone.
+    pub cast: bool,
 }
 
 impl Receiver {
@@ -120,18 +123,41 @@ impl Credentials {
 
 /// Browses the network for receivers. Blocking, bounded by `timeout`.
 pub fn discover(timeout: Duration) -> Result<Vec<Receiver>> {
-    use mdns_sd::{ServiceDaemon, ServiceEvent};
-
-    let daemon = ServiceDaemon::new().context("cannot browse the local network")?;
-    let events = daemon
+    let daemon = mdns_sd::ServiceDaemon::new().context("cannot browse the local network")?;
+    let connect = daemon
         .browse(SERVICE)
         .context("cannot browse for Spotify receivers")?;
+    // Connect discovery must not depend on Cast discovery starting.
+    let cast = daemon
+        .browse(crate::cast::SERVICE)
+        .inspect_err(|error| log::warn!("cannot browse for Cast devices: {error}"))
+        .ok();
     let deadline = std::time::Instant::now() + timeout;
-    let mut found: HashMap<String, Receiver> = HashMap::new();
+    // Each browse blocks on its own channel until the deadline.
+    let mut receivers = std::thread::scope(|scope| {
+        let cast = scope.spawn(move || {
+            cast.map(|events| collect(&events, deadline, true))
+                .unwrap_or_default()
+        });
+        let mut receivers = collect(&connect, deadline, false);
+        receivers.extend(cast.join().unwrap());
+        receivers
+    });
+    let _ = daemon.shutdown();
+    receivers.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(receivers)
+}
 
+/// Reads one browse's resolved services until `deadline`.
+fn collect(
+    events: &mdns_sd::Receiver<mdns_sd::ServiceEvent>,
+    deadline: std::time::Instant,
+    cast: bool,
+) -> Vec<Receiver> {
+    let mut found: HashMap<String, Receiver> = HashMap::new();
     while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
         match events.recv_timeout(remaining) {
-            Ok(ServiceEvent::ServiceResolved(service)) => {
+            Ok(mdns_sd::ServiceEvent::ServiceResolved(service)) => {
                 // Prefer IPv4: link-local IPv6 needs a scope id to dial.
                 let mut addresses: Vec<std::net::IpAddr> = service
                     .get_addresses()
@@ -150,16 +176,25 @@ pub fn discover(timeout: Duration) -> Result<Vec<Receiver>> {
                     .filter(|path| !path.is_empty())
                     .unwrap_or("/")
                     .to_string();
-                let name =
-                    unescape_instance(service.get_fullname().split('.').next().unwrap_or_default());
+                let (name, device_id) = if cast {
+                    // Cast instance names are opaque ids; `fn` is the name.
+                    let Some(name) = service.get_property_val_str("fn") else {
+                        continue;
+                    };
+                    (name.to_string(), Some(crate::cast::device_id(name)))
+                } else {
+                    let instance = service.get_fullname().split('.').next();
+                    (unescape_instance(instance.unwrap_or_default()), None)
+                };
                 found.insert(
                     service.get_fullname().to_string(),
                     Receiver {
                         name,
-                        device_id: None,
+                        device_id,
                         address,
                         port: service.get_port(),
                         path,
+                        cast,
                     },
                 );
             }
@@ -167,10 +202,7 @@ pub fn discover(timeout: Duration) -> Result<Vec<Receiver>> {
             Err(_) => break,
         }
     }
-    let _ = daemon.shutdown();
-    let mut receivers: Vec<Receiver> = found.into_values().collect();
-    receivers.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(receivers)
+    found.into_values().collect()
 }
 
 /// Asks a receiver to describe itself.
@@ -198,6 +230,9 @@ fn get_info_with_timeout(
 /// only reads device information; account credentials are sent on selection.
 /// Four probes run at a time, with two seconds per probe and six overall.
 pub fn resolve_receivers(receivers: Vec<Receiver>) -> Result<Vec<Receiver>> {
+    // Cast devices answer no HTTP probe: asking one about itself means
+    // launching Spotify on it, which waits until the user picks it.
+    let (cast, receivers): (Vec<_>, Vec<_>) = receivers.into_iter().partition(|r| r.cast);
     let http = reqwest::blocking::Client::builder().no_proxy().build()?;
     let pending = std::sync::Mutex::new(receivers.into_iter());
     let found = std::sync::Mutex::new(HashMap::new());
@@ -239,6 +274,18 @@ pub fn resolve_receivers(receivers: Vec<Receiver>) -> Result<Vec<Receiver>> {
         .unwrap_or_else(|p| p.into_inner())
         .into_values()
         .collect();
+    // A speaker that announces both Connect and Cast is offered once, over
+    // Connect. It is the same address and name; a group hosted there has
+    // its own name, and a speaker elsewhere its own address.
+    let cast: Vec<_> = cast
+        .into_iter()
+        .filter(|device| {
+            !receivers
+                .iter()
+                .any(|r| r.address == device.address && r.name == device.name)
+        })
+        .collect();
+    receivers.extend(cast);
     receivers.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(receivers)
 }
@@ -449,6 +496,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cast_devices_are_offered_without_an_http_probe() {
+        // TEST-NET-1: nothing answers there, so a probe would drop it.
+        let device = Receiver {
+            name: "nest audio".into(),
+            device_id: Some(crate::cast::device_id("nest audio")),
+            address: "192.0.2.1".parse().unwrap(),
+            port: 8009,
+            path: "/".into(),
+            cast: true,
+        };
+        assert_eq!(resolve_receivers(vec![device.clone()]).unwrap(), [device]);
+    }
+
+    #[test]
     fn variable_length_integers_match_the_wire_format() {
         let mut out = Vec::new();
         write_int(&mut out, 0x49);
@@ -496,6 +557,7 @@ mod tests {
             address: "192.168.8.166".parse().unwrap(),
             port: 5907,
             path: "/".into(),
+            cast: false,
         };
         assert_eq!(
             receiver.url("?action=getInfo"),
@@ -504,6 +566,7 @@ mod tests {
         let receiver = Receiver {
             address: "fe80::1".parse().unwrap(),
             path: "zc".into(),
+            cast: false,
             ..receiver
         };
         assert_eq!(receiver.url(""), "http://[fe80::1]:5907/zc");
@@ -589,15 +652,38 @@ mod tests {
                 write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
             }
         });
-        let receivers = ["first", "duplicate", "other", "dead"].map(|path| Receiver {
-            name: format!("SpotifyConnect-{path}"),
-            device_id: None,
-            address: "127.0.0.1".parse().unwrap(),
-            port,
-            path: format!("/{path}"),
-        });
-        let resolved = resolve_receivers(receivers.into()).unwrap();
+        let mut receivers: Vec<_> = ["first", "duplicate", "other", "dead"]
+            .map(|path| Receiver {
+                name: format!("SpotifyConnect-{path}"),
+                device_id: None,
+                address: "127.0.0.1".parse().unwrap(),
+                port,
+                path: format!("/{path}"),
+                cast: false,
+            })
+            .into();
+        // Cast on a Connect receiver's address is that speaker again; the
+        // same name elsewhere is another speaker.
+        for address in ["127.0.0.1", "192.0.2.1"] {
+            receivers.push(Receiver {
+                name: "Living Room".into(),
+                device_id: Some(crate::cast::device_id("Living Room")),
+                address: address.parse().unwrap(),
+                port: 8009,
+                path: "/".into(),
+                cast: true,
+            });
+        }
+        let (cast, resolved): (Vec<_>, Vec<_>) = resolve_receivers(receivers)
+            .unwrap()
+            .into_iter()
+            .partition(|receiver| receiver.cast);
         server.join().unwrap();
+        assert_eq!(cast.len(), 1);
+        assert_eq!(
+            cast[0].address,
+            "192.0.2.1".parse::<std::net::IpAddr>().unwrap()
+        );
         assert_eq!(
             resolved.len(),
             2,

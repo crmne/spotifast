@@ -24370,6 +24370,7 @@ mod tests {
             address: "192.168.1.10".parse().unwrap(),
             port: 1400,
             path: "/spotifyzc".into(),
+            cast: false,
         }];
         app.selected_device = Some("office".into());
         app.handle_api(ApiResponse::Devices(Ok(Vec::new())));

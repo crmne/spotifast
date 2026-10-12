@@ -124,9 +124,12 @@ fn receiver_row(app: &mut App, ui: &mut egui::Ui, receiver: &crate::zeroconf::Re
     }
     let icon_rect =
         Rect::from_center_size(pos2(rect.left() + 24.0, rect.center().y), Vec2::splat(22.0));
-    Icon::Speaker
-        .image(palette.text, 22.0)
-        .paint_at(ui, icon_rect);
+    let icon = if receiver.cast {
+        Icon::Cast
+    } else {
+        Icon::Speaker
+    };
+    icon.image(palette.text, 22.0).paint_at(ui, icon_rect);
     let painter = ui.painter().with_clip_rect(rect);
     crate::bidi::paint_line(
         &painter,
@@ -398,6 +401,7 @@ mod tests {
             address: "127.0.0.1".parse().unwrap(),
             port: 80,
             path: "/".into(),
+            cast: false,
         };
         let mut device = Device {
             id: Some("living-room".into()),

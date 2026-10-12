@@ -14,10 +14,11 @@
     <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-    <key>NSLocalNetworkUsageDescription</key><string>Find Spotify Connect speakers on your local network.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Find Spotify Connect and Google Cast speakers on your local network.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_spotify-connect._tcp</string>
+        <string>_googlecast._tcp</string>
     </array>
     <!-- Spotify links (spotify:track:…) open in Spotifast; src/mac_links.rs
          takes them. Launch Services notes this when the app is first opened. -->

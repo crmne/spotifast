@@ -2726,7 +2726,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -3541,6 +3541,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest 0.10.7",
 ]
 
 [[package]]
@@ -5930,6 +5940,7 @@ dependencies = [
  "librespot-playback",
  "librespot-protocol",
  "log",
+ "md-5",
  "mdns-sd",
  "memmap2",
  "objc2 0.6.4",
@@ -5946,6 +5957,7 @@ dependencies = [
  "reqwest",
  "rfd",
  "rodio",
+ "rustls",
  "serde",
  "serde_json",
  "sha1",

@@ -359,6 +359,36 @@ credential. Spotifast does not send a login blob or access token to that HTTP
 endpoint. Transfer and player commands go through Spotify using the existing
 playback session. Other receivers keep the encrypted login blob described above.
 
+## Google Cast devices
+
+Cast speakers, displays and speaker groups announce `_googlecast._tcp`, not
+`_spotify-connect._tcp`. They do not run Spotify until a sender starts it.
+Spotifast lists them under their Cast name (the `fn` record) without probing
+them, because probing one would start Spotify on it.
+
+Starting Spotify on a Cast device needs local playback enabled, because the
+playback session obtains the token. When a Cast device is selected, Spotifast
+follows the steps of Spotify's own apps:
+
+1. It opens a Cast v2 connection to the device and launches Spotify's Cast
+   receiver.
+2. The receiver's `getInfo` reply names the Spotify client it runs as.
+3. The librespot session asks Spotify for a token issued to that client and
+   to the device's ID (`/device-auth/v1/refresh`, an internal endpoint).
+4. Spotifast sends that token to the receiver with `addUser`.
+
+The device ID is the MD5 hash of the Cast name, as in Spotify's apps. The
+device then appears in Spotify's device list, and the Web API controls it
+like any other device. Right after an earlier sign-in, a receiver can
+refuse the first attempt, so Spotifast tries once more. A device that does
+not answer within 20 seconds is reported as not answering.
+
+Cast devices present certificates from Google's device CA, which system trust
+stores do not hold. Spotifast therefore accepts any certificate on this
+connection, while still checking the handshake signature. The connection only
+goes to a device found on the local network, and the token sent over it works
+only for that receiver. Spotifast does not save or log the token.
+
 ## The engine
 
 Playback runs on a separate runtime. Librespot maintains the Spotify Connect

@@ -3275,6 +3275,9 @@ impl Worker {
 
     /// Sends the stored playback credential to a receiver so it can sign in.
     fn activate_receiver(&self, receiver: crate::zeroconf::Receiver) {
+        if receiver.cast {
+            return self.activate_cast(receiver);
+        }
         let events = self.events.clone();
         let waker = self.waker.clone();
         let credentials = self
@@ -3308,6 +3311,37 @@ impl Worker {
                 }
                 crate::zeroconf::add_user(&http, &receiver, &info, &credentials, "Spotifast")
                     .map_err(|error| error.to_string())
+            })();
+            let _ = events.send(Event::ReceiverActivated { name, result });
+            waker.wake();
+        });
+    }
+
+    /// Starts Spotify on a Google Cast device and signs it in with a token
+    /// that this session obtains for the device's Spotify client.
+    fn activate_cast(&self, receiver: crate::zeroconf::Receiver) {
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let session = self
+            .engine
+            .as_ref()
+            .map(|engine| engine.session().clone())
+            .filter(|session| same_account(&session.username(), self.api.account().as_ref()));
+        let lease = self.credentials.lease(CredentialSlot::Playback);
+        let runtime = tokio::runtime::Handle::current();
+        tokio::task::spawn_blocking(move || {
+            let name = receiver.name.clone();
+            let result = (|| -> Result<(), String> {
+                let session = session.ok_or_else(|| "Enable playback on this computer first, so there is an account to hand over".to_string())?;
+                crate::cast::start(receiver.address, receiver.port, &name, |client, device| {
+                    let token =
+                        runtime.block_on(crate::cast::device_token(&session, client, device))?;
+                    if !lease.current() {
+                        anyhow::bail!("Sign-in changed before receiver activation.");
+                    }
+                    Ok(token)
+                })
+                .map_err(|error| format!("{error:#}"))
             })();
             let _ = events.send(Event::ReceiverActivated { name, result });
             waker.wake();
@@ -6129,6 +6163,7 @@ mod authorization_tests {
             address: "127.0.0.1".parse().unwrap(),
             port: 1400,
             path: "/spotifyzc".into(),
+            cast: false,
         }]);
         assert_eq!(worker.connect.restricted_target(None), None);
         assert_eq!(worker.connect.restricted_target(Some("sonos")), None);

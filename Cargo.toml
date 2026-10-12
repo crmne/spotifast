@@ -151,6 +151,11 @@ http = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs", "net", "io-util"] }
 sha1 = "0.10"
 sha2 = "0.10"
+# Spotify names a Cast device by the MD5 of its friendly name (`cast.rs`).
+md-5 = "0.10"
+# Cast v2 runs over TLS with a certificate from Google's device CA, which
+# needs a custom verifier (`cast.rs`). Already in the tree through reqwest.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 base64 = "0.22"
 # Native asynchronous file selection on macOS, Windows and Linux desktop portals.
 rfd = "0.17.2"

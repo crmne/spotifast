@@ -593,6 +593,7 @@ pub fn populate(app: &mut App) {
         address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 42)),
         port: 5555,
         path: "/zc".into(),
+        cast: false,
     }];
     app.remote = Some(RemoteSnapshot {
         state: PlaybackState {
@@ -627,6 +628,7 @@ fn sonos_devices(app: &mut App, active: bool) {
         address: "192.168.1.10".parse().unwrap(),
         port: 1400,
         path: "/spotifyzc".into(),
+        cast: false,
     }];
     app.devices
         .retain(|device| device.id.as_deref() != Some("office"));

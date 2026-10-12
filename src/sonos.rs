@@ -339,6 +339,7 @@ mod tests {
             address: "192.168.2.47".parse().unwrap(),
             port,
             path: path.into(),
+            cast: false,
         }
     }
 
