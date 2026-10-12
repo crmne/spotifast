@@ -314,6 +314,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     + badge_width(update_galley.as_ref(), UPDATE_BADGE_PADDING, labels)
             };
             let controls = RIGHT_CONTROLS_WIDTH
+                + if !app.network_reachable {
+                    ICON_BUTTON_SIZE + 4.0
+                } else {
+                    0.0
+                }
                 + if busy {
                     SPINNER_SIZE + ITEM_SPACING
                 } else {
@@ -330,6 +335,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             let search_width = fit.search;
             let id = egui::Id::new("global-search");
             let before = app.search.query.clone();
+            let selected = egui::TextEdit::load_state(ui.ctx(), id)
+                .and_then(|state| state.cursor.char_range())
+                .is_some_and(|range| !range.is_empty());
             let response = super::widgets::search_field(
                 ui,
                 &palette,
@@ -350,6 +358,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 app.actions.push(Action::Open(Page::Search));
             }
             if app.search.query != before {
+                // Typing over a selection, or emptying the field, starts a
+                // new query rather than editing the last one.
+                if selected || app.search.query.is_empty() {
+                    app.actions.push(Action::EndSearchRun);
+                }
                 app.search.typed_at = Some(std::time::Instant::now());
                 if !cleared && !matches!(app.page(), Page::Search) {
                     app.actions.push(Action::Open(Page::Search));
@@ -468,6 +481,36 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             app.actions.push(Action::SignOut);
                         }
                     });
+                if !app.network_reachable {
+                    ui.add_space(4.0);
+                    let (rect, response) =
+                        ui.allocate_exact_size(Vec2::splat(ICON_BUTTON_SIZE), Sense::hover());
+                    if ui.is_rect_visible(rect) {
+                        let fill = if response.hovered() {
+                            if palette.dark {
+                                egui::Color32::from_rgb(38, 110, 205)
+                            } else {
+                                egui::Color32::from_rgb(66, 133, 244)
+                            }
+                        } else if palette.dark {
+                            egui::Color32::from_rgb(28, 92, 178)
+                        } else {
+                            egui::Color32::from_rgb(41, 121, 255)
+                        };
+                        ui.painter().circle_filled(rect.center(), 14.5, fill);
+                        theme::paint_icon(
+                            ui,
+                            Icon::WifiOff,
+                            rect,
+                            ICON_BUTTON_ICON,
+                            egui::Color32::WHITE,
+                        );
+                    }
+                    response.on_hover_text(gettext(
+                        locale,
+                        "Spotifast is offline. Reconnecting automatically when connection returns.",
+                    ));
+                }
                 ui.add_space(4.0);
                 if theme::icon_button(
                     ui,

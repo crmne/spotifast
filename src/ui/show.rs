@@ -50,45 +50,101 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             ui.add_space(6.0);
             let episodes = page.episodes.items.clone();
             let show_image = pick_image(&show.images, 64).map(str::to_string);
-            widgets::virtual_rows(ui, episodes.len(), EPISODE_ROW_HEIGHT, |ui, index| {
-                episode_row(app, ui, &episodes[index], show_image.as_deref());
-            });
-            if page.episodes.loading {
-                widgets::loading_row(ui, &palette, app.locale);
+            if episodes.is_empty() && !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::WifiOff,
+                    &gettext(locale, "You're offline"),
+                    &gettext(
+                        locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                let render_episodes = |ui: &mut egui::Ui, app: &mut App| {
+                    widgets::virtual_rows(ui, episodes.len(), EPISODE_ROW_HEIGHT, |ui, index| {
+                        episode_row(app, ui, &episodes[index], show_image.as_deref());
+                    });
+                };
+                if !app.network_reachable {
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.multiply_opacity(0.55);
+                        render_episodes(ui, app);
+                    });
+                } else {
+                    render_episodes(ui, app);
+                }
+                if page.episodes.loading {
+                    widgets::loading_row(ui, &palette, app.locale);
+                }
+                if let Some(error) = &page.episodes.error {
+                    let error = error.clone();
+                    widgets::error_row(ui, app, &error, Some(Page::Show(id.to_string())));
+                }
+                widgets::load_more_when_near_end(
+                    ui,
+                    app,
+                    Page::Show(id.to_string()),
+                    page.episodes.can_load_more(),
+                );
             }
-            if let Some(error) = &page.episodes.error {
-                let error = error.clone();
-                widgets::error_row(ui, app, &error, Some(Page::Show(id.to_string())));
-            }
-            widgets::load_more_when_near_end(
-                ui,
-                app,
-                Page::Show(id.to_string()),
-                page.episodes.can_load_more(),
-            );
         }
         Loadable::Loading | Loadable::NotLoaded => {
             if let Some(show) = &preview {
                 show_hero(app, ui, show, None);
-                ui.add_enabled_ui(false, |ui| {
-                    show_actions(app, ui, show, None);
-                });
             } else {
                 ui.add_space(40.0);
             }
-            widgets::loading_row(ui, &palette, app.locale);
+            if !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                if let Some(show) = &preview {
+                    ui.add_enabled_ui(false, |ui| {
+                        show_actions(app, ui, show, None);
+                    });
+                }
+                widgets::loading_row(ui, &palette, app.locale);
+            }
         }
         Loadable::Failed(error) => {
             let error = error.clone();
             if let Some(show) = &preview {
                 show_hero(app, ui, show, None);
-                ui.add_enabled_ui(false, |ui| {
-                    show_actions(app, ui, show, None);
-                });
             } else {
                 ui.add_space(40.0);
             }
-            widgets::error_row(ui, app, &error, Some(Page::Show(id.to_string())));
+            if !app.network_reachable
+                || error.contains("network error")
+                || error.contains("Network connection error")
+            {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                if let Some(show) = &preview {
+                    ui.add_enabled_ui(false, |ui| {
+                        show_actions(app, ui, show, None);
+                    });
+                }
+                widgets::error_row(ui, app, &error, Some(Page::Show(id.to_string())));
+            }
         }
     }
     app.show_pages.insert(id.to_string(), page);

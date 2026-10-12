@@ -67,22 +67,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // Its empty space is the visualizer's control, as Winamp's
             // visualizer was: a click moves to the next mode. The controls
             // drawn after it take their own clicks.
-            let empty = ui.interact(
-                behind,
-                ui.id().with("player-bar-visualizer"),
-                Sense::click(),
-            );
-            // An open tooltip stays while the pointer is inside its widget's
-            // rect, and this one spans the bar: offer it only while the empty
-            // space itself is hovered, not the controls over it.
-            let empty = if empty.hovered() {
-                empty
-                    .on_hover_text_at_pointer(gettext(app.locale, "Click to change the visualizer"))
-            } else {
-                empty
-            };
-            if empty.clicked() {
-                app.actions.push(Action::CyclePlayerBarVis);
+            if app.settings.player_bar_vis_click {
+                let empty = ui.interact(
+                    behind,
+                    ui.id().with("player-bar-visualizer"),
+                    Sense::click(),
+                );
+                // An open tooltip stays while the pointer is inside its widget's
+                // rect, and this one spans the bar: offer it only while the empty
+                // space itself is hovered, not the controls over it.
+                let empty = if empty.hovered() {
+                    empty.on_hover_text_at_pointer(gettext(
+                        app.locale,
+                        "Click to change the visualizer",
+                    ))
+                } else {
+                    empty
+                };
+                if empty.clicked() {
+                    app.actions.push(Action::CyclePlayerBarVis);
+                }
             }
             ui.painter().hline(
                 rect.x_range(),
@@ -531,16 +535,19 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 
     if !now.is_episode {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
-        let (icon, color, tooltip) = if saved {
+        // A liked heart stays green under the pointer, like shuffle.
+        let (icon, color, hover, tooltip) = if saved {
             (
                 Icon::HeartFilled,
                 palette.accent,
+                palette.accent_hover,
                 gettext(app.locale, "Remove from Liked Songs"),
             )
         } else {
             (
                 Icon::Heart,
                 palette.secondary,
+                palette.text,
                 gettext(app.locale, "Save to Liked Songs"),
             )
         };
@@ -564,7 +571,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        if theme::icon_button(&mut heart_ui, icon, 17.0, color, palette.text, &tooltip).clicked() {
+        if theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip).clicked() {
             app.actions.push(Action::ToggleSaved(now.uri.clone()));
         }
     }

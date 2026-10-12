@@ -1,102 +1,15 @@
-//! The device's power and session state, from the operating system.
+//! The device's power, session and network state, and what the app may
+//! spend because of it.
 //!
-//! A thin reader per platform writes what the system reports into shared
-//! [`Conditions`] and queues [`Event`]s, then wakes the app. The app reads
-//! both in its logic pass, which runs with or without a window, and turns
-//! the conditions into a [`Budget`] for its drawing and polling.
-//!
-//! Shaped like a fastframe crate (a spawned watcher, a pure policy, thin
-//! platform readers) so it can move there once a second app needs it.
+//! fastframe-power reads the system: energy saver, battery, display, lock,
+//! the network's reach and cost, sleep and wake. The app reads its
+//! [`Conditions`] and [`Event`]s in the logic pass, which runs with or
+//! without a window, and turns the conditions into a [`Budget`] for its
+//! drawing and polling here.
 
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
-#[cfg(any(target_os = "windows", target_os = "linux", test))]
-use std::time::Duration;
+pub use fastframe_power::{Ack, Activity, Conditions, Event, Power};
 
-#[cfg(target_os = "linux")]
-mod linux;
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "windows")]
-mod windows;
-
-/// What the system says about power, the display, the session and the
-/// network. A platform that cannot tell leaves the default, which is the
-/// unconstrained case.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Conditions {
-    /// The user asked the system to save energy: Energy Saver or battery
-    /// saver on Windows, Low Power Mode on macOS, the power-saver profile on
-    /// Linux.
-    pub saver: bool,
-    /// Running on battery.
-    pub on_battery: bool,
-    /// Every display is off.
-    pub display_off: bool,
-    /// The session is locked or switched away from.
-    pub locked: bool,
-    /// The system reports a way to the internet.
-    pub online: bool,
-    /// The connection is metered or charged by use.
-    pub metered: bool,
-}
-
-impl Default for Conditions {
-    fn default() -> Self {
-        Self {
-            saver: false,
-            on_battery: false,
-            display_off: false,
-            locked: false,
-            online: true,
-            metered: false,
-        }
-    }
-}
-
-/// Something the system is about to do, or has just done.
-#[derive(Debug)]
-pub enum Event {
-    /// The system is about to sleep. Save, then [`Ack::done`].
-    Suspending(Ack),
-    /// The system woke up.
-    Resumed,
-    /// The user is signing out or shutting down. Save, then [`Ack::done`].
-    EndingSession(Ack),
-}
-
-/// Lets a reader wait, for a bounded time, until the app has handled an
-/// event the system will not wait long for.
-#[derive(Clone, Default)]
-pub struct Ack(Arc<(Mutex<bool>, Condvar)>);
-
-/// Events are logged; the lock and the condition variable inside say
-/// nothing worth reading there.
-impl std::fmt::Debug for Ack {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Ack")
-    }
-}
-
-impl Ack {
-    /// The app has done what the event asked.
-    pub fn done(&self) {
-        let (done, ring) = &*self.0;
-        *done.lock().unwrap_or_else(PoisonError::into_inner) = true;
-        ring.notify_all();
-    }
-
-    /// Waits until [`done`](Self::done) or `timeout`, whichever is first.
-    /// Returns whether the app answered in time.
-    #[cfg(any(target_os = "windows", target_os = "linux", test))]
-    fn wait(&self, timeout: Duration) -> bool {
-        let (done, ring) = &*self.0;
-        let done = done.lock().unwrap_or_else(PoisonError::into_inner);
-        let (done, _) = ring
-            .wait_timeout_while(done, timeout, |done| !*done)
-            .unwrap_or_else(PoisonError::into_inner);
-        *done
-    }
-}
+use crate::player::{LocalState, Playback};
 
 /// How much the app may spend on drawing and polling.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -123,170 +36,15 @@ pub fn budget(conditions: Conditions, window_shown: bool, focused: bool) -> Budg
     }
 }
 
-/// How long a reader waits for the app to save before the system sleeps.
-/// Windows gives a suspend callback about two seconds.
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-const SUSPEND_ACK: Duration = Duration::from_millis(1500);
-/// How long a reader holds back the end of the session for the app to save.
-/// Windows waits about five seconds before it lists the app as blocking.
-#[cfg(target_os = "windows")]
-const END_SESSION_ACK: Duration = Duration::from_secs(3);
-
-/// What the readers write and the app reads.
-struct Shared {
-    conditions: Mutex<Conditions>,
-    events: Mutex<Vec<Event>>,
-    wake: Box<dyn Fn() + Send + Sync>,
-}
-
-impl Shared {
-    fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
-        Self {
-            conditions: Mutex::new(Conditions::default()),
-            events: Mutex::new(Vec::new()),
-            wake: Box::new(wake),
-        }
-    }
-
-    /// Applies `change` and wakes the app if it changed anything.
-    fn update(&self, change: impl FnOnce(&mut Conditions)) {
-        let mut conditions = self
-            .conditions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let before = *conditions;
-        change(&mut conditions);
-        let after = *conditions;
-        drop(conditions);
-        if after != before {
-            log::info!("power and session: {after:?}");
-            (self.wake)();
-        }
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "linux", test))]
-    fn push(&self, event: Event) {
-        log::info!("power and session: {event:?}");
-        self.events
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(event);
-        (self.wake)();
-    }
-
-    /// Queues the event `make` builds and waits up to `timeout` for the app
-    /// to answer it.
-    #[cfg(any(target_os = "windows", target_os = "linux", test))]
-    fn push_and_wait(&self, make: impl FnOnce(Ack) -> Event, timeout: Duration) {
-        let ack = Ack::default();
-        self.push(make(ack.clone()));
-        if !ack.wait(timeout) {
-            log::warn!("power and session: the app did not answer within {timeout:?}");
-        }
-    }
-}
-
-/// Watches the system's power and session state for the app.
-pub struct Power {
-    shared: Arc<Shared>,
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    _reader: Option<Reader>,
-    #[cfg(target_os = "windows")]
-    eco_qos: windows::EcoQos,
-}
-
-#[cfg(target_os = "linux")]
-use self::linux::Reader;
-#[cfg(target_os = "macos")]
-use self::macos::Reader;
-#[cfg(target_os = "windows")]
-use self::windows::Reader;
-
-impl Power {
-    /// Starts the platform's reader; `wake` runs on a system thread whenever
-    /// something changes.
-    pub fn spawn(wake: impl Fn() + Send + Sync + 'static) -> Self {
-        let shared = Arc::new(Shared::new(wake));
-        Self {
-            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-            _reader: Reader::start(Arc::clone(&shared))
-                .inspect_err(|error| log::warn!("power and session state unavailable: {error}"))
-                .ok(),
-            #[cfg(target_os = "windows")]
-            eco_qos: windows::EcoQos::default(),
-            shared,
-        }
-    }
-
-    /// Conditions that never change, for tests and for apps without a reader.
-    pub fn fixed(conditions: Conditions) -> Self {
-        let shared = Arc::new(Shared::new(|| {}));
-        *shared
-            .conditions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = conditions;
-        Self {
-            shared,
-            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-            _reader: None,
-            #[cfg(target_os = "windows")]
-            eco_qos: windows::EcoQos::default(),
-        }
-    }
-
-    /// Tells the system whether the app runs where nobody can see it, so
-    /// the work it still does can run on efficient cores (EcoQoS on
-    /// Windows). Only a watching `Power` touches the process.
-    pub fn set_background(&mut self, background: bool) {
-        #[cfg(target_os = "windows")]
-        if self._reader.is_some() {
-            self.eco_qos.set(background);
-        }
-        #[cfg(not(target_os = "windows"))]
-        let _ = background;
-    }
-
-    /// The latest conditions.
-    pub fn conditions(&self) -> Conditions {
-        *self
-            .shared
-            .conditions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// The events since the last call, oldest first.
-    pub fn take_events(&self) -> Vec<Event> {
-        std::mem::take(
-            &mut *self
-                .shared
-                .events
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner),
-        )
-    }
-
-    /// Queues `event` as a reader would, for tests elsewhere.
-    #[cfg(test)]
-    pub fn emit(&self, event: Event) {
-        self.shared.push(event);
-    }
-
-    /// Changes the conditions as a reader would, for tests elsewhere.
-    #[cfg(test)]
-    pub fn set(&self, change: impl FnOnce(&mut Conditions)) {
-        self.shared.update(change);
-    }
-
-    /// Reads the platform's conditions that have no change notification.
-    /// Cheap; the app calls it from its logic pass now and then. Only a
-    /// watching `Power` reads them: a fixed one keeps what it was given.
-    pub fn refresh(&self) {
-        #[cfg(target_os = "macos")]
-        if self._reader.is_some() {
-            macos::refresh(&self.shared);
-        }
-    }
+/// Whether local playback is doing work the user is waiting for, which
+/// macOS must not slow down with App Nap while another app is in front:
+/// playing or loading on a connected engine. Pause, stop, an output error
+/// and a disconnection all let the app nap again; remote playback never
+/// holds it awake.
+pub fn playback_needs_activity(local: &LocalState) -> bool {
+    local.connected
+        && local.error.is_none()
+        && (local.loading || matches!(local.playback, Playback::Playing | Playback::Loading))
 }
 
 #[cfg(test)]
@@ -321,7 +79,6 @@ mod tests {
             ..Conditions::default()
         };
         let power = Power::fixed(given);
-        power.refresh();
         assert_eq!(power.conditions(), given);
     }
 
@@ -348,47 +105,32 @@ mod tests {
         );
     }
 
+    /// #789: local playback holds off App Nap while it plays or loads, and
+    /// lets go on pause, stop, an output error or a disconnection.
     #[test]
-    fn a_change_wakes_the_app_once_and_a_repeat_does_not() {
-        let woken = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let count = Arc::clone(&woken);
-        let shared = Shared::new(move || {
-            count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        });
-        shared.update(|conditions| conditions.saver = true);
-        shared.update(|conditions| conditions.saver = true);
-        shared.update(|conditions| conditions.online = false);
-        assert_eq!(woken.load(std::sync::atomic::Ordering::Relaxed), 2);
-    }
-
-    #[test]
-    fn a_reader_waits_for_the_answer_but_not_forever() {
-        let power = Power::fixed(Conditions::default());
-        let shared = Arc::clone(&power.shared);
-        let answered = std::thread::spawn(move || {
-            let started = std::time::Instant::now();
-            shared.push_and_wait(Event::Suspending, Duration::from_secs(30));
-            started.elapsed()
-        });
-        let ack = loop {
-            if let Some(Event::Suspending(ack)) = power.take_events().pop() {
-                break ack;
-            }
-            std::thread::sleep(Duration::from_millis(1));
+    fn only_local_playback_at_work_needs_an_activity() {
+        let mut local = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            ..LocalState::default()
         };
-        ack.done();
-        assert!(answered.join().unwrap() < Duration::from_secs(10));
-
-        let started = std::time::Instant::now();
-        power
-            .shared
-            .push_and_wait(Event::EndingSession, Duration::from_millis(30));
-        assert!(started.elapsed() >= Duration::from_millis(25), "gave up");
-    }
-
-    #[test]
-    fn events_read_plainly_in_the_log() {
-        let event = Event::Suspending(Ack::default());
-        assert_eq!(format!("{event:?}"), "Suspending(Ack)");
+        assert!(playback_needs_activity(&local));
+        local.playback = Playback::Loading;
+        assert!(playback_needs_activity(&local));
+        local.playback = Playback::Paused;
+        local.loading = true;
+        assert!(playback_needs_activity(&local), "the next track is loading");
+        local.loading = false;
+        for playback in [Playback::Paused, Playback::Stopped] {
+            local.playback = playback;
+            assert!(!playback_needs_activity(&local));
+        }
+        local.playback = Playback::Playing;
+        local.error = Some("output unavailable".into());
+        assert!(!playback_needs_activity(&local));
+        local.error = None;
+        local.connected = false;
+        assert!(!playback_needs_activity(&local));
+        assert!(!playback_needs_activity(&LocalState::default()));
     }
 }

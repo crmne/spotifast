@@ -83,6 +83,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 fn recent(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(6.0);
+    if !app.network_reachable && app.settings.search_history.is_empty() {
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::WifiOff,
+            &gettext(app.locale, "You're offline"),
+            &gettext(
+                app.locale,
+                "Connect to the internet to search songs, artists, and playlists.",
+            ),
+        );
+        return;
+    }
     if app.settings.search_history.is_empty() {
         widgets::empty_state(
             ui,

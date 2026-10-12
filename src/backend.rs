@@ -666,7 +666,10 @@ pub enum Command {
         engine: Box<Option<Engine>>,
         error: Option<String>,
         lease: CredentialLease,
+        attempt: u64,
     },
+    /// OS reports network reachability changed.
+    NetworkStatus(bool),
     /// Internal: librespot's session ended on its own.
     Reconnect,
     /// Look for Spotify Connect receivers on the local network.
@@ -725,6 +728,9 @@ pub enum Command {
     AlbumTypes(Vec<String>),
     /// Ask the streaming session which saved shows are audiobooks.
     AudiobookShows(Vec<String>),
+    /// Read the headers of library playlists the Web API listed blank
+    /// through the streaming session.
+    PlaylistHeaders(Vec<String>),
     /// Resolve Spotify's radio seeded by `seed` through the streaming session.
     Radio {
         seed: String,
@@ -741,6 +747,14 @@ pub enum Command {
     AudiobookShowsResolved {
         session_generation: u64,
         audiobooks: Vec<String>,
+    },
+    /// Internal: one playlist header read finished for the session and
+    /// engine it started on. `None` when the session could not read it.
+    PlaylistHeaderResolved {
+        id: String,
+        session_generation: u64,
+        engine_generation: u64,
+        header: Option<crate::api::models::Playlist>,
     },
     /// Internal: one precise album type lookup finished.
     AlbumTypeResolved {
@@ -844,6 +858,9 @@ pub enum Event {
     /// Saved shows that Spotify's metadata marks as audiobooks. librespot
     /// cannot play them, so the Podcasts shelf leaves them out.
     AudiobookShows(Vec<String>),
+    /// The header the streaming session read for a library playlist the
+    /// Web API listed blank.
+    PlaylistHeader(crate::api::models::Playlist),
     /// The songs of the radio seeded by `seed`, for the request `generation`.
     Radio {
         seed: String,
@@ -864,6 +881,8 @@ pub enum Event {
         generation: u64,
         cache: Option<crate::liked::Cache>,
     },
+    /// OS reports network reachability changed.
+    NetworkStatus(bool),
 }
 
 /// The state of playback on this computer, independent of Web API sign-in.
@@ -875,6 +894,8 @@ pub enum LocalPlayback {
     Authorizing,
     /// Connecting the librespot engine.
     Connecting,
+    /// Network path is unavailable; reconnection suspended pending reachability.
+    WaitingForNetwork,
     /// This computer is a ready Spotify Connect device.
     Ready {
         device_id: String,
@@ -896,6 +917,8 @@ pub struct Backend {
     activity: Arc<NetActivity>,
     thread: Option<std::thread::JoinHandle<()>>,
     offline: bool,
+    #[cfg(test)]
+    network_statuses: std::sync::Mutex<Vec<bool>>,
     #[cfg(test)]
     playlist_item_requests: std::sync::Mutex<Vec<(String, u32, u64)>>,
     #[cfg(test)]
@@ -982,6 +1005,8 @@ impl Backend {
             activity,
             thread: Some(thread),
             offline: false,
+            #[cfg(test)]
+            network_statuses: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             playlist_item_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
@@ -1216,6 +1241,27 @@ impl Backend {
         self.send(Command::Player(command));
     }
 
+    /// Whether the system says the internet can be reached. Without it the
+    /// engine waits for it to come back instead of retrying.
+    pub fn network_status(&self, reachable: bool) {
+        #[cfg(test)]
+        self.network_statuses
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(reachable);
+        self.send(Command::NetworkStatus(reachable));
+    }
+
+    #[cfg(test)]
+    pub fn take_network_statuses(&self) -> Vec<bool> {
+        std::mem::take(
+            &mut *self
+                .network_statuses
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
     pub(crate) fn album_types(&self, uris: Vec<String>) {
         #[cfg(test)]
         self.album_type_requests
@@ -1327,12 +1373,85 @@ impl AlbumTypeLookup {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PlaylistHeaderRequest {
+    id: String,
+    session_generation: u64,
+    engine_generation: u64,
+}
+
+/// Library playlists waiting for the streaming session to read their
+/// headers, read one at a time. A read still running when its engine is
+/// replaced goes back to the front of the queue for the new engine, and its
+/// answer from the retired one is ignored.
+#[derive(Default)]
+struct PlaylistHeaderLookup {
+    engine_generation: u64,
+    pending: VecDeque<String>,
+    active: Option<PlaylistHeaderRequest>,
+}
+
+impl PlaylistHeaderLookup {
+    fn enqueue(&mut self, ids: Vec<String>) {
+        for id in ids {
+            let active = self.active.as_ref().is_some_and(|request| request.id == id);
+            if !active && !self.pending.contains(&id) {
+                self.pending.push_back(id);
+            }
+        }
+    }
+
+    fn next(&mut self, session_generation: u64) -> Option<PlaylistHeaderRequest> {
+        if self.active.is_some() {
+            return None;
+        }
+        let request = PlaylistHeaderRequest {
+            id: self.pending.pop_front()?,
+            session_generation,
+            engine_generation: self.engine_generation,
+        };
+        self.active = Some(request.clone());
+        Some(request)
+    }
+
+    fn finish(&mut self, request: &PlaylistHeaderRequest) -> bool {
+        if self.active.as_ref() != Some(request) {
+            return false;
+        }
+        self.active = None;
+        true
+    }
+
+    fn requeue(&mut self, id: String) {
+        if !self.pending.contains(&id) {
+            self.pending.push_front(id);
+        }
+    }
+
+    fn requeue_active_for_new_engine(&mut self) {
+        self.engine_generation = self.engine_generation.wrapping_add(1);
+        if let Some(request) = self.active.take() {
+            self.requeue(request.id);
+        }
+    }
+
+    fn clear_engine_work(&mut self) {
+        self.engine_generation = self.engine_generation.wrapping_add(1);
+        self.active = None;
+        self.pending.clear();
+    }
+}
+
 struct Worker {
     mcp: Option<crate::mcp::Server>,
     dirs: AppDirs,
     credentials: CredentialStore,
     web_tokens: [Option<Arc<WebTokens>>; 2],
     playback_grant: Option<Credentials>,
+    /// Credentials retained from a connection attempt while offline before
+    /// a durable grant has been stored, so recovery can reconnect when the
+    /// network returns.
+    pending_playback_grant: Option<Credentials>,
     restore_pending: [bool; 3],
     restoring_proxy: bool,
     waiting_for_proxy: VecDeque<Command>,
@@ -1346,6 +1465,7 @@ struct Worker {
     web_client_id: Option<String>,
     http: Http,
     api: Arc<ApiGateway>,
+    connect: Arc<crate::sonos::Controller>,
     background_api: Arc<tokio::sync::Semaphore>,
     art: ArtLoader,
     events: std::sync::mpsc::Sender<Event>,
@@ -1363,6 +1483,9 @@ struct Worker {
     album_type_lookup: AlbumTypeLookup,
     /// Saved shows waiting for the streaming session to say which are audiobooks.
     audiobook_lookup: BTreeSet<String>,
+    /// Library playlists the Web API listed blank, waiting for the streaming
+    /// session to read their headers.
+    playlist_header_lookup: PlaylistHeaderLookup,
     /// Radios asked for before the streaming session was ready, by seed.
     radio_waiting: BTreeMap<String, u64>,
     /// True while a playback grant or engine connection is in flight, so a
@@ -1384,6 +1507,9 @@ struct Worker {
     resume: Option<PlaybackResume>,
     /// A pickup in flight: the load to repeat and how often it was tried.
     resume_verify: Option<(PlaybackResume, u8)>,
+    network_reachable: bool,
+    waiting_for_network: bool,
+    engine_attempt: u64,
 }
 
 impl Worker {
@@ -1407,6 +1533,7 @@ impl Worker {
             credentials: CredentialStore::in_memory(dirs.clone()),
             web_tokens: [None, None],
             playback_grant: None,
+            pending_playback_grant: None,
             restore_pending: [false; 3],
             restoring_proxy: false,
             waiting_for_proxy: VecDeque::new(),
@@ -1419,6 +1546,7 @@ impl Worker {
             engine_proxy: None,
             web_client_id,
             api: Arc::new(ApiGateway::new(http.clone(), activity)),
+            connect: Arc::default(),
             background_api: Arc::new(tokio::sync::Semaphore::new(4)),
             http,
             art,
@@ -1430,6 +1558,7 @@ impl Worker {
             rootlist_pending: false,
             album_type_lookup: AlbumTypeLookup::default(),
             audiobook_lookup: BTreeSet::new(),
+            playlist_header_lookup: PlaylistHeaderLookup::default(),
             radio_waiting: BTreeMap::new(),
             engine_busy: false,
             search_tasks: Vec::new(),
@@ -1442,6 +1571,9 @@ impl Worker {
             reconnects: Vec::new(),
             resume: None,
             resume_verify: None,
+            network_reachable: true,
+            waiting_for_network: false,
+            engine_attempt: 0,
         }
     }
 
@@ -1737,16 +1869,21 @@ impl Worker {
                 Command::ApplyProxy { request, config } => {
                     self.change_proxy(request, config, false)
                 }
-                Command::Player(command) => match &self.engine {
-                    Some(engine) => {
-                        if let Err(error) = engine.command(command) {
-                            self.emit(Event::Error(format!("Playback error: {error}")));
-                        }
+                Command::Player(command) => {
+                    if matches!(&command, PlayerCommand::Load(_)) {
+                        self.resume = None;
                     }
-                    None => self.emit(Event::Error(
-                        "Local playback isn't set up on this computer yet".into(),
-                    )),
-                },
+                    match &self.engine {
+                        Some(engine) => {
+                            if let Err(error) = engine.command(command) {
+                                self.emit(Event::Error(format!("Playback error: {error}")));
+                            }
+                        }
+                        None => self.emit(Event::Error(
+                            "Local playback isn't set up on this computer yet".into(),
+                        )),
+                    }
+                }
                 Command::Api(ApiRequest::Search { query, serial }) => self.search(query, serial),
                 Command::Api(request) => {
                     self.dispatch(request);
@@ -1789,6 +1926,19 @@ impl Worker {
                         self.on_account_checked(
                             user.product.as_deref().map(|product| product == "premium"),
                         );
+                    }
+                    match response.as_ref() {
+                        ApiResponse::Devices(Ok(devices)) => self.connect.observe_devices(devices),
+                        ApiResponse::PlaybackState {
+                            seq,
+                            result: Ok(state),
+                        } => {
+                            self.connect.observe_playing(
+                                *seq,
+                                state.as_ref().and_then(|state| state.device.as_ref()),
+                            );
+                        }
+                        _ => {}
                     }
                     if let Some(completion) = mcp_reply {
                         if completion.result.is_ok() {
@@ -1879,11 +2029,24 @@ impl Worker {
                     engine,
                     error,
                     lease,
+                    attempt,
                 } => {
                     if lease.current() && self.signed_in {
-                        self.on_engine_connected(session_generation, *engine, error)
+                        self.on_engine_connected(session_generation, *engine, error, attempt);
                     } else if let Some(engine) = *engine {
                         engine.shutdown();
+                    }
+                }
+                Command::NetworkStatus(reachable) => {
+                    self.network_reachable = reachable;
+                    self.emit(Event::NetworkStatus(reachable));
+                    if !reachable {
+                        self.waiting_for_network = true;
+                    } else if self.engine.is_some() {
+                        self.waiting_for_network = false;
+                    } else if self.waiting_for_network && !self.engine_busy {
+                        self.waiting_for_network = false;
+                        self.resume_engine();
                     }
                 }
                 Command::SignInEnded { source, attempt } => {
@@ -2050,6 +2213,10 @@ impl Worker {
                     self.audiobook_lookup.extend(uris);
                     self.start_audiobook_lookup();
                 }
+                Command::PlaylistHeaders(ids) => {
+                    self.playlist_header_lookup.enqueue(ids);
+                    self.start_playlist_header_lookup();
+                }
                 Command::Radio { seed, generation } => {
                     self.radio_waiting.insert(seed, generation);
                     self.start_radio();
@@ -2076,6 +2243,19 @@ impl Worker {
                         self.emit(Event::AudiobookShows(audiobooks));
                     }
                 }
+                Command::PlaylistHeaderResolved {
+                    id,
+                    session_generation,
+                    engine_generation,
+                    header,
+                } => self.on_playlist_header_resolved(
+                    PlaylistHeaderRequest {
+                        id,
+                        session_generation,
+                        engine_generation,
+                    },
+                    header,
+                ),
                 Command::AlbumTypeResolved {
                     uri,
                     session_generation,
@@ -2428,6 +2608,17 @@ impl Worker {
                 }
             }
         };
+        let listener = match crate::auth::listen_for_redirect(grant.redirect_port) {
+            Ok(listener) => listener,
+            Err(error) => {
+                if source == ApiSource::Shared {
+                    self.emit(Event::Auth(AuthStatus::Failed(error.to_string())));
+                } else {
+                    self.emit(Event::Error(error.to_string()));
+                }
+                return;
+            }
+        };
         self.credentials.invalidate(web_slot(source));
         self.restore_pending[web_slot(source).index()] = false;
         let lease = self.credentials.lease(web_slot(source));
@@ -2454,8 +2645,8 @@ impl Worker {
         let commands = self.commands.clone();
         tokio::spawn(async move {
             let result = async {
-                let code =
-                    crate::auth::wait_for_code(grant.redirect_port, &flow.state, cancel_rx).await?;
+                let code = crate::auth::wait_for_code_on_listener(listener, &flow.state, cancel_rx)
+                    .await?;
                 let response =
                     crate::auth::exchange_code(&http, &grant, &code, &flow.verifier).await?;
                 crate::auth::StoredToken::from_response(&grant.client_id, response, None)
@@ -2533,6 +2724,7 @@ impl Worker {
         self.signed_in = false;
         self.rootlist_pending = false;
         self.session.send_modify(|generation| *generation += 1);
+        self.connect = Arc::default();
         self.authorization_attempt += 1;
         if let Err(error) = self.credentials.revoke_spotify() {
             self.emit(Event::Error(error.to_string()));
@@ -2540,12 +2732,15 @@ impl Worker {
         self.restore_pending = [false; 3];
         self.web_tokens = [None, None];
         self.playback_grant = None;
+        self.pending_playback_grant = None;
         self.engine_busy = false;
         self.premium = None;
         self.resume = None;
         self.resume_verify = None;
+        self.waiting_for_network = false;
         self.album_type_lookup.reset_session();
         self.audiobook_lookup.clear();
+        self.playlist_header_lookup.clear_engine_work();
         self.radio_waiting.clear();
         self.carry_volume();
         if let Some(engine) = self.engine.take() {
@@ -2608,10 +2803,20 @@ impl Worker {
         {
             return;
         }
-        if let Some(credentials) = self.playback_grant.clone() {
+        let credentials = self
+            .pending_playback_grant
+            .clone()
+            .or_else(|| self.playback_grant.clone());
+        if let Some(credentials) = credentials {
+            if !self.network_reachable {
+                self.waiting_for_network = true;
+                self.emit(Event::Playback(LocalPlayback::WaitingForNetwork));
+                return;
+            }
             if credentials.username.as_deref()
                 != self.api.account().as_ref().map(|account| account.as_str())
             {
+                self.pending_playback_grant = None;
                 self.emit(Event::Playback(LocalPlayback::Failed(
                     "Stored playback belongs to another Spotify account. Enable playback again."
                         .into(),
@@ -2648,6 +2853,12 @@ impl Worker {
         if self.engine_busy {
             return;
         }
+        if !self.network_reachable {
+            self.take_engine_for_resume();
+            self.waiting_for_network = true;
+            self.emit(Event::Playback(LocalPlayback::WaitingForNetwork));
+            return;
+        }
         let now = Instant::now();
         if session_drops_exhausted(&mut self.reconnects, now) {
             self.take_engine_for_resume();
@@ -2681,6 +2892,7 @@ impl Worker {
     fn take_engine_for_resume(&mut self) {
         self.resume_verify = None;
         self.album_type_lookup.requeue_active_for_new_engine();
+        self.playlist_header_lookup.requeue_active_for_new_engine();
         self.carry_volume();
         if let Some(engine) = self.engine.take() {
             self.resume = engine.resume_point();
@@ -2766,6 +2978,7 @@ impl Worker {
     /// this worker receives the connected engine and persists them securely.
     fn connect_engine(&mut self, credentials: Credentials) {
         if let Err(error) = self.http.client() {
+            self.pending_playback_grant = None;
             self.emit(Event::Playback(LocalPlayback::Failed(error)));
             return;
         }
@@ -2773,13 +2986,17 @@ impl Worker {
             return;
         }
         if self.premium == Some(false) {
+            self.pending_playback_grant = None;
             self.emit(Event::Playback(LocalPlayback::Failed(
                 PREMIUM_NEEDED.into(),
             )));
             return;
         }
+        self.pending_playback_grant = Some(credentials.clone());
         self.cancel_signin = None;
         self.engine_busy = true;
+        self.engine_attempt = self.engine_attempt.wrapping_add(1);
+        let attempt = self.engine_attempt;
         self.emit(Event::Playback(LocalPlayback::Connecting));
         let lease = self.credentials.lease(CredentialSlot::Playback);
         let config = self.engine_config.clone();
@@ -2799,11 +3016,12 @@ impl Worker {
                         session_generation,
                         engine: Box::new(None),
                         error: Some(error.to_string()),
+                        attempt,
                     });
                     return;
                 }
             };
-            let attempt = connect_engine_with_deadline(Engine::connect(
+            let connect_outcome = connect_engine_with_deadline(Engine::connect(
                 &config,
                 proxy,
                 credentials,
@@ -2811,12 +3029,13 @@ impl Worker {
                 notify,
             ))
             .await;
-            let outcome = match attempt {
+            let outcome = match connect_outcome {
                 Ok(Ok(engine)) => Command::EngineConnected {
                     lease: lease.clone(),
                     session_generation,
                     engine: Box::new(Some(engine)),
                     error: None,
+                    attempt,
                 },
                 Ok(Err(error)) => {
                     log::error!("engine connect failed: {error:#}");
@@ -2825,6 +3044,7 @@ impl Worker {
                         session_generation,
                         engine: Box::new(None),
                         error: Some(friendly_connect_error(&error)),
+                        attempt,
                     }
                 }
                 Err(_) => Command::EngineConnected {
@@ -2832,6 +3052,7 @@ impl Worker {
                     session_generation,
                     engine: Box::new(None),
                     error: Some("Connecting to Spotify timed out".into()),
+                    attempt,
                 },
             };
             let _ = commands.send(outcome);
@@ -2845,8 +3066,15 @@ impl Worker {
         session_generation: u64,
         engine: Option<Engine>,
         error: Option<String>,
+        attempt: u64,
     ) {
         if !self.signed_in || session_generation != self.album_type_lookup.session_generation {
+            if let Some(engine) = engine {
+                engine.shutdown();
+            }
+            return;
+        }
+        if attempt != self.engine_attempt {
             if let Some(engine) = engine {
                 engine.shutdown();
             }
@@ -2864,6 +3092,8 @@ impl Worker {
         }
         match engine {
             Some(engine) => {
+                self.waiting_for_network = false;
+                self.pending_playback_grant = None;
                 if let Some(grant) = engine.credentials() {
                     if !playback_account_matches(&grant, self.api.account()) {
                         engine.shutdown();
@@ -2896,12 +3126,35 @@ impl Worker {
                 self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
                 self.start_album_type_lookup();
                 self.start_audiobook_lookup();
+                self.start_playlist_header_lookup();
                 self.start_radio();
             }
             None => {
-                self.resume = None;
-                let message = error.unwrap_or_else(|| "Local playback is unavailable".into());
-                self.emit(Event::Playback(LocalPlayback::Failed(message)));
+                if !self.network_reachable {
+                    self.waiting_for_network = true;
+                    self.emit(Event::Playback(LocalPlayback::WaitingForNetwork));
+                } else if self.waiting_for_network
+                    && !is_terminal_credential_error(error.as_deref())
+                {
+                    self.waiting_for_network = false;
+                    let now = Instant::now();
+                    if session_drops_exhausted(&mut self.reconnects, now) {
+                        self.pending_playback_grant = None;
+                        self.resume = None;
+                        self.emit(Event::Playback(LocalPlayback::Failed(
+                            "Local playback keeps dropping. Re-enable it from Settings.".into(),
+                        )));
+                    } else {
+                        self.reconnects.push(now);
+                        self.resume_engine();
+                    }
+                } else {
+                    self.waiting_for_network = false;
+                    self.pending_playback_grant = None;
+                    self.resume = None;
+                    let message = error.unwrap_or_else(|| "Local playback is unavailable".into());
+                    self.emit(Event::Playback(LocalPlayback::Failed(message)));
+                }
             }
         }
     }
@@ -2913,10 +3166,12 @@ impl Worker {
         self.premium = premium;
         if premium == Some(false) {
             self.album_type_lookup.clear_engine_work();
+            self.playlist_header_lookup.clear_engine_work();
             self.carry_volume();
             if let Some(engine) = self.engine.take() {
                 engine.shutdown();
             }
+            self.pending_playback_grant = None;
             let credential_stored = self.playback_grant.is_some();
             if credential_stored {
                 self.emit(Event::Playback(LocalPlayback::Failed(
@@ -2926,6 +3181,9 @@ impl Worker {
             return;
         }
         self.resume_engine();
+        // A sign-in restored over a running engine picks up the headers the
+        // lapse held back.
+        self.start_playlist_header_lookup();
     }
 
     // ---- receivers on the local network -----------------------------------
@@ -2935,11 +3193,13 @@ impl Worker {
     fn discover_receivers(&self) {
         let events = self.events.clone();
         let waker = self.waker.clone();
+        let connect = Arc::clone(&self.connect);
         tokio::task::spawn_blocking(move || {
             match crate::zeroconf::discover(std::time::Duration::from_secs(3))
                 .and_then(crate::zeroconf::resolve_receivers)
             {
                 Ok(receivers) => {
+                    connect.remember(&receivers);
                     let _ = events.send(Event::Receivers(receivers));
                     waker.wake();
                 }
@@ -3131,6 +3391,66 @@ impl Worker {
                 audiobooks,
             });
         });
+    }
+
+    /// Reads the next waiting playlist header over the streaming session,
+    /// never the Web API, which already listed it blank. One read runs at a
+    /// time, so a long list stays gentle on Spotify, and each header is sent
+    /// as it arrives so the rows fill in turn. Without a session they wait; a
+    /// header that cannot be read leaves its row as listed.
+    fn start_playlist_header_lookup(&mut self) {
+        if !self.signed_in {
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let Some(request) = self.playlist_header_lookup.next(*self.session.borrow()) else {
+            return;
+        };
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            let read = session_reads::playlist(engine.session(), &request.id);
+            let header = match tokio::time::timeout(SESSION_READ_TIMEOUT, read).await {
+                Ok(Ok(header)) => Some(header),
+                Ok(Err(error)) => {
+                    log::debug!("playlist header lookup failed: {error:?}");
+                    None
+                }
+                Err(_) => {
+                    log::debug!("playlist header lookup timed out");
+                    None
+                }
+            };
+            let _ = commands.send(Command::PlaylistHeaderResolved {
+                id: request.id,
+                session_generation: request.session_generation,
+                engine_generation: request.engine_generation,
+                header,
+            });
+        });
+    }
+
+    fn on_playlist_header_resolved(
+        &mut self,
+        request: PlaylistHeaderRequest,
+        header: Option<crate::api::models::Playlist>,
+    ) {
+        if !self.playlist_header_lookup.finish(&request) {
+            return;
+        }
+        // A read that finishes while the sign-in has lapsed is not shown. It
+        // goes back to the front of the queue and is read again, with the
+        // rest, once the sign-in comes back. Signing out clears the queue
+        // instead, so its answer never arrives here.
+        if !self.signed_in {
+            self.playlist_header_lookup.requeue(request.id);
+            return;
+        }
+        if let Some(header) = header {
+            self.emit(Event::PlaylistHeader(header));
+        }
+        self.start_playlist_header_lookup();
     }
 
     /// Resolves the waiting radios once the streaming session is ready; the
@@ -3341,6 +3661,7 @@ impl Worker {
             return;
         }
         let api = Arc::clone(&self.api);
+        let connect = Arc::clone(&self.connect);
         let engine = self.engine.clone();
         let commands = self.commands.clone();
         let mut session = self.session.subscribe();
@@ -3351,7 +3672,7 @@ impl Worker {
             let outcome = tokio::select! {
                 _ = session.changed() => return,
                 _ = cancel.cancelled() => return,
-                result = handle_mcp(&api, engine.as_deref(), request) => result,
+                result = handle_mcp(&api, &connect, engine.as_deref(), request) => result,
             };
             let _ = commands.send(Command::ApiFinished {
                 mcp_reply: Some(crate::mcp::Completion {
@@ -3369,6 +3690,7 @@ impl Worker {
 
     fn dispatch(&self, request: ApiRequest) -> tokio::task::AbortHandle {
         let api = Arc::clone(&self.api);
+        let connect = Arc::clone(&self.connect);
         let shared_lease = self.credentials.lease(CredentialSlot::Shared);
         let personal_lease = self.credentials.lease(CredentialSlot::Personal);
         let background_api = Arc::clone(&self.background_api);
@@ -3386,7 +3708,7 @@ impl Worker {
                     } else {
                         None
                     };
-                    handle(&api, engine.as_deref(), request).await
+                    handle(&api, &connect, engine.as_deref(), request).await
                 } => result,
             };
             // Apply completion on the command loop. A late response cannot
@@ -3434,6 +3756,16 @@ fn friendly_connect_error(error: &anyhow::Error) -> String {
     } else {
         text
     }
+}
+
+fn is_terminal_credential_error(error: Option<&str>) -> bool {
+    error.is_some_and(|msg| {
+        let lower = msg.to_lowercase();
+        lower.contains("badcredentials")
+            || lower.contains("bad credentials")
+            || lower.contains("rejected the saved sign-in")
+            || lower.contains("premium")
+    })
 }
 
 fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
@@ -3569,7 +3901,12 @@ struct McpOutcome {
     result: Result<serde_json::Value, String>,
 }
 
-async fn handle_mcp(api: &ApiGateway, engine: Option<&Engine>, request: ApiRequest) -> McpOutcome {
+async fn handle_mcp(
+    api: &ApiGateway,
+    connect: &crate::sonos::Controller,
+    engine: Option<&Engine>,
+    request: ApiRequest,
+) -> McpOutcome {
     // Read metadata before playlist operations so routing knows ownership, and
     // page readers receive the revision needed for later positional edits.
     let playlist_id = match &request {
@@ -3583,6 +3920,7 @@ async fn handle_mcp(api: &ApiGateway, engine: Option<&Engine>, request: ApiReque
     if let Some(id) = playlist_id {
         let (response, expired) = handle(
             api,
+            connect,
             engine,
             ApiRequest::Playlist {
                 id: id.clone(),
@@ -3623,7 +3961,7 @@ async fn handle_mcp(api: &ApiGateway, engine: Option<&Engine>, request: ApiReque
         }
     }
     let is_page = matches!(request, ApiRequest::PlaylistItems { .. });
-    let (response, expired) = handle(api, engine, request).await;
+    let (response, expired) = handle(api, connect, engine, request).await;
     let mut result = crate::mcp::response(&response);
     if is_page && let Ok(data) = &mut result {
         data["snapshot_id"] = serde_json::json!(snapshot);
@@ -3637,6 +3975,7 @@ async fn handle_mcp(api: &ApiGateway, engine: Option<&Engine>, request: ApiReque
 
 async fn handle(
     api: &ApiGateway,
+    connect: &crate::sonos::Controller,
     engine: Option<&Engine>,
     request: ApiRequest,
 ) -> (ApiResponse, Option<ApiSource>) {
@@ -3651,6 +3990,13 @@ async fn handle(
     {
         log::debug!("Spotify route operation={operation:?} source=session");
         observe_playlists(api, &response);
+        return (response, None);
+    }
+    if let Some(engine) =
+        engine.filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
+        && let Some(response) = over_connect(engine, connect, &request).await
+    {
+        log::debug!("Spotify route operation={operation:?} source=connect");
         return (response, None);
     }
     let selected = api.client_for(operation).await;
@@ -4055,6 +4401,107 @@ async fn handle(
     (response, expired.get())
 }
 
+/// Player commands for a device the Web API refuses (a Sonos, say) go over
+/// the session's Connect state service instead. `None` leaves the request
+/// to the Web API. See [`crate::sonos`].
+async fn over_connect(
+    engine: &Engine,
+    connect: &crate::sonos::Controller,
+    request: &ApiRequest,
+) -> Option<ApiResponse> {
+    let session = engine.session();
+    Some(match request {
+        ApiRequest::Remote {
+            action,
+            device_id,
+            play,
+            position_ms,
+            percent,
+            flag,
+            repeat,
+        } => {
+            let to = connect.restricted_target(device_id.as_deref())?;
+            let result = match crate::sonos::command_body(
+                *action,
+                play.as_ref(),
+                *position_ms,
+                *flag,
+                repeat,
+            ) {
+                Some(body) => crate::sonos::command(session, &to, &body).await,
+                None => crate::sonos::set_volume(session, &to, *percent).await,
+            };
+            ApiResponse::Remote {
+                action: *action,
+                result,
+            }
+        }
+        ApiRequest::ShufflePlay { device_id, play } => {
+            let to = connect.restricted_target(device_id.as_deref())?;
+            let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "")?;
+            let start = crate::sonos::command_body(RemoteAction::Play, Some(play), 0, false, "")?;
+            let result = shuffle_then_play(shuffle, start, |body| {
+                let to = &to;
+                async move { crate::sonos::command(session, to, &body).await }
+            })
+            .await;
+            ApiResponse::Remote {
+                action: RemoteAction::Play,
+                result,
+            }
+        }
+        ApiRequest::Transfer { device_id, .. } => {
+            connect.restricted_target(Some(device_id))?;
+            ApiResponse::Transferred {
+                result: connect.transfer(session, device_id).await,
+                device_id: device_id.clone(),
+            }
+        }
+        ApiRequest::AddToQueue {
+            uri,
+            device_id,
+            label,
+        } => {
+            let to = connect.restricted_target(device_id.as_deref())?;
+            let (_, result) = connect
+                .add_to_queue(session, &to, std::slice::from_ref(uri))
+                .await;
+            ApiResponse::QueueAdded {
+                result,
+                label: label.clone(),
+            }
+        }
+        ApiRequest::AddManyToQueue {
+            request,
+            uris,
+            device_id,
+        } => {
+            let to = connect.restricted_target(device_id.as_deref())?;
+            let (added, result) = connect.add_to_queue(session, &to, uris).await;
+            ApiResponse::QueueBatchAdded {
+                request: *request,
+                added,
+                result,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// Waits for shuffle to succeed before starting playback, preserving either error.
+async fn shuffle_then_play<F, Fut>(
+    shuffle: serde_json::Value,
+    play: serde_json::Value,
+    mut send: F,
+) -> ApiResult<()>
+where
+    F: FnMut(serde_json::Value) -> Fut,
+    Fut: std::future::Future<Output = ApiResult<()>>,
+{
+    send(shuffle).await?;
+    send(play).await
+}
+
 /// Whether a session signed in as `username` answers for the Web API's
 /// account. Local playback is approved separately, and another account's
 /// view of a playlist is not this one's.
@@ -4266,24 +4713,12 @@ fn write_cached_playlist_file(
 ) -> std::io::Result<()> {
     use std::io::Write;
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let temporary = path.with_extension("json.tmp");
-    let file = std::fs::File::create(&temporary)?;
-    let result = (|| {
+    fastframe_file::write_with(path, fastframe_file::Access::Default, |file| {
         // Buffer small serializer writes without retaining the whole JSON file.
         let mut writer = std::io::BufWriter::new(file);
         serde_json::to_writer(&mut writer, cached).map_err(std::io::Error::other)?;
-        writer.flush()?;
-        // Windows requires the temporary file to be closed before replacement.
-        drop(writer);
-        crate::util::replace_file(&temporary, path)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
+        writer.flush()
+    })
 }
 
 /// The manifest stays constant-sized as the row file grows. A reader only
@@ -4622,23 +5057,16 @@ fn write_playlist_manifest(
 ) -> std::io::Result<()> {
     use std::io::Write;
 
-    let target = playlist_manifest_path(path);
-    let temporary = target.with_extension("json.tmp");
-    let result = (|| {
-        let file = std::fs::File::create(&temporary)?;
-        let mut writer = std::io::BufWriter::new(file);
-        serde_json::to_writer(&mut writer, manifest).map_err(std::io::Error::other)?;
-        writer.flush()?;
-        writer
-            .into_inner()
-            .map_err(|error| error.into_error())?
-            .sync_all()?;
-        crate::util::replace_file(&temporary, &target)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(temporary);
-    }
-    result
+    // The new manifest reaches the disk before it replaces the old one.
+    fastframe_file::write_with(
+        &playlist_manifest_path(path),
+        fastframe_file::Access::Default,
+        |file| {
+            let mut writer = std::io::BufWriter::new(file);
+            serde_json::to_writer(&mut writer, manifest).map_err(std::io::Error::other)?;
+            writer.flush()
+        },
+    )
 }
 
 #[cfg(test)]
@@ -4757,11 +5185,71 @@ mod album_type_lookup_tests {
 }
 
 #[cfg(test)]
+mod playlist_header_lookup_tests {
+    use super::PlaylistHeaderLookup;
+
+    /// Blank library playlists are read one at a time: a batch that arrives
+    /// while a read runs waits behind it rather than starting a second read
+    /// beside it, and a playlist already waiting or being read is not queued
+    /// twice.
+    #[test]
+    fn playlist_headers_are_read_one_at_a_time() {
+        let mut lookup = PlaylistHeaderLookup::default();
+        lookup.enqueue(vec!["first".into(), "second".into()]);
+        let first = lookup.next(1).expect("first read");
+        assert_eq!(first.id, "first");
+        assert_eq!(lookup.next(1), None, "one read at a time");
+
+        lookup.enqueue(vec!["first".into(), "second".into(), "third".into()]);
+        assert_eq!(lookup.pending, ["second", "third"]);
+        assert_eq!(lookup.next(1), None, "a later batch waits too");
+
+        assert!(lookup.finish(&first));
+        assert_eq!(
+            lookup.next(1).map(|request| request.id).as_deref(),
+            Some("second")
+        );
+    }
+
+    /// A read still running when the engine is replaced goes back to the
+    /// front of the queue for the new engine, and the retired engine's
+    /// answer is ignored rather than finishing the new read.
+    #[test]
+    fn a_playlist_header_read_on_a_retired_engine_is_read_again() {
+        let mut lookup = PlaylistHeaderLookup::default();
+        lookup.enqueue(vec!["active".into(), "waiting".into()]);
+        let retired = lookup.next(1).expect("read on the old engine");
+
+        lookup.requeue_active_for_new_engine();
+        assert_eq!(lookup.pending, ["active", "waiting"]);
+
+        let replacement = lookup.next(1).expect("read on the new engine");
+        assert_eq!(replacement.id, "active");
+        assert_ne!(retired.engine_generation, replacement.engine_generation);
+        assert!(!lookup.finish(&retired), "the retired answer is ignored");
+        assert!(lookup.finish(&replacement));
+    }
+
+    #[test]
+    fn clearing_engine_work_drops_waiting_playlist_headers() {
+        let mut lookup = PlaylistHeaderLookup::default();
+        lookup.enqueue(vec!["active".into(), "waiting".into()]);
+        let active = lookup.next(1).expect("read before sign-out");
+
+        lookup.clear_engine_work();
+
+        assert!(lookup.active.is_none());
+        assert!(lookup.pending.is_empty());
+        assert!(!lookup.finish(&active));
+    }
+}
+
+#[cfg(test)]
 mod playlist_cache_tests {
     use super::{
-        CachedPlaylist, PlaylistCacheRows, playlist_data_path, playlist_manifest_path,
-        read_cached_playlist, read_incremental_playlist_cache_file, read_playlist_cache,
-        read_playlist_manifest, write_cached_playlist, write_incremental_playlist_cache_file,
+        CachedPlaylist, PlaylistCacheRows, playlist_data_path, read_cached_playlist,
+        read_incremental_playlist_cache_file, read_playlist_cache, read_playlist_manifest,
+        write_cached_playlist, write_incremental_playlist_cache_file,
     };
     use crate::api::models::{PlayableItem, PlaylistItem, Track};
 
@@ -4812,18 +5300,22 @@ mod playlist_cache_tests {
             previous_offset: 50,
             items: vec![added.clone()],
         };
-        let temporary = playlist_manifest_path(&path).with_extension("json.tmp");
-        std::fs::create_dir(&temporary).unwrap();
-        assert!(
-            write_incremental_playlist_cache_file(&path, "same".into(), append(), 100, Some(75))
-                .is_err()
-        );
+        // An append whose manifest was never published (the app stopped
+        // between the rows and the manifest) leaves its rows behind.
+        {
+            use std::io::Write;
+            let mut data = std::fs::OpenOptions::new()
+                .append(true)
+                .open(playlist_data_path(&path, initial.data_file))
+                .unwrap();
+            serde_json::to_writer(&mut data, std::slice::from_ref(&added)).unwrap();
+            data.write_all(b"\n").unwrap();
+        }
         assert_eq!(
             read_incremental_playlist_cache_file(&path).unwrap().items,
             first
         );
         assert_eq!(read_playlist_manifest(&path).unwrap().bytes, initial.bytes);
-        std::fs::remove_dir(&temporary).unwrap();
 
         write_incremental_playlist_cache_file(&path, "same".into(), append(), 100, Some(75))
             .unwrap();
@@ -5062,7 +5554,7 @@ mod playlist_cache_tests {
         let text = tokio::fs::read_to_string(&path).await.unwrap();
         let stored: CachedPlaylist = serde_json::from_str(&text).unwrap();
         assert_eq!(stored.snapshot, "second");
-        assert!(!path.with_extension("json.tmp").exists());
+        assert!(crate::util::temporary_files(path.parent().unwrap()).is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -5115,7 +5607,7 @@ mod playlist_cache_tests {
         }
         assert_eq!(restored.total, Some(2_000));
         assert_eq!(restored.next_offset, Some(1_500));
-        assert!(!path.with_extension("json.tmp").exists());
+        assert!(crate::util::temporary_files(path.parent().unwrap()).is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -5127,29 +5619,28 @@ mod playlist_cache_tests {
             std::thread::current().id()
         ));
         let path = root.join("playlist.json");
-        let temporary = path.with_extension("json.tmp");
         let cached = || CachedPlaylist {
             snapshot: "new".into(),
             items: Vec::new(),
             total: Some(0),
             next_offset: None,
         };
-        std::fs::create_dir_all(&temporary).unwrap();
         let previous = br#"{"snapshot":"old","items":[]}"#;
-        std::fs::write(&path, previous).unwrap();
-
-        assert!(write_cached_playlist(path.clone(), cached()).await.is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), previous);
-        assert!(temporary.is_dir(), "a failed create does not own this path");
+        std::fs::create_dir_all(&path).unwrap();
+        // A file an older version's interrupted write left is not this
+        // write's to remove.
+        let stale = path.with_extension("json.tmp");
+        std::fs::write(&stale, previous).unwrap();
 
         // Force final replacement to fail after serialization and flushing.
-        std::fs::remove_dir(&temporary).unwrap();
-        std::fs::remove_file(&path).unwrap();
-        std::fs::create_dir(&path).unwrap();
         std::fs::write(path.join("preserved"), previous).unwrap();
         assert!(write_cached_playlist(path.clone(), cached()).await.is_err());
         assert_eq!(std::fs::read(path.join("preserved")).unwrap(), previous);
-        assert!(!temporary.exists(), "discard the failed checkpoint");
+        assert_eq!(
+            crate::util::temporary_files(&root),
+            ["playlist.json.tmp"],
+            "discard the failed checkpoint"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }
@@ -5450,6 +5941,34 @@ mod authorization_tests {
     }
 
     #[test]
+    fn signing_out_discards_restricted_devices_and_late_discovery_results() {
+        let (runtime, mut worker, _) = worker("sign-out-connect");
+        let _entered = runtime.enter();
+        let previous = Arc::clone(&worker.connect);
+        let device = Device {
+            id: Some("sonos".into()),
+            is_restricted: true,
+            ..Default::default()
+        };
+        previous.observe_playing(1, Some(&device));
+        assert_eq!(
+            worker.connect.restricted_target(None).as_deref(),
+            Some("sonos")
+        );
+        worker.sign_out();
+        previous.remember(&[crate::zeroconf::Receiver {
+            name: "Old discovery".into(),
+            device_id: Some("late-speaker".into()),
+            address: "127.0.0.1".parse().unwrap(),
+            port: 1400,
+            path: "/spotifyzc".into(),
+        }]);
+        assert_eq!(worker.connect.restricted_target(None), None);
+        assert_eq!(worker.connect.restricted_target(Some("sonos")), None);
+        assert_eq!(worker.connect.restricted_target(Some("late-speaker")), None);
+    }
+
+    #[test]
     fn an_invalid_saved_proxy_keeps_restored_network_work_blocked() {
         let (runtime, mut worker, events) = worker("proxy-restore-invalid");
         let _entered = runtime.enter();
@@ -5688,7 +6207,7 @@ mod authorization_tests {
         assert!(events.try_iter().next().is_none());
     }
 
-    fn worker(
+    pub(super) fn worker(
         name: &str,
     ) -> (
         tokio::runtime::Runtime,
@@ -5731,6 +6250,30 @@ mod authorization_tests {
             Waker::default(),
         );
         (runtime, worker, events)
+    }
+
+    #[test]
+    fn occupied_login_port_reports_persistent_failure_before_browser_sign_in() {
+        let (runtime, mut worker, events) = worker("occupied-login-port");
+        let _entered = runtime.enter();
+        let _occupied =
+            std::net::TcpListener::bind(("127.0.0.1", crate::auth::WEB_REDIRECT_PORT)).unwrap();
+        for _ in 0..2 {
+            worker.sign_in_source(ApiSource::Shared);
+            let received: Vec<_> = events.try_iter().collect();
+            assert!(received.iter().any(|event| matches!(event,
+                Event::Auth(AuthStatus::Failed(message)) if message.contains("8989")
+            )));
+            assert!(
+                !received.iter().any(|event| matches!(
+                    event,
+                    Event::Auth(AuthStatus::WaitingForBrowser { .. })
+                ))
+            );
+            assert!(worker.cancel_signin.is_none());
+            assert!(worker.authorizing_source.is_none());
+            assert_eq!(worker.authorization_attempt, 0);
+        }
     }
 
     #[test]
@@ -5946,6 +6489,7 @@ mod authorization_tests {
                 engine: Box::new(None),
                 error: Some("late engine error".into()),
                 lease: playback,
+                attempt,
             })
             .unwrap();
         commands.send(Command::Shutdown).unwrap();
@@ -5960,6 +6504,7 @@ mod authorization_tests {
             Event::Auth(AuthStatus::Connected { .. })
                 | Event::Playback(
                     LocalPlayback::Connecting
+                        | LocalPlayback::WaitingForNetwork
                         | LocalPlayback::Ready { .. }
                         | LocalPlayback::Failed(_)
                 )
@@ -6075,7 +6620,7 @@ mod authorization_tests {
         });
     }
 
-    fn verify(worker: &mut Worker, source: ApiSource, account: &str) {
+    pub(super) fn verify(worker: &mut Worker, source: ApiSource, account: &str) {
         worker.api.set_state(source, SessionState::Authorizing);
         worker.on_web_verified(
             source,
@@ -6136,6 +6681,48 @@ mod authorization_tests {
     /// invitation, and its request is sent once, when the playlist library
     /// finishes. A cached web token can finish that before the engine
     /// connects, so the request has to wait rather than be dropped.
+    /// A header read that finishes while the sign-in has lapsed is not
+    /// shown. It frees the queue rather than holding it forever, and goes
+    /// back to the front so it is read again first once the sign-in returns.
+    #[test]
+    fn a_playlist_header_finishing_while_signed_out_is_read_again() {
+        let (runtime, mut worker, events) = worker("playlist-header-lapse");
+        let _entered = runtime.enter();
+        worker
+            .playlist_header_lookup
+            .enqueue(vec!["read".into(), "next".into()]);
+        let request = worker
+            .playlist_header_lookup
+            .next(*worker.session.borrow())
+            .expect("read before the lapse");
+        worker.signed_in = false;
+
+        worker.on_playlist_header_resolved(
+            request,
+            Some(crate::api::models::Playlist {
+                id: "read".into(),
+                name: "This Is TUYU".into(),
+                ..Default::default()
+            }),
+        );
+
+        assert!(worker.playlist_header_lookup.active.is_none());
+        assert_eq!(worker.playlist_header_lookup.pending, ["read", "next"]);
+        assert!(
+            !events
+                .try_iter()
+                .any(|event| matches!(event, Event::PlaylistHeader(_))),
+            "nothing is shown while signed out"
+        );
+
+        worker.signed_in = true;
+        let retry = worker
+            .playlist_header_lookup
+            .next(*worker.session.borrow())
+            .expect("read again after the sign-in returns");
+        assert_eq!(retry.id, "read");
+    }
+
     #[test]
     fn a_rootlist_request_before_the_engine_waits_for_it() {
         let (runtime, mut worker, events) = worker("rootlist-before-engine");
@@ -6454,6 +7041,68 @@ mod cover_routing_tests {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn connect_shuffle_play_waits_for_shuffle_before_starting_playback() {
+        let request = PlayRequest::context("spotify:playlist:abc");
+        let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "").unwrap();
+        let play =
+            crate::sonos::command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
+        let sent = std::sync::Mutex::new(Vec::new());
+        let shuffled = tokio::sync::Notify::new();
+        let sending = shuffle_then_play(shuffle.clone(), play.clone(), |body| {
+            let is_shuffle = body["command"]["endpoint"] == "set_shuffling_context";
+            sent.lock().unwrap().push(body);
+            let shuffled = &shuffled;
+            async move {
+                if is_shuffle {
+                    shuffled.notified().await;
+                }
+                Ok(())
+            }
+        });
+        tokio::pin!(sending);
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(sending.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(
+            sent.lock().unwrap().as_slice(),
+            std::slice::from_ref(&shuffle)
+        );
+        assert_eq!(shuffle["command"]["value"], true);
+        shuffled.notify_one();
+        sending.await.unwrap();
+        assert_eq!(*sent.lock().unwrap(), [shuffle, play]);
+    }
+
+    #[tokio::test]
+    async fn connect_shuffle_play_preserves_errors_and_skips_play_when_shuffle_fails() {
+        let request = PlayRequest::context("spotify:playlist:abc");
+        let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "").unwrap();
+        let play =
+            crate::sonos::command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
+        for failed_endpoint in ["set_shuffling_context", "play"] {
+            let mut sent = Vec::new();
+            let result = shuffle_then_play(shuffle.clone(), play.clone(), |body| {
+                let failed = body["command"]["endpoint"] == failed_endpoint;
+                sent.push(body);
+                std::future::ready(if failed {
+                    Err(ApiError::Network(failed_endpoint.into()))
+                } else {
+                    Ok(())
+                })
+            })
+            .await;
+            assert!(matches!(result, Err(ApiError::Network(error)) if error == failed_endpoint));
+            if failed_endpoint == "set_shuffling_context" {
+                assert_eq!(sent.as_slice(), std::slice::from_ref(&shuffle));
+            } else {
+                assert_eq!(sent, [shuffle.clone(), play.clone()]);
+            }
+        }
+    }
+
     #[test]
     fn six_session_drops_in_ten_minutes_give_up() {
         let start = Instant::now();
@@ -6490,5 +7139,344 @@ mod tests {
         assert!(pending);
         assert!(!defer_engine_replace(false, &mut pending));
         assert!(pending, "finishing the attempt owns clearing the request");
+    }
+
+    #[test]
+    fn test_session_drop_when_unreachable_preserves_resume_and_skips_drop_counter() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("drop-unreachable");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.network_reachable = false;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        worker.reconnect_engine();
+        assert!(worker.resume.is_some());
+        assert!(worker.waiting_for_network);
+        assert!(worker.reconnects.is_empty());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+    }
+
+    #[test]
+    fn test_network_restored_triggers_resume_and_reconnection() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("network-restored");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.network_reachable = false;
+        worker.waiting_for_network = true;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(!worker.waiting_for_network);
+        assert!(worker.network_reachable);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_stale_connection_outcome_ignored() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("stale-outcome");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.engine_attempt = 2;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        let session_generation = worker.album_type_lookup.session_generation;
+
+        worker.on_engine_connected(session_generation, None, Some("stale failure".into()), 1);
+
+        assert!(worker.resume.is_some());
+        assert!(
+            events
+                .try_iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::Failed(_))))
+        );
+    }
+
+    #[test]
+    fn test_user_stop_clears_waiting_resume() {
+        let (runtime, mut worker, _events) = super::authorization_tests::worker("user-load-clears");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.waiting_for_network = true;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::Player(PlayerCommand::Load(
+                crate::player::LoadSpec::default(),
+            )))
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(worker.resume.is_none());
+        assert!(worker.waiting_for_network);
+    }
+
+    #[test]
+    fn test_connection_failure_while_offline_does_not_clear_resume() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("offline-failure");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.network_reachable = false;
+        worker.engine_attempt = 1;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        let session_generation = worker.album_type_lookup.session_generation;
+
+        worker.on_engine_connected(session_generation, None, Some("timed out".into()), 1);
+
+        assert!(worker.resume.is_some());
+        assert!(worker.waiting_for_network);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+    }
+
+    #[test]
+    fn test_offline_first_connection_failure_retains_credentials_for_recovery() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("offline-first-connect");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        assert!(worker.playback_grant.is_none());
+        assert!(worker.pending_playback_grant.is_none());
+
+        worker.network_reachable = false;
+        let creds = Credentials::with_password("alice", "streaming-token");
+        worker.connect_engine(creds);
+        assert!(worker.pending_playback_grant.is_some());
+
+        let session_generation = worker.album_type_lookup.session_generation;
+        let attempt = worker.engine_attempt;
+        worker.on_engine_connected(session_generation, None, Some("timed out".into()), attempt);
+
+        assert!(worker.waiting_for_network);
+        assert!(worker.pending_playback_grant.is_some());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(!worker.waiting_for_network);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_online_connection_failure_clears_pending_credentials() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("online-connect-failure");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.network_reachable = true;
+        let creds = Credentials::with_password("alice", "bad-token");
+        worker.connect_engine(creds);
+        assert!(worker.pending_playback_grant.is_some());
+
+        let session_generation = worker.album_type_lookup.session_generation;
+        let attempt = worker.engine_attempt;
+        worker.on_engine_connected(
+            session_generation,
+            None,
+            Some("bad credentials".into()),
+            attempt,
+        );
+
+        assert!(!worker.waiting_for_network);
+        assert!(worker.pending_playback_grant.is_none());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Failed(_))))
+        );
+    }
+
+    #[test]
+    fn test_reauthorization_during_outage_prefers_new_credentials_over_older_grant() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("reauth-during-outage");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        // Existing older playback grant
+        worker.playback_grant = Some(Credentials::with_password("alice", "stale-grant"));
+
+        // User reauthorizes with new credentials while offline
+        worker.network_reachable = false;
+        let new_creds = Credentials::with_password("alice", "fresh-token");
+        worker.connect_engine(new_creds.clone());
+
+        // Attempt fails while offline
+        let session_generation = worker.album_type_lookup.session_generation;
+        let attempt = worker.engine_attempt;
+        worker.on_engine_connected(session_generation, None, Some("timed out".into()), attempt);
+
+        assert!(worker.waiting_for_network);
+        assert_eq!(worker.pending_playback_grant, Some(new_creds.clone()));
+
+        // When network returns, resume_engine must prefer the new pending credentials over stale grant
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(!worker.waiting_for_network);
+        assert_eq!(worker.pending_playback_grant, Some(new_creds));
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_resume_engine_while_offline_suspends_and_does_not_connect() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("offline-resume-guard");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.network_reachable = false;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+
+        worker.resume_engine();
+
+        assert!(worker.waiting_for_network);
+        assert!(!worker.engine_busy);
+        assert!(worker.resume.is_some());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+        assert!(
+            events
+                .try_iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_resume_engine_without_credentials_does_not_emit_waiting_for_network() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("offline-no-grant");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        assert!(worker.playback_grant.is_none());
+        assert!(worker.pending_playback_grant.is_none());
+        worker.network_reachable = false;
+
+        worker.resume_engine();
+
+        assert!(!worker.waiting_for_network);
+        assert!(
+            events
+                .try_iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
+        );
+    }
+
+    #[test]
+    fn test_outage_ending_before_failed_attempt_reports_retries_and_preserves_resume() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("outage-ends-before-failure");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.engine_attempt = 1;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        let session_generation = worker.album_type_lookup.session_generation;
+
+        // Connection was in flight when outage occurred
+        worker.engine_busy = true;
+        let (commands, receiver) = mpsc::unbounded_channel();
+        // Network went down
+        commands.send(Command::NetworkStatus(false)).unwrap();
+        // Network returned before engine attempt finished
+        commands.send(Command::NetworkStatus(true)).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(worker.network_reachable);
+        assert!(worker.waiting_for_network);
+
+        // Now the failed engine connection from during the outage reports
+        worker.on_engine_connected(
+            session_generation,
+            None,
+            Some("Connecting to Spotify timed out".into()),
+            1,
+        );
+
+        // It must preserve resume, not emit Failed, and schedule a retry
+        assert!(worker.resume.is_some());
+        let recorded = events.try_iter().collect::<Vec<_>>();
+        assert!(
+            recorded
+                .iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::Failed(_))))
+        );
+        assert!(
+            recorded
+                .iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Connecting)))
+        );
+    }
+
+    #[test]
+    fn test_terminal_credential_failure_after_outage_is_not_retried() {
+        let (runtime, mut worker, events) =
+            super::authorization_tests::worker("terminal-failure-after-outage");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.engine_attempt = 1;
+        worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
+        let session_generation = worker.album_type_lookup.session_generation;
+
+        // Waiting for network flagged from an outage
+        worker.waiting_for_network = true;
+        worker.network_reachable = true;
+
+        // Terminal credential error reported
+        worker.on_engine_connected(
+            session_generation,
+            None,
+            Some("Spotify rejected the saved sign-in. Please sign in again.".into()),
+            1,
+        );
+
+        assert!(!worker.waiting_for_network);
+        assert!(worker.resume.is_none());
+        assert!(worker.pending_playback_grant.is_none());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Playback(LocalPlayback::Failed(_))))
+        );
     }
 }

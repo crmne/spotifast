@@ -135,10 +135,36 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     };
     let lyrics = match &app.lyrics {
         Loadable::NotLoaded | Loadable::Loading => {
-            widgets::loading_row(ui, &palette, app.locale);
+            if !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                widgets::loading_row(ui, &palette, app.locale);
+            }
             return;
         }
         Loadable::Failed(error) => {
+            if !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+                return;
+            }
             let message = gettext(
                 app.locale,
                 // Translators: Keep {error} unchanged. It is the original failure detail.

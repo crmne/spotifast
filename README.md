@@ -61,6 +61,11 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | **Other Linux** | Find Flatpak, AppImage, Nix, and other options on the [Download page](https://spotifast.rocks/download/). |
 | **From source** | Follow [Build from source](https://spotifast.rocks/getting-started/#build-from-source) for dependencies and commands. |
 
+When uninstalling on Windows, an in-use installed executable (`spotifast.exe`)
+prompts **Retry**, **Close Spotifast**, or **Cancel** before any files are removed.
+**Close Spotifast** ends the installed process immediately; unsaved changes may
+be lost. In this case, silent uninstall exits without removing files.
+
 ## Start listening
 
 1. Open Spotifast and choose **Sign in with Spotify**. Approve access in your
@@ -135,6 +140,11 @@ is described in [PACKAGING.md](PACKAGING.md).
 is Spotifast's sibling. Both are built on
 [fastframe](https://github.com/crmne/fastframe).
 
+## Sonos playback
+
+Sonos speakers use the Spotify Connect session for playback control. Enable
+local playback first, then select the speaker in the device picker.
+
 ## Acknowledgements
 
 Spotifast uses [librespot](https://github.com/librespot-org/librespot),
@@ -161,3 +171,12 @@ Search Settings for "port" to find the MCP controls. Agent playlist edits
 refresh the library, discarding any list response requested before the edit.
 Playlist writes need Spotify edit permission. A timed-out write may already
 have reached Spotify; read the playlist before retrying.
+
+## Star history
+
+<a href="https://www.star-history.com/?repos=crmne%2Fspotifast&amp;type=date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date&amp;theme=dark">
+    <img alt="Spotifast GitHub stars over time" src="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date">
+  </picture>
+</a>

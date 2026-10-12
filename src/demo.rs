@@ -618,6 +618,38 @@ pub fn populate(app: &mut App) {
     }
 }
 
+#[cfg(any(test, feature = "demo"))]
+fn sonos_devices(app: &mut App, active: bool) {
+    app.show_devices = true;
+    app.receivers = vec![crate::zeroconf::Receiver {
+        name: "Office".into(),
+        device_id: Some("office".into()),
+        address: "192.168.1.10".parse().unwrap(),
+        port: 1400,
+        path: "/spotifyzc".into(),
+    }];
+    app.devices
+        .retain(|device| device.id.as_deref() != Some("office"));
+    if active {
+        for device in &mut app.devices {
+            device.is_active = false;
+        }
+        let device = Device {
+            id: Some("office".into()),
+            name: "Office".into(),
+            is_active: true,
+            is_restricted: true,
+            volume_percent: Some(8),
+            supports_volume: Some(true),
+            kind: "speaker".into(),
+        };
+        if let Some(remote) = &mut app.remote {
+            remote.state.device = Some(device.clone());
+        }
+        app.devices.push(device);
+    }
+}
+
 /// Words to go with the sample track, timed so that the one being sung
 /// sits mid-panel at the demo's playback position.
 #[cfg(any(test, feature = "demo"))]
@@ -871,6 +903,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 }
             }
             "devices" => app.show_devices = true,
+            "sonos-idle" => sonos_devices(app, false),
+            "sonos-active" => sonos_devices(app, true),
             // These paired states capture both outcomes of the collection
             // Shuffle click for the PR visual comparison.
             "shuffle-selected" => {
@@ -3837,6 +3871,58 @@ mod tests {
     }
 
     #[test]
+    fn an_idle_sonos_in_the_picker_transfers_instead_of_authorizing() {
+        for palette in [
+            crate::theme::Palette::dark(),
+            crate::theme::Palette::light(),
+        ] {
+            let (ctx, mut app) = accessible_app("sonos-device-picker");
+            app.backend.set_offline(true);
+            app.palette = palette;
+            app.local_ready = true;
+            sonos_devices(&mut app, false);
+            app.devices.clear();
+            let draw = |app: &mut App, events: Vec<egui::Event>| {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(760.0, 620.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |_| crate::ui::devices::popup(app, &ctx),
+                );
+                output.textures_delta.clear();
+                output
+            };
+            draw(&mut app, Vec::new());
+            let output = draw(&mut app, Vec::new());
+            let labels = menu_text(&output);
+            assert_eq!(
+                labels.iter().filter(|(text, _)| text == "Office").count(),
+                1
+            );
+            let office = labels.iter().find(|(text, _)| text == "Office").unwrap().1;
+            app.actions.clear();
+            draw(
+                &mut app,
+                pointer_click(office.center(), egui::PointerButton::Primary),
+            );
+            assert!(app.actions.iter().any(
+                |action| matches!(action, crate::model::Action::Transfer(id) if id == "office")
+            ));
+            assert!(
+                !app.actions
+                    .iter()
+                    .any(|action| matches!(action, crate::model::Action::ActivateReceiver(_)))
+            );
+            app.backend.shutdown();
+        }
+    }
+
+    #[test]
     fn a_long_device_list_stays_in_the_window_and_scrolls_to_the_last_speaker() {
         let (ctx, mut app) = accessible_app("long-device-list");
         app.backend.set_offline(true);
@@ -4710,6 +4796,16 @@ mod tests {
                 .iter()
                 .any(|action| matches!(action, Action::CyclePlayerBarVis))
         );
+
+        app.actions.clear();
+        app.settings.player_bar_vis_click = false;
+        draw(&mut app, pointer_click(empty, egui::PointerButton::Primary));
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CyclePlayerBarVis))
+        );
+        app.settings.player_bar_vis_click = true;
 
         // The play button, in the middle of the bar, is still the play button.
         app.actions.clear();
@@ -9241,6 +9337,84 @@ mod tests {
         }
         app.backend.shutdown();
     }
+    #[test]
+    fn saved_toggles_stay_green_while_hovered() {
+        // alb0 is saved, its first song is liked, and so is the song in
+        // the player bar, so all three save toggles show their on state.
+        type Pick = fn(&egui::accesskit::Rect) -> bool;
+        let targets: [(&str, &str, Pick); 3] = [
+            ("album header", "Remove from Your Library", |_| true),
+            ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
+            ("player bar", "Remove from Liked Songs", |b| b.y0 > 700.0),
+        ];
+        for theme in ["dark", "light"] {
+            for (place, label, pick) in targets {
+                let (ctx, mut app) = accessible_app(&format!("saved-hover-{theme}"));
+                app.open(Page::Album("alb0".into()));
+                app.settings.theme = if theme == "light" {
+                    crate::settings::ThemeChoice::Light
+                } else {
+                    crate::settings::ThemeChoice::Dark
+                };
+                app.actions.push(Action::SettingsChanged);
+                let mut frame = |events| {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(1280.0, 800.0),
+                            )),
+                            events,
+                            ..Default::default()
+                        },
+                        |ui| app.frame_ui(ui),
+                    );
+                    output.textures_delta.clear();
+                    output
+                };
+                frame(vec![]);
+                let tree = frame(vec![])
+                    .platform_output
+                    .accesskit_update
+                    .expect("screen-reader tree");
+                let bounds = tree
+                    .nodes
+                    .iter()
+                    .filter(|(_, node)| {
+                        node.label() == Some(label) && node.role() == egui::accesskit::Role::Button
+                    })
+                    .filter_map(|(_, node)| node.bounds())
+                    .find(pick)
+                    .unwrap_or_else(|| panic!("missing {place} {label:?}"));
+                let centre = egui::pos2(
+                    (bounds.x0 + bounds.x1) as f32 / 2.0,
+                    (bounds.y0 + bounds.y1) as f32 / 2.0,
+                );
+                frame(vec![egui::Event::PointerMoved(centre)]);
+                let output = frame(vec![egui::Event::PointerMoved(centre)]);
+                // Icons are textured rects tinted by their fill.
+                let tints: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| match &shape.shape {
+                        egui::Shape::Rect(rect)
+                            if rect.brush.is_some() && rect.rect.contains(centre) =>
+                        {
+                            Some(rect.fill)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert!(
+                    tints.contains(&app.palette.accent_hover),
+                    "a hovered {place} button in {theme} must still look saved: {tints:?}"
+                );
+                assert!(!tints.contains(&app.palette.text), "{place} in {theme}");
+                app.backend.shutdown();
+            }
+        }
+    }
+
     #[test]
     fn side_panels_keep_their_full_height_beside_the_page_toolbar() {
         for theme in ["dark", "light"] {

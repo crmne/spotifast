@@ -42,27 +42,37 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     let items: Vec<PlayableItem> =
                         tracks.iter().cloned().map(PlayableItem::Track).collect();
                     let limit = if page.show_all_top { items.len() } else { 5 };
-                    for (index, item) in items.iter().take(limit).enumerate() {
-                        widgets::track_row(
-                            ui,
-                            app,
-                            TrackRow {
-                                index,
-                                number: Some(index + 1),
-                                item,
-                                context: &context,
-                                show_cover: !app.settings.tracklist_compact,
-                                show_album: false,
-                                added_at: None,
-                                added_by: None,
-                                show_added_by: false,
-                                compact: false,
-                                thin: app.settings.tracklist_compact,
-                                shift: 0.0,
-                                picked: false,
-                                picked_songs: &[],
-                            },
-                        );
+                    let render_top = |ui: &mut egui::Ui, app: &mut App| {
+                        for (index, item) in items.iter().take(limit).enumerate() {
+                            widgets::track_row(
+                                ui,
+                                app,
+                                TrackRow {
+                                    index,
+                                    number: Some(index + 1),
+                                    item,
+                                    context: &context,
+                                    show_cover: !app.settings.tracklist_compact,
+                                    show_album: false,
+                                    added_at: None,
+                                    added_by: None,
+                                    show_added_by: false,
+                                    compact: false,
+                                    thin: app.settings.tracklist_compact,
+                                    shift: 0.0,
+                                    picked: false,
+                                    picked_songs: &[],
+                                },
+                            );
+                        }
+                    };
+                    if !app.network_reachable {
+                        ui.add_enabled_ui(false, |ui| {
+                            ui.multiply_opacity(0.55);
+                            render_top(ui, app);
+                        });
+                    } else {
+                        render_top(ui, app);
                     }
                     if items.len() > 5 {
                         ui.add_space(6.0);
@@ -249,21 +259,54 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         Loadable::Loading | Loadable::NotLoaded => {
             if let Some(artist) = &preview {
                 artist_hero(app, ui, artist, None);
-                ui.add_enabled_ui(false, |ui| artist_actions(app, ui, artist));
             } else {
                 ui.add_space(40.0);
             }
-            widgets::loading_row(ui, &palette, app.locale);
+            if !app.network_reachable {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                if let Some(artist) = &preview {
+                    ui.add_enabled_ui(false, |ui| artist_actions(app, ui, artist));
+                }
+                widgets::loading_row(ui, &palette, app.locale);
+            }
         }
         Loadable::Failed(error) => {
             let error = error.clone();
             if let Some(artist) = &preview {
                 artist_hero(app, ui, artist, None);
-                ui.add_enabled_ui(false, |ui| artist_actions(app, ui, artist));
             } else {
                 ui.add_space(40.0);
             }
-            widgets::error_row(ui, app, &error, Some(Page::Artist(id.to_string())));
+            if !app.network_reachable
+                || error.contains("network error")
+                || error.contains("Network connection error")
+            {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::WifiOff,
+                    &gettext(app.locale, "You're offline"),
+                    &gettext(
+                        app.locale,
+                        "Spotifast will reconnect automatically when your connection returns.",
+                    ),
+                );
+            } else {
+                if let Some(artist) = &preview {
+                    ui.add_enabled_ui(false, |ui| artist_actions(app, ui, artist));
+                }
+                widgets::error_row(ui, app, &error, Some(Page::Artist(id.to_string())));
+            }
         }
     }
     app.artist_pages.insert(id.to_string(), page);

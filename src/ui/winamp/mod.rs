@@ -302,14 +302,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let unit = unit(app, &ctx);
     fit_window(&ctx, &app.settings, unit);
     let origin = ui.max_rect().min;
-    let (outer, focused) = ctx.input(|input| {
-        let viewport = input.viewport();
-        (viewport.outer_rect, viewport.focused)
-    });
-    if let Some(rect) = outer {
-        app.winamp.last_pos = Some([rect.min.x, rect.min.y]);
-    }
-    let focused = focused.unwrap_or(true);
+    let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
     super::keys::handle(app, &ctx);
     for path in dropped_skins(&ctx) {
         app.actions.push(Action::InstallSkin(path));

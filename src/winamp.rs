@@ -88,10 +88,10 @@ pub struct WinampState {
     marquee_text: String,
     marquee_offset: usize,
     marquee_moved: Option<Instant>,
-    /// Where the window opens, from the session or from where it last was.
-    pub restore_pos: Option<[f32; 2]>,
-    /// Where the window is, as last seen.
-    pub last_pos: Option<[f32; 2]>,
+    /// Where the window is, or was last: from the session, then followed
+    /// while it is open. Only the position is given to the next window,
+    /// which takes its size from the skin.
+    pub geometry: fastframe_shell::window::Geometry,
     /// The sound on its way out, for the visualiser.
     pub tap: Arc<AudioTap>,
     pub analyser: Analyser,
@@ -126,8 +126,10 @@ impl WinampState {
             marquee_text: String::new(),
             marquee_offset: 0,
             marquee_moved: None,
-            restore_pos,
-            last_pos: None,
+            geometry: fastframe_shell::window::Geometry {
+                position: restore_pos,
+                ..Default::default()
+            },
             tap,
             analyser: Analyser::default(),
             eq,
@@ -165,13 +167,6 @@ impl WinampState {
     pub fn forget_textures(&mut self) {
         self.textures.clear();
         self.playlist_text.clear();
-    }
-
-    /// Keeps where the window was, for the next time it opens.
-    pub fn remember_position(&mut self) {
-        if let Some(pos) = self.last_pos {
-            self.restore_pos = Some(pos);
-        }
     }
 
     /// The skin's sheets as textures, made now if they are not yet.

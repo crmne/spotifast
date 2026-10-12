@@ -52,7 +52,9 @@ fn enable_playback_row(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let authorizing = matches!(
         app.local_playback,
-        crate::backend::LocalPlayback::Authorizing | crate::backend::LocalPlayback::Connecting
+        crate::backend::LocalPlayback::Authorizing
+            | crate::backend::LocalPlayback::Connecting
+            | crate::backend::LocalPlayback::WaitingForNetwork
     );
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), Sense::click());
     if response.hovered() && !authorizing {
@@ -238,6 +240,19 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                     crate::app::Target::Local => local_id.clone(),
                     crate::app::Target::Remote(id) => id,
                 };
+                // Spotify leaves a Sonos out of its list; it is offered from
+                // the network instead and driven over Connect.
+                for receiver in &app.receivers {
+                    let listed = devices
+                        .iter()
+                        .any(|device| device.id.is_some() && device.id == receiver.device_id);
+                    if !listed
+                        && let Some(row) =
+                            crate::sonos::device_row(receiver, receiver.device_id == active_id)
+                    {
+                        devices.push(row);
+                    }
+                }
                 devices.sort_by_key(|device| device.id != active_id);
                 name_devices(&mut devices, &app.receivers);
                 let mut seen = std::collections::HashSet::new();

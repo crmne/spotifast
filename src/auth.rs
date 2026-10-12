@@ -163,12 +163,26 @@ pub struct TokenResponse {
 pub async fn wait_for_code(
     port: u16,
     expected_state: &str,
+    cancel: watch::Receiver<bool>,
+) -> Result<String> {
+    wait_for_code_on_listener(listen_for_redirect(port)?, expected_state, cancel).await
+}
+
+/// Reserve the callback port before offering or opening browser sign-in.
+pub fn listen_for_redirect(port: u16) -> Result<TcpListener> {
+    let address: SocketAddr = ([127, 0, 0, 1], port).into();
+    let listener = std::net::TcpListener::bind(address).with_context(|| {
+        format!("Cannot start Spotify sign-in: port {port} is in use or unavailable. Close the app using this port, then try again.")
+    })?;
+    listener.set_nonblocking(true)?;
+    Ok(TcpListener::from_std(listener)?)
+}
+
+pub async fn wait_for_code_on_listener(
+    listener: TcpListener,
+    expected_state: &str,
     mut cancel: watch::Receiver<bool>,
 ) -> Result<String> {
-    let address: SocketAddr = ([127, 0, 0, 1], port).into();
-    let listener = TcpListener::bind(address)
-        .await
-        .with_context(|| format!("unable to listen on {address} for the Spotify redirect"))?;
     let deadline = tokio::time::sleep(LOGIN_TIMEOUT);
     tokio::pin!(deadline);
 
@@ -334,7 +348,8 @@ fn decode_token_response(
 }
 
 /// The Web API grant, serialized only inside protected credential storage.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+/// Deliberately has no Debug implementation: it contains usable secrets.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StoredToken {
     pub client_id: String,
     pub access_token: String,
@@ -510,6 +525,36 @@ mod tests {
 
     use super::*;
 
+    #[tokio::test]
+    async fn redirect_listener_can_retry_after_port_is_released() {
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = occupied.local_addr().unwrap().port();
+        let error = listen_for_redirect(port).unwrap_err().to_string();
+        assert!(error.contains(&port.to_string()));
+        assert!(error.contains("try again"));
+        drop(occupied);
+        let listener = listen_for_redirect(port).unwrap();
+        let (cancel, receiver) = watch::channel(false);
+        let waiting =
+            tokio::spawn(
+                async move { wait_for_code_on_listener(listener, "state", receiver).await },
+            );
+        let mut browser = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        browser
+            .write_all(b"GET /login?code=test-code&state=state HTTP/1.1\r\n\r\n")
+            .await
+            .unwrap();
+        let code = tokio::time::timeout(Duration::from_secs(2), waiting)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(code, "test-code");
+        drop(cancel);
+    }
+
     #[test]
     fn old_web_grants_require_image_upload_consent() {
         let token = StoredToken {
@@ -599,7 +644,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("spotifast-token-{}", std::process::id()));
         let path = dir.join("token.json");
         token.save(&path).unwrap();
-        assert_eq!(StoredToken::load(&path), Some(token));
+        assert!(StoredToken::load(&path) == Some(token));
         StoredToken::remove(&path);
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -627,7 +672,7 @@ mod tests {
             };
             token.save(&legacy).unwrap();
             StoredToken::migrate_legacy(&legacy, &shared, &personal).unwrap();
-            assert_eq!(StoredToken::load(target), Some(token));
+            assert!(StoredToken::load(target) == Some(token));
             assert!(!legacy.exists());
         }
         let _ = std::fs::remove_dir_all(dir);

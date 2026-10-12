@@ -258,6 +258,16 @@ pub struct App {
     tray_playing: bool,
     /// The system's power and session state.
     power: crate::power::Power,
+    /// Whether the system's word on reaching the internet goes to the
+    /// backend, which then holds reconnection while there is none. macOS
+    /// only: Windows's connectivity hint can say "no internet" on networks
+    /// where Spotify still answers (a proxy, a blocked probe), and Linux
+    /// reports nothing.
+    follows_reachability: bool,
+    /// The reachability the backend was last told.
+    reachable: bool,
+    /// Keeps local playback out of App Nap while it plays (macOS).
+    playback_activity: Option<crate::power::Activity>,
     /// What the app may spend on drawing and polling, from the power state
     /// and the window's; worked out in each logic pass.
     pub budget: crate::power::Budget,
@@ -283,6 +293,8 @@ pub struct App {
     control_devices_stale: bool,
     /// Sample data is loaded; Spotify requests are disabled.
     pub offline: bool,
+    /// OS reports network path is available.
+    pub network_reachable: bool,
     pub palette: Palette,
     /// The language the interface is drawn in: [`Settings::language`]
     /// resolved against the operating system's preferred languages.
@@ -387,6 +399,11 @@ pub struct App {
     pub audiobook_shows: HashSet<String>,
     /// Saved shows already asked about.
     audiobooks_requested: HashSet<String>,
+    /// Headers the streaming session read for library playlists the Web API
+    /// listed blank, by playlist id, so a reloaded list fills at once.
+    playlist_headers: HashMap<String, Playlist>,
+    /// Blank library playlists already asked about.
+    playlist_headers_requested: HashSet<String>,
     /// Album URIs positively identified as EPs by librespot.
     confirmed_ep_albums: HashSet<String>,
     /// Built table rows, keyed by page. Capped; dropped on reset and eviction.
@@ -456,18 +473,16 @@ pub struct App {
     remote_recheck_at: Option<Instant>,
     pub seek_preview: Option<f32>,
     pub volume_preview: Option<f32>,
-    /// Window geometry to restore on next attach, from the session file.
-    session_window_size: Option<[f32; 2]>,
+    /// The main window's size, position and maximized state: from the
+    /// session file, followed in each logic pass while that window is open,
+    /// and given to the next one before it is made.
+    pub window_geometry: fastframe_shell::window::Geometry,
     /// The mode to return the window to when the app closed in
     /// fullscreen lyrics.
     session_lyrics_fullscreen_from: Option<crate::settings::WindowMode>,
-    session_window_pos: Option<[f32; 2]>,
-    /// Last observed window geometry, updated each frame for saving.
-    last_window_size: Option<[f32; 2]>,
     /// Where the open dialog drew itself, so its own layout can be held
     /// to the window it has to fit inside.
     pub dialog_rect: Option<egui::Rect>,
-    last_window_pos: Option<[f32; 2]>,
     /// Where the MilkDrop window last was, as it reported, for restoring it.
     pub milkdrop_pos: Option<[f32; 2]>,
     /// The MilkDrop child process; `None` until it is first opened. Its
@@ -785,6 +800,9 @@ impl App {
             tray,
             tray_playing: false,
             power,
+            follows_reachability: cfg!(target_os = "macos"),
+            reachable: true,
+            playback_activity: None,
             budget: crate::power::Budget::default(),
             window_hidden: false,
             hide_intent: false,
@@ -795,6 +813,7 @@ impl App {
             control_devices: None,
             control_devices_stale: true,
             offline: false,
+            network_reachable: true,
             palette,
             locale,
             window_level_supported: true,
@@ -870,6 +889,8 @@ impl App {
             album_types_requested: HashSet::new(),
             audiobook_shows: HashSet::new(),
             audiobooks_requested: HashSet::new(),
+            playlist_headers: HashMap::new(),
+            playlist_headers_requested: HashSet::new(),
             confirmed_ep_albums: HashSet::new(),
             table_rows: HashMap::new(),
             page_used: HashMap::new(),
@@ -912,12 +933,13 @@ impl App {
             remote_recheck_at: None,
             seek_preview: None,
             volume_preview: None,
-            session_window_size: session.window_size,
+            window_geometry: fastframe_shell::window::Geometry {
+                size: session.window_size,
+                position: session.window_pos,
+                maximized: session.window_maximized,
+            },
             session_lyrics_fullscreen_from: session.lyrics_fullscreen_from,
-            session_window_pos: session.window_pos,
-            last_window_size: None,
             dialog_rect: None,
-            last_window_pos: None,
             milkdrop_pos: session.milkdrop_pos,
             #[cfg(feature = "milkdrop")]
             milkdrop_host: None,
@@ -1028,13 +1050,6 @@ impl App {
             // window's fullscreen/maximized state before creating this one.
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
-            if let Some(pos) = self.winamp.restore_pos
-                && crate::window::can_restore(pos, ctx.pixels_per_point())
-            {
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                    pos[0], pos[1],
-                )));
-            }
             // Re-assert the on-top level over the
             // first frames, once the window is mapped, because the level set
             // at creation does not stick on X11.
@@ -1055,41 +1070,14 @@ impl App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
             }
         }
-        // The session's geometry describes an ordinary window; applying it to
-        // one eframe restored maximized or full screen would restore it down.
-        let filling_the_screen = match lyrics_left {
-            Some(mode) if restored_full_screen => mode.fullscreen || mode.maximized,
-            _ => ctx.input(|input| crate::window::fills_the_screen(input.viewport())),
-        };
-        if let Some(size) = self.session_window_size.take()
-            && !filling_the_screen
-            && !self.offline
-        {
-            // Clamp to a sane range so a stale session never creates an
-            // unusable window; the OS will further clamp to the monitor.
-            if (400.0..=3000.0).contains(&size[0]) && (300.0..=2000.0).contains(&size[1]) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    size[0], size[1],
-                )));
-            }
-        }
-        // If the saved position is off-screen, leave the window where eframe put it.
-        if let Some(pos) = self.session_window_pos.take()
-            && !filling_the_screen
-            && !self.offline
-            && crate::window::can_restore(pos, ctx.pixels_per_point())
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                pos[0], pos[1],
-            )));
-        }
+        // egui's memory, which carried the zoom from one window to the next,
+        // is not restored any more; each main window takes the saved zoom.
+        self.zoom_applied = false;
     }
 
     /// The window is gone but the process stays: audio, the tray, and the
     /// media controls keep running until Show or Quit.
     pub fn window_gone(&mut self) {
-        // The Winamp window went with it; it comes back where it was.
-        self.winamp.remember_position();
         self.winamp.forget_textures();
         self.window_hidden = true;
         self.hide_intent = false;
@@ -1120,6 +1108,31 @@ impl App {
     }
 
     /// The library list's entry for a playlist, when it holds one.
+    /// Fills library playlists the Web API listed blank from the headers
+    /// the streaming session read, and asks it once about the rest.
+    fn fill_blank_playlists(&mut self) {
+        let Some(playlists) = self.library.playlists.get_mut() else {
+            return;
+        };
+        let mut unread = Vec::new();
+        for playlist in playlists
+            .iter_mut()
+            .filter(|playlist| playlist.name.is_empty() && !playlist.id.is_empty())
+        {
+            match self.playlist_headers.get(&playlist.id) {
+                Some(header) => playlist.fill_blank_from(header),
+                None => {
+                    if self.playlist_headers_requested.insert(playlist.id.clone()) {
+                        unread.push(playlist.id.clone());
+                    }
+                }
+            }
+        }
+        if !unread.is_empty() {
+            self.backend.send(Command::PlaylistHeaders(unread));
+        }
+    }
+
     fn library_entry(&self, id: &str) -> Option<&Playlist> {
         self.library
             .playlists
@@ -1574,9 +1587,11 @@ impl App {
             shuffle: self.shuffle_wanted,
             repeat: RepeatMode::from_api(&remote.state.repeat_state),
             volume_percent: volume,
-            can_control: device.is_none_or(|device| !device.is_restricted),
+            // A restricted device is driven over the playback session's
+            // Connect link instead, see `crate::sonos`.
+            can_control: device.is_none_or(|device| !device.is_restricted || self.local_ready),
             can_set_volume: device.is_none_or(|device| {
-                !device.is_restricted && device.supports_volume != Some(false)
+                (!device.is_restricted || self.local_ready) && device.supports_volume != Some(false)
             }),
             is_episode,
             resuming: false,
@@ -1893,6 +1908,13 @@ impl App {
                 }
                 Event::Auth(status) => self.handle_auth(status),
                 Event::Playback(status) => self.handle_playback(status),
+                Event::NetworkStatus(reachable) => {
+                    let became_reachable = !self.network_reachable && reachable;
+                    self.network_reachable = reachable;
+                    if became_reachable {
+                        self.on_network_restored();
+                    }
+                }
                 Event::Receivers(receivers) => self.receivers = receivers,
                 Event::ReceiverActivated { name, result } => {
                     self.activating_receiver = None;
@@ -2004,6 +2026,10 @@ impl App {
                 }
                 Event::AudiobookShows(uris) => {
                     self.audiobook_shows.extend(uris);
+                }
+                Event::PlaylistHeader(header) => {
+                    self.playlist_headers.insert(header.id.clone(), header);
+                    self.fill_blank_playlists();
                 }
                 Event::Radio {
                     seed,
@@ -2151,9 +2177,154 @@ impl App {
                     gettext(self.locale, "Local playback: {error}").replace("{error}", message),
                 );
             }
-            LocalPlayback::Authorizing | LocalPlayback::Connecting => {}
+            LocalPlayback::Authorizing
+            | LocalPlayback::Connecting
+            | LocalPlayback::WaitingForNetwork => {}
         }
         self.local_playback = status;
+    }
+
+    fn on_network_restored(&mut self) {
+        if !self.is_connected() {
+            return;
+        }
+        if self.library.playlists.needs_load() {
+            self.load_playlists();
+        }
+        let page = self.page().clone();
+        match page {
+            Page::Home => {
+                let incomplete = self.home.recently_played.get().is_none()
+                    || self.home.top_artists.get().is_none()
+                    || self.home.top_tracks.get().is_none();
+                if incomplete {
+                    self.load_home(true);
+                }
+            }
+            Page::TopSongs => {
+                if self.home.top_songs.get().is_none() {
+                    self.load_top_songs(true);
+                }
+            }
+            Page::Search => {}
+            Page::LikedSongs => {
+                if !self.liked_songs.cache_checked {
+                    self.ensure_liked_songs();
+                } else if !self.library.liked.loaded_once || self.library.liked.error.is_some() {
+                    self.library.liked.error = None;
+                    self.load_more(Page::LikedSongs);
+                }
+            }
+            Page::Albums => {
+                if !self.library.albums.loaded_once || self.library.albums.error.is_some() {
+                    self.library.albums.error = None;
+                    self.load_more(Page::Albums);
+                }
+            }
+            Page::Artists => {
+                if !self.library.artists.loaded_once || self.library.artists.error.is_some() {
+                    self.library.artists.error = None;
+                    self.load_more(Page::Artists);
+                }
+            }
+            Page::Podcasts => {
+                if !self.library.shows.loaded_once || self.library.shows.error.is_some() {
+                    self.library.shows.error = None;
+                    self.load_more(Page::Podcasts);
+                }
+            }
+            Page::Episodes => {
+                if !self.library.episodes.loaded_once || self.library.episodes.error.is_some() {
+                    self.library.episodes.error = None;
+                    self.load_more(Page::Episodes);
+                }
+            }
+            Page::Playlist(id) => {
+                let incomplete = match self.playlist_pages.get(&id) {
+                    None => true,
+                    Some(page) => {
+                        page.playlist.needs_load()
+                            || !page.items.loaded_once
+                            || page.items.error.is_some()
+                    }
+                };
+                if incomplete {
+                    if let Some(page) = self.playlist_pages.get_mut(&id) {
+                        page.items.error = None;
+                    }
+                    self.ensure_loaded(Page::Playlist(id));
+                }
+            }
+            Page::Album(id) => {
+                let incomplete = match self.album_pages.get(&id) {
+                    None => true,
+                    Some(page) => {
+                        page.album.needs_load()
+                            || !page.tracks.loaded_once
+                            || page.tracks.error.is_some()
+                    }
+                };
+                if incomplete {
+                    if let Some(page) = self.album_pages.get_mut(&id) {
+                        page.tracks.error = None;
+                    }
+                    self.ensure_loaded(Page::Album(id));
+                }
+            }
+            Page::Artist(id) => {
+                let incomplete = match self.artist_pages.get(&id) {
+                    None => true,
+                    Some(page) => {
+                        let filter = page.filter;
+                        let albums_need = page
+                            .albums
+                            .get(filter.groups())
+                            .is_none_or(|list| !list.loaded_once || list.error.is_some());
+                        page.artist.needs_load() || albums_need || page.related.needs_load()
+                    }
+                };
+                if incomplete {
+                    if let Some(page) = self.artist_pages.get_mut(&id) {
+                        let filter = page.filter;
+                        if let Some(list) = page.albums.get_mut(filter.groups()) {
+                            list.error = None;
+                        }
+                    }
+                    self.ensure_loaded(Page::Artist(id));
+                }
+            }
+            Page::Show(id) => {
+                let incomplete = match self.show_pages.get(&id) {
+                    None => true,
+                    Some(page) => {
+                        page.show.needs_load()
+                            || !page.episodes.loaded_once
+                            || page.episodes.error.is_some()
+                    }
+                };
+                if incomplete {
+                    if let Some(page) = self.show_pages.get_mut(&id) {
+                        page.episodes.error = None;
+                    }
+                    self.ensure_loaded(Page::Show(id));
+                }
+            }
+            Page::Radio(seed) => {
+                let incomplete = self
+                    .radio_pages
+                    .get(&seed)
+                    .is_none_or(|page| page.songs.needs_load());
+                if incomplete {
+                    self.ensure_loaded(Page::Radio(seed));
+                }
+            }
+            Page::Queue => {
+                if self.queue.needs_load() {
+                    self.refresh_queue(true);
+                }
+            }
+            Page::Settings => {}
+        }
     }
 
     fn reset_data(&mut self) {
@@ -2179,6 +2350,8 @@ impl App {
         self.album_types_requested.clear();
         self.audiobook_shows.clear();
         self.audiobooks_requested.clear();
+        self.playlist_headers.clear();
+        self.playlist_headers_requested.clear();
         self.confirmed_ep_albums.clear();
         self.saved.clear();
         self.saved_pending.clear();
@@ -2194,6 +2367,8 @@ impl App {
         self.devices_fetched_at = None;
         self.search.results = Loadable::NotLoaded;
         self.search.committed.clear();
+        self.search.committed_run = None;
+        self.search.typed_entry = None;
         self.search.playlists = None;
         self.search.serial += 1;
         self.search.catalogue_pending = false;
@@ -2787,13 +2962,16 @@ impl App {
                 ctx.request_repaint();
             }
         }
-        if !self.zoom_applied {
+        // The zoom is the main window's: a pass without a window, or in the
+        // mini player at its own scale, neither applies nor saves it.
+        let main_window = !self.window_hidden && !self.settings.winamp_window;
+        if main_window && !self.zoom_applied {
             self.zoom_applied = true;
             let zoom = self.settings.zoom.clamp(0.5, 2.5);
             if (zoom - 1.0).abs() > 0.001 {
                 ctx.set_zoom_factor(zoom);
             }
-        } else {
+        } else if main_window {
             let zoom = ctx.zoom_factor();
             if (zoom - self.settings.zoom).abs() > 0.001 {
                 // Ctrl+plus/minus zoomed; remembered for the next start.
@@ -2874,7 +3052,7 @@ impl App {
             if typed.elapsed() >= SEARCH_DEBOUNCE {
                 self.search.typed_at = None;
                 let query = self.search.query.trim().to_string();
-                self.run_search(query);
+                self.run_typed_search(query);
             } else {
                 ctx.request_repaint_after(SEARCH_DEBOUNCE - typed.elapsed());
             }
@@ -3659,7 +3837,7 @@ impl App {
     // ---- loading ---------------------------------------------------------------
 
     fn load_playlists(&mut self) {
-        if self.library.playlists.is_loading() {
+        if !self.network_reachable || self.library.playlists.is_loading() {
             return;
         }
         self.refresh_playlists();
@@ -3681,27 +3859,35 @@ impl App {
             return;
         }
         match page {
-            Page::Home => self.load_home(false),
-            Page::TopSongs => self.load_top_songs(false),
+            Page::Home => {
+                if self.network_reachable {
+                    self.load_home(false);
+                }
+            }
+            Page::TopSongs => {
+                if self.network_reachable {
+                    self.load_top_songs(false);
+                }
+            }
             Page::Search => {}
             Page::LikedSongs => self.ensure_liked_songs(),
             Page::Albums => {
-                if !self.library.albums.loaded_once {
+                if self.network_reachable && !self.library.albums.loaded_once {
                     self.load_more(Page::Albums);
                 }
             }
             Page::Artists => {
-                if !self.library.artists.loaded_once {
+                if self.network_reachable && !self.library.artists.loaded_once {
                     self.load_more(Page::Artists);
                 }
             }
             Page::Podcasts => {
-                if !self.library.shows.loaded_once {
+                if self.network_reachable && !self.library.shows.loaded_once {
                     self.load_more(Page::Podcasts);
                 }
             }
             Page::Episodes => {
-                if !self.library.episodes.loaded_once {
+                if self.network_reachable && !self.library.episodes.loaded_once {
                     self.load_more(Page::Episodes);
                 }
             }
@@ -3719,7 +3905,7 @@ impl App {
                 }
                 let page = self.playlist_pages.entry(id.clone()).or_default();
                 let generation = page.generation;
-                if page.playlist.needs_load() {
+                if page.playlist.needs_load() && self.network_reachable {
                     page.playlist = Loadable::Loading;
                     self.backend.api(ApiRequest::Playlist {
                         id: id.clone(),
@@ -3727,12 +3913,14 @@ impl App {
                     });
                 }
                 if !page.items.loaded_once && page.items.can_load_more() {
-                    page.items.loading = true;
-                    self.backend.api(ApiRequest::PlaylistItems {
-                        id: id.clone(),
-                        offset: 0,
-                        generation,
-                    });
+                    if self.network_reachable {
+                        page.items.loading = true;
+                        self.backend.api(ApiRequest::PlaylistItems {
+                            id: id.clone(),
+                            offset: 0,
+                            generation,
+                        });
+                    }
                     // Disk progress is adopted only if Spotify's snapshot
                     // still matches.
                     self.backend.send(Command::LoadPlaylistCache {
@@ -3740,7 +3928,9 @@ impl App {
                         generation,
                     });
                 }
-                self.request_contains(vec![format!("spotify:playlist:{id}")]);
+                if self.network_reachable {
+                    self.request_contains(vec![format!("spotify:playlist:{id}")]);
+                }
             }
             Page::Album(id) => {
                 if !self.album_pages.contains_key(&id) {
@@ -3754,39 +3944,53 @@ impl App {
                     );
                 }
                 let page = self.album_pages.entry(id.clone()).or_default();
-                if page.album.needs_load() {
+                if page.album.needs_load() && self.network_reachable {
                     page.album = Loadable::Loading;
                     self.backend.api(ApiRequest::Album { id: id.clone() });
                 }
-                self.request_contains(vec![format!("spotify:album:{id}")]);
+                if self.network_reachable {
+                    self.request_contains(vec![format!("spotify:album:{id}")]);
+                }
             }
             Page::Artist(id) => {
                 let page = self.artist_pages.entry(id.clone()).or_default();
-                if page.artist.needs_load() {
-                    page.artist = Loadable::Loading;
-                    self.backend.api(ApiRequest::Artist { id: id.clone() });
-                }
-                let filter = page.filter;
-                self.load_artist_albums(&id, filter);
-                if page_related_needs_load(&self.artist_pages, &id) {
-                    if let Some(page) = self.artist_pages.get_mut(&id) {
-                        page.related = Loadable::Loading;
+                if self.network_reachable {
+                    if page.artist.needs_load() {
+                        page.artist = Loadable::Loading;
+                        self.backend.api(ApiRequest::Artist { id: id.clone() });
                     }
-                    self.backend
-                        .api(ApiRequest::RelatedArtists { id: id.clone() });
+                    let filter = page.filter;
+                    self.load_artist_albums(&id, filter);
+                    if page_related_needs_load(&self.artist_pages, &id) {
+                        if let Some(page) = self.artist_pages.get_mut(&id) {
+                            page.related = Loadable::Loading;
+                        }
+                        self.backend
+                            .api(ApiRequest::RelatedArtists { id: id.clone() });
+                    }
+                    self.request_contains(vec![format!("spotify:artist:{id}")]);
                 }
-                self.request_contains(vec![format!("spotify:artist:{id}")]);
             }
             Page::Show(id) => {
                 let page = self.show_pages.entry(id.clone()).or_default();
-                if page.show.needs_load() {
+                if page.show.needs_load() && self.network_reachable {
                     page.show = Loadable::Loading;
                     self.backend.api(ApiRequest::Show { id: id.clone() });
                 }
-                self.request_contains(vec![format!("spotify:show:{id}")]);
+                if self.network_reachable {
+                    self.request_contains(vec![format!("spotify:show:{id}")]);
+                }
             }
-            Page::Radio(seed) => self.load_radio(&seed),
-            Page::Queue => self.refresh_queue(true),
+            Page::Radio(seed) => {
+                if self.network_reachable {
+                    self.load_radio(&seed);
+                }
+            }
+            Page::Queue => {
+                if self.network_reachable {
+                    self.refresh_queue(true);
+                }
+            }
             Page::Settings => {}
         }
     }
@@ -3909,7 +4113,7 @@ impl App {
     }
 
     pub fn load_recents(&mut self, force: bool) {
-        if self.recents.loading {
+        if !self.network_reachable || self.recents.loading {
             return;
         }
         if self.recents.complete && !force {
@@ -3945,6 +4149,12 @@ impl App {
     }
 
     pub fn load_more(&mut self, page: Page) {
+        if !self.network_reachable {
+            if matches!(page, Page::LikedSongs) && !self.liked_songs.cache_checked {
+                self.ensure_liked_songs();
+            }
+            return;
+        }
         match page {
             Page::LikedSongs => {
                 if !self.liked_songs.cache_checked {
@@ -4266,7 +4476,7 @@ impl App {
     }
 
     fn refresh_queue(&mut self, force: bool) {
-        if !self.is_connected() {
+        if !self.is_connected() || !self.network_reachable {
             return;
         }
         if self.resume_only() && matches!(self.queue, Loadable::Loaded(_)) {
@@ -4621,6 +4831,7 @@ impl App {
         }
         self.search.serial += 1;
         self.search.committed = query.clone();
+        self.search.committed_run = None;
         self.search.playlists = None;
         self.search.error = None;
         self.search.catalogue_pending = !query.is_empty();
@@ -4637,6 +4848,56 @@ impl App {
             query,
             serial: self.search.serial,
         });
+    }
+
+    /// A search the debounce started while the user may still be typing.
+    fn run_typed_search(&mut self, query: String) {
+        let serial = self.search.serial;
+        self.run_search(query);
+        if self.search.serial != serial {
+            self.search.committed_run = Some((self.search.edit_run, true));
+        }
+    }
+
+    /// Searches for what the field holds, ending its run of typing.
+    fn submit_typed_search(&mut self, query: String) {
+        let run = self.search.edit_run;
+        self.search.edit_run += 1;
+        let serial = self.search.serial;
+        self.run_search(query);
+        if self.search.serial != serial
+            || self.search.catalogue_pending
+            || self.search.playlists_pending
+        {
+            self.search.committed_run = Some((run, false));
+        }
+    }
+
+    /// Records a query that found results. While typing, a pause commits
+    /// each prefix in turn, so a query that extends or shortens the one the
+    /// same run recorded takes its place instead of adding another. Only an
+    /// entry the run itself added is replaced.
+    fn remember_search(&mut self, query: &str) {
+        let query = query.trim();
+        if let Some((run, typing)) = self.search.committed_run
+            && self.search.typed_entry != Some((run, query.to_string()))
+        {
+            if let Some((entry_run, entry)) = self.search.typed_entry.take()
+                && entry_run == run
+                && (query.starts_with(entry.as_str()) || entry.starts_with(query))
+                && self.settings.search_history.first() == Some(&entry)
+            {
+                self.settings.search_history.remove(0);
+            }
+            let added = !self
+                .settings
+                .search_history
+                .iter()
+                .any(|entry| entry == query);
+            self.search.typed_entry = (typing && added).then(|| (run, query.to_string()));
+        }
+        self.settings.remember_search(query);
+        self.settings_dirty = true;
     }
 
     fn show_search_playlists(&mut self) {
@@ -4946,6 +5207,10 @@ impl App {
                             }
                         }
                         if let Some(selected) = &self.selected_device
+                            && !self.receivers.iter().any(|receiver| {
+                                crate::sonos::is_sonos(receiver)
+                                    && receiver.device_id.as_deref() == Some(selected.as_str())
+                            })
                             && !self
                                 .devices
                                 .iter()
@@ -5249,6 +5514,7 @@ impl App {
                         Loadable::Loaded(existing) if offset > 0 => existing.extend(page.items),
                         slot => *slot = Loadable::Loaded(page.items),
                     }
+                    self.fill_blank_playlists();
                     self.library.playlists_next = next_offset;
                     if next_offset.is_some() {
                         self.load_more(Page::Home);
@@ -5766,7 +6032,9 @@ impl App {
                             jiff::Timestamp::now().as_second(),
                         );
                     }
-                    Err(error) => self.liked_songs.fail(error.to_string()),
+                    Err(error) => self
+                        .liked_songs
+                        .fail(friendly_api_error(self.locale, &error)),
                 }
                 if !more {
                     self.sync_liked_songs();
@@ -5788,7 +6056,10 @@ impl App {
                     }
                     self.library.albums.absorb(offset, page);
                 }
-                Err(error) => self.library.albums.fail(error.to_string()),
+                Err(error) => self
+                    .library
+                    .albums
+                    .fail(friendly_api_error(self.locale, &error)),
             },
             ApiResponse::FollowedArtists { after, result } => {
                 let list = &mut self.library.artists;
@@ -5814,7 +6085,7 @@ impl App {
                         list.after = next;
                         list.error = None;
                     }
-                    Err(error) => list.error = Some(error.to_string()),
+                    Err(error) => list.error = Some(friendly_api_error(self.locale, &error)),
                 }
             }
             ApiResponse::SavedShows { offset, .. }
@@ -5838,7 +6109,10 @@ impl App {
                         self.request_home_episodes();
                     }
                 }
-                Err(error) => self.library.shows.fail(error.to_string()),
+                Err(error) => self
+                    .library
+                    .shows
+                    .fail(friendly_api_error(self.locale, &error)),
             },
             ApiResponse::HomeEpisodes { generation, .. } if generation != self.home.generation => {}
             ApiResponse::HomeEpisodes { result, .. } => match result {
@@ -5856,7 +6130,10 @@ impl App {
                     }
                     self.library.episodes.absorb(offset, page);
                 }
-                Err(error) => self.library.episodes.fail(error.to_string()),
+                Err(error) => self
+                    .library
+                    .episodes
+                    .fail(friendly_api_error(self.locale, &error)),
             },
             ApiResponse::SavedChanged {
                 uris,
@@ -5973,8 +6250,7 @@ impl App {
                     Ok(page) => {
                         self.search.playlists = Some((serial, page));
                         self.show_search_playlists();
-                        self.settings.remember_search(&query);
-                        self.settings_dirty = true;
+                        self.remember_search(&query);
                     }
                     Err(error) => self.search_failed(&gettext(self.locale, "Playlists"), error),
                 }
@@ -5997,8 +6273,7 @@ impl App {
                             .map(|track| track.uri.clone())
                             .collect();
                         self.request_contains(uris);
-                        self.settings.remember_search(&query);
-                        self.settings_dirty = true;
+                        self.remember_search(&query);
                         self.search.results = Loadable::Loaded(results);
                         self.search.results_serial = serial;
                         self.show_search_playlists();
@@ -6020,7 +6295,10 @@ impl App {
                     }
                 }
                 if let Some(page) = self.artist_pages.get_mut(&id) {
-                    page.artist = Loadable::from_result(result);
+                    page.artist = match result {
+                        Ok(artist) => Loadable::Loaded(artist),
+                        Err(error) => Loadable::Failed(friendly_api_error(self.locale, &error)),
+                    };
                 }
             }
             ApiResponse::ArtistTopTracks { id, result } => {
@@ -6029,7 +6307,10 @@ impl App {
                     self.request_contains(uris);
                 }
                 if let Some(page) = self.artist_pages.get_mut(&id) {
-                    page.top_tracks = Loadable::from_result(result);
+                    page.top_tracks = match result {
+                        Ok(tracks) => Loadable::Loaded(tracks),
+                        Err(error) => Loadable::Failed(friendly_api_error(self.locale, &error)),
+                    };
                 }
             }
             ApiResponse::ArtistAlbums {
@@ -6045,13 +6326,16 @@ impl App {
                     let list = page.albums.entry(groups).or_default();
                     match result {
                         Ok(albums) => list.absorb(offset, albums),
-                        Err(error) => list.fail(error.to_string()),
+                        Err(error) => list.fail(friendly_api_error(self.locale, &error)),
                     }
                 }
             }
             ApiResponse::RelatedArtists { id, result } => {
                 if let Some(page) = self.artist_pages.get_mut(&id) {
-                    page.related = Loadable::from_result(result);
+                    page.related = match result {
+                        Ok(artists) => Loadable::Loaded(artists),
+                        Err(error) => Loadable::Failed(friendly_api_error(self.locale, &error)),
+                    };
                 }
             }
             ApiResponse::Album { id, result } => {
@@ -6081,7 +6365,9 @@ impl App {
                                 });
                             }
                         }
-                        Err(error) => page.album = Loadable::Failed(error.to_string()),
+                        Err(error) => {
+                            page.album = Loadable::Failed(friendly_api_error(self.locale, &error))
+                        }
                     }
                 }
                 self.request_contains(uris);
@@ -6106,7 +6392,7 @@ impl App {
                             uris = tracks.items.iter().map(|track| track.uri.clone()).collect();
                             page.tracks.absorb(offset, tracks);
                         }
-                        Err(error) => page.tracks.fail(error.to_string()),
+                        Err(error) => page.tracks.fail(friendly_api_error(self.locale, &error)),
                     }
                 }
                 self.request_contains(uris);
@@ -6140,7 +6426,9 @@ impl App {
                                 self.backend.api(ApiRequest::ShowEpisodes { id, offset: 0 });
                             }
                         }
-                        Err(error) => page.show = Loadable::Failed(error.to_string()),
+                        Err(error) => {
+                            page.show = Loadable::Failed(friendly_api_error(self.locale, &error))
+                        }
                     }
                 }
             }
@@ -6148,7 +6436,7 @@ impl App {
                 if let Some(page) = self.show_pages.get_mut(&id) {
                     match result {
                         Ok(episodes) => page.episodes.absorb(offset, episodes),
-                        Err(error) => page.episodes.fail(error.to_string()),
+                        Err(error) => page.episodes.fail(friendly_api_error(self.locale, &error)),
                     }
                 }
             }
@@ -6898,7 +7186,9 @@ impl App {
                 // wait for the connecting engine or ask for a device.
                 if matches!(
                     self.local_playback,
-                    LocalPlayback::Connecting | LocalPlayback::Authorizing
+                    LocalPlayback::Connecting
+                        | LocalPlayback::Authorizing
+                        | LocalPlayback::WaitingForNetwork
                 ) || (self.settings.playback_authorized
                     && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
                 {
@@ -8892,11 +9182,20 @@ impl App {
                 }
             }
             Action::Search(query) => {
+                // Enter submits what was typed; a recent search or a link
+                // starts afresh.
+                let typed = query == self.search.query;
                 self.search.query = query.clone();
                 self.search.typed_at = None;
                 self.open(Page::Search);
-                self.run_search(query.trim().to_string());
+                if typed {
+                    self.submit_typed_search(query.trim().to_string());
+                } else {
+                    self.search.edit_run += 1;
+                    self.run_search(query.trim().to_string());
+                }
             }
+            Action::EndSearchRun => self.search.edit_run += 1,
             Action::ForgetSearch(query) => {
                 self.settings.search_history.retain(|entry| entry != &query);
                 self.settings_dirty = true;
@@ -9215,6 +9514,9 @@ impl App {
                 if self.window_hidden {
                     // No window exists; the outer loop creates one.
                     self.wants_show = true;
+                } else if fastframe_shell::window::raise_on_compositor() {
+                    // Wayland drops a window's own request for focus; niri
+                    // focuses it on request, switching to its workspace.
                 } else {
                     // A minimized window has to be restored before it can be
                     // focused: Focus alone leaves it in the Dock, and the
@@ -9245,7 +9547,9 @@ impl App {
                 } else if !self.local_ready
                     && !matches!(
                         self.local_playback,
-                        LocalPlayback::Authorizing | LocalPlayback::Connecting
+                        LocalPlayback::Authorizing
+                            | LocalPlayback::Connecting
+                            | LocalPlayback::WaitingForNetwork
                     )
                 {
                     self.settings.playback_authorized = true;
@@ -9294,9 +9598,7 @@ impl App {
             Action::ToggleWinampWindow => {
                 // One window at a time: this one closes and the loop in
                 // `main` opens the other kind where each was last.
-                if self.settings.winamp_window {
-                    self.winamp.remember_position();
-                } else if self.settings.random_skin {
+                if !self.settings.winamp_window && self.settings.random_skin {
                     self.winamp.refresh_choices(&self.dirs.skins_dir());
                     let candidates: Vec<Option<String>> = std::iter::once(None)
                         .chain(
@@ -9312,8 +9614,6 @@ impl App {
                         &mut rand::rng(),
                     );
                 }
-                self.session_window_size = self.last_window_size.or(self.session_window_size);
-                self.session_window_pos = self.last_window_pos.or(self.session_window_pos);
                 self.settings.winamp_window = !self.settings.winamp_window;
                 self.settings_dirty = true;
                 self.switch_intent = true;
@@ -9363,7 +9663,6 @@ impl App {
                         // This window attribute is fixed at creation. Keep
                         // the visible mini player, its position, and playback
                         // while replacing only its native window.
-                        self.winamp.remember_position();
                         self.switch_intent = true;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -9776,6 +10075,7 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
+        self.remember_geometry(ctx);
         #[cfg(target_os = "macos")]
         self.sync_notch_widget(ctx);
         let close_requested = ctx.input(|input| input.viewport().close_requested());
@@ -9795,21 +10095,48 @@ impl App {
         }
     }
 
+    /// Follows the open window's size, position and maximized state, so the
+    /// next window of its kind opens as it was left. Not while one window
+    /// switches to the other, whose closing frames describe the window going
+    /// away, nor while fullscreen lyrics own the main window.
+    fn remember_geometry(&mut self, ctx: &egui::Context) {
+        if self.window_hidden || self.switch_intent {
+            return;
+        }
+        if self.settings.winamp_window {
+            self.winamp.geometry.remember(ctx);
+        } else if self.lyrics_fullscreen.is_none() && self.lyrics_fullscreen_restoring.is_none() {
+            self.window_geometry.remember(ctx);
+        }
+    }
+
     /// Follows the system's power and session state: works out the budget
-    /// for drawing and polling, and answers what the system is about to do.
+    /// for drawing and polling, tells the backend whether the internet can
+    /// be reached, keeps local playback out of App Nap, and answers what the
+    /// system is about to do.
     fn sync_power(&mut self, ctx: &egui::Context) {
-        self.power.refresh();
+        let conditions = self.power.conditions();
         let shown =
             !self.window_hidden && !ctx.input(|input| input.viewport().minimized.unwrap_or(false));
         let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
-        let budget = crate::power::budget(self.power.conditions(), shown, focused);
+        let budget = crate::power::budget(conditions, shown, focused);
         if budget != self.budget {
             log::debug!("budget: {budget:?}");
             self.budget = budget;
             self.power
                 .set_background(budget == crate::power::Budget::Background);
         }
-        for event in self.power.take_events() {
+        if self.follows_reachability && conditions.online != self.reachable {
+            self.reachable = conditions.online;
+            self.backend.network_status(conditions.online);
+        }
+        if crate::power::playback_needs_activity(&self.local) {
+            self.playback_activity
+                .get_or_insert_with(|| crate::power::Activity::begin("Spotify playback"));
+        } else {
+            self.playback_activity = None;
+        }
+        for event in self.power.events() {
             use crate::power::Event;
             match event {
                 Event::Suspending(ack) | Event::EndingSession(ack) => {
@@ -10043,19 +10370,6 @@ impl App {
         self.refresh_frame_now();
         self.sync_media_controls(ctx);
 
-        if !self.settings.winamp_window
-            && !self.switch_intent
-            && self.lyrics_fullscreen.is_none()
-            && self.lyrics_fullscreen_restoring.is_none()
-        {
-            if let Some(rect) = ctx.input(|input| input.viewport().inner_rect) {
-                self.last_window_size = Some([rect.width(), rect.height()]);
-            }
-            if let Some(rect) = ctx.input(|input| input.viewport().outer_rect) {
-                self.last_window_pos = Some([rect.min.x, rect.min.y]);
-            }
-        }
-
         if !self.toasts.is_empty() {
             ctx.request_repaint_after(TOAST_FRAME);
         }
@@ -10123,11 +10437,12 @@ impl App {
                     .iter()
                     .map(|(page, sort)| (page.encode(), *sort))
                     .collect(),
-                window_size: self.last_window_size.or(self.session_window_size),
-                window_pos: self.last_window_pos.or(self.session_window_pos),
+                window_size: self.window_geometry.size,
+                window_pos: self.window_geometry.position,
+                window_maximized: self.window_geometry.maximized,
                 queue_open: Some(self.show_queue_panel),
                 queue_tab: Some(self.queue_tab.encode().to_string()),
-                winamp_pos: self.winamp.last_pos.or(self.winamp.restore_pos),
+                winamp_pos: self.winamp.geometry.position,
                 milkdrop_pos: self.milkdrop_pos,
                 lyrics_fullscreen_from: self.lyrics_fullscreen.map(|fullscreen| {
                     crate::settings::WindowMode {
@@ -10165,6 +10480,7 @@ impl App {
             });
         } else if !self.liked_songs.fresh(jiff::Timestamp::now().as_second())
             && self.library.liked.error.is_none()
+            && self.network_reachable
         {
             self.refresh_liked_songs();
         }
@@ -10198,11 +10514,12 @@ impl App {
                 }
             }
         }
-        if !self.liked_songs.fresh(jiff::Timestamp::now().as_second())
-            || self.liked_songs.has_confirmed_changes()
+        if (!self.liked_songs.fresh(jiff::Timestamp::now().as_second())
+            || self.liked_songs.has_confirmed_changes())
+            && self.network_reachable
         {
             self.refresh_liked_songs();
-        } else if self.table_sorts.contains_key(&Page::LikedSongs) {
+        } else if self.table_sorts.contains_key(&Page::LikedSongs) && self.network_reachable {
             self.load_more(Page::LikedSongs);
         }
     }
@@ -10216,6 +10533,11 @@ impl App {
         self.liked_songs.start_refresh(self.load_generation);
         self.library.liked.loading = true;
         self.load_more(Page::LikedSongs);
+    }
+
+    /// Whether Liked Songs at `revision` is a prefix of the rows shown now.
+    pub(crate) fn liked_view_extends(&self, revision: u64) -> bool {
+        self.liked_songs.view_extends(&self.library.liked, revision)
     }
 
     fn sync_liked_songs(&mut self) {
@@ -10451,6 +10773,9 @@ fn engine_error_text(locale: Locale, error: &str) -> String {
 }
 
 fn friendly_page_error(locale: Locale, error: &crate::api::ApiError) -> String {
+    if error.is_network() {
+        return gettext(locale, "Network connection error. Check your connection.").into_owned();
+    }
     match error.status() {
         Some(403) | Some(404) => gettext(
             locale,
@@ -10458,6 +10783,14 @@ fn friendly_page_error(locale: Locale, error: &crate::api::ApiError) -> String {
         )
         .into_owned(),
         _ => error.to_string(),
+    }
+}
+
+fn friendly_api_error(locale: Locale, error: &crate::api::ApiError) -> String {
+    if error.is_network() {
+        gettext(locale, "Network connection error. Check your connection.").into_owned()
+    } else {
+        error.to_string()
     }
 }
 
@@ -11641,6 +11974,96 @@ mod tests {
         Some(ids.iter().map(|id| (*id).to_string()).collect())
     }
 
+    /// Spotify's Web API lists some of its own playlists, "This Is" ones
+    /// among them, with no name, cover or songs, which drew a blank sidebar
+    /// row. The streaming session reads their headers whole: each row takes
+    /// its header as it arrives, is asked about once, and a reloaded list
+    /// fills at once.
+    #[test]
+    fn a_playlist_the_library_lists_blank_takes_its_session_header() {
+        let mut app = headless_app();
+        let listed = || {
+            Ok(crate::api::models::Page {
+                items: vec![
+                    Playlist {
+                        id: "blank".into(),
+                        uri: "spotify:playlist:blank".into(),
+                        description: Some(String::new()),
+                        items_count: Some(TrackCount { total: 0 }),
+                        ..Playlist::default()
+                    },
+                    Playlist {
+                        id: "later".into(),
+                        uri: "spotify:playlist:later".into(),
+                        ..Playlist::default()
+                    },
+                    Playlist {
+                        id: "named".into(),
+                        name: "Mix".into(),
+                        ..Playlist::default()
+                    },
+                ],
+                ..Default::default()
+            })
+        };
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: listed(),
+        });
+        assert_eq!(
+            app.playlist_headers_requested,
+            HashSet::from(["blank".to_string(), "later".to_string()]),
+            "only the blank entries are asked about"
+        );
+
+        let cover = Image {
+            url: "https://i.scdn.co/image/this-is".into(),
+            width: Some(300),
+            height: None,
+        };
+        app.handle_backend_events(vec![Event::PlaylistHeader(Playlist {
+            id: "blank".into(),
+            name: "This Is TUYU".into(),
+            description: Some("The essential tracks.".into()),
+            images: vec![cover.clone()],
+            items_count: Some(TrackCount { total: 50 }),
+            ..Playlist::default()
+        })]);
+        let entry = app.library_entry("blank").unwrap();
+        assert_eq!(entry.name, "This Is TUYU");
+        assert_eq!(entry.images, vec![cover.clone()]);
+        assert_eq!(entry.description.as_deref(), Some("The essential tracks."));
+        assert_eq!(entry.track_total(), 50);
+        assert_eq!(
+            app.library_entry("later").unwrap().name,
+            "",
+            "a row fills when its own header arrives, not before"
+        );
+        assert_eq!(app.library_entry("named").unwrap().name, "Mix");
+
+        app.handle_backend_events(vec![Event::PlaylistHeader(Playlist {
+            id: "later".into(),
+            name: "This Is YOASOBI".into(),
+            ..Playlist::default()
+        })]);
+        assert_eq!(app.library_entry("later").unwrap().name, "This Is YOASOBI");
+
+        app.load_playlists();
+        app.playlist_headers_requested.clear();
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: listed(),
+        });
+        assert_eq!(app.library_entry("blank").unwrap().name, "This Is TUYU");
+        assert_eq!(app.library_entry("later").unwrap().name, "This Is YOASOBI");
+        assert!(
+            app.playlist_headers_requested.is_empty(),
+            "a header already read is not asked for again"
+        );
+    }
+
     /// Following, unfollowing or editing a playlist reads the library's
     /// playlists again from the top. A later page asked for before that
     /// belongs to the old list: taking it made that page the whole list,
@@ -12067,9 +12490,13 @@ mod tests {
         let mut app = headless_app();
         app.settings.winamp_window = true;
         app.settings.winamp_shaded = true;
-        app.winamp.last_pos = Some([300.0, 200.0]);
-        app.last_window_size = Some([1024.0, 768.0]);
-        app.last_window_pos = Some([100.0, 100.0]);
+        app.winamp.geometry.position = Some([300.0, 200.0]);
+        let main = fastframe_shell::window::Geometry {
+            size: Some([1024.0, 768.0]),
+            position: Some([100.0, 100.0]),
+            maximized: false,
+        };
+        app.window_geometry = main;
 
         let main_ctx = egui::Context::default();
         app.apply(Action::ToggleWinampWindow, &main_ctx);
@@ -12084,13 +12511,15 @@ mod tests {
         assert!(app.settings.winamp_shaded);
         assert!(commands.contains(&egui::ViewportCommand::Fullscreen(false)));
         assert!(commands.contains(&egui::ViewportCommand::Maximized(false)));
+        // The position goes to the window's builder before it exists
+        // (entrypoint's native_options), not after it in a command.
         assert!(
-            commands.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(
-                300.0, 200.0
-            )))
+            !commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::OuterPosition(_)))
         );
-        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
-        assert_eq!(app.session_window_pos, Some([100.0, 100.0]));
+        assert_eq!(app.winamp.geometry.position, Some([300.0, 200.0]));
+        assert_eq!(app.window_geometry, main);
     }
 
     /// A window left maximized or full screen comes back that way, instead of
@@ -12110,8 +12539,8 @@ mod tests {
         };
         for &(name, maximized, fullscreen) in cases {
             let mut app = headless_app();
-            app.session_window_size = Some([1024.0, 768.0]);
-            app.session_window_pos = Some([100.0, 150.0]);
+            app.window_geometry.size = Some([1024.0, 768.0]);
+            app.window_geometry.position = Some([100.0, 150.0]);
 
             let ctx = egui::Context::default();
             let mut raw_input = egui::RawInput::default();
@@ -12156,14 +12585,10 @@ mod tests {
             fullscreen: true,
             ..WindowMode::default()
         };
-        for (left, expected, resized) in [
-            (Some(ordinary), vec![Fullscreen(false)], true),
-            (
-                Some(maximized),
-                vec![Fullscreen(false), Maximized(true)],
-                false,
-            ),
-            (Some(full_screen), vec![Fullscreen(true)], false),
+        for (left, expected) in [
+            (Some(ordinary), vec![Fullscreen(false)]),
+            (Some(maximized), vec![Fullscreen(false), Maximized(true)]),
+            (Some(full_screen), vec![Fullscreen(true)]),
             // A session from before this was remembered: Windows can only
             // have been in fullscreen lyrics, other desktops keep the state.
             (
@@ -12173,11 +12598,10 @@ mod tests {
                 } else {
                     vec![]
                 },
-                cfg!(windows),
             ),
         ] {
             let mut app = headless_app();
-            app.session_window_size = Some([1024.0, 768.0]);
+            app.window_geometry.size = Some([1024.0, 768.0]);
             app.session_lyrics_fullscreen_from = left;
 
             let ctx = egui::Context::default();
@@ -12196,12 +12620,11 @@ mod tests {
                 .cloned()
                 .collect();
             assert_eq!(modes, expected, "{left:?}");
-            assert_eq!(
-                commands
+            assert!(
+                !commands
                     .iter()
                     .any(|command| matches!(command, InnerSize(_))),
-                resized,
-                "{left:?}: an ordinary window takes the session's size back"
+                "{left:?}: the size was the builder's, before the window existed"
             );
             assert_eq!(app.session_lyrics_fullscreen_from, None);
             app.backend.shutdown();
@@ -12241,8 +12664,8 @@ mod tests {
     fn a_demo_window_keeps_its_requested_geometry_over_the_saved_session() {
         let mut app = headless_app();
         crate::demo::populate(&mut app);
-        app.session_window_size = Some([1100.0, 700.0]);
-        app.session_window_pos = Some([100.0, 150.0]);
+        app.window_geometry.size = Some([1100.0, 700.0]);
+        app.window_geometry.position = Some([100.0, 150.0]);
 
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(Default::default(), |_ui| app.attach(&ctx));
@@ -14886,6 +15309,126 @@ mod tests {
         }
     }
 
+    fn answer_search(app: &mut App, query: &str, serial: u64) {
+        app.handle_api(ApiResponse::Search {
+            query: query.into(),
+            serial,
+            result: Ok(catalogue_answer()),
+        });
+    }
+
+    /// A query the debounce committed after a pause, answered with results.
+    fn typed_search(app: &mut App, query: &str) {
+        app.search.query = query.into();
+        app.run_typed_search(query.into());
+        let serial = app.search.serial;
+        answer_search(app, query, serial);
+    }
+
+    /// The field emptied, or its selection typed over.
+    fn end_search_run(app: &mut App) {
+        app.actions.push(Action::EndSearchRun);
+        app.apply_actions(&egui::Context::default());
+    }
+
+    /// Enter in the search field.
+    fn submit_search(app: &mut App, query: &str) {
+        app.search.query = query.into();
+        app.actions.push(Action::Search(query.into()));
+        app.apply_actions(&egui::Context::default());
+    }
+
+    #[test]
+    fn pauses_while_typing_record_only_the_final_query() {
+        let mut app = test_app("search-typing-prefixes");
+        app.settings.search_history = vec!["older".into()];
+        for query in ["ab", "abs", "absolut", "abso", "absolutely"] {
+            typed_search(&mut app, query);
+        }
+        assert_eq!(app.settings.search_history, ["absolutely", "older"]);
+
+        // Enter on a query whose typed search is still on its way ends the
+        // run, and its answer still replaces the run's prefix.
+        end_search_run(&mut app);
+        app.settings.search_history.clear();
+        typed_search(&mut app, "abs");
+        app.search.query = "absolutely".into();
+        app.run_typed_search("absolutely".into());
+        let serial = app.search.serial;
+        submit_search(&mut app, "absolutely");
+        assert_eq!(app.search.serial, serial);
+        answer_search(&mut app, "absolutely", serial);
+        assert_eq!(app.settings.search_history, ["absolutely"]);
+        typed_search(&mut app, "absolutely sweet");
+        assert_eq!(
+            app.settings.search_history,
+            ["absolutely sweet", "absolutely"]
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_new_query_or_a_finished_search_keeps_its_own_recent_entry() {
+        let mut app = test_app("search-typing-separate");
+        // Typing over the whole query starts a different search, even when
+        // the new query is a prefix of the old one.
+        typed_search(&mut app, "beatles");
+        end_search_run(&mut app);
+        typed_search(&mut app, "beat");
+        assert_eq!(app.settings.search_history, ["beat", "beatles"]);
+
+        // A different query typed after deleting the old one.
+        typed_search(&mut app, "queen");
+        assert_eq!(app.settings.search_history, ["queen", "beat", "beatles"]);
+
+        // Emptying the field ends the run.
+        app.settings.search_history.clear();
+        typed_search(&mut app, "ab");
+        end_search_run(&mut app);
+        app.run_typed_search(String::new());
+        typed_search(&mut app, "abba");
+        assert_eq!(app.settings.search_history, ["abba", "ab"]);
+
+        // A search submitted with Enter is kept even if typing extends it.
+        end_search_run(&mut app);
+        app.settings.search_history.clear();
+        submit_search(&mut app, "ab");
+        let serial = app.search.serial;
+        answer_search(&mut app, "ab", serial);
+        typed_search(&mut app, "abba");
+        assert_eq!(app.settings.search_history, ["abba", "ab"]);
+
+        // So is Enter on a query that already has results.
+        end_search_run(&mut app);
+        app.settings.search_history.clear();
+        typed_search(&mut app, "ab");
+        submit_search(&mut app, "ab");
+        typed_search(&mut app, "abba");
+        assert_eq!(app.settings.search_history, ["abba", "ab"]);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn typing_never_replaces_a_recent_search_it_did_not_add() {
+        let mut app = test_app("search-typing-existing");
+        app.settings.search_history = vec!["older".into(), "ab".into()];
+        typed_search(&mut app, "ab");
+        typed_search(&mut app, "abc");
+        assert_eq!(app.settings.search_history, ["abc", "ab", "older"]);
+
+        // An answer for the run before a selection was typed over belongs
+        // to that run.
+        app.settings.search_history.clear();
+        app.search.query = "beatles".into();
+        app.run_typed_search("beatles".into());
+        let serial = app.search.serial;
+        end_search_run(&mut app);
+        answer_search(&mut app, "beatles", serial);
+        typed_search(&mut app, "beat");
+        assert_eq!(app.settings.search_history, ["beat", "beatles"]);
+        app.backend.shutdown();
+    }
+
     fn cover_dialog(request: Option<u64>) -> Dialog {
         Dialog::EditPlaylist {
             id: "pl1".into(),
@@ -17324,8 +17867,8 @@ mod tests {
         crate::theme::install(&ctx);
         app.lyrics_fullscreen = Some(false);
         app.lyrics_fullscreen_seen = true;
-        app.last_window_size = Some([900.0, 650.0]);
-        app.last_window_pos = Some([100.0, 80.0]);
+        app.window_geometry.size = Some([900.0, 650.0]);
+        app.window_geometry.position = Some([100.0, 80.0]);
         // Escape is applied while the viewport still reports the old screen.
         app.actions.push(Action::SetLyricsFullscreen(false));
         for _ in 0..2 {
@@ -17337,11 +17880,14 @@ mod tests {
                 egui::vec2(1920.0, 1080.0),
             ));
             viewport.outer_rect = viewport.inner_rect;
-            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            let mut output = ctx.run_ui(input, |ui| {
+                app.frame_ui(ui);
+                app.remember_geometry(ui.ctx());
+            });
             output.textures_delta.clear();
             assert_eq!(app.lyrics_fullscreen, None);
-            assert_eq!(app.last_window_size, Some([900.0, 650.0]));
-            assert_eq!(app.last_window_pos, Some([100.0, 80.0]));
+            assert_eq!(app.window_geometry.size, Some([900.0, 650.0]));
+            assert_eq!(app.window_geometry.position, Some([100.0, 80.0]));
         }
         let mut input = egui::RawInput::default();
         let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
@@ -17351,10 +17897,13 @@ mod tests {
             egui::vec2(940.0, 680.0),
         ));
         viewport.outer_rect = viewport.inner_rect;
-        let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+        let mut output = ctx.run_ui(input, |ui| {
+            app.frame_ui(ui);
+            app.remember_geometry(ui.ctx());
+        });
         output.textures_delta.clear();
-        assert_eq!(app.last_window_size, Some([940.0, 680.0]));
-        assert_eq!(app.last_window_pos, Some([120.0, 100.0]));
+        assert_eq!(app.window_geometry.size, Some([940.0, 680.0]));
+        assert_eq!(app.window_geometry.position, Some([120.0, 100.0]));
         app.backend.shutdown();
     }
 
@@ -17413,7 +17962,7 @@ mod tests {
                 egui::ViewportCommand::Maximized(true),
             ]
         );
-        app.last_window_size = Some([900.0, 650.0]);
+        app.window_geometry.size = Some([900.0, 650.0]);
         // A native exit can report windowed before maximization catches up.
         // Do not save that intermediate size over the restored geometry.
         for maximized in [false, true] {
@@ -17425,17 +17974,15 @@ mod tests {
                 egui::Pos2::ZERO,
                 egui::vec2(1440.0, 852.0),
             ));
-            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            let mut output = ctx.run_ui(input, |ui| {
+                app.frame_ui(ui);
+                app.remember_geometry(ui.ctx());
+            });
             output.textures_delta.clear();
             assert_eq!(app.lyrics_fullscreen_restoring.is_none(), maximized);
-            assert_eq!(
-                app.last_window_size,
-                Some(if maximized {
-                    [1440.0, 852.0]
-                } else {
-                    [900.0, 650.0]
-                })
-            );
+            // Maximized keeps the normal size behind it, to restore to.
+            assert_eq!(app.window_geometry.size, Some([900.0, 650.0]));
+            assert_eq!(app.window_geometry.maximized, maximized);
         }
         app.backend.shutdown();
     }
@@ -22606,6 +23153,59 @@ mod tests {
         );
     }
 
+    #[test]
+    fn an_idle_sonos_selection_survives_spotifys_device_list() {
+        let mut app = headless_app();
+        app.receivers = vec![crate::zeroconf::Receiver {
+            name: "Office".into(),
+            device_id: Some("office".into()),
+            address: "192.168.1.10".parse().unwrap(),
+            port: 1400,
+            path: "/spotifyzc".into(),
+        }];
+        app.selected_device = Some("office".into());
+        app.handle_api(ApiResponse::Devices(Ok(Vec::new())));
+        assert_eq!(app.selected_device.as_deref(), Some("office"));
+        app.selected_device = Some("departed-phone".into());
+        app.handle_api(ApiResponse::Devices(Ok(Vec::new())));
+        assert_eq!(app.selected_device, None);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn restricted_remote_controls_require_a_ready_playback_session() {
+        let mut app = headless_app();
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                item: Some(queued_song("spotify:track:song")),
+                device: Some(Device {
+                    id: Some("office".into()),
+                    is_restricted: true,
+                    supports_volume: Some(true),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        for ready in [false, true] {
+            app.local_ready = ready;
+            let now = app.now_playing_live().unwrap();
+            assert_eq!(now.can_control, ready);
+            assert_eq!(now.can_set_volume, ready);
+        }
+        app.remote
+            .as_mut()
+            .unwrap()
+            .state
+            .device
+            .as_mut()
+            .unwrap()
+            .supports_volume = Some(false);
+        assert!(!app.now_playing_live().unwrap().can_set_volume);
+        app.backend.shutdown();
+    }
+
     /// Spotify device responses update the control snapshot.
     #[test]
     fn a_device_list_reaches_the_slot_when_spotify_answers() {
@@ -23218,79 +23818,82 @@ mod tests {
     }
 
     /// Switching from Winamp back to the main window preserves the main
-    /// window's size and position across the closing mini-window frame.
+    /// window's size and position across the closing mini-window frame,
+    /// and the mini player's position across the main window's.
     #[test]
     fn closing_winamp_frame_does_not_overwrite_main_window_geometry() {
         let mut app = headless_app();
-        app.last_window_size = Some([1024.0, 768.0]);
-        app.last_window_pos = Some([100.0, 150.0]);
+        let main = fastframe_shell::window::Geometry {
+            size: Some([1024.0, 768.0]),
+            position: Some([100.0, 150.0]),
+            maximized: false,
+        };
+        app.window_geometry = main;
+        let frame = |app: &mut App, ctx: &egui::Context, rect: egui::Rect| {
+            let mut raw_input = egui::RawInput::default();
+            let viewport = raw_input
+                .viewports
+                .entry(egui::ViewportId::ROOT)
+                .or_default();
+            viewport.inner_rect = Some(rect);
+            viewport.outer_rect = Some(rect);
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                app.frame_ui(ui);
+                app.remember_geometry(ui.ctx());
+            });
+            output.textures_delta.clear();
+        };
 
         // Toggle from main window to Winamp window
         let ctx = egui::Context::default();
         app.actions.push(Action::ToggleWinampWindow);
         app.apply_actions(&ctx);
-
         assert!(app.settings.winamp_window);
         assert!(app.switch_intent);
-        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
-        assert_eq!(app.session_window_pos, Some([100.0, 150.0]));
 
-        // Attach the Winamp window (clears switch_intent, keeps session geometry)
-        app.attach(&ctx);
+        // The main window's closing frame is not the mini player's position.
+        let big = egui::Rect::from_min_size(egui::pos2(100.0, 150.0), egui::vec2(1024.0, 768.0));
+        frame(&mut app, &ctx, big);
+        assert_eq!(app.winamp.geometry.position, None);
+
+        // Attach the Winamp window, which follows its own position.
+        let mini_ctx = egui::Context::default();
+        app.attach(&mini_ctx);
         assert!(!app.switch_intent);
-        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
-
-        // Trigger switch back to the main window
-        app.actions.push(Action::ToggleWinampWindow);
-
-        // Run the closing frame of the mini-window with its tiny viewport geometry
-        let mut raw_input = egui::RawInput::default();
         let mini_rect = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(275.0, 116.0));
-        let viewport = raw_input
-            .viewports
-            .entry(egui::ViewportId::ROOT)
-            .or_default();
-        viewport.inner_rect = Some(mini_rect);
-        viewport.outer_rect = Some(mini_rect);
+        frame(&mut app, &mini_ctx, mini_rect);
+        assert_eq!(app.winamp.geometry.position, Some([50.0, 50.0]));
+        assert_eq!(app.window_geometry, main);
 
-        let mut closing_output = ctx.run_ui(raw_input, |ui| {
-            app.frame_ui(ui);
-        });
-        closing_output.textures_delta.clear();
-
-        // The closing frame switched window mode and armed switch_intent...
+        // Switch back: the closing mini frame arms switch_intent, which
+        // keeps its tiny rectangle out of the main window's geometry.
+        app.actions.push(Action::ToggleWinampWindow);
+        frame(&mut app, &mini_ctx, mini_rect);
         assert!(!app.settings.winamp_window);
         assert!(app.switch_intent);
+        assert_eq!(app.window_geometry, main);
 
-        // ...but switch_intent prevented the closing mini-window rect from
-        // overwriting the saved main window size and position.
-        assert_eq!(app.last_window_size, Some([1024.0, 768.0]));
-        assert_eq!(app.last_window_pos, Some([100.0, 150.0]));
-        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
-        assert_eq!(app.session_window_pos, Some([100.0, 150.0]));
-
-        // Attaching the new main window restores the saved geometry via viewport commands
+        // The new main window opens from it (entrypoint's native_options),
+        // so attaching sends no size or position after the fact.
         let main_ctx = egui::Context::default();
         let mut output = main_ctx.run_ui(Default::default(), |_ui| {
             app.attach(&main_ctx);
         });
         output.textures_delta.clear();
-
         let commands = &output
             .viewport_output
             .get(&egui::ViewportId::ROOT)
             .expect("the root viewport")
             .commands;
         assert!(
-            commands.contains(&egui::ViewportCommand::InnerSize(egui::vec2(1024.0, 768.0))),
-            "attach restored the main window size: {commands:?}"
+            !commands.iter().any(|command| matches!(
+                command,
+                egui::ViewportCommand::InnerSize(_) | egui::ViewportCommand::OuterPosition(_)
+            )),
+            "{commands:?}"
         );
-        assert!(
-            commands.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(
-                100.0, 150.0
-            ))),
-            "attach restored the main window position: {commands:?}"
-        );
+        assert_eq!(app.window_geometry, main);
+        app.backend.shutdown();
     }
 
     fn cached_liked_app() -> App {
@@ -23359,6 +23962,71 @@ mod tests {
         app.receive_liked_cache("bob", generation, Some(cache));
         assert!(!app.liked_songs.cache_checked);
         assert!(app.library.liked.items.is_empty());
+    }
+
+    #[test]
+    fn liked_rows_added_page_by_page_match_rows_made_at_once() {
+        use crate::api::models::SavedTrack;
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.user = Some(User {
+            id: "alice".into(),
+            ..Default::default()
+        });
+        app.liked_songs.cache_checked = true;
+        app.liked_songs.generation = 1;
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let song = |n: u32| SavedTrack {
+            track: Track {
+                uri: format!("spotify:track:{n}"),
+                name: format!("Song {n}"),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let pages = 6;
+        for page in 0..pages {
+            let offset = page * 50;
+            app.handle_api(ApiResponse::SavedTracks {
+                offset,
+                generation: 1,
+                account_id: Some("alice".into()),
+                result: Ok(crate::api::models::Page {
+                    items: (offset..offset + 50).map(song).collect(),
+                    total: pages * 50,
+                    limit: 50,
+                    offset,
+                    next: (page + 1 < pages).then(|| "next".into()),
+                }),
+            });
+            if page == 3 {
+                // An unlike between pages; through the model, since a click
+                // would also start a refresh of a list this old.
+                app.liked_songs
+                    .change("spotify:track:20".into(), false, song(20).track);
+                app.sync_liked_songs();
+            }
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                crate::ui::collection::liked(&mut app, ui)
+            });
+            output.textures_delta.clear();
+            let shown: Vec<String> = app.table_rows[&Page::LikedSongs]
+                .items
+                .iter()
+                .map(|(item, _, _)| item.uri().to_string())
+                .collect();
+            let expected: Vec<String> = app
+                .library
+                .liked
+                .items
+                .iter()
+                .map(|saved| saved.track.uri.clone())
+                .collect();
+            assert_eq!(shown, expected, "after page {page}");
+        }
+        assert_eq!(app.library.liked.items.len(), 299);
+        app.backend.shutdown();
     }
 
     #[test]
@@ -23462,5 +24130,231 @@ mod tests {
             app.library.liked.revision, before,
             "the shorter list must invalidate the table's cached row order"
         );
+    }
+
+    #[test]
+    fn offline_ensure_loaded_suppresses_network_requests() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.network_reachable = false;
+        app.ensure_loaded(Page::Playlist("offline_playlist".into()));
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+        assert_eq!(
+            app.playlist_pages["offline_playlist"].playlist,
+            Loadable::NotLoaded
+        );
+        assert!(!app.playlist_pages["offline_playlist"].items.loading);
+    }
+
+    #[test]
+    fn offline_cached_playlist_preserves_content() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        let page = PlaylistPage {
+            playlist: Loadable::Loaded(Playlist {
+                id: "cached_pl".into(),
+                name: "Cached Playlist".into(),
+                ..Default::default()
+            }),
+            items: PagedList {
+                items: vec![cached_playlist_row("spotify:track:cached_song")],
+                total: Some(1),
+                loaded_once: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.playlist_pages.insert("cached_pl".into(), page);
+        app.network_reachable = false;
+
+        app.ensure_loaded(Page::Playlist("cached_pl".into()));
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+        assert_eq!(app.playlist_pages["cached_pl"].items.items.len(), 1);
+        assert!(app.playlist_pages["cached_pl"].playlist.get().is_some());
+    }
+
+    #[test]
+    fn offline_load_more_is_suppressed() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        let page = PlaylistPage {
+            items: PagedList {
+                items: vec![],
+                total: Some(100),
+                next_offset: Some(50),
+                loaded_once: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.playlist_pages.insert("cached_pl".into(), page);
+        app.network_reachable = false;
+
+        app.load_more(Page::Playlist("cached_pl".into()));
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+        assert!(!app.playlist_pages["cached_pl"].items.loading);
+    }
+
+    #[test]
+    fn network_restored_recovers_incomplete_active_page() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.network_reachable = false;
+        app.open(Page::Playlist("incomplete_pl".into()));
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+
+        assert!(app.network_reachable);
+        assert_eq!(app.backend.take_playlist_item_requests().len(), 1);
+    }
+
+    #[test]
+    fn network_restored_does_not_refetch_complete_cached_page() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        let page = PlaylistPage {
+            playlist: Loadable::Loaded(Playlist {
+                id: "complete_pl".into(),
+                ..Default::default()
+            }),
+            items: PagedList {
+                items: vec![cached_playlist_row("spotify:track:1")],
+                total: Some(1),
+                loaded_once: true,
+                next_offset: None,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.playlist_pages.insert("complete_pl".into(), page);
+        app.open(Page::Playlist("complete_pl".into()));
+        let _ = app.backend.take_playlist_item_requests();
+
+        app.network_reachable = false;
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+
+        assert!(app.network_reachable);
+        assert!(
+            app.backend.take_playlist_item_requests().is_empty(),
+            "complete cached page must not be refetched on network restoration"
+        );
+        assert_eq!(app.playlist_pages["complete_pl"].items.items.len(), 1);
+    }
+
+    #[test]
+    fn duplicate_network_reachability_events_do_not_refetch() {
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.open(Page::Playlist("incomplete_pl".into()));
+        app.network_reachable = true;
+        let _ = app.backend.take_playlist_item_requests();
+
+        // Already reachable: duplicate reachability event must not trigger recovery
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+
+        assert!(app.backend.take_playlist_item_requests().is_empty());
+    }
+
+    /// The system's word on reaching the internet (fastframe-power, on
+    /// macOS) goes to the backend once per change, and not at all where the
+    /// app does not follow it.
+    #[test]
+    fn the_internet_coming_and_going_reaches_the_backend_once_per_change() {
+        use crate::power::{Conditions, Power};
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.power = Power::fixed(Conditions::default());
+        app.follows_reachability = true;
+        app.sync_power(&ctx);
+        assert!(app.backend.take_network_statuses().is_empty(), "online");
+
+        let offline = Conditions {
+            online: false,
+            ..Conditions::default()
+        };
+        app.power.set_conditions(offline);
+        app.sync_power(&ctx);
+        app.sync_power(&ctx);
+        assert_eq!(app.backend.take_network_statuses(), [false]);
+        app.power.set_conditions(Conditions::default());
+        app.sync_power(&ctx);
+        assert_eq!(app.backend.take_network_statuses(), [true]);
+
+        app.follows_reachability = false;
+        app.power.set_conditions(offline);
+        app.sync_power(&ctx);
+        assert!(app.backend.take_network_statuses().is_empty());
+    }
+
+    /// #789: one App Nap activity is held while local playback plays, and
+    /// let go once it pauses.
+    #[test]
+    fn local_playback_holds_one_activity_while_it_plays() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_none());
+        app.local.connected = true;
+        app.local.playback = Playback::Playing;
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_some());
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_some(), "the same one, kept");
+        app.local.playback = Playback::Paused;
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_none());
+    }
+
+    #[test]
+    fn network_error_sanitization_never_exposes_raw_url() {
+        use crate::api::ApiError;
+        use crate::i18n::Locale;
+        use crate::ui::widgets;
+
+        let raw_network_err = ApiError::Network(
+            "error sending request for url (https://api.spotify.com/v1/playlists/xyz): dns error"
+                .into(),
+        );
+
+        let page_err = friendly_page_error(Locale::English, &raw_network_err);
+        assert_eq!(page_err, "Network connection error. Check your connection.");
+        assert!(!page_err.contains("https://"));
+        assert!(!page_err.contains("api.spotify.com"));
+        assert!(!page_err.contains("dns error"));
+
+        let api_err = friendly_api_error(Locale::English, &raw_network_err);
+        assert_eq!(api_err, "Network connection error. Check your connection.");
+        assert!(!api_err.contains("https://"));
+        assert!(!api_err.contains("api.spotify.com"));
+
+        let sanitized = widgets::sanitize_error_message(
+            "error sending request for url (https://api.spotify.com/v1/me): connection closed",
+            Locale::English,
+        );
+        assert_eq!(
+            sanitized.as_ref(),
+            "Network connection error. Check your connection."
+        );
+
+        let server_err =
+            widgets::sanitize_error_message("500 Internal Server Error", Locale::English);
+        assert_eq!(server_err.as_ref(), "500 Internal Server Error");
     }
 }

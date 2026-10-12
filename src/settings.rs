@@ -268,6 +268,8 @@ pub struct Settings {
     pub accent_from_art: bool,
     /// A spectrum or waveform of the playing song behind the player bar.
     pub player_bar_vis: PlayerBarVis,
+    /// Allow clicks on the player bar background to cycle visualizer modes.
+    pub player_bar_vis_click: bool,
     /// Last local volume, 0..=65535.
     pub volume: u16,
     /// Whether the library sidebar is visible.
@@ -438,6 +440,7 @@ impl Default for Settings {
             home: HomeSettings::default(),
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
+            player_bar_vis_click: true,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_visible: true,
             art_expanded: false,
@@ -590,9 +593,6 @@ impl Settings {
     }
 
     pub fn save(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         let text = match serde_json::to_string_pretty(self) {
             Ok(text) => text,
             Err(error) => {
@@ -600,10 +600,7 @@ impl Settings {
                 return;
             }
         };
-        let temporary = path.with_extension("json.tmp");
-        let written = std::fs::write(&temporary, text)
-            .and_then(|()| crate::util::replace_file(&temporary, path));
-        if let Err(error) = written {
+        if let Err(error) = fastframe_file::write(path, text) {
             log::warn!("unable to save settings to {}: {error}", path.display());
         }
     }
@@ -1195,6 +1192,14 @@ mod tests {
         use super::PlayerBarVis;
         let settings: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(settings.player_bar_vis, PlayerBarVis::Off);
+        assert!(settings.player_bar_vis_click);
+        let disabled = Settings {
+            player_bar_vis_click: false,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&disabled).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(!restored.player_bar_vis_click);
         for mode in [PlayerBarVis::Spectrum, PlayerBarVis::Waveform] {
             let settings = Settings {
                 player_bar_vis: mode,
@@ -1525,10 +1530,16 @@ pub struct SessionState {
     pub shuffle_on: bool,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
-    /// Last window inner size, to restore on next launch.
+    /// Last window inner size, to restore on next launch. Logical pixels
+    /// (points at zoom 1) since fastframe-shell's `Geometry`; earlier
+    /// versions saved points at the interface zoom, the same at zoom 1.
     pub window_size: Option<[f32; 2]>,
-    /// Last window outer position, to restore on next launch.
+    /// Last window position, to restore on next launch: the outer frame's
+    /// corner, the content's on macOS.
     pub window_pos: Option<[f32; 2]>,
+    /// Whether the window was maximized; `window_size` and `window_pos`
+    /// stay those of the normal window behind it.
+    pub window_maximized: bool,
     /// Whether the queue panel was open.
     pub queue_open: Option<bool>,
     /// Which tab the queue panel showed: `queue` or `recents`.
@@ -1561,9 +1572,6 @@ impl SessionState {
     }
 
     pub fn save(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         let text = match serde_json::to_string(self) {
             Ok(text) => text,
             Err(error) => {
@@ -1571,10 +1579,7 @@ impl SessionState {
                 return;
             }
         };
-        let temporary = path.with_extension("json.tmp");
-        let written = std::fs::write(&temporary, text)
-            .and_then(|()| crate::util::replace_file(&temporary, path));
-        if let Err(error) = written {
+        if let Err(error) = fastframe_file::write(path, text) {
             log::warn!("unable to save session to {}: {error}", path.display());
         }
     }
@@ -1584,6 +1589,20 @@ impl SessionState {
 mod session_tests {
     use super::{CachedRootlist, SessionState};
     use crate::player::RootlistEntry;
+
+    /// A session saved before the maximized state was remembered keeps its
+    /// window size and positions, and reads as an ordinary window.
+    #[test]
+    fn old_sessions_keep_their_window_geometry() {
+        let state: SessionState = serde_json::from_str(
+            r#"{"window_size":[1100.0,700.0],"window_pos":[100.0,150.0],"winamp_pos":[300.0,200.0]}"#,
+        )
+        .unwrap();
+        assert_eq!(state.window_size, Some([1100.0, 700.0]));
+        assert_eq!(state.window_pos, Some([100.0, 150.0]));
+        assert!(!state.window_maximized);
+        assert_eq!(state.winamp_pos, Some([300.0, 200.0]));
+    }
 
     #[test]
     fn old_sessions_without_a_playlist_tree_remain_readable() {
@@ -1633,7 +1652,7 @@ mod session_tests {
             SessionState::load(&path).last_page.as_deref(),
             Some("liked")
         );
-        assert!(!path.with_extension("json.tmp").exists());
+        assert!(crate::util::temporary_files(path.parent().unwrap()).is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 }

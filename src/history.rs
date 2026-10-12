@@ -63,23 +63,16 @@ impl History {
         if !self.dirty {
             return;
         }
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         match serde_json::to_string(&self.plays) {
             Ok(text) => {
-                // Through a temporary file, as settings are: the history is
-                // written when the session ends, and a shutdown that cuts the
-                // write short must not leave half a file behind. The new file
-                // reaches the disk before it replaces the old one, as the
-                // playlist cache's manifest does, so a power cut right after
-                // cannot leave an empty history in its place, and the save
-                // counts only once the replacement itself is on the disk.
-                let temporary = path.with_extension("json.tmp");
-                let written = write_synced(&temporary, text.as_bytes())
-                    .and_then(|()| crate::util::replace_file(&temporary, path))
-                    .and_then(|()| sync_folder(path));
-                match written {
+                // Replaced whole, as settings are: the history is written
+                // when the session ends, and a shutdown that cuts the write
+                // short must not leave half a file behind. The new file and
+                // its move reach the disk before the save counts, so a power
+                // cut right after cannot leave an empty history in its place.
+                // What someone listened to is theirs: on Unix the file is
+                // readable by its owner only, whatever the old one allowed.
+                match fastframe_file::write_private(path, text) {
                     Ok(()) => self.dirty = false,
                     Err(error) => log::warn!("could not write the play history: {error}"),
                 }
@@ -190,49 +183,6 @@ pub fn merged(local: &[PlayHistory], remote: &[PlayHistory]) -> Vec<PlayHistory>
         (None, None) => std::cmp::Ordering::Equal,
     });
     out.into_iter().map(|(_, play)| play).collect()
-}
-
-/// Writes `bytes` to a new file at `path` and waits until they are on the
-/// disk. The file is closed on return, so it can be moved at once.
-///
-/// What someone listened to is theirs: on Unix the file is readable by its
-/// owner only, as it replaces the history whatever that file allowed. The
-/// mode is set before anything is written, also over a temporary file a
-/// failed save left behind.
-fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-    }
-    file.write_all(bytes)?;
-    file.sync_all()
-}
-
-/// Waits until the file that replaced `path` is on the disk. On Unix a
-/// rename lasts through a power cut only once its folder is synced; on
-/// Windows `replace_file` already writes the move through.
-fn sync_folder(path: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    if let Some(folder) = path
-        .parent()
-        .filter(|folder| !folder.as_os_str().is_empty())
-    {
-        std::fs::File::open(folder)?.sync_all()?;
-    }
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -395,7 +345,7 @@ mod tests {
             .map(|play| play.track.uri.as_str())
             .collect();
         assert_eq!(uris, ["spotify:track:b", "spotify:track:a"]);
-        assert!(!path.with_extension("json.tmp").exists());
+        assert!(crate::util::temporary_files(path.parent().unwrap()).is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -429,7 +379,7 @@ mod tests {
     }
 
     /// The history is readable by its owner only, even when it replaces a
-    /// file others could read and over a temporary file a failed save left.
+    /// file others could read.
     #[cfg(unix)]
     #[test]
     fn the_history_is_kept_from_other_accounts() {
@@ -438,10 +388,8 @@ mod tests {
             std::env::temp_dir().join(format!("spotifast-history-{:016x}", rand::random::<u64>()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("history.json");
-        for stale in [path.clone(), path.with_extension("json.tmp")] {
-            std::fs::write(&stale, "[]").unwrap();
-            std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o644)).unwrap();
-        }
+        std::fs::write(&path, "[]").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         let mut history = History::default();
         history.record(
             Track {

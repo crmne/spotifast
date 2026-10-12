@@ -43,48 +43,53 @@ egui = "0.36"
 egui_extras = { version = "0.36", features = ["image", "svg"] }
 # The shared foundation of Spotifast, ZapFast, RekordFlash and TonePush
 # (crmne/fastframe). Every crate comes from the same revision; move them
-# together. For now a fork of v0.4.1's successor with two changes proposed
-# upstream: a headless shell that sleeps until woken, and the audio stream's
-# thread joining MMCSS on Windows. Back to a crmne/fastframe tag once a
-# release carries them.
-fastframe-text ={ git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
-fastframe-fonts = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
-fastframe-icons = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
-fastframe-theme = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+# together.
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
+fastframe-icons = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
+fastframe-theme = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # Colour emoji in the platform's own style (Apple Color Emoji, Segoe UI
 # Emoji, the desktop's colour emoji font), in every text through its egui
 # plugin.
-fastframe-emoji = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-emoji = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # Catalogs compiled from PO files at build time (see build.rs) and the
 # system's preferred languages. No libintl or runtime catalog parsing.
-fastframe-i18n = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # The log file for bug reports and the panic log (env_logger underneath).
-fastframe-log = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # The tray item, so closing the window can keep the music playing:
 # StatusNotifier on Linux, the notification area on Windows, the menu bar
 # on macOS.
-fastframe-tray = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-tray = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # Keeps the app running without a window around eframe::run_native.
-fastframe-shell = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-shell = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # The macOS title-bar double-click setting (does nothing elsewhere).
-fastframe-macos = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-macos = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # Self-update from GitHub releases, on the reqwest client below.
-fastframe-update = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e", features = ["reqwest"] }
+fastframe-update = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0", features = ["reqwest"] }
+# Settings, the session, the history, caches and the credential markers
+# are replaced whole: a temporary file beside each, synced to the disk, then
+# moved over it (written through on Windows), so a crash never leaves half.
+fastframe-file = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
+# The device's power, session and network state: energy saver, battery,
+# display, lock, the internet's reach and cost, sleep and wake, and the App
+# Nap activity local playback holds on macOS.
+fastframe-power = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # The audio device stream: it pauses, so a paused player costs no CPU (#636),
 # follows the default output and reopens after a failure. Its cpal 0.18
 # cannot share a build with the cpal 0.16 of librespot's rodio backend (both
 # link ALSA), so that backend is left out.
-fastframe-audio = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-audio = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # The wheel step, the Linux touchpad scale and glide, and the axis a scroll
 # gesture holds.
-fastframe-scroll = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-scroll = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # One running copy per user: a lock and a private channel that a second
 # launch and the command line hand their requests to.
-fastframe-instance = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-instance = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # The desktop's media controls: MPRIS on Linux, the media overlay on
 # Windows, Now Playing on macOS. The media keys and those panels send
 # commands back, and closing the window keeps the music playing.
-fastframe-now-playing = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e" }
+fastframe-now-playing = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # Reading installed fonts for MilkDrop's overlays, the Winamp playlist's
 # pixel text, and the playlist face. skrifa is the parser epaint already
 # rasterizes with, and the version has to track epaint's or the binary
@@ -179,10 +184,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }
-# Message loops, the taskbar thumbnail buttons and window styles. Power,
-# session and network state (src/power/windows.rs): power settings, sleep and
-# wake, the session lock, and the network's reach and cost.
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Power", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# Message loops, the taskbar thumbnail buttons and window styles.
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Reuses the zbus/Tokio stack already used for desktop integration.
@@ -192,6 +195,10 @@ librespot-playback = { version = "0.8", default-features = false, features = ["p
 # (src/appearance.rs). fastframe-now-playing's MPRIS already compiles this
 # version.
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+# Whether the session is GNOME, and its window button layout and icon theme
+# read through the desktop portal (src/window.rs), which works inside a
+# Flatpak, where running gsettings does not.
+fastframe-desktop = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0" }
 # Keeps the X11 mini player out of the taskbar with _NET_WM_STATE_SKIP_TASKBAR
 # (src/window.rs), which winit only offers on Windows. winit already
 # compiles this version.
@@ -200,7 +207,7 @@ x11rb = { version = "0.13", default-features = false }
 [build-dependencies]
 # Drops unfinished PO entries and compiles catalog text and gettext plural
 # expressions to Rust. Ordinary builds do not need gettext tools.
-fastframe-i18n = { git = "https://github.com/dennisgr7/fastframe", rev = "f7dc6fbe938e8a953509d110cdba036f537e5b7e", features = ["build"] }
+fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.5.0", features = ["build"] }
 
 [dev-dependencies]
 # Checks that every catalog covers the template and keeps its placeholders.

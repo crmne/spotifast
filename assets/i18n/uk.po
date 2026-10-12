@@ -1486,7 +1486,9 @@ msgstr ""
 #: src/ui/settings.rs:875
 msgid ""
 "Draw Spotifast's own title bar and window buttons instead of the desktop's."
-msgstr "Використовувати власний рядок заголовка й кнопки вікна Spotifast замість системних."
+msgstr ""
+"Використовувати власний рядок заголовка й кнопки вікна Spotifast замість "
+"елементів стільниці."
 
 #: src/ui/settings.rs:883
 msgid ""
@@ -3225,6 +3227,14 @@ msgstr ""
 "У Windows на ARM Spotifast використовує OpenGL із пакета Microsoft OpenCL, "
 "OpenGL & Vulkan Compatibility Pack. Відкрити його сторінку в Microsoft "
 "Store, щоб установити або відновити пакет?"
+
+#: src/ui/settings.rs
+msgid "Click player bar to change visualizer"
+msgstr "Натискання на панель відтворення змінює візуалізацію"
+
+#: src/ui/settings.rs
+msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgstr "Дозволити перемикати візуалізацію натисканням на порожнє місце панелі відтворення."
 
 #~ msgid ""
 #~ "Draw Spotifast's own title bar and window buttons instead of the standard "

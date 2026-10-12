@@ -44,6 +44,7 @@ pub mod settings;
 pub mod single_instance;
 pub mod sink;
 pub mod skin;
+pub mod sonos;
 pub mod system_fonts;
 pub mod theme;
 pub mod thumbbar;
