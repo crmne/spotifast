@@ -17,6 +17,12 @@ use crate::util;
 
 use super::widgets::{self, TrackRow};
 
+pub(super) enum Avatar {
+    /// The user placeholder, drawn when Spotify gives no picture.
+    Placeholder,
+    Url(String),
+}
+
 pub(super) struct Hero<'a> {
     pub images: HeroImages<'a>,
     pub liked: bool,
@@ -24,8 +30,9 @@ pub(super) struct Hero<'a> {
     pub title: &'a str,
     pub description: Option<String>,
     pub byline: Vec<(String, Option<Page>)>,
-    /// The owner's picture, drawn before the byline's first entry.
-    pub avatar: Option<String>,
+    /// The owner's picture, drawn before the byline's first entry. A hero
+    /// without an owner, an album or an artist say, draws nothing.
+    pub avatar: Option<Avatar>,
     pub round: bool,
 }
 
@@ -129,13 +136,17 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             }
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                if let Some(avatar) = hero.avatar.as_deref() {
+                if let Some(avatar) = &hero.avatar {
                     let size = 18.0;
                     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+                    let url = match avatar {
+                        Avatar::Placeholder => None,
+                        Avatar::Url(url) => Some(url.as_str()),
+                    };
                     widgets::paint_cover(
                         ui,
                         &palette,
-                        Some(avatar),
+                        url,
                         rect,
                         size / 2.0,
                         Icon::User,
@@ -1852,13 +1863,20 @@ fn playlist_hero<'a>(
     byline: Vec<(String, Option<Page>)>,
     collaborative: bool,
 ) {
-    let avatar = playlist
-        .owner
-        .id
-        .as_deref()
-        .and_then(|id| app.user_images.get(id))
-        .and_then(|image| image.as_deref())
-        .map(str::to_string);
+    // The slot always shows: the official app draws the placeholder circle
+    // as soon as the page opens, before (and instead of) a picture.
+    let avatar = Some(
+        match playlist
+            .owner
+            .id
+            .as_deref()
+            .and_then(|id| app.user_images.get(id))
+            .and_then(|image| image.as_deref())
+        {
+            Some(url) => Avatar::Url(url.to_string()),
+            None => Avatar::Placeholder,
+        },
+    );
     hero(
         app,
         ui,
