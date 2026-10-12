@@ -10086,6 +10086,7 @@ impl App {
                 // Offline, the command never leaves and no answer comes.
                 self.local_files.scanning =
                     !self.offline && !config.local_file_directories.is_empty();
+                self.local_files.matched_uris.clear();
                 self.backend.send(Command::RestartEngine(config));
                 if self.local_ready {
                     self.toast(gettext(self.locale, "Restarting local playback"));
