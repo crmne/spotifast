@@ -3004,6 +3004,25 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn mcp_controls_stay_visible_when_settings_search_matches_a_subcontrol() {
+        let (ctx, mut app) = accessible_app("mcp-settings-search");
+        app.settings.mcp_enabled = true;
+        app.mcp_status = crate::mcp::Status::Failed("Test failure".into());
+        for query in ["port", "retry"] {
+            let texts = settings_text(&ctx, &mut app, query);
+            for label in [
+                "Agents",
+                "Local MCP server",
+                "Local port (0 selects an available port)",
+                "Retry",
+            ] {
+                assert!(texts.iter().any(|text| text == label), "{query}: {texts:?}");
+            }
+        }
+        app.backend.shutdown();
+    }
+
     /// The About card ends with the author's credit, and the name opens
     /// the author's website.
     #[test]

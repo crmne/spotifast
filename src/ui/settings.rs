@@ -4,7 +4,7 @@ use egui::{Align, CornerRadius, Frame, Layout, Margin, Stroke, Vec2};
 
 use crate::api::models::pick_image;
 use crate::app::App;
-use crate::i18n::{gettext, ngettext, pgettext};
+use crate::i18n::{Locale, gettext, ngettext, pgettext};
 use crate::model::{Action, Dialog};
 use crate::settings::{LanguageChoice, ProxyMode, ThemeChoice};
 use crate::theme::{self, Icon, Palette};
@@ -31,6 +31,7 @@ pub(crate) fn row_matches(needle: &str, title: &str, description: &str) -> bool 
 struct RowText<'a> {
     title: std::borrow::Cow<'a, str>,
     description: std::borrow::Cow<'a, str>,
+    keywords: String,
     available: bool,
 }
 
@@ -42,6 +43,7 @@ impl<'a> RowText<'a> {
         Self {
             title: title.into(),
             description: description.into(),
+            keywords: String::new(),
             available: true,
         }
     }
@@ -51,12 +53,34 @@ impl<'a> RowText<'a> {
         self
     }
 
+    fn with_keywords(mut self, keywords: String) -> Self {
+        self.keywords = keywords;
+        self
+    }
+
     fn matches(&self, needle: &str, section: &str) -> bool {
         self.available
             && (needle.is_empty()
                 || section.to_lowercase().contains(needle)
-                || row_matches(needle, &self.title, &self.description))
+                || row_matches(needle, &self.title, &self.description)
+                || self.keywords.to_lowercase().contains(needle))
     }
+}
+
+fn mcp_row(locale: Locale) -> RowText<'static> {
+    RowText::new(
+        gettext(locale, "Local MCP server"),
+        gettext(
+            locale,
+            "Let agents search Spotify, control playback and edit playlists.",
+        ),
+    )
+    .with_keywords(format!(
+        "{} {} {}",
+        gettext(locale, "Local port (0 selects an available port)"),
+        gettext(locale, "Copy MCP configuration"),
+        gettext(locale, "Retry"),
+    ))
 }
 
 /// The guide to writing a palette file for the themes folder.
@@ -1176,11 +1200,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
     let agents = gettext(locale, "Agents");
     let mcp_title = gettext(locale, "Local MCP server");
-    let mcp_description = gettext(
-        locale,
-        "Let agents search Spotify, control playback and edit playlists.",
-    );
-    let mcp_rows = [RowText::new(mcp_title.clone(), mcp_description)];
+    let mcp_rows = [mcp_row(locale)];
     if section_matches(&needle, &agents, &mcp_rows) {
         any_visible = true;
         section(ui, &palette, &agents, |ui| {
@@ -2167,6 +2187,27 @@ fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettin
 #[cfg(test)]
 mod tests {
     use super::{RowText, row_matches, section_matches};
+
+    #[test]
+    fn mcp_subcontrols_match_the_section_and_row() {
+        for &locale in crate::i18n::LOCALES {
+            let section = crate::i18n::gettext(locale, "Agents");
+            let rows = [super::mcp_row(locale)];
+            for label in [
+                "Local port (0 selects an available port)",
+                "Copy MCP configuration",
+                "Retry",
+            ] {
+                let query = crate::i18n::gettext(locale, label).to_lowercase();
+                assert!(section_matches(&query, &section, &rows), "{locale:?}");
+                assert!(rows[0].matches(&query, &section), "{locale:?}");
+            }
+        }
+        let rows = [super::mcp_row(crate::i18n::Locale::English)];
+        assert!(section_matches("port", "Agents", &rows));
+        assert!(rows[0].matches("port", "Agents"));
+        assert!(!section_matches("equalizer", "Agents", &rows));
+    }
 
     #[test]
     fn empty_filter_matches_everything() {

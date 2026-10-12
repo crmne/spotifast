@@ -1486,7 +1486,7 @@ msgstr ""
 #: src/ui/settings.rs:875
 msgid ""
 "Draw Spotifast's own title bar and window buttons instead of the desktop's."
-msgstr ""
+msgstr "Використовувати власний рядок заголовка й кнопки вікна Spotifast замість системних."
 
 #: src/ui/settings.rs:883
 msgid ""
@@ -1509,27 +1509,27 @@ msgstr "Осцилограма"
 
 #: src/ui/settings.rs:1177
 msgid "Agents"
-msgstr ""
+msgstr "Агенти"
 
 #: src/ui/settings.rs:1178
 msgid "Local MCP server"
-msgstr ""
+msgstr "Локальний MCP-сервер"
 
 #: src/ui/settings.rs:1181
 msgid "Let agents search Spotify, control playback and edit playlists."
-msgstr ""
+msgstr "Дозвольте агентам шукати в Spotify, керувати відтворенням і редагувати плейлісти."
 
 #: src/ui/settings.rs:1193
 msgid "Local port (0 selects an available port)"
-msgstr ""
+msgstr "Локальний порт (0 вибирає доступний порт)"
 
 #: src/ui/settings.rs:1220
 msgid "Copy MCP configuration"
-msgstr ""
+msgstr "Копіювати конфігурацію MCP"
 
 #: src/ui/settings.rs:1229
 msgid "The access token changes whenever the server restarts."
-msgstr ""
+msgstr "Токен доступу змінюється після кожного перезапуску сервера."
 
 #: src/ui/settings.rs:1248
 msgid "Proxy"

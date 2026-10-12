@@ -157,5 +157,7 @@ Access uses Streamable HTTP on loopback with a bearer token. The token changes
 when the server restarts; copy the configuration again. Set a local port to
 keep the endpoint stable, or leave it at zero to choose an available port.
 Turning the switch off closes the endpoint and cancels pending requests.
+Search Settings for "port" to find the MCP controls. Agent playlist edits
+refresh the library, discarding any list response requested before the edit.
 Playlist writes need Spotify edit permission. A timed-out write may already
 have reached Spotify; read the playlist before retrying.

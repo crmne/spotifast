@@ -1868,7 +1868,7 @@ impl App {
             match event {
                 Event::McpStatus(status) => self.mcp_status = status,
                 Event::McpPlaylistChanged { id, snapshot } => {
-                    self.load_playlists();
+                    self.refresh_playlists();
                     if let Some(id) = id
                         && let Some(page) = self.playlist_pages.get_mut(&id)
                     {
@@ -3662,6 +3662,10 @@ impl App {
         if self.library.playlists.is_loading() {
             return;
         }
+        self.refresh_playlists();
+    }
+
+    fn refresh_playlists(&mut self) {
         self.library.playlists = Loadable::Loading;
         self.library.playlists_next = None;
         self.library.playlists_asked = None;
@@ -17512,6 +17516,61 @@ mod tests {
         );
         app.local_ready = true;
         app
+    }
+
+    #[test]
+    fn mcp_edits_invalidate_in_flight_library_loads() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.offline = false;
+        app.load_playlists();
+        let before_edit = app.library.playlists_generation;
+
+        app.handle_backend_events(vec![Event::McpPlaylistChanged {
+            id: None,
+            snapshot: None,
+        }]);
+        let after_edit = app.library.playlists_generation;
+        assert_ne!(after_edit, before_edit);
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: before_edit,
+            result: Ok(playlist_page(&["old"], 0, 1)),
+        });
+        assert!(app.library.playlists.is_loading());
+
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: after_edit,
+            result: Ok(playlist_page(&["new", "old"], 0, 3)),
+        });
+        assert_eq!(app.library.playlists_asked, Some(2));
+
+        app.handle_backend_events(vec![Event::McpPlaylistChanged {
+            id: Some("old".into()),
+            snapshot: Some("edited".into()),
+        }]);
+        let after_second_edit = app.library.playlists_generation;
+        assert_ne!(after_second_edit, after_edit);
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 2,
+            generation: after_edit,
+            result: Ok(playlist_page(&["stale"], 2, 3)),
+        });
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: after_edit,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        assert!(app.library.playlists.is_loading());
+        assert_eq!(app.library.playlists_asked, None);
+
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: after_second_edit,
+            result: Ok(playlist_page(&["edited"], 0, 1)),
+        });
+        assert_eq!(listed_playlists(&app), playlist_ids(&["edited"]));
     }
 
     #[test]
