@@ -8570,7 +8570,7 @@ impl App {
         for uri in self.manual_queue.clone() {
             if uri.starts_with("spotify:track:")
                 || uri.starts_with("spotify:episode:")
-                || uri.starts_with("spotify:local:")
+                || (uri.starts_with("spotify:local:") && self.local_uri_playable(&uri))
             {
                 self.backend.player(PlayerCommand::AddToQueue(uri));
             }
