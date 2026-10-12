@@ -569,6 +569,9 @@ pub struct App {
     rootlist_cache: Option<CachedRootlist>,
     /// The read of the verified account's cached library on its way.
     account_caches_generation: u64,
+    /// A session connected and its account's cache is still to be read,
+    /// once `Me` says which account it is.
+    account_caches_due: bool,
     /// Playlists the account may add songs to by Spotify's own word, by
     /// URI: the ones shared with it by invitation, which the Web API's
     /// collaborative flag does not show. Empty until the session answers.
@@ -982,6 +985,7 @@ impl App {
             rootlist: Vec::new(),
             rootlist_cache: session.rootlist.clone(),
             account_caches_generation: 0,
+            account_caches_due: false,
             editable_by_grant: std::collections::BTreeSet::new(),
             pending_link: None,
             copied_songs: Vec::new(),
@@ -2112,11 +2116,9 @@ impl App {
             AuthStatus::Connected { .. } => {
                 self.sign_in_url = None;
                 self.reset_data();
-                // The same account signing in again: `Me` will not find a
-                // new account to read the cache for.
-                if self.user_id().is_some() {
-                    self.request_account_caches();
-                }
+                // `Me` follows and reads the cache, even for the same
+                // account signing in again.
+                self.account_caches_due = true;
                 self.load_playlists();
                 self.ensure_loaded(self.page().clone());
                 self.poll_remote(true);
@@ -2139,6 +2141,7 @@ impl App {
                 self.rootlist.clear();
                 self.rootlist_cache = None;
                 self.editable_by_grant.clear();
+                self.account_caches_due = false;
                 self.session_dirty = true;
                 self.reset_data();
             }
@@ -5423,7 +5426,9 @@ impl App {
                         self.premium_notice_shown = true;
                         self.dialog = Some(Dialog::PremiumNeeded);
                     }
-                    if self.user_id() != Some(user.id.as_str()) {
+                    let due = std::mem::take(&mut self.account_caches_due);
+                    let changed = self.user_id() != Some(user.id.as_str());
+                    if changed {
                         self.rootlist = self
                             .rootlist_cache
                             .as_ref()
@@ -5431,6 +5436,8 @@ impl App {
                             .map(|cached| cached.entries.clone())
                             .unwrap_or_default();
                         self.editable_by_grant.clear();
+                    }
+                    if changed || due {
                         self.request_account_caches();
                     }
                     self.user = Some(user);
@@ -13163,18 +13170,34 @@ mod tests {
         assert!(app.home.podcasts.is_empty());
     }
 
-    /// The same account connecting again reads its cache again: `Me` finds
-    /// no new account to read it for.
+    /// A session connecting reads its account's cache once `Me` names the
+    /// account, the same one again or another, and only then: a read asked
+    /// for the account before it would only be thrown away.
     #[test]
-    fn the_same_account_connecting_again_rereads_its_cache() {
-        let mut app = connected_listener();
-        app.handle_auth(AuthStatus::Connected {
-            username: "alice".into(),
-        });
-        assert_ne!(app.account_caches_generation, 7);
-        let generation = app.account_caches_generation;
-        app.receive_account_caches("alice", generation, cached_playlists(&["x"]), None);
-        assert_eq!(listed_playlists(&app), playlist_ids(&["x"]));
+    fn connecting_reads_the_cache_once_for_the_account_me_names() {
+        for (account, why) in [("alice", "the same account"), ("bob", "another account")] {
+            let mut app = connected_listener();
+            app.handle_auth(AuthStatus::Connected {
+                username: account.into(),
+            });
+            assert_eq!(app.account_caches_generation, 7, "{why}: read before Me");
+            app.handle_api(ApiResponse::Me(Ok(User {
+                id: account.into(),
+                ..Default::default()
+            })));
+            let generation = app.account_caches_generation;
+            assert_ne!(generation, 7, "{why}: not read");
+            app.handle_api(ApiResponse::Me(Ok(User {
+                id: account.into(),
+                ..Default::default()
+            })));
+            assert_eq!(
+                app.account_caches_generation, generation,
+                "{why}: read again on the next Me"
+            );
+            app.receive_account_caches(account, generation, cached_playlists(&["x"]), None);
+            assert_eq!(listed_playlists(&app), playlist_ids(&["x"]), "{why}");
+        }
     }
 
     /// Signing out forgets Home, but not which refresh came last: an answer
