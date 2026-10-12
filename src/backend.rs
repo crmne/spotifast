@@ -2832,6 +2832,11 @@ impl Worker {
         self.signed_in = false;
         self.rootlist_pending = false;
         self.session.send_modify(|generation| *generation += 1);
+        // The app empties its local files on sign-out; a scan still in
+        // flight must not land after that and refill the list for a
+        // session that is gone.
+        self.local_files_scan_generation
+            .fetch_add(1, Ordering::SeqCst);
         self.connect = Arc::default();
         self.authorization_attempt += 1;
         if let Err(error) = self.credentials.revoke_spotify() {
@@ -6328,6 +6333,38 @@ mod authorization_tests {
             matches!(&scanned, Event::LocalFilesScanned(tracks) if tracks.is_empty()),
             "a folder without playable files scans to an empty list"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Sign-out empties the app's local files, and a scan still walking
+    /// when it happens must not answer after it: the rows it holds belong
+    /// to the session that just ended. The scan finishes almost at once
+    /// over one skipped file, so a quiet window far longer than its walk
+    /// proves the answer was dropped rather than still on its way.
+    #[test]
+    fn signing_out_drops_a_scan_answer_that_would_land_after_it() {
+        let (runtime, mut worker, events) = worker("local-scan-sign-out");
+        let _entered = runtime.enter();
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-local-scan-signout-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("notes.txt"), "not audio").unwrap();
+        worker.engine_config.local_file_directories = vec![root.clone()];
+        worker.start_local_files_scan();
+        worker.sign_out();
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while let Ok(event) =
+            events.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
+            assert!(
+                !matches!(event, Event::LocalFilesScanned(_)),
+                "a scan answered after sign-out"
+            );
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
