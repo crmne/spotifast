@@ -1500,7 +1500,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             let owner_id = playlist.owner.id.as_deref();
             let others = other_adders(owner_id, &page.contributors, &user_id);
             let made_together = playlist.collaborative || !others.is_empty();
-            let mut byline = vec![(playlist.owner_name().to_string(), None)];
+            let mut byline = vec![(owner_name(app, playlist).to_string(), None)];
             if let Some(saves) = playlist.followers.as_ref().map(|followers| followers.total) {
                 byline.push((saves_text(app.locale, saves), None));
             }
@@ -1847,7 +1847,7 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
 
 fn playlist_loading_hero(app: &mut App, ui: &mut egui::Ui, playlist: &Playlist) {
     let images = hero_images(&playlist.images, None, false);
-    let mut byline = vec![(playlist.owner_name().to_string(), None)];
+    let mut byline = vec![(owner_name(app, playlist).to_string(), None)];
     let count = playlist.track_total();
     if count > 0 {
         byline.push((song_count(app.locale, count), None));
@@ -2231,6 +2231,21 @@ fn spotify_owned(owner_id: Option<&str>) -> bool {
     owner_id == Some(SPOTIFY_USER)
 }
 
+/// The owner's name for a playlist's byline. A header read over the
+/// streaming session carries only the owner's id, so the name the profile
+/// lookup found stands in before the id does.
+fn owner_name<'a>(app: &'a App, playlist: &'a Playlist) -> &'a str {
+    playlist
+        .owner
+        .display_name
+        .as_deref()
+        .or_else(|| {
+            let id = playlist.owner.id.as_deref()?;
+            app.user_names.get(id)?.as_deref()
+        })
+        .unwrap_or_else(|| playlist.owner_name())
+}
+
 /// Who besides the owner added songs to a playlist, from the adders seen
 /// so far.
 ///
@@ -2330,6 +2345,26 @@ mod tests {
         assert_eq!(other_adders(Some("ana"), &seen, "ana"), vec!["bea"]);
         assert_eq!(other_adders(Some("ana"), &seen, "carl"), vec!["bea"]);
         assert!(other_adders(Some("ana"), &adders(&["ana"]), "ana").is_empty());
+    }
+
+    /// A header read over the session names its owner only by id; once
+    /// the profile lookup answers, the byline says who it is.
+    #[test]
+    fn the_byline_names_an_owner_the_lookup_found() {
+        use crate::api::models::Owner;
+        let mut app = test_app();
+        let mut playlist = Playlist {
+            owner: Owner {
+                id: Some("alice-id".into()),
+                ..Default::default()
+            },
+            ..Playlist::default()
+        };
+        assert_eq!(owner_name(&app, &playlist), "alice-id");
+        app.set_user_name("alice-id".into(), Some("Alice".into()));
+        assert_eq!(owner_name(&app, &playlist), "Alice");
+        playlist.owner.display_name = Some("Alice Smith".into());
+        assert_eq!(owner_name(&app, &playlist), "Alice Smith");
     }
 
     #[test]
