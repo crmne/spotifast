@@ -376,6 +376,12 @@ impl ApiClient {
         self.background_limiter.acquire().await.ok()
     }
 
+    /// The Home section's `sp_t` field, from an already verified Web API
+    /// grant. This is never sent to the Web API under the playback identity.
+    pub(crate) async fn home_context_token(&self) -> Result<String> {
+        self.provider()?.access_token().await
+    }
+
     /// A new authorization gets its own provider and request cooldown. An old
     /// request must never pick up a replacement account's credentials.
     pub fn for_authorization(&self, provider: TokenProvider) -> Self {

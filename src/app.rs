@@ -1716,6 +1716,7 @@ impl App {
         None
     }
 
+    /// Finds a playlist already loaded in the library, search, or Home shelf.
     pub fn known_playlist(&self, id: &str) -> Option<&Playlist> {
         self.library
             .playlists
@@ -1729,11 +1730,10 @@ impl App {
                     .and_then(|playlists| playlists.items.iter().find(|playlist| playlist.id == id))
             })
             .or_else(|| {
-                self.home.discover.values().find_map(|playlists| {
-                    playlists
-                        .get()
-                        .and_then(|playlists| playlists.iter().find(|playlist| playlist.id == id))
-                })
+                self.home
+                    .made_for_you
+                    .get()
+                    .and_then(|playlists| playlists.iter().find(|playlist| playlist.id == id))
             })
     }
 
@@ -2168,11 +2168,20 @@ impl App {
         self.auth = status;
     }
 
+    /// Retries the Home shelf when local playback becomes ready after Home.
     fn handle_playback(&mut self, status: LocalPlayback) {
         match &status {
             LocalPlayback::Ready { device_id } => {
                 self.local_device_id = Some(device_id.clone());
+                let became_ready = !self.local_ready;
                 self.local_ready = true;
+                if became_ready
+                    && self.home.requested
+                    && (!self.home.made_for_you_personalized
+                        || !self.home.made_for_you_session_requested)
+                {
+                    self.load_made_for_you(false);
+                }
                 if let Some(request) = self.queued_play.take() {
                     self.play_request(request, false);
                 }
@@ -2347,6 +2356,7 @@ impl App {
         }
     }
 
+    /// Clears account data while preserving request serials that reject late answers.
     fn reset_data(&mut self) {
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
@@ -2367,6 +2377,7 @@ impl App {
         self.home = HomeData {
             generation: self.home.generation,
             top_songs_generation: self.home.top_songs_generation,
+            made_for_you_generation: self.home.made_for_you_generation,
             ..HomeData::default()
         };
         self.playlist_pages.clear();
@@ -4096,10 +4107,23 @@ impl App {
         {
             home.top_tracks = Loadable::Loaded(tracks);
         }
-        for (term, playlists) in cached.discover {
-            let shelf = home.discover.entry(term).or_default();
-            if shelf.get().is_none() {
-                *shelf = Loadable::Loaded(playlists);
+        if home.made_for_you.get().is_none() {
+            let personalized = cached.made_for_you.is_some() && cached.made_for_you_personalized;
+            let playlists = cached.made_for_you.or_else(|| {
+                (!cached.discover.is_empty()).then(|| {
+                    ["Discover Weekly", "Release Radar", "Daily Mix", "daylist"]
+                        .iter()
+                        .filter_map(|term| cached.discover.get(*term))
+                        .flatten()
+                        .cloned()
+                        .collect()
+                })
+            });
+            if let Some(mut playlists) = playlists {
+                playlists
+                    .retain(|playlist| playlist.uri != crate::made_for_you::UNSUPPORTED_DJ_URI);
+                home.made_for_you = Loadable::Loaded(playlists);
+                home.made_for_you_personalized = personalized;
             }
         }
         if !home.podcasts_answered && home.podcasts.is_empty() {
@@ -4117,6 +4141,7 @@ impl App {
         }
     }
 
+    /// Saves the visible shelves and their provenance for the verified account.
     fn store_home_cache(&mut self) {
         let Some(account) = self.user_id().map(str::to_owned) else {
             return;
@@ -4126,11 +4151,9 @@ impl App {
             recently_played: home.recently_played.get().cloned(),
             top_artists: home.top_artists.get().cloned(),
             top_tracks: home.top_tracks.get().cloned(),
-            discover: home
-                .discover
-                .iter()
-                .filter_map(|(term, shelf)| Some((term.clone(), shelf.get()?.clone())))
-                .collect(),
+            made_for_you: home.made_for_you.get().cloned(),
+            made_for_you_personalized: home.made_for_you_personalized,
+            discover: Default::default(),
             podcasts: home.podcasts.clone(),
         };
         self.backend
@@ -4297,6 +4320,7 @@ impl App {
         }
     }
 
+    /// Starts a new Home refresh while preserving cards already on screen.
     fn load_home(&mut self, force: bool) {
         if self.home.requested
             && !force
@@ -4310,9 +4334,10 @@ impl App {
         self.home.requested = true;
         self.home.loaded_at = Some(Instant::now());
         self.home.generation += 1;
-        // Recently played, top artists, top tracks and each Made for you
-        // search. Podcasts follow the saved shows and are not waited for.
-        self.home.awaiting = 3 + DISCOVER_TERMS.len();
+        // Recently played, top artists and top tracks. The shelf adds its
+        // own pending answer; podcasts follow saved shows without a wait.
+        self.home.awaiting = 3;
+        self.home.made_for_you_loading = false;
         self.home.refresh_failed = false;
         let generation = self.home.generation;
         if self.home.recently_played.get().is_none() {
@@ -4336,21 +4361,7 @@ impl App {
             full: false,
             generation,
         });
-        self.home.discover_pending.clear();
-        for term in DISCOVER_TERMS {
-            self.home
-                .discover_pending
-                .insert((*term).to_string(), Loadable::Loading);
-            if !self.home.discover.contains_key(*term) {
-                self.home
-                    .discover
-                    .insert((*term).to_string(), Loadable::Loading);
-            }
-            self.backend.api(ApiRequest::Discover {
-                term: (*term).to_string(),
-                generation,
-            });
-        }
+        self.load_made_for_you(force);
         // The podcast shelf reads from the saved shows. The first page of
         // them is the one the Podcasts shelf of the library asks for.
         if self.library.shows.loaded_once {
@@ -4358,6 +4369,23 @@ impl App {
         } else if !self.library.shows.loading && self.library.shows.error.is_none() {
             self.load_more(Page::Podcasts);
         }
+    }
+
+    /// Supersedes an older shelf request without clearing its visible cards.
+    fn load_made_for_you(&mut self, force: bool) {
+        self.home.made_for_you_generation += 1;
+        if !self.home.made_for_you_loading {
+            self.home.awaiting += 1;
+        }
+        self.home.made_for_you_loading = true;
+        self.home.made_for_you_session_requested = self.local_ready;
+        if self.home.made_for_you.get().is_none() {
+            self.home.made_for_you = Loadable::Loading;
+        }
+        self.backend.api(ApiRequest::MadeForYou {
+            generation: self.home.made_for_you_generation,
+            force,
+        });
     }
 
     /// Asks for the newest episodes of the most recently saved podcasts,
@@ -5404,6 +5432,7 @@ impl App {
         }
     }
 
+    /// Applies an API response to the current page and ignores stale Home data.
     fn handle_api(&mut self, mut response: ApiResponse) {
         match &mut response {
             ApiResponse::Playlist {
@@ -5766,52 +5795,24 @@ impl App {
                 }
                 self.home.recommendations.refresh(result);
             }
-            ApiResponse::Discover {
-                term,
+            ApiResponse::MadeForYou {
                 generation,
+                personalized,
                 result,
             } => {
-                if generation != self.home.generation {
+                if generation != self.home.made_for_you_generation {
                     return;
                 }
-                let filtered = result.map(|playlists| {
-                    let mut seen = std::collections::HashSet::new();
-                    let mut matching: Vec<Playlist> = playlists
-                        .into_iter()
-                        .filter(|playlist| {
-                            let owner = playlist.owner.id.as_deref().unwrap_or("");
-                            is_made_for_you(&playlist.name, &term)
-                                && (owner == "spotify" || playlist.owner_name() == "Spotify")
-                                && seen.insert(playlist.name.to_lowercase())
-                        })
-                        .collect();
-                    matching.truncate(6);
-                    matching
-                });
-                self.home.refresh_failed |= filtered.is_err();
-                self.home
-                    .discover_pending
-                    .insert(term, Loadable::from_result(filtered));
-                let complete = DISCOVER_TERMS.iter().all(|term| {
-                    self.home
-                        .discover_pending
-                        .get(*term)
-                        .is_some_and(|result| !result.is_loading())
-                });
-                // The shelves change, and are saved, once every search has
-                // answered, whichever answered last.
-                let mut changed = false;
-                if complete {
-                    // A search that failed keeps what it showed before.
-                    for (term, answer) in std::mem::take(&mut self.home.discover_pending) {
-                        let shelf = self.home.discover.entry(term).or_default();
-                        if !(matches!(answer, Loadable::Failed(_)) && shelf.get().is_some()) {
-                            changed |= matches!(answer, Loadable::Loaded(_));
-                            *shelf = answer;
-                        }
-                    }
+                let changed = result.is_ok();
+                self.home.refresh_failed |= !changed;
+                if changed {
+                    self.home.made_for_you_personalized = personalized;
                 }
-                self.home_answered(changed);
+                self.home.made_for_you.refresh(result);
+                if self.home.made_for_you_loading {
+                    self.home.made_for_you_loading = false;
+                    self.home_answered(changed);
+                }
             }
             // A reload reads the playlists from the top again under a new
             // generation, so a page any earlier load asked for no longer
@@ -11209,23 +11210,6 @@ fn friendly_api_error(locale: Locale, error: &crate::api::ApiError) -> String {
     }
 }
 
-/// Whether a Spotify-owned playlist named `name` is the personal one the
-/// Made for you shelf looks for under `term`. The name has to be the term
-/// itself, or "Daily Mix" with a number: Spotify also makes "<Artist> Mix",
-/// "This Is <Artist>", and "<Artist> Radio" for every artist, and an artist
-/// called "Discover Weekly" put those on the shelf (#89).
-fn is_made_for_you(name: &str, term: &str) -> bool {
-    let name = name.trim().to_lowercase();
-    let term = term.to_lowercase();
-    if name == term {
-        return true;
-    }
-    term == "daily mix"
-        && name
-            .strip_prefix("daily mix ")
-            .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
-}
-
 /// What the engine is told to play. A single song goes as a context of
 /// its own rather than a list of one: Spotify resolves a track's URI as a
 /// context, and a context with a URI is what librespot's autoplay carries
@@ -12897,6 +12881,8 @@ mod tests {
 
     fn cached_home() -> HomeSnapshot {
         HomeSnapshot {
+            made_for_you: None,
+            made_for_you_personalized: false,
             recently_played: Some(vec![played("spotify:track:cached-recent")]),
             top_artists: Some(vec![Artist {
                 id: "cached-artist".into(),
@@ -12931,7 +12917,7 @@ mod tests {
             app.home.recently_played.get(),
             Some(&vec![played("spotify:track:cached-recent")])
         );
-        assert!(app.home.discover["Discover Weekly"].get().is_some());
+        assert!(app.home.made_for_you.get().is_some());
         assert_eq!(app.home.podcasts.len(), 1);
 
         app.handle_api(ApiResponse::RecentlyPlayed {
@@ -12956,42 +12942,26 @@ mod tests {
                 ..Default::default()
             }),
         });
-        // The first and the last search are turned away.
-        for term in DISCOVER_TERMS {
-            app.handle_api(ApiResponse::Discover {
-                term: (*term).to_string(),
-                generation,
-                result: match *term {
-                    "Discover Weekly" | "daylist" => Err(crate::api::ApiError::RateLimited),
-                    "Release Radar" => Ok(vec![Playlist {
-                        id: "radar".into(),
-                        uri: "spotify:playlist:radar".into(),
-                        name: "Release Radar".into(),
-                        owner: crate::api::models::Owner {
-                            id: Some("spotify".into()),
-                            ..Default::default()
-                        },
-                        ..Playlist::default()
-                    }]),
-                    _ => Ok(Vec::new()),
-                },
-            });
-        }
+        app.handle_api(ApiResponse::MadeForYou {
+            generation: app.home.made_for_you_generation,
+            personalized: false,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
         assert_eq!(
             app.home.recently_played.get(),
             Some(&vec![played("spotify:track:fresh")])
         );
         assert_eq!(app.home.top_artists.get().map(Vec::len), Some(1));
         assert!(
-            app.home.discover["Discover Weekly"].get().is_some(),
+            app.home.made_for_you.get().is_some(),
             "a turned away search keeps what it showed"
         );
 
-        // Every answer that brought something is saved: recently played,
-        // top tracks, and Made for you once its searches have all answered,
-        // though the last was turned away.
+        // The failed shelf refresh keeps its cached cards. Successful
+        // recently played and top tracks answers are saved independently.
         let stored = app.backend.take_home_cache_stores();
-        assert_eq!(stored.len(), 3);
+        assert_eq!(stored.len(), 2);
+        assert_eq!(app.home.awaiting, 0);
         let saved = stored.last().unwrap();
         assert_eq!(saved.account_id, "alice");
         assert_eq!(
@@ -13003,15 +12973,7 @@ mod tests {
             saved.data.top_tracks,
             Some(vec![song("spotify:track:fresh-top")])
         );
-        assert_eq!(
-            saved.data.discover.get("Release Radar").map(Vec::len),
-            Some(1),
-            "the new shelves are saved"
-        );
-        assert_eq!(
-            saved.data.discover.get("Discover Weekly").map(Vec::len),
-            Some(1)
-        );
+        assert_eq!(saved.data.made_for_you.as_ref().map(Vec::len), Some(1));
         assert_eq!(saved.data.podcasts.len(), 1);
     }
 
@@ -13350,7 +13312,7 @@ mod tests {
         app.receive_account_caches("alice", 7, cached_playlists(&["a"]), Some(cached_home()));
         assert!(app.library.playlists.get().is_none());
         assert!(app.home.recently_played.get().is_none());
-        assert!(app.home.discover.is_empty());
+        assert!(app.home.made_for_you.get().is_none());
     }
 
     /// The streaming session does not always name a playlist's owner. The
@@ -24070,8 +24032,143 @@ mod tests {
         );
     }
 
-    /// A Free account is told once per sign-in that nothing will play;
-    /// a Premium one is not bothered.
+    /// A failed refresh retains visible cards and stale responses cannot replace them.
+    #[test]
+    fn made_for_you_keeps_the_last_shelf_on_error_and_ignores_old_answers() {
+        let mut app = headless_app();
+        app.home.made_for_you_generation = 4;
+        let playlist = crate::api::models::Playlist {
+            id: "1234567890123456789012".into(),
+            name: "Your current mix".into(),
+            ..Default::default()
+        };
+        app.handle_api(ApiResponse::MadeForYou {
+            personalized: true,
+            generation: 4,
+            result: Ok(vec![playlist.clone()]),
+        });
+        assert_eq!(
+            app.home.made_for_you.get().unwrap(),
+            &vec![playlist.clone()]
+        );
+        app.handle_api(ApiResponse::MadeForYou {
+            personalized: true,
+            generation: 4,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        assert_eq!(app.home.made_for_you.get().unwrap(), &vec![playlist]);
+        app.handle_api(ApiResponse::MadeForYou {
+            personalized: true,
+            generation: 3,
+            result: Ok(vec![]),
+        });
+        assert_eq!(app.home.made_for_you.get().unwrap().len(), 1);
+    }
+
+    /// Playback readiness upgrades fallback cards without blanking or double-counting the shelf.
+    #[test]
+    fn playback_ready_replaces_fallback_cards_and_ignores_late_fallbacks() {
+        for fallback_finished in [false, true] {
+            let mut app = headless_app();
+            app.local_ready = false;
+            app.load_home(false);
+            let old = app.home.made_for_you_generation;
+            let fallback = vec![Playlist {
+                id: "fallback".into(),
+                ..Default::default()
+            }];
+            if fallback_finished {
+                app.handle_api(ApiResponse::MadeForYou {
+                    generation: old,
+                    personalized: false,
+                    result: Ok(fallback.clone()),
+                });
+            } else {
+                app.restore_home(HomeSnapshot {
+                    made_for_you: Some(fallback.clone()),
+                    made_for_you_personalized: true,
+                    ..Default::default()
+                });
+            }
+            app.handle_playback(LocalPlayback::Ready {
+                device_id: "local".into(),
+            });
+            let current = app.home.made_for_you_generation;
+            assert!(current > old);
+            assert_eq!(app.home.awaiting, 4);
+            assert_eq!(app.home.made_for_you.get(), Some(&fallback));
+            app.handle_playback(LocalPlayback::Ready {
+                device_id: "local".into(),
+            });
+            assert_eq!(app.home.made_for_you_generation, current);
+            app.handle_api(ApiResponse::MadeForYou {
+                generation: current,
+                personalized: true,
+                result: Ok(vec![Playlist {
+                    id: "personalized".into(),
+                    ..Default::default()
+                }]),
+            });
+            app.handle_api(ApiResponse::MadeForYou {
+                generation: old,
+                personalized: false,
+                result: Ok(fallback),
+            });
+            assert_eq!(app.home.made_for_you.get().unwrap()[0].id, "personalized");
+            assert!(app.home.made_for_you_personalized);
+            assert_eq!(app.home.awaiting, 3);
+        }
+    }
+
+    /// A queued shelf response from before an account reset cannot reuse its request serial.
+    #[test]
+    fn made_for_you_request_serial_survives_account_reset() {
+        let mut app = headless_app();
+        app.load_home(false);
+        let old = app.home.made_for_you_generation;
+        app.reset_data();
+        app.load_home(false);
+        assert!(app.home.made_for_you_generation > old);
+        app.handle_api(ApiResponse::MadeForYou {
+            generation: old,
+            personalized: true,
+            result: Ok(Vec::new()),
+        });
+        assert!(app.home.made_for_you.is_loading());
+        assert_eq!(app.home.awaiting, 4);
+    }
+
+    /// Personalized cache order and origin survive a restart; late disk data cannot replace a live shelf.
+    #[test]
+    fn personalized_home_cache_preserves_order_and_live_answers() {
+        let mut app = listener_app();
+        app.load_home(false);
+        let cards = vec![
+            Playlist {
+                id: "second".into(),
+                ..Default::default()
+            },
+            Playlist {
+                id: "first".into(),
+                ..Default::default()
+            },
+        ];
+        app.handle_api(ApiResponse::MadeForYou {
+            generation: app.home.made_for_you_generation,
+            personalized: true,
+            result: Ok(cards.clone()),
+        });
+        let saved = app.backend.take_home_cache_stores().pop().unwrap().data;
+        assert!(saved.made_for_you_personalized);
+        assert_eq!(saved.made_for_you, Some(cards.clone()));
+        let mut next = listener_app();
+        next.restore_home(saved);
+        assert_eq!(next.home.made_for_you.get(), Some(&cards));
+        assert!(next.home.made_for_you_personalized);
+        next.restore_home(cached_home());
+        assert_eq!(next.home.made_for_you.get(), Some(&cards));
+    }
+
     #[test]
     fn a_free_account_is_told_once_that_it_cannot_play() {
         let me = |product: &str| {
@@ -24091,25 +24188,6 @@ mod tests {
         let mut app = headless_app();
         app.handle_api(me("premium"));
         assert!(app.dialog.is_none());
-    }
-
-    /// Only the personal playlists themselves belong on the shelf, not
-    /// what Spotify generates for an artist who took one of their names.
-    #[test]
-    fn the_shelf_takes_the_playlist_and_not_an_artist_named_after_it() {
-        assert!(is_made_for_you("Discover Weekly", "Discover Weekly"));
-        assert!(is_made_for_you("release radar", "Release Radar"));
-        assert!(is_made_for_you("daylist", "daylist"));
-        assert!(is_made_for_you("Daily Mix 3", "Daily Mix"));
-        assert!(is_made_for_you("Daily Mix", "Daily Mix"));
-        assert!(!is_made_for_you("Discover Weekly Mix", "Discover Weekly"));
-        assert!(!is_made_for_you(
-            "This Is Discover Weekly",
-            "Discover Weekly"
-        ));
-        assert!(!is_made_for_you("Release Radar Radio", "Release Radar"));
-        assert!(!is_made_for_you("Daily Mix Radio", "Daily Mix"));
-        assert!(!is_made_for_you("Daily Mix 3", "Discover Weekly"));
     }
 
     /// One song plays as a context of its own, so librespot's autoplay

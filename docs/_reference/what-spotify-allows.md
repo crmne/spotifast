@@ -74,6 +74,12 @@ clients. Spotifast uses its session for:
   supply them. This uses librespot's existing metadata support.
 - **Display names** for the user IDs attached to songs in a playlist.
 - **Precise EP types** for releases that the Web API groups with singles.
+- **Made for you** through Spotify's personalized Home section. This private
+  request uses the playback session and an already verified Web API grant;
+  when it succeeds, it does not spend the shared app's playlist-search quota.
+  If it fails, the shared Web API can supply approximate playlist-name search
+  results in the same **Made for you** shelf. Spotify may change the private Home
+  response without a Web API version change.
 - **Radio and autoplay** through Spotify's context resolver: stations seeded
   by a song, playlist, album, or artist. Each resolution is a fresh mix of 50
   songs, so a radio page plays the songs it shows rather than asking again.
@@ -112,6 +118,9 @@ The Web API and librespot do not provide these features:
   generates these for its own clients. Spotifast only has plain shuffle.
   A Blend that a Spotify app already made opens like any playlist, with
   who added each song, but Spotifast cannot start or manage one.
+- **Spotify DJ.** Its special playlist context does not expose playable tracks
+  to librespot, so Spotifast leaves its card out of Made for you. See
+  [librespot issue #1604](https://github.com/librespot-org/librespot/issues/1604).
 - **Lossless audio.** librespot does not receive lossless streams. Spotifast
   will reconsider this if librespot gains lawful support, but it will not
   bypass Spotify's DRM.

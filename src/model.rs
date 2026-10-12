@@ -614,8 +614,15 @@ pub struct HomeData {
     pub top_songs_loading: bool,
     pub top_songs_complete: bool,
     pub recommendations: Loadable<Vec<Track>>,
-    pub discover: HashMap<String, Loadable<Vec<Playlist>>>,
-    pub discover_pending: HashMap<String, Loadable<Vec<Playlist>>>,
+    pub made_for_you: Loadable<Vec<Playlist>>,
+    /// Whether the displayed cards came from the personalized session route.
+    pub made_for_you_personalized: bool,
+    /// Independent request serial: playback readiness can supersede a fallback.
+    pub made_for_you_generation: u64,
+    /// One outstanding shelf answer counts toward the Home refresh.
+    pub made_for_you_loading: bool,
+    /// Whether playback was ready when the current shelf request began.
+    pub made_for_you_session_requested: bool,
     /// Saved podcasts with their newest episodes, in library order, for the
     /// podcast shelf. A refresh replaces them only once it answers.
     pub podcasts: Vec<(Show, Vec<Episode>)>,
@@ -656,12 +663,14 @@ pub struct HomeSnapshot {
     pub recently_played: Option<Vec<PlayHistory>>,
     pub top_artists: Option<Vec<Artist>>,
     pub top_tracks: Option<Vec<Track>>,
-    /// Made for you, by search term, for the searches that answered.
+    /// The ordered shelf and its origin, retained across restarts.
+    pub made_for_you: Option<Vec<Playlist>>,
+    pub made_for_you_personalized: bool,
+    /// Legacy search shelves, read for compatibility with older cache files.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub discover: std::collections::BTreeMap<String, Vec<Playlist>>,
     pub podcasts: Vec<(Show, Vec<Episode>)>,
 }
-
-pub const DISCOVER_TERMS: &[&str] = &["Discover Weekly", "Release Radar", "Daily Mix", "daylist"];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchFilter {
