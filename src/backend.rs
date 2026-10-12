@@ -943,6 +943,8 @@ pub struct Backend {
     #[cfg(test)]
     remote_shuffle_requests: std::sync::Mutex<Vec<ApiRequest>>,
     #[cfg(test)]
+    transfer_requests: std::sync::Mutex<Vec<ApiRequest>>,
+    #[cfg(test)]
     queue_requests: std::sync::Mutex<Vec<ApiRequest>>,
     #[cfg(test)]
     queued_tracks: std::sync::Mutex<Vec<String>>,
@@ -1035,6 +1037,8 @@ impl Backend {
             remote_play_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             remote_shuffle_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            transfer_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             queue_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
@@ -1147,6 +1151,10 @@ impl Backend {
                 .lock()
                 .unwrap()
                 .push(request.clone());
+        }
+        #[cfg(test)]
+        if matches!(request, ApiRequest::Transfer { .. }) {
+            self.transfer_requests.lock().unwrap().push(request.clone());
         }
         #[cfg(test)]
         if matches!(
@@ -1269,6 +1277,11 @@ impl Backend {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
+    }
+
+    #[cfg(test)]
+    pub fn take_transfer_requests(&self) -> Vec<ApiRequest> {
+        std::mem::take(&mut *self.transfer_requests.lock().unwrap())
     }
 
     #[cfg(test)]
