@@ -956,6 +956,13 @@ pub enum Action {
         kind: String,
         query: String,
     },
+    /// The match a play-search found, played only if nothing has taken
+    /// precedence since: a newer play queued in the same frame as the
+    /// answer must still win.
+    PlaySearchMatch {
+        uri: String,
+        serial: u64,
+    },
     /// Play one episode, from `resume_ms` when the row, card or button
     /// that asked showed it as started.
     PlayEpisode {
