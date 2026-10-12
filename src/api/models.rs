@@ -483,6 +483,10 @@ pub struct Playlist {
     pub tracks: Option<TrackCount>,
     #[serde(default, rename = "items")]
     pub items_count: Option<TrackCount>,
+    /// How many people saved the playlist. Only the Web API's playlist view
+    /// reports it; a header read over the streaming session carries none.
+    #[serde(default)]
+    pub followers: Option<Followers>,
     #[serde(default)]
     pub external_urls: ExternalUrls,
 }
@@ -913,6 +917,20 @@ mod tests {
         assert_eq!(playlist.track_total(), 12);
         assert!(playlist.owned_by("me"));
         assert_eq!(playlist.owner_name(), "Me");
+        assert_eq!(playlist.followers, None);
+    }
+
+    /// The Web API's playlist view reports how many people saved it; a null
+    /// or missing count reads as none.
+    #[test]
+    fn playlist_followers_come_from_the_web_api_view() {
+        let json = r#"{"id":"p","followers":{"total":1845680}}"#;
+        let playlist: Playlist = serde_json::from_str(json).unwrap();
+        assert_eq!(playlist.followers.map(|f| f.total), Some(1_845_680));
+
+        let json = r#"{"id":"p","followers":null}"#;
+        let playlist: Playlist = serde_json::from_str(json).unwrap();
+        assert_eq!(playlist.followers, None);
     }
 
     /// An owner without a display name shows as the id, except Spotify,

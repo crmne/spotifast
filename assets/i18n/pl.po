@@ -193,6 +193,15 @@ msgstr[0] "{count} utwór"
 msgstr[1] "{count} utwory"
 msgstr[2] "{count} utworów"
 
+#. Translators: {count} is the number of people who saved a playlist.
+#: src/ui/collection.rs:2186
+#, rust-format
+msgid "{count} save"
+msgid_plural "{count} saves"
+msgstr[0] "{count} zapisanie"
+msgstr[1] "{count} zapisania"
+msgstr[2] "{count} zapisań"
+
 #. Translators: Keep {count} exactly as written. It becomes a number of playlists.
 #: src/i18n.rs:200
 #, rust-format

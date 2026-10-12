@@ -355,6 +355,7 @@ fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Optio
             title: &artist.name,
             description: None,
             byline,
+            avatar: None,
             round: true,
         },
     );

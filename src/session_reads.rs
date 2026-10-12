@@ -120,7 +120,9 @@ pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> 
     // lists and as the id for anyone else's, until the app finds the name
     // where the Web API gave it: the account's own, or the library list.
     if let Some(owner) = playlist.owner.id.clone().filter(|owner| owner != "spotify") {
-        playlist.owner.display_name = user_display_name(session, &owner).await;
+        playlist.owner.display_name = user_profile(session, &owner)
+            .await
+            .and_then(|profile| profile.name);
     }
     Ok(playlist)
 }
@@ -292,18 +294,38 @@ fn audiobooks_in(response: &BatchedExtensionResponse) -> Vec<String> {
     audiobooks
 }
 
-/// The display name behind a user id, from the profile view Spotify's
-/// clients read; `None` when nothing answers.
-pub async fn user_display_name(session: &Session, user_id: &str) -> Option<String> {
+/// What the profile view says about a user: their display name and avatar,
+/// each when Spotify gives it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UserProfile {
+    pub name: Option<String>,
+    pub image_url: Option<String>,
+}
+
+/// The profile behind a user id, from the view Spotify's own clients read;
+/// `None` when nothing answers.
+pub async fn user_profile(session: &Session, user_id: &str) -> Option<UserProfile> {
     let bytes = session
         .spclient()
         .get_user_profile(user_id, Some(0), Some(0))
         .await
         .ok()?;
     let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    json.get("name")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
+    Some(profile_from_json(&json))
+}
+
+/// Reads the name and avatar out of a profile view answer.
+fn profile_from_json(json: &serde_json::Value) -> UserProfile {
+    let text = |key: &str| {
+        json.get(key)
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    UserProfile {
+        name: text("name"),
+        image_url: text("image_url"),
+    }
 }
 
 /// The list's header and the `length` rows from `from`; none for the header
@@ -842,6 +864,36 @@ mod tests {
             Some("2023-11-14T22:13:20Z")
         );
         assert_eq!(iso8601(0), None, "never recorded");
+    }
+
+    /// The profile view gives a user's name and avatar; blanks and nulls
+    /// read as absent.
+    #[test]
+    fn a_profile_read_carries_the_name_and_avatar() {
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{"uri":"spotify:user:alice","name":"Alice","image_url":"https://i.scdn.co/image/avatar"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            profile_from_json(&json),
+            UserProfile {
+                name: Some("Alice".into()),
+                image_url: Some("https://i.scdn.co/image/avatar".into()),
+            }
+        );
+
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"name":"Bob","image_url":null}"#).unwrap();
+        assert_eq!(
+            profile_from_json(&json),
+            UserProfile {
+                name: Some("Bob".into()),
+                image_url: None,
+            }
+        );
+
+        let json: serde_json::Value = serde_json::from_str("{}").unwrap();
+        assert_eq!(profile_from_json(&json), UserProfile::default());
     }
 
     #[test]

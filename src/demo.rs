@@ -219,6 +219,13 @@ fn playlist(index: usize) -> Playlist {
         tracks: Some(TrackCount {
             total: 30 + index as u32 * 7,
         }),
+        followers: Some(Followers {
+            total: if spotify_owned {
+                1_845_680
+            } else {
+                12_345 + index as u64
+            },
+        }),
         ..Playlist::default()
     }
 }
@@ -328,6 +335,11 @@ pub fn populate(app: &mut App) {
     app.playlist_pages.insert("pl1".into(), playlist_page);
     app.user_names.insert("kasia".into(), Some("Kasia".into()));
     app.user_names.insert("sam".into(), Some("Sam".into()));
+    // The playlist owner's picture, as the profile view would answer.
+    app.user_images.insert(
+        "demo".into(),
+        Some(image(1).first().map(|image| image.url.clone()).unwrap()),
+    );
     let mut discover_page = PlaylistPage {
         playlist: Loadable::Loaded(playlists[0].clone()),
         ..PlaylistPage::default()

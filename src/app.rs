@@ -557,6 +557,9 @@ pub struct App {
     /// is asked about only once per run.
     pub user_names: HashMap<String, Option<String>>,
     pub user_names_revision: u64,
+    /// User ids resolved to avatar picture urls, asked for alongside the
+    /// names; `None` while unknown or when Spotify gives no picture.
+    pub user_images: HashMap<String, Option<String>>,
     /// Context URIs most recently played, newest first: the sidebar's
     /// order. Kept with the session, so it survives a restart.
     pub recent_contexts: Vec<String>,
@@ -985,6 +988,7 @@ impl App {
                 .collect(),
             user_names: HashMap::new(),
             user_names_revision: 0,
+            user_images: HashMap::new(),
             recent_contexts: session.recent_contexts.clone(),
             resume_context: session.last_context.clone(),
             resume_track: session.last_track.clone(),
@@ -1670,6 +1674,17 @@ impl App {
         }
     }
 
+    /// Records the picture behind a user id, under the same rule as the
+    /// name: a lookup that found nothing never replaces one already known.
+    pub fn set_user_image(&mut self, id: String, image: Option<String>) {
+        if image.is_none() && self.user_images.get(&id).is_some_and(Option::is_some) {
+            return;
+        }
+        if self.user_images.get(&id) != Some(&image) {
+            self.user_images.insert(id, image);
+        }
+    }
+
     pub fn any_play_pending(&self) -> bool {
         self.pending_fresh() && !self.pending_play_keys.is_empty()
     }
@@ -2032,14 +2047,15 @@ impl App {
                 } => {
                     self.receive_account_caches(&account_id, generation, playlists, home);
                 }
-                Event::UserName { id, name } => {
-                    self.set_user_name(id, name);
+                Event::UserName { id, name, image } => {
+                    self.set_user_name(id.clone(), name);
+                    self.set_user_image(id, image);
                 }
                 Event::AudiobookShows(uris) => {
                     self.audiobook_shows.extend(uris);
                 }
                 Event::PlaylistHeader(header) => {
-                    self.playlist_headers.insert(header.id.clone(), header);
+                    self.playlist_headers.insert(header.id.clone(), *header);
                     self.fill_blank_playlists();
                 }
                 Event::Radio {
@@ -5956,6 +5972,14 @@ impl App {
                     // library list's public flag, owner name, and cover.
                     if playlist.owner.display_name.is_none() {
                         playlist.owner.display_name = self.own_name(playlist.owner.id.as_deref());
+                    }
+                    // The owner's avatar comes from the profile view only
+                    // the session can ask, so whoever owns the page shown
+                    // is asked about once, next to the names already being
+                    // resolved for the songs' adders.
+                    if let Some(owner) = playlist.owner.id.clone().filter(|owner| !owner.is_empty())
+                    {
+                        self.request_user_names(vec![owner]);
                     }
                     if let Some(listed) = self.library_entry(&id) {
                         playlist.fill_from(listed);
@@ -12437,14 +12461,14 @@ mod tests {
             width: Some(300),
             height: None,
         };
-        app.handle_backend_events(vec![Event::PlaylistHeader(Playlist {
+        app.handle_backend_events(vec![Event::PlaylistHeader(Box::new(Playlist {
             id: "blank".into(),
             name: "This Is TUYU".into(),
             description: Some("The essential tracks.".into()),
             images: vec![cover.clone()],
             items_count: Some(TrackCount { total: 50 }),
             ..Playlist::default()
-        })]);
+        }))]);
         let entry = app.library_entry("blank").unwrap();
         assert_eq!(entry.name, "This Is TUYU");
         assert_eq!(entry.images, vec![cover.clone()]);
@@ -12457,11 +12481,11 @@ mod tests {
         );
         assert_eq!(app.library_entry("named").unwrap().name, "Mix");
 
-        app.handle_backend_events(vec![Event::PlaylistHeader(Playlist {
+        app.handle_backend_events(vec![Event::PlaylistHeader(Box::new(Playlist {
             id: "later".into(),
             name: "This Is YOASOBI".into(),
             ..Playlist::default()
-        })]);
+        }))]);
         assert_eq!(app.library_entry("later").unwrap().name, "This Is YOASOBI");
 
         app.load_playlists();
@@ -13438,6 +13462,55 @@ mod tests {
         });
         assert_eq!(shown(&app, "pl3"), "Nobody");
         assert_eq!(shown(&app, "pl2"), "Molly");
+    }
+
+    /// Opening a playlist asks about its owner once, so the profile view's
+    /// picture can stand beside the name; a header without an owner asks
+    /// about nobody, and the answers land as a name and a picture.
+    #[test]
+    fn a_playlist_page_asks_about_its_owner() {
+        use crate::api::models::Owner;
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.playlist_pages.insert(
+            "pl1".into(),
+            PlaylistPage {
+                generation: 1,
+                ..Default::default()
+            },
+        );
+        let header = |owner: Option<&str>| ApiResponse::Playlist {
+            id: "pl1".into(),
+            generation: 1,
+            result: Ok(Playlist {
+                id: "pl1".into(),
+                owner: Owner {
+                    id: owner.map(str::to_string),
+                    ..Default::default()
+                },
+                ..Playlist::default()
+            }),
+        };
+        app.handle_api(header(Some("alice")));
+        assert!(
+            app.user_names.contains_key("alice"),
+            "the owner was asked about"
+        );
+        app.handle_api(header(None));
+        assert!(
+            !app.user_names.contains_key(""),
+            "nobody to ask without an owner"
+        );
+        app.set_user_name("alice".into(), Some("Alice".into()));
+        app.set_user_image("alice".into(), Some("https://i.scdn.co/image/a".into()));
+        assert_eq!(
+            app.user_names.get("alice").and_then(Option::as_deref),
+            Some("Alice")
+        );
+        assert_eq!(
+            app.user_images.get("alice").and_then(Option::as_deref),
+            Some("https://i.scdn.co/image/a")
+        );
     }
 
     /// The streaming session carries no cover for a playlist without one
@@ -16952,6 +17025,30 @@ mod tests {
         // An id nobody could name stays unnamed, to be shown as the id.
         app.set_user_name("nobody".into(), None);
         assert_eq!(app.user_names.get("nobody"), Some(&None));
+        app.backend.shutdown();
+    }
+
+    /// The avatar a lookup found is kept like the name: a later lookup of
+    /// the same id that found nothing must not take the picture away, and
+    /// a new picture replaces an old one.
+    #[test]
+    fn an_avatar_lookup_keeps_the_picture_already_found() {
+        let mut app = test_app("adder-avatar-race");
+        app.set_user_image("kasia-id".into(), Some("https://i.scdn.co/image/a".into()));
+        app.set_user_image("kasia-id".into(), None);
+        assert_eq!(
+            app.user_images.get("kasia-id").and_then(Option::as_deref),
+            Some("https://i.scdn.co/image/a")
+        );
+        // A renamed account's new picture shows instead.
+        app.set_user_image("kasia-id".into(), Some("https://i.scdn.co/image/b".into()));
+        assert_eq!(
+            app.user_images.get("kasia-id").and_then(Option::as_deref),
+            Some("https://i.scdn.co/image/b")
+        );
+        // An id with no picture stays without one.
+        app.set_user_image("nobody".into(), None);
+        assert_eq!(app.user_images.get("nobody"), Some(&None));
         app.backend.shutdown();
     }
 

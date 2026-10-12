@@ -857,17 +857,19 @@ pub enum Event {
         snapshot: String,
         success: bool,
     },
-    /// A user id resolved to a display name (`None` when nothing answers).
+    /// A user id resolved to a display name and avatar (each `None` when
+    /// nothing answers).
     UserName {
         id: String,
         name: Option<String>,
+        image: Option<String>,
     },
     /// Saved shows that Spotify's metadata marks as audiobooks. librespot
     /// cannot play them, so the Podcasts shelf leaves them out.
     AudiobookShows(Vec<String>),
     /// The header the streaming session read for a library playlist the
     /// Web API listed blank.
-    PlaylistHeader(crate::api::models::Playlist),
+    PlaylistHeader(Box<crate::api::models::Playlist>),
     /// The songs of the radio seeded by `seed`, for the request `generation`.
     Radio {
         seed: String,
@@ -3513,7 +3515,7 @@ impl Worker {
             return;
         }
         if let Some(header) = header {
-            self.emit(Event::PlaylistHeader(header));
+            self.emit(Event::PlaylistHeader(Box::new(header)));
         }
         self.start_playlist_header_lookup();
     }
@@ -3674,8 +3676,12 @@ impl Worker {
         let waker = self.waker.clone();
         tokio::spawn(async move {
             for id in ids {
-                let name = session_reads::user_display_name(engine.session(), &id).await;
-                let _ = events.send(Event::UserName { id, name });
+                let profile = session_reads::user_profile(engine.session(), &id).await;
+                let (name, image) = match profile {
+                    Some(profile) => (profile.name, profile.image_url),
+                    None => (None, None),
+                };
+                let _ = events.send(Event::UserName { id, name, image });
                 waker.wake();
             }
         });
@@ -4484,9 +4490,9 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
     let session = engine.session();
     let read = async {
         Some(match session_read(request)? {
-            SessionRead::Header { id } => {
-                SessionAnswer::Header(settle(session_reads::playlist(session, id).await)?)
-            }
+            SessionRead::Header { id } => SessionAnswer::Header(Box::new(settle(
+                session_reads::playlist(session, id).await,
+            )?)),
             SessionRead::Rows { id, offset } => SessionAnswer::Rows(settle(
                 session_reads::items(session, id, offset, PLAYLIST_PAGE_SIZE).await,
             )?),
@@ -4536,7 +4542,7 @@ fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
 /// What the session read: a playlist's header, or a page of its rows.
 enum SessionAnswer {
     ArtistTop(ApiResult<Vec<Track>>),
-    Header(ApiResult<Playlist>),
+    Header(Box<ApiResult<Playlist>>),
     Rows(ApiResult<Page<PlaylistItem>>),
 }
 
@@ -4554,7 +4560,7 @@ fn session_response(request: &ApiRequest, answer: SessionAnswer) -> Option<ApiRe
             ApiResponse::Playlist {
                 id: id.clone(),
                 generation: *generation,
-                result,
+                result: *result,
             }
         }
         (
@@ -7128,7 +7134,7 @@ mod session_tests {
     #[test]
     fn a_session_answer_carries_the_requests_identity() {
         let rows = || SessionAnswer::Rows(Ok(Page::default()));
-        let header = || SessionAnswer::Header(Ok(Playlist::default()));
+        let header = || SessionAnswer::Header(Box::new(Ok(Playlist::default())));
         let items = ApiRequest::PlaylistItems {
             id: "pl1".into(),
             offset: 150,

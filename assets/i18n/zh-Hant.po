@@ -188,6 +188,13 @@ msgid "{count} song"
 msgid_plural "{count} songs"
 msgstr[0] "{count} 首歌曲"
 
+#. Translators: {count} is the number of people who saved a playlist.
+#: src/ui/collection.rs:2186
+#, rust-format
+msgid "{count} save"
+msgid_plural "{count} saves"
+msgstr[0] "儲存{count}次"
+
 #. Translators: Keep {count} exactly as written. It becomes a number of playlists.
 #: src/i18n.rs:200
 #, rust-format

@@ -24,6 +24,8 @@ pub(super) struct Hero<'a> {
     pub title: &'a str,
     pub description: Option<String>,
     pub byline: Vec<(String, Option<Page>)>,
+    /// The owner's picture, drawn before the byline's first entry.
+    pub avatar: Option<String>,
     pub round: bool,
 }
 
@@ -127,6 +129,19 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             }
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
+                if let Some(avatar) = hero.avatar.as_deref() {
+                    let size = 18.0;
+                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+                    widgets::paint_cover(
+                        ui,
+                        &palette,
+                        Some(avatar),
+                        rect,
+                        size / 2.0,
+                        Icon::User,
+                        Some(&art),
+                    );
+                }
                 for (index, (text, page)) in hero.byline.iter().enumerate() {
                     if index > 0 {
                         theme::text(ui, "•", theme::regular(13.5), palette.secondary);
@@ -1475,6 +1490,9 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             let others = other_adders(owner_id, &page.contributors, &user_id);
             let made_together = playlist.collaborative || !others.is_empty();
             let mut byline = vec![(playlist.owner_name().to_string(), None)];
+            if let Some(saves) = playlist.followers.as_ref().map(|followers| followers.total) {
+                byline.push((saves_text(app.locale, saves), None));
+            }
             if !others.is_empty() {
                 let named: Vec<String> = others
                     .iter()
@@ -1834,6 +1852,13 @@ fn playlist_hero<'a>(
     byline: Vec<(String, Option<Page>)>,
     collaborative: bool,
 ) {
+    let avatar = playlist
+        .owner
+        .id
+        .as_deref()
+        .and_then(|id| app.user_images.get(id))
+        .and_then(|image| image.as_deref())
+        .map(str::to_string);
     hero(
         app,
         ui,
@@ -1850,6 +1875,7 @@ fn playlist_hero<'a>(
             title: &playlist.name,
             description: playlist.description.as_deref().map(util::strip_html),
             byline,
+            avatar,
             round: false,
         },
     );
@@ -1975,6 +2001,7 @@ fn album_hero(
             title: &album.name,
             description: None,
             byline,
+            avatar: None,
             round: false,
         },
     );
@@ -2061,6 +2088,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             title: &liked_title,
             description: None,
             byline: vec![(user, None), (count_text, None)],
+            avatar: None,
             round: false,
         },
     );
@@ -2149,6 +2177,18 @@ fn song_count(locale: Locale, count: u32) -> String {
         count,
     )
     .replace("{count}", &util::format_count(count as u64))
+}
+
+/// `1,845,680 saves`, from the follower count Spotify's playlist view gives.
+fn saves_text(locale: Locale, total: u64) -> String {
+    ngettext(
+        locale,
+        // Translators: {count} is the number of people who saved a playlist.
+        "{count} save",
+        "{count} saves",
+        u32::try_from(total).unwrap_or(u32::MAX),
+    )
+    .replace("{count}", &util::format_count(total))
 }
 
 /// `1,234 songs, 2 hr 13 min` once the whole list is known.
@@ -2272,6 +2312,12 @@ mod tests {
         assert_eq!(other_adders(Some("ana"), &seen, "ana"), vec!["bea"]);
         assert_eq!(other_adders(Some("ana"), &seen, "carl"), vec!["bea"]);
         assert!(other_adders(Some("ana"), &adders(&["ana"]), "ana").is_empty());
+    }
+
+    #[test]
+    fn saves_read_as_the_playlist_view_counts_them() {
+        assert_eq!(saves_text(Locale::English, 1_845_680), "1,845,680 saves");
+        assert_eq!(saves_text(Locale::English, 1), "1 save");
     }
 
     #[test]
