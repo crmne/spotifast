@@ -619,6 +619,22 @@ pub fn populate(app: &mut App) {
     }
 }
 
+#[cfg(feature = "demo")]
+fn cast_devices(app: &mut App, connecting: bool) {
+    app.show_devices = true;
+    app.receivers.push(crate::zeroconf::Receiver {
+        name: "Living room".into(),
+        device_id: Some(crate::cast::device_id("Living room")),
+        address: "192.168.1.43".parse().unwrap(),
+        port: 8009,
+        path: "/".into(),
+        cast: true,
+    });
+    if connecting {
+        app.activating_receiver = Some("Living room".into());
+    }
+}
+
 #[cfg(any(test, feature = "demo"))]
 fn sonos_devices(app: &mut App, active: bool) {
     app.show_devices = true;
@@ -907,6 +923,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "devices" => app.show_devices = true,
             "sonos-idle" => sonos_devices(app, false),
             "sonos-active" => sonos_devices(app, true),
+            "cast-idle" => cast_devices(app, false),
+            "cast-connecting" => cast_devices(app, true),
             // These paired states capture both outcomes of the collection
             // Shuffle click for the PR visual comparison.
             "shuffle-selected" => {
