@@ -180,13 +180,22 @@ impl ArtLoader {
     /// its `local-cover:` URI loads like any other artwork. Written
     /// atomically, as a download would be, so a file that is there at all
     /// holds a complete picture; empty or oversized pictures are refused.
-    /// Loading stays lazy: nothing is held in memory until something draws
-    /// the URI, the same as artwork from the network.
+    /// A cover already cached is left as it is: the key names these very
+    /// bytes, and scans run again on every reconnect. Loading stays lazy:
+    /// nothing is held in memory until something draws the URI, the same as
+    /// artwork from the network.
     pub fn embed(&self, url: &str, bytes: &[u8]) -> bool {
         if !is_local_cover(url) || bytes.is_empty() || bytes.len() > MAX_ART_BYTES {
             return false;
         }
         let path = self.inner.cache_path(url);
+        // The key hashes the picture bytes, so a complete file already at
+        // this key holds these bytes; rewriting it would only wear the disk.
+        if std::fs::metadata(&path)
+            .is_ok_and(|meta| meta.is_file() && meta.len() == bytes.len() as u64)
+        {
+            return true;
+        }
         let temporary = path.with_extension("part");
         let written =
             std::fs::write(&temporary, bytes).is_ok() && std::fs::rename(&temporary, &path).is_ok();
@@ -801,6 +810,35 @@ mod tests {
         // from the completed cache, without requesting the URL again.
         assert_eq!(&*runtime.block_on(loader.fetch(&url)).unwrap(), expected);
         assert_eq!(loader.cached_file(&url), Some(path));
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A scan embeds every cover it finds on every run, so a cover already
+    /// cached must not be written again: its key names those very bytes.
+    #[test]
+    fn an_embedded_cover_already_cached_is_not_written_again() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-art-embed-skip-{}", std::process::id()));
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let picture = b"the cover".to_vec();
+        let url = crate::local_files::cover_uri("spotify:local:a:b:c:1", &picture);
+        assert!(loader.embed(&url, &picture), "the first embed writes");
+        let path = loader.inner.cache_path(&url);
+        assert_eq!(std::fs::read(&path).unwrap(), picture);
+        // Same length, other bytes: if the second embed wrote again, the
+        // file would hold the picture; skipped, the marked bytes survive.
+        let mut marked = picture.clone();
+        marked[0] ^= 0xff;
+        std::fs::write(&path, &marked).unwrap();
+        assert!(loader.embed(&url, &picture), "the cached cover counts");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            marked,
+            "the cached file is left untouched"
+        );
         drop(loader);
         runtime.shutdown_timeout(Duration::from_secs(10));
         std::fs::remove_dir_all(dir).unwrap();
