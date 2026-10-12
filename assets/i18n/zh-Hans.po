@@ -193,7 +193,7 @@ msgstr[0] "{count} 首歌曲"
 #, rust-format
 msgid "{count} save"
 msgid_plural "{count} saves"
-msgstr[0] "保存{count}次"
+msgstr[0] "{count} 人收藏"
 
 #. Translators: Keep {count} exactly as written. It becomes a number of playlists.
 #: src/i18n.rs:200

@@ -195,8 +195,8 @@ msgstr[1] "{count} låtar"
 #, rust-format
 msgid "{count} save"
 msgid_plural "{count} saves"
-msgstr[0] "{count} sparad"
-msgstr[1] "{count} sparade"
+msgstr[0] "{count} sparning"
+msgstr[1] "{count} sparningar"
 
 #. Translators: Keep {count} exactly as written. It becomes a number of playlists.
 #: src/i18n.rs:200

@@ -195,8 +195,8 @@ msgstr[1] "{count} músicas"
 #, rust-format
 msgid "{count} save"
 msgid_plural "{count} saves"
-msgstr[0] "{count} salvação"
-msgstr[1] "{count} salvações"
+msgstr[0] "{count} pessoa guardou"
+msgstr[1] "{count} pessoas guardaram"
 
 #. Translators: Keep {count} exactly as written. It becomes a number of playlists.
 #: src/i18n.rs:200
