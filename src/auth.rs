@@ -527,13 +527,19 @@ mod tests {
 
     #[tokio::test]
     async fn redirect_listener_can_retry_after_port_is_released() {
-        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = occupied.local_addr().unwrap().port();
-        let error = listen_for_redirect(port).unwrap_err().to_string();
-        assert!(error.contains(&port.to_string()));
-        assert!(error.contains("try again"));
-        drop(occupied);
-        let listener = listen_for_redirect(port).unwrap();
+        // A test running alongside can be handed the port between its
+        // release and the retry, so that case tries again on another port.
+        let (listener, port) = (0..10)
+            .find_map(|_| {
+                let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                let port = occupied.local_addr().unwrap().port();
+                let error = listen_for_redirect(port).unwrap_err().to_string();
+                assert!(error.contains(&port.to_string()));
+                assert!(error.contains("try again"));
+                drop(occupied);
+                Some((listen_for_redirect(port).ok()?, port))
+            })
+            .expect("a released port can be listened on again");
         let (cancel, receiver) = watch::channel(false);
         let waiting =
             tokio::spawn(
