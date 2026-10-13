@@ -295,6 +295,8 @@ pub enum PlayerCommand {
     Shuffle(bool),
     Repeat(RepeatMode),
     Load(LoadSpec),
+    /// Validate a cold-start offset before loading its remembered context.
+    Resume(LoadSpec),
     /// Take over the active Connect session, including its queue and position.
     Transfer,
 }
@@ -654,6 +656,7 @@ impl Engine {
                 spirc.activate()?;
                 spirc.load(request)?;
             }
+            PlayerCommand::Resume(_) => anyhow::bail!("resume must be resolved before loading"),
         }
         Ok(())
     }
@@ -665,6 +668,40 @@ fn command_interrupts_audio(state: &LocalState, command: &PlayerCommand) -> bool
             command,
             PlayerCommand::Next | PlayerCommand::Previous | PlayerCommand::Load(_)
         )
+}
+
+/// Librespot searches the first resolved page and falls back to its first
+/// song when an offset is missing. Resume the saved song on its own instead.
+pub(crate) fn resolved_resume(
+    mut spec: LoadSpec,
+    context: Option<&librespot_protocol::context::Context>,
+) -> LoadSpec {
+    let Some(track) = spec.offset_uri.as_deref() else {
+        return spec;
+    };
+    let gid = SpotifyUri::from_uri(track).ok().and_then(|uri| match uri {
+        SpotifyUri::Track { id } | SpotifyUri::Episode { id } => Some(id.to_raw()),
+        _ => None,
+    });
+    let found = context
+        .and_then(|context| context.pages.iter().find(|page| !page.tracks.is_empty()))
+        .is_some_and(|page| {
+            page.tracks.iter().any(|row| {
+                row.uri.as_deref() == Some(track)
+                    || (row.uri.as_deref().is_none_or(str::is_empty)
+                        && gid
+                            .as_ref()
+                            .is_some_and(|gid| row.gid.as_deref() == Some(gid.as_slice())))
+            })
+        });
+    if !found {
+        spec.context_uri = Some(track.to_string());
+        spec.uris.clear();
+        spec.offset_uri = None;
+        spec.offset_index = None;
+        spec.shuffle = None;
+    }
+    spec
 }
 
 /// The librespot backend a saved setting names, when this build has it.
@@ -1127,6 +1164,76 @@ fn decode_folder_name(encoded: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_saved_song_keeps_only_a_context_that_can_start_it() {
+        use librespot_protocol::{
+            context::Context, context_page::ContextPage, context_track::ContextTrack,
+        };
+        let uri = "spotify:track:0000000000000000000001";
+        let spec = LoadSpec {
+            context_uri: Some("spotify:playlist:finished".into()),
+            offset_uri: Some(uri.into()),
+            position_ms: 83_456,
+            play: true,
+            shuffle: Some(true),
+            ..Default::default()
+        };
+        for row in [
+            ContextTrack {
+                uri: Some(uri.into()),
+                ..Default::default()
+            },
+            ContextTrack {
+                gid: Some(
+                    SpotifyId::from_base62("0000000000000000000001")
+                        .unwrap()
+                        .to_raw()
+                        .to_vec(),
+                ),
+                ..Default::default()
+            },
+        ] {
+            let context = Context {
+                pages: vec![ContextPage {
+                    tracks: vec![row],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            assert_eq!(resolved_resume(spec.clone(), Some(&context)), spec);
+        }
+        for context in [
+            None,
+            Some(Context::default()),
+            Some(Context {
+                pages: vec![
+                    ContextPage {
+                        tracks: vec![ContextTrack {
+                            uri: Some("spotify:track:other".into()),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                    ContextPage {
+                        tracks: vec![ContextTrack {
+                            uri: Some(uri.into()),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+        ] {
+            let actual = resolved_resume(spec.clone(), context.as_ref());
+            assert_eq!(actual.context_uri.as_deref(), Some(uri));
+            assert!(actual.offset_uri.is_none() && actual.offset_index.is_none());
+            assert_eq!(actual.position_ms, 83_456);
+            assert!(actual.play);
+            assert_eq!(actual.shuffle, None);
+        }
+    }
+
     #[test]
     fn loading_another_song_keeps_repeat_with_or_without_shuffle() {
         for shuffle in [None, Some(false), Some(true)] {

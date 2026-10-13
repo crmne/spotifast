@@ -76,6 +76,9 @@ both using your computer's protected storage. See
 [Getting started](https://spotifast.rocks/getting-started/) for the full walkthrough
 and [How it connects](https://spotifast.rocks/how-it-connects/) for the details.
 
+After reopening, local playback resumes the last song at its saved position,
+including recommended songs that played after a playlist ended.
+
 ## The Winamp mini player
 
 A classic look for your music, with Winamp 2 `.wsz` skins, an equalizer,

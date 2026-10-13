@@ -619,6 +619,10 @@ pub enum Command {
         config: ProxyConfig,
     },
     Player(PlayerCommand),
+    ResumeResolved {
+        serial: u64,
+        spec: crate::player::LoadSpec,
+    },
     Api(ApiRequest),
     ApiFinished {
         generation: u64,
@@ -1566,6 +1570,9 @@ struct Worker {
     resume: Option<PlaybackResume>,
     /// A pickup in flight: the load to repeat and how often it was tried.
     resume_verify: Option<(PlaybackResume, u8)>,
+    saved_load_serial: u64,
+    saved_load_task: Option<tokio::task::AbortHandle>,
+    saved_load_commands: Vec<PlayerCommand>,
     network_reachable: bool,
     waiting_for_network: bool,
     engine_attempt: u64,
@@ -1630,6 +1637,9 @@ impl Worker {
             reconnects: Vec::new(),
             resume: None,
             resume_verify: None,
+            saved_load_serial: 0,
+            saved_load_task: None,
+            saved_load_commands: Vec::new(),
             network_reachable: true,
             waiting_for_network: false,
             engine_attempt: 0,
@@ -1918,19 +1928,14 @@ impl Worker {
                 Command::ApplyProxy { request, config } => {
                     self.change_proxy(request, config, false)
                 }
-                Command::Player(command) => {
-                    if matches!(&command, PlayerCommand::Load(_)) {
-                        self.resume = None;
-                    }
-                    match &self.engine {
-                        Some(engine) => {
-                            if let Err(error) = engine.command(command) {
-                                self.emit(Event::Error(format!("Playback error: {error}")));
-                            }
+                Command::Player(command) => self.player_command(command),
+                Command::ResumeResolved { serial, spec } => {
+                    if serial == self.saved_load_serial && self.saved_load_task.take().is_some() {
+                        let commands = std::mem::take(&mut self.saved_load_commands);
+                        self.player_command(PlayerCommand::Load(spec));
+                        for command in commands {
+                            self.player_command(command);
                         }
-                        None => self.emit(Event::Error(
-                            "Local playback isn't set up on this computer yet".into(),
-                        )),
                     }
                 }
                 Command::Api(ApiRequest::Search { query, serial }) => self.search(query, serial),
@@ -2339,6 +2344,7 @@ impl Worker {
                 }
             }
         }
+        self.cancel_saved_load();
         if let Some(engine) = self.engine.take() {
             engine.shutdown();
         }
@@ -2784,6 +2790,7 @@ impl Worker {
     }
 
     fn sign_out(&mut self) {
+        self.cancel_saved_load();
         self.spotify_restore_started = true;
         self.cancel_search();
         self.signed_in = false;
@@ -2955,6 +2962,7 @@ impl Worker {
     /// comes back at the level it was heard at, not at the level the app
     /// launched with.
     fn take_engine_for_resume(&mut self) {
+        self.cancel_saved_load();
         self.resume_verify = None;
         self.album_type_lookup.requeue_active_for_new_engine();
         self.playlist_header_lookup.requeue_active_for_new_engine();
@@ -3230,6 +3238,7 @@ impl Worker {
     fn on_account_checked(&mut self, premium: Option<bool>) {
         self.premium = premium;
         if premium == Some(false) {
+            self.cancel_saved_load();
             self.album_type_lookup.clear_engine_work();
             self.playlist_header_lookup.clear_engine_work();
             self.carry_volume();
@@ -3330,6 +3339,89 @@ impl Worker {
             let _ = events.send(Event::UpdateChecked { manual, result });
             waker.wake();
         });
+    }
+
+    fn cancel_saved_load(&mut self) {
+        self.saved_load_serial = self.saved_load_serial.wrapping_add(1);
+        if let Some(task) = self.saved_load_task.take() {
+            task.abort();
+        }
+        self.saved_load_commands.clear();
+    }
+
+    fn player_command(&mut self, command: PlayerCommand) {
+        let mut queued = Vec::new();
+        if matches!(
+            command,
+            PlayerCommand::Load(_) | PlayerCommand::Resume(_) | PlayerCommand::Transfer
+        ) {
+            if !matches!(command, PlayerCommand::Transfer) {
+                queued = std::mem::take(&mut self.saved_load_commands)
+                    .into_iter()
+                    .filter(|command| {
+                        matches!(
+                            command,
+                            PlayerCommand::AddToQueue(_) | PlayerCommand::ClearQueue
+                        )
+                    })
+                    .collect();
+            }
+            self.cancel_saved_load();
+            self.resume = None;
+        } else if self.saved_load_task.is_some()
+            && !matches!(
+                command,
+                PlayerCommand::Volume(_) | PlayerCommand::VolumePreview(_)
+            )
+        {
+            // Queue restoration, seeks and transport controls follow the load.
+            self.saved_load_commands.push(command);
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.emit(Event::Error(
+                "Local playback isn't set up on this computer yet".into(),
+            ));
+            return;
+        };
+        if let PlayerCommand::Resume(spec) = command {
+            self.saved_load_commands = queued;
+            let serial = self.saved_load_serial;
+            let commands = self.commands.clone();
+            self.saved_load_task = Some(
+                tokio::spawn(async move {
+                    // Stations are freshly mixed, so resolving twice cannot verify
+                    // that the saved song will still be in the playback request.
+                    let context = match spec.context_uri.as_deref() {
+                        Some(uri)
+                            if spec.offset_uri.is_some()
+                                && !uri.starts_with("spotify:station:") =>
+                        {
+                            match tokio::time::timeout(
+                                RADIO_TIMEOUT,
+                                engine.session().spclient().get_context(uri),
+                            )
+                            .await
+                            {
+                                Ok(Ok(context)) => Some(context),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    let spec = crate::player::resolved_resume(spec, context.as_ref());
+                    let _ = commands.send(Command::ResumeResolved { serial, spec });
+                })
+                .abort_handle(),
+            );
+        } else {
+            if let Err(error) = engine.command(command) {
+                self.emit(Event::Error(format!("Playback error: {error}")));
+            }
+            for command in queued {
+                self.player_command(command);
+            }
+        }
     }
 
     /// Verifies playback after reconnect and retries loads rejected while
@@ -7216,6 +7308,57 @@ mod cover_routing_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cancelled_saved_load_cannot_play_after_signout_or_another_load() {
+        for signout in [true, false] {
+            let (runtime, mut worker, events) = super::authorization_tests::worker(if signout {
+                "saved-load-signout"
+            } else {
+                "saved-load-replaced"
+            });
+            let _entered = runtime.enter();
+            let task = runtime.spawn(std::future::pending::<()>());
+            worker.saved_load_task = Some(task.abort_handle());
+            let serial = worker.saved_load_serial;
+            worker.player_command(PlayerCommand::AddToQueue("spotify:track:queued".into()));
+            worker.player_command(PlayerCommand::Seek(90_000));
+            assert!(
+                events.try_iter().next().is_none(),
+                "controls wait for the saved load"
+            );
+            if signout {
+                worker.sign_out();
+            } else {
+                worker.player_command(PlayerCommand::Load(crate::player::LoadSpec::default()));
+                assert!(
+                    events
+                        .try_iter()
+                        .any(|event| matches!(event, Event::Error(_)))
+                );
+            }
+            let (commands, receiver) = mpsc::unbounded_channel();
+            commands
+                .send(Command::ResumeResolved {
+                    serial,
+                    spec: crate::player::LoadSpec {
+                        context_uri: Some("spotify:track:stale".into()),
+                        play: true,
+                        ..Default::default()
+                    },
+                })
+                .unwrap();
+            commands.send(Command::Shutdown).unwrap();
+            runtime.block_on(worker.run(receiver));
+            assert!(
+                !events
+                    .try_iter()
+                    .any(|event| matches!(event, Event::Error(_))),
+                "the late saved load and its queued controls never reach playback"
+            );
+            assert!(runtime.block_on(task).unwrap_err().is_cancelled());
+        }
+    }
 
     #[tokio::test]
     async fn connect_shuffle_play_waits_for_shuffle_before_starting_playback() {

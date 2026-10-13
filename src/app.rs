@@ -2868,11 +2868,7 @@ impl App {
             if now.local && self.resume_track.as_deref() == Some(now.uri.as_str()) {
                 for uri in queued {
                     self.manual_queue.push(uri.clone());
-                    self.backend.api(ApiRequest::AddToQueue {
-                        uri,
-                        device_id: self.local_device_id.clone(),
-                        label: String::new(),
-                    });
+                    self.backend.player(PlayerCommand::AddToQueue(uri));
                 }
             }
         }
@@ -7506,7 +7502,11 @@ impl App {
                 load.repeat = Some(self.local.repeat);
                 self.local_list = load.context_uri.is_none().then(|| load.uris.clone());
                 let shuffle_after = shuffle && load.shuffle.is_none() && !load.uris.is_empty();
-                self.backend.player(PlayerCommand::Load(load));
+                self.backend.player(if request.resume {
+                    PlayerCommand::Resume(load)
+                } else {
+                    PlayerCommand::Load(load)
+                });
                 if shuffle_after {
                     self.backend.player(PlayerCommand::Shuffle(true));
                 }
@@ -7883,6 +7883,7 @@ impl App {
             None => PlayRequest::tracks(vec![track]),
         };
         request.position_ms = self.resume_position_ms;
+        request.resume = true;
         self.play_request(request, false);
         true
     }
@@ -7909,6 +7910,7 @@ impl App {
                             _ => PlayRequest::tracks(vec![uri]),
                         };
                         request.position_ms = position;
+                        request.resume = true;
                         self.play_request(request, false);
                         return;
                     }
@@ -13890,10 +13892,131 @@ mod tests {
             "it resumes inside the playlist it was left in"
         );
         assert_eq!(request.offset_uri.as_deref(), Some("spotify:track:abc"));
+        assert!(request.resume, "the saved context needs its offset checked");
         assert_eq!(
             request.position_ms, 19_566,
             "the song resumes where it stopped, not at zero"
         );
+    }
+
+    #[test]
+    fn an_autoplay_song_survives_a_restart_at_its_saved_position() {
+        for remote_snapshot in [false, true] {
+            let mut app = test_app("autoplay-restart");
+            app.local_ready = true;
+            app.local = LocalState {
+                connected: true,
+                playback: Playback::Paused,
+                track: Some(crate::player::LocalTrack {
+                    uri: "spotify:track:recommended".into(),
+                    duration_ms: 240_000,
+                    ..Default::default()
+                }),
+                position_ms: 83_456,
+                ..Default::default()
+            };
+            app.assumed_context = Some(AssumedContext {
+                uri: "spotify:playlist:finished".into(),
+                shuffle: None,
+                at: Instant::now(),
+            });
+            app.manual_queue = vec!["spotify:track:queued".into()];
+            app.shutdown();
+            let dirs = app.dirs.clone();
+            drop(app);
+
+            let mut app = App::new(
+                &Waker::default(),
+                dirs,
+                Settings::default(),
+                AppOptions {
+                    media_controls: false,
+                    restore_sign_in: false,
+                    tray: false,
+                },
+            );
+            app.local_ready = true;
+            app.track_cache.insert(
+                "recommended".into(),
+                Track {
+                    id: Some("recommended".into()),
+                    uri: "spotify:track:recommended".into(),
+                    duration_ms: 240_000,
+                    ..Default::default()
+                },
+            );
+            if remote_snapshot {
+                app.local_device_id = Some("this-computer".into());
+                app.remote = Some(RemoteSnapshot {
+                    state: PlaybackState {
+                        device: Some(Device {
+                            id: app.local_device_id.clone(),
+                            ..Default::default()
+                        }),
+                        context: Some(crate::api::models::Context {
+                            uri: "spotify:playlist:finished".into(),
+                            ..Default::default()
+                        }),
+                        item: Some(PlayableItem::Track(app.track_cache["recommended"].clone())),
+                        progress_ms: Some(83_456),
+                        ..Default::default()
+                    },
+                    received_at: Instant::now(),
+                });
+            }
+            app.toggle_play();
+            app.handle_local(LocalState {
+                connected: true,
+                ..Default::default()
+            });
+            let commands = app.backend.take_player_commands();
+            let spec = commands
+                .iter()
+                .find_map(|command| match command {
+                    PlayerCommand::Resume(spec) | PlayerCommand::Load(spec) => Some(spec.clone()),
+                    _ => None,
+                })
+                .expect("a cold start loads the saved song");
+            let context = librespot_protocol::context::Context {
+                pages: vec![librespot_protocol::context_page::ContextPage {
+                    tracks: vec![librespot_protocol::context_track::ContextTrack {
+                        uri: Some("spotify:track:first-in-playlist".into()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let spec = if commands
+                .iter()
+                .any(|command| matches!(command, PlayerCommand::Resume(_)))
+            {
+                crate::player::resolved_resume(spec, Some(&context))
+            } else {
+                spec
+            };
+            assert_eq!(
+                spec.context_uri.as_deref(),
+                Some("spotify:track:recommended")
+            );
+            assert_eq!(spec.offset_uri, None);
+            assert_eq!(spec.position_ms, 83_456);
+            assert!(spec.play);
+            app.handle_local(LocalState {
+                connected: true,
+                playback: Playback::Paused,
+                track: Some(crate::player::LocalTrack {
+                    uri: "spotify:track:recommended".into(),
+                    duration_ms: 240_000,
+                    ..Default::default()
+                }),
+                position_ms: 83_456,
+                ..Default::default()
+            });
+            assert_eq!(app.backend.take_queued_tracks(), ["spotify:track:queued"]);
+            app.shutdown();
+            let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+        }
     }
 
     /// Play on an in-progress episode continues from the place the row or

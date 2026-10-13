@@ -361,6 +361,14 @@ playback session. Other receivers keep the encrypted login blob described above.
 
 ## The engine
 
+Resuming a saved local session checks the remembered context once through the
+existing playback session, off the UI thread, with a 20-second limit. If its
+first page of tracks contains the saved song, playback keeps that context. If
+the song is absent or the check fails, playback loads the saved song itself at
+its saved position. Radio contexts are freshly mixed, so they resume the song
+directly. Manually queued songs wait for this load. A new play request, device
+transfer, sign-out or engine replacement cancels an unfinished check.
+
 Playback runs on a separate runtime. Librespot maintains the Spotify Connect
 session, exposes this computer as a device, receives transfers, and reports
 playback state. If the session drops, it reconnects with the stored credential.

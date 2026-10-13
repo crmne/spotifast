@@ -214,6 +214,8 @@ pub struct PlayRequest {
     pub offset_uri: Option<String>,
     pub offset_position: Option<u32>,
     pub position_ms: u32,
+    /// A cold-start pickup must play this song even outside its old context.
+    pub resume: bool,
 }
 
 impl PlayRequest {
