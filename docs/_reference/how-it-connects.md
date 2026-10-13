@@ -400,8 +400,8 @@ Starting Spotify on a Cast device needs local playback enabled, because the
 playback session obtains the token. When a Cast device is selected, Spotifast
 follows the steps of Spotify's own apps:
 
-1. It opens a Cast v2 connection to the device and launches Spotify's Cast
-   receiver.
+1. It opens a Cast v2 connection to the device, checks that the device is a
+   genuine Cast device (see below), and launches Spotify's Cast receiver.
 2. The receiver's `getInfo` reply names the Spotify client it runs as.
 3. The librespot session asks Spotify for a token issued to that client and
    to the device's ID (`/device-auth/v1/refresh`, an internal endpoint).
@@ -413,16 +413,22 @@ like any other device. Right after an earlier sign-in, a receiver can
 refuse the first attempt, so Spotifast tries once more. A device that does
 not answer within 20 seconds is reported as not answering.
 
-Cast devices present certificates from Google's device CA, which system trust
-stores do not hold. Spotifast therefore accepts any certificate on this
-connection. It still checks the handshake signature against the certificate the
-device presents, so other machines that only listen cannot read the traffic,
-but nothing proves the device is a genuine Cast device: whatever answers at the
-address of the device you select receives the token. The connection only goes
-to a device found on the local network, as with the Spotify Connect receivers
-above. The token is issued for the Spotify client and device ID that the
-receiver names in its `getInfo` reply, not the reusable playback credential.
-Spotifast does not save or log the token.
+A Cast device presents a TLS certificate of its own, which system trust stores
+do not hold, so the connection accepts any certificate. Before sending anything
+else, Spotifast asks the device to prove it is genuine, as Chrome does. It
+sends a random challenge on Cast's `deviceauth` channel. The device signs the
+challenge and the certificate of this connection with its device key, and
+sends that key's certificate chain. Spotifast checks that the chain leads to
+one of Google's two Cast root certificates, which it carries, and that the
+signature is valid. If either check fails, Spotifast stops. It does not start
+Spotify on the device or ask for a token, and it reports that the device could
+not prove it is genuine. As in Chrome, older devices that sign with SHA-1 are
+accepted. The revocation list a device may send with its answer is not
+checked.
+
+The token is issued for the Spotify client and device ID that the receiver
+names in its `getInfo` reply, not the reusable playback credential. Spotifast
+does not save or log the token.
 
 ## The engine
 

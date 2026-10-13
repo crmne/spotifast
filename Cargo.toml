@@ -156,6 +156,12 @@ md-5 = "0.10"
 # Cast v2 runs over TLS with a certificate from Google's device CA, which
 # needs a custom verifier (`cast.rs`). Already in the tree through reqwest.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# The device then proves it is genuine with a certificate chain to Google's
+# Cast roots (`cast.rs`). ring adds the SHA-1 signatures older devices still
+# use, which rustls-webpki leaves out. Both are already in the tree through
+# rustls.
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+ring = "0.17"
 base64 = "0.22"
 # Native asynchronous file selection on macOS, Windows and Linux desktop portals.
 rfd = "0.17.2"
