@@ -4954,7 +4954,9 @@ enum SessionRead<'a> {
         id: &'a str,
         offset: u32,
     },
-    ArtistTop { id: &'a str },
+    ArtistTop {
+        id: &'a str,
+    },
 }
 
 fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {

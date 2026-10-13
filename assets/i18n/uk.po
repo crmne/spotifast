@@ -3351,5 +3351,13 @@ msgstr ""
 "OpenGL & Vulkan Compatibility Pack. Відкрити його сторінку в Microsoft "
 "Store, щоб установити або відновити пакет?"
 
+#: src/ui/playlist_picker.rs
+msgid "Saved in"
+msgstr "Збережено в"
+
+#: src/ui/playlist_picker.rs
+msgid "Recently updated"
+msgstr "Нещодавно оновлені"
+
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr "Spotify не дозволяє застосункам видаляти з черги окрему пісню."

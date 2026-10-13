@@ -310,7 +310,7 @@ pub async fn membership(
             .contents
             .items
             .iter()
-            .any(|item| item.id.to_uri().is_ok_and(|candidate| candidate == uri)),
+            .any(|item| item.id.to_uri() == uri),
         next_offset: (end > offset && end < total(&list)).then_some(end),
         snapshot: Some(snapshot(&list.revision)),
         updated_at_ms: Some(list.timestamp.as_timestamp_ms()),

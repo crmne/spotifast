@@ -9611,7 +9611,7 @@ mod tests {
         let targets: [(&str, &str, Pick); 3] = [
             ("album header", "Remove from Your Library", |_| true),
             ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
-            ("player bar", "Remove from Liked Songs", |b| b.y0 > 700.0),
+            ("player bar", "Add to playlist", |b| b.y0 > 700.0),
         ];
         for theme in ["dark", "light"] {
             for (place, label, pick) in targets {
