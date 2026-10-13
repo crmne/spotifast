@@ -355,6 +355,12 @@ not at all while nobody can see the window: minimised, in the tray, with the
 display off or the screen locked. Disable **Click player bar to change
 visualizer** in **Settings > Appearance** to prevent accidental changes.
 
+Spotifast follows the system when it asks for less motion: **Animation
+effects** turned off in Windows, **Reduce motion** on macOS, or GNOME's
+**Animations** turned off. Its animations then show where they end at once:
+the player bar's colour changes without fading, lyrics jump to the sung line,
+and a new theme replaces the old one without the reveal. Spinners still turn.
+
 In **Settings > Appearance**, **Compact track list** puts each song on one
 line. In narrow lists, the added date follows the artist credits with a spaced
 bullet; each artist name remains a separate link.

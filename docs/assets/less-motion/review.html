@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Less motion review</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #111318; color: #f4f4f5; }
+    main { max-width: 1240px; margin: auto; padding: 24px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+    fieldset { display: flex; gap: 6px; border: 1px solid #3f4652; border-radius: 8px; }
+    button { border: 0; border-radius: 6px; padding: 8px 14px; background: #292e37; color: inherit; cursor: pointer; }
+    button[aria-pressed="true"] { background: #1ed760; color: #07120a; }
+    img { display: block; max-width: 100%; height: auto; border: 1px solid #3f4652; border-radius: 8px; }
+    p { color: #b9c0ca; max-width: 900px; }
+    .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .strip figure, .crops figure { margin: 0; min-width: 0; }
+    .strip img { width: 100%; }
+    figcaption { color: #b9c0ca; font-size: 13px; margin-top: 4px; }
+    .crops { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; }
+    .crops img { image-rendering: pixelated; }
+    h2 { font-size: 16px; margin-top: 28px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Less motion</h1>
+    <p>Frames after switching the theme in Settings, with less motion asked for. Before, the new theme is revealed from the middle of the window regardless; after, it replaces the old one at once.</p>
+    <div class="controls">
+      <fieldset aria-label="Theme">
+        <button data-group="theme" data-value="light" aria-pressed="true">Light</button>
+        <button data-group="theme" data-value="dark" aria-pressed="false">Dark</button>
+      </fieldset>
+      <fieldset aria-label="Window size">
+        <button data-group="size" data-value="normal" aria-pressed="true">1200x800</button>
+        <button data-group="size" data-value="narrow" aria-pressed="false">1000x700</button>
+      </fieldset>
+      <fieldset aria-label="Revision">
+        <button data-group="revision" data-value="before" aria-pressed="false">Before</button>
+        <button data-group="revision" data-value="after" aria-pressed="false">After</button>
+        <button data-group="revision" data-value="both" aria-pressed="true">Both</button>
+      </fieldset>
+    </div>
+    <div id="frames"></div>
+  </main>
+  <script>
+    const state = { theme: "light", size: "normal", revision: "both" };
+    const frames = {"before-light-normal": [["16 ms", "before-light-normal-t0016.jpg"], ["120 ms", "before-light-normal-t0120.jpg"], ["250 ms", "before-light-normal-t0250.jpg"], ["500 ms", "before-light-normal-t0500.jpg"]], "before-dark-normal": [["16 ms", "before-dark-normal-t0016.jpg"], ["120 ms", "before-dark-normal-t0120.jpg"], ["250 ms", "before-dark-normal-t0250.jpg"], ["500 ms", "before-dark-normal-t0500.jpg"]], "before-light-narrow": [["16 ms", "before-light-narrow-t0016.jpg"], ["120 ms", "before-light-narrow-t0120.jpg"], ["250 ms", "before-light-narrow-t0250.jpg"], ["500 ms", "before-light-narrow-t0500.jpg"]], "before-dark-narrow": [["16 ms", "before-dark-narrow-t0016.jpg"], ["120 ms", "before-dark-narrow-t0120.jpg"], ["250 ms", "before-dark-narrow-t0250.jpg"], ["500 ms", "before-dark-narrow-t0500.jpg"]], "after-light-normal": [["16 ms", "after-light-normal-t0016.jpg"], ["120 ms", "after-light-normal-t0120.jpg"], ["250 ms", "after-light-normal-t0250.jpg"], ["500 ms", "after-light-normal-t0500.jpg"]], "after-dark-normal": [["16 ms", "after-dark-normal-t0016.jpg"], ["120 ms", "after-dark-normal-t0120.jpg"], ["250 ms", "after-dark-normal-t0250.jpg"], ["500 ms", "after-dark-normal-t0500.jpg"]], "after-light-narrow": [["16 ms", "after-light-narrow-t0016.jpg"], ["120 ms", "after-light-narrow-t0120.jpg"], ["250 ms", "after-light-narrow-t0250.jpg"], ["500 ms", "after-light-narrow-t0500.jpg"]], "after-dark-narrow": [["16 ms", "after-dark-narrow-t0016.jpg"], ["120 ms", "after-dark-narrow-t0120.jpg"], ["250 ms", "after-dark-narrow-t0250.jpg"], ["500 ms", "after-dark-narrow-t0500.jpg"]]};
+    const box = document.querySelector("#frames");
+    function render() {
+      const sides = state.revision === "both" ? ["before", "after"] : [state.revision];
+      box.innerHTML = sides.map(side => `<h2>${side === "before" ? "Before" : "After"}</h2><div class="strip">` +
+        frames[`${side}-${state.theme}-${state.size}`].map(([t, src]) =>
+          `<figure><img src="${src}" alt="${side} at ${t}"><figcaption>${t}</figcaption></figure>`).join("") +
+        "</div>").join("");
+    }
+    for (const button of document.querySelectorAll("button[data-group]")) {
+      button.addEventListener("click", () => {
+        const group = button.dataset.group;
+        state[group] = button.dataset.value;
+        for (const peer of document.querySelectorAll(`[data-group="${group}"]`)) {
+          peer.setAttribute("aria-pressed", peer === button ? "true" : "false");
+        }
+        render();
+      });
+    }
+    render();
+  </script>
+</body>
+</html>

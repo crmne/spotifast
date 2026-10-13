@@ -366,7 +366,7 @@ fn eased_fill(ctx: &egui::Context, panel: Color32, tint: Option<Color32>) -> Col
         ctx.animate_value_with_time(
             egui::Id::new(("player-bar-tint", session, axis)),
             f32::from(value),
-            TINT_FADE_SECONDS,
+            crate::motion::seconds(ctx, TINT_FADE_SECONDS),
         )
         .round() as u8
     };

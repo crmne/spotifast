@@ -281,6 +281,8 @@ pub struct App {
     /// What the app may spend on drawing and polling, from the power state
     /// and the window's; worked out in each logic pass.
     pub budget: crate::power::Budget,
+    /// Whether the desktop asks for less motion.
+    pub motion: crate::motion::Motion,
     pub window_hidden: bool,
     /// The window should close but the process should stay in the tray.
     pub hide_intent: bool,
@@ -811,6 +813,7 @@ impl App {
             reachable: true,
             playback_activity: None,
             budget: crate::power::Budget::default(),
+            motion: crate::motion::Motion::default(),
             window_hidden: false,
             hide_intent: false,
             wants_show: false,
@@ -3522,6 +3525,7 @@ impl App {
             // The first colours need no reveal, and the mini player's window
             // is drawn by its skin.
             if self.reveal_theme_changes
+                && !self.motion.reduced()
                 && self.applied_dark.is_some()
                 && !self.settings.winamp_window
             {
@@ -3532,6 +3536,7 @@ impl App {
             }
             self.palette = palette;
             theme::apply(ctx, &self.palette);
+            crate::motion::apply(ctx, self.motion.reduced());
             self.applied_dark = Some(dark);
             self.accents.clear();
             self.accent_pending.clear();
@@ -10399,6 +10404,7 @@ impl App {
         self.open_pending_link();
         self.handle_media_commands();
         self.sync_power(ctx);
+        self.sync_motion(ctx);
         self.handle_tray();
         #[cfg(target_os = "macos")]
         self.handle_dock_menu();
@@ -10445,6 +10451,22 @@ impl App {
             self.winamp.geometry.remember(ctx);
         } else if self.lyrics_fullscreen.is_none() && self.lyrics_fullscreen_restoring.is_none() {
             self.window_geometry.remember(ctx);
+        }
+    }
+
+    /// Follows the desktop's wish for less motion, which egui's easing and
+    /// the interface's own animations then honour.
+    fn sync_motion(&mut self, ctx: &egui::Context) {
+        #[cfg(target_os = "linux")]
+        let desktop = self
+            .system_appearance
+            .as_ref()
+            .and_then(crate::appearance::SystemAppearance::animations);
+        #[cfg(not(target_os = "linux"))]
+        let desktop = None;
+        if self.motion.refresh(Instant::now(), desktop) {
+            log::debug!("reduce motion: {}", self.motion.reduced());
+            crate::motion::apply(ctx, self.motion.reduced());
         }
     }
 

@@ -231,7 +231,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 let lit = ui.ctx().animate_bool_with_time(
                     egui::Id::new("lyric-line").with(index),
                     is_active,
-                    LIGHT_UP_SECONDS,
+                    crate::motion::seconds(ui.ctx(), LIGHT_UP_SECONDS),
                 );
                 let color = blend(quiet, palette.accent, lit);
                 let font = if lit > 0.5 {
@@ -690,7 +690,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
         });
     let following = app.lyrics_following && !manual_scroll;
     let follow = following && app.lyrics_line_shown != Some(active);
-    let animation = egui::style::ScrollAnimation::duration(0.45);
+    let animation = crate::motion::scroll(ui.ctx(), 0.45);
     let size = (ui.available_width() * 0.046).clamp(28.0, 42.0);
     // The line being sung brightens; all lines keep the same font metrics
     // so highlighting cannot rewrap the words during a transition.
@@ -727,7 +727,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 let lit = ui.ctx().animate_bool_with_time(
                     egui::Id::new("lyric-line").with(("fullscreen", &now.uri, index)),
                     is_active,
-                    0.3,
+                    crate::motion::seconds(ui.ctx(), 0.3),
                 );
                 let color = if lyrics.synced {
                     blend(quiet, palette.text, lit)

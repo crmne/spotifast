@@ -363,7 +363,7 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
     };
     style.interaction.selectable_labels = false;
     style.interaction.tooltip_delay = 0.4;
-    style.animation_time = 0.12;
+    style.animation_time = crate::motion::ANIMATION_TIME;
     style.url_in_tooltip = false;
 }
 
