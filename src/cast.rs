@@ -167,7 +167,7 @@ impl<S: Stream> Channel<'_, S> {
             Payload::Binary(reply) => Some(Ok(reply.clone())),
             Payload::Text(_) => None,
         })?;
-        verify(&reply, &nonce, &peer, roots)
+        verify(&reply, &nonce, &peer, roots, UnixTime::now())
             .context("the Cast device could not prove it is a genuine Google Cast device")?;
         log::debug!("the Cast device proved it is genuine");
         Ok(())
@@ -452,14 +452,15 @@ fn challenge(nonce: &[u8]) -> Vec<u8> {
 /// Checks the device's reply to [`challenge`] with `nonce`, sent over the
 /// connection whose certificate is `peer`, as Open Screen does
 /// (`cast/sender/channel/cast_auth_util.cc`): the device certificate must
-/// chain to one of `roots`, and must sign the nonce the device echoes
-/// followed by `peer`. Older devices echo no nonce and sign `peer` alone.
+/// chain to one of `roots` and be valid at `now`, and must sign the nonce the
+/// device echoes followed by `peer`. Older devices echo no nonce and sign
+/// `peer` alone.
 ///
 /// The reply is a `DeviceAuthMessage` with a response (2) or an error (3).
 /// The response holds 1 signature, 2 client_auth_certificate,
 /// 3 intermediate_certificate (repeated), 5 sender_nonce and
 /// 6 hash_algorithm (0 SHA-1, the default, or 1 SHA-256).
-fn verify(reply: &[u8], nonce: &[u8], peer: &[u8], roots: &[&[u8]]) -> Result<()> {
+fn verify(reply: &[u8], nonce: &[u8], peer: &[u8], roots: &[&[u8]], now: UnixTime) -> Result<()> {
     let (mut response, mut refused) = (None, false);
     for_each_field(reply, |number, field| match (number, field) {
         (2, Field::Bytes(bytes)) => response = Some(bytes),
@@ -504,12 +505,14 @@ fn verify(reply: &[u8], nonce: &[u8], peer: &[u8], roots: &[&[u8]]) -> Result<()
             CHAIN_ALGORITHMS,
             &anchors,
             &intermediates,
-            UnixTime::now(),
+            now,
             AnyUsage,
             None,
             None,
         )
-        .map_err(|error| anyhow!("its certificate is not from Google's Cast roots ({error})"))?;
+        .map_err(|error| {
+            anyhow!("its certificate is not valid under Google's Cast roots ({error})")
+        })?;
 
     let algorithm: &dyn SignatureVerificationAlgorithm = if sha256 {
         webpki::ring::RSA_PKCS1_2048_8192_SHA256
@@ -1011,7 +1014,10 @@ mod tests {
         let mut device = FakeDevice::new("addUserResponse");
         let (error, exchanged) = activation_error(&mut device, &GOOGLE_ROOTS);
 
-        assert!(error.contains("not from Google's Cast roots"), "{error}");
+        assert!(
+            error.contains("not valid under Google's Cast roots"),
+            "{error}"
+        );
         assert!(!exchanged);
         assert_eq!(summary(&device.sent), ["receiver-0 deviceauth challenge"]);
     }
@@ -1033,6 +1039,30 @@ mod tests {
         device.certificate = TEST_DEVICE_SHA1;
         device.legacy = true;
         sign_in(&mut device).unwrap();
+    }
+
+    /// A real first-generation Chromecast: its SHA-1 chain to the Eureka root
+    /// and its SHA-1 signature of "STRING", from Open Screen's test data
+    /// (`test/data/cast/common/certificate/`, BSD-3-Clause, The Chromium
+    /// Authors): `certificates/chromecast_gen1.pem` and
+    /// `signeddata/2ZZBG9_FA8FCA3EF91A.pem`.
+    #[test]
+    fn a_real_first_generation_chromecast_is_genuine() {
+        let mut response = Vec::new();
+        let signature = include_bytes!("testdata/cast/chromecast-gen1-sha1.sig");
+        put_bytes(&mut response, 0x0a, signature);
+        let device = include_bytes!("testdata/cast/chromecast-gen1.der");
+        put_bytes(&mut response, 0x12, device);
+        let ica = include_bytes!("testdata/cast/chromecast-gen1-ica.der");
+        put_bytes(&mut response, 0x1a, ica);
+        let mut reply = Vec::new();
+        put_bytes(&mut reply, 0x12, &response);
+        // 2026-01-01. Its ICA expires at the end of 2032.
+        let now = UnixTime::since_unix_epoch(Duration::from_secs(1_767_225_600));
+
+        // The reply echoes no nonce, so the device signed `peer` alone.
+        verify(&reply, b"any", b"STRING", &GOOGLE_ROOTS, now).unwrap();
+        assert!(verify(&reply, b"any", b"STRINGS", &GOOGLE_ROOTS, now).is_err());
     }
 
     #[test]
