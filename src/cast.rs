@@ -303,7 +303,10 @@ impl<S: Stream> Channel<'_, S> {
             let kind = json.as_ref().and_then(|json| json["type"].as_str());
             log::debug!(
                 "received {} from {} on {}",
-                kind.unwrap_or("?"),
+                match message.payload {
+                    Payload::Binary(_) => "binary data",
+                    Payload::Text(_) => kind.unwrap_or("?"),
+                },
                 message.source,
                 message.namespace
             );
@@ -470,8 +473,7 @@ fn verify(reply: &[u8], nonce: &[u8], peer: &[u8], roots: &[&[u8]], now: UnixTim
     }
     let response = response.ok_or_else(|| anyhow!("it did not answer the challenge"))?;
 
-    let (mut signature, mut device, mut echoed, mut sha256) =
-        (Vec::new(), Vec::new(), Vec::new(), false);
+    let (mut signature, mut device, mut echoed, mut hash) = (Vec::new(), Vec::new(), Vec::new(), 0);
     let mut intermediates = Vec::new();
     let mut input = CodedInputStream::from_bytes(&response);
     while let Some(tag) = input.read_raw_tag_or_eof()? {
@@ -480,10 +482,15 @@ fn verify(reply: &[u8], nonce: &[u8], peer: &[u8], roots: &[&[u8]], now: UnixTim
             0x12 => device = input.read_bytes()?,
             0x1a => intermediates.push(CertificateDer::from(input.read_bytes()?)),
             0x2a => echoed = input.read_bytes()?,
-            0x30 => sha256 = input.read_int32()? == 1,
+            0x30 => hash = input.read_int32()?,
             _ => protobuf::rt::skip_field_for_tag(tag, &mut input)?,
         }
     }
+    let algorithm: &dyn SignatureVerificationAlgorithm = match hash {
+        0 => &RSA_PKCS1_SHA1,
+        1 => webpki::ring::RSA_PKCS1_2048_8192_SHA256,
+        other => bail!("it signed with an unsupported hash ({other})"),
+    };
     // Open Screen lets a mismatch through, and the signature over this
     // connection's certificate already rules out a replay; a different
     // nonce still means the reply is not to this challenge.
@@ -516,29 +523,39 @@ fn verify(reply: &[u8], nonce: &[u8], peer: &[u8], roots: &[&[u8]], now: UnixTim
             anyhow!("its certificate is not valid under Google's Cast roots ({error})")
         })?;
 
-    let algorithm: &dyn SignatureVerificationAlgorithm = if sha256 {
-        webpki::ring::RSA_PKCS1_2048_8192_SHA256
-    } else {
-        &RsaPkcs1Sha1
-    };
     device
         .verify_signature(algorithm, &[&echoed[..], peer].concat(), &signature)
         .map_err(|error| anyhow!("its signature does not match this connection ({error})"))?;
     Ok(())
 }
 
-/// The signatures Open Screen accepts in a Cast certificate chain.
+/// The signatures Open Screen accepts in a Cast certificate chain, with the
+/// algorithm's NULL parameters written out or left absent, as either is valid.
 const CHAIN_ALGORITHMS: &[&dyn SignatureVerificationAlgorithm] = &[
-    &RsaPkcs1Sha1,
+    &RSA_PKCS1_SHA1,
+    &RSA_PKCS1_SHA1_ABSENT_PARAMS,
     webpki::ring::RSA_PKCS1_2048_8192_SHA256,
+    webpki::ring::RSA_PKCS1_2048_8192_SHA256_ABSENT_PARAMS,
     webpki::ring::RSA_PKCS1_2048_8192_SHA384,
+    webpki::ring::RSA_PKCS1_2048_8192_SHA384_ABSENT_PARAMS,
     webpki::ring::RSA_PKCS1_2048_8192_SHA512,
+    webpki::ring::RSA_PKCS1_2048_8192_SHA512_ABSENT_PARAMS,
 ];
 
-/// RSA PKCS #1 v1.5 with SHA-1, which rustls-webpki leaves out. Older Cast
-/// devices sign with it, and Google's own senders still accept it.
+/// sha1WithRSAEncryption (1.2.840.113549.1.1.5), with NULL parameters and
+/// without.
+const RSA_PKCS1_SHA1: RsaPkcs1Sha1 = RsaPkcs1Sha1(&[
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x05, 0x05, 0x00,
+]);
+const RSA_PKCS1_SHA1_ABSENT_PARAMS: RsaPkcs1Sha1 = RsaPkcs1Sha1(&[
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x05,
+]);
+
+/// RSA PKCS #1 v1.5 with SHA-1, which rustls-webpki leaves out, under the
+/// AlgorithmIdentifier it holds. Older Cast devices sign with it, and Google's
+/// own senders still accept it.
 #[derive(Debug)]
-struct RsaPkcs1Sha1;
+struct RsaPkcs1Sha1(&'static [u8]);
 
 impl SignatureVerificationAlgorithm for RsaPkcs1Sha1 {
     fn verify_signature(
@@ -560,10 +577,7 @@ impl SignatureVerificationAlgorithm for RsaPkcs1Sha1 {
     }
 
     fn signature_alg_id(&self) -> AlgorithmIdentifier {
-        // sha1WithRSAEncryption (1.2.840.113549.1.1.5), NULL parameters.
-        AlgorithmIdentifier::from_slice(&[
-            0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x05, 0x05, 0x00,
-        ])
+        AlgorithmIdentifier::from_slice(self.0)
     }
 }
 
@@ -1019,12 +1033,26 @@ mod tests {
     #[test]
     fn a_slow_token_exchange_does_not_use_up_the_device_time() {
         let mut device = FakeDevice::new("addUserResponse");
-        let deadline = Instant::now() + Duration::from_millis(50);
+        // Room for the challenge's signing and checking on a slow machine.
+        let deadline = Instant::now() + Duration::from_millis(250);
         activate(&mut device, &TEST_ROOTS, "nest audio", deadline, |_, _| {
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(500));
             Ok("token-1".into())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn an_unknown_signature_hash_is_refused_as_unsupported() {
+        let response = encode(|writer| {
+            writer.write_bytes(2, TEST_DEVICE)?;
+            writer.write_enum(6, 2)
+        })
+        .unwrap();
+        let reply = encode(|writer| writer.write_bytes(2, &response)).unwrap();
+
+        let error = verify(&reply, &[], PEER, &TEST_ROOTS, UnixTime::now()).unwrap_err();
+        assert!(error.to_string().contains("unsupported"), "{error}");
     }
 
     #[test]
