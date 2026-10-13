@@ -1874,7 +1874,10 @@ impl App {
 
     fn handle_backend_events(&mut self, events: Vec<Event>) {
         for event in events {
+            // Offline, as in demo mode, only colours read from cover art and
+            // local update checks come through.
             if self.offline
+                && !matches!(&event, Event::Accent { .. })
                 && (self.update_source.is_github()
                     || !matches!(
                         &event,
@@ -16915,6 +16918,24 @@ mod tests {
         );
         app.reveal_theme_changes = false;
         app
+    }
+
+    /// Demo mode is offline, but it reads cover art and its colours like
+    /// the real app: the page header and the player bar take their tint.
+    #[test]
+    fn an_offline_app_keeps_the_colours_read_from_cover_art() {
+        let mut app = test_app("offline-accent");
+        app.offline = true;
+        let url = "https://picsum.photos/seed/spotifast1/64/64";
+        app.tint_for(Some(url));
+        app.handle_backend_events(vec![Event::Accent {
+            url: url.into(),
+            color: [200, 40, 40],
+        }]);
+        assert_eq!(
+            app.tint_for(Some(url)),
+            Some(app.palette.tint_from_art([200, 40, 40]))
+        );
     }
 
     /// Two lookups of one adder can overlap; the one that found nothing
