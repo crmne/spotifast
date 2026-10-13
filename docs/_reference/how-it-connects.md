@@ -219,8 +219,9 @@ loading or error state.
 Each cover uses the smallest artwork URL already present in Spotify metadata
 with at least a quarter more pixels than the cover takes on the display.
 Spotify's 64-pixel thumbnail serves only covers of 32 pixels or less, so at
-100% scaling library rows, cards and page headers use the 300-pixel URL, and
-from 125% page headers use the 640-pixel one, as cards do from 200%. Page tint
+100% scaling library rows, cards and page headers use the 300-pixel URL. Of
+the usual 25% scaling steps, page headers use the 640-pixel one from 125% and
+cards from 175% (to the whole percent, from 114% and 163%). Page tint
 extraction and softened loading previews use 64-pixel thumbnails. These URLs
 remain unchanged and follow the configured proxy and normal artwork cache.
 Choosing an artwork size and reusing known details add no Web API request.
