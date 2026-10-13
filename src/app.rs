@@ -20123,6 +20123,27 @@ mod tests {
     }
 
     #[test]
+    fn fullscreen_restore_keeps_logical_window_size_when_zoomed() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        ctx.set_zoom_factor(1.5);
+        app.window_geometry.size = Some([1200.0, 900.0]);
+        app.main_fullscreen_from = Some(crate::settings::WindowMode::default());
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.apply(Action::ToggleFullscreen, ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert_eq!(ctx.zoom_factor(), 1.5);
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::InnerSize(egui::vec2(800.0, 600.0)))
+        );
+        assert_eq!(app.window_geometry.size, Some([1200.0, 900.0]));
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn collapsing_lyrics_preserves_main_fullscreen() {
         let mut app = headless_app();
         let ctx = egui::Context::default();
@@ -20161,7 +20182,6 @@ mod tests {
         let session = SessionState::load(&app.dirs.session_file());
         assert_eq!(session.main_fullscreen_from, Some(mode));
         app.window_geometry.size = session.window_size;
-        app.window_geometry.size = None;
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.attach(ui.ctx()));
         output.textures_delta.clear();
@@ -20314,6 +20334,89 @@ mod tests {
                 .commands
                 .contains(&egui::ViewportCommand::Fullscreen(true))
         );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn leaving_main_fullscreen_keeps_window_bounds_until_native_restore() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        app.main_fullscreen_from = Some(crate::settings::WindowMode::default());
+        app.main_fullscreen_seen = true;
+        app.window_geometry.size = Some([900.0, 650.0]);
+        app.window_geometry.position = Some([100.0, 80.0]);
+        // Escape is applied while the viewport still reports the old screen.
+        app.actions.push(Action::ToggleFullscreen);
+        for _ in 0..2 {
+            let mut input = egui::RawInput::default();
+            let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+            viewport.fullscreen = Some(true);
+            viewport.inner_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1920.0, 1080.0),
+            ));
+            viewport.outer_rect = viewport.inner_rect;
+            let mut output = ctx.run_ui(input, |ui| {
+                app.frame_ui(ui);
+                app.remember_geometry(ui.ctx());
+            });
+            output.textures_delta.clear();
+            assert_eq!(app.main_fullscreen_from, None);
+            assert_eq!(app.window_geometry.size, Some([900.0, 650.0]));
+            assert_eq!(app.window_geometry.position, Some([100.0, 80.0]));
+        }
+        let mut input = egui::RawInput::default();
+        let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+        viewport.fullscreen = Some(false);
+        viewport.inner_rect = Some(egui::Rect::from_min_size(
+            egui::pos2(120.0, 100.0),
+            egui::vec2(940.0, 680.0),
+        ));
+        viewport.outer_rect = viewport.inner_rect;
+        let mut output = ctx.run_ui(input, |ui| {
+            app.frame_ui(ui);
+            app.remember_geometry(ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert_eq!(app.window_geometry.size, Some([940.0, 680.0]));
+        assert_eq!(app.window_geometry.position, Some([120.0, 100.0]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn reentering_fullscreen_during_native_exit_keeps_the_original_window_mode() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.main_fullscreen_from = Some(crate::settings::WindowMode::default());
+        let mut input = egui::RawInput::default();
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .fullscreen = Some(true);
+        let mut output = ctx.run_ui(input, |ui| {
+            app.apply(Action::ToggleFullscreen, ui.ctx());
+            app.apply(Action::ToggleFullscreen, ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert_eq!(
+            app.main_fullscreen_from,
+            Some(crate::settings::WindowMode::default())
+        );
+        assert_eq!(app.main_fullscreen_restoring, None);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn leaving_main_fullscreen_waits_for_maximized_geometry() {
+        let mut app = headless_app();
+        app.main_fullscreen_restoring = Some(crate::settings::WindowMode {
+            fullscreen: false,
+            maximized: true,
+        });
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
         app.window_geometry.size = Some([900.0, 650.0]);
         // A native exit can report windowed before maximization catches up.
         // Do not save that intermediate size over the restored geometry.

@@ -368,8 +368,8 @@ msgid "Load more"
 msgstr "Завантажити ще"
 
 #: src/ui/lyrics.rs:90
-msgid "Full screen lyrics"
-msgstr "Текст пісні на весь екран"
+msgid "Expand lyrics"
+msgstr "Розгорнути текст пісні"
 
 #: src/ui/lyrics.rs:102 src/ui/lyrics.rs:572
 msgctxt "lyrics"
@@ -433,8 +433,8 @@ msgid "Loading…"
 msgstr "Завантаження…"
 
 #: src/ui/lyrics.rs:560
-msgid "Leave full screen (Esc)"
-msgstr "Вийти з повноекранного режиму (Esc)"
+msgid "Collapse lyrics (Esc)"
+msgstr "Згорнути текст пісні (Esc)"
 
 #: src/ui/widgets.rs:582 src/ui/widgets.rs:815 src/ui/widgets.rs:1037
 msgid "Add to queue"
@@ -2541,8 +2541,8 @@ msgid "Show the lyrics"
 msgstr "Показати текст пісні"
 
 #: src/ui/keys.rs:215
-msgid "Lyrics: leave full screen"
-msgstr "Текст пісні: вийти з повноекранного режиму"
+msgid "Collapse lyrics or leave full screen"
+msgstr "Згорнути текст пісні або вийти з повноекранного режиму"
 
 #: src/ui/keys.rs:218
 msgid "Song list: extend or shrink the selection"
@@ -3353,3 +3353,7 @@ msgstr ""
 
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr "Spotify не дозволяє застосункам видаляти з черги окрему пісню."
+
+#: src/ui/keys.rs src/ui/topbar.rs
+msgid "Toggle full screen"
+msgstr "Перемкнути повноекранний режим"

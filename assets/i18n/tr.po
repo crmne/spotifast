@@ -3314,9 +3314,19 @@ msgstr ""
 msgid "Spotifast cannot open its window"
 msgstr "Spotifast penceresini açamıyor"
 
-#: src/window.rs:35
-msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
-msgstr "ARM üzerinde Windows'ta Spotifast'in çizim için kullandığı OpenGL, Microsoft'un OpenCL, OpenGL & Vulkan Compatibility Pack paketinden gelir. Yüklemek veya onarmak için Microsoft Store sayfası açılsın mı?"
+#: src/window.rs:33
+msgid ""
+"On Windows on ARM, the OpenGL that Spotifast draws with comes from "
+"Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft "
+"Store page to install or repair it?"
+msgstr ""
+"ARM üzerinde Windows'ta Spotifast'in çizim için kullandığı OpenGL, "
+"Microsoft'un OpenCL, OpenGL & Vulkan Compatibility Pack paketinden gelir. "
+"Yüklemek veya onarmak için Microsoft Store sayfası açılsın mı?"
+
+#~ msgid "Spotify does not let apps remove one queued song."
+#~ msgstr ""
+#~ "Spotify uygulamaların sıradan tek bir şarkıyı kaldırmasına izin vermiyor."
 
 #: src/ui/keys.rs src/ui/topbar.rs
 msgid "Toggle full screen"
