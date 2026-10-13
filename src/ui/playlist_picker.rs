@@ -200,7 +200,15 @@ pub fn show(ui: &mut Ui, app: &mut App, item: &PlayableItem, query: &mut String)
                             .on_hover_text(gettext(locale, "Song already in this playlist"));
                     }
                     if let Some(error) = entry.and_then(|entry| entry.error.as_ref()) {
-                        response.clone().on_hover_text(error);
+                        let message = match error {
+                            crate::playlist_picker::MembershipError::PlaylistChanged => {
+                                gettext(locale, "Playlist changed during the check")
+                            }
+                            crate::playlist_picker::MembershipError::Request(message) => {
+                                message.as_str().into()
+                            }
+                        };
+                        response.clone().on_hover_text(message);
                     } else if contains.is_none() {
                         response.clone().on_hover_text(gettext(locale, "Checking…"));
                     }

@@ -3361,3 +3361,7 @@ msgstr "Нещодавно оновлені"
 
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr "Spotify не дозволяє застосункам видаляти з черги окрему пісню."
+
+#: src/ui/playlist_picker.rs
+msgid "Playlist changed during the check"
+msgstr "Плейлист змінився під час перевірки"

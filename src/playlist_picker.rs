@@ -11,10 +11,16 @@ pub struct MembershipPage {
     pub updated_at_ms: Option<i64>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum MembershipError {
+    PlaylistChanged,
+    Request(String),
+}
+
 #[derive(Default)]
 pub struct Entry {
     pub contains: Option<bool>,
-    pub error: Option<String>,
+    pub error: Option<MembershipError>,
     pub updated_at_ms: Option<i64>,
     offset: u32,
     snapshot: Option<String>,
@@ -89,12 +95,20 @@ impl Picker {
         };
         match result {
             Ok(page) => {
-                if entry.offset > 0 && entry.snapshot != page.snapshot {
-                    entry.error = Some("Playlist changed during the check".into());
+                if entry.offset > 0
+                    && entry.snapshot.is_some()
+                    && page.snapshot.is_some()
+                    && entry.snapshot != page.snapshot
+                {
+                    entry.error = Some(MembershipError::PlaylistChanged);
                     return;
                 }
-                entry.snapshot = page.snapshot;
-                entry.updated_at_ms = page.updated_at_ms.filter(|timestamp| *timestamp > 0);
+                if page.snapshot.is_some() {
+                    entry.snapshot = page.snapshot;
+                }
+                if let Some(updated) = page.updated_at_ms.filter(|timestamp| *timestamp > 0) {
+                    entry.updated_at_ms = Some(updated);
+                }
                 if page.contains {
                     entry.contains = Some(true);
                 } else if let Some(next) = page.next_offset.filter(|next| *next > entry.offset) {
@@ -103,7 +117,7 @@ impl Picker {
                     entry.contains = Some(false);
                 }
             }
-            Err(error) => entry.error = Some(error),
+            Err(error) => entry.error = Some(MembershipError::Request(error)),
         }
     }
 }
@@ -184,6 +198,63 @@ mod tests {
     }
 
     #[test]
+    fn fallback_pages_preserve_metadata_and_later_changes_are_still_detected() {
+        for updated_at_ms in [None, Some(0), Some(-1)] {
+            let mut picker = Picker::default();
+            picker.begin("track".into(), vec!["list".into()]);
+            picker.next_request();
+            picker.receive("list", picker.generation, Ok(page(false, Some(500))));
+            picker.next_request();
+            picker.receive(
+                "list",
+                picker.generation,
+                Ok(MembershipPage {
+                    contains: false,
+                    next_offset: Some(550),
+                    snapshot: None,
+                    updated_at_ms,
+                }),
+            );
+            let entry = &picker.entries["list"];
+            assert_eq!(entry.error, None);
+            assert_eq!(entry.snapshot.as_deref(), Some("one"));
+            assert_eq!(entry.updated_at_ms, Some(100));
+            assert_eq!(entry.contains, None);
+            picker.next_request();
+            let mut changed = page(false, None);
+            changed.snapshot = Some("two".into());
+            picker.receive("list", picker.generation, Ok(changed));
+            assert_eq!(
+                picker.entries["list"].error,
+                Some(MembershipError::PlaylistChanged)
+            );
+        }
+    }
+
+    #[test]
+    fn switching_sources_can_finish_a_membership_check() {
+        for session_first in [true, false] {
+            let mut picker = Picker::default();
+            picker.begin("track".into(), vec!["list".into()]);
+            for first in [true, false] {
+                picker.next_request();
+                let mut result = page(!first, first.then_some(50));
+                if first != session_first {
+                    result.snapshot = None;
+                    result.updated_at_ms = None;
+                }
+                picker.receive("list", picker.generation, Ok(result));
+            }
+            let entry = &picker.entries["list"];
+            assert_eq!(entry.error, None);
+            assert_eq!(entry.contains, Some(true));
+            assert_eq!(entry.snapshot.as_deref(), Some("one"));
+            assert_eq!(entry.updated_at_ms, Some(100));
+            assert!(picker.next_request().is_none());
+        }
+    }
+
+    #[test]
     fn failed_or_changed_playlists_are_not_reported_as_absent() {
         let mut picker = Picker::default();
         picker.begin("track".into(), vec!["list".into(), "other".into()]);
@@ -194,10 +265,17 @@ mod tests {
         changed.snapshot = Some("two".into());
         picker.receive("list", picker.generation, Ok(changed));
         assert_eq!(picker.entries["list"].contains, None);
-        assert!(picker.entries["list"].error.is_some());
+        assert_eq!(
+            picker.entries["list"].error,
+            Some(MembershipError::PlaylistChanged)
+        );
         picker.next_request();
         picker.receive("other", picker.generation, Err("offline".into()));
         assert_eq!(picker.entries["other"].contains, None);
+        assert_eq!(
+            picker.entries["other"].error,
+            Some(MembershipError::Request("offline".into()))
+        );
         assert!(picker.next_request().is_none());
     }
 }

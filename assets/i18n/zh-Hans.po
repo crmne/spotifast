@@ -3234,3 +3234,7 @@ msgstr "已保存至"
 #: src/ui/playlist_picker.rs
 msgid "Recently updated"
 msgstr "最近更新"
+
+#: src/ui/playlist_picker.rs
+msgid "Playlist changed during the check"
+msgstr "检查期间播放列表已更改"

@@ -3335,3 +3335,7 @@ msgstr "Kaydedildiği yer"
 #: src/ui/playlist_picker.rs
 msgid "Recently updated"
 msgstr "Yakın zamanda güncellenenler"
+
+#: src/ui/playlist_picker.rs
+msgid "Playlist changed during the check"
+msgstr "Çalma listesi kontrol sırasında değişti"

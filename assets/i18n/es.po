@@ -3348,3 +3348,7 @@ msgstr "Guardado en"
 #: src/ui/playlist_picker.rs
 msgid "Recently updated"
 msgstr "Actualizadas recientemente"
+
+#: src/ui/playlist_picker.rs
+msgid "Playlist changed during the check"
+msgstr "La playlist cambió durante la comprobación"

@@ -3207,3 +3207,7 @@ msgstr ""
 #: src/ui/playlist_picker.rs
 msgid "Recently updated"
 msgstr ""
+
+#: src/ui/playlist_picker.rs
+msgid "Playlist changed during the check"
+msgstr ""

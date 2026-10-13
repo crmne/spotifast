@@ -3317,3 +3317,7 @@ msgstr "保存先"
 #: src/ui/playlist_picker.rs
 msgid "Recently updated"
 msgstr "最近更新したプレイリスト"
+
+#: src/ui/playlist_picker.rs
+msgid "Playlist changed during the check"
+msgstr "確認中にプレイリストが変更されました"

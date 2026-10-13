@@ -3364,3 +3364,7 @@ msgstr "Сохранено в"
 #: src/ui/playlist_picker.rs
 msgid "Recently updated"
 msgstr "Недавно обновлённые"
+
+#: src/ui/playlist_picker.rs
+msgid "Playlist changed during the check"
+msgstr "Плейлист изменился во время проверки"
