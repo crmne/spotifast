@@ -39,8 +39,8 @@ Point at a horizontal shelf, such as Made for you or Recently played on
 Home, and hold `Shift` while turning the mouse wheel. The shelf moves while
 the surrounding page stays put. Release `Shift` to scroll the page normally.
 
-Shelf scrollbars sit below the cards. In **Settings > Appearance**, turn off
-**Show scrollbars only on hover** to keep them visible when the pointer moves away.
+Shelf scrollbars sit below the cards. In **Settings > Appearance**, enable
+**Show scrollbars only on hover** to hide them until you hover over their edge.
 
 ## Podcasts on Home
 

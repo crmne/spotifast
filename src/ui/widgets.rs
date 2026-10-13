@@ -2612,11 +2612,24 @@ pub fn shelf(
     ui.scope(|ui| {
         // Keep even the expanded scrollbar below the card subtitles.
         let scroll = &mut ui.style_mut().spacing.scroll;
-        scroll.floating_allocated_width =
-            scroll.bar_width + scroll.bar_inner_margin + scroll.bar_outer_margin;
-        crate::autoscroll::show(
+        let bar_space = scroll.bar_width + scroll.bar_inner_margin + scroll.bar_outer_margin;
+        scroll.floating_allocated_width = bar_space;
+        let height_id = ui.make_persistent_id((id, "shelf-content-height"));
+        let previous_height = ui.ctx().data(|data| data.get_temp::<f32>(height_id));
+        // egui moves clipped scrollbars to the viewport edge. Hide them until
+        // their shelf's bottom is visible, rather than cover another card.
+        let bottom_visible = previous_height.is_some_and(|height| {
+            ui.cursor().top() + height + bar_space <= ui.clip_rect().bottom()
+        });
+        let output = crate::autoscroll::show(
             ui,
-            egui::ScrollArea::horizontal().id_salt(id),
+            egui::ScrollArea::horizontal()
+                .id_salt(id)
+                .scroll_bar_visibility(if bottom_visible {
+                    egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded
+                } else {
+                    egui::scroll_area::ScrollBarVisibility::AlwaysHidden
+                }),
             egui::Vec2b::new(true, false),
             |ui| {
                 ui.horizontal(|ui| {
@@ -2625,6 +2638,16 @@ pub fn shelf(
                 });
             },
         );
+        if !bottom_visible && output.content_size.x > output.inner_rect.width() {
+            ui.add_space(bar_space);
+        }
+        let height = output.content_size.y;
+        if previous_height != Some(height) {
+            ui.ctx()
+                .data_mut(|data| data.insert_temp(height_id, height));
+            ui.ctx()
+                .request_discard("measure shelf scrollbar clearance");
+        }
     });
     ui.add_space(12.0);
 }
@@ -3402,6 +3425,44 @@ mod tests {
         assert!(
             bar.y0 >= content.bottom() as f64,
             "scrollbar must not cover card content"
+        );
+    }
+
+    #[test]
+    fn clipped_shelf_does_not_pin_its_scrollbar_over_visible_cards() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        theme::apply(&ctx, &Palette::dark());
+        let mut output = None;
+        for frame in 0..5 {
+            let mut frame_output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 80.0))),
+                    time: Some(frame as f64),
+                    ..Default::default()
+                },
+                |ui| {
+                    shelf(
+                        ui,
+                        &Palette::dark(),
+                        "scrollbar-regression",
+                        "Shelf",
+                        |ui| {
+                            ui.allocate_exact_size(vec2(800.0, 120.0), Sense::hover());
+                        },
+                    );
+                },
+            );
+            frame_output.textures_delta.clear();
+            output = Some(frame_output);
+        }
+        let tree = output.unwrap().platform_output.accesskit_update.unwrap();
+        assert!(
+            tree.nodes
+                .iter()
+                .all(|(_, node)| node.role() != egui::accesskit::Role::ScrollBar),
+            "a clipped shelf must not pin its scrollbar over visible content"
         );
     }
 

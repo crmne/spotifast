@@ -450,7 +450,7 @@ impl Default for Settings {
             lyrics_width: 360.0,
             queue_width: 360.0,
             tracklist_compact: false,
-            scrollbars_on_hover: true,
+            scrollbars_on_hover: false,
             middle_click_autoscroll: false,
             search_history: Vec::new(),
             show_shortcut_hints: true,
@@ -1228,14 +1228,17 @@ mod tests {
     #[test]
     fn scrollbar_preference_preserves_old_settings_and_round_trips() {
         let old: Settings = serde_json::from_str("{}").unwrap();
-        assert!(old.scrollbars_on_hover);
-        let settings = Settings {
-            scrollbars_on_hover: false,
-            ..Default::default()
-        };
-        let restored: Settings =
-            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
-        assert!(!restored.scrollbars_on_hover);
+        assert!(!old.scrollbars_on_hover);
+        assert!(!Settings::default().scrollbars_on_hover);
+        for enabled in [false, true] {
+            let settings = Settings {
+                scrollbars_on_hover: enabled,
+                ..Default::default()
+            };
+            let restored: Settings =
+                serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+            assert_eq!(restored.scrollbars_on_hover, enabled);
+        }
     }
 
     #[test]
