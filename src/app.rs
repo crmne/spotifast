@@ -664,6 +664,9 @@ pub struct App {
     pub winamp: crate::winamp::WinampState,
     /// The spectrum behind the player bar, when that is chosen.
     pub player_bar_analyser: crate::vis::WideAnalyser,
+    /// The waveform behind the player bar as last drawn while the song
+    /// sounded, which it settles from once the song stops.
+    pub player_bar_wave: Vec<f32>,
     /// The window's pixels per point when it last drew, so artwork chosen
     /// away from the drawing code fits the display it lands on.
     pub pixels_per_point: f32,
@@ -1103,6 +1106,7 @@ impl App {
             held_update: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
             player_bar_analyser: crate::vis::WideAnalyser::default(),
+            player_bar_wave: Vec::new(),
             pixels_per_point: 1.0,
         };
         app.local.volume = app.settings.volume;

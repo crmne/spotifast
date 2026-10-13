@@ -31,6 +31,10 @@ const PEAK_GAP: f32 = 2.0;
 const WAVE_LAYERS: [(f32, f32); 3] = [(9.0, 0.06), (4.0, 0.16), (1.6, 0.85)];
 const WAVE_FILL_ALPHA: f32 = 0.14;
 const WAVE_ECHO_ALPHA: f32 = 0.18;
+/// How long the waveform takes to rise into view when a song starts, and
+/// to die down when it stops.
+const LIGHT_RISE_SECONDS: f32 = 0.45;
+const LIGHT_FALL_SECONDS: f32 = 0.35;
 /// How much more strongly the visualizer paints over a light bar.
 const LIGHT_STRENGTH: f32 = 1.5;
 /// The gap between spectrum bars.
@@ -133,8 +137,13 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
     let strength = if dark { 1.0 } else { LIGHT_STRENGTH };
     let painter = ui.painter().with_clip_rect(rect);
     match mode {
-        PlayerBarVis::Off => false,
+        PlayerBarVis::Off => {
+            rest_light(ui.ctx());
+            false
+        }
         PlayerBarVis::Spectrum => {
+            // The bars rise and fall with the sound by themselves.
+            rest_light(ui.ctx());
             if !sounding && app.player_bar_analyser.settled() {
                 return false;
             }
@@ -151,22 +160,154 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
             sounding || !app.player_bar_analyser.settled()
         }
         PlayerBarVis::Waveform => {
-            if !sounding {
-                return false;
-            }
             // Winamp's scope with a column every eight points or so.
             let count = (rect.width() / 8.0).clamp(75.0, 320.0) as usize;
-            let samples = app.winamp.tap.window(count * vis::SCOPE_STEP, vis::LAG);
-            waveform(
-                &painter,
-                rect,
-                &vis::scope_line(&samples, count),
-                (low, high),
-                strength,
-            );
-            true
+            let samples = if sounding {
+                app.winamp.tap.window(count * vis::SCOPE_STEP, vis::LAG)
+            } else {
+                Vec::new()
+            };
+            let still = app.motion.reduced();
+            let step = light_step(app.visualiser_fps());
+            let light = light(ui.ctx(), mode, sounding, audible(&samples), still, step);
+            // Pausing stops the output, which empties the tap, so the wave
+            // settles onto the midline from the last one drawn.
+            if sounding {
+                app.player_bar_wave = vis::scope_line(&samples, count);
+            } else if light.level == 0.0 {
+                app.player_bar_wave.clear();
+            }
+            if light.level > 0.0 {
+                let trace = scaled_trace(app.player_bar_wave.clone(), light.level);
+                waveform(
+                    &painter,
+                    rect,
+                    &trace,
+                    (low, high),
+                    strength * light.level,
+                    light.level,
+                );
+            }
+            let loading = now.is_some_and(|now| now.loading);
+            light.wants_frames(sounding, loading)
         }
     }
+}
+
+/// Whether `samples` hold any sound: a song that is still loading, or the
+/// silence before its first note, leaves the light down, so it rises with
+/// the music rather than ahead of it.
+fn audible(samples: &[f32]) -> bool {
+    samples.iter().any(|sample| sample.abs() > 1e-4)
+}
+
+/// The waveform's light: how far it has risen into view, from 0 to 1, and
+/// whether the song's sound has reached the tap since it last stopped.
+#[derive(Clone, Copy)]
+struct Light {
+    level: f32,
+    mode: crate::settings::PlayerBarVis,
+    at: f64,
+    heard: bool,
+}
+
+impl Light {
+    /// Whether the waveform needs its next frame at its own rate: while it
+    /// rises or dies down, and while the song sounds. A song still loading
+    /// with nothing at the tap has nothing to move; the spinner's frames
+    /// find its first sound.
+    fn wants_frames(self, sounding: bool, loading: bool) -> bool {
+        self.level > 0.0 || (sounding && (self.heard || !loading))
+    }
+}
+
+/// The waveform's light after this frame, eased: up once the sound of a
+/// song playing on this computer reaches the tap, and down when the song
+/// stops. A silence once the music has begun, a quiet passage or a seek,
+/// leaves it up. It rises from nothing again whenever the mode changes.
+/// Less motion shows the end at once.
+fn light(
+    ctx: &egui::Context,
+    mode: crate::settings::PlayerBarVis,
+    sounding: bool,
+    audible: bool,
+    still: bool,
+    step: f64,
+) -> Light {
+    let now = ctx.input(|input| input.time);
+    let id = egui::Id::new("player-bar-visualizer-light");
+    ctx.data_mut(|data| {
+        let light = data.get_temp_mut_or_insert_with(id, || Light {
+            level: 0.0,
+            mode,
+            at: now,
+            heard: false,
+        });
+        if light.mode != mode {
+            light.mode = mode;
+            light.level = 0.0;
+        }
+        light.heard = sounding && (light.heard || audible);
+        // A frame after a pause in drawing moves the light by one frame's
+        // worth, so the rise is seen from its start.
+        let elapsed = (now - light.at).clamp(0.0, step) as f32;
+        light.at = now;
+        light.level = step_light(light.level, light.heard, elapsed, still);
+        *light
+    })
+}
+
+/// The most one frame moves the light: a frame at the `rate` the visualizer
+/// draws, from [`App::visualiser_fps`], so a slow rate keeps the rise and
+/// fall times, and no less than a thirtieth of a second.
+fn light_step(rate: Option<u32>) -> f64 {
+    const LEAST: f64 = 1.0 / 30.0;
+    match rate {
+        Some(rate) if rate > 0 => (1.0 / f64::from(rate)).max(LEAST),
+        _ => LEAST,
+    }
+}
+
+/// Off and the spectrum hold the waveform's light down, so the waveform
+/// chosen next rises from nothing.
+fn rest_light(ctx: &egui::Context) {
+    light(
+        ctx,
+        crate::settings::PlayerBarVis::Off,
+        false,
+        false,
+        true,
+        1.0 / 30.0,
+    );
+}
+
+/// The light's level after `elapsed` seconds heading up while `sounding`
+/// and down otherwise. It eases out both ways, quick at first and settling
+/// over its rise or fall time, and turns round without a jump when the
+/// sound comes or goes halfway.
+fn step_light(level: f32, sounding: bool, elapsed: f32, still: bool) -> f32 {
+    let (target, seconds) = if sounding {
+        (1.0, LIGHT_RISE_SECONDS)
+    } else {
+        (0.0, LIGHT_FALL_SECONDS)
+    };
+    if still {
+        return target;
+    }
+    let level = level + (target - level) * (1.0 - (-elapsed * 5.0 / seconds).exp());
+    if (target - level).abs() < 0.005 {
+        target
+    } else {
+        level
+    }
+}
+
+/// The wave at `light` of its height, so it grows from the midline.
+fn scaled_trace(mut trace: Vec<f32>, light: f32) -> Vec<f32> {
+    for value in &mut trace {
+        *value *= light;
+    }
+    trace
 }
 
 /// The visualizer's two colours: the cover's own for the bass, and the same
@@ -306,6 +447,7 @@ fn waveform(
     trace: &[f32],
     (low, high): (Color32, Color32),
     strength: f32,
+    light: f32,
 ) {
     if trace.len() < 2 {
         return;
@@ -340,7 +482,7 @@ fn waveform(
             let points = (start..=end)
                 .map(|index| point(index, trace[index] * mirror))
                 .collect();
-            let colour = colour_at((start + end) / 2).gamma_multiply(alpha);
+            let colour = colour_at((start + end) / 2).gamma_multiply(alpha * light);
             painter.add(egui::Shape::line(points, egui::Stroke::new(width, colour)));
             start = end;
         }
@@ -948,6 +1090,237 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
 mod player_bar_tint_tests {
     use super::*;
     use crate::theme::Palette;
+
+    /// The light rises over its rise time and falls over its fall time,
+    /// and less motion skips straight to the end.
+    #[test]
+    fn the_visualizer_light_rises_and_falls_in_time() {
+        let frames = |mut level: f32, sounding: bool, seconds: f32| {
+            for _ in 0..(seconds * 60.0) as usize {
+                level = step_light(level, sounding, 1.0 / 60.0, false);
+            }
+            level
+        };
+        let risen = frames(0.0, true, LIGHT_RISE_SECONDS / 2.0);
+        assert!(
+            risen > 0.8 && risen < 1.0,
+            "most of the way at once: {risen}"
+        );
+        assert_eq!(frames(risen, true, LIGHT_RISE_SECONDS), 1.0);
+        // Down quickly at first, then settling: the light dies down the way
+        // it rose, not slowly and then all at once.
+        let fallen = frames(1.0, false, LIGHT_FALL_SECONDS / 2.0);
+        assert!(fallen > 0.0 && fallen < 0.2, "{fallen}");
+        assert_eq!(frames(fallen, false, LIGHT_FALL_SECONDS), 0.0);
+        let turned = step_light(0.5, true, 1.0 / 60.0, false);
+        assert!(
+            turned > 0.5 && turned < 0.6,
+            "turns round smoothly: {turned}"
+        );
+        assert_eq!(step_light(0.0, true, 0.0, true), 1.0);
+        assert_eq!(step_light(1.0, false, 0.0, true), 0.0);
+    }
+
+    #[test]
+    fn only_real_sound_brings_the_light_up() {
+        assert!(!audible(&[]));
+        assert!(!audible(&[0.0; 64]), "a loading song is silent");
+        assert!(audible(&[0.0, 0.2, -0.1]));
+    }
+
+    /// The light waits for the song's first sound, then stays up through
+    /// a silence until the song stops; a song loading with nothing at the
+    /// tap asks for no frames of its own.
+    #[test]
+    fn the_light_waits_for_the_first_sound_and_holds_through_silence() {
+        use crate::settings::PlayerBarVis;
+        let ctx = egui::Context::default();
+        let mut time = 0.0;
+        let mut frame = |sounding: bool, audible: bool| {
+            time += 1.0 / 30.0;
+            let mut light = None;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| {
+                    light = Some(super::light(
+                        ui.ctx(),
+                        PlayerBarVis::Waveform,
+                        sounding,
+                        audible,
+                        false,
+                        1.0 / 30.0,
+                    ))
+                },
+            );
+            output.textures_delta.clear();
+            light.unwrap()
+        };
+        let waiting = frame(true, false);
+        assert_eq!(waiting.level, 0.0, "nothing at the tap yet");
+        assert!(!waiting.wants_frames(true, true), "loading in silence");
+        assert!(
+            waiting.wants_frames(true, false),
+            "playing, sound on its way"
+        );
+        for _ in 0..30 {
+            frame(true, true);
+        }
+        let silent = frame(true, false);
+        assert_eq!(silent.level, 1.0, "a silence once the music began");
+        assert!(silent.wants_frames(true, true), "the next song loads");
+        let stopped = frame(false, false);
+        assert!(stopped.level < 1.0 && stopped.wants_frames(false, false));
+        for _ in 0..30 {
+            frame(false, false);
+        }
+        let out = frame(false, false);
+        assert_eq!(out.level, 0.0);
+        assert!(!out.wants_frames(false, false), "nothing left to move");
+        assert_eq!(frame(true, false).level, 0.0, "a new start waits again");
+    }
+
+    #[test]
+    fn the_wave_grows_from_the_midline() {
+        assert_eq!(
+            scaled_trace(vec![0.5, -1.0, 0.25], 0.5),
+            [0.25, -0.5, 0.125]
+        );
+        assert_eq!(scaled_trace(vec![0.5, -1.0], 0.0), [0.0, -0.0]);
+    }
+
+    /// A song starting on this computer brings the light up over frames
+    /// rather than all at once, and a new mode rises from nothing again.
+    #[test]
+    fn the_visualizer_light_eases_in_over_frames() {
+        use crate::settings::PlayerBarVis;
+        let ctx = egui::Context::default();
+        let at = |time: f64, mode: PlayerBarVis, sounding: bool| {
+            let mut level = f32::NAN;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| level = light(ui.ctx(), mode, sounding, sounding, false, 1.0 / 30.0).level,
+            );
+            output.textures_delta.clear();
+            level
+        };
+        assert_eq!(at(0.0, PlayerBarVis::Waveform, false), 0.0);
+        let first = at(0.016, PlayerBarVis::Waveform, true);
+        assert!(first > 0.0 && first < 0.2, "{first}");
+        let mut time = 0.016;
+        while time < 1.0 {
+            time += 0.016;
+            at(time, PlayerBarVis::Waveform, true);
+        }
+        assert_eq!(at(time + 0.016, PlayerBarVis::Waveform, true), 1.0);
+        let switched = at(time + 0.032, PlayerBarVis::Spectrum, true);
+        assert!(switched < 0.2, "{switched}");
+        // Turned off and back on, the same mode rises from nothing again.
+        let mut time = time + 0.032;
+        let end = time + 1.0;
+        while time < end {
+            time += 0.016;
+            at(time, PlayerBarVis::Spectrum, true);
+        }
+        assert_eq!(at(time + 0.016, PlayerBarVis::Spectrum, true), 1.0);
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                time: Some(time + 0.032),
+                ..Default::default()
+            },
+            |ui| rest_light(ui.ctx()),
+        );
+        output.textures_delta.clear();
+        let again = at(time + 0.048, PlayerBarVis::Spectrum, true);
+        assert!(again < 0.2, "{again}");
+    }
+
+    /// The light reaches every part of the waveform: dimmed to a tenth, its
+    /// line, echo and shading dim with it, so nothing stays bright until the
+    /// light goes out.
+    #[test]
+    fn the_light_dims_every_part_of_the_waveform() {
+        let ctx = egui::Context::default();
+        let colours = (
+            Color32::from_rgb(40, 200, 120),
+            Color32::from_rgb(40, 120, 200),
+        );
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 60.0));
+        let brightest = |light: f32| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                waveform(
+                    ui.painter(),
+                    rect,
+                    &[0.0, 0.5, -0.5, 0.2],
+                    colours,
+                    light,
+                    light,
+                );
+            });
+            output.textures_delta.clear();
+            output
+                .shapes
+                .iter()
+                .map(|clipped| match &clipped.shape {
+                    egui::Shape::Path(path) => match path.stroke.color {
+                        egui::epaint::ColorMode::Solid(colour) => colour.a(),
+                        _ => 0,
+                    },
+                    egui::Shape::Mesh(mesh) => mesh
+                        .vertices
+                        .iter()
+                        .map(|vertex| vertex.color.a())
+                        .max()
+                        .unwrap_or(0),
+                    _ => 0,
+                })
+                .max()
+                .unwrap_or(0)
+        };
+        let full = brightest(1.0);
+        let dimmed = brightest(0.1);
+        assert!(full > 150, "{full}");
+        assert!(dimmed < full / 5, "{dimmed} of {full}");
+    }
+
+    /// At a slow frame rate the light still rises in its own time: each
+    /// frame moves it by that frame's worth, not by a thirtieth of a second.
+    #[test]
+    fn a_slow_visualizer_keeps_the_light_s_timing() {
+        use crate::settings::PlayerBarVis;
+        assert_eq!(light_step(Some(60)), 1.0 / 30.0);
+        assert_eq!(light_step(Some(0)), 1.0 / 30.0, "the display's rate");
+        assert_eq!(light_step(Some(10)), 0.1);
+        assert_eq!(light_step(None), 1.0 / 30.0, "unseen");
+        let ctx = egui::Context::default();
+        let mut level = f32::NAN;
+        for frame in 0..=6 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(f64::from(frame) * 0.1),
+                    ..Default::default()
+                },
+                |ui| {
+                    level = light(
+                        ui.ctx(),
+                        PlayerBarVis::Waveform,
+                        true,
+                        true,
+                        false,
+                        light_step(Some(10)),
+                    )
+                    .level
+                },
+            );
+            output.textures_delta.clear();
+        }
+        assert_eq!(level, 1.0, "risen within its rise time and a frame");
+    }
 
     /// Run one frame at `time` and report the bar's actual fill.
     fn frame(ctx: &egui::Context, time: f64, panel: Color32, tint: Option<Color32>) -> Color32 {
