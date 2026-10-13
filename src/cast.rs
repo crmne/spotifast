@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow, bail};
 use librespot_core::Session;
 use md5::{Digest, Md5};
+use protobuf::{CodedInputStream, CodedOutputStream};
 use rustls::pki_types::{
     AlgorithmIdentifier, CertificateDer, InvalidSignature, SignatureVerificationAlgorithm,
     UnixTime, alg_id,
@@ -132,7 +133,9 @@ fn activate<S: Stream>(
 ) -> Result<()> {
     let device_id = device_id(name);
     let mut channel = Channel { stream, deadline };
-    channel.authenticate(roots)?;
+    channel
+        .authenticate(roots)
+        .context("the Cast device could not prove it is a genuine Google Cast device")?;
     let transport = channel.launch_spotify()?;
     let client_id = channel.get_info(&transport, name, &device_id)?;
 
@@ -162,13 +165,16 @@ impl<S: Stream> Channel<'_, S> {
             .ok_or_else(|| anyhow!("the Cast device presented no certificate"))?
             .to_vec();
         let nonce: [u8; 16] = rand::random();
-        self.send_payload(PLATFORM, NS_DEVICE_AUTH, Payload::Binary(challenge(&nonce)))?;
-        let reply = self.wait_for(NS_DEVICE_AUTH, |message| match &message.payload {
+        self.send_payload(
+            PLATFORM,
+            NS_DEVICE_AUTH,
+            Payload::Binary(challenge(&nonce)?),
+        )?;
+        let reply = self.wait_for(NS_DEVICE_AUTH, |message, _| match &message.payload {
             Payload::Binary(reply) => Some(Ok(reply.clone())),
             Payload::Text(_) => None,
         })?;
-        verify(&reply, &nonce, &peer, roots, UnixTime::now())
-            .context("the Cast device could not prove it is a genuine Google Cast device")?;
+        verify(&reply, &nonce, &peer, roots, UnixTime::now())?;
         log::debug!("the Cast device proved it is genuine");
         Ok(())
     }
@@ -257,7 +263,7 @@ impl<S: Stream> Channel<'_, S> {
             namespace: namespace.to_owned(),
             payload,
         };
-        let bytes = message.encode();
+        let bytes = message.encode()?;
         self.stream.write_all(&(bytes.len() as u32).to_be_bytes())?;
         self.stream.write_all(&bytes)?;
         self.stream.flush()?;
@@ -271,17 +277,15 @@ impl<S: Stream> Channel<'_, S> {
         namespace: &str,
         mut pick: impl FnMut(&Value) -> Option<Result<T>>,
     ) -> Result<T> {
-        self.wait_for(namespace, |message| match &message.payload {
-            Payload::Text(text) => pick(&serde_json::from_str(text).ok()?),
-            Payload::Binary(_) => None,
-        })
+        self.wait_for(namespace, |_, json| pick(json?))
     }
 
-    /// [`Self::wait`] for a message with any payload.
+    /// [`Self::wait`] for a message with any payload. `pick` also gets the
+    /// payload as JSON, if it is.
     fn wait_for<T>(
         &mut self,
         namespace: &str,
-        mut pick: impl FnMut(&Message) -> Option<Result<T>>,
+        mut pick: impl FnMut(&Message, Option<&Value>) -> Option<Result<T>>,
     ) -> Result<T> {
         let late = || anyhow!("the Cast device did not answer in time");
         // A zero timeout is an error, not an immediate timeout.
@@ -295,13 +299,8 @@ impl<S: Stream> Channel<'_, S> {
                 Some(io) if is_timeout(io) => late(),
                 _ => error,
             })?;
-            let payload = match &message.payload {
-                Payload::Text(text) => serde_json::from_str::<Value>(text).ok(),
-                Payload::Binary(_) => None,
-            };
-            let kind = payload
-                .as_ref()
-                .and_then(|payload| payload["type"].as_str());
+            let json = message.json();
+            let kind = json.as_ref().and_then(|json| json["type"].as_str());
             log::debug!(
                 "received {} from {} on {}",
                 kind.unwrap_or("?"),
@@ -313,7 +312,7 @@ impl<S: Stream> Channel<'_, S> {
                 continue;
             }
             if message.namespace == namespace
-                && let Some(result) = pick(&message)
+                && let Some(result) = pick(&message, json.as_ref())
             {
                 return result;
             }
@@ -440,13 +439,12 @@ impl rustls::client::danger::ServerCertVerifier for AnyCertificate {
 /// The challenge for [`Channel::authenticate`]: a `DeviceAuthMessage` whose
 /// challenge (1) holds sender_nonce (2) and asks for a SHA-256 signature
 /// (3 hash_algorithm = SHA256), as Open Screen sends it.
-fn challenge(nonce: &[u8]) -> Vec<u8> {
-    let mut challenge = Vec::new();
-    put_bytes(&mut challenge, 0x12, nonce);
-    challenge.extend([0x18, 1]);
-    let mut message = Vec::new();
-    put_bytes(&mut message, 0x0a, &challenge);
-    message
+fn challenge(nonce: &[u8]) -> Result<Vec<u8>> {
+    let challenge = encode(|writer| {
+        writer.write_bytes(2, nonce)?;
+        writer.write_enum(3, 1)
+    })?;
+    encode(|writer| writer.write_bytes(1, &challenge))
 }
 
 /// Checks the device's reply to [`challenge`] with `nonce`, sent over the
@@ -461,27 +459,31 @@ fn challenge(nonce: &[u8]) -> Vec<u8> {
 /// 3 intermediate_certificate (repeated), 5 sender_nonce and
 /// 6 hash_algorithm (0 SHA-1, the default, or 1 SHA-256).
 fn verify(reply: &[u8], nonce: &[u8], peer: &[u8], roots: &[&[u8]], now: UnixTime) -> Result<()> {
-    let (mut response, mut refused) = (None, false);
-    for_each_field(reply, |number, field| match (number, field) {
-        (2, Field::Bytes(bytes)) => response = Some(bytes),
-        (3, _) => refused = true,
-        _ => {}
-    })?;
-    if refused {
-        bail!("it refused the challenge");
+    let mut response = None;
+    let mut input = CodedInputStream::from_bytes(reply);
+    while let Some(tag) = input.read_raw_tag_or_eof()? {
+        match tag {
+            0x12 => response = Some(input.read_bytes()?),
+            0x1a => bail!("it refused the challenge"),
+            _ => protobuf::rt::skip_field_for_tag(tag, &mut input)?,
+        }
     }
     let response = response.ok_or_else(|| anyhow!("it did not answer the challenge"))?;
 
-    let (mut signature, mut device, mut echoed, mut sha256) = (&[][..], &[][..], &[][..], false);
+    let (mut signature, mut device, mut echoed, mut sha256) =
+        (Vec::new(), Vec::new(), Vec::new(), false);
     let mut intermediates = Vec::new();
-    for_each_field(response, |number, field| match (number, field) {
-        (1, Field::Bytes(bytes)) => signature = bytes,
-        (2, Field::Bytes(bytes)) => device = bytes,
-        (3, Field::Bytes(bytes)) => intermediates.push(CertificateDer::from(bytes)),
-        (5, Field::Bytes(bytes)) => echoed = bytes,
-        (6, Field::Varint(algorithm)) => sha256 = algorithm == 1,
-        _ => {}
-    })?;
+    let mut input = CodedInputStream::from_bytes(&response);
+    while let Some(tag) = input.read_raw_tag_or_eof()? {
+        match tag {
+            0x0a => signature = input.read_bytes()?,
+            0x12 => device = input.read_bytes()?,
+            0x1a => intermediates.push(CertificateDer::from(input.read_bytes()?)),
+            0x2a => echoed = input.read_bytes()?,
+            0x30 => sha256 = input.read_int32()? == 1,
+            _ => protobuf::rt::skip_field_for_tag(tag, &mut input)?,
+        }
+    }
     // Open Screen lets a mismatch through, and the signature over this
     // connection's certificate already rules out a replay; a different
     // nonce still means the reply is not to this challenge.
@@ -520,7 +522,7 @@ fn verify(reply: &[u8], nonce: &[u8], peer: &[u8], roots: &[&[u8]], now: UnixTim
         &RsaPkcs1Sha1
     };
     device
-        .verify_signature(algorithm, &[echoed, peer].concat(), signature)
+        .verify_signature(algorithm, &[&echoed[..], peer].concat(), &signature)
         .map_err(|error| anyhow!("its signature does not match this connection ({error})"))?;
     Ok(())
 }
@@ -576,8 +578,9 @@ impl webpki::ExtendedKeyUsageValidator for AnyUsage {
 
 /// A Cast v2 `CastMessage`.
 ///
-/// Encoded by hand, as only seven small fields are needed: 1 protocol_version,
-/// 2 source_id, 3 destination_id, 4 namespace, 5 payload_type, 6 payload_utf8,
+/// The protocol crate has no Cast messages, so their documented wire fields
+/// go through the existing codec: 1 protocol_version, 2 source_id,
+/// 3 destination_id, 4 namespace, 5 payload_type, 6 payload_utf8,
 /// 7 payload_binary.
 #[derive(Debug, PartialEq)]
 struct Message {
@@ -594,26 +597,23 @@ enum Payload {
 }
 
 impl Message {
-    fn encode(&self) -> Vec<u8> {
-        let mut out = vec![0x08, 0]; // protocol_version = CASTV2_1_0
-        for (tag, text) in [
-            (0x12, &self.source),
-            (0x1a, &self.destination),
-            (0x22, &self.namespace),
-        ] {
-            put_bytes(&mut out, tag, text.as_bytes());
-        }
-        match &self.payload {
-            Payload::Text(text) => {
-                out.extend([0x28, 0]); // payload_type = STRING
-                put_bytes(&mut out, 0x32, text.as_bytes());
+    fn encode(&self) -> Result<Vec<u8>> {
+        encode(|writer| {
+            writer.write_enum(1, 0)?; // protocol_version = CASTV2_1_0
+            writer.write_string(2, &self.source)?;
+            writer.write_string(3, &self.destination)?;
+            writer.write_string(4, &self.namespace)?;
+            match &self.payload {
+                Payload::Text(text) => {
+                    writer.write_enum(5, 0)?; // payload_type = STRING
+                    writer.write_string(6, text)
+                }
+                Payload::Binary(bytes) => {
+                    writer.write_enum(5, 1)?; // payload_type = BINARY
+                    writer.write_bytes(7, bytes)
+                }
             }
-            Payload::Binary(bytes) => {
-                out.extend([0x28, 1]); // payload_type = BINARY
-                put_bytes(&mut out, 0x3a, bytes);
-            }
-        }
-        out
+        })
     }
 
     fn decode(bytes: &[u8]) -> Result<Self> {
@@ -623,76 +623,40 @@ impl Message {
             namespace: String::new(),
             payload: Payload::Text(String::new()),
         };
-        for_each_field(bytes, |number, field| {
-            let Field::Bytes(field) = field else {
-                return;
-            };
-            let text = || String::from_utf8_lossy(field).into_owned();
-            match number {
-                2 => message.source = text(),
-                3 => message.destination = text(),
-                4 => message.namespace = text(),
-                6 => message.payload = Payload::Text(text()),
-                7 => message.payload = Payload::Binary(field.to_vec()),
-                _ => {}
+        let mut input = CodedInputStream::from_bytes(bytes);
+        let text = |input: &mut CodedInputStream| -> Result<String> {
+            Ok(String::from_utf8_lossy(&input.read_bytes()?).into_owned())
+        };
+        while let Some(tag) = input.read_raw_tag_or_eof()? {
+            match tag {
+                0x12 => message.source = text(&mut input)?,
+                0x1a => message.destination = text(&mut input)?,
+                0x22 => message.namespace = text(&mut input)?,
+                0x32 => message.payload = Payload::Text(text(&mut input)?),
+                0x3a => message.payload = Payload::Binary(input.read_bytes()?),
+                _ => protobuf::rt::skip_field_for_tag(tag, &mut input)?,
             }
-        })?;
+        }
         Ok(message)
     }
-}
 
-/// A protobuf field's value: a varint, or a length-delimited one.
-enum Field<'a> {
-    Varint(u64),
-    Bytes(&'a [u8]),
-}
-
-/// Calls `each` with the number and value of every field in `bytes`.
-fn for_each_field<'a>(mut bytes: &'a [u8], mut each: impl FnMut(u64, Field<'a>)) -> Result<()> {
-    while !bytes.is_empty() {
-        let key = take_varint(&mut bytes)?;
-        let field = match key & 7 {
-            0 => Field::Varint(take_varint(&mut bytes)?),
-            2 => {
-                let length = take_varint(&mut bytes)? as usize;
-                if length > bytes.len() {
-                    bail!("truncated Cast message");
-                }
-                let (field, rest) = bytes.split_at(length);
-                bytes = rest;
-                Field::Bytes(field)
-            }
-            _ => bail!("unexpected field in a Cast message"),
-        };
-        each(key >> 3, field);
-    }
-    Ok(())
-}
-
-fn put_bytes(out: &mut Vec<u8>, tag: u8, bytes: &[u8]) {
-    out.push(tag);
-    let mut length = bytes.len();
-    while length >= 0x80 {
-        out.push(length as u8 | 0x80);
-        length >>= 7;
-    }
-    out.push(length as u8);
-    out.extend_from_slice(bytes);
-}
-
-fn take_varint(bytes: &mut &[u8]) -> Result<u64> {
-    let mut value = 0;
-    for shift in (0..64).step_by(7) {
-        let (&byte, rest) = bytes
-            .split_first()
-            .ok_or_else(|| anyhow!("truncated Cast message"))?;
-        *bytes = rest;
-        value |= u64::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
-            return Ok(value);
+    /// The payload as JSON, if it is text that parses.
+    fn json(&self) -> Option<Value> {
+        match &self.payload {
+            Payload::Text(text) => serde_json::from_str(text).ok(),
+            Payload::Binary(_) => None,
         }
     }
-    bail!("malformed Cast message")
+}
+
+/// The protobuf fields `write` writes.
+fn encode(write: impl FnOnce(&mut CodedOutputStream) -> protobuf::Result<()>) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut writer = CodedOutputStream::vec(&mut bytes);
+    write(&mut writer)?;
+    writer.flush()?;
+    drop(writer);
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -713,7 +677,7 @@ mod tests {
             namespace: "n".into(),
             payload: Payload::Text("p".repeat(200)),
         };
-        let bytes = message.encode();
+        let bytes = message.encode().unwrap();
         assert_eq!(
             &bytes[..14],
             &[
@@ -728,7 +692,7 @@ mod tests {
             payload: Payload::Binary(vec![0, 0xff]),
             ..message
         };
-        let bytes = binary.encode();
+        let bytes = binary.encode().unwrap();
         assert_eq!(&bytes[11..], &[0x28, 1, 0x3a, 2, 0, 0xff]);
         assert_eq!(Message::decode(&bytes).unwrap(), binary);
     }
@@ -747,16 +711,39 @@ mod tests {
     /// ring cannot sign with SHA-1, so OpenSSL made it.
     const LEGACY_SIGNATURE: &[u8] = include_bytes!("testdata/cast/legacy-signature.bin");
 
+    /// A device's answer to [`challenge`]: its signature, certificate and ICA,
+    /// the nonce it echoes (none if empty), and whether it signed with SHA-256.
+    fn auth_reply(
+        signature: &[u8],
+        device: &[u8],
+        ica: &[u8],
+        nonce: &[u8],
+        sha256: bool,
+    ) -> Vec<u8> {
+        let response = encode(|writer| {
+            writer.write_bytes(1, signature)?;
+            writer.write_bytes(2, device)?;
+            writer.write_bytes(3, ica)?;
+            if !nonce.is_empty() {
+                writer.write_bytes(5, nonce)?;
+            }
+            if sha256 {
+                writer.write_enum(6, 1)?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        encode(|writer| writer.write_bytes(2, &response)).unwrap()
+    }
+
     /// A Cast device that answers each frame from a script.
     struct FakeDevice {
         sent: Vec<Message>,
         inbox: VecDeque<u8>,
         partial: Vec<u8>,
         add_user_reply: &'static str,
-        /// The device certificate it answers the challenge with.
-        certificate: &'static [u8],
-        /// Answers as an older device: no nonce echoed, and a SHA-1
-        /// signature of the connection certificate alone.
+        /// Answers as an older device: its SHA-1 certificate, no nonce echoed,
+        /// and a SHA-1 signature of the connection certificate alone.
         legacy: bool,
         /// The connection certificate it signs. Anything but [`PEER`] plays
         /// a relay passing on a genuine device's answer from another
@@ -771,7 +758,6 @@ mod tests {
                 inbox: VecDeque::new(),
                 partial: Vec::new(),
                 add_user_reply,
-                certificate: TEST_DEVICE,
                 legacy: false,
                 signs_peer: PEER,
             }
@@ -788,39 +774,23 @@ mod tests {
                 namespace: namespace.into(),
                 payload,
             }
-            .encode();
+            .encode()
+            .unwrap();
             self.inbox.extend((bytes.len() as u32).to_be_bytes());
             self.inbox.extend(bytes);
         }
 
         /// Answers a [`challenge`] as a device with the test chain does.
         fn answer(&self, challenge: &[u8]) -> Vec<u8> {
-            let mut response = Vec::new();
             if self.legacy {
-                put_bytes(&mut response, 0x0a, LEGACY_SIGNATURE);
-                put_bytes(&mut response, 0x12, self.certificate);
-                put_bytes(&mut response, 0x1a, TEST_ICA);
-                let mut reply = Vec::new();
-                put_bytes(&mut reply, 0x12, &response);
-                return reply;
+                return auth_reply(LEGACY_SIGNATURE, TEST_DEVICE_SHA1, TEST_ICA, &[], false);
             }
-
-            let mut nonce = Vec::new();
-            for_each_field(challenge, |_, field| {
-                if let Field::Bytes(challenge) = field {
-                    for_each_field(challenge, |number, field| {
-                        if let (2, Field::Bytes(bytes)) = (number, field) {
-                            nonce = bytes.to_vec();
-                        }
-                    })
-                    .unwrap();
-                }
-            })
-            .unwrap();
+            // challenge (0x0a, 20 bytes) { sender_nonce (0x12, 16 bytes), ... }
+            let nonce = &challenge[4..20];
 
             let key = ring::signature::RsaKeyPair::from_pkcs8(TEST_DEVICE_KEY).unwrap();
             let mut signature = vec![0; key.public().modulus_len()];
-            let signed = [&nonce[..], self.signs_peer].concat();
+            let signed = [nonce, self.signs_peer].concat();
             let random = ring::rand::SystemRandom::new();
             key.sign(
                 &ring::signature::RSA_PKCS1_SHA256,
@@ -829,15 +799,7 @@ mod tests {
                 &mut signature,
             )
             .unwrap();
-
-            put_bytes(&mut response, 0x0a, &signature);
-            put_bytes(&mut response, 0x12, self.certificate);
-            put_bytes(&mut response, 0x1a, TEST_ICA);
-            put_bytes(&mut response, 0x2a, &nonce);
-            response.extend([0x30, 1]); // hash_algorithm = SHA256
-            let mut reply = Vec::new();
-            put_bytes(&mut reply, 0x12, &response);
-            reply
+            auth_reply(&signature, TEST_DEVICE, TEST_ICA, nonce, true)
         }
 
         fn handle(&mut self, message: Message) {
@@ -847,7 +809,7 @@ mod tests {
                 self.sent.push(message);
                 return;
             }
-            let payload = json_of(&message);
+            let payload = message.json().unwrap();
             match payload["type"].as_str().unwrap() {
                 "LAUNCH" => {
                     // A status for another app first, then a heartbeat, then Spotify.
@@ -923,20 +885,12 @@ mod tests {
         }
     }
 
-    fn json_of(message: &Message) -> Value {
-        let Payload::Text(text) = &message.payload else {
-            panic!("a binary payload");
-        };
-        serde_json::from_str(text).unwrap()
-    }
-
     fn summary(sent: &[Message]) -> Vec<String> {
         sent.iter()
             .map(|m| {
-                let kind = match &m.payload {
-                    Payload::Text(_) => json_of(m)["type"].as_str().unwrap().to_owned(),
-                    Payload::Binary(_) => "challenge".to_owned(),
-                };
+                let kind = m.json().map_or("challenge".to_owned(), |json| {
+                    json["type"].as_str().unwrap().to_owned()
+                });
                 let namespace = m.namespace.rsplit('.').next().unwrap();
                 format!("{} {namespace} {kind}", m.destination)
             })
@@ -986,10 +940,10 @@ mod tests {
                 "web-7 v1 addUser",
             ]
         );
-        let get_info = json_of(&device.sent[5]);
+        let get_info = device.sent[5].json().unwrap();
         assert_eq!(get_info["payload"]["remoteName"], "nest audio");
         assert_eq!(get_info["payload"]["deviceID"], device_id("nest audio"));
-        let add_user = json_of(&device.sent[6]);
+        let add_user = device.sent[6].json().unwrap();
         assert_eq!(
             add_user["payload"],
             json!({"blob": "token-1", "tokenType": "accesstoken"})
@@ -1036,7 +990,6 @@ mod tests {
     #[test]
     fn older_devices_that_sign_with_sha1_are_genuine_too() {
         let mut device = FakeDevice::new("addUserResponse");
-        device.certificate = TEST_DEVICE_SHA1;
         device.legacy = true;
         sign_in(&mut device).unwrap();
     }
@@ -1048,15 +1001,13 @@ mod tests {
     /// `signeddata/2ZZBG9_FA8FCA3EF91A.pem`.
     #[test]
     fn a_real_first_generation_chromecast_is_genuine() {
-        let mut response = Vec::new();
-        let signature = include_bytes!("testdata/cast/chromecast-gen1-sha1.sig");
-        put_bytes(&mut response, 0x0a, signature);
-        let device = include_bytes!("testdata/cast/chromecast-gen1.der");
-        put_bytes(&mut response, 0x12, device);
-        let ica = include_bytes!("testdata/cast/chromecast-gen1-ica.der");
-        put_bytes(&mut response, 0x1a, ica);
-        let mut reply = Vec::new();
-        put_bytes(&mut reply, 0x12, &response);
+        let reply = auth_reply(
+            include_bytes!("testdata/cast/chromecast-gen1-sha1.sig"),
+            include_bytes!("testdata/cast/chromecast-gen1.der"),
+            include_bytes!("testdata/cast/chromecast-gen1-ica.der"),
+            &[],
+            false,
+        );
         // 2026-01-01. Its ICA expires at the end of 2032.
         let now = UnixTime::since_unix_epoch(Duration::from_secs(1_767_225_600));
 
