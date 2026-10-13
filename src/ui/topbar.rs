@@ -384,7 +384,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .map(|user| {
                         (
                             user.name().to_string(),
-                            pick_image(&user.images, 64).map(str::to_string),
+                            pick_image(&user.images, app.art_px(28.0)).map(str::to_string),
                         )
                     })
                     .unwrap_or_default();

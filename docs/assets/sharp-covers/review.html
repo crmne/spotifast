@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sharp covers scaled to their pixels review</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #111318; color: #f4f4f5; }
+    main { max-width: 1240px; margin: auto; padding: 24px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+    fieldset { display: flex; gap: 6px; border: 1px solid #3f4652; border-radius: 8px; }
+    button { border: 0; border-radius: 6px; padding: 8px 14px; background: #292e37; color: inherit; cursor: pointer; }
+    button[aria-pressed="true"] { background: #1ed760; color: #07120a; }
+    img { display: block; max-width: 100%; height: auto; border: 1px solid #3f4652; border-radius: 8px; }
+    p { color: #b9c0ca; max-width: 900px; }
+    .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .strip figure, .crops figure { margin: 0; min-width: 0; }
+    .strip img { width: 100%; }
+    figcaption { color: #b9c0ca; font-size: 13px; margin-top: 4px; }
+    .crops { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; }
+    .crops img { image-rendering: pixelated; }
+    h2 { font-size: 16px; margin-top: 28px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sharp covers scaled to their pixels</h1>
+    <p>Covers are decoded and scaled on the CPU to the pixels they cover, from artwork asked for at a quarter more than that, and drawn through mipmaps. Library rows stop using Spotify's 64 pixel thumbnail. The demo's artwork is photographs, so the difference is subtle at full size; the zoomed crops show it.</p>
+    <div class="controls">
+      <fieldset aria-label="Theme">
+        <button data-group="theme" data-value="light" aria-pressed="true">Light</button>
+        <button data-group="theme" data-value="dark" aria-pressed="false">Dark</button>
+      </fieldset>
+      <fieldset aria-label="Window size">
+        <button data-group="size" data-value="normal" aria-pressed="true">1200x800</button>
+        <button data-group="size" data-value="narrow" aria-pressed="false">1000x700</button>
+      </fieldset>
+      <fieldset aria-label="Revision">
+        <button data-group="revision" data-value="before" aria-pressed="true">Before</button>
+        <button data-group="revision" data-value="after" aria-pressed="false">After</button>
+      </fieldset>
+    </div>
+    <img id="capture" src="before-light-normal.png" alt="Light normal-size Before capture">
+    <h2>Zoomed without smoothing (light, 1200x800)</h2>
+    <div class="crops">
+      <figure><img src="zoom-rows-before.png" alt="Library row covers, before, 3x"><figcaption>Library rows, before (3x)</figcaption></figure>
+      <figure><img src="zoom-rows-after.png" alt="Library row covers, after, 3x"><figcaption>Library rows, after (3x)</figcaption></figure>
+      <figure><img src="zoom-card-before.png" alt="Card cover, before, 2x"><figcaption>Card, before (2x)</figcaption></figure>
+      <figure><img src="zoom-card-after.png" alt="Card cover, after, 2x"><figcaption>Card, after (2x)</figcaption></figure>
+    </div>
+  </main>
+  <script>
+    const state = { theme: "light", size: "normal", revision: "before" };
+    const capture = document.querySelector("#capture");
+    function render() {
+      capture.src = `${state.revision}-${state.theme}-${state.size}.png`;
+      capture.alt = `${state.theme} ${state.size}-size ${state.revision} capture`;
+    }
+    for (const button of document.querySelectorAll("button[data-group]")) {
+      button.addEventListener("click", () => {
+        const group = button.dataset.group;
+        state[group] = button.dataset.value;
+        for (const peer of document.querySelectorAll(`[data-group="${group}"]`)) {
+          peer.setAttribute("aria-pressed", peer === button ? "true" : "false");
+        }
+        render();
+      });
+    }
+    render();
+  </script>
+</body>
+</html>

@@ -35,26 +35,46 @@ pub(super) struct HeroImages<'a> {
     pub align_thumbnail: bool,
 }
 
+/// The larger of the hero's two cover sizes.
+const HERO_ART: f32 = 212.0;
+
+/// The artwork widths a page header asks for on this display: its own
+/// cover, and the card's, which the page was likely opened from and so is
+/// already loaded.
+#[derive(Clone, Copy)]
+pub(super) struct HeroArt {
+    pub hero: u32,
+    pub card: u32,
+}
+
+impl HeroArt {
+    pub fn of(app: &App) -> Self {
+        Self {
+            hero: app.art_px(HERO_ART),
+            card: app.art_px(widgets::CARD_ART),
+        }
+    }
+}
+
 pub(super) fn hero_images<'a>(
     images: &'a [Image],
     preview: Option<&'a [Image]>,
     align_thumbnail: bool,
+    art: HeroArt,
 ) -> HeroImages<'a> {
-    let image = pick_image(images, 640);
+    let image = pick_image(images, art.hero);
+    let thumbnail = crate::api::models::SMALL_ART_WIDTH;
     HeroImages {
         image,
         previous: image.and_then(|image| {
             preview
-                .and_then(|images| pick_image(images, 640))
+                .and_then(|images| pick_image(images, art.card))
                 .filter(|previous| *previous != image)
-                .or_else(|| {
-                    pick_image(images, super::GRID_ART_TARGET_WIDTH)
-                        .filter(|smaller| *smaller != image)
-                })
+                .or_else(|| pick_image(images, art.card).filter(|smaller| *smaller != image))
         }),
         thumbnail: image
-            .and_then(|_| preview.and_then(|images| pick_image(images, 64)))
-            .or_else(|| pick_image(images, 64)),
+            .and_then(|_| preview.and_then(|images| pick_image(images, thumbnail)))
+            .or_else(|| pick_image(images, thumbnail)),
         align_thumbnail,
     }
 }
@@ -68,7 +88,7 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
         .and_then(|uri| app.softened_covers.texture(ui.ctx(), &art, uri));
     ui.add_space(12.0);
     let cover_size = if ui.available_width() > 720.0 {
-        212.0
+        HERO_ART
     } else {
         160.0
     };
@@ -1494,6 +1514,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     .as_deref()
                     .map(|playlist| playlist.images.as_slice()),
                 false,
+                HeroArt::of(app),
             );
             // A Blend is made together, but only Spotify writes to it, so it
             // is no collaborative playlist anyone could add to.
@@ -1817,7 +1838,7 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
 }
 
 fn playlist_loading_hero(app: &mut App, ui: &mut egui::Ui, playlist: &Playlist) {
-    let images = hero_images(&playlist.images, None, false);
+    let images = hero_images(&playlist.images, None, false, HeroArt::of(app));
     let mut byline = vec![(playlist.owner_name().to_string(), None)];
     let count = playlist.track_total();
     if count > 0 {
@@ -1964,6 +1985,7 @@ fn album_hero(
         &album.images,
         preview.map(|album| album.images.as_slice()),
         true,
+        HeroArt::of(app),
     );
     hero(
         app,
@@ -2262,6 +2284,12 @@ mod tests {
     use crate::api::models::{Album, ArtistRef, Image, Track};
     use crate::model::PlaylistPage;
 
+    /// A 2x display: the hero asks for 640, a card for 300.
+    const TEST_HERO_ART: HeroArt = HeroArt {
+        hero: 640,
+        card: 300,
+    };
+
     fn adders(ids: &[&str]) -> std::collections::BTreeSet<String> {
         ids.iter().map(|id| (*id).to_string()).collect()
     }
@@ -2331,6 +2359,7 @@ mod tests {
             loaded.get().unwrap(),
             retained.as_deref().map(Vec::as_slice),
             false,
+            TEST_HERO_ART,
         );
         assert_eq!(images.image, Some("current-large"));
         assert_eq!(images.previous, Some("preview-large"));
@@ -2340,7 +2369,7 @@ mod tests {
             "another page must not inherit the retained cover"
         );
 
-        let images = hero_images(&current, Some(&current), false);
+        let images = hero_images(&current, Some(&current), false, TEST_HERO_ART);
         assert_eq!(images.previous, None, "the same cover is not loaded twice");
 
         let with_grid_art = vec![
@@ -2348,12 +2377,22 @@ mod tests {
             image("current-grid", 300),
             image("current-small", 64),
         ];
-        let images = hero_images(&with_grid_art, None, false);
+        let images = hero_images(&with_grid_art, None, false, TEST_HERO_ART);
         assert_eq!(images.image, Some("current-large"));
         assert_eq!(images.previous, Some("current-grid"));
         assert_eq!(images.thumbnail, Some("current-small"));
 
-        let images = hero_images(&[], Some(&preview), false);
+        // At 100% the hero's 212 points and a card's 148 both fit the 300
+        // pixel rendition, so the page shows the card's own cover at once.
+        let one_x = HeroArt {
+            hero: 212,
+            card: 148,
+        };
+        let images = hero_images(&with_grid_art, Some(&with_grid_art), false, one_x);
+        assert_eq!(images.image, Some("current-grid"));
+        assert_eq!(images.previous, None);
+
+        let images = hero_images(&[], Some(&preview), false, TEST_HERO_ART);
         assert_eq!(images.image, None);
         assert_eq!(
             images.previous, None,

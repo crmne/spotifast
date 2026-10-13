@@ -188,12 +188,14 @@ indicator marks the unfinished content. If the request fails, the known header
 stays above **Retry**. A direct link with no known details shows only the normal
 loading or error state.
 
-Visible library grid cards use the closest 300-pixel artwork URL already
-present in Spotify metadata. Larger collection cards and page headers use the
-closest 640-pixel URL. Compact rows, page tint extraction, and softened loading
-previews use 64-pixel thumbnails. These URLs remain unchanged and follow the
-configured proxy and normal artwork cache. Choosing an artwork size and reusing
-known details add no Web API request.
+Each cover uses the smallest artwork URL already present in Spotify metadata
+with at least a quarter more pixels than the cover takes on the display.
+Spotify's 64-pixel thumbnail serves only covers of 32 pixels or less, so at
+100% scaling library rows, cards and page headers use the 300-pixel URL, and
+from 125% page headers use the 640-pixel one, as cards do from 200%. Page tint
+extraction and softened loading previews use 64-pixel thumbnails. These URLs
+remain unchanged and follow the configured proxy and normal artwork cache.
+Choosing an artwork size and reusing known details add no Web API request.
 
 A ready sharp cover stays visible until its replacement is ready. A 300-pixel
 grid cover already loaded for the same item can preview a larger page cover

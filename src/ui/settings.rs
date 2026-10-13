@@ -288,10 +288,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if row_matches(&needle, &format!("{sign_out} {account}"), "") {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 14.0;
-                    let avatar = app
-                        .user
-                        .as_ref()
-                        .and_then(|user| pick_image(&user.images, 64).map(str::to_string));
+                    let avatar = app.user.as_ref().and_then(|user| {
+                        pick_image(&user.images, app.art_px(56.0)).map(str::to_string)
+                    });
                     widgets::cover(ui, &palette, avatar.as_deref(), 56.0, 28.0, Icon::User);
                     ui.vertical(|ui| {
                         let name = app

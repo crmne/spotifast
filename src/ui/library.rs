@@ -47,10 +47,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let subtitle = join_names(album.artists.iter().map(|artist| artist.name.as_str()));
                 let playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
                     && app.believed_playing();
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&album.images, 640),
+                    pick_image(&album.images, card_art),
                     &album.name,
                     &subtitle,
                     widgets::CardCover::square(playing_here),
@@ -104,10 +105,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let uri = artist.uri.clone();
                 let playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
                     && app.believed_playing();
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&artist.images, 640),
+                    pick_image(&artist.images, card_art),
                     &artist.name,
                     &artist_label,
                     widgets::CardCover::portrait(playing_here),
@@ -159,10 +161,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
             widgets::virtual_wrapped_cards(ui, count, card_height, |ui, index| {
                 let show = app.library.shows.items[index].show.clone();
                 let id = show.id.clone();
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&show.images, 640),
+                    pick_image(&show.images, card_art),
                     &show.name,
                     &show.publisher,
                     widgets::CardCover::default(),

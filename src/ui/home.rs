@@ -67,8 +67,12 @@ struct Tile {
     owned_playlist: Option<Playlist>,
 }
 
-fn quick_access(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
+/// The height of a quick-access tile, and so the side of its cover.
+const TILE_HEIGHT: f32 = 60.0;
+
+/// Liked Songs and the first playlists, as Home's quick-access tiles.
+fn quick_access_tiles(app: &App) -> Vec<Tile> {
+    let tile_art = app.art_px(TILE_HEIGHT);
     let mut tiles: Vec<Tile> = vec![Tile {
         image: None,
         name: gettext(app.locale, "Liked Songs").into_owned(),
@@ -83,7 +87,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
     if let Some(playlists) = app.library.playlists.get() {
         for playlist in playlists.iter().take(7) {
             tiles.push(Tile {
-                image: pick_image(&playlist.images, 64).map(str::to_string),
+                image: pick_image(&playlist.images, tile_art).map(str::to_string),
                 name: playlist.name.clone(),
                 page: Page::Playlist(playlist.id.clone()),
                 uri: Some(playlist.uri.clone()),
@@ -95,6 +99,12 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
             });
         }
     }
+    tiles
+}
+
+fn quick_access(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let tiles = quick_access_tiles(app);
     let available = ui.available_width();
     let columns = ((available / 300.0).floor() as usize).clamp(2, 4);
     let gap = 10.0;
@@ -116,7 +126,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                     break;
                 };
                 let (rect, response) =
-                    ui.allocate_exact_size(vec2(tile_width, 60.0), Sense::click());
+                    ui.allocate_exact_size(vec2(tile_width, TILE_HEIGHT), Sense::click());
                 if ui.is_rect_visible(rect) {
                     let hovered = ui.rect_contains_pointer(rect);
                     let fill = if hovered {
@@ -125,7 +135,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         palette.surface
                     };
                     ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
-                    let cover = Rect::from_min_size(rect.min, Vec2::splat(60.0));
+                    let cover = Rect::from_min_size(rect.min, Vec2::splat(TILE_HEIGHT));
                     if *liked {
                         super::sidebar::liked_cover(ui, cover, 6.0);
                     } else {
@@ -265,10 +275,11 @@ fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
                 let playing_here = app.playing_context_uri().as_deref()
                     == Some(playlist.uri.as_str())
                     && app.believed_playing();
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&playlist.images, 640),
+                    pick_image(&playlist.images, card_art),
                     &playlist.name,
                     &subtitle,
                     widgets::CardCover::square(playing_here),
@@ -356,10 +367,11 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
         |ui| {
             for entry in &tracks {
                 let track = &entry.track;
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    track.image(640),
+                    track.image(card_art),
                     &track.name,
                     &track.artist_names(),
                     widgets::CardCover::square(false),
@@ -506,10 +518,12 @@ fn podcasts(app: &mut App, ui: &mut egui::Ui) {
                         gettext(app.locale, "New • {show}").replace("{show}", &show.name)
                     }
                 };
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&episode.images, 640).or_else(|| pick_image(&show.images, 640)),
+                    pick_image(&episode.images, card_art)
+                        .or_else(|| pick_image(&show.images, card_art)),
                     &episode.name,
                     &subtitle,
                     widgets::CardCover::square(false),
@@ -580,10 +594,11 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
                 let playing_here = app.playing_context_uri().as_deref()
                     == Some(artist.uri.as_str())
                     && app.believed_playing();
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&artist.images, 640),
+                    pick_image(&artist.images, card_art),
                     &artist.name,
                     &gettext(app.locale, "Artist"),
                     widgets::CardCover::portrait(playing_here),
@@ -748,6 +763,49 @@ mod tests {
             .iter()
             .map(|(_, episode, _)| episode.id.as_str())
             .collect()
+    }
+
+    /// A tile's cover is 60 points. Spotify's 64 pixel rendition would be
+    /// blurry even at 100%, so the tile takes the 300 pixel one and scales
+    /// it down; at 300% the 300 pixel one still has a quarter more pixels
+    /// than the tile shows.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn quick_access_tiles_ask_for_art_the_display_can_show() {
+        let root = std::env::temp_dir().join(format!("spotifast-tiles-{}", std::process::id()));
+        let mut app = App::new(
+            &crate::backend::Waker::default(),
+            crate::paths::AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            crate::settings::Settings::default(),
+            crate::app::AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+            },
+        );
+        crate::demo::populate(&mut app);
+        let first = app.library.playlists.get().unwrap()[0].images.clone();
+        let width = |url: Option<&str>| {
+            first
+                .iter()
+                .find(|image| Some(image.url.as_str()) == url)
+                .and_then(|image| image.width)
+        };
+        app.pixels_per_point = 1.0;
+        assert_eq!(
+            width(quick_access_tiles(&app)[1].image.as_deref()),
+            Some(300)
+        );
+        app.pixels_per_point = 3.0;
+        assert_eq!(
+            width(quick_access_tiles(&app)[1].image.as_deref()),
+            Some(300)
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     fn today() -> jiff::civil::Date {

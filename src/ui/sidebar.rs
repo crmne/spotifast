@@ -626,14 +626,14 @@ fn paint_expanded_art(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
         }
         .as_shape(rect, egui::CornerRadius::same(8)),
     );
-    super::widgets::paint_cover(
+    super::widgets::playing_cover(
         ui,
         &palette,
+        app.backend.art(),
+        "sidebar-art",
         Some(&url),
         rect,
         8.0,
-        Icon::Music,
-        Some(app.backend.art()),
     );
     let art = ui.interact(rect, egui::Id::new("sidebar-art"), Sense::click());
     let chevron_rect = Rect::from_center_size(
@@ -742,6 +742,7 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
                     user_id,
                     app.can_edit_playlist(playlist),
                     depth,
+                    EntryArt::of(app),
                 ));
             }
         }
@@ -757,6 +758,7 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
                 user_id,
                 app.can_edit_playlist(playlist),
                 0,
+                EntryArt::of(app),
             ));
         }
     }
@@ -791,6 +793,22 @@ fn folder_playlists(rootlist: &[crate::player::RootlistEntry], id: &str) -> usiz
     count
 }
 
+/// The artwork widths a row and a grid card ask for on this display.
+#[derive(Clone, Copy)]
+struct EntryArt {
+    row: u32,
+    grid: u32,
+}
+
+impl EntryArt {
+    fn of(app: &App) -> Self {
+        Self {
+            row: app.art_px(ROW_ART),
+            grid: app.art_px(super::widgets::CARD_ART),
+        }
+    }
+}
+
 fn playlist_entry(
     locale: Locale,
     playlist: &crate::api::models::Playlist,
@@ -798,10 +816,11 @@ fn playlist_entry(
     user_id: &str,
     editable: bool,
     depth: u8,
+    art: EntryArt,
 ) -> Entry {
     Entry {
-        image: pick_image(&playlist.images, 64).map(str::to_string),
-        grid_image: pick_image(&playlist.images, super::GRID_ART_TARGET_WIDTH).map(str::to_string),
+        image: pick_image(&playlist.images, art.row).map(str::to_string),
+        grid_image: pick_image(&playlist.images, art.grid).map(str::to_string),
         name: playlist.name.clone(),
         // Translators: {owner} is the name of the playlist's owner.
         subtitle: gettext(locale, "Playlist • {owner}").replace("{owner}", playlist.owner_name()),
@@ -1055,6 +1074,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let needle = app.library.filter.trim().to_lowercase();
     let user_id = app.user_id().unwrap_or("").to_string();
     let mut entries: Vec<Entry> = Vec::new();
+    let art = EntryArt::of(app);
     let mut loading = false;
     let mut error: Option<String> = None;
     let mut more_page: Option<Page> = None;
@@ -1082,6 +1102,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                             &user_id,
                             app.can_edit_playlist(playlist),
                             0,
+                            art,
                         ));
                     }
                 }
@@ -1105,9 +1126,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     album.artists.iter().map(|artist| artist.name.as_str()),
                 );
                 entries.push(Entry {
-                    image: pick_image(&album.images, 64).map(str::to_string),
-                    grid_image: pick_image(&album.images, super::GRID_ART_TARGET_WIDTH)
-                        .map(str::to_string),
+                    image: pick_image(&album.images, art.row).map(str::to_string),
+                    grid_image: pick_image(&album.images, art.grid).map(str::to_string),
                     name: album.name.clone(),
                     subtitle: format!("{} • {artists}", app.album_kind_label(album)),
                     grid_subtitle: artists,
@@ -1135,9 +1155,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     continue;
                 }
                 entries.push(Entry {
-                    image: pick_image(&artist.images, 64).map(str::to_string),
-                    grid_image: pick_image(&artist.images, super::GRID_ART_TARGET_WIDTH)
-                        .map(str::to_string),
+                    image: pick_image(&artist.images, art.row).map(str::to_string),
+                    grid_image: pick_image(&artist.images, art.grid).map(str::to_string),
                     name: artist.name.clone(),
                     subtitle: gettext(locale, "Artist").into_owned(),
                     grid_subtitle: String::new(),
@@ -1170,9 +1189,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     continue;
                 }
                 entries.push(Entry {
-                    image: pick_image(&show.images, 64).map(str::to_string),
-                    grid_image: pick_image(&show.images, super::GRID_ART_TARGET_WIDTH)
-                        .map(str::to_string),
+                    image: pick_image(&show.images, art.row).map(str::to_string),
+                    grid_image: pick_image(&show.images, art.grid).map(str::to_string),
                     name: show.name.clone(),
                     // Translators: {publisher} is the podcast's publisher.
                     subtitle: gettext(locale, "Podcast • {publisher}")
@@ -1442,7 +1460,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                                 rect.left() + LIBRARY_ITEM_PADDING + indent + 22.0,
                                 rect.center().y,
                             ),
-                            Vec2::splat(44.0),
+                            Vec2::splat(ROW_ART),
                         );
                         if entry.liked {
                             liked_cover(ui, cover_rect, 6.0);
@@ -1555,6 +1573,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
 
 const EXPANDED_ART_GAP: f32 = 10.0;
 const LIBRARY_ITEM_PADDING: f32 = 8.0;
+/// The cover of a list row.
+const ROW_ART: f32 = 44.0;
 const GRID_MIN_CARD_WIDTH: f32 = 108.0;
 const GRID_MAX_COLUMNS: usize = 4;
 const GRID_TEXT_HEIGHT: f32 = 44.0;
@@ -1990,6 +2010,7 @@ fn full_playlist_order(app: &App) -> Vec<String> {
                 app.user_id().unwrap_or(""),
                 false,
                 0,
+                EntryArt::of(app),
             )
         })
         .collect();
@@ -2090,6 +2111,8 @@ mod ordering_tests {
     use crate::api::models::Playlist;
     use crate::settings::Settings;
 
+    const TEST_ART: EntryArt = EntryArt { row: 64, grid: 300 };
+
     fn app(name: &str) -> App {
         let root =
             std::env::temp_dir().join(format!("spotifast-order-{name}-{}", std::process::id()));
@@ -2145,7 +2168,9 @@ mod ordering_tests {
             .unwrap()
             .iter()
             .enumerate()
-            .map(|(index, playlist)| playlist_entry(Locale::English, playlist, index, "", false, 0))
+            .map(|(index, playlist)| {
+                playlist_entry(Locale::English, playlist, index, "", false, 0, TEST_ART)
+            })
             .collect()
     }
 
@@ -2169,7 +2194,7 @@ mod ordering_tests {
             images: images.clone(),
             ..Default::default()
         };
-        let entry = playlist_entry(Locale::English, &playlist, 0, "", false, 0);
+        let entry = playlist_entry(Locale::English, &playlist, 0, "", false, 0, TEST_ART);
         assert_eq!(entry.image.as_deref(), Some("64"));
         assert_eq!(entry.grid_image.as_deref(), Some("300"));
         assert_eq!(pick_image(&images, 640), Some("640"));

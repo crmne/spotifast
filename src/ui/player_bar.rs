@@ -411,14 +411,14 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         return;
     };
 
-    super::widgets::paint_cover(
+    super::widgets::playing_cover(
         ui,
         &palette,
-        now.art_small.as_deref().or(now.art_url.as_deref()),
+        app.backend.art(),
+        "player-bar",
+        app.small_art(now, cover_rect.width()),
         cover_rect,
         6.0,
-        Icon::Music,
-        Some(app.backend.art()),
     );
     let song = app.now_playing_item();
     let drag_sense = if song.is_some() {

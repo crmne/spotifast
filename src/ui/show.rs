@@ -11,10 +11,12 @@ use crate::model::{Action, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 use crate::util;
 
-use super::collection::{Hero, hero, hero_images};
+use super::collection::{Hero, HeroArt, hero, hero_images};
 use super::widgets;
 
 pub const EPISODE_ROW_HEIGHT: f32 = 128.0;
+/// The cover of an episode row.
+const EPISODE_ART: f32 = 96.0;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
     if !app.show_pages.contains_key(id) {
@@ -49,7 +51,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             theme::section_title(ui, &palette, &gettext(locale, "All episodes"));
             ui.add_space(6.0);
             let episodes = page.episodes.items.clone();
-            let show_image = pick_image(&show.images, 64).map(str::to_string);
+            let show_image = pick_image(&show.images, app.art_px(EPISODE_ART)).map(str::to_string);
             if episodes.is_empty() && !app.network_reachable {
                 widgets::empty_state(
                     ui,
@@ -170,6 +172,7 @@ fn show_hero(app: &mut App, ui: &mut egui::Ui, show: &Show, preview: Option<&Sho
         &show.images,
         preview.map(|show| show.images.as_slice()),
         false,
+        HeroArt::of(app),
     );
     hero(
         app,
@@ -276,8 +279,8 @@ pub fn episode_row(
         );
     }
     let inner = rect.shrink2(vec2(12.0, 12.0));
-    let cover_rect = Rect::from_min_size(inner.min, Vec2::splat(96.0));
-    let image = pick_image(&episode.images, 64).or(fallback_image);
+    let cover_rect = Rect::from_min_size(inner.min, Vec2::splat(EPISODE_ART));
+    let image = pick_image(&episode.images, app.art_px(EPISODE_ART)).or(fallback_image);
     widgets::paint_cover(
         ui,
         &palette,
