@@ -369,9 +369,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         playlist::show(app, &mut below, now.as_ref(), focused);
     }
 
+    // A song's time moves on, and so does a line too long for the marquee,
+    // such as a notice with no song loaded.
     if vis_moving {
         crate::theme::visualiser_frame(&ctx, app.visualiser_fps());
-    } else if now.is_some() {
+    } else if now.is_some() || app.winamp.marquee_scrolling() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }
 }
