@@ -3353,3 +3353,11 @@ msgstr ""
 
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr "Spotify не дозволяє застосункам видаляти з черги окрему пісню."
+
+#: src/ui/settings.rs
+msgid "Show scrollbars only on hover"
+msgstr "Показувати смуги прокручування лише при наведенні"
+
+#: src/ui/settings.rs
+msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
+msgstr "Показувати смуги прокручування при наведенні на їхній край. Вимкніть, щоб вони залишалися видимими."

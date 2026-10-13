@@ -3327,3 +3327,11 @@ msgstr ""
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr ""
 #~ "Spotify uygulamaların sıradan tek bir şarkıyı kaldırmasına izin vermiyor."
+
+#: src/ui/settings.rs:808
+msgid "Show scrollbars only on hover"
+msgstr "Kaydırma çubuklarını yalnızca üzerine gelindiğinde göster"
+
+#: src/ui/settings.rs:888
+msgid "Show scrollbars when hovering over their edge. Turn off to keep them visible."
+msgstr "İşaretçi kenarlarının üzerine geldiğinde kaydırma çubuklarını göster. Sürekli görünür tutmak için kapatın."
