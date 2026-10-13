@@ -216,6 +216,25 @@ impl QueueTab {
     }
 }
 
+/// The active view displayed in full-screen mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FullscreenContent {
+    /// Dedicated album artwork, playback information, and context drawer.
+    #[default]
+    NowPlaying,
+    /// Time-synced or plain lyrics display.
+    Lyrics,
+}
+
+/// The collection or queue view shown inside the slide-out drawer during full screen.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum FullscreenDrawer {
+    Playlist(String),
+    Album(String),
+    LikedSongs,
+    Queue,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Loadable<T> {
     #[default]
@@ -1199,6 +1218,13 @@ pub enum Action {
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,
+    SetFullscreen {
+        enabled: bool,
+        content: FullscreenContent,
+    },
+    SetFullscreenContent(FullscreenContent),
+    ToggleFullscreenDrawer(FullscreenDrawer),
+    CloseFullscreenDrawer,
     SetLyricsFullscreen(bool),
     LyricsLineShown(Option<usize>),
     FollowLyrics,

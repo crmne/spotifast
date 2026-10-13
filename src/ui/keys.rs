@@ -17,6 +17,7 @@ pub(super) const QUIT_SHORTCUT: &str = platform_shortcut("Ctrl+Q", "Cmd+Q");
 pub(super) const WINAMP_SHORTCUT: &str = platform_shortcut("Ctrl+M", "Cmd+Shift+M");
 pub(super) const MILKDROP_SHORTCUT: &str = platform_shortcut("Ctrl+Shift+K", "Cmd+Shift+K");
 
+/// Handle global keyboard shortcuts and translate them into queued actions.
 pub fn handle(app: &mut App, ctx: &egui::Context) {
     let typing = ctx.memory(|memory| memory.focused().is_some());
     // A focused song row still takes Ctrl+arrow to change songs; a text
@@ -107,6 +108,21 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::COMMAND, Key::ArrowUp, Action::VolumeBy(5));
             key(Modifiers::COMMAND, Key::ArrowDown, Action::VolumeBy(-5));
         }
+        key(
+            Modifiers::NONE,
+            Key::F11,
+            if app.lyrics_fullscreen.is_some() {
+                Action::SetFullscreen {
+                    enabled: false,
+                    content: app.fullscreen_content,
+                }
+            } else {
+                Action::SetFullscreen {
+                    enabled: true,
+                    content: crate::model::FullscreenContent::NowPlaying,
+                }
+            },
+        );
         if !typing {
             key(
                 Modifiers::NONE,
@@ -180,6 +196,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             app.actions.push(Action::CloseDialog);
         } else if app.show_devices {
             app.show_devices = false;
+        } else if app.fullscreen_drawer.is_some() {
+            app.actions.push(Action::CloseFullscreenDrawer);
         } else if app.lyrics_fullscreen.is_some() {
             app.actions.push(Action::SetLyricsFullscreen(false));
         }
@@ -218,7 +236,11 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
         (keys("Q"), gettext(locale, "Show the queue")),
         (keys("L"), gettext(locale, "Show the lyrics")),
         (keys("F"), gettext(locale, "Full screen lyrics")),
-        (keys("Esc"), gettext(locale, "Lyrics: leave full screen")),
+        (keys("F11"), gettext(locale, "Enter or leave full screen")),
+        (
+            keys("Esc"),
+            gettext(locale, "Full screen: close drawer, or leave full screen"),
+        ),
         (
             keys("Shift+↑  /  Shift+↓"),
             gettext(locale, "Song list: extend or shrink the selection"),

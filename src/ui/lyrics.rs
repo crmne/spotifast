@@ -2,9 +2,10 @@
 
 use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, pos2, vec2};
 
+use crate::api::models::PlayableItem;
 use crate::app::App;
 use crate::i18n::{gettext, pgettext};
-use crate::model::{Action, Loadable};
+use crate::model::{Action, FullscreenContent, FullscreenDrawer, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 
 use super::widgets;
@@ -311,28 +312,83 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     app.lyrics_line_shown = Some(active);
 }
 
+const DRAWER_WIDTH: f32 = 380.0;
+
+/// Draw the full-screen view, showing either Now Playing artwork or lyrics
+/// along with any active slide-out context drawer.
 pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
     egui::CentralPanel::default()
         .frame(Frame::new().fill(theme::Palette::dark().window))
         .show(ui, |ui| {
             let rect = ui.max_rect();
             background(app, ui, rect);
-            let top = theme::titlebar_inset(ui.ctx()) + 24.0;
-            if app.now_playing().is_some() && rect.width() >= COVER_BESIDE_MIN_WIDTH {
-                with_cover(app, ui, rect, top);
-                return;
-            }
-            let width = fullscreen_content_width(rect.width());
-            let region = Rect::from_min_max(
-                pos2(rect.center().x - width / 2.0, rect.top() + top),
-                pos2(rect.center().x + width / 2.0, rect.bottom()),
+
+            let open_t = ui.ctx().animate_value_with_time(
+                egui::Id::new("fullscreen_drawer_slide"),
+                if app.fullscreen_drawer.is_some() {
+                    1.0
+                } else {
+                    0.0
+                },
+                0.20,
             );
-            let mut content = ui.new_child(UiBuilder::new().max_rect(region));
-            fullscreen_header(app, &mut content);
-            content.add_space(20.0);
-            track_heading(app, &mut content);
-            content.add_space(16.0);
-            fullscreen_contents(app, &mut content);
+
+            let content_rect = Rect::from_min_max(
+                rect.min,
+                pos2(rect.right() - DRAWER_WIDTH * open_t, rect.bottom()),
+            );
+            let top = theme::titlebar_inset(ui.ctx()) + 24.0;
+            let outer = Rect::from_min_max(
+                pos2(content_rect.left() + 48.0, content_rect.top() + top),
+                pos2(content_rect.right() - 48.0, content_rect.bottom() - 24.0),
+            );
+
+            let mut header_ui = ui.new_child(UiBuilder::new().max_rect(outer));
+            fullscreen_header(app, &mut header_ui);
+
+            let below = Rect::from_min_max(
+                pos2(outer.left(), header_ui.min_rect().bottom() + 20.0),
+                outer.max,
+            );
+
+            let content = match app.fullscreen_content {
+                FullscreenContent::NowPlaying if !app.show_lyrics_panel => {
+                    FullscreenContent::NowPlaying
+                }
+                _ => FullscreenContent::Lyrics,
+            };
+
+            match content {
+                FullscreenContent::NowPlaying => {
+                    now_playing_fullscreen(app, ui, below);
+                }
+                FullscreenContent::Lyrics => {
+                    if app.now_playing().is_some() && below.width() >= COVER_BESIDE_MIN_WIDTH {
+                        with_cover(app, ui, below);
+                    } else {
+                        let width = fullscreen_content_width(content_rect.width());
+                        let region = Rect::from_min_max(
+                            pos2(below.center().x - width / 2.0, below.top()),
+                            pos2(below.center().x + width / 2.0, below.bottom()),
+                        );
+                        let mut content = ui.new_child(UiBuilder::new().max_rect(region));
+                        track_heading(app, &mut content);
+                        content.add_space(16.0);
+                        fullscreen_contents(app, &mut content);
+                    }
+                }
+            }
+
+            if open_t > 0.0 {
+                let slide_offset = DRAWER_WIDTH * (1.0 - open_t);
+                let drawer_rect = Rect::from_min_size(
+                    pos2(rect.right() - DRAWER_WIDTH + slide_offset, rect.top()),
+                    vec2(DRAWER_WIDTH, rect.height()),
+                );
+                let mut drawer_ui = ui.new_child(UiBuilder::new().max_rect(rect));
+                drawer_ui.set_clip_rect(rect.intersect(ui.clip_rect()));
+                fullscreen_drawer(app, &mut drawer_ui, drawer_rect);
+            }
         });
 }
 
@@ -346,17 +402,7 @@ const COVER_BESIDE_MIN_WIDTH: f32 = 900.0;
 /// Full screen with the cover large: beside the lyrics when there are
 /// words to follow, and alone in the middle when there are none, a calm
 /// view of what is playing.
-fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
-    let outer = Rect::from_min_max(
-        pos2(rect.left() + 48.0, rect.top() + top),
-        pos2(rect.right() - 48.0, rect.bottom() - 40.0),
-    );
-    let mut header = ui.new_child(UiBuilder::new().max_rect(outer));
-    fullscreen_header(app, &mut header);
-    let below = Rect::from_min_max(
-        pos2(outer.left(), header.min_rect().bottom() + 24.0),
-        outer.max,
-    );
+fn with_cover(app: &mut App, ui: &mut egui::Ui, below: Rect) {
     // The cover moves aside only for words to read. While they load it
     // stays in the middle, so a song that turns out to have none never
     // moves at all.
@@ -444,15 +490,16 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
     }
 }
 
-/// The playing song's cover filling the top of `column`, with its title and
+/// The cover large, with subtle drop shadow, its rounded corners, and the song's title and
 /// artists beneath, aligned to its left edge or centred.
-fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
+/// Clicking the song title toggles the album in the drawer.
+fn big_cover(app: &mut App, ui: &mut egui::Ui, column: Rect, align: Align) {
     let Some(now) = app.now_playing() else {
         return;
     };
     let side = column.width();
     let cover = Rect::from_min_size(column.min, vec2(side, side));
-    let radius = 10.0;
+    let radius = 12.0;
     ui.painter().add(
         egui::epaint::Shadow {
             offset: [0, 18],
@@ -478,14 +525,29 @@ fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
             .layout(Layout::top_down(align)),
     );
     text.spacing_mut().item_spacing.y = 4.0;
-    text.add(
-        egui::Label::new(
-            egui::RichText::new(&now.title)
-                .font(theme::semibold(22.0))
-                .color(Color32::WHITE),
-        )
-        .truncate(),
+    let title_text = egui::RichText::new(&now.title)
+        .font(theme::semibold(22.0))
+        .color(Color32::WHITE);
+    let title_resp = text.add(
+        egui::Label::new(title_text)
+            .sense(if now.album_id.is_some() {
+                Sense::click()
+            } else {
+                Sense::hover()
+            })
+            .truncate(),
     );
+    if let Some(album_id) = &now.album_id {
+        let title_resp = title_resp
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text(gettext(app.locale, "Show album in drawer"));
+        if title_resp.clicked() {
+            app.actions
+                .push(Action::ToggleFullscreenDrawer(FullscreenDrawer::Album(
+                    album_id.clone(),
+                )));
+        }
+    }
     text.add(
         egui::Label::new(
             egui::RichText::new(&now.subtitle)
@@ -496,15 +558,18 @@ fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
     );
 }
 
+/// Calculates the responsive content column width for full-screen lyrics.
 fn fullscreen_content_width(viewport_width: f32) -> f32 {
     let available = (viewport_width - 48.0).max(0.0);
     (viewport_width * 0.72).clamp(400.0, 960.0).min(available)
 }
 
+/// Selects the best artwork URL for the full-screen blurred backdrop.
 fn preferred_backdrop_art(small: Option<String>, large: Option<String>) -> Option<String> {
     small.or(large)
 }
 
+/// Paints the full-screen darkened and gradient-tinted album artwork backdrop.
 fn background(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
     theme::apply_local(ui, &theme::Palette::dark());
     let art = app
@@ -531,6 +596,7 @@ fn background(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
     );
 }
 
+/// Calculates UV coordinates to crop and fill the backdrop rect while preserving aspect ratio.
 fn cover_uv(view: egui::Vec2, image: egui::Vec2) -> Rect {
     let ratio = (view.x / view.y.max(1.0)) / (image.x / image.y.max(1.0));
     let size = if ratio > 1.0 {
@@ -541,15 +607,19 @@ fn cover_uv(view: egui::Vec2, image: egui::Vec2) -> Rect {
     Rect::from_center_size(pos2(0.5, 0.5), size)
 }
 
+/// The top bar of the full-screen view with title, mode switcher, queue drawer button, and exit.
 fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
     let palette = theme::Palette::dark();
+    let content = match app.fullscreen_content {
+        FullscreenContent::NowPlaying if !app.show_lyrics_panel => FullscreenContent::NowPlaying,
+        _ => FullscreenContent::Lyrics,
+    };
     ui.horizontal(|ui| {
-        theme::text(
-            ui,
-            gettext(app.locale, "Lyrics"),
-            theme::bold(18.0),
-            palette.text,
-        );
+        let title = match content {
+            FullscreenContent::NowPlaying => gettext(app.locale, "Now Playing"),
+            FullscreenContent::Lyrics => gettext(app.locale, "Lyrics"),
+        };
+        theme::text(ui, title, theme::bold(18.0), palette.text);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if theme::icon_button(
                 ui,
@@ -561,27 +631,474 @@ fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
             )
             .clicked()
             {
-                app.actions.push(Action::SetLyricsFullscreen(false));
+                app.actions.push(Action::SetFullscreen {
+                    enabled: false,
+                    content,
+                });
             }
-            let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
-            if loaded
-                && !app.lyrics_following
-                && theme::pill_button(
-                    ui,
-                    &palette,
-                    &pgettext(app.locale, "lyrics", "Follow"),
-                    false,
-                )
-                .clicked()
+
+            let queue_open = app.fullscreen_drawer == Some(FullscreenDrawer::Queue);
+            if theme::icon_button(
+                ui,
+                Icon::ListVideo,
+                18.0,
+                if queue_open {
+                    palette.accent
+                } else {
+                    palette.secondary
+                },
+                palette.text,
+                &gettext(app.locale, "Queue"),
+            )
+            .clicked()
             {
-                app.actions.push(Action::FollowLyrics);
+                app.actions
+                    .push(Action::ToggleFullscreenDrawer(FullscreenDrawer::Queue));
+            }
+
+            match content {
+                FullscreenContent::NowPlaying => {
+                    if theme::icon_button(
+                        ui,
+                        Icon::Mic,
+                        18.0,
+                        palette.secondary,
+                        palette.text,
+                        &gettext(app.locale, "Lyrics"),
+                    )
+                    .clicked()
+                    {
+                        app.actions
+                            .push(Action::SetFullscreenContent(FullscreenContent::Lyrics));
+                    }
+                }
+                FullscreenContent::Lyrics => {
+                    if theme::icon_button(
+                        ui,
+                        Icon::Music,
+                        18.0,
+                        palette.secondary,
+                        palette.text,
+                        &gettext(app.locale, "Now Playing"),
+                    )
+                    .clicked()
+                    {
+                        app.actions
+                            .push(Action::SetFullscreenContent(FullscreenContent::NowPlaying));
+                    }
+                    let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
+                    if loaded
+                        && !app.lyrics_following
+                        && theme::pill_button(
+                            ui,
+                            &palette,
+                            &pgettext(app.locale, "lyrics", "Follow"),
+                            false,
+                        )
+                        .clicked()
+                    {
+                        app.actions.push(Action::FollowLyrics);
+                    }
+                }
             }
         });
     });
 }
 
-fn track_heading(app: &App, ui: &mut egui::Ui) {
+/// Full screen with the cover centred and artist and title beneath.
+fn now_playing_fullscreen(app: &mut App, ui: &mut egui::Ui, below: Rect) {
+    if app.now_playing().is_none() {
+        let mut empty_ui = ui.new_child(
+            UiBuilder::new()
+                .max_rect(below)
+                .layout(Layout::top_down(Align::Center)),
+        );
+        empty_ui.add_space((below.height() * 0.3).max(40.0));
+        widgets::empty_state(
+            &mut empty_ui,
+            &theme::Palette::dark(),
+            Icon::Music,
+            &gettext(app.locale, "Nothing playing"),
+            &gettext(app.locale, "Choose a song to start listening."),
+        );
+        return;
+    }
+
+    let side = (below.height() - 140.0)
+        .min(below.width() * 0.55)
+        .clamp(200.0, 520.0);
+    let column = Rect::from_center_size(below.center(), vec2(side, side + 90.0));
+    big_cover(app, ui, column, Align::Center);
+}
+
+/// Draws the slide-out drawer containing playlist, album, liked songs, or queue rows.
+fn fullscreen_drawer(app: &mut App, ui: &mut egui::Ui, drawer_rect: Rect) {
+    let palette = theme::Palette::dark();
+    let clip = drawer_rect.intersect(ui.clip_rect());
+    let painter = ui.painter().with_clip_rect(clip);
+
+    painter.rect_filled(drawer_rect, 0.0, palette.panel);
+    painter.line_segment(
+        [drawer_rect.left_top(), drawer_rect.left_bottom()],
+        egui::Stroke::new(1.0, Color32::from_white_alpha(20)),
+    );
+
+    let drawer_content_rect = drawer_rect.shrink2(vec2(16.0, 16.0));
+    let mut drawer_ui = ui.new_child(UiBuilder::new().max_rect(drawer_content_rect));
+    drawer_ui.set_clip_rect(clip);
+
+    let drawer = match &app.fullscreen_drawer {
+        Some(drawer) => drawer.clone(),
+        None => return,
+    };
+
+    let title = match &drawer {
+        FullscreenDrawer::Playlist(id) => app
+            .library_entry(id)
+            .map(|p| p.name.clone())
+            .or_else(|| {
+                app.playlist_pages
+                    .get(id)
+                    .and_then(|p| p.playlist.get())
+                    .map(|p| p.name.clone())
+            })
+            .unwrap_or_else(|| gettext(app.locale, "Playlist").into_owned()),
+        FullscreenDrawer::Album(id) => app
+            .album_pages
+            .get(id)
+            .and_then(|p| p.album.get())
+            .map(|a| a.name.clone())
+            .or_else(|| {
+                app.now_playing()
+                    .filter(|now| now.album_id.as_deref() == Some(id.as_str()))
+                    .map(|now| now.album_name)
+            })
+            .unwrap_or_else(|| gettext(app.locale, "Album").into_owned()),
+        FullscreenDrawer::LikedSongs => gettext(app.locale, "Liked Songs").into_owned(),
+        FullscreenDrawer::Queue => gettext(app.locale, "Queue").into_owned(),
+    };
+
+    drawer_ui.horizontal(|ui| {
+        theme::text(ui, title, theme::semibold(16.0), palette.text);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if theme::icon_button(
+                ui,
+                Icon::X,
+                18.0,
+                palette.secondary,
+                palette.text,
+                &gettext(app.locale, "Close"),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::CloseFullscreenDrawer);
+            }
+        });
+    });
+
+    drawer_ui.add_space(12.0);
+
+    egui::ScrollArea::vertical()
+        .id_salt(("fs_drawer_scroll", &drawer))
+        .show(&mut drawer_ui, |ui| {
+            let row_height = theme::COMPACT_ROW_HEIGHT;
+            match drawer {
+                FullscreenDrawer::Playlist(id) => {
+                    let total_len = app
+                        .playlist_pages
+                        .get(&id)
+                        .map(|p| p.items.items.len())
+                        .unwrap_or(0);
+                    if total_len == 0 {
+                        let page = app.playlist_pages.get(&id);
+                        let failed = page.is_some_and(|p| {
+                            matches!(p.playlist, Loadable::Failed(_)) || p.items.error.is_some()
+                        });
+                        let loading = page.is_none_or(|p| {
+                            p.items.loading
+                                || !p.items.loaded_once
+                                || matches!(p.playlist, Loadable::Loading | Loadable::NotLoaded)
+                        });
+                        if failed {
+                            widgets::empty_state(
+                                ui,
+                                &palette,
+                                Icon::ListMusic,
+                                &gettext(app.locale, "Could not load playlist"),
+                                &gettext(app.locale, "Try again later."),
+                            );
+                        } else if loading {
+                            widgets::loading_row(ui, &palette, app.locale);
+                        } else {
+                            widgets::empty_state(
+                                ui,
+                                &palette,
+                                Icon::ListMusic,
+                                &gettext(app.locale, "Empty playlist"),
+                                &gettext(app.locale, "No songs in this playlist."),
+                            );
+                        }
+                    } else {
+                        let context = RowContext::Context {
+                            uri: format!("spotify:playlist:{id}"),
+                            editable_playlist: None,
+                        };
+                        widgets::virtual_rows(ui, total_len, row_height, |ui, idx| {
+                            let item = app
+                                .playlist_pages
+                                .get(&id)
+                                .and_then(|p| p.items.items.get(idx))
+                                .and_then(|it| it.playable().cloned());
+                            if let Some(item) = item {
+                                widgets::track_row(
+                                    ui,
+                                    app,
+                                    widgets::TrackRow {
+                                        index: idx,
+                                        number: Some(idx + 1),
+                                        item: &item,
+                                        context: &context,
+                                        show_cover: true,
+                                        show_album: false,
+                                        added_at: None,
+                                        added_by: None,
+                                        show_added_by: false,
+                                        compact: true,
+                                        thin: false,
+                                        shift: 0.0,
+                                        picked: false,
+                                        picked_songs: &[],
+                                    },
+                                );
+                            }
+                        });
+                        let can_load = app
+                            .playlist_pages
+                            .get(&id)
+                            .is_some_and(|p| p.items.can_load_more() && !p.items.loading);
+                        widgets::load_more_when_near_end(
+                            ui,
+                            app,
+                            Page::Playlist(id.clone()),
+                            can_load,
+                        );
+                    }
+                }
+                FullscreenDrawer::Album(id) => {
+                    let total_len = app
+                        .album_pages
+                        .get(&id)
+                        .map(|p| p.tracks.items.len())
+                        .unwrap_or(0);
+                    if total_len == 0 {
+                        let page = app.album_pages.get(&id);
+                        let failed = page.is_some_and(|p| {
+                            matches!(p.album, Loadable::Failed(_)) || p.tracks.error.is_some()
+                        });
+                        let loading = page.is_none_or(|p| {
+                            p.tracks.loading
+                                || !p.tracks.loaded_once
+                                || matches!(p.album, Loadable::Loading | Loadable::NotLoaded)
+                        });
+                        if failed {
+                            widgets::empty_state(
+                                ui,
+                                &palette,
+                                Icon::Disc,
+                                &gettext(app.locale, "Could not load album"),
+                                &gettext(app.locale, "Try again later."),
+                            );
+                        } else if loading {
+                            widgets::loading_row(ui, &palette, app.locale);
+                        } else {
+                            widgets::empty_state(
+                                ui,
+                                &palette,
+                                Icon::Disc,
+                                &gettext(app.locale, "Empty album"),
+                                &gettext(app.locale, "No songs in this album."),
+                            );
+                        }
+                    } else {
+                        let context = RowContext::Context {
+                            uri: format!("spotify:album:{id}"),
+                            editable_playlist: None,
+                        };
+                        widgets::virtual_rows(ui, total_len, row_height, |ui, idx| {
+                            let item = app
+                                .album_pages
+                                .get(&id)
+                                .and_then(|p| p.tracks.items.get(idx))
+                                .map(|t| PlayableItem::Track(t.clone()));
+                            if let Some(item) = item {
+                                widgets::track_row(
+                                    ui,
+                                    app,
+                                    widgets::TrackRow {
+                                        index: idx,
+                                        number: Some(idx + 1),
+                                        item: &item,
+                                        context: &context,
+                                        show_cover: false,
+                                        show_album: false,
+                                        added_at: None,
+                                        added_by: None,
+                                        show_added_by: false,
+                                        compact: true,
+                                        thin: false,
+                                        shift: 0.0,
+                                        picked: false,
+                                        picked_songs: &[],
+                                    },
+                                );
+                            }
+                        });
+                        let can_load = app
+                            .album_pages
+                            .get(&id)
+                            .is_some_and(|p| p.tracks.can_load_more() && !p.tracks.loading);
+                        widgets::load_more_when_near_end(
+                            ui,
+                            app,
+                            Page::Album(id.clone()),
+                            can_load,
+                        );
+                    }
+                }
+                FullscreenDrawer::LikedSongs => {
+                    let total_len = app.library.liked.items.len();
+                    if total_len == 0 {
+                        if app.library.liked.error.is_some() {
+                            widgets::empty_state(
+                                ui,
+                                &palette,
+                                Icon::Heart,
+                                &gettext(app.locale, "Could not load liked songs"),
+                                &gettext(app.locale, "Try again later."),
+                            );
+                        } else if app.library.liked.loading || !app.library.liked.loaded_once {
+                            widgets::loading_row(ui, &palette, app.locale);
+                        } else {
+                            widgets::empty_state(
+                                ui,
+                                &palette,
+                                Icon::Heart,
+                                &gettext(app.locale, "No liked songs"),
+                                &gettext(app.locale, "Liked songs appear here."),
+                            );
+                        }
+                    } else {
+                        let context = if let Some(user) = &app.user
+                            && app.library.liked.is_complete()
+                        {
+                            RowContext::Context {
+                                uri: format!("spotify:user:{}:collection", user.id),
+                                editable_playlist: None,
+                            }
+                        } else {
+                            let cached_id = egui::Id::new("fs_drawer_liked_uris");
+                            let revision = app.library.liked.revision;
+                            let uris: std::sync::Arc<[String]> = ui.data_mut(|d| {
+                                if let Some((rev, uris)) =
+                                    d.get_temp::<(u64, std::sync::Arc<[String]>)>(cached_id)
+                                    && rev == revision
+                                {
+                                    uris
+                                } else {
+                                    let uris: std::sync::Arc<[String]> = app
+                                        .library
+                                        .liked
+                                        .items
+                                        .iter()
+                                        .map(|s| s.track.uri.clone())
+                                        .collect();
+                                    d.insert_temp(cached_id, (revision, uris.clone()));
+                                    uris
+                                }
+                            });
+                            RowContext::Uris(uris)
+                        };
+                        widgets::virtual_rows(ui, total_len, row_height, |ui, idx| {
+                            let item = app
+                                .library
+                                .liked
+                                .items
+                                .get(idx)
+                                .map(|s| PlayableItem::Track(s.track.clone()));
+                            if let Some(item) = item {
+                                widgets::track_row(
+                                    ui,
+                                    app,
+                                    widgets::TrackRow {
+                                        index: idx,
+                                        number: Some(idx + 1),
+                                        item: &item,
+                                        context: &context,
+                                        show_cover: true,
+                                        show_album: false,
+                                        added_at: None,
+                                        added_by: None,
+                                        show_added_by: false,
+                                        compact: true,
+                                        thin: false,
+                                        shift: 0.0,
+                                        picked: false,
+                                        picked_songs: &[],
+                                    },
+                                );
+                            }
+                        });
+                        let can_load =
+                            app.library.liked.can_load_more() && !app.library.liked.loading;
+                        widgets::load_more_when_near_end(ui, app, Page::LikedSongs, can_load);
+                    }
+                }
+                FullscreenDrawer::Queue => {
+                    let total_len = app.queue.get().map(|q| q.queue.len()).unwrap_or(0);
+                    if total_len == 0 {
+                        widgets::empty_state(
+                            ui,
+                            &palette,
+                            Icon::ListVideo,
+                            &gettext(app.locale, "Nothing queued"),
+                            &gettext(app.locale, "Queued songs appear here."),
+                        );
+                    } else {
+                        widgets::virtual_rows(ui, total_len, row_height, |ui, idx| {
+                            let item = app.queue.get().and_then(|q| q.queue.get(idx)).cloned();
+                            if let Some(item) = item {
+                                widgets::track_row(
+                                    ui,
+                                    app,
+                                    widgets::TrackRow {
+                                        index: idx,
+                                        number: Some(idx + 1),
+                                        item: &item,
+                                        context: &RowContext::Queue,
+                                        show_cover: true,
+                                        show_album: false,
+                                        added_at: None,
+                                        added_by: None,
+                                        show_added_by: false,
+                                        compact: true,
+                                        thin: false,
+                                        shift: 0.0,
+                                        picked: false,
+                                        picked_songs: &[],
+                                    },
+                                );
+                            }
+                        });
+                    }
+                }
+            }
+        });
+}
+
+/// The track cover, title, and artist at the top of narrow-viewport full-screen lyrics.
+fn track_heading(app: &mut App, ui: &mut egui::Ui) {
     if let Some(now) = app.now_playing() {
+        let album_id = now.album_id.clone();
         ui.horizontal(|ui| {
             let size = 52.0;
             let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
@@ -595,14 +1112,29 @@ fn track_heading(app: &App, ui: &mut egui::Ui) {
                 4.0,
             );
             ui.vertical(|ui| {
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&now.title)
-                            .font(theme::semibold(22.0))
-                            .color(Color32::WHITE),
-                    )
-                    .truncate(),
+                let title_text = egui::RichText::new(&now.title)
+                    .font(theme::semibold(22.0))
+                    .color(Color32::WHITE);
+                let title_resp = ui.add(
+                    egui::Label::new(title_text)
+                        .sense(if album_id.is_some() {
+                            Sense::click()
+                        } else {
+                            Sense::hover()
+                        })
+                        .truncate(),
                 );
+                if let Some(album_id) = album_id {
+                    let title_resp = title_resp
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .on_hover_text(gettext(app.locale, "Show album in drawer"));
+                    if title_resp.clicked() {
+                        app.actions
+                            .push(Action::ToggleFullscreenDrawer(FullscreenDrawer::Album(
+                                album_id,
+                            )));
+                    }
+                }
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(&now.subtitle)
@@ -616,6 +1148,7 @@ fn track_heading(app: &App, ui: &mut egui::Ui) {
     }
 }
 
+/// The scrolling lyrics list or empty state inside full-screen lyrics mode.
 fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
     let palette = theme::Palette::dark();
     let Some(now) = app.now_playing() else {

@@ -4,7 +4,7 @@ use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, 
 
 use crate::app::{App, NowPlaying};
 use crate::i18n::gettext;
-use crate::model::{Action, DragTrack, Page};
+use crate::model::{Action, DragTrack, FullscreenContent, Page};
 use crate::player::RepeatMode;
 use crate::theme::{self, Icon};
 use crate::util;
@@ -801,6 +801,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     );
 }
 
+/// Draw trailing player bar controls including volume, device picker, lyrics, queue, and full screen.
 fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     let palette = app.palette;
     ui.spacing_mut().item_spacing.x = 6.0;
@@ -941,6 +942,40 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     .clicked()
     {
         app.actions.push(Action::ToggleLyricsPanel);
+    }
+    let in_fullscreen = app.lyrics_fullscreen.is_some();
+    let is_now_playing_fs =
+        in_fullscreen && app.fullscreen_content == FullscreenContent::NowPlaying;
+    if theme::icon_button(
+        ui,
+        Icon::Expand,
+        18.0,
+        if is_now_playing_fs {
+            palette.accent
+        } else {
+            palette.secondary
+        },
+        palette.text,
+        &gettext(app.locale, "Full screen"),
+    )
+    .clicked()
+    {
+        if in_fullscreen {
+            if app.fullscreen_content == FullscreenContent::Lyrics {
+                app.actions
+                    .push(Action::SetFullscreenContent(FullscreenContent::NowPlaying));
+            } else {
+                app.actions.push(Action::SetFullscreen {
+                    enabled: false,
+                    content: FullscreenContent::NowPlaying,
+                });
+            }
+        } else {
+            app.actions.push(Action::SetFullscreen {
+                enabled: true,
+                content: FullscreenContent::NowPlaying,
+            });
+        }
     }
 }
 
