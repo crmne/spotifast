@@ -872,9 +872,12 @@ pub enum Event {
     },
     Local(Box<LocalState>),
     Api(Box<ApiResponse>),
+    /// The colour drawn from a cover: `None` when it has none to give, so
+    /// nothing waits for one or asks again, or why it could not be read for
+    /// now.
     Accent {
         url: String,
-        color: [u8; 3],
+        color: Result<Option<[u8; 3]>, String>,
     },
     Error(String),
     /// GitHub answered an update check, or the request failed.
@@ -4180,16 +4183,16 @@ impl Worker {
         let events = self.events.clone();
         let waker = self.waker.clone();
         tokio::spawn(async move {
-            if let Ok(bytes) = art.fetch(&url).await {
-                let color = tokio::task::spawn_blocking(move || accent_color(&bytes))
+            // A read that could not finish is a failure to retry, not a
+            // cover without a colour.
+            let color = match art.fetch(&url).await {
+                Ok(bytes) => tokio::task::spawn_blocking(move || accent_color(&bytes))
                     .await
-                    .ok()
-                    .flatten();
-                if let Some(color) = color {
-                    let _ = events.send(Event::Accent { url, color });
-                    waker.wake();
-                }
-            }
+                    .map_err(|error| error.to_string()),
+                Err(error) => Err(error),
+            };
+            let _ = events.send(Event::Accent { url, color });
+            waker.wake();
         });
     }
 }

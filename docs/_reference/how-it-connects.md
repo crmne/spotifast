@@ -233,6 +233,11 @@ extraction and softened loading previews use 64-pixel thumbnails. These URLs
 remain unchanged and follow the configured proxy and normal artwork cache.
 Choosing an artwork size and reusing known details add no Web API request.
 
+A cover whose colour could not be read, because its thumbnail did not
+download or the read did not finish, is read again after five seconds, then
+ten, three reads in all, and once more when the network comes back. Each read
+goes through the same thumbnail URL and artwork cache.
+
 A ready sharp cover stays visible until its replacement is ready. A 300-pixel
 grid cover already loaded for the same item can preview a larger page cover
 without another download. When only a small known thumbnail is available, a

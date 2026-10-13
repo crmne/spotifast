@@ -465,7 +465,8 @@ Supported colors are `window`, `panel`, `surface`, `surface_hover`,
 `tint` is the colour the top of a page fades from when album art does not
 colour it: with **Colour from album art** off, or on a page without a cover.
 Its alpha is the strength, so `#00000018` is a faint dark wash and `#ffffff20`
-a faint light one. Leave it out for a plain page.
+a faint light one. A cover's glow crosses over to it, and back, rather than
+jumping. Leave it out for a plain page.
 
 Files are read in the background at launch and when `spotifast reload-themes`
 is called. The command updates the selected palette without interrupting
