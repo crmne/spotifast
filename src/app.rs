@@ -14427,6 +14427,7 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[cfg(feature = "demo")]
     #[test]
     fn lyrics_fullscreen_demo_enters_fullscreen_and_keeps_native_fullscreen() {
         for fullscreen in [false, true] {
