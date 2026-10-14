@@ -1232,7 +1232,7 @@ msgstr "Autorizar"
 #: src/ui/settings.rs:479
 msgctxt "playback status"
 msgid "Ready"
-msgstr "Lista"
+msgstr "Listo"
 
 #: src/ui/settings.rs:480
 msgid "This computer is a Spotify Connect device."
