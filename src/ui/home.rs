@@ -203,6 +203,10 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                     }
                 }
                 if response.clicked() {
+                    if !liked {
+                        let cover = Rect::from_min_size(rect.min, Vec2::splat(TILE_HEIGHT));
+                        widgets::fly_cover(app, image.as_deref(), cover, false, false);
+                    }
                     app.actions.push(Action::Open(page.clone()));
                 }
                 if !liked && let Some(uri) = uri {

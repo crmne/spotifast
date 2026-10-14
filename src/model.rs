@@ -996,9 +996,34 @@ pub struct Toast {
     pub created: Instant,
 }
 
+/// A cover the user clicked to open its page: where it was drawn, so the
+/// same cover can fly from there into the page's header.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CoverOrigin {
+    /// The artwork it showed, already loaded.
+    pub url: String,
+    pub rect: egui::Rect,
+    /// Whether it was drawn round, as an artist's is.
+    pub round: bool,
+    /// Whether it cast a shadow, as a card's does: the cover keeps it as it
+    /// takes off, rather than losing it and growing it again on the way.
+    pub shadow: bool,
+}
+
 /// Actions emitted while drawing and applied afterward to avoid borrow conflicts.
 #[derive(Clone, Debug)]
 pub enum Action {
+    /// The cover just clicked, for the page an [`Action::Open`] after it in
+    /// the same frame opens.
+    FlyCover(CoverOrigin),
+    /// The cover flying into this page has landed, or has nowhere to land.
+    /// A flight into another page, one a click this frame started, carries
+    /// on.
+    EndCoverFlight(Page),
+    /// This page drew no header for its flying cover to land in this frame:
+    /// the cover waits where it was clicked, and its flight begins with the
+    /// first frame that draws one.
+    HoldCoverFlight(Page),
     Open(Page),
     /// Opens the radio of a song shown in a list, after caching the row's
     /// song so the page has its name and cover (#644).

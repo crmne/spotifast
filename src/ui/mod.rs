@@ -6,6 +6,7 @@ pub mod artist;
 pub mod collection;
 pub(crate) mod devices;
 mod dialogs;
+pub mod flight;
 pub mod home;
 mod keys;
 pub mod library;
@@ -78,6 +79,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             lyrics::side_panel(app, ui);
         }
         central(app, ui);
+        flight::show(app, ctx);
         keep_room_for_panels(app, ctx);
     }
     devices::popup(app, ctx);
@@ -218,7 +220,7 @@ pub(crate) enum PageTint {
     Pending,
 }
 
-fn page_tint(app: &mut App) -> PageTint {
+pub(crate) fn page_tint(app: &mut App) -> PageTint {
     let page = app.page().clone();
     let image = match &page {
         Page::Playlist(id) => app
@@ -266,7 +268,16 @@ fn page_tint(app: &mut App) -> PageTint {
         Some(url) => match app.tint_for(Some(&url)) {
             Some(color) => PageTint::Color(color),
             None if app.tint_missing(&url) => app.song_tint(),
-            None => PageTint::Pending,
+            // While it is read, a cover flying into the page brings the
+            // colour of the artwork it shows, already at hand, so the glow
+            // rises with the flight rather than after it.
+            None => app
+                .cover_flight
+                .as_ref()
+                .filter(|flight| flight.page == page)
+                .map(|flight| flight.origin.url.clone())
+                .and_then(|flown| app.tint_for(Some(&flown)))
+                .map_or(PageTint::Pending, PageTint::Color),
         },
         None => app.song_tint(),
     }

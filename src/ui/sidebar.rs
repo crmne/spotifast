@@ -225,11 +225,22 @@ fn grid_play_button(
     true
 }
 
+/// Where a row's cover was drawn and the artwork it showed, for the cover
+/// to fly from when the row opens its page.
+struct EntryCover<'a> {
+    rect: Rect,
+    url: Option<&'a str>,
+}
+
+// Every argument is the row's own, laid out by the caller in the grid or the
+// list; a struct gathering them would only rename them.
+#[allow(clippy::too_many_arguments)]
 fn finish_entry_interaction(
     app: &mut App,
     ui: &mut egui::Ui,
     response: &egui::Response,
     entry: &Entry,
+    cover: Option<EntryCover<'_>>,
     cover_took_click: bool,
     custom_order: bool,
     drop_allowed: bool,
@@ -277,6 +288,11 @@ fn finish_entry_interaction(
             app.actions
                 .push(Action::ToggleLibraryFolder(folder_id.clone()));
         } else {
+            if !entry.liked
+                && let Some(cover) = cover
+            {
+                super::widgets::fly_cover(app, cover.url, cover.rect, entry.round, false);
+            }
             app.actions.push(Action::Open(entry.page.clone()));
         }
     }
@@ -1388,6 +1404,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 // Set when the cover play button takes a click, so a double
                 // click on it does not also play from the row.
                 let mut cover_took_click = false;
+                // Where the row's cover sits, painted there and flown from.
+                let cover_rect = Rect::from_center_size(
+                    pos2(
+                        rect.left() + LIBRARY_ITEM_PADDING + f32::from(entry.depth) * 14.0 + 22.0,
+                        rect.center().y,
+                    ),
+                    Vec2::splat(ROW_ART),
+                );
                 if ui.is_rect_visible(rect) {
                     if active {
                         ui.painter()
@@ -1487,13 +1511,6 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                             name_color,
                         );
                     } else {
-                        let cover_rect = Rect::from_center_size(
-                            pos2(
-                                rect.left() + LIBRARY_ITEM_PADDING + indent + 22.0,
-                                rect.center().y,
-                            ),
-                            Vec2::splat(ROW_ART),
-                        );
                         if entry.liked {
                             liked_cover(ui, cover_rect, 6.0);
                         } else {
@@ -1567,11 +1584,16 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                         );
                     }
                 }
+                let cover = (!compact && entry.folder.is_none()).then_some(EntryCover {
+                    rect: cover_rect,
+                    url: entry.image.as_deref(),
+                });
                 finish_entry_interaction(
                     app,
                     ui,
                     &response,
                     entry,
+                    cover,
                     cover_took_click,
                     custom_order,
                     true,
@@ -1859,11 +1881,16 @@ fn library_grid(
                         }
                     }
 
+                    let cover = EntryCover {
+                        rect: cover_rect,
+                        url: entry.grid_image.as_deref().or(entry.image.as_deref()),
+                    };
                     finish_entry_interaction(
                         app,
                         ui,
                         &response,
                         entry,
+                        Some(cover),
                         cover_took_click,
                         custom_order,
                         pointer.is_some(),

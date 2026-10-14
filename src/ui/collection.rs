@@ -91,9 +91,18 @@ pub(super) fn hero_images<'a>(
 pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
     let palette = app.palette;
     let art = app.backend.art().clone();
+    // A cover that flew in stands in for this one while it loads, ahead of
+    // the softened thumbnail, which is then neither fetched, blurred nor
+    // uploaded in the middle of the flight. One whose card had no copy on
+    // the GPU yet, still loading say, has nothing to show.
+    let flown_in = app
+        .cover_flight
+        .as_ref()
+        .is_some_and(|flight| flight.page == *app.page() && art.has_copy(&flight.origin.url));
     let softened = hero
         .images
         .thumbnail
+        .filter(|_| !flown_in)
         .and_then(|uri| app.softened_covers.texture(ui.ctx(), &art, uri));
     ui.add_space(12.0);
     let cover_size = if ui.available_width() > 720.0 {
@@ -105,10 +114,29 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
         ui.spacing_mut().item_spacing.x = 24.0;
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(cover_size), Sense::hover());
         let radius = if hero.round { cover_size / 2.0 } else { 6.0 };
-        widgets::paint_shadow(ui, &palette, rect, radius);
-        if hero.liked {
+        super::flight::land(
+            ui,
+            super::flight::Landing {
+                rect,
+                radius,
+                requested: hero.images.image.map(str::to_string),
+                previous: hero.images.previous.map(str::to_string),
+                page: ui.clip_rect(),
+                visible: ui.is_rect_visible(rect),
+            },
+        );
+        let flight = app
+            .cover_flight
+            .as_ref()
+            .filter(|flight| flight.page == *app.page());
+        let now = ui.input(|input| input.time);
+        if flight.is_some_and(|flight| super::flight::progress(flight.start, now).is_some()) {
+            // The cover flying in stands in for this one until it lands.
+        } else if hero.liked {
+            widgets::paint_shadow(ui, &palette, rect, radius);
             super::sidebar::liked_cover(ui, rect, radius);
         } else {
+            widgets::paint_shadow(ui, &palette, rect, radius);
             widgets::paint_cover_with_thumbnail(
                 ui,
                 &palette,
@@ -118,6 +146,9 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
                     softened: softened.as_ref(),
                     thumbnail: hero.images.thumbnail,
                     align_thumbnail: hero.images.align_thumbnail,
+                    flown: flight.map(|flight| flight.origin.url.as_str()),
+                    scale_for: None,
+                    moving: false,
                 },
                 rect,
                 radius,

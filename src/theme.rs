@@ -888,8 +888,8 @@ fn next_beat(due: f64, now: f64, interval: f64) -> f64 {
 /// thirty a second, half a common display's rate.
 const SAVER_ANIMATION_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
 
-/// Asks for the next frame of a short interface animation, a toast's fade
-/// say, within the power budget: at the display's own rate as designed,
+/// Asks for the next frame of a short interface animation, a toast's fade or
+/// a cover flying into its page, within the power budget: at the display's own rate as designed,
 /// about thirty a second while saving energy or out of focus, and none when
 /// nobody can see the window.
 pub fn animation_frame(ctx: &egui::Context) {
@@ -898,6 +898,17 @@ pub fn animation_frame(ctx: &egui::Context) {
         Budget::Normal => ctx.request_repaint(),
         Budget::Saver => repaint_after(ctx, SAVER_ANIMATION_FRAME),
         Budget::Background => {}
+    }
+}
+
+/// The shortest frame [`animation_frame`] asks for within `budget`: about a
+/// thirtieth of a second while saving energy, and none of its own as
+/// designed, when the display sets it.
+pub fn shortest_animation_frame(budget: crate::power::Budget) -> std::time::Duration {
+    use crate::power::Budget;
+    match budget {
+        Budget::Saver => SAVER_ANIMATION_FRAME,
+        Budget::Normal | Budget::Background => std::time::Duration::ZERO,
     }
 }
 

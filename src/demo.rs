@@ -4692,6 +4692,601 @@ mod tests {
         );
     }
 
+    /// Draws one frame of the whole window at `time`, with `events`.
+    fn timed_frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        time: f64,
+        events: Vec<egui::Event>,
+    ) -> egui::accesskit::TreeUpdate {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ui| app.frame_ui(ui),
+        );
+        output.textures_delta.clear();
+        output
+            .platform_output
+            .accesskit_update
+            .expect("screen-reader tree")
+    }
+
+    /// Clicks the first album card in the library's Albums grid at `time`.
+    fn click_first_album(ctx: &egui::Context, app: &mut App, time: f64) -> Album {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        app.open(Page::Albums);
+        let tree = timed_frame(ctx, app, time, vec![]);
+        let album = app.library.albums.items[0].album.clone();
+        let card = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.role() == Role::Button
+                    && node
+                        .label()
+                        .is_some_and(|label| label.starts_with(&format!("{}, ", album.name)))
+            })
+            .expect("the first album's card")
+            .0;
+        timed_frame(
+            ctx,
+            app,
+            time + 0.016,
+            vec![accessible_action(card, AccessibleAction::Click, None)],
+        );
+        album
+    }
+
+    /// A clicked card's cover flies into the header of the page it opens.
+    /// The header hides its own cover only while the flight is in the air,
+    /// and once it lands keeps the cover that flew in at hand until its
+    /// own has loaded.
+    #[test]
+    fn a_clicked_cover_flies_into_its_page_header() {
+        let (ctx, mut app) = accessible_app("cover-flight");
+        ctx.add_image_loader(Arc::new(LoadedCovers));
+        let album = click_first_album(&ctx, &mut app, 0.0);
+        assert_eq!(app.page(), &Page::Album(album.id.clone()));
+        let flight = app.cover_flight.clone().expect("the cover flies");
+        assert_eq!(flight.page, Page::Album(album.id.clone()));
+        assert_eq!(
+            flight.origin.rect.size(),
+            egui::Vec2::splat(crate::ui::widgets::CARD_ART)
+        );
+
+        // #then it is still on its way partway through, over the header
+        timed_frame(&ctx, &mut app, 0.016 + 0.14, vec![]);
+        assert!(app.cover_flight.is_some(), "the header waits for it");
+        // The cover that flew in stands in for the header's own while it
+        // loads, so no softened thumbnail is fetched and blurred for it.
+        assert!(
+            album
+                .images
+                .iter()
+                .all(|image| !app.softened_covers.asked(&image.url)),
+            "no softened thumbnail"
+        );
+
+        // #then it has landed, and the header keeps the cover that flew in
+        let landed = 0.016 + crate::ui::flight::FLIGHT_SECONDS + 0.02;
+        timed_frame(&ctx, &mut app, landed, vec![]);
+        let flight = app.cover_flight.clone().expect("the landed cover");
+        assert_eq!(flight.page, Page::Album(album.id.clone()));
+        assert_eq!(crate::ui::flight::progress(flight.start, landed), None);
+        app.backend.shutdown();
+    }
+
+    /// The flying cover shows whole from the frame it takes off: not laid
+    /// out unseen on that frame, nor faded in over the next ones.
+    #[test]
+    fn a_flying_cover_shows_from_its_first_frame() {
+        let (ctx, mut app) = accessible_app("cover-flight-first-frame");
+        click_first_album(&ctx, &mut app, 0.0);
+        let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(window),
+                time: Some(0.032),
+                ..Default::default()
+            },
+            |ui| app.frame_ui(ui),
+        );
+        output.textures_delta.clear();
+        assert!(app.cover_flight.is_some());
+        // The flight alone is clipped to the window's width and the page's
+        // height, so a cover leaving the sidebar is not cut.
+        let flying = output.shapes.iter().any(|clipped| {
+            clipped.clip_rect.x_range() == window.x_range()
+                && clipped.clip_rect.top() > 0.0
+                && clipped.clip_rect.bottom() < window.bottom()
+                && match &clipped.shape {
+                    egui::Shape::Rect(rect) => rect.fill.a() == 255,
+                    egui::Shape::Circle(circle) => circle.fill.a() == 255,
+                    _ => false,
+                }
+        });
+        assert!(flying, "the cover is painted, opaque, on its first frame");
+        app.backend.shutdown();
+    }
+
+    /// The second click of a double click on what opened a page opens
+    /// nothing new, and leaves the cover flying. A window made anew has
+    /// none in the air.
+    #[test]
+    fn a_cover_keeps_flying_through_a_second_click_but_not_into_a_new_window() {
+        let (ctx, mut app) = accessible_app("cover-flight-double-click");
+        click_first_album(&ctx, &mut app, 0.0);
+        let flight = app.cover_flight.clone().expect("the cover flies");
+        app.actions.push(Action::FlyCover(flight.origin.clone()));
+        app.actions.push(Action::Open(flight.page.clone()));
+        timed_frame(&ctx, &mut app, 0.05, vec![]);
+        let kept = app.cover_flight.clone().expect("the cover keeps flying");
+        assert_eq!(
+            (kept.origin, kept.page, kept.start, kept.opened),
+            (flight.origin, flight.page, flight.start, flight.opened)
+        );
+
+        app.attach(&egui::Context::default());
+        assert!(app.cover_flight.is_none());
+        app.backend.shutdown();
+    }
+
+    /// A page without a header yet holds its cover back, where it was
+    /// clicked, until one is drawn, and lets it go when none comes in time.
+    #[test]
+    fn a_cover_waits_for_a_header_and_then_lets_go() {
+        use egui::emath::GuiRounding as _;
+        let (ctx, mut app) = accessible_app("cover-flight-wait");
+        let album = click_first_album(&ctx, &mut app, 0.0);
+        let flight = app.cover_flight.clone().expect("the cover flies");
+        assert_eq!(flight.page, Page::Album(album.id));
+        let missing = Page::Album("not-known".into());
+        app.open(missing.clone());
+        app.cover_flight = Some(crate::ui::flight::CoverFlight {
+            page: missing,
+            start: 0.05,
+            opened: 0.05,
+            ..flight
+        });
+        let shapes = painted_frame(&ctx, &mut app, 0.1);
+        let waiting = app.cover_flight.clone().expect("it waits");
+        assert_eq!(waiting.start, 0.1, "its flight has not begun");
+        let origin = waiting.origin.rect.round_to_pixels(ctx.pixels_per_point());
+        assert!(
+            shapes.iter().any(|clipped| matches!(&clipped.shape,
+                egui::Shape::Rect(rect) if rect.rect == origin && rect.fill.a() == 255)),
+            "it waits where it was clicked, not gone with the page it left"
+        );
+        timed_frame(
+            &ctx,
+            &mut app,
+            0.05 + crate::ui::flight::LANDING_WAIT + 0.01,
+            vec![],
+        );
+        assert!(app.cover_flight.is_none(), "no header came in time");
+        app.backend.shutdown();
+    }
+
+    /// A cover held back while its page had no header leaves from where it
+    /// was on the first frame a header is drawn for it, rather than partway
+    /// along from the last frame it waited through.
+    #[test]
+    fn a_held_cover_leaves_from_where_it_was_once_a_header_is_drawn() {
+        use egui::emath::GuiRounding as _;
+        let (ctx, mut app) = accessible_app("cover-flight-held");
+        let album = click_first_album(&ctx, &mut app, 0.0);
+        let page = Page::Album(album.id);
+        let missing = Page::Album("not-known".into());
+        app.open(missing.clone());
+        let flight = app.cover_flight.as_mut().expect("the cover flies");
+        flight.page = missing;
+        let origin = flight.origin.rect;
+        // A spinner's turns while its details are on their way.
+        for time in [0.022, 0.055, 0.088] {
+            painted_frame(&ctx, &mut app, time);
+            assert_eq!(
+                app.cover_flight.as_ref().map(|flight| flight.start),
+                Some(time)
+            );
+        }
+        // They come, and the page has a header.
+        app.open(page.clone());
+        if let Some(flight) = app.cover_flight.as_mut() {
+            flight.page = page;
+        }
+        let shapes = painted_frame(&ctx, &mut app, 0.108);
+        let cover = flying_cover(&shapes).expect("the flying cover");
+        assert_eq!(
+            cover.rect,
+            origin.round_to_pixels(ctx.pixels_per_point()),
+            "it leaves from the card"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A cover already in the air whose header goes, scrolled away say,
+    /// lands at once rather than starting over from where it was clicked.
+    #[test]
+    fn a_cover_in_the_air_lands_when_its_header_goes() {
+        let (ctx, mut app) = accessible_app("cover-flight-header-gone");
+        click_first_album(&ctx, &mut app, 0.0);
+        painted_frame(&ctx, &mut app, 0.016 + 0.05);
+        assert!(app.cover_flight.is_some(), "on its way");
+        let missing = Page::Album("not-known".into());
+        app.open(missing.clone());
+        if let Some(flight) = app.cover_flight.as_mut() {
+            flight.page = missing;
+        }
+        painted_frame(&ctx, &mut app, 0.016 + 0.08);
+        assert!(app.cover_flight.is_none(), "landed, not held back");
+        app.backend.shutdown();
+    }
+
+    /// The end or hold of a flight into one page leaves alone a flight into
+    /// another that a click started in the same frame.
+    #[test]
+    fn ending_one_pages_flight_leaves_anothers() {
+        let (ctx, mut app) = accessible_app("cover-flight-other-page");
+        click_first_album(&ctx, &mut app, 0.0);
+        let flight = app.cover_flight.clone().expect("the cover flies");
+        let other = Page::Album("another".into());
+        app.actions.push(Action::HoldCoverFlight(other.clone()));
+        app.actions.push(Action::EndCoverFlight(other));
+        timed_frame(&ctx, &mut app, 0.016 + 0.05, vec![]);
+        let kept = app.cover_flight.clone().expect("untouched");
+        assert_eq!(
+            (kept.origin, kept.page, kept.opened, kept.held),
+            (flight.origin, flight.page.clone(), flight.opened, false)
+        );
+        app.actions.push(Action::EndCoverFlight(flight.page));
+        timed_frame(&ctx, &mut app, 0.016 + 0.08, vec![]);
+        assert!(app.cover_flight.is_none());
+        app.backend.shutdown();
+    }
+
+    /// One cover at a time: while a cover flies into a header, the header
+    /// hides its own, and once it has landed the flight paints nothing.
+    #[test]
+    fn a_page_shows_one_cover_while_one_flies_in() {
+        let (ctx, mut app) = accessible_app("cover-flight-one");
+        ctx.add_image_loader(Arc::new(LoadedCovers));
+        click_first_album(&ctx, &mut app, 0.0);
+        let covers = |shapes: &[egui::epaint::ClippedShape]| {
+            shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Rect(rect)
+                        if rect.blur_width == 0.0
+                            && rect.fill.a() == 255
+                            && rect.rect.width() > crate::ui::widgets::CARD_ART - 1.0
+                            && (rect.rect.width() - rect.rect.height()).abs() < 1.0 =>
+                    {
+                        Some(rect.rect)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let landed_at = 0.016 + crate::ui::flight::FLIGHT_SECONDS + 0.05;
+        let mid = painted_frame(&ctx, &mut app, 0.016 + 0.1);
+        let landed = painted_frame(&ctx, &mut app, landed_at);
+        assert!(
+            flight_rects(&landed).is_empty(),
+            "the flight paints nothing"
+        );
+        let header = *covers(&landed)
+            .iter()
+            .max_by(|a, b| a.width().total_cmp(&b.width()))
+            .expect("the header's cover");
+        let flying = flying_cover(&mid).expect("the cover in the air").rect;
+        assert_ne!(flying, header, "still on its way");
+        assert!(
+            !covers(&mid).contains(&header),
+            "the header hides its own while the other flies in"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A card whose cover had not loaded yet has no copy of it to lend the
+    /// page header, which keeps its softened thumbnail while its own cover
+    /// loads.
+    #[test]
+    fn a_header_keeps_its_softened_thumbnail_for_a_cover_that_had_not_loaded() {
+        let (ctx, mut app) = accessible_app("cover-flight-unloaded");
+        let album = click_first_album(&ctx, &mut app, 0.0);
+        let flight = app.cover_flight.clone().expect("the cover flies");
+        assert!(
+            !app.backend.art().has_copy(&flight.origin.url),
+            "the card's cover had not loaded"
+        );
+        timed_frame(&ctx, &mut app, 0.016 + 0.14, vec![]);
+        assert!(
+            album
+                .images
+                .iter()
+                .any(|image| app.softened_covers.asked(&image.url)),
+            "the softened thumbnail"
+        );
+        app.backend.shutdown();
+    }
+
+    /// Going back mid-flight, or a desktop asking for less motion, leaves
+    /// no cover in the air.
+    #[test]
+    fn a_cover_flight_ends_on_back_and_never_starts_with_less_motion() {
+        let (ctx, mut app) = accessible_app("cover-flight-back");
+        click_first_album(&ctx, &mut app, 0.0);
+        assert!(app.cover_flight.is_some());
+        app.actions.push(Action::Back);
+        timed_frame(&ctx, &mut app, 0.1, vec![]);
+        assert!(app.cover_flight.is_none(), "back cancels the flight");
+        app.backend.shutdown();
+
+        let (ctx, mut app) = accessible_app("cover-flight-still");
+        app.motion.set(true);
+        click_first_album(&ctx, &mut app, 0.0);
+        assert!(matches!(app.page(), Page::Album(_)));
+        assert!(
+            app.cover_flight.is_none(),
+            "less motion opens the page as is"
+        );
+        app.backend.shutdown();
+    }
+
+    /// Draws one frame of the whole window at `time`, and what it painted.
+    fn painted_frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        time: f64,
+    ) -> Vec<egui::epaint::ClippedShape> {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                time: Some(time),
+                ..Default::default()
+            },
+            |ui| app.frame_ui(ui),
+        );
+        output.textures_delta.clear();
+        output.shapes
+    }
+
+    /// The cover-sized rectangles among `shapes` painted across the whole
+    /// window's width between the page's top and bottom edges, as only a
+    /// flying cover and its shadow are.
+    fn flight_rects(shapes: &[egui::epaint::ClippedShape]) -> Vec<&egui::epaint::RectShape> {
+        let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        shapes
+            .iter()
+            .filter(|clipped| {
+                clipped.clip_rect.x_range() == window.x_range()
+                    && clipped.clip_rect.top() > 0.0
+                    && clipped.clip_rect.bottom() < window.bottom()
+            })
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect)
+                    if rect.rect.width() > crate::ui::widgets::CARD_ART - 1.0 =>
+                {
+                    Some(rect)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The flying cover among `shapes`: its artwork, or its placeholder.
+    fn flying_cover(shapes: &[egui::epaint::ClippedShape]) -> Option<&egui::epaint::RectShape> {
+        flight_rects(shapes)
+            .into_iter()
+            .find(|rect| rect.blur_width == 0.0 && rect.fill.a() == 255)
+    }
+
+    /// The flying cover's shadow among `shapes`.
+    fn flying_shadow(shapes: &[egui::epaint::ClippedShape]) -> Option<&egui::epaint::RectShape> {
+        flight_rects(shapes)
+            .into_iter()
+            .find(|rect| rect.blur_width > 0.0)
+    }
+
+    /// Gives every scaled copy of a cover at once, a plain square of the
+    /// pixels asked for, as if its artwork were already loaded.
+    struct LoadedCovers;
+
+    impl egui::load::ImageLoader for LoadedCovers {
+        fn id(&self) -> &str {
+            "spotifast-test-loaded-covers"
+        }
+
+        fn load(
+            &self,
+            _ctx: &egui::Context,
+            uri: &str,
+            _size_hint: egui::load::SizeHint,
+        ) -> egui::load::ImageLoadResult {
+            let pixels = uri
+                .rsplit_once("#spotifast-px=")
+                .and_then(|(_, pixels)| pixels.parse().ok())
+                .ok_or(egui::load::LoadError::NotSupported)?;
+            Ok(egui::load::ImagePoll::Ready {
+                image: Arc::new(egui::ColorImage::filled(
+                    [pixels, pixels],
+                    egui::Color32::from_rgb(200, 60, 90),
+                )),
+            })
+        }
+
+        fn forget(&self, _uri: &str) {}
+
+        fn forget_all(&self) {}
+
+        fn byte_size(&self) -> usize {
+            0
+        }
+    }
+
+    /// The app in the dark theme, where covers cast shadows.
+    fn dark_app(name: &str) -> (egui::Context, App) {
+        let (ctx, mut app) = accessible_app(name);
+        app.settings.theme = crate::settings::ThemeChoice::Dark;
+        app.actions.push(Action::SettingsChanged);
+        painted_frame(&ctx, &mut app, 0.0);
+        painted_frame(&ctx, &mut app, 0.008);
+        assert!(app.palette.dark);
+        (ctx, app)
+    }
+
+    /// A page's first frame can stall while it lays out its text and
+    /// icons. The flight steps over it: the cover moves on from where it
+    /// was shown as far as in an ordinary frame, rather than jumping.
+    #[test]
+    fn a_stalled_page_frame_does_not_make_the_cover_jump() {
+        let (ctx, mut app) = accessible_app("cover-flight-stall");
+        click_first_album(&ctx, &mut app, 0.0);
+        // Frames at 164 Hz after the click at 0.016, one of them 13 ms late.
+        let widths = [0.022, 0.041, 0.047].map(|time| {
+            flying_cover(&painted_frame(&ctx, &mut app, time))
+                .expect("the flying cover")
+                .rect
+                .width()
+        });
+        let stalled = widths[1] - widths[0];
+        let next = widths[2] - widths[1];
+        assert!(next > 0.0, "it is still on its way: {widths:?}");
+        assert!(
+            stalled < next * 1.5,
+            "it moved {stalled} over the stall and then {next}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// The cover and its shadow are painted where they are as they fly,
+    /// rather than snapped to whole pixels, so the cover glides instead of
+    /// stepping a pixel at a time.
+    #[test]
+    fn a_flying_cover_glides_between_pixels() {
+        let (ctx, mut app) = dark_app("cover-flight-glide");
+        ctx.add_image_loader(Arc::new(LoadedCovers));
+        click_first_album(&ctx, &mut app, 0.016);
+        let shapes = painted_frame(&ctx, &mut app, 0.032 + 0.1);
+        let cover = flying_cover(&shapes).expect("the flying cover");
+        assert!(cover.brush.is_some(), "its artwork, not the placeholder");
+        assert_eq!(cover.round_to_pixels, Some(false));
+        let shadow = flying_shadow(&shapes).expect("its shadow");
+        assert_eq!(shadow.round_to_pixels, Some(false));
+        app.backend.shutdown();
+    }
+
+    /// The shadow the first card on the Albums page casts at `time`.
+    fn card_shadow(ctx: &egui::Context, app: &mut App, time: f64) -> egui::Color32 {
+        app.open(Page::Albums);
+        painted_frame(ctx, app, time)
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect)
+                    if rect.blur_width > 0.0
+                        && (rect.rect.width() - crate::ui::widgets::CARD_ART).abs() < 0.5 =>
+                {
+                    Some(rect.fill)
+                }
+                _ => None,
+            })
+            .expect("a card's shadow")
+    }
+
+    /// A card's cover casts a shadow in the dark theme, and keeps it as it
+    /// takes off rather than losing it and growing it again on the way.
+    #[test]
+    fn a_flying_cover_keeps_its_cards_shadow_as_it_takes_off() {
+        let (ctx, mut app) = dark_app("cover-flight-shadow");
+        let card_shadow = card_shadow(&ctx, &mut app, 0.016);
+        click_first_album(&ctx, &mut app, 0.032);
+        // The flight's first frame, 6 ms after the click.
+        let shapes = painted_frame(&ctx, &mut app, 0.054);
+        let shadow = flying_shadow(&shapes).expect("the flying cover's shadow");
+        assert_eq!(shadow.fill, card_shadow);
+        app.backend.shutdown();
+    }
+
+    /// A cover that cast no shadow where it was, as a library row's or a
+    /// Home tile's, grows one on the way rather than taking off with a
+    /// card's.
+    #[test]
+    fn a_flying_cover_without_a_shadow_grows_one_on_the_way() {
+        let (ctx, mut app) = dark_app("cover-flight-no-shadow");
+        let card_shadow = card_shadow(&ctx, &mut app, 0.016);
+        click_first_album(&ctx, &mut app, 0.032);
+        if let Some(flight) = app.cover_flight.as_mut() {
+            flight.origin.shadow = false;
+        }
+        // The flight's first frame, 6 ms after the click.
+        let shapes = painted_frame(&ctx, &mut app, 0.054);
+        let faint = flying_shadow(&shapes).map_or(0, |shadow| shadow.fill.a());
+        assert!(
+            faint < card_shadow.a() / 4,
+            "{faint} as it takes off, where a card's is {}",
+            card_shadow.a()
+        );
+        app.backend.shutdown();
+    }
+
+    /// While a page's own colour is read, a cover flying into it brings
+    /// the colour of the artwork it shows, so the header's glow rises with
+    /// the flight; the page's own colour takes over once it is read.
+    #[test]
+    fn a_flying_cover_brings_its_colour_to_the_page_glow() {
+        use crate::ui::PageTint;
+        let (_ctx, mut app) = accessible_app("cover-flight-glow");
+        let album = app.library.albums.items[0].album.clone();
+        let page = Page::Album(album.id.clone());
+        app.open(page.clone());
+        assert_eq!(crate::ui::page_tint(&mut app), PageTint::Pending);
+        let card = crate::api::models::pick_image(&album.images, 300)
+            .expect("the card's cover")
+            .to_string();
+        app.cover_flight = Some(crate::ui::flight::CoverFlight {
+            origin: CoverOrigin {
+                url: card.clone(),
+                rect: egui::Rect::from_min_size(
+                    egui::pos2(300.0, 200.0),
+                    egui::Vec2::splat(crate::ui::widgets::CARD_ART),
+                ),
+                round: false,
+                shadow: true,
+            },
+            page,
+            start: 0.0,
+            opened: 0.0,
+            held: false,
+            pace: Default::default(),
+        });
+        app.accents.insert(card, [200, 40, 60]);
+        assert_eq!(
+            crate::ui::page_tint(&mut app),
+            PageTint::Color(app.palette.tint_from_art([200, 40, 60])),
+            "the colour of the cover flying in"
+        );
+        let thumbnail = crate::api::models::pick_image(&album.images, 64)
+            .expect("the page's thumbnail")
+            .to_string();
+        app.accents.insert(thumbnail, [40, 60, 200]);
+        assert_eq!(
+            crate::ui::page_tint(&mut app),
+            PageTint::Color(app.palette.tint_from_art([40, 60, 200])),
+            "the page's own colour"
+        );
+        app.backend.shutdown();
+    }
+
     /// A notice too long for the mini player's marquee moves through it
     /// with no song loaded, as a song's name does, until the notice leaves.
     #[cfg(feature = "demo")]
@@ -5490,6 +6085,10 @@ mod tests {
                     egui::PointerButton::Primary,
                 ),
             );
+            // Opening the album from the card sends its cover along to fly
+            // into the album's header; only the page opened matters here.
+            app.actions
+                .retain(|action| !matches!(action, Action::FlyCover(_)));
             if artist_id.is_some() {
                 assert!(
                     matches!(app.actions.as_slice(), [Action::Open(Page::Artist(id))] if id == "ween")

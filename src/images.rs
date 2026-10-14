@@ -38,11 +38,11 @@ const SUPERSEDED: Duration = Duration::from_secs(5);
 
 /// How covers are sampled. Each is scaled to the pixels it covers before it
 /// reaches the GPU, but sizes come in steps and a cover can be drawn smaller
-/// for a moment, from a larger copy standing in while its own is made; a
-/// plain linear filter then skips texels, so edges stair-step and fine detail
-/// turns to grain. Mipmaps let the GPU read a prefiltered level instead.
-/// Every painter of a cover must use these same options: egui keys its
-/// textures by URI and options, so a second set would upload the cover twice.
+/// for a moment, as one flying into a page is; a plain linear filter then
+/// skips texels, so edges stair-step and fine detail turns to grain. Mipmaps
+/// let the GPU read a prefiltered level instead. Every painter of a cover
+/// must use these same options: egui keys its textures by URI and options,
+/// so a second set would upload the cover twice.
 pub const COVER_TEXTURE: egui::TextureOptions =
     egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear));
 
@@ -73,6 +73,11 @@ pub fn scaled_uri(url: &str, pixels: u32) -> String {
 }
 
 const SCALED: &str = "#spotifast-px=";
+
+/// The pixel size of the copy at a [`scaled_uri`].
+pub fn copy_pixels(uri: &str) -> Option<u32> {
+    parse_scaled(uri).map(|(_, pixels)| pixels)
+}
 
 /// The artwork URL and pixel size in a [`scaled_uri`].
 fn parse_scaled(uri: &str) -> Option<(&str, u32)> {
@@ -810,6 +815,16 @@ impl SoftenedCovers {
                 self.failed.insert(ready_uri);
             }
         }
+    }
+
+    /// Whether `uri` has been asked for: it is being blurred, has been,
+    /// could not be, or waits to be tried again.
+    #[cfg(test)]
+    pub(crate) fn asked(&self, uri: &str) -> bool {
+        self.pending.contains(uri)
+            || self.textures.contains_key(uri)
+            || self.failed.contains(uri)
+            || self.retry_at.contains_key(uri)
     }
 
     /// The softened cover for `uri`, blurring it in the background the first

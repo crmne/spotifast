@@ -39,6 +39,17 @@ pub(super) struct CoverSources<'a> {
     pub softened: Option<&'a egui::TextureHandle>,
     pub thumbnail: Option<&'a str>,
     pub align_thumbnail: bool,
+    /// A cover that flew in from elsewhere: a copy of it already on the
+    /// GPU is shown until this cover's own is ready.
+    pub flown: Option<&'a str>,
+    /// The place whose pixels the artwork is scaled for, when it is not
+    /// where it is painted: a cover flying between two places keeps the
+    /// copy made for one of them rather than asking for a new one each frame.
+    pub scale_for: Option<Rect>,
+    /// The cover is on the move, as a flying one is: it is painted where it
+    /// is rather than snapped to whole pixels, so it glides instead of
+    /// stepping a pixel at a time.
+    pub moving: bool,
 }
 
 pub fn paint_cover(
@@ -79,14 +90,39 @@ pub(super) fn paint_cover_with_thumbnail(
         return;
     }
     let corner = CornerRadius::same(radius.min(127.0) as u8);
-    let at = |url| CoverAt { url, rect, corner };
+    let scale_for = sources.scale_for.unwrap_or(rect);
+    let at = |url| CoverAt {
+        url,
+        rect,
+        scale_for,
+        corner,
+        moving: sources.moving,
+    };
     // A copy at this size, or while it is made, the nearest copy of the
-    // same artwork already on the GPU.
+    // same artwork already on the GPU, unless the cover that flew in has a
+    // larger one: a header asking for Spotify's 640 pixel rendition can
+    // hold a thumbnail of it, which would show blurred over the card's
+    // sharp copy of the 300.
+    let pixels = cover_copy_pixels(ui, scale_for);
+    let copy_size = |url: &str| {
+        art.and_then(|art| art.nearest_copy(url, pixels))
+            .and_then(|uri| crate::images::copy_pixels(&uri))
+    };
+    let flown_size = sources.flown.and_then(copy_size);
     let loaded = sources.requested.is_some_and(|url| {
-        paint_cover_url(ui, at(url), art, false) || paint_nearest_copy(ui, at(url), art)
+        paint_cover_url(ui, at(url), art, false)
+            || (copy_size(url)
+                .is_some_and(|size| requested_copy_stands_in(size, flown_size, pixels))
+                && paint_nearest_copy(ui, at(url), art))
     }) || sources
         .previous
         .is_some_and(|url| paint_ready_cover_url(ui, at(url), art))
+        || sources
+            .flown
+            .is_some_and(|url| paint_nearest_copy(ui, at(url), art))
+        || sources
+            .requested
+            .is_some_and(|url| paint_nearest_copy(ui, at(url), art))
         || sources.softened.is_some_and(|texture| {
             paint_cover_texture(
                 ui,
@@ -94,6 +130,7 @@ pub(super) fn paint_cover_with_thumbnail(
                 rect,
                 corner,
                 sources.align_thumbnail,
+                sources.moving,
             );
             true
         })
@@ -117,12 +154,22 @@ pub(super) fn paint_cover_with_thumbnail(
     }
 }
 
-/// A cover to paint: its artwork, where it goes, and its corners.
+/// Whether a `requested` pixel copy of a cover's own artwork stands in for
+/// the copy of `pixels` being made, over the `flown` copy of the cover that
+/// flew in: when it has as many pixels as that one, or as are wanted.
+fn requested_copy_stands_in(requested: u32, flown: Option<u32>, pixels: u32) -> bool {
+    flown.is_none_or(|flown| requested >= flown.min(pixels))
+}
+
+/// A cover to paint: its artwork, where it goes, the place whose pixels the
+/// artwork is scaled for, and whether it is on the move.
 #[derive(Clone, Copy)]
 struct CoverAt<'a> {
     url: &'a str,
     rect: Rect,
+    scale_for: Rect,
     corner: CornerRadius,
+    moving: bool,
 }
 
 /// Paints `cover`'s artwork only if it needs no wait on the network: a
@@ -136,9 +183,11 @@ fn paint_ready_cover_url(
         || paint_nearest_copy(ui, cover, art)
 }
 
-/// The size of the copy of a cover drawn at `rect`.
-fn cover_copy_pixels(ui: &Ui, rect: Rect) -> u32 {
-    crate::images::cover_pixels(rect.width().max(rect.height()) * ui.ctx().pixels_per_point())
+/// The size of the copy of a cover scaled for `scale_for`.
+fn cover_copy_pixels(ui: &Ui, scale_for: Rect) -> u32 {
+    crate::images::cover_pixels(
+        scale_for.width().max(scale_for.height()) * ui.ctx().pixels_per_point(),
+    )
 }
 
 /// Paints the copy of `cover`'s artwork already on the GPU that is nearest
@@ -149,7 +198,7 @@ fn paint_nearest_copy(ui: &Ui, cover: CoverAt<'_>, art: Option<&crate::images::A
     let Some(art) = art else {
         return false;
     };
-    let Some(uri) = art.nearest_copy(cover.url, cover_copy_pixels(ui, cover.rect)) else {
+    let Some(uri) = art.nearest_copy(cover.url, cover_copy_pixels(ui, cover.scale_for)) else {
         return false;
     };
     let image = egui::Image::new(uri.as_str())
@@ -163,7 +212,7 @@ fn paint_nearest_copy(ui: &Ui, cover: CoverAt<'_>, art: Option<&crate::images::A
     art.touch(cover.url);
     let [width, height] = [texture.size.x, texture.size.y].map(|side| side.round() as usize);
     art.note_texture(cover.url, &uri, width, height);
-    paint_cover_texture(ui, texture, cover.rect, cover.corner, false);
+    paint_cover_texture(ui, texture, cover.rect, cover.corner, false, cover.moving);
     true
 }
 
@@ -244,12 +293,18 @@ fn paint_cover_url(
     art: Option<&crate::images::ArtLoader>,
     shift_thumbnail: bool,
 ) -> bool {
-    let CoverAt { url, rect, corner } = cover;
+    let CoverAt {
+        url,
+        rect,
+        scale_for,
+        corner,
+        moving,
+    } = cover;
     if let Some(art) = art {
         art.touch(url);
     }
     let scaled = (url.starts_with("https://") || url.starts_with("http://"))
-        .then(|| crate::images::scaled_uri(url, cover_copy_pixels(ui, rect)));
+        .then(|| crate::images::scaled_uri(url, cover_copy_pixels(ui, scale_for)));
     let uri = scaled.as_deref().unwrap_or(url);
     let image = egui::Image::new(uri)
         .texture_options(crate::images::COVER_TEXTURE)
@@ -276,7 +331,7 @@ fn paint_cover_url(
         // as soon as egui holds the texture.
         None => crate::images::forget_decoded(ui.ctx(), uri),
     }
-    paint_cover_texture(ui, texture, rect, corner, shift_thumbnail);
+    paint_cover_texture(ui, texture, rect, corner, shift_thumbnail, moving);
     true
 }
 
@@ -286,6 +341,7 @@ fn paint_cover_texture(
     rect: Rect,
     corner: CornerRadius,
     shift_thumbnail: bool,
+    moving: bool,
 ) {
     let image_aspect = texture.size.x / texture.size.y;
     let rect_aspect = rect.width() / rect.height();
@@ -304,25 +360,49 @@ fn paint_cover_texture(
         // that same position and holds still when the full cover replaces it.
         uv.max -= uv.size() / 64.0;
     }
-    egui::Image::new(texture)
-        .uv(uv)
-        .corner_radius(corner)
-        .paint_at(ui, rect);
+    if moving {
+        // `Image::paint_at` and the tessellator both snap a cover to whole
+        // pixels, which a cover on the move shows as steps of a pixel and
+        // a width that wavers by one.
+        ui.painter().add(
+            egui::epaint::RectShape::filled(rect, corner, Color32::WHITE)
+                .with_texture(texture.id, uv)
+                .with_round_to_pixels(false),
+        );
+    } else {
+        egui::Image::new(texture)
+            .uv(uv)
+            .corner_radius(corner)
+            .paint_at(ui, rect);
+    }
 }
 
 /// A soft drop shadow under a cover or card.
 pub fn paint_shadow(ui: &Ui, palette: &Palette, rect: Rect, radius: f32) {
-    if !palette.dark {
-        return;
+    if let Some(shadow) = cover_shadow(palette, rect, radius) {
+        ui.painter().add(shadow);
     }
+}
+
+/// The shadow under a cover on the move, painted where it is rather than
+/// snapped to whole pixels, so it glides with the cover.
+pub fn paint_moving_shadow(ui: &Ui, palette: &Palette, rect: Rect, radius: f32) {
+    if let Some(shadow) = cover_shadow(palette, rect, radius) {
+        ui.painter().add(shadow.with_round_to_pixels(false));
+    }
+}
+
+/// The shadow under a cover drawn at `rect`, cast only in a dark theme.
+fn cover_shadow(palette: &Palette, rect: Rect, radius: f32) -> Option<egui::epaint::RectShape> {
     let shadow = egui::epaint::Shadow {
         offset: [0, 10],
         blur: 28,
         spread: 0,
         color: Color32::from_black_alpha(120),
     };
-    ui.painter()
-        .add(shadow.as_shape(rect, CornerRadius::same(radius as u8)));
+    palette
+        .dark
+        .then(|| shadow.as_shape(rect, CornerRadius::same(radius as u8)))
 }
 
 /// Fills `rect` with a vertical gradient from `top` to `bottom`.
@@ -2413,6 +2493,21 @@ pub struct CardResponse {
     pub play: bool,
 }
 
+/// Sends the cover drawn at `rect` from `url` along with the page its click
+/// opens, so it can fly into that page's header. `shadow` says whether it
+/// was drawn with [`paint_shadow`]'s shadow under it.
+pub fn fly_cover(app: &mut App, url: Option<&str>, rect: Rect, round: bool, shadow: bool) {
+    if let Some(url) = url {
+        app.actions
+            .push(Action::FlyCover(crate::model::CoverOrigin {
+                url: url.to_string(),
+                rect,
+                round,
+                shadow,
+            }));
+    }
+}
+
 /// The cover a [`card`] shows: its shape and what its play control does.
 #[derive(Clone, Copy, Default)]
 pub struct CardCover {
@@ -2591,8 +2686,13 @@ pub fn card(
     }
     crate::autoscroll::row(ui, &response);
     theme::focus_ring(ui, &response);
+    let clicked = response.clicked() && !play;
+    if clicked {
+        let image_rect = Rect::from_min_size(rect.min + vec2(PAD, PAD), Vec2::splat(image_size));
+        fly_cover(app, image, image_rect, circular, true);
+    }
     CardResponse {
-        clicked: response.clicked() && !play,
+        clicked,
         response,
         play,
     }
@@ -3343,6 +3443,22 @@ mod playing_cover_tests {
             "too late"
         );
         assert_eq!(stand_in(None, next, 10.5), None);
+    }
+
+    /// A page header asking for Spotify's 640 pixel rendition at 125%
+    /// held a 96 pixel copy of it, which stood in, blurred, over the 192
+    /// pixel copy of the card that flew in, while a 288 pixel copy was made.
+    /// A copy of the cover's own artwork stands in only when it is as sharp
+    /// as the one that flew in, or as sharp as wanted.
+    #[test]
+    fn the_sharper_copy_stands_in_while_a_header_copy_is_made() {
+        assert!(!requested_copy_stands_in(96, Some(192), 288));
+        assert!(requested_copy_stands_in(192, Some(192), 288));
+        assert!(
+            requested_copy_stands_in(320, Some(640), 288),
+            "enough pixels"
+        );
+        assert!(requested_copy_stands_in(32, None, 288), "nothing flew in");
     }
 }
 

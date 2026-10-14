@@ -425,6 +425,9 @@ fn top_result(
         }
     }
     if response.clicked() && !subtitle_clicked && page != Page::Search {
+        let image_rect =
+            Rect::from_min_size(rect.min + vec2(20.0, 20.0), Vec2::splat(TOP_RESULT_ART));
+        widgets::fly_cover(app, image, image_rect, round, true);
         app.actions.push(Action::Open(page));
     }
     egui::Popup::context_menu(&response)

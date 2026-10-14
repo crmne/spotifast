@@ -241,8 +241,13 @@ goes through the same thumbnail URL and artwork cache.
 A ready sharp cover stays visible until its replacement is ready. A 300-pixel
 grid cover already loaded for the same item can preview a larger page cover
 without another download. When only a small known thumbnail is available, a
-softened preview may appear while the larger image loads. If the completed
-response has no cover, the page shows its placeholder instead of an old image.
+softened preview may appear while the larger image loads. A page opened by a
+clicked cover, which flies into its header, shows that cover instead of a
+softened preview when it is already loaded, and takes its glow colour from that
+cover's artwork until the 64-pixel thumbnail's colour is read. Both use the
+artwork of the cover that was clicked and add no Web API request. If the
+completed response has no cover, the page shows its placeholder instead of an
+old image.
 
 Since 0.8.0, album and playlist scrollbars can request a distant track
 page through the existing session or Web API read path, without fetching all
