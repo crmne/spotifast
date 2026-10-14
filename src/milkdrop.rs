@@ -32,9 +32,16 @@ pub const DEFAULT_SECONDS: u32 = 10;
 pub const DEFAULT_FPS: u32 = 60;
 /// Configurable frame-rate range. Zero is handled separately as uncapped.
 pub const FPS_RANGE: std::ops::RangeInclusive<u32> = 10..=360;
+/// Whether a refresh rate a screen reports is a rate at all: Windows reports
+/// 0 or 1 Hz for "the hardware's default", which says nothing. Screens
+/// faster than the dial goes still count.
+pub fn is_screen_rate(hz: u32) -> bool {
+    hz >= *FPS_RANGE.start()
+}
 /// Frame-rate slider stops: 30, 60, screen rate, current rate, and uncapped.
 pub fn fps_stops(screen: u32, current: u32) -> Vec<u32> {
     let mut rates = vec![30, 60];
+    let screen = if is_screen_rate(screen) { screen } else { 0 };
     for extra in [screen, current] {
         if extra > 0 && !rates.contains(&extra) {
             rates.push(extra);
@@ -427,6 +434,18 @@ mod tests {
                 .map(|name| name.replace('/', std::path::MAIN_SEPARATOR_STR))
         );
         assert!(list_presets(Path::new("/nonexistent/milkdrop")).is_empty());
+    }
+
+    /// Windows's "hardware default" is no screen rate; any real one is,
+    /// screens faster than the dial goes included.
+    #[test]
+    fn a_hardware_default_is_no_screen_rate() {
+        assert!(!is_screen_rate(0));
+        assert!(!is_screen_rate(1), "Windows's hardware default");
+        assert!(is_screen_rate(60));
+        assert!(is_screen_rate(165));
+        assert!(is_screen_rate(480), "faster than the dial goes");
+        assert_eq!(fps_stops(1, 60), vec![30, 60, 0], "no stop for it");
     }
 
     /// The dial stops at the two rates everyone knows, the screen's own

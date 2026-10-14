@@ -3392,10 +3392,11 @@ impl App {
     }
 
     /// Records the MilkDrop screen refresh rate and uses it as the initial FPS.
-    /// Later screen changes do not override a configured FPS.
+    /// Later screen changes do not override a configured FPS, and an answer
+    /// that is no rate, such as Windows's "hardware default", is ignored.
     #[cfg(feature = "milkdrop")]
     fn learn_screen_hz(&mut self, hz: u32) {
-        if hz == 0 || self.settings.milkdrop_screen_hz == hz {
+        if !crate::milkdrop::is_screen_rate(hz) || self.settings.milkdrop_screen_hz == hz {
             return;
         }
         let first = self.settings.milkdrop_screen_hz == 0
@@ -19720,6 +19721,13 @@ mod tests {
     fn the_frame_rate_matches_the_screen_the_first_time_it_is_known() {
         let mut app = headless_app();
         assert_eq!(app.settings.milkdrop_screen_hz, 0, "no screen has spoken");
+        assert_eq!(app.settings.milkdrop_fps, crate::milkdrop::DEFAULT_FPS);
+
+        app.learn_screen_hz(1);
+        assert_eq!(
+            app.settings.milkdrop_screen_hz, 0,
+            "Windows's hardware default is no rate"
+        );
         assert_eq!(app.settings.milkdrop_fps, crate::milkdrop::DEFAULT_FPS);
 
         app.learn_screen_hz(144);

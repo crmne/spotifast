@@ -1639,7 +1639,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         RowText::new(
             gettext(locale, "Frame rate"),
             match screen_hz {
-                0 => gettext(
+                hz if !crate::milkdrop::is_screen_rate(hz) => gettext(
                     locale,
                     "Lower rates use fewer resources. Uncapped draws as fast as possible.",
                 ),

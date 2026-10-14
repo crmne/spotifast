@@ -588,6 +588,7 @@ impl Settings {
                     Self::default()
                 });
                 settings.migrate_proxy(text);
+                settings.forget_unusable_screen_rate();
                 settings.proxy_password_legacy = !settings.proxy_password.is_empty();
                 settings
             }
@@ -629,6 +630,21 @@ impl Settings {
         self.search_history.retain(|entry| entry != query);
         self.search_history.insert(0, query.to_string());
         self.search_history.truncate(12);
+    }
+
+    /// Forgets the frame rate an earlier version set from Windows's 1 Hz
+    /// "hardware default", taken then as MilkDrop's first screen rate, and
+    /// that screen rate with it, so MilkDrop's next real report is learned
+    /// as the first. A frame rate chosen since, or learned from a real
+    /// screen before, stays, and so does the 1 Hz beside it, which no dial
+    /// shows and the next real report replaces.
+    pub(crate) fn forget_unusable_screen_rate(&mut self) {
+        let hz = self.milkdrop_screen_hz;
+        if hz == 0 || crate::milkdrop::is_screen_rate(hz) || self.milkdrop_fps != hz {
+            return;
+        }
+        self.milkdrop_fps = crate::milkdrop::DEFAULT_FPS;
+        self.milkdrop_screen_hz = 0;
     }
 
     pub(crate) fn migrate_proxy(&mut self, text: &str) {
@@ -1070,6 +1086,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(settings.volume, 12345);
         assert!(!settings.home.made_for_you.visible);
+    }
+
+    /// Earlier versions kept Windows's 1 Hz "hardware default" as MilkDrop's
+    /// screen rate and, the first time, as its frame rate. Loading forgets
+    /// both, and leaves a frame rate chosen since, and a real rate, alone.
+    #[test]
+    fn a_saved_hardware_default_screen_rate_is_forgotten() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-screen-default-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("settings.json");
+        let load = |text: &str| {
+            std::fs::write(&path, text).unwrap();
+            let settings = Settings::load(&path);
+            (settings.milkdrop_screen_hz, settings.milkdrop_fps)
+        };
+        let learned = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":1}"#);
+        let chosen = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":30}"#);
+        let sixty = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":60}"#);
+        let real = load(r#"{"milkdrop_screen_hz":144,"milkdrop_fps":144}"#);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(learned, (0, crate::milkdrop::DEFAULT_FPS));
+        assert_eq!(chosen, (1, 30), "their rate stands");
+        assert_eq!(
+            sixty,
+            (1, 60),
+            "a chosen 60 is not taken for the default, which a real report would replace"
+        );
+        assert_eq!(real, (144, 144), "a real rate stays");
     }
 
     #[test]
