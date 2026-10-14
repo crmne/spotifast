@@ -126,6 +126,13 @@ request. To look at the interface without a Spotify account, run:
 cargo run --features demo -- --demo
 ```
 
+This branch also includes an experimental layout for review:
+`cargo run --locked --features demo -- --demo --demo-show library-right,queue`.
+It places the library on the right and the queue (or `lyrics`) on the left.
+This is an offline demo only; regular builds retain the existing layout and
+there is no saved placement preference. The proposed feature is discussed in
+[#891](https://github.com/crmne/spotifast/issues/891).
+
 Translations live in `assets/i18n/`; see
 [Translating Spotifast](docs/_reference/translating.md). Release packaging
 is described in [PACKAGING.md](PACKAGING.md).

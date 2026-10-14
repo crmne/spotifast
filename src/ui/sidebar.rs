@@ -503,11 +503,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let expanded_art = has_expanded_art(app);
     let floating_art = app.settings.sidebar_grid && expanded_art;
-    // The traffic lights float over the top-left of the sidebar now, so the
-    // first nav row has to start below them.
-    let top = 12
-        + theme::titlebar_inset(ui.ctx()) as i8
-        + super::linux_left_controls_inset(ui.ctx()) as i8;
+    let right = super::library_on_right(app);
+    let top = 12 + super::panel_caption_inset(ui.ctx(), right) as i8;
     let beside = if app.show_queue_panel || app.show_lyrics_panel {
         theme::SIDE_PANEL_MIN_WIDTH
     } else {
@@ -520,14 +517,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.settings.sidebar_width,
         ui.available_width() - super::topbar::least_width(ui.ctx()) - beside,
     );
-    let panel = egui::Panel::left("sidebar")
+    let panel = super::panel_at_edge("sidebar", right)
         .resizable(true)
         .default_size(app.settings.sidebar_width)
         .size_range(fit.range.clone())
         .show_separator_line(false)
         .frame(Frame::new().fill(palette.panel).inner_margin(Margin {
-            left: 12,
-            right: 8,
+            left: if right { 8 } else { 12 },
+            right: if right { 12 } else { 8 },
             top,
             bottom: if expanded_art { 0 } else { 8 },
         }));
