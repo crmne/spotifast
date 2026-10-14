@@ -133,6 +133,9 @@ librespot-metadata = { version = "0.8", default-features = false }
 librespot-protocol = { version = "0.8", default-features = false }
 # Parses the rootlist's playlist4 protobuf, the same crate librespot generates with.
 protobuf = "3"
+# Reads librespot's dealer subscription (a Stream) for Connect cluster pushes;
+# librespot already builds it.
+futures-util = { version = "0.3", default-features = false }
 # Local playback's audio sink is this crate's own (src/sink.rs): librespot's
 # rodio backend unwraps the device open on the player thread, and a release
 # build aborts on panic, so it is left out. rodio supplies the mixer and the
