@@ -107,6 +107,16 @@ pub struct WinampState {
     pub playlist_resize: f32,
     /// The playlist's rows as Winamp drew them, kept once drawn.
     pub playlist_text: crate::ui::winamp::PixelText,
+    /// The lyrics window, for this session only: whether it hangs below,
+    /// the lines it is tall, its first line in view, the wheel's leftover,
+    /// and the corner drag's leftover.
+    pub lyrics_open: bool,
+    pub lyrics_lines: u32,
+    pub lyrics_scroll: usize,
+    pub lyrics_wheel: f32,
+    pub lyrics_resize: f32,
+    /// The lyrics cut into rows the window's width, kept once cut.
+    pub lyrics_rows: crate::ui::winamp::LyricsRows,
     /// MilkDrop presets listed and downloaded from Settings.
     pub presets: crate::milkdrop::Presets,
 }
@@ -138,6 +148,12 @@ impl WinampState {
             playlist_wheel: 0.0,
             playlist_resize: 0.0,
             playlist_text: crate::ui::winamp::PixelText::default(),
+            lyrics_open: false,
+            lyrics_lines: crate::skin::layout::LYRICS_MIN_LINES,
+            lyrics_scroll: 0,
+            lyrics_wheel: 0.0,
+            lyrics_resize: 0.0,
+            lyrics_rows: crate::ui::winamp::LyricsRows::default(),
             presets: crate::milkdrop::Presets::new(),
         }
     }

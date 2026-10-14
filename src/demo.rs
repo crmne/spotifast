@@ -1124,6 +1124,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.eq_bands_db = crate::eq::PRESETS[13].bands_db;
             }
             "presets" => app.winamp.open_presets = true,
+            "winamp-lyrics" => {
+                app.lyrics_uri = app.now_playing().map(|now| now.uri);
+                app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+                app.winamp.lyrics_open = true;
+            }
             "art" => app.settings.art_expanded = true,
             "folders" => {
                 use crate::player::RootlistEntry;

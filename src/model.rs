@@ -1267,6 +1267,10 @@ pub enum Action {
     SetPlaylistHeight(u32),
     /// Open or close the equalizer window under the mini player.
     ToggleWinampEq,
+    /// Open or close the lyrics window under the mini player.
+    ToggleWinampLyrics,
+    /// The lyrics window's height, in lines.
+    SetLyricsLines(u32),
     /// Switch the equalizer's effect on the sound on or off.
     ToggleEq,
     SetEqBand(usize, f32),

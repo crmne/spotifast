@@ -218,8 +218,12 @@ sprites! {
     PLAYLIST_TITLE_ACTIVE = (PlEdit, 26, 0, 100, 20);
     PLAYLIST_TOP_TILE_ACTIVE = (PlEdit, 127, 0, 25, 20);
     PLAYLIST_TOP_RIGHT_ACTIVE = (PlEdit, 153, 0, 25, 20);
+    /// One column of the title's plain ground, between its rules and its
+    /// name, to stretch behind another name.
+    PLAYLIST_TITLE_GROUND_ACTIVE = (PlEdit, 52, 0, 1, 20);
     PLAYLIST_TOP_LEFT = (PlEdit, 0, 21, 25, 20);
     PLAYLIST_TITLE = (PlEdit, 26, 21, 100, 20);
+    PLAYLIST_TITLE_GROUND = (PlEdit, 52, 21, 1, 20);
     PLAYLIST_TOP_TILE = (PlEdit, 127, 21, 25, 20);
     PLAYLIST_TOP_RIGHT = (PlEdit, 153, 21, 25, 20);
     PLAYLIST_LEFT_TILE = (PlEdit, 0, 42, 12, 29);
@@ -227,6 +231,13 @@ sprites! {
     PLAYLIST_BOTTOM_TILE = (PlEdit, 179, 0, 25, 38);
     PLAYLIST_BOTTOM_LEFT = (PlEdit, 0, 72, 125, 38);
     PLAYLIST_BOTTOM_RIGHT = (PlEdit, 126, 72, 150, 38);
+    /// The bottom bar's last two rows, below its buttons and its grip: the
+    /// lower edge of the lyrics window, which has no bar.
+    PLAYLIST_BOTTOM_EDGE_LEFT = (PlEdit, 0, 108, 125, 2);
+    PLAYLIST_BOTTOM_EDGE_RIGHT = (PlEdit, 126, 108, 150, 2);
+    /// The bottom bar's last twenty pixels square, with the grip that
+    /// resizes the window, for the lyrics window's corner.
+    PLAYLIST_GRIP_CORNER = (PlEdit, 256, 90, 20, 20);
     PLAYLIST_VISUALIZER_BACKGROUND = (PlEdit, 205, 0, 75, 38);
     PLAYLIST_SCROLL_HANDLE = (PlEdit, 52, 53, 8, 18);
     PLAYLIST_SCROLL_HANDLE_PRESSED = (PlEdit, 61, 53, 8, 18);

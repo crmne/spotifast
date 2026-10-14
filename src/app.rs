@@ -3089,7 +3089,7 @@ impl App {
         {
             self.refresh_queue(true);
         }
-        if self.show_lyrics_panel {
+        if self.show_lyrics_panel || (self.settings.winamp_window && self.winamp.lyrics_open) {
             self.request_lyrics();
         }
     }
@@ -3108,6 +3108,7 @@ impl App {
         self.lyrics_uri = Some(now.uri.clone());
         self.lyrics_following = true;
         self.lyrics_line_shown = None;
+        self.winamp.lyrics_scroll = 0;
         if now.is_episode || self.offline {
             self.lyrics = Loadable::Loaded(None);
             return;
@@ -10610,6 +10611,18 @@ impl App {
             Action::ToggleWinampEq => {
                 self.settings.eq_open = !self.settings.eq_open;
                 self.settings_dirty = true;
+            }
+            Action::ToggleWinampLyrics => {
+                self.winamp.lyrics_open = !self.winamp.lyrics_open;
+                if self.winamp.lyrics_open {
+                    self.request_lyrics();
+                }
+            }
+            Action::SetLyricsLines(lines) => {
+                self.winamp.lyrics_lines = lines.clamp(
+                    crate::skin::layout::LYRICS_MIN_LINES,
+                    crate::skin::layout::LYRICS_MAX_LINES,
+                );
             }
             Action::ToggleEq => {
                 self.settings.eq_on = !self.settings.eq_on;

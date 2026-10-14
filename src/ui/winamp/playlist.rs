@@ -363,29 +363,7 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
         .contains_pointer();
     if hovered {
         let row_points = layout::PLAYLIST_TRACK_HEIGHT as f32 * view.unit;
-        let (lines, points, pages) = view.ui.ctx().input(|input| {
-            input
-                .events
-                .iter()
-                .fold((0.0, 0.0, 0.0), |sum, event| match event {
-                    egui::Event::MouseWheel { unit, delta, .. } => match unit {
-                        // One detent is one event however many lines the
-                        // system says it is worth; a free-spinning wheel's
-                        // fractions still add up.
-                        egui::MouseWheelUnit::Line => {
-                            let notch = if delta.y.abs() >= 1.0 {
-                                delta.y.signum()
-                            } else {
-                                delta.y
-                            };
-                            (sum.0 + notch, sum.1, sum.2)
-                        }
-                        egui::MouseWheelUnit::Point => (sum.0, sum.1 + delta.y, sum.2),
-                        egui::MouseWheelUnit::Page => (sum.0, sum.1, sum.2 + delta.y),
-                    },
-                    _ => sum,
-                })
-        });
+        let (lines, points, pages) = wheel(view.ui.ctx());
         app.winamp.playlist_wheel += rows_for_wheel(lines, points, pages, row_points, visible);
         let rows_moved = app.winamp.playlist_wheel.trunc();
         if rows_moved != 0.0 {
@@ -495,12 +473,45 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
 /// a trackpad's points scroll a row per row's height; a page is the rows
 /// in view. egui's deltas are positive when the content moves down, which
 /// is scrolling up.
-fn rows_for_wheel(lines: f32, points: f32, pages: f32, row_points: f32, visible: usize) -> f32 {
+pub(super) fn rows_for_wheel(
+    lines: f32,
+    points: f32,
+    pages: f32,
+    row_points: f32,
+    visible: usize,
+) -> f32 {
     -(lines * 3.0 + points / row_points + pages * visible as f32)
 }
 
+/// This frame's wheel, as lines, points and pages.
+pub(super) fn wheel(ctx: &egui::Context) -> (f32, f32, f32) {
+    ctx.input(|input| {
+        input
+            .events
+            .iter()
+            .fold((0.0, 0.0, 0.0), |sum, event| match event {
+                egui::Event::MouseWheel { unit, delta, .. } => match unit {
+                    // One detent is one event however many lines the
+                    // system says it is worth; a free-spinning wheel's
+                    // fractions still add up.
+                    egui::MouseWheelUnit::Line => {
+                        let notch = if delta.y.abs() >= 1.0 {
+                            delta.y.signum()
+                        } else {
+                            delta.y
+                        };
+                        (sum.0 + notch, sum.1, sum.2)
+                    }
+                    egui::MouseWheelUnit::Point => (sum.0, sum.1 + delta.y, sum.2),
+                    egui::MouseWheelUnit::Page => (sum.0, sum.1, sum.2 + delta.y),
+                },
+                _ => sum,
+            })
+    })
+}
+
 /// Text cut to a width, with an ellipsis when it had to be.
-fn fit(text: &mut super::PixelText, label: &str, width: f32) -> String {
+pub(super) fn fit(text: &mut super::PixelText, label: &str, width: f32) -> String {
     if text.width(label) <= width {
         return label.to_string();
     }

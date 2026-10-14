@@ -46,9 +46,10 @@ Spotifast connects only to the services below.
   for ten minutes and saved in the account-scoped Home cache for the next
   start. Both caches are cleared on sign-out. If that request fails, the
   shared Web API receives playlist-name searches for approximate suggestions.
-- **LRCLIB.** When the lyrics panel is open and Spotify has no lyrics for the
-  song, Spotifast sends its artist, title, album and length to
-  [lrclib.net](https://lrclib.net). Nothing identifying you is included.
+- **LRCLIB.** When the lyrics panel or the mini player's lyrics window is
+  open and Spotify has no lyrics for the song, Spotifast sends its artist,
+  title, album and length to [lrclib.net](https://lrclib.net). Nothing
+  identifying you is included.
 - **GitHub.** Once a day, Spotifast asks GitHub for the latest release. You
   can turn automatic checks off in Settings. Downloading an update, and the
   first opening of MilkDrop, also fetch files from GitHub. No Spotify data is

@@ -28,14 +28,17 @@ use crate::winamp::{MAX_SCALE, WinampState};
 use super::widgets::{SliderEvent, wheel_notches};
 
 mod equalizer;
+mod lyrics;
 mod pixel_text;
 mod playlist;
 
+pub use lyrics::LyricsRows;
 pub use pixel_text::PixelText;
 
-/// The stack's height in skin pixels: the main window, and the equalizer
-/// and the playlist under it, whichever are open.
-fn stack_height(settings: &crate::settings::Settings) -> u32 {
+/// The stack's height in skin pixels: the main window, and the equalizer,
+/// the lyrics (the lines they are tall, when open) and the playlist under
+/// it, whichever are open.
+fn stack_height(settings: &crate::settings::Settings, lyrics: Option<u32>) -> u32 {
     let mut height = if settings.winamp_shaded {
         layout::SHADE_HEIGHT
     } else {
@@ -47,6 +50,9 @@ fn stack_height(settings: &crate::settings::Settings) -> u32 {
         } else {
             layout::EQ_HEIGHT
         };
+    }
+    if let Some(lines) = lyrics {
+        height += layout::lyrics_height(lines);
     }
     if settings.playlist_open {
         height += if settings.playlist_shaded {
@@ -62,14 +68,17 @@ fn stack_height(settings: &crate::settings::Settings) -> u32 {
 
 /// The window's size in logical points, for the given points per skin
 /// pixel.
-pub fn window_size(settings: &crate::settings::Settings, unit: f32) -> Vec2 {
-    vec2(layout::WINDOW_WIDTH as f32, stack_height(settings) as f32) * unit
+pub fn window_size(settings: &crate::settings::Settings, lyrics: Option<u32>, unit: f32) -> Vec2 {
+    vec2(
+        layout::WINDOW_WIDTH as f32,
+        stack_height(settings, lyrics) as f32,
+    ) * unit
 }
 
 /// A first guess at the window's size, before the display's scale is
-/// known; the first frame corrects it.
+/// known; the first frame corrects it. The lyrics are never open yet.
 pub fn initial_size(settings: &crate::settings::Settings) -> Vec2 {
-    window_size(settings, WinampState::scale(settings, 1.0) as f32)
+    window_size(settings, None, WinampState::scale(settings, 1.0) as f32)
 }
 
 /// Skin files dropped on the window this frame.
@@ -92,8 +101,13 @@ fn unit(app: &App, ctx: &egui::Context) -> f32 {
 }
 
 /// Fits the window to the skin after the display scale is known.
-fn fit_window(ctx: &egui::Context, settings: &crate::settings::Settings, unit: f32) {
-    let wanted = window_size(settings, unit);
+fn fit_window(
+    ctx: &egui::Context,
+    settings: &crate::settings::Settings,
+    lyrics: Option<u32>,
+    unit: f32,
+) {
+    let wanted = window_size(settings, lyrics, unit);
     // Not `inner_rect`: Wayland reports no window positions, so that is
     // `None` there; the screen rect is the window's size on every desktop.
     let current = ctx.viewport_rect().size();
@@ -140,6 +154,11 @@ impl View<'_> {
     }
 
     fn paint(&self, painter: &egui::Painter, sprite: Sprite, x: u32, y: u32) {
+        self.paint_tinted(painter, sprite, x, y, Color32::WHITE);
+    }
+
+    /// A sprite multiplied by a colour, to dim it.
+    fn paint_tinted(&self, painter: &egui::Painter, sprite: Sprite, x: u32, y: u32, tint: Color32) {
         let Some((bitmap, clipped)) = self.skin.sprite(sprite) else {
             return;
         };
@@ -164,7 +183,7 @@ impl View<'_> {
                 self.origin + vec2((x + dx) as f32, (y + dy) as f32) * self.unit,
                 vec2(columns as f32, rows as f32) * self.unit,
             );
-            painter.image(texture, dest, uv, Color32::WHITE);
+            painter.image(texture, dest, uv, tint);
         };
         match self.mask {
             None => piece(0, 0, clipped.width, clipped.height),
@@ -224,6 +243,10 @@ impl View<'_> {
 
     /// A line of the skin's bitmap font, cut off at the area's edge.
     fn text(&self, text: &str, area: Area) {
+        self.text_tinted(text, area, Color32::WHITE);
+    }
+
+    fn text_tinted(&self, text: &str, area: Area, tint: Color32) {
         let clip = self.rect(area).intersect(self.ui.clip_rect());
         let painter = self.ui.painter().with_clip_rect(clip);
         for (index, character) in text.chars().enumerate() {
@@ -231,8 +254,71 @@ impl View<'_> {
             if x >= area.x + area.width {
                 break;
             }
-            self.paint(&painter, font::glyph(character), x, area.y);
+            self.paint_tinted(&painter, font::glyph(character), x, area.y, tint);
         }
+    }
+
+    /// Text in the skin's font with its ink in one colour, for a label that
+    /// lights up: a tint only darkens, and most fonts are grey. Ink is
+    /// whatever differs from the ground the space is drawn on.
+    fn text_lit(&self, text: &str, area: Area, colour: Color32) {
+        let Some((bitmap, space)) = self.skin.sprite(font::glyph(' ')) else {
+            return;
+        };
+        let pixel = |x: u32, y: u32| {
+            let at = ((y * bitmap.width + x) * 4) as usize;
+            [bitmap.rgba[at], bitmap.rgba[at + 1], bitmap.rgba[at + 2]]
+        };
+        let ground = pixel(space.x, space.y);
+        let clip = self.rect(area).intersect(self.ui.clip_rect());
+        let painter = self.ui.painter().with_clip_rect(clip);
+        for (index, character) in text.chars().enumerate() {
+            let x = area.x + 5 * index as u32;
+            if x >= area.x + area.width {
+                break;
+            }
+            let Some((_, glyph)) = self.skin.sprite(font::glyph(character)) else {
+                continue;
+            };
+            for row in 0..glyph.height {
+                for column in 0..glyph.width {
+                    let ink = pixel(glyph.x + column, glyph.y + row);
+                    let distance: u32 = (0..3).map(|i| ink[i].abs_diff(ground[i]) as u32).sum();
+                    if distance > 48 {
+                        painter.rect_filled(
+                            self.rect(Area::new(x + column, area.y + row, 1, 1)),
+                            0.0,
+                            colour,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// A sprite drawn across an area, however wide: a plain column of a
+    /// frame run behind something the skin never drew.
+    fn sprite_stretched(&self, sprite: Sprite, area: Area) {
+        let Some((bitmap, clipped)) = self.skin.sprite(sprite) else {
+            return;
+        };
+        let Some(&texture) = self.textures.get(&sprite.sheet) else {
+            return;
+        };
+        let (width, height) = (bitmap.width as f32, bitmap.height as f32);
+        let uv = Rect::from_min_max(
+            pos2(clipped.x as f32 / width, clipped.y as f32 / height),
+            pos2(
+                (clipped.x + clipped.width) as f32 / width,
+                (clipped.y + clipped.height) as f32 / height,
+            ),
+        );
+        let dest = self.rect(Area::new(area.x, area.y, area.width, clipped.height));
+        let clip = self.rect(area).intersect(self.ui.clip_rect());
+        self.ui
+            .painter()
+            .with_clip_rect(clip)
+            .image(texture, dest, uv, Color32::WHITE);
     }
 
     fn interact(&mut self, area: Area, id: &str, sense: Sense) -> Response {
@@ -297,7 +383,8 @@ impl View<'_> {
 pub fn show(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let unit = unit(app, &ctx);
-    fit_window(&ctx, &app.settings, unit);
+    let lyrics = app.winamp.lyrics_open.then_some(app.winamp.lyrics_lines);
+    fit_window(&ctx, &app.settings, lyrics, unit);
     let origin = ui.max_rect().min;
     let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
     super::keys::handle(app, &ctx);
@@ -356,6 +443,18 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         } else {
             layout::EQ_HEIGHT
         };
+    }
+    if app.winamp.lyrics_open {
+        let mut below = View {
+            ui: view.ui,
+            origin: origin + vec2(0.0, below_y as f32 * unit),
+            unit,
+            skin: &skin,
+            textures: &textures,
+            mask: None,
+        };
+        lyrics::show(app, &mut below, now.as_ref(), focused);
+        below_y += layout::lyrics_height(app.winamp.lyrics_lines);
     }
     if app.settings.playlist_open {
         let mut below = View {
@@ -1396,8 +1495,26 @@ fn balance_of(value: f32) -> f32 {
     if balance.abs() < 0.08 { 0.0 } else { balance }
 }
 
-/// The EQ and PL toggles, each lit while its window hangs below.
+/// The EQ, LY and PL toggles, each lit while its window hangs below.
 fn windows_buttons(app: &mut App, view: &mut View) {
+    // Skins have no sprite for LY, so it is written in the skin's own font
+    // under the visualizer: lit in the playing song's colour while the
+    // lyrics are open or it is held, faint otherwise, as the clutter bar's
+    // letters are.
+    let response = view
+        .interact(layout::LYRICS_BUTTON, "lyrics", Sense::click())
+        .on_hover_text(gettext(app.locale, "Lyrics").as_ref());
+    let button = layout::LYRICS_BUTTON;
+    let letters = Area::new(button.x + 2, button.y + 1, 10, 6);
+    if app.winamp.lyrics_open || response.is_pointer_button_down_on() {
+        let [r, g, b] = view.skin.playlist.current;
+        view.text_lit("LY", letters, Color32::from_rgb(r, g, b));
+    } else {
+        view.text_tinted("LY", letters, Color32::WHITE.gamma_multiply(0.35));
+    }
+    if response.clicked() {
+        app.actions.push(Action::ToggleWinampLyrics);
+    }
     let (normal, pressed) = if app.settings.eq_open {
         (sprites::EQ_ON, sprites::EQ_ON_PRESSED)
     } else {
@@ -1654,5 +1771,7 @@ mod tests {
         assert_eq!(initial_size(&settings), vec2(275.0, 406.0));
         settings.eq_shaded = true;
         assert_eq!(initial_size(&settings), vec2(275.0, 304.0));
+        assert_eq!(window_size(&settings, Some(4), 1.0), vec2(275.0, 382.0));
+        assert_eq!(window_size(&settings, Some(6), 1.0), vec2(275.0, 408.0));
     }
 }

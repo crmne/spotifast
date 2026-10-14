@@ -79,6 +79,17 @@ drag the lower-right corner to resize the window. Use X or **PL** to close it.
 
 Notices from the main window scroll through the mini player's text display.
 
+## Lyrics
+
+**LY**, under the visualizer, opens the playing song's lyrics below the
+player, four rows at a time; long lines continue on the next row. With the
+playlist closed, drag the lower-right corner to show more rows. They follow
+the song and light the line being sung; click a timed line to play from
+there. The mouse wheel scrolls them, and **FOLLOW** in the title bar returns
+to the song. The lyrics come from the same place as the main window's lyrics
+panel. Use X or **LY** to close them. The window starts closed each time
+Spotifast opens.
+
 ## Equalizer
 
 **EQ** opens the ten-band equalizer. It affects playback on this computer, not
