@@ -60,6 +60,15 @@ pub fn fps_label(locale: crate::i18n::Locale, rate: u32, screen: u32) -> String 
     }
 }
 
+/// A screen's refresh rate in whole hertz, from the millihertz a monitor
+/// reports, when it is a rate at all: Windows answers 0 or 1 for "the
+/// hardware's default", which says nothing. Screens faster than the dial
+/// goes keep their rate.
+pub fn screen_hz(millihertz: u32) -> Option<u32> {
+    let hz = (f64::from(millihertz) / 1000.0).round() as u32;
+    (hz >= *FPS_RANGE.start()).then_some(hz)
+}
+
 /// The window's size when it first opens, in logical points.
 pub const DEFAULT_SIZE: [f32; 2] = [640.0, 480.0];
 /// The smallest the window may be dragged.
@@ -452,6 +461,19 @@ mod tests {
             "144 fps, your screen"
         );
         assert_eq!(fps_label(crate::i18n::Locale::English, 30, 144), "30 fps");
+    }
+
+    /// A monitor's millihertz round to the hertz the dial shows, the default
+    /// Windows reports instead of a rate is no rate at all, and a screen
+    /// faster than the dial goes keeps its rate.
+    #[test]
+    fn a_screen_reports_its_rate_in_millihertz() {
+        assert_eq!(screen_hz(59_940), Some(60));
+        assert_eq!(screen_hz(143_981), Some(144));
+        assert_eq!(screen_hz(164_000), Some(164));
+        assert_eq!(screen_hz(0), None);
+        assert_eq!(screen_hz(1_000), None, "Windows's hardware default");
+        assert_eq!(screen_hz(480_000), Some(480), "faster than the dial goes");
     }
 
     /// R switches between random and the folder's own order; in order,

@@ -295,7 +295,7 @@ main fields are:
 | `milkdrop_open` | `false` | The MilkDrop window is open |
 | `milkdrop_seconds` | `30` | How long each MilkDrop preset plays |
 | `milkdrop_fps` | `60` | MilkDrop frame rate; `0` is uncapped. At most 30 while the system saves energy |
-| `milkdrop_screen_hz` | `0` | Last reported display refresh rate |
+| `milkdrop_screen_hz` | `0` | Last refresh rate reported by MilkDrop's window |
 | `milkdrop_fullscreen` | `false` | The MilkDrop window fills the screen |
 | `milkdrop_size` | `640, 480` | The MilkDrop window's size in points |
 | `keep_playing_in_background` | `true` | Close to tray |

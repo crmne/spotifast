@@ -298,6 +298,10 @@ pub struct App {
     /// What the app may spend on drawing and polling, from the power state
     /// and the window's; worked out in each logic pass.
     pub budget: crate::power::Budget,
+    /// How often the monitor showing the main window refreshes, in hertz,
+    /// once it has said; 0 before. Not saved: the window may open on
+    /// another screen next time.
+    pub screen_hz: u32,
     /// Whether the desktop asks for less motion.
     pub motion: crate::motion::Motion,
     pub window_hidden: bool,
@@ -876,6 +880,7 @@ impl App {
             reachable: true,
             playback_activity: None,
             budget: crate::power::Budget::default(),
+            screen_hz: 0,
             motion: crate::motion::Motion::default(),
             window_hidden: false,
             hide_intent: false,
@@ -3389,6 +3394,16 @@ impl App {
             self.power.conditions(),
             self.settings.visualizer_fps,
         )
+    }
+
+    /// The screen rate the visualizers' frame-rate dial offers: the one
+    /// showing the main window, or the one MilkDrop last saw until that
+    /// has said; 0 while neither is known.
+    pub fn visualiser_screen_hz(&self) -> u32 {
+        match self.screen_hz {
+            0 => self.settings.milkdrop_screen_hz,
+            hz => hz,
+        }
     }
 
     /// Records the MilkDrop screen refresh rate and uses it as the initial FPS.
@@ -19734,6 +19749,21 @@ mod tests {
             "the new screen is noted"
         );
         assert_eq!(app.settings.milkdrop_fps, 30, "their number stands");
+    }
+
+    /// The visualizers' dial offers the rate of the screen showing the main
+    /// window, MilkDrop's until that screen has said, and none before
+    /// either has.
+    #[test]
+    fn the_visualizer_dial_offers_the_main_windows_screen() {
+        let mut app = headless_app();
+        assert_eq!(app.visualiser_screen_hz(), 0, "no screen has said");
+        app.settings.milkdrop_screen_hz = 144;
+        assert_eq!(app.visualiser_screen_hz(), 144, "MilkDrop's meanwhile");
+        app.screen_hz = 165;
+        assert_eq!(app.visualiser_screen_hz(), 165, "the window's own");
+        app.screen_hz = 0;
+        assert_eq!(app.visualiser_screen_hz(), 144, "an unusable answer");
     }
 
     /// A window in the Dock is drawn no frames, so the one frame a Show

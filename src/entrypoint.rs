@@ -688,6 +688,7 @@ pub(crate) fn run() -> eframe::Result<()> {
                     #[cfg(feature = "demo")]
                     drag: demo_drag,
                     stalls: fastframe_shell::StallWatch::default(),
+                    screen_asked: None,
                 }))
             }),
         )
@@ -1222,9 +1223,35 @@ struct Shell {
     drag: Option<DemoDrag>,
     /// Logs a warning when an update freezes the window.
     stalls: fastframe_shell::StallWatch,
+    /// Where the window was when it last asked its monitor's refresh rate,
+    /// and when.
+    screen_asked: Option<(Option<egui::Rect>, std::time::Instant)>,
 }
 
 impl Shell {
+    /// Asks the monitor showing the window how often it refreshes, for the
+    /// visualizers' frame-rate dial: whenever the window moves, and
+    /// otherwise once a second, as a display can change its mode in place
+    /// and Wayland names the monitor only once the window is on it. A
+    /// monitor with no usable answer clears the window's rate rather than
+    /// keeping the last screen's, so the dial falls back to MilkDrop's.
+    fn read_screen_hz(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let place = ctx.input(|input| input.viewport().outer_rect);
+        if let Some((asked, when)) = self.screen_asked
+            && asked == place
+            && when.elapsed() < std::time::Duration::from_secs(1)
+        {
+            return;
+        }
+        self.screen_asked = Some((place, std::time::Instant::now()));
+        self.app.screen_hz = frame
+            .winit_window()
+            .and_then(|window| window.current_monitor())
+            .and_then(|monitor| monitor.refresh_rate_millihertz())
+            .and_then(spotifast::milkdrop::screen_hz)
+            .unwrap_or(0);
+    }
+
     /// One pass of the window's logic, run under the stall watch.
     fn run_logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // A window restored where no monitor shows it any more (a display
@@ -1232,6 +1259,7 @@ impl Shell {
         if !std::mem::replace(&mut self.recovery_checked, true) {
             fastframe_shell::window::recover_offscreen(ctx, frame);
         }
+        self.read_screen_hz(ctx, frame);
         let app = &mut *self.app;
         #[cfg(target_os = "macos")]
         for command in spotifast::mac_menu::drain_commands() {
