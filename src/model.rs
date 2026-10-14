@@ -1199,6 +1199,8 @@ pub enum Action {
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,
+    /// Show or hide what friends are listening to, in the right panel.
+    ToggleFriendsPanel,
     SetLyricsFullscreen(bool),
     LyricsLineShown(Option<usize>),
     FollowLyrics,

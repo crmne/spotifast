@@ -42,6 +42,8 @@ const REMOTE_COMMAND_WINDOW: Duration = Duration::from_secs(10);
 /// With nobody able to see the window and nothing playing anywhere.
 const REMOTE_POLL_UNSEEN: Duration = Duration::from_secs(30);
 const REMOTE_FRESH: Duration = Duration::from_secs(60);
+/// How often the open Friend activity panel asks for news.
+const FRIENDS_POLL: Duration = Duration::from_secs(15);
 const DEVICES_FRESH: Duration = Duration::from_secs(12);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 /// How long a suspend or the end of the session waits for pending file
@@ -500,6 +502,13 @@ pub struct App {
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
+    /// Friend activity takes the right panel's place, so at most one of the
+    /// Queue, Lyrics and Friend activity is open.
+    pub show_friends_panel: bool,
+    /// What friends last played. A refresh keeps the last answer on screen.
+    pub friends: Loadable<Vec<crate::session_reads::FriendActivity>>,
+    friends_in_flight: bool,
+    friends_fetched_at: Option<Instant>,
     pub lyrics_fullscreen: Option<bool>,
     pub lyrics_fullscreen_seen: bool,
     lyrics_fullscreen_restoring: Option<bool>,
@@ -1019,6 +1028,10 @@ impl App {
             uploaded_covers: Default::default(),
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
+            show_friends_panel: false,
+            friends: Loadable::NotLoaded,
+            friends_in_flight: false,
+            friends_fetched_at: None,
             lyrics_fullscreen: None,
             lyrics_fullscreen_seen: false,
             lyrics_fullscreen_restoring: None,
@@ -2263,6 +2276,7 @@ impl App {
                 } => {
                     self.receive_account_caches(&account_id, generation, playlists, home);
                 }
+                Event::FriendActivity(result) => self.receive_friends(result),
                 Event::UserName { id, name, image } => {
                     self.set_user_name(id.clone(), name);
                     self.set_user_image(id, image);
@@ -3214,6 +3228,37 @@ impl App {
         }
     }
 
+    /// Asks what friends last played, unless an answer is on the way. The
+    /// panel keeps showing the last answer meanwhile.
+    fn refresh_friends(&mut self) {
+        if self.friends_in_flight {
+            return;
+        }
+        self.friends_in_flight = true;
+        if !matches!(self.friends, Loadable::Loaded(_)) {
+            self.friends = Loadable::Loading;
+        }
+        self.backend.send(Command::FriendActivity);
+    }
+
+    /// A failed refresh keeps the friends already shown; only a first read
+    /// that fails says so.
+    fn receive_friends(
+        &mut self,
+        result: Result<Vec<crate::session_reads::FriendActivity>, String>,
+    ) {
+        self.friends_in_flight = false;
+        self.friends_fetched_at = Some(Instant::now());
+        match result {
+            Ok(friends) => self.friends = Loadable::Loaded(friends),
+            Err(error) => {
+                if !matches!(self.friends, Loadable::Loaded(_)) {
+                    self.friends = Loadable::Failed(error);
+                }
+            }
+        }
+    }
+
     /// Asks for the playing track's lyrics unless they are here or on the
     /// way. Podcasts have no lyrics to ask for.
     pub fn request_lyrics(&mut self) {
@@ -3381,6 +3426,14 @@ impl App {
                     .is_none_or(|at| at.elapsed() > Duration::from_secs(20))
             {
                 self.refresh_queue(false);
+            }
+            if self.show_friends_panel && !self.friends_in_flight {
+                match self.friends_fetched_at.map(|at| at.elapsed()) {
+                    Some(elapsed) if elapsed < FRIENDS_POLL => {
+                        ctx.request_repaint_after(FRIENDS_POLL - elapsed);
+                    }
+                    _ => self.refresh_friends(),
+                }
             }
             if let Some(due) = self.liked_recheck_at {
                 if Instant::now() >= due && !self.liked_songs.refreshing() {
@@ -9633,6 +9686,7 @@ impl App {
                 | Action::SignOut
                 | Action::ToggleWinampWindow
                 | Action::ToggleQueuePanel
+                | Action::ToggleFriendsPanel
         ) {
             self.leave_lyrics_fullscreen(ctx);
         }
@@ -10375,6 +10429,9 @@ impl App {
             }
             Action::SignOut => {
                 self.backend.send(Command::SignOut);
+                self.show_friends_panel = false;
+                self.friends = Loadable::NotLoaded;
+                self.friends_fetched_at = None;
                 self.history = vec![Page::Home];
                 self.history_index = 0;
             }
@@ -10386,6 +10443,7 @@ impl App {
                 self.show_queue_panel = !self.show_queue_panel;
                 if self.show_queue_panel {
                     self.show_lyrics_panel = false;
+                    self.show_friends_panel = false;
                     self.refresh_queue(true);
                 }
             }
@@ -10394,8 +10452,17 @@ impl App {
                 self.show_lyrics_panel = !self.show_lyrics_panel;
                 if self.show_lyrics_panel {
                     self.show_queue_panel = false;
+                    self.show_friends_panel = false;
                     self.lyrics_following = true;
                     self.request_lyrics();
+                }
+            }
+            Action::ToggleFriendsPanel => {
+                self.show_friends_panel = !self.show_friends_panel;
+                if self.show_friends_panel {
+                    self.show_queue_panel = false;
+                    self.show_lyrics_panel = false;
+                    self.refresh_friends();
                 }
             }
             Action::SetLyricsFullscreen(fullscreen) => {
@@ -10419,6 +10486,7 @@ impl App {
                     self.lyrics_fullscreen_seen = false;
                     self.show_lyrics_panel = true;
                     self.show_queue_panel = false;
+                    self.show_friends_panel = false;
                     self.lyrics_following = true;
                     self.lyrics_line_shown = None;
                     self.request_lyrics();
@@ -18083,6 +18151,110 @@ mod tests {
         );
         app.reveal_theme_changes = false;
         app
+    }
+
+    /// Friend activity takes the right panel's place: opening it closes the
+    /// Queue and Lyrics, and opening either of them closes it.
+    #[test]
+    fn friend_activity_swaps_places_with_the_queue_and_lyrics() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("friends-panel-swap");
+        app.show_queue_panel = true;
+        app.apply(Action::ToggleFriendsPanel, &ctx);
+        assert!(app.show_friends_panel && !app.show_queue_panel);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.show_queue_panel && !app.show_friends_panel);
+        app.apply(Action::ToggleFriendsPanel, &ctx);
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert!(app.show_lyrics_panel && !app.show_friends_panel);
+        app.apply(Action::ToggleFriendsPanel, &ctx);
+        assert!(app.show_friends_panel && !app.show_lyrics_panel);
+        app.apply(Action::ToggleFriendsPanel, &ctx);
+        assert!(!app.show_friends_panel && !app.show_queue_panel && !app.show_lyrics_panel);
+        app.backend.shutdown();
+    }
+
+    /// Long titles truncate instead of widening Friend activity: the panel
+    /// keeps the narrow width chosen for it.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn long_friend_titles_never_widen_the_panel() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("friends-panel-width");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.settings.queue_width = crate::theme::SIDE_PANEL_MIN_WIDTH;
+        app.show_friends_panel = true;
+        let long = "A very long song title that never ends ".repeat(4);
+        app.friends = Loadable::Loaded(vec![crate::session_reads::FriendActivity {
+            user_uri: "spotify:user:a".into(),
+            user_name: long.clone(),
+            image_url: None,
+            timestamp_ms: 1,
+            playing: true,
+            track_uri: "spotify:track:1".into(),
+            track_name: long.clone(),
+            artist_uri: Some("spotify:artist:1".into()),
+            artist_name: long.clone(),
+            album_uri: Some("spotify:album:1".into()),
+            cover_url: None,
+            context_uri: Some("spotify:playlist:1".into()),
+            context_name: Some(long),
+        }]);
+        for _ in 0..4 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1400.0, 800.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+        }
+        let width = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("friends-panel"))
+            .unwrap()
+            .size()
+            .x;
+        assert!(
+            width <= crate::theme::SIDE_PANEL_MIN_WIDTH + 1.0,
+            "the panel grew to {width}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A refresh that fails keeps the friends already on screen, and only one
+    /// request is in flight at a time.
+    #[test]
+    fn a_failed_friend_refresh_keeps_the_last_answer() {
+        let mut app = test_app("friends-refresh");
+        let friend = crate::session_reads::FriendActivity {
+            user_uri: "spotify:user:a".into(),
+            user_name: "Ann".into(),
+            image_url: None,
+            timestamp_ms: 1,
+            playing: false,
+            track_uri: "spotify:track:1".into(),
+            track_name: "Song".into(),
+            artist_uri: None,
+            artist_name: "Band".into(),
+            album_uri: None,
+            cover_url: None,
+            context_uri: None,
+            context_name: None,
+        };
+        app.refresh_friends();
+        assert!(app.friends.is_loading());
+        app.receive_friends(Ok(vec![friend.clone()]));
+        app.refresh_friends();
+        assert!(app.friends_in_flight);
+        assert_eq!(app.friends.get(), Some(&vec![friend.clone()]));
+        app.receive_friends(Err("offline".into()));
+        assert_eq!(app.friends.get(), Some(&vec![friend]));
+        assert!(!app.friends_in_flight);
+        app.backend.shutdown();
     }
 
     /// Demo mode is offline, but it reads cover art and its colours like
