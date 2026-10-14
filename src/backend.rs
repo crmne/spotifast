@@ -23,7 +23,7 @@ use crate::credentials::{
     Store as CredentialStore,
 };
 use crate::http::Http;
-use crate::images::{ArtLoader, accent_color};
+use crate::images::ArtLoader;
 use crate::model::PlaylistCache;
 use crate::paths::AppDirs;
 use crate::player::{
@@ -4184,13 +4184,9 @@ impl Worker {
         let waker = self.waker.clone();
         tokio::spawn(async move {
             // A read that could not finish is a failure to retry, not a
-            // cover without a colour.
-            let color = match art.fetch(&url).await {
-                Ok(bytes) => tokio::task::spawn_blocking(move || accent_color(&bytes))
-                    .await
-                    .map_err(|error| error.to_string()),
-                Err(error) => Err(error),
-            };
+            // cover without a colour; bytes that do not decode are dropped
+            // first, so the retry downloads the cover again.
+            let color = art.accent(&url).await;
             let _ = events.send(Event::Accent { url, color });
             waker.wake();
         });

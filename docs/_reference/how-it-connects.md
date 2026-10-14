@@ -234,9 +234,11 @@ remain unchanged and follow the configured proxy and normal artwork cache.
 Choosing an artwork size and reusing known details add no Web API request.
 
 A cover whose colour could not be read, because its thumbnail did not
-download or the read did not finish, is read again after five seconds, then
-ten, three reads in all, and once more when the network comes back. Each read
-goes through the same thumbnail URL and artwork cache.
+download, did not decode or the read did not finish, is read again after five
+seconds, then ten, three reads in all, and once more when the network comes
+back. Each read goes through the same thumbnail URL and artwork cache; cached
+bytes that do not decode are deleted from the cache first, so the next read
+downloads them again.
 
 A ready sharp cover stays visible until its replacement is ready. A 300-pixel
 grid cover already loaded for the same item can preview a larger page cover
