@@ -3321,7 +3321,7 @@ dependencies = [
 [[package]]
 name = "librespot-audio"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=847125198bb251d1d4497f46bebbfa4868b7d5d7#847125198bb251d1d4497f46bebbfa4868b7d5d7"
+source = "git+https://github.com/crmne/librespot?rev=0f23b15cae660674ff4fd209643ee17550aa3852#0f23b15cae660674ff4fd209643ee17550aa3852"
 dependencies = [
  "aes 0.8.4",
  "bytes",
@@ -3340,7 +3340,7 @@ dependencies = [
 [[package]]
 name = "librespot-connect"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=847125198bb251d1d4497f46bebbfa4868b7d5d7#847125198bb251d1d4497f46bebbfa4868b7d5d7"
+source = "git+https://github.com/crmne/librespot?rev=0f23b15cae660674ff4fd209643ee17550aa3852#0f23b15cae660674ff4fd209643ee17550aa3852"
 dependencies = [
  "futures-util",
  "librespot-core",
@@ -3359,7 +3359,7 @@ dependencies = [
 [[package]]
 name = "librespot-core"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=847125198bb251d1d4497f46bebbfa4868b7d5d7#847125198bb251d1d4497f46bebbfa4868b7d5d7"
+source = "git+https://github.com/crmne/librespot?rev=0f23b15cae660674ff4fd209643ee17550aa3852#0f23b15cae660674ff4fd209643ee17550aa3852"
 dependencies = [
  "aes 0.8.4",
  "base64",
@@ -3417,7 +3417,7 @@ dependencies = [
 [[package]]
 name = "librespot-metadata"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=847125198bb251d1d4497f46bebbfa4868b7d5d7#847125198bb251d1d4497f46bebbfa4868b7d5d7"
+source = "git+https://github.com/crmne/librespot?rev=0f23b15cae660674ff4fd209643ee17550aa3852#0f23b15cae660674ff4fd209643ee17550aa3852"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3434,7 +3434,7 @@ dependencies = [
 [[package]]
 name = "librespot-oauth"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=847125198bb251d1d4497f46bebbfa4868b7d5d7#847125198bb251d1d4497f46bebbfa4868b7d5d7"
+source = "git+https://github.com/crmne/librespot?rev=0f23b15cae660674ff4fd209643ee17550aa3852#0f23b15cae660674ff4fd209643ee17550aa3852"
 dependencies = [
  "log",
  "oauth2",
@@ -3448,7 +3448,7 @@ dependencies = [
 [[package]]
 name = "librespot-playback"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=847125198bb251d1d4497f46bebbfa4868b7d5d7#847125198bb251d1d4497f46bebbfa4868b7d5d7"
+source = "git+https://github.com/crmne/librespot?rev=0f23b15cae660674ff4fd209643ee17550aa3852#0f23b15cae660674ff4fd209643ee17550aa3852"
 dependencies = [
  "form_urlencoded",
  "futures-util",
@@ -3471,7 +3471,7 @@ dependencies = [
 [[package]]
 name = "librespot-protocol"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=847125198bb251d1d4497f46bebbfa4868b7d5d7#847125198bb251d1d4497f46bebbfa4868b7d5d7"
+source = "git+https://github.com/crmne/librespot?rev=0f23b15cae660674ff4fd209643ee17550aa3852#0f23b15cae660674ff4fd209643ee17550aa3852"
 dependencies = [
  "protobuf",
  "protobuf-codegen",
@@ -6220,7 +6220,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.60.2",

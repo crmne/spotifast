@@ -106,6 +106,9 @@ librespot provides:
 - Spotify Connect, so another Spotify client can transfer playback to this
   computer.
 - Shuffle, repeat, seek, and volume.
+- Removing one upcoming song from the queue, whether you queued it or it
+  comes from the playing album or playlist. Only while this computer is
+  playing; the Web API cannot remove queue items.
 - Control of restricted Connect devices, including Sonos, through the signed-in
   playback session. Sonos receivers are discovered on the local network;
   the Web API alone cannot start or control them.

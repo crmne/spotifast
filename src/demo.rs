@@ -7535,11 +7535,11 @@ mod tests {
         app.backend.shutdown();
     }
 
-    /// Right-clicking a song under Playing next offers to take it out of
-    /// the queue, and doing so removes that row; a Next up row, which
-    /// plays from the context, offers no such entry (#721).
+    /// Right-clicking a song under Playing next or Next up offers to take
+    /// it out of the queue, and doing so removes that row; only this
+    /// computer's queue can be rewritten this way (#721, #724).
     #[test]
-    fn a_queued_rows_menu_removes_it_from_the_queue() {
+    fn a_queue_rows_menu_removes_it_from_either_section() {
         use egui::accesskit::Role;
         let (ctx, mut app) = accessible_app("queue-remove");
         app.show_queue_panel = true;
@@ -7570,54 +7570,47 @@ mod tests {
                 ((bounds.y0 + bounds.y1) / 2.0) as f32,
             )
         };
-        let has_remove = |tree: &egui::accesskit::TreeUpdate| {
-            tree.nodes
-                .iter()
-                .any(|(_, node)| node.label() == Some("Remove from queue"))
+        let remove_row = |ctx: &egui::Context, app: &mut App, name: &str| {
+            let tree = accessible_frame(ctx, app, vec![]);
+            let row = row_center(&tree, name);
+            accessible_frame(ctx, app, pointer_click(row, egui::PointerButton::Secondary));
+            let tree = accessible_frame(ctx, app, vec![]);
+            accessible_node(&tree, "Add to queue", Role::Button);
+            let remove = accessible_node(&tree, "Remove from queue", Role::Button);
+            accessible_frame(
+                ctx,
+                app,
+                vec![accessible_action(
+                    remove,
+                    egui::accesskit::Action::Click,
+                    None,
+                )],
+            );
+            let tree = accessible_frame(ctx, app, vec![]);
+            let prefix = format!("Play {name},");
+            assert!(
+                !tree.nodes.iter().any(|(_, node)| {
+                    node.label().is_some_and(|text| text.starts_with(&prefix))
+                        && node
+                            .bounds()
+                            .is_some_and(|bounds| bounds.x0 >= 900.0 && bounds.y1 <= 800.0)
+                }),
+                "the removed row leaves the queue at once"
+            );
         };
 
-        let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let next_up = row_center(&tree, "Otomo");
-        accessible_frame(
-            &ctx,
-            &mut app,
-            pointer_click(next_up, egui::PointerButton::Secondary),
-        );
-        let tree = accessible_frame(&ctx, &mut app, vec![]);
-        accessible_node(&tree, "Add to queue", Role::Button);
-        assert!(!has_remove(&tree), "a Next up row cannot be removed");
-        accessible_frame(
-            &ctx,
-            &mut app,
-            vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+        // "Otomo" is the first row of "Next up", from the default demo
+        // queue past the three manually queued rows seeded above. It
+        // plays from the context, so removing it carries no manual_queue
+        // entry.
+        remove_row(&ctx, &mut app, "Otomo");
+        assert_eq!(
+            app.manual_queue, uris,
+            "a context row has no manual_queue entry"
         );
 
-        let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let queued = row_center(&tree, "Queued 1");
-        accessible_frame(
-            &ctx,
-            &mut app,
-            pointer_click(queued, egui::PointerButton::Secondary),
-        );
-        let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let remove = accessible_node(&tree, "Remove from queue", Role::Button);
-        accessible_frame(
-            &ctx,
-            &mut app,
-            vec![accessible_action(
-                remove,
-                egui::accesskit::Action::Click,
-                None,
-            )],
-        );
+        remove_row(&ctx, &mut app, "Queued 1");
         assert_eq!(app.manual_queue, [uris[0].clone(), uris[2].clone()]);
-        let tree = accessible_frame(&ctx, &mut app, vec![]);
-        assert!(
-            !tree.nodes.iter().any(|(_, node)| node
-                .label()
-                .is_some_and(|text| text.starts_with("Play Queued 1,"))),
-            "the removed row leaves the queue at once"
-        );
         app.backend.shutdown();
     }
 

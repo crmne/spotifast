@@ -136,14 +136,17 @@ counts once, and the notification reports only the rows actually added.
     *Playing next* elsewhere in the same section moves it, only while this
     computer is the active player. Otherwise every drop still just adds to
     the end, exactly like **Add to queue**. *Next up* is never a drop
-    target: it plays from the current context, not from a list Spotifast
-    can rewrite. While *Playing next* is empty, drop the song on the player
-    bar's Queue button instead.
+    target: nothing can be inserted into it, though its rows can be
+    removed (rule 12). While *Playing next* is empty, drop the song on
+    the player bar's Queue button instead.
 
-12. **A song you queued can be removed on its own, only on this
-    computer.** Right-click a row under *Playing next*, or open its **…**
-    menu, and choose **Remove from queue**. Only that row leaves: other
-    copies of the song stay, and so does *Next up*. Like a move, this
-    rewrites the queue by clearing it and re-adding the rest, so it is
-    offered only while this computer is the active player. *Next up* rows
-    have no such entry; they play from the current context.
+12. **Any upcoming row can be removed on its own, only on this computer.**
+    Right-click a row under *Playing next* or *Next up*, or open its
+    **…** menu, and choose **Remove from queue**. Only that row leaves:
+    other copies of the song stay. The option appears only while this
+    computer is the active player, because only the engine playing the
+    queue can remove a row. A removed *Next up* song does not come back
+    on this pass through the playlist or album, which carries on with the
+    songs after it. Turning shuffle or repeat on or off, moving playback
+    to another device and back, starting the playlist again, or repeat
+    starting the next pass rebuilds *Next up*, so the song can return then.

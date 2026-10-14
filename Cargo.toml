@@ -311,14 +311,14 @@ hyper-proxy2 = { git = "https://github.com/crmne/hyper-proxy2", rev = "efca48113
 # setup that races IPv6 and IPv4 (#1803), playback recovery after a session
 # disconnect (#1765), a volume set while the device is inactive (#1770),
 # the dealer connection through the configured proxy (#1665), tokens and
-# credentials kept out of Debug output (#1806), and a bounded handshake
-# packet size (#1807).
+# credentials kept out of Debug output (#1806), a bounded handshake
+# packet size (#1807), and removing one upcoming track (#1809).
 # Every librespot crate comes from the fork so one copy exists. Drop each
 # patch once upstream merges it.
-librespot-audio = { git = "https://github.com/crmne/librespot", rev = "847125198bb251d1d4497f46bebbfa4868b7d5d7" }
-librespot-connect = { git = "https://github.com/crmne/librespot", rev = "847125198bb251d1d4497f46bebbfa4868b7d5d7" }
-librespot-core = { git = "https://github.com/crmne/librespot", rev = "847125198bb251d1d4497f46bebbfa4868b7d5d7" }
-librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "847125198bb251d1d4497f46bebbfa4868b7d5d7" }
-librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "847125198bb251d1d4497f46bebbfa4868b7d5d7" }
-librespot-playback = { git = "https://github.com/crmne/librespot", rev = "847125198bb251d1d4497f46bebbfa4868b7d5d7" }
-librespot-protocol = { git = "https://github.com/crmne/librespot", rev = "847125198bb251d1d4497f46bebbfa4868b7d5d7" }
+librespot-audio = { git = "https://github.com/crmne/librespot", rev = "0f23b15cae660674ff4fd209643ee17550aa3852" }
+librespot-connect = { git = "https://github.com/crmne/librespot", rev = "0f23b15cae660674ff4fd209643ee17550aa3852" }
+librespot-core = { git = "https://github.com/crmne/librespot", rev = "0f23b15cae660674ff4fd209643ee17550aa3852" }
+librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "0f23b15cae660674ff4fd209643ee17550aa3852" }
+librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "0f23b15cae660674ff4fd209643ee17550aa3852" }
+librespot-playback = { git = "https://github.com/crmne/librespot", rev = "0f23b15cae660674ff4fd209643ee17550aa3852" }
+librespot-protocol = { git = "https://github.com/crmne/librespot", rev = "0f23b15cae660674ff4fd209643ee17550aa3852" }

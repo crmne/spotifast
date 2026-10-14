@@ -73,9 +73,10 @@ drag the lower-right corner to resize the window. Use X or **PL** to close it.
 - **SEL** selects rows.
 - **MISC** opens song, artist, and album pages.
 - **LIST OPTS** starts one of your playlists or saves the queue as a new one.
-- **REM → Remove selected** takes the selected songs you queued out of the
-  queue, and **REM → Remove all** clears every song you queued. Both work when
-  this computer is playing. Songs from the playing album or playlist stay.
+- **REM → Remove selected** takes the selected upcoming songs out of the
+  queue, whether you queued them or they come from the playing album or
+  playlist. **Remove all** clears only the songs you queued; the playing
+  album's or playlist's songs stay. Both work when this computer is playing.
 
 Notices from the main window scroll through the mini player's text display.
 
