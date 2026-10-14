@@ -91,6 +91,9 @@ clients. Spotifast uses its session for:
 - **Radio and autoplay** through Spotify's context resolver: stations seeded
   by a song, playlist, album, or artist. Each resolution is a fresh mix of 50
   songs, so a radio page plays the songs it shows rather than asking again.
+  Editable playlists can also preview up to eight autoplay suggestions below
+  their songs, with individual Add buttons. Reading this preview does not start
+  playback or modify its queue.
 - **Audiobook detection** for saved shows, which the Web API lists as podcasts.
 - **Google Cast speakers and groups.** librespot has no Cast sender, so
   Spotifast starts Spotify's receiver on the device itself. The session then

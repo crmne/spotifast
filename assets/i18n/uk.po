@@ -3360,3 +3360,19 @@ msgstr ""
 
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr "Spotify не дозволяє застосункам видаляти з черги окрему пісню."
+
+#: src/ui/collection.rs:1662
+msgid "Turn on playback on this computer to get recommendations."
+msgstr "Увімкніть відтворення на цьому комп’ютері, щоб отримувати рекомендації."
+
+#: src/ui/collection.rs:1691
+msgid "Couldn't load suggested songs. Try again."
+msgstr "Не вдалося завантажити рекомендовані пісні. Спробуйте ще раз."
+
+#: src/ui/collection.rs:1713
+msgid "No recommended songs available."
+msgstr "Рекомендовані пісні недоступні."
+
+#: src/ui/collection.rs:1726
+msgid "Add"
+msgstr "Додати"

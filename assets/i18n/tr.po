@@ -3335,3 +3335,19 @@ msgstr ""
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr ""
 #~ "Spotify uygulamaların sıradan tek bir şarkıyı kaldırmasına izin vermiyor."
+
+#: src/ui/collection.rs:1662
+msgid "Turn on playback on this computer to get recommendations."
+msgstr "Öneri almak için bu bilgisayarda çalmayı açın."
+
+#: src/ui/collection.rs:1691
+msgid "Couldn't load suggested songs. Try again."
+msgstr "Önerilen şarkılar yüklenemedi. Tekrar deneyin."
+
+#: src/ui/collection.rs:1713
+msgid "No recommended songs available."
+msgstr "Önerilen şarkı yok."
+
+#: src/ui/collection.rs:1726
+msgid "Add"
+msgstr "Ekle"

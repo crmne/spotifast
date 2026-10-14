@@ -2153,6 +2153,13 @@ impl App {
                     generation,
                     result,
                 } => self.receive_radio(&seed, generation, result),
+                Event::PlaylistAutoplay {
+                    id,
+                    generation,
+                    result,
+                } => {
+                    self.receive_playlist_autoplay(&id, generation, result);
+                }
                 Event::Prerelease {
                     uri,
                     generation,
@@ -4862,6 +4869,8 @@ impl App {
             Page::Episodes => self.library.episodes.reset(),
             Page::Playlist(id) => {
                 if let Some(playlist) = self.playlist_pages.get_mut(id) {
+                    playlist.autoplay = Loadable::NotLoaded;
+                    playlist.autoplay_generation = 0;
                     playlist.items.loading = true;
                     playlist.items.error = None;
                     if playlist.pending_writes > 0 || playlist.optimistic_snapshot.is_some() {
@@ -9390,6 +9399,7 @@ impl App {
         }
         match action {
             Action::Open(page) => self.open(page),
+            Action::LoadPlaylistAutoplay(id) => self.load_playlist_autoplay(&id),
             Action::OpenSongRadio { uri, track } => self.open_song_radio(&uri, &track),
             Action::PrepareTint(url) => {
                 if self.settings.accent_from_art {
@@ -19385,6 +19395,230 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn playlist_autoplay_shows_eight_and_adds_through_the_playlist_editor() {
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, TreeId};
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = test_app("playlist-autoplay");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.offline = false; // The backend remains isolated in demo mode.
+        app.locale = crate::i18n::Locale::English;
+        let page = app.playlist_pages.get_mut("pl1").unwrap();
+        page.autoplay = Loadable::NotLoaded;
+        page.items.items.truncate(3);
+        page.items.total = Some(3);
+        page.items.next_offset = None;
+        page.items.revision += 1;
+        page.playlist.get_mut().unwrap().tracks = Some(crate::api::models::TrackCount { total: 3 });
+
+        app.local_ready = false;
+        app.load_playlist_autoplay("pl1");
+        assert!(matches!(
+            app.playlist_pages["pl1"].autoplay,
+            Loadable::NotLoaded
+        ));
+        app.local_ready = true;
+        app.playlist_pages
+            .get_mut("pl1")
+            .unwrap()
+            .playlist
+            .get_mut()
+            .unwrap()
+            .owner
+            .id = Some("someone-else".into());
+        app.load_playlist_autoplay("pl1");
+        assert!(
+            matches!(app.playlist_pages["pl1"].autoplay, Loadable::NotLoaded),
+            "read-only playlists do not request an editor preview"
+        );
+        app.playlist_pages
+            .get_mut("pl1")
+            .unwrap()
+            .playlist
+            .get_mut()
+            .unwrap()
+            .owner
+            .id = Some("demo".into());
+        app.load_playlist_autoplay("pl1");
+        let first = app.playlist_pages["pl1"].autoplay_generation;
+        app.receive_playlist_autoplay("pl1", first, Err("connection interrupted".into()));
+        app.load_playlist_autoplay("pl1");
+        let current = app.playlist_pages["pl1"].autoplay_generation;
+        app.receive_playlist_autoplay("pl1", first, Ok(vec![radio_song("stale", "Old")]));
+        assert!(matches!(
+            app.playlist_pages["pl1"].autoplay,
+            Loadable::Loading
+        ));
+
+        let candidates: Vec<_> = (0..10)
+            .map(|i| radio_song(&format!("new{i}"), "Björk / 宇多田ヒカル"))
+            .collect();
+        let existing = app.playlist_pages["pl1"].items.items[0].playable().unwrap();
+        let PlayableItem::Track(existing) = existing else {
+            panic!("a song fixture");
+        };
+        let mut unavailable = radio_song("unavailable", "Unavailable");
+        unavailable.is_playable = Some(false);
+        let mut answer = vec![existing.clone(), unavailable, candidates[0].clone()];
+        answer.extend(candidates.clone());
+        app.receive_playlist_autoplay("pl1", current, Ok(answer));
+        let suggestions = |app: &App| {
+            app.playlist_pages["pl1"]
+                .autoplay_suggestions()
+                .into_iter()
+                .map(|track| track.uri)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            suggestions(&app),
+            (0..8)
+                .map(|i| format!("spotify:track:new{i}"))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            app.backend.take_player_commands().is_empty(),
+            "previewing never starts playback"
+        );
+
+        let draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 1100.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .show(ui, |ui| crate::ui::collection::playlist(app, ui, "pl1"));
+                },
+            );
+            output.textures_delta.clear();
+            let requested = app
+                .actions
+                .iter()
+                .any(|action| matches!(action, Action::LoadPlaylistAutoplay(_)));
+            app.apply_actions(&ctx);
+            (output.platform_output.accesskit_update.unwrap(), requested)
+        };
+        let loaded = std::mem::replace(
+            &mut app.playlist_pages.get_mut("pl1").unwrap().autoplay,
+            Loadable::NotLoaded,
+        );
+        for (offline, reachable) in [(true, true), (false, false), (true, false)] {
+            app.offline = offline;
+            app.network_reachable = reachable;
+            for _ in 0..2 {
+                let (_, requested) = draw(&mut app, Vec::new());
+                assert!(!requested, "offline={offline}, reachable={reachable}");
+            }
+            assert!(matches!(
+                app.playlist_pages["pl1"].autoplay,
+                Loadable::NotLoaded
+            ));
+        }
+        app.offline = false;
+        app.network_reachable = true;
+        assert!(
+            draw(&mut app, Vec::new()).1,
+            "reconnecting permits one load"
+        );
+        assert!(matches!(
+            app.playlist_pages["pl1"].autoplay,
+            Loadable::Loading
+        ));
+        app.playlist_pages.get_mut("pl1").unwrap().autoplay = loaded;
+        draw(&mut app, Vec::new());
+        let click = |target_node| {
+            vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                target_tree: TreeId::ROOT,
+                target_node,
+                action: AccessibleAction::Click,
+                data: None,
+            })]
+        };
+        for (offline, reachable) in [(true, true), (false, false), (true, false)] {
+            app.offline = offline;
+            app.network_reachable = reachable;
+            let tree = draw(&mut app, Vec::new()).0;
+            let (button, node) = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some("Add to playlist: Song new0"))
+                .expect("cached suggestions remain visible offline");
+            draw(&mut app, click(*button));
+            let page = &app.playlist_pages["pl1"];
+            assert!(
+                page.local_additions.is_empty(),
+                "offline={offline}, reachable={reachable}: Add must not edit the playlist"
+            );
+            assert_eq!(page.items.items.len(), 3);
+            assert!(
+                !app.playlist_busy,
+                "a dropped write must not leave Add busy"
+            );
+            assert!(node.is_disabled(), "Add is exposed as disabled offline");
+        }
+        app.offline = false;
+        app.network_reachable = true;
+        let tree = draw(&mut app, Vec::new()).0;
+        let buttons: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.label()
+                    .is_some_and(|label| label.starts_with("Add to playlist: Song new"))
+            })
+            .collect();
+        assert_eq!(
+            buttons.len(),
+            8,
+            "eight songs each have their own Add button"
+        );
+        let button = buttons
+            .iter()
+            .find(|(_, node)| node.label() == Some("Add to playlist: Song new0"))
+            .unwrap()
+            .0;
+        let playing = app.current_track_uri();
+        draw(&mut app, click(button));
+        let page = &app.playlist_pages["pl1"];
+        assert!(page.local_additions.contains("spotify:track:new0"));
+        assert_eq!(
+            page.items.items.last().unwrap().playable().unwrap().uri(),
+            "spotify:track:new0"
+        );
+        assert_eq!(
+            suggestions(&app),
+            (1..9)
+                .map(|i| format!("spotify:track:new{i}"))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            app.current_track_uri(),
+            playing,
+            "Add does not change playback"
+        );
+        app.handle_api(ApiResponse::PlaylistItemsChanged {
+            id: "pl1".into(),
+            message: String::new(),
+            result: Ok(Some("after-add".into())),
+        });
+        assert!(!suggestions(&app).contains(&"spotify:track:new0".into()));
+        app.reload(Page::Playlist("pl1".into()));
+        app.receive_playlist_autoplay("pl1", current, Ok(candidates));
+        assert!(
+            matches!(app.playlist_pages["pl1"].autoplay, Loadable::NotLoaded),
+            "an old answer cannot undo refresh"
+        );
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
     }
 
     fn draw_radio(

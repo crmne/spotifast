@@ -1,4 +1,4 @@
-//! Radio pages: Spotify's station for a song, playlist, album, or artist.
+//! Radio pages and read-only previews of a playlist's autoplay.
 //!
 //! Spotify mixes a station afresh each time it is resolved, so the page
 //! keeps the songs it was given and its Play button plays exactly those,
@@ -7,6 +7,67 @@
 use super::*;
 
 impl App {
+    pub(super) fn load_playlist_autoplay(&mut self, id: &str) {
+        let Some(playlist) = self
+            .playlist_pages
+            .get(id)
+            .and_then(|page| page.playlist.get())
+            .cloned()
+            .filter(|playlist| self.can_edit_playlist(playlist))
+        else {
+            return;
+        };
+        if !self.local_ready || self.offline || !self.network_reachable {
+            return;
+        }
+        let Some(page) = self
+            .playlist_pages
+            .get_mut(id)
+            .filter(|page| matches!(page.autoplay, Loadable::NotLoaded | Loadable::Failed(_)))
+        else {
+            return;
+        };
+        if playlist.track_total() == 0 && page.items.items.is_empty() {
+            page.autoplay = Loadable::Loaded(Vec::new());
+            return;
+        }
+        self.load_generation = self.load_generation.wrapping_add(1);
+        page.autoplay_generation = self.load_generation;
+        page.autoplay = Loadable::Loading;
+        self.backend.send(Command::PlaylistAutoplay {
+            id: id.to_string(),
+            generation: page.autoplay_generation,
+        });
+    }
+
+    pub(super) fn receive_playlist_autoplay(
+        &mut self,
+        id: &str,
+        generation: u64,
+        result: Result<Vec<Track>, String>,
+    ) {
+        let Some(page) = self.playlist_pages.get_mut(id).filter(|page| {
+            page.autoplay_generation == generation && matches!(page.autoplay, Loadable::Loading)
+        }) else {
+            return;
+        };
+        match result {
+            Ok(tracks) => {
+                let uris = tracks.iter().map(|track| track.uri.clone()).collect();
+                for track in &tracks {
+                    if let Some(id) = &track.id {
+                        self.track_cache
+                            .entry(id.clone())
+                            .or_insert_with(|| track.clone());
+                    }
+                }
+                page.autoplay = Loadable::Loaded(tracks);
+                self.request_contains(uris);
+            }
+            Err(error) => page.autoplay = Loadable::Failed(error),
+        }
+    }
+
     /// "`<Name>` Radio" for a seed whose name is known.
     pub fn radio_name(&self, seed: &str) -> Option<String> {
         let id = util::uri_id(seed)?;

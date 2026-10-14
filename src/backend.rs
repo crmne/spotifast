@@ -788,11 +788,16 @@ pub enum Command {
         generation: u64,
         result: Result<Box<crate::prerelease::Prerelease>, String>,
     },
-    /// Internal: a radio finished resolving for the session it started in.
-    RadioResolved {
+    PlaylistAutoplay {
+        id: String,
+        generation: u64,
+    },
+    /// Internal: a radio or autoplay read completed for its originating session.
+    ContextResolved {
         session_generation: u64,
         seed: String,
         generation: u64,
+        autoplay: bool,
         result: Result<Vec<crate::api::models::Track>, String>,
     },
     /// Internal: an audiobook lookup finished for the session it started in.
@@ -913,6 +918,11 @@ pub enum Event {
     /// The songs of the radio seeded by `seed`, for the request `generation`.
     Radio {
         seed: String,
+        generation: u64,
+        result: Result<Vec<crate::api::models::Track>, String>,
+    },
+    PlaylistAutoplay {
+        id: String,
         generation: u64,
         result: Result<Vec<crate::api::models::Track>, String>,
     },
@@ -1612,8 +1622,8 @@ struct Worker {
     /// Library playlists the Web API listed blank, waiting for the streaming
     /// session to read their headers.
     playlist_header_lookup: PlaylistHeaderLookup,
-    /// Radios asked for before the streaming session was ready, by seed.
-    radio_waiting: BTreeMap<String, u64>,
+    /// Radio and autoplay reads waiting for the streaming session, by seed and kind.
+    context_waiting: BTreeMap<(String, bool), u64>,
     prerelease_waiting: Option<(String, u64)>,
     /// True while a playback grant or engine connection is in flight, so a
     /// second attempt does not pile up.
@@ -1687,7 +1697,7 @@ impl Worker {
             album_type_lookup: AlbumTypeLookup::default(),
             audiobook_lookup: BTreeSet::new(),
             playlist_header_lookup: PlaylistHeaderLookup::default(),
-            radio_waiting: BTreeMap::new(),
+            context_waiting: BTreeMap::new(),
             prerelease_waiting: None,
             engine_busy: false,
             search_tasks: Vec::new(),
@@ -2418,20 +2428,34 @@ impl Worker {
                     }
                 }
                 Command::Radio { seed, generation } => {
-                    self.radio_waiting.insert(seed, generation);
-                    self.start_radio();
+                    self.context_waiting.insert((seed, false), generation);
+                    self.start_context_reads();
                 }
-                Command::RadioResolved {
+                Command::PlaylistAutoplay { id, generation } => {
+                    self.context_waiting
+                        .insert((format!("spotify:playlist:{id}"), true), generation);
+                    self.start_context_reads();
+                }
+                Command::ContextResolved {
                     session_generation,
                     seed,
                     generation,
+                    autoplay,
                     result,
                 } => {
                     if self.signed_in && session_generation == *self.session.borrow() {
-                        self.emit(Event::Radio {
-                            seed,
-                            generation,
-                            result,
+                        self.emit(if autoplay {
+                            Event::PlaylistAutoplay {
+                                id: crate::util::uri_id(&seed).unwrap_or_default().to_string(),
+                                generation,
+                                result,
+                            }
+                        } else {
+                            Event::Radio {
+                                seed,
+                                generation,
+                                result,
+                            }
                         });
                     }
                 }
@@ -2946,7 +2970,7 @@ impl Worker {
         self.album_type_lookup.reset_session();
         self.audiobook_lookup.clear();
         self.playlist_header_lookup.clear_engine_work();
-        self.radio_waiting.clear();
+        self.context_waiting.clear();
         self.prerelease_waiting = None;
         self.carry_volume();
         if let Some(engine) = self.engine.take() {
@@ -3335,7 +3359,7 @@ impl Worker {
                 self.start_album_type_lookup();
                 self.start_audiobook_lookup();
                 self.start_playlist_header_lookup();
-                self.start_radio();
+                self.start_context_reads();
                 self.start_prerelease();
             }
             None => {
@@ -3697,28 +3721,36 @@ impl Worker {
         self.start_playlist_header_lookup();
     }
 
-    /// Resolves the waiting radios once the streaming session is ready; the
-    /// Web API has no stations.
-    fn start_radio(&mut self) {
+    /// Resolves waiting radio and autoplay reads through the playback session.
+    fn start_context_reads(&mut self) {
         let Some(engine) = self.engine.clone() else {
             return;
         };
         let session_generation = *self.session.borrow();
-        for (seed, generation) in std::mem::take(&mut self.radio_waiting) {
+        for ((seed, autoplay), generation) in std::mem::take(&mut self.context_waiting) {
             let engine = Arc::clone(&engine);
             let commands = self.commands.clone();
+            let budget = Arc::clone(&self.background_session);
             tokio::spawn(async move {
                 let result = match crate::util::station_uri(&seed) {
                     Some(station) => {
-                        match tokio::time::timeout(
-                            RADIO_TIMEOUT,
-                            session_reads::station(engine.session(), &station),
-                        )
+                        match tokio::time::timeout(RADIO_TIMEOUT, async {
+                            let _permit = budget.acquire().await?;
+                            if autoplay {
+                                session_reads::playlist_autoplay(engine.session(), &seed).await
+                            } else {
+                                session_reads::station(engine.session(), &station).await
+                            }
+                        })
                         .await
                         {
                             Ok(Ok(tracks)) => Ok(tracks),
                             Ok(Err(error)) => {
-                                log::warn!("radio {station} failed: {error:#}");
+                                if autoplay {
+                                    log::warn!("autoplay for {seed} failed: {error:#}");
+                                } else {
+                                    log::warn!("radio {station} failed: {error:#}");
+                                }
                                 Err("Couldn't load this radio. Try again.".to_string())
                             }
                             Err(_) => Err("Spotify took too long to answer. Try again.".into()),
@@ -3726,10 +3758,11 @@ impl Worker {
                     }
                     None => Err("There is no radio for this item.".into()),
                 };
-                let _ = commands.send(Command::RadioResolved {
+                let _ = commands.send(Command::ContextResolved {
                     session_generation,
                     seed,
                     generation,
+                    autoplay,
                     result,
                 });
             });

@@ -3316,3 +3316,19 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#: src/ui/collection.rs:1662
+msgid "Turn on playback on this computer to get recommendations."
+msgstr "おすすめを取得するには、このコンピューターでの再生を有効にしてください。"
+
+#: src/ui/collection.rs:1691
+msgid "Couldn't load suggested songs. Try again."
+msgstr "おすすめの曲を読み込めませんでした。もう一度お試しください。"
+
+#: src/ui/collection.rs:1713
+msgid "No recommended songs available."
+msgstr "おすすめの曲はありません。"
+
+#: src/ui/collection.rs:1726
+msgid "Add"
+msgstr "追加"

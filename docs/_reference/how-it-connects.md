@@ -45,6 +45,22 @@ local playback:
    this session: the Web API has no stations. Opening one resolves the
    station and reads its songs' details in one batched request.
 
+When the bottom of an editable playlist comes into view, Spotifast reads a
+preview from the same autoplay service librespot uses after a playlist ends.
+It first checks playlist membership through the playback session in windows
+of up to 1,000 URIs, without downloading the members' song details. It then
+requests the autoplay context and reads the suggested songs' details in one
+metadata batch. The normal saved-song check fills their library controls.
+These reads share the session's budget of four concurrent requests and have a 20-second
+overall limit. They do not load or change playback, and work even when the
+Autoplay playback setting is off.
+
+The interface shows up to eight songs in Spotify's returned order. Suggestions
+are kept in memory with the playlist page, filtered against pending additions,
+and cleared on playlist refresh or sign-out. Retry repeats only this read.
+Adding uses the existing playlist write path and its permissions and duplicate
+checks. A preview is a fresh mix and does not reserve the player's future queue.
+
 Local playback authorization stays separate from both Web API grants. Its
 browser approval requests only the streaming permission and always shows the
 consent dialog. The playback session uses the account ID verified by either

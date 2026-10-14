@@ -3240,3 +3240,19 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "減少歌詞動畫"
+
+#: src/ui/collection.rs:1662
+msgid "Turn on playback on this computer to get recommendations."
+msgstr "開啟此電腦上的播放功能以取得推薦。"
+
+#: src/ui/collection.rs:1691
+msgid "Couldn't load suggested songs. Try again."
+msgstr "無法載入推薦歌曲。請重試。"
+
+#: src/ui/collection.rs:1713
+msgid "No recommended songs available."
+msgstr "目前沒有推薦歌曲。"
+
+#: src/ui/collection.rs:1726
+msgid "Add"
+msgstr "新增"

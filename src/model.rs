@@ -779,6 +779,33 @@ pub struct PlaylistPage {
     /// Number of immediate metadata reads made while Spotify still reported
     /// the pre-write snapshot.
     pub snapshot_rechecks: u8,
+    /// A read-only preview of Spotify's autoplay for this playlist.
+    pub autoplay: Loadable<Vec<Track>>,
+    pub autoplay_generation: u64,
+}
+
+impl PlaylistPage {
+    pub fn autoplay_suggestions(&self) -> Vec<Track> {
+        let mut seen: std::collections::HashSet<&str> = self
+            .items
+            .items
+            .iter()
+            .filter_map(PlaylistItem::playable)
+            .map(PlayableItem::uri)
+            .chain(self.local_additions.iter().map(String::as_str))
+            .collect();
+        self.autoplay
+            .get()
+            .into_iter()
+            .flatten()
+            .filter(|track| {
+                !track.uri.is_empty() && !track.is_local && track.is_playable != Some(false)
+            })
+            .filter(|track| seen.insert(&track.uri))
+            .take(8)
+            .cloned()
+            .collect()
+    }
 }
 
 /// A contiguous playlist prefix on disk, valid for exactly one snapshot.
@@ -1000,6 +1027,7 @@ pub struct Toast {
 #[derive(Clone, Debug)]
 pub enum Action {
     Open(Page),
+    LoadPlaylistAutoplay(String),
     /// Opens the radio of a song shown in a list, after caching the row's
     /// song so the page has its name and cover (#644).
     OpenSongRadio {

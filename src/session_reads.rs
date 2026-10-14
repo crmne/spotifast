@@ -3,7 +3,7 @@
 //! no per-app quota, so a playlist someone else owns opens without waiting on
 //! the shared app's rate limit.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use base64::Engine as _;
 use librespot_core::{FileId, Session, SpotifyUri, error::ErrorKind, spotify_id::SpotifyId};
@@ -84,6 +84,15 @@ pub enum Failure {
     /// The session could not be reached or understood; the Web API may do
     /// better.
     Retry(anyhow::Error),
+}
+
+impl From<Failure> for anyhow::Error {
+    fn from(failure: Failure) -> Self {
+        match failure {
+            Failure::Definitive(error) => anyhow::anyhow!("{error}"),
+            Failure::Retry(error) => error,
+        }
+    }
 }
 
 /// Any error the session raises is a retry, unless the playlist read
@@ -370,12 +379,55 @@ pub async fn station(session: &Session, station: &str) -> anyhow::Result<Vec<Tra
     let context = session.spclient().get_context(station).await?;
     let uris = station_songs(&context);
     anyhow::ensure!(!uris.is_empty(), "Spotify has no songs for this radio");
+    context_tracks(session, &uris).await
+}
+
+/// Read Spotify's continuation without loading or changing the player's queue.
+pub async fn playlist_autoplay(session: &Session, uri: &str) -> anyhow::Result<Vec<Track>> {
+    let id = crate::util::uri_id(uri).ok_or_else(|| anyhow::anyhow!("invalid playlist URI"))?;
+    let mut existing = HashSet::new();
+    let mut offset = 0;
+    let mut revision = None;
+    loop {
+        // Only URIs are needed, including songs beyond the visible page.
+        let list = window(session, id, offset, 1000)
+            .await
+            .map_err(anyhow::Error::from)?;
+        if let Some(expected) = &revision {
+            anyhow::ensure!(
+                &list.revision == expected,
+                "playlist changed while checking its songs"
+            );
+        } else {
+            revision = Some(list.revision.clone());
+        }
+        let rows = rows(&list, offset, 1000);
+        complete(rows.len(), offset, 1000, total(&list)).map_err(anyhow::Error::from)?;
+        existing.extend(rows.iter().map(|row| row.id.clone()));
+        offset += rows.len() as u32;
+        if offset >= total(&list) {
+            break;
+        }
+    }
+    let request = librespot_protocol::autoplay_context_request::AutoplayContextRequest {
+        context_uri: Some(uri.to_string()),
+        ..Default::default()
+    };
+    let context = session.spclient().get_autoplay_context(&request).await?;
+    let uris: Vec<_> = station_songs(&context)
+        .into_iter()
+        .filter(|uri| !existing.contains(uri))
+        .collect();
+    context_tracks(session, &uris).await
+}
+
+async fn context_tracks(session: &Session, uris: &[SpotifyUri]) -> anyhow::Result<Vec<Track>> {
+    if uris.is_empty() {
+        return Ok(Vec::new());
+    }
     let found = metadata(session, uris.iter())
         .await
-        .map_err(|failure| match failure {
-            Failure::Definitive(error) => anyhow::anyhow!("{error}"),
-            Failure::Retry(error) => error,
-        })?;
+        .map_err(anyhow::Error::from)?;
     Ok(uris
         .iter()
         .map(SpotifyUri::to_uri)
@@ -1410,6 +1462,16 @@ mod tests {
             private,
             Failure::Definitive(ApiError::Status { status: 403, .. })
         ));
+        assert_eq!(anyhow::Error::from(missing).to_string(), "Not Found");
+        assert_eq!(anyhow::Error::from(private).to_string(), "Forbidden");
+        let retry = Failure::Retry(anyhow::anyhow!("connection lost").context("reading playlist"));
+        assert_eq!(
+            anyhow::Error::from(retry)
+                .chain()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["reading playlist", "connection lost"]
+        );
         let dropped = refused(librespot_core::Error::unavailable("offline"));
         assert!(matches!(dropped, Failure::Retry(_)));
         // Any other call's refusal is its own, not the playlist's.

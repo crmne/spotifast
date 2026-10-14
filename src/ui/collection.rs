@@ -1621,6 +1621,9 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     items_revision: page.items.revision,
                 },
             );
+            if app.can_edit_playlist(playlist) {
+                playlist_autoplay(app, ui, playlist, &page);
+            }
         }
         Loadable::Loading | Loadable::NotLoaded => {
             if let Some(playlist) = &preview {
@@ -1672,6 +1675,173 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
     }
     app.playlist_pages.insert(id.to_string(), page);
+}
+
+fn playlist_autoplay(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    playlist: &Playlist,
+    page: &crate::model::PlaylistPage,
+) {
+    let palette = app.palette;
+    ui.add_space(24.0);
+    theme::section_title(ui, &palette, &gettext(app.locale, "Recommended for you"));
+    if (app.offline || !app.network_reachable) && !matches!(page.autoplay, Loadable::Loaded(_)) {
+        theme::text(
+            ui,
+            gettext(app.locale, "You're offline"),
+            theme::regular(13.0),
+            palette.secondary,
+        );
+        return;
+    }
+    match &page.autoplay {
+        Loadable::NotLoaded
+            if matches!(
+                app.local_playback,
+                crate::backend::LocalPlayback::Connecting
+                    | crate::backend::LocalPlayback::Authorizing
+            ) =>
+        {
+            widgets::loading_row(ui, &palette, app.locale);
+            return;
+        }
+        Loadable::NotLoaded if !app.local_ready => {
+            theme::text(
+                ui,
+                gettext(
+                    app.locale,
+                    "Turn on playback on this computer to get recommendations.",
+                ),
+                theme::regular(13.0),
+                palette.secondary,
+            );
+            if theme::pill_button(ui, &palette, &gettext(app.locale, "Settings"), false).clicked() {
+                app.actions.push(Action::Open(Page::Settings));
+            }
+            return;
+        }
+        Loadable::NotLoaded => {
+            let loading_rect = egui::Rect::from_min_size(
+                ui.cursor().min,
+                egui::vec2(ui.available_width(), theme::ROW_HEIGHT),
+            );
+            if ui.is_rect_visible(loading_rect) {
+                app.actions
+                    .push(Action::LoadPlaylistAutoplay(playlist.id.clone()));
+            }
+            widgets::loading_row(ui, &palette, app.locale);
+            return;
+        }
+        Loadable::Loading => {
+            widgets::loading_row(ui, &palette, app.locale);
+            return;
+        }
+        Loadable::Failed(_) => {
+            theme::text(
+                ui,
+                gettext(app.locale, "Couldn't load suggested songs. Try again."),
+                theme::regular(13.0),
+                palette.secondary,
+            );
+            if ui
+                .add_enabled_ui(app.local_ready, |ui| {
+                    theme::pill_button(ui, &palette, &gettext(app.locale, "Retry"), false)
+                })
+                .inner
+                .clicked()
+            {
+                app.actions
+                    .push(Action::LoadPlaylistAutoplay(playlist.id.clone()));
+            }
+            return;
+        }
+        Loadable::Loaded(_) => {}
+    }
+    let tracks = page.autoplay_suggestions();
+    if tracks.is_empty() {
+        theme::text(
+            ui,
+            gettext(app.locale, "No recommended songs available."),
+            theme::regular(13.0),
+            palette.secondary,
+        );
+        return;
+    }
+    let context = RowContext::Uris(
+        tracks
+            .iter()
+            .map(|track| track.uri.clone())
+            .collect::<Vec<_>>()
+            .into(),
+    );
+    let add = gettext(app.locale, "Add");
+    let button_width = theme::soft_button_width(ui, &add);
+    let thin = app.settings.tracklist_compact;
+    let height = if thin {
+        theme::THIN_ROW_HEIGHT
+    } else {
+        theme::ROW_HEIGHT
+    };
+    for (index, track) in tracks.into_iter().enumerate() {
+        ui.push_id(("playlist-autoplay", track.uri.clone()), |ui| {
+            ui.horizontal(|ui| {
+                let width =
+                    (ui.available_width() - button_width - ui.spacing().item_spacing.x).max(0.0);
+                let item = PlayableItem::Track(track);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(width, height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        widgets::track_row(
+                            ui,
+                            app,
+                            TrackRow {
+                                index,
+                                number: None,
+                                item: &item,
+                                context: &context,
+                                show_cover: !thin,
+                                show_album: true,
+                                added_at: None,
+                                added_by: None,
+                                show_added_by: false,
+                                compact: false,
+                                thin,
+                                shift: 0.0,
+                                picked: false,
+                                picked_songs: &[],
+                            },
+                        );
+                    },
+                );
+                let enabled = !app.offline && app.network_reachable && !app.playlist_busy;
+                let response = ui
+                    .add_enabled_ui(enabled, |ui| {
+                        theme::soft_button(ui, &palette, None, &add, false)
+                    })
+                    .inner;
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        enabled,
+                        format!(
+                            "{}: {}",
+                            gettext(app.locale, "Add to playlist"),
+                            item.name()
+                        ),
+                    )
+                });
+                if response.clicked() {
+                    app.actions.push(Action::AddToPlaylist {
+                        playlist_id: playlist.id.clone(),
+                        playlist_name: playlist.name.clone(),
+                        items: vec![item],
+                    });
+                }
+            });
+        });
+    }
 }
 
 pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {

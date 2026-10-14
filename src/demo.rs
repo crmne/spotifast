@@ -307,6 +307,21 @@ pub fn populate(app: &mut App) {
     // Playlist page.
     let mut playlist_page = PlaylistPage {
         playlist: Loadable::Loaded(playlists[1].clone()),
+        autoplay: Loadable::Loaded(
+            (40..54)
+                .map(|index| {
+                    let mut song = track(index);
+                    if index == 40 {
+                        song.name =
+                            "Everything In Its Right Place (Live at Alexandra Palace)".into();
+                    }
+                    if index == 41 {
+                        song.name = "光の中へ / Into the Light".into();
+                    }
+                    song
+                })
+                .collect(),
+        ),
         ..PlaylistPage::default()
     };
     let demo_now = Timestamp::now();
@@ -860,6 +875,20 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     380.0
                 };
             }
+            "autoplay-loading" | "autoplay-error" | "autoplay-empty" | "autoplay-no-player" => {
+                if let Some(page) = app.playlist_pages.get_mut("pl1") {
+                    page.autoplay = match surface {
+                        "autoplay-loading" => Loadable::Loading,
+                        "autoplay-error" => Loadable::Failed("Connection interrupted".into()),
+                        "autoplay-empty" => Loadable::Loaded(Vec::new()),
+                        _ => Loadable::NotLoaded,
+                    };
+                }
+                if surface == "autoplay-no-player" {
+                    app.local_ready = false;
+                }
+            }
+            "autoplay-compact" => app.settings.tracklist_compact = true,
             "library-by-you" => app.settings.library_by_you = true,
             "library-by-you-empty" => {
                 app.settings.library_by_you = true;
@@ -1075,6 +1104,15 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "song-top-result" => {
                 if let Loadable::Loaded(results) = &mut app.search.results {
                     results.artists = None;
+                }
+            }
+            "short-playlist" => {
+                if let Some(page) = app.playlist_pages.get_mut("pl1") {
+                    page.items.items.truncate(3);
+                    page.items.total = Some(3);
+                    if let Some(playlist) = page.playlist.get_mut() {
+                        playlist.tracks = Some(crate::api::models::TrackCount { total: 3 });
+                    }
                 }
             }
             "finite-playlist" => {

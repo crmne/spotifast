@@ -3336,3 +3336,19 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Reduzir movimento da letra"
+
+#: src/ui/collection.rs:1662
+msgid "Turn on playback on this computer to get recommendations."
+msgstr "Ative a reprodução neste computador para receber recomendações."
+
+#: src/ui/collection.rs:1691
+msgid "Couldn't load suggested songs. Try again."
+msgstr "Não foi possível carregar as músicas sugeridas. Tente novamente."
+
+#: src/ui/collection.rs:1713
+msgid "No recommended songs available."
+msgstr "Nenhuma música recomendada disponível."
+
+#: src/ui/collection.rs:1726
+msgid "Add"
+msgstr "Adicionar"

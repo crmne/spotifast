@@ -3201,3 +3201,19 @@ msgid ""
 "Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft "
 "Store page to install or repair it?"
 msgstr ""
+
+#: src/ui/collection.rs:1662
+msgid "Turn on playback on this computer to get recommendations."
+msgstr ""
+
+#: src/ui/collection.rs:1691
+msgid "Couldn't load suggested songs. Try again."
+msgstr ""
+
+#: src/ui/collection.rs:1713
+msgid "No recommended songs available."
+msgstr ""
+
+#: src/ui/collection.rs:1726
+msgid "Add"
+msgstr ""

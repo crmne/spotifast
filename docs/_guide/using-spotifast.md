@@ -5,6 +5,20 @@ description: Play music, arrange playlists, find lyrics, and make Spotifast your
 nav_order: 3
 ---
 
+## Playlist recommendations
+
+Scroll to the bottom of a playlist you can edit to see up to eight songs under
+**Recommended for you**. These come from Spotify's autoplay service and require
+local playback to be connected. **Add** appends that song to the playlist. It
+leaves the recommendations immediately and the next available suggestion fills
+its place. Previewing or adding recommendations does not change playback.
+
+Songs already in the playlist are excluded, including those outside the loaded
+page. The preview stays in memory while the page is cached. Refreshing the
+playlist asks for a fresh preview. Spotify can change its mix, so these songs
+may differ from the autoplay that plays later. If the read fails, **Retry**
+retries only the recommendations and keeps the playlist rows.
+
 ## Middle-click autoscroll
 
 On Windows, since 0.8.0, and on Linux once turned on, middle-click anywhere
