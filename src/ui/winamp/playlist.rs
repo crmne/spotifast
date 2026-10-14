@@ -658,7 +658,7 @@ fn add_menu(app: &mut App, ui: &mut egui::Ui) {
 
 fn rem_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row]) {
     let locale = app.locale;
-    // Selection is by list row; only the songs the user queued can go.
+    // Selection is by list row; any queue row can go, only on this computer.
     let removable: Vec<(usize, String)> = rows
         .iter()
         .enumerate()
@@ -839,7 +839,8 @@ mod tests {
 
     /// REM's Remove selected names queue rows, not list rows: the list
     /// opens with the playing song, so a selected line sits one below its
-    /// place in the queue. Only the songs the user queued go (#721).
+    /// place in the queue. Any removable queue row goes, Playing next or
+    /// Next up (#721, #724).
     #[test]
     fn remove_selected_takes_the_selected_queued_songs() {
         use crate::app::AppOptions;
@@ -878,12 +879,13 @@ mod tests {
             .iter()
             .map(|item| item.uri().to_string())
             .collect();
+        let next_up_uri = app.queue.get().unwrap().queue[2].uri().to_string();
         app.manual_queue = queued.clone();
         let (rows, _) = rows(&app, now.as_ref());
         assert!(rows[0].current);
-        // The second queued song, and the first song of Next up after it.
+        // The second queued song, and the first song of Next up after it:
+        // both are removable now (#724).
         app.winamp.playlist_selection.extend([2, 3]);
-
         let frame = |app: &mut App, events| {
             let mut output = ctx.run_ui(
                 egui::RawInput {
@@ -916,7 +918,8 @@ mod tests {
         assert!(
             matches!(
                 app.actions.as_slice(),
-                [Action::RemoveFromQueue { rows }] if *rows == [(1, queued[1].clone())]
+                [Action::RemoveFromQueue { rows }]
+                    if *rows == [(1, queued[1].clone()), (2, next_up_uri.clone())]
             ),
             "{:?}",
             app.actions

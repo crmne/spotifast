@@ -948,8 +948,8 @@ pub fn item_menu(
             label: label.clone(),
         });
     }
-    // Only a song the user queued, and only on this computer's queue: the
-    // context's rows play themselves, and no other queue can be rewritten.
+    // Any row in the queue, Playing next or Next up, only on this
+    // computer's queue: no other queue can be rewritten.
     if let (Some(RowContext::Queue), Some(index)) = (context, index)
         && app.can_remove_from_queue(index)
         && menu_item(

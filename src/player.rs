@@ -297,6 +297,12 @@ pub enum PlayerCommand {
     Load(LoadSpec),
     /// Take over the active Connect session, including its queue and position.
     Transfer,
+    /// Remove one upcoming track, named by its visible index in the queue
+    /// (under "Playing next" or "Next up") and the song it holds there.
+    RemoveNextTrack {
+        index: usize,
+        uri: String,
+    },
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -609,6 +615,9 @@ impl Engine {
             PlayerCommand::Previous => spirc.prev()?,
             PlayerCommand::ClearQueue => spirc.clear_queue()?,
             PlayerCommand::AddToQueue(uri) => spirc.add_to_queue(SpotifyUri::from_uri(&uri)?)?,
+            PlayerCommand::RemoveNextTrack { index, uri } => {
+                spirc.remove_next_track(index, SpotifyUri::from_uri(&uri)?)?
+            }
             PlayerCommand::Seek(position_ms) => spirc.set_position_ms(position_ms)?,
             PlayerCommand::Volume(volume) => self.note_volume(volume, false)?,
             PlayerCommand::VolumePreview(volume) => self.note_volume(volume, true)?,
