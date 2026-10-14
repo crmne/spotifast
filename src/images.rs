@@ -3,7 +3,8 @@
 //! itself (see [`crate::local_tags`]).
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -130,6 +131,10 @@ struct Inner {
     /// to reload its bytes, so a texture is never forgotten while it is
     /// still held.
     textures: Mutex<HashMap<String, HashMap<String, PaintedCopy>>>,
+    /// How many times each artwork has been discarded. A load or cache
+    /// write started before a discard sees the count move and leaves memory
+    /// and disk alone, so it cannot put the discarded bytes back.
+    discards: Mutex<HashMap<String, u64>>,
     http: Http,
     runtime: tokio::runtime::Handle,
     cache_dir: PathBuf,
@@ -149,6 +154,7 @@ impl ArtLoader {
             inner: Arc::new(Inner {
                 entries: Mutex::new(HashMap::new()),
                 textures: Mutex::new(HashMap::new()),
+                discards: Mutex::new(HashMap::new()),
                 http: http.into(),
                 runtime,
                 cache_dir,
@@ -292,6 +298,42 @@ impl ArtLoader {
         drop(entries);
         self.inner.start(ctx, url.to_string());
         true
+    }
+
+    /// Forgets `url`'s artwork in memory and on disk, so the next request
+    /// downloads it again: for bytes that turned out not to decode. An entry
+    /// whose bytes are already gone, its copies on the GPU, stays, so the
+    /// copies are still counted against the budget.
+    pub fn discard(&self, url: &str) {
+        let mut discards = self
+            .inner
+            .discards
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        *discards.entry(url.to_string()).or_default() += 1;
+        let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
+        if !matches!(entries.get(url), Some(Entry::Ready { bytes: None, .. })) {
+            entries.remove(url);
+        }
+        drop(entries);
+        let _ = std::fs::remove_file(self.inner.cache_path(url));
+    }
+
+    /// The colours of `url`'s cover, as [`art_palette`] reads them. Bytes
+    /// that do not decode are discarded first, so the next read downloads
+    /// the cover again rather than reading the same bytes.
+    pub async fn palette(&self, url: &str) -> Result<Vec<[u8; 3]>, String> {
+        let bytes = self.fetch(url).await?;
+        let (art, url) = (self.clone(), url.to_string());
+        tokio::task::spawn_blocking(move || {
+            let palette = art_palette(&bytes);
+            if palette.is_err() {
+                art.discard(&url);
+            }
+            palette
+        })
+        .await
+        .unwrap_or_else(|error| Err(error.to_string()))
     }
 
     /// Drops the held source bytes once egui has made a texture. The disk
@@ -469,6 +511,9 @@ impl Inner {
         let bytes: Arc<[u8]> = match cached {
             Some(bytes) if !bytes.is_empty() => Arc::from(bytes),
             _ => {
+                // Read before asking: a discard while the request is out may
+                // be of the same bad bytes this response brings.
+                let discarded = self.discarded(url);
                 let mut response = self
                     .http
                     .client()?
@@ -496,14 +541,11 @@ impl Inner {
                 }
                 // The loader and file worker share one immutable payload.
                 let bytes: Arc<[u8]> = Arc::from(bytes.as_ref());
-                let write_path = path.clone();
+                let inner = Arc::clone(self);
+                let url = url.to_string();
                 let payload = Arc::clone(&bytes);
-                self.runtime.spawn_blocking(move || {
-                    let temporary = write_path.with_extension("part");
-                    if std::fs::write(&temporary, &payload).is_ok() {
-                        let _ = std::fs::rename(&temporary, &write_path);
-                    }
-                });
+                self.runtime
+                    .spawn_blocking(move || inner.write_cache(&url, &payload, discarded));
                 bytes
             }
         };
@@ -546,6 +588,10 @@ impl Inner {
         let loader = Arc::clone(self);
         let ctx = ctx.clone();
         self.runtime.spawn(async move {
+            // Read here, not on the UI thread: a discard holds this lock
+            // while it deletes the cache file. One that finished before
+            // this read has deleted it, so the load cannot bring it back.
+            let discarded = loader.discarded(&url);
             let result = loader.fetch(&url).await;
             let entry = match result {
                 Ok(bytes) => Entry::Ready {
@@ -555,13 +601,71 @@ impl Inner {
                 },
                 Err(error) => Entry::Failed(error),
             };
-            loader
-                .entries
+            loader.settle(url, entry, discarded);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Records how a load ended, unless its artwork was discarded after
+    /// `discarded` was read: then the load may hold the bytes that were
+    /// found not to decode, and the next request starts afresh.
+    fn settle(&self, url: String, entry: Entry, discarded: u64) {
+        // Held through the insertion, so a discard cannot slip in between.
+        let discards = self.discards.lock().unwrap_or_else(|p| p.into_inner());
+        if discards.get(&url).copied().unwrap_or(0) == discarded {
+            self.entries
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .insert(url, entry);
-            ctx.request_repaint();
-        });
+        }
+    }
+
+    /// How many times `url`'s artwork has been discarded so far.
+    fn discarded(&self, url: &str) -> u64 {
+        self.discards
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(url)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Writes downloaded artwork to the disk cache, a temporary file of its
+    /// own renamed into place, unless it was discarded after `discarded` was
+    /// read: then the bytes were found not to decode and must not come back.
+    fn write_cache(&self, url: &str, payload: &[u8], discarded: u64) {
+        if let Some(temporary) = self.stage_cache(url, payload) {
+            self.publish_cache(url, &temporary, discarded);
+        }
+    }
+
+    /// Writes `payload` to a temporary file beside `url`'s cache file, one
+    /// no other write shares, so a write found stale never removes or
+    /// replaces another's bytes.
+    fn stage_cache(&self, url: &str, payload: &[u8]) -> Option<PathBuf> {
+        static WRITES: AtomicU64 = AtomicU64::new(0);
+        let write = WRITES.fetch_add(1, Ordering::Relaxed);
+        let temporary = self
+            .cache_path(url)
+            .with_extension(format!("{}-{write}.part", std::process::id()));
+        if std::fs::write(&temporary, payload).is_ok() {
+            Some(temporary)
+        } else {
+            let _ = std::fs::remove_file(&temporary);
+            None
+        }
+    }
+
+    /// Renames `temporary` into place as `url`'s cache file unless the
+    /// artwork was discarded after `discarded` was read. A stale write, or
+    /// one that cannot replace the cache file, removes its own file.
+    fn publish_cache(&self, url: &str, temporary: &Path, discarded: u64) {
+        let discards = self.discards.lock().unwrap_or_else(|p| p.into_inner());
+        if discards.get(url).copied().unwrap_or(0) != discarded
+            || std::fs::rename(temporary, self.cache_path(url)).is_err()
+        {
+            let _ = std::fs::remove_file(temporary);
+        }
     }
 
     fn drop_bytes(&self, url: &str) -> bool {
@@ -678,10 +782,14 @@ const PALETTE_HUE_GAP: f32 = 1.0 / 12.0;
 /// saturated hue, with its lightness pulled into a range that still reads as
 /// a background. The rest are the cover's other hues, the most common first,
 /// each far enough round the colour wheel from the ones before to tell apart;
-/// its greys count as one colour. Empty when the bytes are not an image.
-pub fn art_palette(bytes: &[u8]) -> Vec<[u8; 3]> {
-    let Some(buckets) = art_buckets(bytes) else {
-        return Vec::new();
+/// its greys count as one colour. Empty for a cover with no colour to
+/// give; an error when the bytes do not decode, so the cover can be
+/// downloaded again.
+pub fn art_palette(bytes: &[u8]) -> Result<Vec<[u8; 3]>, String> {
+    let decoded =
+        decode(bytes).map_err(|error| format!("the cover's bytes do not decode: {error}"))?;
+    let Some(buckets) = art_buckets(&decoded) else {
+        return Ok(Vec::new());
     };
     let total = buckets.iter().map(|(weight, _)| weight).sum::<u64>() as f32;
     // Each bucket joins the first group whose colour it cannot be told from,
@@ -700,7 +808,7 @@ pub fn art_palette(bytes: &[u8]) -> Vec<[u8; 3]> {
     // interface is tinted with, and the visualizer's bass when it is a hue.
     groups[1..].sort_by_key(|(weight, _)| std::cmp::Reverse(*weight));
     let accent = groups[0].1;
-    std::iter::once(accent)
+    Ok(std::iter::once(accent)
         .chain(
             groups[1..]
                 .iter()
@@ -708,7 +816,7 @@ pub fn art_palette(bytes: &[u8]) -> Vec<[u8; 3]> {
                 .map(|(_, colour)| *colour),
         )
         .take(PALETTE_COLOURS)
-        .collect()
+        .collect())
 }
 
 /// Whether `rgb` shows a hue rather than a grey: saturated enough, and light
@@ -740,8 +848,7 @@ fn hue(rgb: [u8; 3]) -> f32 {
 /// A cover's colours, heaviest first: its pixels in buckets of nearby
 /// colours, each weighed toward vivid mid-tones so black borders and white
 /// text lose, with the bucket's average colour.
-fn art_buckets(bytes: &[u8]) -> Option<Vec<(u64, [u8; 3])>> {
-    let decoded = image::load_from_memory(bytes).ok()?;
+fn art_buckets(decoded: &image::DynamicImage) -> Option<Vec<(u64, [u8; 3])>> {
     let small = decoded.thumbnail(48, 48).to_rgb8();
     let mut buckets: HashMap<(u8, u8, u8), (u64, [u64; 3])> = HashMap::new();
     for pixel in small.pixels() {
@@ -1333,6 +1440,21 @@ mod tests {
         )
     }
 
+    /// The temporary files cache writes left in `dir`.
+    fn temporaries(dir: &std::path::Path) -> Vec<PathBuf> {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                    .filter(|path| {
+                        path.extension()
+                            .is_some_and(|extension| extension == "part")
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     async fn wait_for_artwork_file(path: &std::path::Path, expected: &[u8]) {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -1369,7 +1491,7 @@ mod tests {
         drop(loader);
         runtime.shutdown_timeout(Duration::from_secs(10));
         assert_eq!(std::fs::read(&path).unwrap(), expected);
-        assert!(!path.with_extension("part").exists());
+        assert!(temporaries(&dir).is_empty());
 
         let runtime = artwork_test_runtime();
         let loader = artwork_test_loader(&runtime, dir.clone());
@@ -1390,7 +1512,7 @@ mod tests {
         ));
         let runtime = artwork_test_runtime();
         let loader = artwork_test_loader(&runtime, dir.clone());
-        let (bytes, path) = runtime.block_on(async {
+        let (bytes, path, url) = runtime.block_on(async {
             let (url, server) = serve_artwork("200 OK", b"complete artwork".to_vec()).await;
             let path = loader.inner.cache_path(&url);
             // A directory cannot be replaced by a file, even by an admin.
@@ -1400,9 +1522,12 @@ mod tests {
                 .await
                 .expect("display does not depend on caching");
             server.await.unwrap();
-            wait_for_artwork_file(&path.with_extension("part"), b"complete artwork").await;
-            (bytes, path)
+            (bytes, path, url)
         });
+        // The same write again, here, so its end is known.
+        loader
+            .inner
+            .write_cache(&url, b"complete artwork", loader.inner.discarded(&url));
         drop(loader);
         runtime.shutdown_timeout(Duration::from_secs(10));
         assert_eq!(&*bytes, b"complete artwork");
@@ -1410,6 +1535,7 @@ mod tests {
             path.is_dir(),
             "the failed replacement preserves the old path"
         );
+        assert!(temporaries(&dir).is_empty(), "nor leaves its temporary");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1845,6 +1971,203 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Bytes that do not decode are an error, not a cover without a
+    /// colour, and discarding them sends the next read to the network.
+    #[test]
+    fn undecodable_cached_artwork_is_downloaded_again() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-art-undecodable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let mut good = Vec::new();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([20, 120, 200]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut good),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        runtime.block_on(async {
+            let (url, server) = serve_artwork("200 OK", good.clone()).await;
+            let path = loader.inner.cache_path(&url);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(&path, b"not a picture").unwrap();
+            let cached = loader.fetch(&url).await.unwrap();
+            assert_eq!(&*cached, b"not a picture", "read from the disk cache");
+            assert!(
+                loader.palette(&url).await.is_err(),
+                "an error, not no colour"
+            );
+            assert_eq!(loader.cached_file(&url), None, "discarded from disk");
+
+            let fresh = loader.fetch(&url).await.unwrap();
+            assert_eq!(&*fresh, good.as_slice(), "downloaded again");
+            // The server answers once: the colour is read from the cache
+            // the download writes, so wait for it to land.
+            wait_for_artwork_file(&path, &good).await;
+            assert!(
+                loader
+                    .palette(&url)
+                    .await
+                    .is_ok_and(|palette| !palette.is_empty())
+            );
+            server.await.unwrap();
+        });
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Two writes of the same artwork under way at once each have their own
+    /// temporary file: the one found stale removes only its own, and the
+    /// current one lands with its bytes.
+    #[test]
+    fn a_stale_cache_write_leaves_a_current_ones_alone() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-art-two-writes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let url = "https://i.scdn.co/image/two-writes";
+        let stale = loader.inner.discarded(url);
+        loader.discard(url);
+        let current = loader.inner.discarded(url);
+        let good = loader.inner.stage_cache(url, b"a later download").unwrap();
+        let bad = loader.inner.stage_cache(url, b"not a picture").unwrap();
+        assert_ne!(good, bad, "a temporary file each");
+        loader.inner.publish_cache(url, &bad, stale);
+        assert!(good.exists(), "the stale write removes only its own");
+        loader.inner.publish_cache(url, &good, current);
+        assert_eq!(
+            std::fs::read(loader.inner.cache_path(url)).unwrap(),
+            b"a later download"
+        );
+        assert!(temporaries(&dir).is_empty());
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A cache write that was under way when its artwork was discarded
+    /// does not put the discarded bytes back on disk.
+    #[test]
+    fn a_write_under_way_does_not_restore_discarded_artwork() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-art-discard-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let url = "https://i.scdn.co/image/undecodable";
+        let started = loader.inner.discarded(url);
+        loader.discard(url);
+        loader.inner.write_cache(url, b"not a picture", started);
+        assert_eq!(loader.cached_file(url), None, "the discard stands");
+        assert!(temporaries(&dir).is_empty());
+
+        let now = loader.inner.discarded(url);
+        loader.inner.write_cache(url, b"a later download", now);
+        assert!(loader.cached_file(url).is_some(), "a later write lands");
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A download asked for before its artwork was discarded is not written
+    /// to the disk cache: it may bring the same bad bytes.
+    #[test]
+    fn a_download_asked_before_a_discard_is_not_cached() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-art-discard-download-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        // One blocking thread runs the cache write and the check after it in
+        // the order they were spawned.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let path = runtime.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/cover", listener.local_addr().unwrap());
+            let (asked, heard) = tokio::sync::oneshot::channel();
+            let (answer, go) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(socket.read_u8().await.unwrap());
+                }
+                asked.send(()).unwrap();
+                go.await.unwrap();
+                let body = b"not a picture";
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(header.as_bytes()).await.unwrap();
+                socket.write_all(body).await.unwrap();
+            });
+            let inner = Arc::clone(&loader.inner);
+            let download = tokio::spawn({
+                let url = url.clone();
+                async move { inner.fetch(&url).await }
+            });
+            heard.await.unwrap();
+            loader.discard(&url);
+            answer.send(()).unwrap();
+            let bytes = download.await.unwrap().unwrap();
+            assert_eq!(&*bytes, b"not a picture");
+            server.await.unwrap();
+            loader.inner.cache_path(&url)
+        });
+        // Shutting down waits for the blocking cache write the download
+        // left behind, so what it did is on disk before it is looked at.
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        assert!(!path.exists(), "the discard stands");
+        assert!(temporaries(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A load that was under way when its artwork was discarded does not
+    /// put the discarded bytes back in memory.
+    #[test]
+    fn a_load_under_way_does_not_restore_discarded_artwork() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-art-discard-load-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let url = "https://i.scdn.co/image/undecodable";
+        let ready = |bytes: &[u8]| Entry::Ready {
+            retained: bytes.len(),
+            bytes: Some(Arc::from(bytes)),
+            last_used: Instant::now(),
+        };
+        let started = loader.inner.discarded(url);
+        loader.discard(url);
+        loader
+            .inner
+            .settle(url.to_string(), ready(b"not a picture"), started);
+        assert!(!loader.is_ready(url), "the discard stands");
+
+        let now = loader.inner.discarded(url);
+        loader
+            .inner
+            .settle(url.to_string(), ready(b"a later download"), now);
+        assert!(loader.is_ready(url), "a later load lands");
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn prefetching_starts_one_download_and_not_another() {
         let dir = std::env::temp_dir().join(format!("spotifast-prefetch-{}", std::process::id()));
@@ -1900,7 +2223,7 @@ mod tests {
                 image::ImageFormat::Png,
             )
             .unwrap();
-        let color = art_palette(&bytes)[0];
+        let color = art_palette(&bytes).unwrap()[0];
         assert!(
             color[2] > color[0],
             "expected the blue field, got {color:?}"
@@ -1932,7 +2255,7 @@ mod tests {
                 _ => red,
             })
         });
-        let palette = art_palette(&cover_png(&image));
+        let palette = art_palette(&cover_png(&image)).unwrap();
         assert_eq!(palette.len(), 2, "{palette:?}");
         assert_eq!(hue(palette[0]), hue(blue), "{palette:?}");
         assert_eq!(hue(palette[1]), hue(red), "{palette:?}");
@@ -1950,7 +2273,7 @@ mod tests {
                 _ => [200, 200, 200],
             })
         });
-        let palette = art_palette(&cover_png(&image));
+        let palette = art_palette(&cover_png(&image)).unwrap();
         assert_eq!(palette.len(), 2, "{palette:?}");
         assert!(has_hue(palette[0]), "{palette:?}");
         assert!(!has_hue(palette[1]), "{palette:?}");
@@ -1968,9 +2291,9 @@ mod tests {
             [180, 40, 220],
         ];
         let image = image::RgbImage::from_fn(48, 48, |x, _| image::Rgb(hues[x as usize / 8]));
-        let palette = art_palette(&cover_png(&image));
+        let palette = art_palette(&cover_png(&image)).unwrap();
         assert_eq!(palette.len(), PALETTE_COLOURS, "{palette:?}");
-        assert!(art_palette(b"not an image").is_empty());
+        assert!(art_palette(b"not an image").is_err());
     }
 
     /// #813: Spotify's CDN sometimes serves a cover's bytes as WebP: the
@@ -1988,6 +2311,7 @@ mod tests {
             )
             .expect("the image crate encodes WebP");
         let color = *art_palette(&bytes)
+            .expect("a WebP cover decodes")
             .first()
             .expect("a WebP cover tints the page");
         assert!(
