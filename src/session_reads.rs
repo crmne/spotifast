@@ -688,11 +688,62 @@ pub struct FriendActivity {
 const LISTENING_ACTIVITY: &str = "https://spclient.wg.spotify.com/listening-activity/v1/feed";
 
 /// Names that rarely change, kept between polls so each refresh asks only
-/// for the songs.
+/// for the songs. Only answers are kept: a read that failed is asked again
+/// on the next refresh.
 #[derive(Default)]
 pub struct FriendNames {
     profiles: HashMap<String, UserProfile>,
-    playlists: HashMap<String, Option<String>>,
+    playlists: HashMap<String, String>,
+}
+
+/// How many name reads run at once on a first load.
+const NAME_READS: usize = 6;
+
+/// A person's or a playlist's name, read for the panel; `None` when the
+/// read failed.
+enum NameRead {
+    Profile(String, Option<UserProfile>),
+    Playlist(String, Option<String>),
+}
+
+/// The user id at the end of `spotify:user:…`.
+fn user_id(uri: &str) -> String {
+    uri.rsplit(':').next().unwrap_or_default().to_string()
+}
+
+/// The playlist id a context names, if it is a playlist.
+fn playlist_id(uri: &str) -> Option<String> {
+    uri.contains(":playlist:")
+        .then(|| uri.rsplit(':').next().unwrap_or_default().to_string())
+}
+
+/// Reads the names the cache lacks, a few at a time, without holding it.
+async fn read_names(session: &Session, users: Vec<String>, lists: Vec<String>) -> Vec<NameRead> {
+    let limit = std::sync::Arc::new(tokio::sync::Semaphore::new(NAME_READS));
+    let mut reads = tokio::task::JoinSet::new();
+    for id in users {
+        let (session, limit) = (session.clone(), limit.clone());
+        reads.spawn(async move {
+            let _turn = limit.acquire_owned().await;
+            let profile = user_profile(&session, &id).await;
+            NameRead::Profile(id, profile)
+        });
+    }
+    for id in lists {
+        let (session, limit) = (session.clone(), limit.clone());
+        reads.spawn(async move {
+            let _turn = limit.acquire_owned().await;
+            let name = playlist(&session, &id).await.ok().map(|list| list.name);
+            NameRead::Playlist(id, name)
+        });
+    }
+    let mut done = Vec::new();
+    while let Some(read) = reads.join_next().await {
+        if let Ok(read) = read {
+            done.push(read);
+        }
+    }
+    done
 }
 
 /// One friend's latest entry in the live feed, before the song and the
@@ -732,25 +783,44 @@ pub async fn friend_activity(
             Failure::Definitive(error) => anyhow::anyhow!("{error:?}"),
             Failure::Retry(error) => error,
         })?;
+    let (users, lists) = {
+        let names = names.lock().await;
+        let users: BTreeSet<String> = live
+            .iter()
+            .map(|entry| user_id(&entry.user_uri))
+            .filter(|id| !names.profiles.contains_key(id))
+            .collect();
+        let lists: BTreeSet<String> = live
+            .iter()
+            .filter_map(|entry| entry.context_uri.as_deref().and_then(playlist_id))
+            .filter(|id| !names.playlists.contains_key(id))
+            .collect();
+        (users.into_iter().collect(), lists.into_iter().collect())
+    };
+    let read = read_names(session, users, lists).await;
     let mut names = names.lock().await;
+    for read in read {
+        match read {
+            NameRead::Profile(id, Some(profile)) => {
+                names.profiles.insert(id, profile);
+            }
+            NameRead::Playlist(id, Some(name)) => {
+                names.playlists.insert(id, name);
+            }
+            NameRead::Profile(_, None) | NameRead::Playlist(_, None) => {}
+        }
+    }
     let mut friends = Vec::with_capacity(live.len());
     for entry in live {
         let Some(PlayableItem::Track(track)) = tracks.get(&entry.track_uri) else {
             continue;
         };
-        let user_id = entry
-            .user_uri
-            .rsplit(':')
-            .next()
-            .unwrap_or_default()
-            .to_string();
-        if !names.profiles.contains_key(&user_id) {
-            let profile = user_profile(session, &user_id).await.unwrap_or_default();
-            names.profiles.insert(user_id.clone(), profile);
-        }
-        let profile = &names.profiles[&user_id];
-        let user_name = profile.name.clone().unwrap_or_else(|| user_id.clone());
-        let image_url = profile.image_url.clone();
+        let user_id = user_id(&entry.user_uri);
+        let profile = names.profiles.get(&user_id);
+        let user_name = profile
+            .and_then(|profile| profile.name.clone())
+            .unwrap_or_else(|| user_id.clone());
+        let image_url = profile.and_then(|profile| profile.image_url.clone());
         let album = track.album.as_ref().filter(|album| !album.uri.is_empty());
         let artist = track.artists.first();
         // Without a context Spotify names the song's album, as its own
@@ -760,12 +830,7 @@ pub async fn friend_activity(
             .or_else(|| album.map(|album| album.uri.clone()));
         let context_name = match context_uri.as_deref() {
             Some(uri) if uri.contains(":playlist:") => {
-                let id = uri.rsplit(':').next().unwrap_or_default().to_string();
-                if !names.playlists.contains_key(&id) {
-                    let name = playlist(session, &id).await.ok().map(|list| list.name);
-                    names.playlists.insert(id.clone(), name);
-                }
-                names.playlists[&id].clone()
+                playlist_id(uri).and_then(|id| names.playlists.get(&id).cloned())
             }
             // A song played on its own names itself as where it plays from.
             Some(uri) if uri == entry.track_uri => Some(track.name.clone()),

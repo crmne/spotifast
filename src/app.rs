@@ -509,6 +509,9 @@ pub struct App {
     pub friends: Loadable<Vec<crate::session_reads::FriendActivity>>,
     friends_in_flight: bool,
     friends_fetched_at: Option<Instant>,
+    /// Bumped when the account changes, so an answer for the last one is
+    /// dropped.
+    friends_generation: u64,
     pub lyrics_fullscreen: Option<bool>,
     pub lyrics_fullscreen_seen: bool,
     lyrics_fullscreen_restoring: Option<bool>,
@@ -1032,6 +1035,7 @@ impl App {
             friends: Loadable::NotLoaded,
             friends_in_flight: false,
             friends_fetched_at: None,
+            friends_generation: 0,
             lyrics_fullscreen: None,
             lyrics_fullscreen_seen: false,
             lyrics_fullscreen_restoring: None,
@@ -2276,7 +2280,9 @@ impl App {
                 } => {
                     self.receive_account_caches(&account_id, generation, playlists, home);
                 }
-                Event::FriendActivity(result) => self.receive_friends(result),
+                Event::FriendActivity { generation, result } => {
+                    self.receive_friends(generation, result)
+                }
                 Event::UserName { id, name, image } => {
                     self.set_user_name(id.clone(), name);
                     self.set_user_image(id, image);
@@ -2651,6 +2657,12 @@ impl App {
         };
         self.liked_songs = crate::liked::LikedSongs::default();
         self.liked_recheck_at = None;
+        // Friends belong to the signed-out account; an answer still on its
+        // way is dropped.
+        self.friends = Loadable::NotLoaded;
+        self.friends_in_flight = false;
+        self.friends_fetched_at = None;
+        self.friends_generation += 1;
         // Answers still on their way belong to the signed-out account's
         // Home.
         self.home = HomeData {
@@ -3238,15 +3250,20 @@ impl App {
         if !matches!(self.friends, Loadable::Loaded(_)) {
             self.friends = Loadable::Loading;
         }
-        self.backend.send(Command::FriendActivity);
+        self.backend
+            .send(Command::FriendActivity(self.friends_generation));
     }
 
     /// A failed refresh keeps the friends already shown; only a first read
     /// that fails says so.
     fn receive_friends(
         &mut self,
+        generation: u64,
         result: Result<Vec<crate::session_reads::FriendActivity>, String>,
     ) {
+        if generation != self.friends_generation {
+            return;
+        }
         self.friends_in_flight = false;
         self.friends_fetched_at = Some(Instant::now());
         match result {
@@ -10430,8 +10447,6 @@ impl App {
             Action::SignOut => {
                 self.backend.send(Command::SignOut);
                 self.show_friends_panel = false;
-                self.friends = Loadable::NotLoaded;
-                self.friends_fetched_at = None;
                 self.history = vec![Page::Home];
                 self.history_index = 0;
             }
@@ -18247,13 +18262,45 @@ mod tests {
         };
         app.refresh_friends();
         assert!(app.friends.is_loading());
-        app.receive_friends(Ok(vec![friend.clone()]));
+        app.receive_friends(app.friends_generation, Ok(vec![friend.clone()]));
         app.refresh_friends();
         assert!(app.friends_in_flight);
         assert_eq!(app.friends.get(), Some(&vec![friend.clone()]));
-        app.receive_friends(Err("offline".into()));
+        app.receive_friends(app.friends_generation, Err("offline".into()));
         assert_eq!(app.friends.get(), Some(&vec![friend]));
         assert!(!app.friends_in_flight);
+        app.backend.shutdown();
+    }
+
+    /// An answer for the account that signed out never fills the panel for
+    /// the next one.
+    #[test]
+    fn friends_from_a_signed_out_account_are_dropped() {
+        let mut app = test_app("friends-account");
+        let friend = crate::session_reads::FriendActivity {
+            user_uri: "spotify:user:a".into(),
+            user_name: "Ann".into(),
+            image_url: None,
+            timestamp_ms: 1,
+            playing: false,
+            track_uri: "spotify:track:1".into(),
+            track_name: "Song".into(),
+            artist_uri: None,
+            artist_name: "Band".into(),
+            album_uri: None,
+            cover_url: None,
+            context_uri: None,
+            context_name: None,
+        };
+        app.refresh_friends();
+        let asked = app.friends_generation;
+        app.receive_friends(asked, Ok(vec![friend.clone()]));
+        app.refresh_friends();
+        app.reset_data();
+        assert!(!app.friends_in_flight);
+        assert_eq!(app.friends, Loadable::NotLoaded);
+        app.receive_friends(asked, Ok(vec![friend]));
+        assert_eq!(app.friends, Loadable::NotLoaded);
         app.backend.shutdown();
     }
 
