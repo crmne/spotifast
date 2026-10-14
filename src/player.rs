@@ -234,6 +234,13 @@ impl LocalState {
     pub fn is_active(&self) -> bool {
         self.track.is_some() && self.playback != Playback::Stopped
     }
+
+    /// Whether this track belongs to the currently active Spotify Connect
+    /// device. The local track can remain loaded after Spotify gives playback
+    /// to another device, so `is_active` alone does not establish ownership.
+    pub fn is_connect_active(&self) -> bool {
+        self.is_active() && !self.active_client.is_empty()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1601,8 +1608,15 @@ mod tests {
         let mut state = LocalState {
             connected: true,
             active_client: "Spotifast".into(),
+            playback: Playback::Playing,
+            track: Some(LocalTrack {
+                uri: "spotify:track:old".into(),
+                ..Default::default()
+            }),
             ..LocalState::default()
         };
+
+        assert!(state.is_connect_active());
 
         assert!(apply_event(
             &mut state,
@@ -1614,6 +1628,7 @@ mod tests {
 
         assert!(state.connected, "the Spotify session is still usable");
         assert!(state.active_client.is_empty());
+        assert!(!state.is_connect_active(), "another device took over");
     }
 
     #[test]

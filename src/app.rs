@@ -1330,13 +1330,13 @@ impl App {
 
     /// Where playback commands go: this computer's player or a remote device.
     pub fn target(&self) -> Target {
-        if self.local_ready && self.local.is_active() {
-            return Target::Local;
-        }
         if let Some(selected) = &self.selected_device
             && Some(selected.as_str()) != self.local_device_id.as_deref()
         {
             return Target::Remote(Some(selected.clone()));
+        }
+        if self.local_ready && self.local.is_connect_active() {
+            return Target::Local;
         }
         if let Some(remote) = self.remote_fresh() {
             let device = remote.state.device.as_ref();
@@ -1346,6 +1346,12 @@ impl App {
             if !is_local && (remote.state.is_playing || remote.state.item.is_some()) {
                 return Target::Remote(device.and_then(|device| device.id.clone()));
             }
+        }
+        if self.local_ready && self.local.is_active() && self.local.active_client.is_empty() {
+            // The local track can remain loaded after Connect has handed
+            // playback elsewhere. Wait for the remote snapshot instead of
+            // sending a control to this inactive session.
+            return Target::Remote(None);
         }
         if self.local_ready {
             Target::Local
@@ -1527,7 +1533,8 @@ impl App {
 
     /// What a device is actually playing, here or elsewhere.
     fn now_playing_live(&self) -> Option<NowPlaying> {
-        if self.local.is_active() && self.local_transfer_sequence != Some(self.local.track_sequence)
+        if self.local.is_connect_active()
+            && self.local_transfer_sequence != Some(self.local.track_sequence)
         {
             let track = self.local.track.as_ref()?;
             let cached = track
@@ -2682,7 +2689,7 @@ impl App {
         }
         // Another device may have taken over while the last poll still
         // names this one.
-        if self.local.is_active() && !state.is_active() {
+        if self.local.is_connect_active() && !state.is_connect_active() {
             self.poll_remote_soon();
         }
         self.local = state;
@@ -24324,6 +24331,41 @@ mod tests {
                 ..
             }]
         ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn playback_target_moves_to_the_phone_when_the_local_connect_session_ends() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.devices[1].name = "Pixel phone".into();
+        app.devices[1].kind = "smartphone".into();
+        let phone = app.devices[1].clone();
+        app.remote.as_mut().unwrap().state.device = Some(phone);
+        app.local_device_id = Some("local-demo".into());
+        app.local = LocalState {
+            connected: true,
+            active_client: "Spotifast".into(),
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:old-local-track".into(),
+                title: "Old local track".into(),
+                duration_ms: 180_000,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(app.target(), Target::Local);
+        assert!(app.now_playing().unwrap().local);
+
+        // librespot's SessionDisconnected event clears active_client while
+        // retaining the last local track and playback state.
+        app.local.active_client.clear();
+
+        assert_eq!(app.target(), Target::Remote(Some("remote1".into())));
+        let now = app.now_playing().expect("the fresh phone snapshot");
+        assert!(!now.local);
+        assert_eq!(now.device_name.as_deref(), Some("Pixel phone"));
         app.backend.shutdown();
     }
 
