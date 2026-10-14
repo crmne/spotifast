@@ -93,6 +93,11 @@ clients. Spotifast uses its session for:
   by a song, playlist, album, or artist. Each resolution is a fresh mix of 50
   songs, so a radio page plays the songs it shows rather than asking again.
 - **Audiobook detection** for saved shows, which the Web API lists as podcasts.
+- **Listening activity**: what the people the account follows are playing,
+  from the private feed behind Spotify's own panel. The Web API has no such
+  request. Spotify may change this response without notice; when the feed
+  does not answer, the older buddy list stands in, which reports a song only
+  after it ends.
 - **Google Cast speakers and groups.** librespot has no Cast sender, so
   Spotifast starts Spotify's receiver on the device itself. The session then
   obtains a token for that receiver, as Spotify's own apps do. See
@@ -170,8 +175,8 @@ The Web API and librespot do not provide these features:
 - **Free-account playback.** Replacing Spotify audio with another source is
   also out of scope. See the
   [contribution guide](https://github.com/crmne/spotifast/blob/main/CONTRIBUTING.md).
-- **Friend activity, private-session status, and similar social features.**
-  Spotify has no public API for them.
+- **Private-session status and similar social features.** Spotify has no
+  public API for them.
 - **Canvas videos and video podcasts.** librespot does not provide them.
 - **Play counts.** Spotify shows them only through a private endpoint its own
   apps use. The Web API has no play counts, and librespot does not provide

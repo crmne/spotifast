@@ -752,6 +752,8 @@ pub enum Command {
     },
     /// Resolve user ids to display names through the streaming session.
     UserNames(Vec<String>),
+    /// Read what friends last played through the streaming session.
+    FriendActivity,
     LoadLikedSongsCache {
         generation: u64,
     },
@@ -906,6 +908,8 @@ pub enum Event {
         snapshot: String,
         success: bool,
     },
+    /// What friends last played, newest first, or why it could not be read.
+    FriendActivity(Result<Vec<session_reads::FriendActivity>, String>),
     /// A user id resolved to a display name and avatar (each `None` when
     /// nothing answers).
     UserName {
@@ -1598,6 +1602,9 @@ struct Worker {
     engine_proxy: Option<reqwest::Url>,
     web_client_id: Option<String>,
     http: Http,
+    /// Friends' names and avatars and their playlists' names, kept between
+    /// Friend activity polls.
+    friend_names: Arc<tokio::sync::Mutex<session_reads::FriendNames>>,
     api: Arc<ApiGateway>,
     made_for_you: Arc<crate::made_for_you::MadeForYou>,
     connect: Arc<crate::sonos::Controller>,
@@ -1696,6 +1703,7 @@ impl Worker {
             connect: Arc::default(),
             background_session: Arc::new(tokio::sync::Semaphore::new(4)),
             http,
+            friend_names: Arc::default(),
             art,
             events,
             commands,
@@ -2320,6 +2328,7 @@ impl Worker {
                     }
                 }
                 Command::UserNames(ids) => self.fetch_user_names(ids),
+                Command::FriendActivity => self.fetch_friend_activity(),
                 Command::LoadLikedSongsCache { generation } => {
                     if let Some(account) = self.api.account() {
                         let account_id = account.as_str().to_string();
@@ -4100,6 +4109,36 @@ impl Worker {
                 let _ = events.send(Event::UserName { id, name, image });
                 waker.wake();
             }
+        });
+    }
+
+    /// Ask the streaming session what friends are listening to. Without one
+    /// there is nobody to ask, which the panel says.
+    fn fetch_friend_activity(&self) {
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let send = move |result| {
+            let _ = events.send(Event::FriendActivity(result));
+            waker.wake();
+        };
+        let Some(engine) = self.engine.clone() else {
+            send(Err("Listening activity needs playback enabled.".into()));
+            return;
+        };
+        let http = match self.http.client() {
+            Ok(http) => http,
+            Err(error) => return send(Err(error)),
+        };
+        let names = self.friend_names.clone();
+        tokio::spawn(async move {
+            let result = tokio::time::timeout(
+                Duration::from_secs(15),
+                session_reads::friend_activity(engine.session(), &http, &names),
+            )
+            .await
+            .map_err(|_| "Spotify took too long to answer.".to_string())
+            .and_then(|result| result.map_err(|error| error.to_string()));
+            send(result);
         });
     }
 

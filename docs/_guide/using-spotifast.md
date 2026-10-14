@@ -521,6 +521,23 @@ On Windows, the main window's minimize, maximize, and close buttons share the
 top bar with Spotifast's controls. Drag an empty part of that bar to move or
 snap the window, and drag a window edge or corner to resize it.
 
+## Listening activity
+
+The people button in the top bar, before the account avatar, opens what the
+people you follow on Spotify are listening to. It takes the place of the
+Queue or Lyrics panel on the right, and they take its place in turn. While
+it is open it refreshes every 15 seconds.
+
+A blue dot on the avatar and moving bars in place of the time mean the
+person is listening right now. Hover an avatar to play their song, or to
+pause it when that song is already playing here. The song's title opens its
+album, the artist opens their page, and the line below opens the playlist,
+album or artist it plays from.
+
+The panel needs playback on this computer, since only that session can read
+it. In a very narrow window the people button gives way so the search field
+keeps its room; widen the window to bring it back.
+
 ## Google Cast playback
 
 Google Cast speakers and speaker groups appear in the device picker. Enable
