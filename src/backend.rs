@@ -871,6 +871,8 @@ pub enum Event {
     Receivers(Vec<crate::zeroconf::Receiver>),
     /// This computer's audio outputs, by name, for the device picker.
     OutputDevices(Result<Vec<String>, String>),
+    /// Cast advertisements ready before the final browse/probe reconciliation.
+    ReceiversProgress(Vec<crate::zeroconf::Receiver>),
     ReceiverActivated {
         name: String,
         result: Result<(), String>,
@@ -1608,6 +1610,8 @@ struct Worker {
     api: Arc<ApiGateway>,
     made_for_you: Arc<crate::made_for_you::MadeForYou>,
     connect: Arc<crate::sonos::Controller>,
+    /// Reopening or refreshing the picker reuses an in-flight browse.
+    receiver_discovery: Option<tokio::task::JoinHandle<()>>,
     background_session: Arc<tokio::sync::Semaphore>,
     art: ArtLoader,
     events: std::sync::mpsc::Sender<Event>,
@@ -1704,6 +1708,7 @@ impl Worker {
             api: Arc::new(ApiGateway::new(http.clone(), activity)),
             made_for_you: Arc::new(crate::made_for_you::MadeForYou::new(http.clone())),
             connect: Arc::default(),
+            receiver_discovery: None,
             background_session: Arc::new(tokio::sync::Semaphore::new(4)),
             http,
             art,
@@ -3624,22 +3629,36 @@ impl Worker {
 
     /// Browses for receivers Spotify's device list does not know about. The
     /// browse blocks, so it runs off the runtime's worker threads.
-    fn discover_receivers(&self) {
+    fn discover_receivers(&mut self) {
+        if self
+            .receiver_discovery
+            .as_ref()
+            .is_some_and(|task| !task.is_finished())
+        {
+            return;
+        }
         let events = self.events.clone();
         let waker = self.waker.clone();
         let connect = Arc::clone(&self.connect);
-        tokio::task::spawn_blocking(move || {
-            match crate::zeroconf::discover(std::time::Duration::from_secs(3))
+        self.receiver_discovery =
+            Some(tokio::task::spawn_blocking(
+                move || match crate::zeroconf::discover_with_updates(
+                    std::time::Duration::from_secs(3),
+                    |receivers| {
+                        let _ = events.send(Event::ReceiversProgress(receivers));
+                        waker.wake();
+                    },
+                )
                 .and_then(crate::zeroconf::resolve_receivers)
-            {
-                Ok(receivers) => {
-                    connect.remember(&receivers);
-                    let _ = events.send(Event::Receivers(receivers));
-                    waker.wake();
-                }
-                Err(error) => log::debug!("no receivers found on the network: {error}"),
-            }
-        });
+                {
+                    Ok(receivers) => {
+                        connect.remember(&receivers);
+                        let _ = events.send(Event::Receivers(receivers));
+                        waker.wake();
+                    }
+                    Err(error) => log::debug!("no receivers found on the network: {error}"),
+                },
+            ));
     }
 
     /// Sends the stored playback credential to a receiver so it can sign in.
@@ -6424,6 +6443,17 @@ fn playback_credentials(account: Option<AccountId>, access_token: String) -> Opt
 
 #[cfg(test)]
 mod authorization_tests {
+    #[test]
+    fn opening_the_picker_again_does_not_start_a_second_receiver_scan() {
+        let (runtime, mut worker, _) = worker("coalesce-receiver-scan");
+        let _entered = runtime.enter();
+        let pending = runtime.spawn(std::future::pending::<()>());
+        let id = pending.id();
+        worker.receiver_discovery = Some(pending);
+        worker.discover_receivers();
+        assert_eq!(worker.receiver_discovery.as_ref().unwrap().id(), id);
+        worker.receiver_discovery.take().unwrap().abort();
+    }
     use super::*;
 
     #[test]

@@ -123,6 +123,15 @@ impl Credentials {
 
 /// Browses the network for receivers. Blocking, bounded by `timeout`.
 pub fn discover(timeout: Duration) -> Result<Vec<Receiver>> {
+    discover_with_updates(timeout, |_| {})
+}
+
+/// Publishes resolved Cast advertisements while the bounded browse continues.
+/// Connect receivers still need their normal information probe before display.
+pub fn discover_with_updates(
+    timeout: Duration,
+    on_cast_update: impl Fn(Vec<Receiver>) + Send + Sync,
+) -> Result<Vec<Receiver>> {
     let daemon = mdns_sd::ServiceDaemon::new().context("cannot browse the local network")?;
     let connect = daemon
         .browse(SERVICE)
@@ -136,10 +145,10 @@ pub fn discover(timeout: Duration) -> Result<Vec<Receiver>> {
     // Each browse blocks on its own channel until the deadline.
     let mut receivers = std::thread::scope(|scope| {
         let cast = scope.spawn(move || {
-            cast.map(|events| collect(&events, deadline, true))
+            cast.map(|events| collect(&events, deadline, true, &on_cast_update))
                 .unwrap_or_default()
         });
-        let mut receivers = collect(&connect, deadline, false);
+        let mut receivers = collect(&connect, deadline, false, |_| {});
         receivers.extend(cast.join().unwrap());
         receivers
     });
@@ -153,11 +162,27 @@ fn collect(
     events: &mdns_sd::Receiver<mdns_sd::ServiceEvent>,
     deadline: std::time::Instant,
     cast: bool,
+    publish: impl FnMut(Vec<Receiver>),
+) -> Vec<Receiver> {
+    collect_events(
+        deadline,
+        cast,
+        |wait| events.recv_timeout(wait).ok(),
+        publish,
+    )
+}
+
+/// Receives through an injected channel so streaming is tested without a LAN.
+fn collect_events(
+    deadline: std::time::Instant,
+    cast: bool,
+    mut receive: impl FnMut(Duration) -> Option<mdns_sd::ServiceEvent>,
+    mut publish: impl FnMut(Vec<Receiver>),
 ) -> Vec<Receiver> {
     let mut found: HashMap<String, Receiver> = HashMap::new();
     while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
-        match events.recv_timeout(remaining) {
-            Ok(mdns_sd::ServiceEvent::ServiceResolved(service)) => {
+        match receive(remaining) {
+            Some(mdns_sd::ServiceEvent::ServiceResolved(service)) => {
                 // Prefer IPv4: link-local IPv6 needs a scope id to dial.
                 let mut addresses: Vec<std::net::IpAddr> = service
                     .get_addresses()
@@ -197,12 +222,43 @@ fn collect(
                         cast,
                     },
                 );
+                if cast {
+                    let mut snapshot: Vec<_> = found.values().cloned().collect();
+                    snapshot.sort_by(|a, b| a.name.cmp(&b.name));
+                    publish(snapshot);
+                }
             }
-            Ok(_) => {}
-            Err(_) => break,
+            Some(mdns_sd::ServiceEvent::ServiceRemoved(_, fullname)) => {
+                found.remove(&fullname);
+            }
+            Some(_) => {}
+            None => break,
         }
     }
     found.into_values().collect()
+}
+
+/// Adds live results without discarding rows from the previous completed scan.
+/// A known Connect endpoint keeps precedence over its Cast advertisement.
+pub fn merge_discovered(current: &mut Vec<Receiver>, discovered: Vec<Receiver>) {
+    for receiver in discovered {
+        if receiver.cast
+            && current.iter().any(|known| {
+                !known.cast && known.address == receiver.address && known.name == receiver.name
+            })
+        {
+            continue;
+        }
+        if let Some(known) = current.iter_mut().find(|known| {
+            known.cast == receiver.cast
+                && known.address == receiver.address
+                && known.port == receiver.port
+        }) {
+            *known = receiver;
+        } else {
+            current.push(receiver);
+        }
+    }
 }
 
 /// Asks a receiver to describe itself.
@@ -475,6 +531,115 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn live_updates_keep_previous_rows_and_merge_connect_cast_duplicates() {
+        use super::*;
+        let connect = Receiver {
+            name: "Room".into(),
+            device_id: Some("connect-id".into()),
+            address: "192.0.2.1".parse().unwrap(),
+            port: 80,
+            path: "/".into(),
+            cast: false,
+        };
+        let mut known = vec![connect.clone()];
+        let cast = Receiver {
+            device_id: Some(crate::cast::device_id("Room")),
+            port: 8009,
+            cast: true,
+            ..connect.clone()
+        };
+        let other = Receiver {
+            address: "192.0.2.2".parse().unwrap(),
+            ..cast.clone()
+        };
+        let group = Receiver {
+            name: "Group".into(),
+            device_id: Some(crate::cast::device_id("Group")),
+            port: 32000,
+            ..cast.clone()
+        };
+        merge_discovered(&mut known, vec![cast, other.clone(), group.clone()]);
+        assert_eq!(known, [connect, other.clone(), group]);
+        let renamed = Receiver {
+            name: "Renamed".into(),
+            ..other
+        };
+        merge_discovered(&mut known, vec![renamed.clone()]);
+        assert_eq!(known.len(), 3);
+        assert_eq!(known[1], renamed);
+    }
+
+    /// A ready Cast row must be published before the next receive or scan deadline.
+    #[test]
+    fn cast_results_are_published_before_the_browse_finishes() {
+        use super::*;
+        let service = mdns_sd::ServiceInfo::new(
+            crate::cast::SERVICE,
+            "speaker",
+            "speaker.local.",
+            "192.0.2.1",
+            8009,
+            [("fn", "Living room")].as_slice(),
+        )
+        .unwrap()
+        .as_resolved_service();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut next = Some(mdns_sd::ServiceEvent::ServiceResolved(Box::new(service)));
+        let found = collect_events(
+            std::time::Instant::now() + Duration::from_secs(30),
+            true,
+            |_| {
+                if let Some(event) = next.take() {
+                    return Some(event);
+                }
+                let ready: Vec<Receiver> = rx
+                    .try_recv()
+                    .expect("publish before waiting for more mDNS events");
+                assert_eq!(ready[0].name, "Living room");
+                assert!(ready[0].cast);
+                None
+            },
+            |rows| tx.send(rows).unwrap(),
+        );
+        assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn repeated_advertisements_update_and_removed_services_leave_the_final_list() {
+        use super::*;
+        let service = |port| {
+            mdns_sd::ServiceInfo::new(
+                crate::cast::SERVICE,
+                "speaker",
+                "speaker.local.",
+                "192.0.2.1",
+                port,
+                [("fn", "Living room")].as_slice(),
+            )
+            .unwrap()
+            .as_resolved_service()
+        };
+        let fullname = service(8009).fullname;
+        let mut events = [
+            mdns_sd::ServiceEvent::ServiceResolved(Box::new(service(8009))),
+            mdns_sd::ServiceEvent::ServiceResolved(Box::new(service(8010))),
+            mdns_sd::ServiceEvent::ServiceRemoved(crate::cast::SERVICE.into(), fullname),
+        ]
+        .into_iter();
+        let mut snapshots = Vec::new();
+        let found = collect_events(
+            std::time::Instant::now() + Duration::from_secs(30),
+            true,
+            |_| events.next(),
+            |rows| snapshots.push(rows),
+        );
+        assert_eq!(snapshots.len(), 2);
+        assert_eq!(snapshots[1].len(), 1);
+        assert_eq!(snapshots[1][0].port, 8010);
+        assert!(found.is_empty());
+    }
+
     #[test]
     fn receiver_handoff_uses_the_in_memory_playback_grant() {
         let stored = librespot_core::authentication::Credentials {

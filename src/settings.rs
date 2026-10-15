@@ -1602,6 +1602,8 @@ pub struct CachedRootlist {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SessionState {
+    /// Recent explicit output choices, scoped to the verified Spotify account.
+    pub device_history: crate::device_history::DeviceHistory,
     pub last_page: Option<String>,
     /// Context URIs most recently played, newest first.
     pub recent_contexts: Vec<String>,

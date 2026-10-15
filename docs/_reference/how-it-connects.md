@@ -430,6 +430,22 @@ Cast speakers, displays and speaker groups announce `_googlecast._tcp`, not
 Spotifast lists them under their Cast name (the `fn` record) without probing
 them, because probing one would start Spotify on it.
 
+The picker shows each resolved Cast announcement immediately while its
+three-second browse continues. Cast rows do not wait for the subsequent
+Connect receiver probes. Reopening or refreshing the picker during that work
+shares the scan. Existing rows remain available during refresh; the completed
+scan removes departed devices and reconciles Connect/Cast duplicates as before.
+No receiver address is saved to disk or assumed reachable on the next launch.
+
+The active output stays first. Other outputs are ordered by how often they
+occur among the last 32 explicit picker selections, most recent first when
+counts match, then by name. This combines signed-in devices and receivers
+waiting on the network. Only device IDs and their account ID are saved in
+`session.json`; another account does not use that ranking, and sign-out clears
+it. Choosing an output records the selection, including an attempt that fails;
+background discovery and polling never increase its count. There is no new
+setting or network request for ranking.
+
 Starting Spotify on a Cast device needs local playback enabled, because the
 playback session obtains the token. When a Cast device is selected, Spotifast
 follows the steps of Spotify's own apps:
