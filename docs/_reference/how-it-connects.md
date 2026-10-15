@@ -430,21 +430,33 @@ Cast speakers, displays and speaker groups announce `_googlecast._tcp`, not
 Spotifast lists them under their Cast name (the `fn` record) without probing
 them, because probing one would start Spotify on it.
 
-The picker shows each resolved Cast announcement immediately while its
-three-second browse continues. Cast rows do not wait for the subsequent
+The picker shows the first resolved Cast announcement immediately while its
+three-second browse continues, batching subsequent changes at most every 100 ms.
+It retains at most 128 Cast services and one pending UI update, ignores unchanged
+advertisements, and bounds provisional rows during receiver churn.
+Cast rows do not wait for the subsequent
 Connect receiver probes. Reopening or refreshing the picker during that work
 shares the scan. Existing rows remain available during refresh; the completed
 scan removes departed devices and reconciles Connect/Cast duplicates as before.
+If Connect probe setup fails, current Cast results still complete the scan and
+remove stale rows.
 No receiver address is saved to disk or assumed reachable on the next launch.
 
 The active output stays first. Other outputs are ordered by how often they
 occur among the last 32 explicit picker selections, most recent first when
 counts match, then by name. This combines signed-in devices and receivers
-waiting on the network. Only device IDs and their account ID are saved in
+waiting on the network. Only preference keys and their account ID are saved in
 `session.json`; another account does not use that ranking, and sign-out clears
 it. Choosing an output records the selection, including an attempt that fails;
 background discovery and polling never increase its count. There is no new
 setting or network request for ranking.
+
+Signed-in outputs use their Spotify device IDs. A waiting Cast receiver uses a
+separate hash of its transfer ID, address and port, so another endpoint with the
+same advertised name does not inherit that ranking. No raw address is stored;
+an address or port change resets this preference. Waiting and signed-in Cast
+rows have separate histories. This is an ordering hint, not authenticated
+device identity; authentication still happens only on selection.
 
 Starting Spotify on a Cast device needs local playback enabled, because the
 playback session obtains the token. When a Cast device is selected, Spotifast

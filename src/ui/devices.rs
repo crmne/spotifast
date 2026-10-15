@@ -16,6 +16,7 @@ enum OutputRow {
 }
 
 impl OutputRow {
+    /// Spotify's transfer identity, used to keep the active output first.
     fn identity(&self) -> Option<&str> {
         match self {
             Self::Device(device) => device.id.as_deref(),
@@ -23,6 +24,7 @@ impl OutputRow {
         }
     }
 
+    /// The display label used only after selection history ties.
     fn name(&self) -> &str {
         match self {
             Self::Device(device) => &device.name,
@@ -30,6 +32,7 @@ impl OutputRow {
         }
     }
 
+    /// A stable UI identity even while nearby rows are inserted or reordered.
     fn widget_key(&self) -> String {
         match self {
             Self::Device(device) => format!("connect:{:?}:{}", device.id, device.name),
@@ -39,8 +42,17 @@ impl OutputRow {
             ),
         }
     }
+
+    /// Cast preference identity is distinct from its name-derived transfer ID.
+    fn preference_key(&self) -> Option<String> {
+        match self {
+            Self::Device(device) => device.id.clone(),
+            Self::Receiver(receiver) => receiver.preference_key(),
+        }
+    }
 }
 
+/// Active output first, then account-scoped frequency, recency and stable ties.
 fn rank_outputs(
     rows: &mut [OutputRow],
     history: &crate::device_history::DeviceHistory,
@@ -50,7 +62,7 @@ fn rank_outputs(
     rows.sort_by_cached_key(|row| {
         (
             row.identity().is_none_or(|id| Some(id) != active),
-            history.rank(account, row.identity()),
+            history.rank(account, row.preference_key().as_deref()),
             row.name().to_lowercase(),
             row.widget_key(),
         )
@@ -574,7 +586,6 @@ mod tests {
     #[test]
     fn active_then_frequent_outputs_rank_across_both_kinds_of_row() {
         let mut history = crate::device_history::DeviceHistory::default();
-        history.record("alice", "cast-id");
         let cast = crate::zeroconf::Receiver {
             name: "Z speaker".into(),
             device_id: Some("cast-id".into()),
@@ -583,6 +594,7 @@ mod tests {
             path: "/".into(),
             cast: true,
         };
+        history.record("alice", &cast.preference_key().unwrap());
         let mut rows = vec![
             OutputRow::Device(Device {
                 id: Some("unknown".into()),
@@ -606,6 +618,39 @@ mod tests {
             rows.iter().map(OutputRow::identity).collect::<Vec<_>>(),
             [Some("active"), Some("unknown"), Some("cast-id")]
         );
+    }
+
+    #[test]
+    fn a_same_named_cast_at_another_address_cannot_inherit_a_preference() {
+        let speaker = crate::zeroconf::Receiver {
+            name: "Z room".into(),
+            device_id: Some("same-name-id".into()),
+            address: "192.0.2.1".parse().unwrap(),
+            port: 8009,
+            path: "/".into(),
+            cast: true,
+        };
+        let other = crate::zeroconf::Receiver {
+            address: "192.0.2.2".parse().unwrap(),
+            ..speaker.clone()
+        };
+        let mut history = crate::device_history::DeviceHistory::default();
+        history.record("alice", &speaker.preference_key().unwrap());
+        history.record("alice", "same-name-id");
+        let mut rows = vec![
+            OutputRow::Receiver(other),
+            OutputRow::Device(Device {
+                id: Some("phone".into()),
+                name: "A phone".into(),
+                ..Default::default()
+            }),
+            OutputRow::Receiver(speaker),
+        ];
+        rank_outputs(&mut rows, &history, Some("alice"), None);
+        assert!(
+            matches!(&rows[0], OutputRow::Receiver(row) if row.address == "192.0.2.1".parse::<std::net::IpAddr>().unwrap())
+        );
+        assert_eq!(rows[1].identity(), Some("phone"));
     }
 
     #[test]

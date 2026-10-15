@@ -2183,8 +2183,10 @@ impl App {
                         }
                     };
                 }
-                Event::ReceiversProgress(receivers) => {
-                    crate::zeroconf::merge_discovered(&mut self.receivers, receivers);
+                Event::ReceiversProgress(updates) => {
+                    if let Some(receivers) = updates.take() {
+                        crate::zeroconf::merge_discovered(&mut self.receivers, receivers);
+                    }
                 }
                 Event::ReceiverActivated { name, result } => {
                     self.activating_receiver = None;
@@ -8866,6 +8868,7 @@ impl App {
         }
     }
 
+    /// Records only explicit choices for the currently verified account.
     fn remember_device_choice(&mut self, device_id: &str) {
         if let Some(account) = self.user_id().map(str::to_owned) {
             self.device_history.record(&account, device_id);
@@ -10318,8 +10321,8 @@ impl App {
             }
             Action::ActivateReceiver(receiver) => {
                 if self.activating_receiver.is_none() {
-                    if let Some(id) = &receiver.device_id {
-                        self.remember_device_choice(id);
+                    if let Some(key) = receiver.preference_key() {
+                        self.remember_device_choice(&key);
                     }
                     self.activating_receiver = Some(receiver.name.clone());
                     self.activating_play = self.now_playing().is_some_and(|now| now.playing);
@@ -13824,6 +13827,25 @@ mod tests {
         assert!(
             app.device_history.rank(Some("alice"), Some("speaker"))
                 < app.device_history.rank(None, None)
+        );
+        let receiver = crate::zeroconf::Receiver {
+            name: "Room".into(),
+            device_id: Some(crate::cast::device_id("Room")),
+            address: "192.0.2.1".parse().unwrap(),
+            port: 8009,
+            path: "/".into(),
+            cast: true,
+        };
+        let key = receiver.preference_key().unwrap();
+        app.apply(Action::ActivateReceiver(Box::new(receiver.clone())), &ctx);
+        assert!(
+            app.device_history.rank(Some("alice"), Some(&key))
+                < app.device_history.rank(None, None)
+        );
+        assert_eq!(
+            app.device_history
+                .rank(Some("alice"), receiver.device_id.as_deref()),
+            app.device_history.rank(None, None)
         );
         app.save_session();
         app.flush_files();

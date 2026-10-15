@@ -158,8 +158,12 @@ contains metadata, not offline audio, and can be deleted without signing out.
 Signing out deletes it.
 
 Device-picker choices are kept in `session.json` as the last 32 selected
-device IDs and their Spotify account ID. They order available outputs by
-frequency and recency. This history stores no network address, adds no
+preference keys and their Spotify account ID. Signed-in outputs use device IDs;
+waiting Cast receivers use an opaque hash of their transfer ID, address and port
+so same-named endpoints do not share preferences. This separate Cast preference
+resets when its endpoint changes and is not proof of authenticity.
+The keys order available outputs by frequency and recency. This history stores
+no raw network address, adds no
 background request, and is cleared on sign-out. Older session files without
 it remain readable.
 

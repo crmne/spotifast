@@ -872,7 +872,7 @@ pub enum Event {
     /// This computer's audio outputs, by name, for the device picker.
     OutputDevices(Result<Vec<String>, String>),
     /// Cast advertisements ready before the final browse/probe reconciliation.
-    ReceiversProgress(Vec<crate::zeroconf::Receiver>),
+    ReceiversProgress(crate::zeroconf::ReceiverUpdates),
     ReceiverActivated {
         name: String,
         result: Result<(), String>,
@@ -1670,6 +1670,27 @@ struct Worker {
     /// The user asked to set up playback and the saved grant is being tried
     /// first. Only Spotify rejecting it opens the browser.
     authorize_if_rejected: bool,
+}
+
+/// A failed Connect probe setup must still reconcile departed provisional rows.
+fn receiver_snapshot(
+    receivers: Vec<crate::zeroconf::Receiver>,
+    resolve: impl FnOnce(
+        Vec<crate::zeroconf::Receiver>,
+    ) -> anyhow::Result<Vec<crate::zeroconf::Receiver>>,
+) -> Vec<crate::zeroconf::Receiver> {
+    let cast = receivers
+        .iter()
+        .filter(|receiver| receiver.cast)
+        .cloned()
+        .collect();
+    match resolve(receivers) {
+        Ok(receivers) => receivers,
+        Err(error) => {
+            log::debug!("no receivers found on the network: {error}");
+            cast
+        }
+    }
 }
 
 impl Worker {
@@ -3640,16 +3661,19 @@ impl Worker {
         let events = self.events.clone();
         let waker = self.waker.clone();
         let connect = Arc::clone(&self.connect);
+        let updates = crate::zeroconf::ReceiverUpdates::default();
         self.receiver_discovery =
             Some(tokio::task::spawn_blocking(
                 move || match crate::zeroconf::discover_with_updates(
                     std::time::Duration::from_secs(3),
                     |receivers| {
-                        let _ = events.send(Event::ReceiversProgress(receivers));
-                        waker.wake();
+                        if updates.publish(receivers) {
+                            let _ = events.send(Event::ReceiversProgress(updates.clone()));
+                            waker.wake();
+                        }
                     },
                 )
-                .and_then(crate::zeroconf::resolve_receivers)
+                .map(|receivers| receiver_snapshot(receivers, crate::zeroconf::resolve_receivers))
                 {
                     Ok(receivers) => {
                         connect.remember(&receivers);
@@ -6443,6 +6467,29 @@ fn playback_credentials(account: Option<AccountId>, access_token: String) -> Opt
 
 #[cfg(test)]
 mod authorization_tests {
+    #[test]
+    fn failed_connect_resolution_keeps_only_current_cast_results() {
+        let cast = crate::zeroconf::Receiver {
+            name: "Current Cast".into(),
+            device_id: Some("cast".into()),
+            address: "192.0.2.1".parse().unwrap(),
+            port: 8009,
+            path: "/".into(),
+            cast: true,
+        };
+        let connect = crate::zeroconf::Receiver {
+            cast: false,
+            ..cast.clone()
+        };
+        let final_rows = receiver_snapshot(vec![connect, cast.clone()], |_| {
+            Err(anyhow::anyhow!("HTTP client initialization failed"))
+        });
+        assert_eq!(final_rows, [cast]);
+        // A service removed during the browse must not survive through progress.
+        assert!(receiver_snapshot(Vec::new(), |_| Err(anyhow::anyhow!("failed"))).is_empty());
+        assert!(receiver_snapshot(final_rows, |_| Ok(Vec::new())).is_empty());
+    }
+
     #[test]
     fn opening_the_picker_again_does_not_start_a_second_receiver_scan() {
         let (runtime, mut worker, _) = worker("coalesce-receiver-scan");

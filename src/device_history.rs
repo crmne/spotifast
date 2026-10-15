@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 const RECENT_CHOICES: usize = 32;
 
-/// Only identities are saved, never receiver addresses or credentials.
+/// Only preference keys are saved, never raw receiver addresses or credentials.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DeviceHistory {
