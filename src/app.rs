@@ -18189,6 +18189,57 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The Listening activity button sits in the player bar beside Lyrics,
+    /// and gives way in a narrow window before it crowds Repeat.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_listening_activity_button_never_crowds_the_transport() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = test_app("friends-button-room");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        let mut shown_at = None;
+        for width in (760..=1600).step_by(8) {
+            let width = width as f32;
+            let mut tree = None;
+            for _ in 0..2 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 800.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| app.frame_ui(ui),
+                );
+                output.textures_delta.clear();
+                tree = output.platform_output.accesskit_update;
+            }
+            let tree = tree.unwrap();
+            let button = |label: &str| {
+                tree.nodes.iter().find_map(|(_, node)| {
+                    (node.role() == egui::accesskit::Role::Button
+                        && node.label().is_some_and(|text| text.starts_with(label)))
+                    .then(|| node.bounds().unwrap())
+                })
+            };
+            let repeat = button("Repeat").expect("Repeat");
+            let lyrics = button("Lyrics").expect("Lyrics");
+            if let Some(friends) = button("Listening activity") {
+                shown_at.get_or_insert(width);
+                assert!(friends.y0 > 700.0, "in the player bar at {width}");
+                assert!(friends.x1 <= lyrics.x0, "before Lyrics at {width}");
+                assert!(friends.x0 - repeat.x1 >= 10.0, "clear of Repeat at {width}");
+            } else {
+                assert!(shown_at.is_none(), "it stays once shown, gone at {width}");
+            }
+        }
+        assert!(shown_at.is_some_and(|width| width > 760.0 && width <= 840.0));
+        app.backend.shutdown();
+    }
+
     /// Long titles truncate instead of widening Friend activity: the panel
     /// keeps the narrow width chosen for it.
     #[cfg(feature = "demo")]
