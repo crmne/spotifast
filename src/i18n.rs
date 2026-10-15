@@ -292,6 +292,9 @@ mod tests {
             ("ru_UA.UTF-8", Locale::Russian),
             ("it-CH", Locale::Italian),
             ("ja-JP", Locale::Japanese),
+            ("ko", Locale::Korean),
+            ("ko-KR", Locale::Korean),
+            ("ko_KR.UTF-8", Locale::Korean),
             ("tr", Locale::Turkish),
             ("tr-TR", Locale::Turkish),
             ("tr_TR.UTF-8", Locale::Turkish),
@@ -337,6 +340,7 @@ mod tests {
         assert_eq!(preferred(&["nb-NO", "de-DE", "en-US"]), Locale::German);
         assert_eq!(preferred(&["es-MX", "en-US"]), Locale::Spanish);
         assert_eq!(preferred(&["fi-FI"]), Locale::English);
+        assert_eq!(preferred(&["nb-NO", "ko-KR"]), Locale::Korean);
         assert_eq!(preferred(&[]), Locale::English);
     }
 
@@ -365,6 +369,7 @@ mod tests {
         let context = "lyrics";
         assert_eq!(pgettext(Locale::German, context, source), "Folgen");
         assert_eq!(pgettext(Locale::Japanese, context, source), "追従");
+        assert_eq!(pgettext(Locale::Korean, context, source), "따라가기");
         assert_eq!(pgettext(Locale::English, context, source), source);
         assert_eq!(pgettext(Locale::German, "no such context", source), source);
         assert_eq!(gettext(Locale::German, source), source);
@@ -391,6 +396,8 @@ mod tests {
     fn short_counts_are_localized_without_parsing_complete_phrases() {
         assert_eq!(Locale::German.song_count(2), "2 Songs");
         assert_eq!(Locale::Japanese.song_count(2), "2曲");
+        assert_eq!(Locale::Korean.song_count(2), "2곡");
+        assert_eq!(Locale::Korean.playlist_count(1), "플레이리스트 1개");
         assert_eq!(Locale::Turkish.song_count(2), "2 şarkı");
         assert_eq!(Locale::German.playlist_count(1), "1 Playlist");
         assert_eq!(Locale::German.playlist_count(2), "2 Playlists");
@@ -415,6 +422,8 @@ mod tests {
             (Locale::Russian, 5, "Папка • 5 плейлистов"),
             (Locale::Japanese, 1, "フォルダ • 1件のプレイリスト"),
             (Locale::Japanese, 4, "フォルダ • 4件のプレイリスト"),
+            (Locale::Korean, 1, "폴더 • 플레이리스트 1개"),
+            (Locale::Korean, 4, "폴더 • 플레이리스트 4개"),
             (Locale::Turkish, 1, "Klasör • 1 çalma listesi"),
             (Locale::Turkish, 2, "Klasör • 2 çalma listesi"),
             (Locale::Ukrainian, 1, "Папка • 1 плейліст"),
@@ -482,6 +491,8 @@ mod tests {
             (Locale::Russian, 112, "Плейлист • 112 треков"),
             (Locale::Japanese, 0, "プレイリスト • 0曲"),
             (Locale::Japanese, 2, "プレイリスト • 2曲"),
+            (Locale::Korean, 0, "플레이리스트 • 0곡"),
+            (Locale::Korean, 2, "플레이리스트 • 2곡"),
             (Locale::ChineseSimplified, 2, "歌单 • 2 首歌曲"),
             (Locale::ChineseTraditional, 2, "播放清單 • 2 首歌曲"),
             (Locale::Turkish, 0, "Çalma listesi • 0 şarkı"),

@@ -527,6 +527,19 @@ mod tests {
                 expected
             );
         }
+        assert_eq!(format_date(Locale::Korean, "2024-01-05"), "2024년 1월 5일");
+        assert_eq!(format_date(Locale::Korean, "2024-09"), "2024년 9월");
+        assert_eq!(format_total_ms(Locale::Korean, 7_980_000), "2시간 13분");
+        assert_eq!(format_episode_ms(Locale::Korean, 2_280_000), "38분");
+        for (added, expected) in [
+            ("2026-08-31T11:59:59Z", "1초 전"),
+            ("2026-08-31T11:58:00Z", "2분 전"),
+            ("2026-08-31T07:00:00Z", "5시간 전"),
+            ("2026-08-30T12:00:00Z", "1일 전"),
+            ("2026-08-17T12:00:00Z", "2주 전"),
+        ] {
+            assert_eq!(format_relative_date(Locale::Korean, added, now), expected);
+        }
     }
 
     #[test]
