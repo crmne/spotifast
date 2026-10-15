@@ -10543,6 +10543,11 @@ impl App {
                 self.settings.winamp_window = !self.settings.winamp_window;
                 self.settings_dirty = true;
                 self.switch_intent = true;
+                // The main window does not ask for lyrics with its panel
+                // closed, so the song may have changed since they came.
+                if self.settings.winamp_window && self.winamp.lyrics_open {
+                    self.request_lyrics();
+                }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             Action::SetSkin(name) => {
@@ -20462,6 +20467,28 @@ mod tests {
             app.lyrics_line_shown, None,
             "the fullscreen line cannot stop the returning panel from positioning itself"
         );
+        app.backend.shutdown();
+    }
+
+    /// Songs that changed in the main window, its lyrics panel closed, do
+    /// not leave the mini player's lyrics on the song they came for.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_mini_players_lyrics_catch_up_with_songs_played_in_the_main_window() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        crate::demo::apply_flags(&mut app, None, Some("winamp-lyrics"));
+        app.lyrics_uri = Some("spotify:track:earlier".into());
+        let uri = app.now_playing().map(|now| now.uri);
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            app.apply(Action::ToggleWinampWindow, ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert!(app.settings.winamp_window);
+        assert_eq!(app.lyrics_uri, uri);
+        assert!(!matches!(app.lyrics, Loadable::Loaded(Some(_))));
         app.backend.shutdown();
     }
 
