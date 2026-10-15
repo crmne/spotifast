@@ -383,7 +383,10 @@ song, wherever the row sits.
 **Player bar visualizer** in **Settings > Appearance** shows the song moving
 behind the player bar's controls: **Spectrum** draws glowing bars from bass
 to treble with peaks that hang and fall, and **Waveform** draws the sound's
-wave as a glowing line, both in colours drawn from the cover. It follows the equalizer, not the volume, and moves only while the
+wave as a glowing line. With **Colour from album art** on, both sweep from
+bass to treble across up to four colours read from the cover, its hues first
+and its greys after, so a black and white cover moves in grey; with it off,
+they take the accent colour. It follows the equalizer, not the volume, and moves only while the
 song plays on this computer. It is off by default. Clicking the player
 bar's empty space switches it, as Winamp's visualizer did: off, then
 Spectrum, then Waveform, then off again. **Frame rate** in **Settings >

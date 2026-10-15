@@ -894,6 +894,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 play_here(app);
                 app.local.playback = crate::player::Playback::Playing;
                 app.winamp.tap.push(&demo_sound(), 1.0);
+                // Read the cover's colours, as a change of song does, so the
+                // visualizer draws in them.
+                if let Some(now) = app.now_playing() {
+                    app.tint_for(now.art_small.or(now.art_url).as_deref());
+                }
             }
             // The sign-in card and the card while the session connects.
             "signed-out" => {

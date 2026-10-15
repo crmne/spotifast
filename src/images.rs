@@ -611,10 +611,84 @@ impl BytesLoader for ArtLoader {
     }
 }
 
-/// A colour that represents an album cover, suitable for tinting a dark or
-/// light surface: the most common saturated hue, with its lightness pulled
-/// into a range that still reads as a background.
-pub fn accent_color(bytes: &[u8]) -> Option<[u8; 3]> {
+/// The most colours [`art_palette`] reads from one cover.
+const PALETTE_COLOURS: usize = 4;
+/// The share of a cover a colour must hold, by the weight that favours vivid
+/// mid-tones, to join its palette, so a few stray pixels colour nothing.
+const PALETTE_SHARE: f32 = 0.06;
+/// How far round the colour wheel two palette colours must be apart, as a
+/// fraction of a turn.
+const PALETTE_HUE_GAP: f32 = 1.0 / 12.0;
+
+/// The colours that represent an album cover, at most four,
+/// for the player bar's visualizer to sweep across. The first is the cover's
+/// accent, suitable for tinting a dark or light surface: the most common
+/// saturated hue, with its lightness pulled into a range that still reads as
+/// a background. The rest are the cover's other hues, the most common first,
+/// each far enough round the colour wheel from the ones before to tell apart;
+/// its greys count as one colour. Empty when the bytes are not an image.
+pub fn art_palette(bytes: &[u8]) -> Vec<[u8; 3]> {
+    let Some(buckets) = art_buckets(bytes) else {
+        return Vec::new();
+    };
+    let total = buckets.iter().map(|(weight, _)| weight).sum::<u64>() as f32;
+    // Each bucket joins the first group whose colour it cannot be told from,
+    // so a hue spread over many nearby buckets is weighed as one.
+    let mut groups: Vec<(u64, [u8; 3])> = Vec::new();
+    for (weight, colour) in buckets {
+        match groups
+            .iter_mut()
+            .find(|(_, group)| !distinct_colours(*group, colour))
+        {
+            Some(group) => group.0 += weight,
+            None => groups.push((weight, colour)),
+        }
+    }
+    // The accent leads whatever its group weighs: it is the colour the
+    // interface is tinted with, and the visualizer's bass when it is a hue.
+    groups[1..].sort_by_key(|(weight, _)| std::cmp::Reverse(*weight));
+    let accent = groups[0].1;
+    std::iter::once(accent)
+        .chain(
+            groups[1..]
+                .iter()
+                .filter(|(weight, _)| *weight as f32 >= total * PALETTE_SHARE)
+                .map(|(_, colour)| *colour),
+        )
+        .take(PALETTE_COLOURS)
+        .collect()
+}
+
+/// Whether `rgb` shows a hue rather than a grey: saturated enough, and light
+/// enough that its hue shows.
+pub fn has_hue([r, g, b]: [u8; 3]) -> bool {
+    let (max, min) = (r.max(g).max(b) as f32, r.min(g).min(b) as f32);
+    max >= 48.0 && (max - min) / max >= 0.2
+}
+
+/// Whether a palette can tell two colours apart: two hues far enough round
+/// the colour wheel, or a hue and a grey. Two greys are one colour, as the
+/// visualizer would draw them.
+fn distinct_colours(a: [u8; 3], b: [u8; 3]) -> bool {
+    match (has_hue(a), has_hue(b)) {
+        (true, true) => {
+            let turn = (hue(a) - hue(b)).abs();
+            turn.min(1.0 - turn) >= PALETTE_HUE_GAP
+        }
+        (false, false) => false,
+        _ => true,
+    }
+}
+
+/// `rgb`'s place on the colour wheel, as a fraction of a turn from red.
+fn hue(rgb: [u8; 3]) -> f32 {
+    egui::ecolor::Hsva::from_srgb(rgb).h
+}
+
+/// A cover's colours, heaviest first: its pixels in buckets of nearby
+/// colours, each weighed toward vivid mid-tones so black borders and white
+/// text lose, with the bucket's average colour.
+fn art_buckets(bytes: &[u8]) -> Option<Vec<(u64, [u8; 3])>> {
     let decoded = image::load_from_memory(bytes).ok()?;
     let small = decoded.thumbnail(48, 48).to_rgb8();
     let mut buckets: HashMap<(u8, u8, u8), (u64, [u64; 3])> = HashMap::new();
@@ -633,15 +707,17 @@ pub fn accent_color(bytes: &[u8]) -> Option<[u8; 3]> {
         bucket.1[1] += g as u64 * weight;
         bucket.1[2] += b as u64 * weight;
     }
-    let (_, (weight, sum)) = buckets.into_iter().max_by_key(|(_, (weight, _))| *weight)?;
-    if weight == 0 {
-        return None;
-    }
-    Some([
-        (sum[0] / weight) as u8,
-        (sum[1] / weight) as u8,
-        (sum[2] / weight) as u8,
-    ])
+    let mut buckets: Vec<_> = buckets
+        .into_iter()
+        .filter(|(_, (weight, _))| *weight > 0)
+        .collect();
+    // The key settles ties, so a cover always gives the same colours.
+    buckets.sort_by(|(a_key, (a, _)), (b_key, (b, _))| b.cmp(a).then(a_key.cmp(b_key)));
+    let buckets: Vec<_> = buckets
+        .into_iter()
+        .map(|(_, (weight, sum))| (weight, sum.map(|channel| (channel / weight) as u8)))
+        .collect();
+    (!buckets.is_empty()).then_some(buckets)
 }
 
 /// Blur applied to the full-window lyrics backdrop.
@@ -1725,7 +1801,7 @@ mod tests {
     }
 
     #[test]
-    fn accent_color_finds_dominant_hue() {
+    fn the_accent_is_the_dominant_hue() {
         let mut image = image::RgbImage::new(16, 16);
         for (x, _, pixel) in image.enumerate_pixels_mut() {
             *pixel = if x < 12 {
@@ -1741,11 +1817,77 @@ mod tests {
                 image::ImageFormat::Png,
             )
             .unwrap();
-        let color = accent_color(&bytes).unwrap();
+        let color = art_palette(&bytes)[0];
         assert!(
             color[2] > color[0],
             "expected the blue field, got {color:?}"
         );
+    }
+
+    fn cover_png(image: &image::RgbImage) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    }
+
+    /// The visualizer sweeps across a cover's own colours: the accent first,
+    /// then each other hue it shows enough of, while a few stray pixels and a
+    /// white border colour nothing.
+    #[test]
+    fn the_palette_holds_each_hue_the_cover_shows() {
+        let (blue, red, stray) = ([20, 120, 200], [200, 40, 40], [40, 200, 60]);
+        let image = image::RgbImage::from_fn(48, 48, |x, y| {
+            image::Rgb(match (x, y) {
+                (0..4, _) => [255, 255, 255],
+                (47, 47) => stray,
+                (4..32, _) => blue,
+                _ => red,
+            })
+        });
+        let palette = art_palette(&cover_png(&image));
+        assert_eq!(palette.len(), 2, "{palette:?}");
+        assert_eq!(hue(palette[0]), hue(blue), "{palette:?}");
+        assert_eq!(hue(palette[1]), hue(red), "{palette:?}");
+    }
+
+    /// Shades of one hue are one colour, and so are a cover's greys: the
+    /// visualizer would draw each the same.
+    #[test]
+    fn the_palette_counts_shades_of_one_hue_once() {
+        let image = image::RgbImage::from_fn(48, 48, |x, _| {
+            image::Rgb(match x {
+                0..16 => [20, 120, 200],
+                16..32 => [60, 150, 220],
+                32..40 => [90, 90, 90],
+                _ => [200, 200, 200],
+            })
+        });
+        let palette = art_palette(&cover_png(&image));
+        assert_eq!(palette.len(), 2, "{palette:?}");
+        assert!(has_hue(palette[0]), "{palette:?}");
+        assert!(!has_hue(palette[1]), "{palette:?}");
+    }
+
+    /// A cover with many hues gives the visualizer at most four.
+    #[test]
+    fn the_palette_holds_at_most_four_colours() {
+        let hues = [
+            [220, 40, 40],
+            [220, 160, 40],
+            [120, 220, 40],
+            [40, 220, 200],
+            [40, 80, 220],
+            [180, 40, 220],
+        ];
+        let image = image::RgbImage::from_fn(48, 48, |x, _| image::Rgb(hues[x as usize / 8]));
+        let palette = art_palette(&cover_png(&image));
+        assert_eq!(palette.len(), PALETTE_COLOURS, "{palette:?}");
+        assert!(art_palette(b"not an image").is_empty());
     }
 
     /// #813: Spotify's CDN sometimes serves a cover's bytes as WebP: the
@@ -1762,7 +1904,9 @@ mod tests {
                 image::ImageFormat::WebP,
             )
             .expect("the image crate encodes WebP");
-        let color = accent_color(&bytes).expect("a WebP cover tints the page");
+        let color = *art_palette(&bytes)
+            .first()
+            .expect("a WebP cover tints the page");
         assert!(
             color[2] > color[0],
             "expected the blue field, got {color:?}"

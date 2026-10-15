@@ -491,6 +491,8 @@ pub struct App {
     /// Optimistic library writes that a stale contains response must not undo.
     saved_writes: HashMap<String, bool>,
     pub accents: HashMap<String, Color32>,
+    /// Each cover's colours, as read from the art, by the same URL.
+    art_palettes: HashMap<String, Vec<[u8; 3]>>,
     accent_pending: HashSet<String>,
 
     pub dialog: Option<Dialog>,
@@ -1012,6 +1014,7 @@ impl App {
             saved_recordings: HashSet::new(),
             saved_writes: HashMap::new(),
             accents: HashMap::new(),
+            art_palettes: HashMap::new(),
             accent_pending: HashSet::new(),
             dialog: None,
             cover_request: 0,
@@ -1931,6 +1934,16 @@ impl App {
         self.accents.get(&url).copied()
     }
 
+    /// The playing art's colours, the accent first, for the visualizer.
+    pub fn now_playing_palette(&self) -> Option<&[[u8; 3]]> {
+        if !self.settings.accent_from_art {
+            return None;
+        }
+        let now = self.now_playing()?;
+        let url = now.art_small.or(now.art_url)?;
+        self.art_palettes.get(&url).map(Vec::as_slice)
+    }
+
     pub fn tint_for(&mut self, url: Option<&str>) -> Option<Color32> {
         let url = url?;
         if let Some(color) = self.accents.get(url) {
@@ -2168,9 +2181,14 @@ impl App {
                 }
                 Event::Local(state) => self.handle_local(*state),
                 Event::Api(response) => self.handle_api(*response),
-                Event::Accent { url, color } => {
+                Event::Accent {
+                    url,
+                    color,
+                    palette,
+                } => {
                     self.accent_pending.remove(&url);
                     let tint = self.palette.tint_from_art(color);
+                    self.art_palettes.insert(url.clone(), palette);
                     self.accents.insert(url, tint);
                 }
                 Event::ProxyRestored { config, password } => {
@@ -18096,10 +18114,15 @@ mod tests {
         app.handle_backend_events(vec![Event::Accent {
             url: url.into(),
             color: [200, 40, 40],
+            palette: vec![[200, 40, 40], [40, 40, 200]],
         }]);
         assert_eq!(
             app.tint_for(Some(url)),
             Some(app.palette.tint_from_art([200, 40, 40]))
+        );
+        assert_eq!(
+            app.art_palettes.get(url).map(Vec::as_slice),
+            Some(&[[200, 40, 40], [40, 40, 200]][..])
         );
     }
 
