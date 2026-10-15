@@ -12,7 +12,7 @@ use crate::theme::{self, Icon, Palette};
 
 /// The gap the bar keeps between everything it lays out.
 const ITEM_SPACING: f32 = 8.0;
-/// The account avatar, and the icon in each of the buttons beside it.
+/// The account avatar, and the icon in each of the three buttons beside it.
 const AVATAR_SIZE: f32 = 36.0;
 const ICON_BUTTON_ICON: f32 = 19.0;
 /// `theme::icon_button` pads its icon by 12 px.
@@ -40,15 +40,6 @@ const SEARCH_MIN: f32 = 80.0;
 /// are measured on top of it because they come and go.
 const RIGHT_CONTROLS_WIDTH: f32 =
     super::widgets::PAGE_PADDING + AVATAR_SIZE + 4.0 + 3.0 * ICON_BUTTON_SIZE + 3.0 * ITEM_SPACING;
-/// The Listening activity button and the gap after it. It is the first
-/// control to go when the bar runs short, so it never costs the field room.
-const FRIENDS_BUTTON_WIDTH: f32 = ICON_BUTTON_SIZE + ITEM_SPACING;
-
-/// Whether the bar has room for the Listening activity button while the
-/// field keeps its floor, counting the badges as icons.
-fn friends_button_fits(room: f32, controls: f32, icons: f32) -> bool {
-    room - controls - FRIENDS_BUTTON_WIDTH - icons >= SEARCH_FLOOR
-}
 
 /// What precedes the field until the bar has drawn once: the page padding,
 /// the back and forward buttons and the gaps after them.
@@ -350,13 +341,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // keep room for it (`least_width`).
             let lead = width - ui.available_width() + window_controls.topbar_width;
             ui.ctx().data_mut(|data| data.insert_temp(lead_id(), lead));
-            let friends_button = friends_button_fits(search_room, controls, badges(false));
-            let controls = controls
-                + if friends_button {
-                    FRIENDS_BUTTON_WIDTH
-                } else {
-                    0.0
-                };
             let fit = topbar_fit(search_room, controls, badges(true), badges(false));
             let search_width = fit.search;
             let id = egui::Id::new("global-search");
@@ -507,23 +491,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             app.actions.push(Action::SignOut);
                         }
                     });
-                if friends_button
-                    && theme::icon_button(
-                        ui,
-                        Icon::Users,
-                        ICON_BUTTON_ICON,
-                        if app.show_friends_panel {
-                            palette.accent
-                        } else {
-                            palette.secondary
-                        },
-                        palette.text,
-                        &gettext(locale, "Listening activity"),
-                    )
-                    .clicked()
-                {
-                    app.actions.push(Action::ToggleFriendsPanel);
-                }
                 if !app.network_reachable {
                     ui.add_space(4.0);
                     let (rect, response) =
@@ -747,27 +714,6 @@ mod topbar_fit_tests {
         assert!(!fit.labels);
         assert_eq!(fit.search, SEARCH_MIN);
         assert!(controls + CHIP * 2.0 + fit.search <= room);
-    }
-
-    /// The Listening activity button goes first in a tight bar, and is
-    /// there whenever the field keeps its floor beside it.
-    #[test]
-    fn the_listening_activity_button_gives_way_before_the_field() {
-        assert!(!friends_button_fits(
-            NARROWEST_BAR,
-            RIGHT_CONTROLS_WIDTH,
-            CHIP * 2.0
-        ));
-        assert!(friends_button_fits(700.0, RIGHT_CONTROLS_WIDTH, CHIP * 2.0));
-        let mut room = NARROWEST_BAR;
-        while room <= 2400.0 {
-            if friends_button_fits(room, RIGHT_CONTROLS_WIDTH, CHIP * 2.0) {
-                let controls = RIGHT_CONTROLS_WIDTH + FRIENDS_BUTTON_WIDTH;
-                let fit = topbar_fit(room, controls, DEVICE + UPDATE, CHIP * 2.0);
-                assert!(fit.search >= SEARCH_FLOOR, "field is {} px", fit.search);
-            }
-            room += 1.0;
-        }
     }
 
     #[test]
