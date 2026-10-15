@@ -260,7 +260,9 @@ impl View<'_> {
 
     /// Text in the skin's font with its ink in one colour, for a label that
     /// lights up: a tint only darkens, and most fonts are grey. Ink is
-    /// whatever differs from the ground the space is drawn on.
+    /// whatever differs from the ground the space is drawn on. The pixels go
+    /// in one mesh, not as rectangles: egui feathers a rectangle's edges,
+    /// and at 1x that leaves a single pixel with nothing inside.
     fn text_lit(&self, text: &str, area: Area, colour: Color32) {
         let Some((bitmap, space)) = self.skin.sprite(font::glyph(' ')) else {
             return;
@@ -272,6 +274,7 @@ impl View<'_> {
         let ground = pixel(space.x, space.y);
         let clip = self.rect(area).intersect(self.ui.clip_rect());
         let painter = self.ui.painter().with_clip_rect(clip);
+        let mut mesh = egui::Mesh::default();
         for (index, character) in text.chars().enumerate() {
             let x = area.x + 5 * index as u32;
             if x >= area.x + area.width {
@@ -285,15 +288,13 @@ impl View<'_> {
                     let ink = pixel(glyph.x + column, glyph.y + row);
                     let distance: u32 = (0..3).map(|i| ink[i].abs_diff(ground[i]) as u32).sum();
                     if distance > 48 {
-                        painter.rect_filled(
-                            self.rect(Area::new(x + column, area.y + row, 1, 1)),
-                            0.0,
-                            colour,
-                        );
+                        let dot = self.rect(Area::new(x + column, area.y + row, 1, 1));
+                        mesh.add_colored_rect(dot, colour);
                     }
                 }
             }
         }
+        painter.add(egui::Shape::mesh(mesh));
     }
 
     /// A sprite drawn across an area, however wide: a plain column of a

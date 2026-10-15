@@ -4771,6 +4771,54 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Letters lit in the skin's font, LY while the lyrics are open, still
+    /// show at 1x, where each pixel is one screen pixel.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn lit_skin_letters_show_at_one_x() {
+        let (ctx, mut app) = accessible_app("winamp-lit-letters");
+        apply_flags(&mut app, None, Some("winamp,small,winamp-lyrics"));
+        let draw = |app: &mut App| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(275.0, 194.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| crate::ui::winamp::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        draw(&mut app);
+        let output = draw(&mut app);
+        let [r, g, b] = app.winamp.skin.playlist.current;
+        let lit = egui::Color32::from_rgb(r, g, b);
+        // An untextured triangle the lit colour at every corner and with
+        // room inside: a feathered one-pixel rectangle shrinks to nothing,
+        // and the sung line, in the same colour, is a texture.
+        let painted = ctx
+            .tessellate(output.shapes, output.pixels_per_point)
+            .into_iter()
+            .any(|clipped| match clipped.primitive {
+                egui::epaint::Primitive::Mesh(mesh)
+                    if mesh.texture_id == egui::TextureId::default() =>
+                {
+                    mesh.indices.chunks(3).any(|corners| {
+                        let [a, b, c] = [0, 1, 2].map(|i| mesh.vertices[corners[i] as usize]);
+                        let area = (b.pos - a.pos).x * (c.pos - a.pos).y
+                            - (b.pos - a.pos).y * (c.pos - a.pos).x;
+                        [a, b, c].iter().all(|vertex| vertex.color == lit) && area.abs() > 0.1
+                    })
+                }
+                _ => false,
+            });
+        assert!(painted, "LY is lit");
+        app.backend.shutdown();
+    }
+
     /// A click on the player bar's empty space moves the visualizer to its
     /// next mode, and a click on a control does not.
     #[cfg(feature = "demo")]
