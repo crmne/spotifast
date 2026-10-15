@@ -22,6 +22,12 @@ const CACHE_LIFETIME: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// A candidate this far from the playing track's length is another
 /// recording, however well the names match.
 const MAX_DRIFT_SECS: f64 = 30.0;
+/// LRCLIB answers about one request a second and says how long to wait.
+/// A search right after a missed exact lookup often lands in that second.
+const RATE_LIMIT_RETRIES: u32 = 3;
+/// Any longer and the song may have moved on; the error shows instead,
+/// and a click on it asks again.
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(5);
 
 /// Track metadata used for lyrics lookup.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,18 +169,45 @@ async fn lookup(http: &reqwest::Client, query: &Query) -> Result<Option<Lyrics>>
 
 /// One LRCLIB request. A 404 is "nobody has transcribed this" and a 400 is
 /// "that is not a question I can answer"; neither is a fault worth showing.
+/// A 429 waits as long as LRCLIB asks and tries again.
 async fn get<T: DeserializeOwned>(
     http: &reqwest::Client,
     path: &str,
     params: &[(&str, &str)],
 ) -> Result<Option<T>> {
-    let response = http
-        .get(format!("{API}{path}"))
-        .query(params)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .context("cannot reach LRCLIB")?;
+    get_from(http, API, path, params).await
+}
+
+async fn get_from<T: DeserializeOwned>(
+    http: &reqwest::Client,
+    api: &str,
+    path: &str,
+    params: &[(&str, &str)],
+) -> Result<Option<T>> {
+    let mut attempt = 0;
+    let response = loop {
+        let response = http
+            .get(format!("{api}{path}"))
+            .query(params)
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .context("cannot reach LRCLIB")?;
+        if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS
+            || attempt == RATE_LIMIT_RETRIES
+        {
+            break response;
+        }
+        let wait = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .map_or(Duration::from_secs(1), Duration::from_secs)
+            .min(MAX_RETRY_AFTER);
+        attempt += 1;
+        tokio::time::sleep(wait).await;
+    };
     let status = response.status();
     if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::BAD_REQUEST {
         return Ok(None);
@@ -609,6 +642,45 @@ fn write_cache(path: &Path, found: &Option<Lyrics>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A local LRCLIB that gives each request, in turn, one of `answers`.
+    async fn lrclib(answers: Vec<&'static str>) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for answer in answers {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = [0u8; 4096];
+                assert!(socket.read(&mut bytes).await.unwrap() > 0);
+                socket.write_all(answer.as_bytes()).await.unwrap();
+            }
+        });
+        (format!("http://{address}"), server)
+    }
+
+    const LIMITED: &str = "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+    #[tokio::test]
+    async fn a_busy_lrclib_is_asked_again_when_it_says() {
+        let found = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+        let (api, server) = lrclib(vec![LIMITED, LIMITED, found]).await;
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let answer = get_from::<Vec<Record>>(&http, &api, "/search", &[]).await;
+        assert!(matches!(answer, Ok(Some(records)) if records.is_empty()));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_lrclib_that_stays_busy_is_an_error() {
+        let answers = vec![LIMITED; RATE_LIMIT_RETRIES as usize + 1];
+        let (api, server) = lrclib(answers).await;
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let answer = get_from::<Vec<Record>>(&http, &api, "/search", &[]).await;
+        let error = answer.expect_err("still limited");
+        assert!(error.to_string().contains("429"), "{error}");
+        server.await.unwrap();
+    }
 
     #[test]
     fn a_featuring_is_cut_where_it_starts_whatever_the_case_costs() {
