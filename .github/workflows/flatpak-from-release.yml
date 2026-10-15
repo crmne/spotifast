@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
       options: --privileged
     env:
       RELEASE_TAG: ${{ inputs.version }}

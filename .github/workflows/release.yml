@@ -32,6 +32,7 @@ jobs:
             vcpkg-triplet: x64-windows-static
             msvc-arch: x64
             pe-machine: 8664 machine \(x64\)
+            package-target: windows-amd64
           # A native arm64 runner, as for Linux: the binary is built, checked
           # and started on the processor it ships for, MilkDrop included.
           - os: windows-11-arm
@@ -39,6 +40,7 @@ jobs:
             vcpkg-triplet: arm64-windows-static
             msvc-arch: arm64
             pe-machine: AA64 machine \(ARM64\)
+            package-target: windows-arm64
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -131,6 +133,32 @@ jobs:
             "/DOutputDir=$PWD\dist" packaging\windows\spotifast.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # The Windows Installer package, from the same binary. One release ships
+      # it beside the setup program: earlier versions update through the setup
+      # program, and their next update moves them to the package (PACKAGING.md).
+      - uses: ruby/setup-ruby@v1
+        if: runner.os == 'Windows'
+        with:
+          ruby-version: '4.0'
+      - name: Windows Installer package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet tool install wix --version 5.0.2 --tool-path "$env:RUNNER_TEMP\wix"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:PATH = "$env:RUNNER_TEMP\wix;$env:PATH"
+          gem install native-packages --version 0.9.0 --no-document
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          $payload = "dist\msi-input-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force $payload | Out-Null
+          $files = "target\${{ matrix.target }}\release\spotifast.exe", "README.md", "LICENSE", "packaging\windows\spotifast-installer.txt"
+          Copy-Item $files $payload
+          $packages = "$env:RUNNER_TEMP\windows-packages"
+          native-packages build --version $version --target ${{ matrix.package-target }} --defer-recipes --output $packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item "$packages\packages\${{ matrix.package-target }}\msi\*.msi" dist\
+
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
@@ -138,6 +166,7 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/*-setup.exe
+            dist/*.msi
           if-no-files-found: error
 
   macos:
@@ -175,7 +204,7 @@ jobs:
         with:
           ruby-version: '4.0'
       - name: Install native packaging
-        run: gem install native-packages --version 0.8.1 --no-document
+        run: gem install native-packages --version 0.9.0 --no-document
 
       - name: App bundle
         run: |
@@ -205,7 +234,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
       options: --privileged
     steps:
       - uses: actions/checkout@v7
@@ -266,7 +295,7 @@ jobs:
         env:
           SPOTIFAST_UPDATE_SIGNING_KEY: ${{ secrets.SPOTIFAST_UPDATE_SIGNING_KEY }}
         run: |
-          gem install native-packages --version 0.8.1 --no-document
+          gem install native-packages --version 0.9.0 --no-document
           native-packages sign-checksums dist/checksums.txt \
             --public-key assets/update-public-key.hex \
             --key-env SPOTIFAST_UPDATE_SIGNING_KEY

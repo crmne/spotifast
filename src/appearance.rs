@@ -1,10 +1,13 @@
-//! The desktop's light or dark preference on Linux.
+//! The desktop's light or dark preference on Linux, and whether it wants
+//! animations.
 //!
 //! winit reports no system theme on X11 and none on most Wayland desktops,
 //! so "Follow system" would always stay dark. The desktop portal publishes
 //! the preference as `org.freedesktop.appearance color-scheme` on GNOME, KDE
-//! and inside Flatpak. A thread of its own reads it and follows its change
-//! signal, so a slow or absent session bus never holds up the window.
+//! and inside Flatpak, and GNOME's portal serves its "Animations" switch as
+//! `org.gnome.desktop.interface enable-animations`. A thread of its own reads
+//! them and follows their change signal, so a slow or absent session bus
+//! never holds up the window.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -18,33 +21,43 @@ const LIGHT: u8 = 2;
 const NAMESPACE: &str = "org.freedesktop.appearance";
 const KEY: &str = "color-scheme";
 
-/// The latest preference the portal reported.
+const ANIMATIONS_NAMESPACE: &str = "org.gnome.desktop.interface";
+const ANIMATIONS_KEY: &str = "enable-animations";
+const ANIMATED: u8 = 1;
+const STILL: u8 = 2;
+
+/// The latest preferences the portal reported.
 pub struct SystemAppearance {
     scheme: Arc<AtomicU8>,
+    animations: Arc<AtomicU8>,
 }
 
 impl SystemAppearance {
     pub fn spawn(wake: impl Fn() + Send + 'static) -> Self {
         let scheme = Arc::new(AtomicU8::new(UNKNOWN));
-        let shared = scheme.clone();
+        let animations = Arc::new(AtomicU8::new(UNKNOWN));
+        let shared = (scheme.clone(), animations.clone());
         let spawned = std::thread::Builder::new()
             .name("spotifast-appearance".to_string())
             .spawn(move || {
-                if let Err(error) = watch(&shared, &wake) {
+                if let Err(error) = watch(&shared.0, &shared.1, &wake) {
                     log::debug!("the desktop's colour scheme is unavailable: {error}");
                 }
             });
         if let Err(error) = spawned {
             log::warn!("unable to watch the desktop's colour scheme: {error}");
         }
-        Self { scheme }
+        Self { scheme, animations }
     }
 
     /// A desktop that always prefers `dark`, for tests elsewhere.
     #[cfg(test)]
     pub fn fixed(dark: bool) -> Self {
         let scheme = Arc::new(AtomicU8::new(if dark { DARK } else { LIGHT }));
-        Self { scheme }
+        Self {
+            scheme,
+            animations: Arc::new(AtomicU8::new(UNKNOWN)),
+        }
     }
 
     /// Whether the desktop prefers dark, once the portal has answered.
@@ -55,9 +68,18 @@ impl SystemAppearance {
             _ => None,
         }
     }
+
+    /// Whether the desktop wants animations, once the portal has answered.
+    pub fn animations(&self) -> Option<bool> {
+        match self.animations.load(Ordering::Relaxed) {
+            ANIMATED => Some(true),
+            STILL => Some(false),
+            _ => None,
+        }
+    }
 }
 
-fn watch(scheme: &AtomicU8, wake: &dyn Fn()) -> zbus::Result<()> {
+fn watch(scheme: &AtomicU8, animations: &AtomicU8, wake: &dyn Fn()) -> zbus::Result<()> {
     let connection = zbus::blocking::Connection::session()?;
     let proxy = zbus::blocking::Proxy::new(
         &connection,
@@ -75,6 +97,12 @@ fn watch(scheme: &AtomicU8, wake: &dyn Fn()) -> zbus::Result<()> {
     if let Some(value) = current.ok().as_deref().and_then(color_scheme) {
         publish(scheme, value, wake);
     }
+    let current: zbus::Result<OwnedValue> = proxy
+        .call("ReadOne", &(ANIMATIONS_NAMESPACE, ANIMATIONS_KEY))
+        .or_else(|_| proxy.call("Read", &(ANIMATIONS_NAMESPACE, ANIMATIONS_KEY)));
+    if let Some(enabled) = current.ok().as_deref().and_then(flag) {
+        publish_animations(animations, enabled, wake);
+    }
     for message in changes {
         let Ok((namespace, key, value)) =
             message.body().deserialize::<(String, String, OwnedValue)>()
@@ -86,9 +114,30 @@ fn watch(scheme: &AtomicU8, wake: &dyn Fn()) -> zbus::Result<()> {
             && let Some(value) = color_scheme(&value)
         {
             publish(scheme, value, wake);
+        } else if namespace == ANIMATIONS_NAMESPACE
+            && key == ANIMATIONS_KEY
+            && let Some(enabled) = flag(&value)
+        {
+            publish_animations(animations, enabled, wake);
         }
     }
     Ok(())
+}
+
+fn publish_animations(animations: &AtomicU8, enabled: bool, wake: &dyn Fn()) {
+    let next = if enabled { ANIMATED } else { STILL };
+    if animations.swap(next, Ordering::Relaxed) != next {
+        wake();
+    }
+}
+
+/// Unwraps a switch from the one or two variants it arrives in.
+fn flag(value: &Value<'_>) -> Option<bool> {
+    match value {
+        Value::Bool(value) => Some(*value),
+        Value::Value(inner) => flag(inner),
+        _ => None,
+    }
 }
 
 fn publish(scheme: &AtomicU8, value: u32, wake: &dyn Fn()) {
@@ -161,7 +210,26 @@ mod tests {
         assert_eq!(woken.get(), 2);
         let appearance = SystemAppearance {
             scheme: Arc::new(AtomicU8::new(scheme.load(Ordering::Relaxed))),
+            animations: Arc::new(AtomicU8::new(UNKNOWN)),
         };
         assert_eq!(appearance.dark(), Some(false));
+    }
+
+    #[test]
+    fn the_animations_switch_is_read_through_either_wrapping() {
+        assert_eq!(flag(&Value::Bool(false)), Some(false));
+        assert_eq!(flag(&Value::Value(Box::new(Value::Bool(true)))), Some(true));
+        assert_eq!(flag(&Value::U32(1)), None);
+        let animations = AtomicU8::new(UNKNOWN);
+        let woken = std::cell::Cell::new(0);
+        let wake = || woken.set(woken.get() + 1);
+        publish_animations(&animations, false, &wake);
+        publish_animations(&animations, false, &wake);
+        assert_eq!(woken.get(), 1);
+        let appearance = SystemAppearance {
+            scheme: Arc::new(AtomicU8::new(UNKNOWN)),
+            animations: Arc::new(AtomicU8::new(animations.load(Ordering::Relaxed))),
+        };
+        assert_eq!(appearance.animations(), Some(false));
     }
 }

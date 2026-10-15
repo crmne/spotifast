@@ -13,6 +13,8 @@ This reduces the work each frame needs for large libraries while preserving
 your chosen sort, pins, and folders.
 
 The main window draws as needed and uses the platform's frame pacing. The
+player bar and mini player visualizers draw at the **Frame rate** chosen in
+Settings > Appearance, 60 by default; a lower rate uses less power. The
 MilkDrop frame-rate setting applies to its separate visualizer window.
 
 ## API rate limits
@@ -20,7 +22,10 @@ MilkDrop frame-rate setting applies to its separate visualizer window.
 Spotify limits how often apps can ask for information. Spotifast normally
 shares this allowance with other listeners and several other music players.
 When that shared connection is busy, your library and search results can take
-longer to load. The top bar shows a spinner while you wait.
+longer to load. The top bar shows a spinner while you wait; hover over it to
+see whether Spotifast is updating your library, checking for updates, or
+waiting for Spotify. Your playlists and Home show what they showed last time
+until the update arrives.
 
 You can reduce those delays by creating a **personal Spotify app**. This is
 a connection registered to your account on Spotify's developer website.

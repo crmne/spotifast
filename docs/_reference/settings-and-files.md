@@ -28,11 +28,16 @@ Spotifast follows each platform's conventions. On Linux:
 | Artwork cache | `~/.cache/spotifast/art/` | Always |
 | Lyrics cache | `~/.cache/spotifast/lyrics/` | Always |
 | Account-scoped playlist page cache | `~/.cache/spotifast/playlists/<account-id>/` | Always |
+| Account-scoped playlist list | `~/.cache/spotifast/library/` | Always |
+| Account-scoped Home shelves | `~/.cache/spotifast/home/` | Always |
 | Last run's log | `~/.local/state/spotifast/spotifast.log` | Always |
 | Crash log | `~/.local/state/spotifast/panic.log` | Always |
 
 Clearing caches never signs you out. Sign-out from Settings covers the shared
-and personal Web API grants and the independent playback credential.
+and personal Web API grants and the independent playback credential. It also
+removes the cached library of every account: playlist pages, the playlist
+list, Home shelves and Liked Songs metadata. The audio, artwork and lyrics
+caches stay, since they belong to no account.
 
 The following credential storage is available since 0.8.0.
 
@@ -51,6 +56,12 @@ KWallet to remember a new sign-in. Flatpak is allowed to talk to
 `org.freedesktop.secrets` for this purpose. An unavailable or locked store
 produces an error without blocking the interface. A new sign-in can still be
 used for this session, with no new plaintext fallback file.
+
+On Windows, grants are saved with Enterprise persistence, which survives a
+restart. Since 0.13.2, if Credential Manager refuses that, or keeps the grant
+only until you sign out of Windows, Spotifast saves it again with Local
+persistence, which also survives a restart. Failures are logged with their
+Windows error code, never with the grant.
 
 On upgrade, each legacy grant is written to the protected store and read back
 before its old file is removed. Valid grants migrate without signing in again.
@@ -128,7 +139,7 @@ the background cache writer instead of making a separate copy. Visible library
 cards and collection covers request 640-pixel artwork for sharper HiDPI output;
 compact rows and softened placeholders keep using 64-pixel thumbnails. Up to 64
 softened 256-pixel covers may be retained in addition to the existing artwork
-budget, and their downloaded JPEG bytes are released after decoding. A failed
+budget, and their downloaded image bytes are released after decoding. A failed
 cache write does not prevent the downloaded image from being displayed.
 Softened previews reuse egui's decoded artwork after its encoded bytes have
 been released, without repeatedly reading the disk cache or downloading again.
@@ -144,10 +155,31 @@ requests current data immediately. Partial caches resume from their next page.
 Like and Unlike change the rows immediately, and confirmed edits survive a
 restart even if Spotify's next read still reports the old state. This cache
 contains metadata, not offline audio, and can be deleted without signing out.
+Signing out deletes it.
 
 The last good playlist folder tree is kept in `session.json`, scoped to the
 account that supplied it. This keeps folders visible when local playback is
 temporarily unavailable. Live session data is still required for edit grants.
+
+The library's playlist list is stored under `library/` in the cache
+directory, one JSON file per account. It is shown as soon as the account is
+verified, while the list is read from Spotify again. Spotify reads the
+complete list only through the shared app, so on a busy day this keeps the
+sidebar usable while that app waits out Spotify's limits. The new list
+replaces the shown one once all its pages have arrived. A failed read keeps
+the shown list; a rate limited, network or server failure is also read again
+a minute later, while other refusals wait for the next reload. Offline, the
+list is read again as soon as the network is back.
+Playlists created or deleted in the meantime stay that way. The list is
+saved again only when Spotify has confirmed every change in it. This cache
+contains metadata only and can be deleted at any time.
+
+Home's Recently played, Your top artists, Top tracks, Made for you and Your
+podcasts shelves are stored the same way under `home/`. They are shown when
+the account is verified and replaced shelf by shelf as Spotify answers. A
+shelf Spotify turns away keeps what it showed, and Home is read again once
+the network is back. Each shelf is saved as soon as its new answer arrives;
+Made for you once all its searches have answered.
 
 Since 0.8.0, memory caches retain the open page,
 the playing context, and a limited set of recently used playlist, album,
@@ -158,10 +190,14 @@ even if this temporarily exceeds the usual page limit. Track metadata is
 limited to 800 cached tracks; navigation and periodic cleanup trim old entries.
 
 The session remembers separate positions for the main window and the Winamp
-mini player. The shade modes are kept in `settings.json`. Wayland compositors
-may ignore saved positions. On Windows, a position
-whose title bar is no longer on an available monitor's work area is discarded
-when reopening the window, keeping its initial on-screen placement instead.
+mini player, and the main window's size and whether it was maximized. Sizes
+and positions are in logical pixels, so they do not change with the interface
+zoom. Each window is created at its remembered place rather than moved there
+afterwards. The shade modes are kept in `settings.json`. Wayland compositors
+may ignore saved positions. A window that opens on no connected monitor (a
+display unplugged since) moves to the middle of the primary one on Windows
+and X11; on macOS, a position whose title bar would be on no screen is not
+used.
 
 Since 0.8.0, a main window left maximized or full
 screen reopens that way, and comes back that way from the mini player. The
@@ -227,7 +263,6 @@ main fields are:
 | `crossfade` | `false` | Song-to-song crossfade switch. Off changes nothing. A file saved before the switch is on when `crossfade_secs` is above zero |
 | `crossfade_secs` | `0` | Crossfade length in seconds, from the Settings slider, 0 to 12. A larger saved value is treated as 12. The slider keeps its place while the switch is off, and that length is used again when the switch is turned on. Only that overlap is held, and only while the switch is on |
 | `audio_backend` | platform | `pulseaudio` or `rodio` on Linux. `rodio` is Spotifast's own output, through ALSA; librespot's separate rodio backend is no longer built in, and a backend this build lacks plays through Spotifast's own output |
-| `audio_device` | none | Output device for music on this computer. Absent, or blank, follows the system's default. A name from **Settings → Playback → Output device** opens that device; one that is not connected falls back to the default. Changing it takes **Apply and restart playback** |
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
 | `theme` | `system` | Follow the system appearance by default; explicit `dark` and `light` choices remain available |
 | `language` | `system` | Since 0.10.0: the interface language. `system` follows the operating system's preferred languages and falls back to English; a tag such as `es`, `de-DE`, `pt-BR` or `zh-Hant` selects that language. An unknown tag follows the system |
@@ -236,7 +271,10 @@ main fields are:
 | `system_theme_cache` | absent | Last accepted Omarchy palette for Follow system; retained across restarts |
 | `accent_from_art` | `true` | Tint pages with album art |
 | `player_bar_vis` | `off` | Since 0.11.0: what moves behind the player bar while a song plays on this computer: `off`, `spectrum` or `waveform` |
+| `player_bar_vis_click` | `true` | Allow clicks on empty player bar space to cycle visualizer modes |
+| `visualizer_fps` | `60` | Frame rate of the player bar and mini player visualizers; `0` is uncapped. Half that out of focus, at most 30 while the system saves energy, none while the window is hidden. MilkDrop uses `milkdrop_fps` |
 | `library_sort` | `{}` | Per-section Library order overrides, since 0.8.0: `library`, `recently_played`, `name`, `recently_added`, `local`, or `spotify`, where supported |
+| `library_by_you` | `false` | Show only playlists owned by the signed-in account, alongside Liked Songs; applies only to the Playlists shelf |
 | `sidebar_order` | `[]` | Saved local playlist arrangement, including an unpinned Liked Songs, retained when another sort is selected |
 | `pinned_contexts` | `[]` | Local Library pin order; Liked Songs uses `spotifast:liked-songs`, a local key never sent to Spotify |
 | `liked_songs_pinned` | `true` | Keep Liked Songs in the pin block; older settings place it first until moved |
@@ -246,7 +284,7 @@ main fields are:
 | `middle_click_autoscroll` | `false` | Linux only: middle-click a list to autoscroll it. Windows always autoscrolls and macOS never does |
 | `winamp_window` | `false` | The window is the Winamp mini player |
 | `winamp_show_taskbar` | `true` | Windows since 0.8.0, and Linux X11 sessions: show the Winamp window's taskbar button; the main window always keeps its button. Wayland and macOS ignore it |
-| `custom_titlebar` | `false` | Windows only, since 0.10.0: draw Spotifast's own title bar and window buttons instead of the standard Windows ones |
+| `custom_titlebar` | `false` | Windows and Linux: draw Spotifast's own title bar and window buttons instead of the desktop's |
 | `skin` | none | File or folder name in the skins folder; blank uses the built-in skin |
 | `random_skin` | `false` | Since 0.11.0: pick a different skin (built-in or installed) each time the mini player opens; `skin` holds the one picked |
 | `skin_scale` | by display | Screen pixels per skin pixel, 1 to 4 |
@@ -264,8 +302,8 @@ main fields are:
 | `winamp_shaded` | `false` | The main window is rolled up to its title bar |
 | `milkdrop_open` | `false` | The MilkDrop window is open |
 | `milkdrop_seconds` | `30` | How long each MilkDrop preset plays |
-| `milkdrop_fps` | `60` | MilkDrop frame rate; `0` is uncapped |
-| `milkdrop_screen_hz` | `0` | Last reported display refresh rate |
+| `milkdrop_fps` | `60` | MilkDrop frame rate; `0` is uncapped. At most 30 while the system saves energy |
+| `milkdrop_screen_hz` | `0` | Last refresh rate reported by MilkDrop's window |
 | `milkdrop_fullscreen` | `false` | The MilkDrop window fills the screen |
 | `milkdrop_size` | `640, 480` | The MilkDrop window's size in points |
 | `keep_playing_in_background` | `true` | Close to tray |
@@ -423,8 +461,13 @@ For example, `themes/gruvbox.json`:
 `base` is `dark` (the default) or `light`. Omitted colors inherit that palette.
 Supported colors are `window`, `panel`, `surface`, `surface_hover`,
 `surface_active`, `outline`, `text`, `secondary`, `dim`, `accent`,
-`accent_hover`, `on_accent`, `danger`, `warning`, `overlay`, and `shadow`.
-Values must be `#RRGGBB` or `#RRGGBBAA`.
+`accent_hover`, `on_accent`, `danger`, `warning`, `overlay`, `shadow`, and
+`tint`. Values must be `#RRGGBB` or `#RRGGBBAA`.
+
+`tint` is the colour the top of a page fades from when album art does not
+colour it: with **Colour from album art** off, or on a page without a cover.
+Its alpha is the strength, so `#00000018` is a faint dark wash and `#ffffff20`
+a faint light one. Leave it out for a plain page.
 
 Files are read in the background at launch and when `spotifast reload-themes`
 is called. The command updates the selected palette without interrupting

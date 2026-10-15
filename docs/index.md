@@ -27,6 +27,9 @@ features:
   - icon: ⚡
     title: Lightweight
     details: Opens in well under a second and typically uses just 100–250 MB of memory.
+  - icon: 🦀
+    title: Native, in Rust
+    details: "Built with [egui](https://www.egui.rs) and [fastframe](https://fastframe.dev), the framework behind a family of native desktop apps. No browser engine inside."
   - icon: 🔊
     title: Spotify Connect
     details: Listen on your computer with smooth transitions between songs, or control music on a speaker, phone, or TV. Playback needs Spotify Premium.
@@ -108,8 +111,8 @@ react to music playing on your computer, in a resizable window or full screen.
 ## WhatsApp, just as fast
 
 **Want WhatsApp just as fast and native?** [ZapFast](https://zapfast.rocks) is
-Spotifast's sibling: the same native interface, for WhatsApp. Both are built on [fastframe](https://github.com/crmne/fastframe), the shared
-foundation for native Rust apps built with egui.
+Spotifast's sibling: the same native interface, for WhatsApp. Both are built on [fastframe](https://fastframe.dev), the shared
+foundation for native Rust apps built with [egui](https://www.egui.rs).
 
 <style>
   /* The hero image slot is sized for a square logo; the screenshot needs the

@@ -3,7 +3,7 @@
 # job unpacks the release tarball into built/ beside this file first.
 id: rocks.spotifast.Spotifast
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 command: spotifast
 finish-args:

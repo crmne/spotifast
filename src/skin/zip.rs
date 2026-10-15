@@ -127,7 +127,10 @@ impl<'a> Archive<'a> {
         let extra_len = usize::from(u16_at(data, at + 28)?);
         let raw = slice(data, at + 30 + name_len + extra_len, entry.compressed_size)?;
         match entry.method {
-            STORED => Ok(raw.to_vec()),
+            // A stored entry is its own size; a larger one would slip past
+            // the limit on what an entry says it holds.
+            STORED if entry.compressed_size == entry.size => Ok(raw.to_vec()),
+            STORED => Err(ZipError::TooLarge(entry.name.clone())),
             DEFLATED => {
                 let mut out = Vec::with_capacity(entry.size);
                 flate2::read::DeflateDecoder::new(raw)
@@ -289,6 +292,18 @@ mod tests {
         assert!(matches!(
             parsed.read(&parsed.entries()[0]),
             Err(ZipError::Truncated)
+        ));
+    }
+
+    #[test]
+    fn a_stored_entry_larger_than_it_says_is_refused() {
+        let mut archive = write(&[("main.bmp", &[7u8; 300], false)]);
+        let directory = directory_offset(&archive);
+        archive[directory + 24..directory + 28].copy_from_slice(&10u32.to_le_bytes());
+        let parsed = Archive::parse(&archive).unwrap();
+        assert!(matches!(
+            parsed.read(&parsed.entries()[0]),
+            Err(ZipError::TooLarge(name)) if name == "main.bmp"
         ));
     }
 

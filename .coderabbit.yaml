@@ -1,8 +1,35 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# CodeRabbit reviews every pull request. With request_changes_workflow, a pull
-# request with nothing to fix gets an approval and one with findings gets a
-# "changes requested" review, which Copilot Triage reads to place it on the
-# maintainer's board.
 reviews:
   profile: chill
   request_changes_workflow: true
+  pre_merge_checks:
+    custom_checks:
+      - name: Review evidence stays out of the repository
+        mode: error
+        instructions: >-
+          Fail when the pull request adds screenshots, captures, comparison
+          pages, recordings, or other files made to show reviewers the change,
+          such as a folder of before-and-after images or an HTML comparison
+          page. That evidence belongs in the pull request description or
+          comments. Media the project itself uses, such as a documentation
+          figure a page shows, a release-note image, or an app asset, is
+          fine. Pass when the pull request adds no review evidence.
+      - name: Dependencies from sources the maintainer controls
+        mode: error
+        instructions: >-
+          Fail when the pull request makes a dependency come from anywhere but
+          its package registry or a repository under github.com/crmne/ or
+          this repository's own organization: a git URL, a contributor's
+          fork, a patch, override, or replace entry, or another registry, in
+          a manifest, lockfile, or package manager configuration. Pass
+          otherwise.
+      - name: No new settings without approval
+        mode: error
+        instructions: >-
+          Fail when the pull request adds a user setting, such as a new field
+          in a Settings struct in src/settings.rs, a toggle, a slider, or an
+          option in the Settings view, unless the linked issue shows the
+          maintainer (crmne) approving that setting or the pull request has
+          the setting-approved label. The project prefers a good default, a
+          keyboard shortcut, or a command; see Settings in CONTRIBUTING.md.
+          Pass when the pull request adds no setting.

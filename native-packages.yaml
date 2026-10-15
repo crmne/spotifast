@@ -1,8 +1,8 @@
-# Shared CLI: gem install native-packages --version 0.8.1
+# Shared CLI: gem install native-packages --version 0.9.0
 ---
 schema: 1
 tool:
-  version: 0.8.1
+  version: 0.9.0
   nfpm: 2.47.0
 # Ubuntu 24.04 and Debian 13 use the ALSA t64 package name. Override ELF
 # inference as well as the explicit dependencies below.
@@ -126,6 +126,30 @@ targets:
     input:
       local: dist/spotifast-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
       release_asset: spotifast-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
+  # Windows Installer packages, built on each Windows release runner from the
+  # binary it built; the input folder holds what the package installs.
+  windows-amd64:
+    platform: windows
+    arch: amd64
+    compiler_target: x86_64-pc-windows-msvc
+    formats: [msi]
+    input:
+      kind: directory
+      local: dist/msi-input-x86_64-pc-windows-msvc
+    native:
+      command: [python, packaging/windows/build-msi.py, '@PAYLOAD@', '@PACKAGE@', '@VERSION@', '@ARCH@']
+      output: 'spotifast-@TAG@-@TARGET@.msi'
+  windows-arm64:
+    platform: windows
+    arch: arm64
+    compiler_target: aarch64-pc-windows-msvc
+    formats: [msi]
+    input:
+      kind: directory
+      local: dist/msi-input-aarch64-pc-windows-msvc
+    native:
+      command: [python, packaging/windows/build-msi.py, '@PAYLOAD@', '@PACKAGE@', '@VERSION@', '@ARCH@']
+      output: 'spotifast-@TAG@-@TARGET@.msi'
 release:
   repository: crmne/spotifast
   prereleases: true

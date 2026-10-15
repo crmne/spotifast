@@ -13,6 +13,8 @@ These instructions add implementation constraints for coding agents.
   lawful support first lands upstream.
 - Do not broaden a task into adjacent features or a general refactor. Preserve
   existing user behaviour unless the task explicitly changes it.
+- Do not add a setting without the maintainer's approval in the issue first;
+  prefer a good default, a shortcut or a command (`CONTRIBUTING.md`, Settings).
 
 ## Architecture
 
@@ -21,15 +23,22 @@ These instructions add implementation constraints for coding agents.
 - Network and playback work belongs on the runtime in `src/backend.rs` or in
   the player engine in `src/player.rs`, never as blocking work on the UI
   thread.
+- File writes that wait for the disk (anything through `fastframe_file`)
+  never run on the UI thread: encode there and hand the bytes to the app's
+  `fastframe_file::Writer`. fastframe_file's guard panics in debug builds.
 - Keep platform integrations behind target-specific modules or `cfg` blocks.
   A fix for one platform must keep the other two targets compiling.
 - Settings and state files must remain readable, backward compatible, and
   atomically written. Never log credentials or authorization responses.
 - Prefer existing dependencies. Explain any new crate in `Cargo.toml` next to
   the dependency when the reason is not obvious.
-- For dependency fixes, use a maintainer-owned fork pinned to a commit and
-  contribute the fix upstream. Use the fork until a release includes the fix;
-  do not copy dependency source into this repository.
+- For dependency fixes, use a fork under `github.com/crmne/` pinned to a
+  commit and contribute the fix upstream. Only the maintainer creates those
+  forks; in a contributor's pull request, send the fix upstream and ask for it
+  to be carried. Use the fork until a release includes the fix; do not copy
+  dependency source into this repository. Never point a dependency at any other
+  fork or source (see Pull requests below):
+  `.github/scripts/check-dependency-sources.py` fails CI on one.
 - egui and winit come from forks shared with ZapFast, RekordFlash and TonePush
   (crmne/egui apps-0.36, crmne/winit apps-0.30); move all their crates to a
   new revision together. On Wayland, eframe from that fork paces frames by
@@ -103,15 +112,48 @@ picture. Zero volume still dances.
   approval of changed appearance or interaction.
 - Inspect before-and-after evidence at representative window sizes and in both
   light and dark themes. If that evidence is missing, request it.
-- Use the HTML comparison format in `CONTRIBUTING.md` under "Visual reviews":
-  matching captures, theme and size selectors, Before/After controls, and
-  relevant interaction states. For a batch, provide one index with PR numbers,
-  a selector, Previous/Next controls and links to individual comparisons.
+- Keep visual evidence in the pull request, in the format under "Visual
+  reviews" in `CONTRIBUTING.md`: matching captures attached to the description
+  or a comment, Before and After side by side for both themes at narrow and
+  normal sizes, and relevant interaction states. Attach an interactive
+  comparison, or the index for a batch (PR numbers, a selector, Previous/Next
+  controls and links to individual comparisons), as a self-contained HTML
+  file, or publish it outside the repository, and link it. Never commit
+  captures, comparison pages or recordings:
+  `.github/scripts/check-review-evidence.py` fails CI on them.
 - Record approval and requested adjustments by PR number in the triage ledger.
   Keep visual approval separate from outstanding implementation or test gates.
   Do not ask again for unchanged approved scope after a rebase. A concrete
   requested adjustment is authorization to make that adjustment and update its
   evidence; ask again only for scope beyond the approval or request.
+
+<!-- github-automation: pull-requests -->
+## Pull requests
+
+This section is maintained account-wide by
+[crmne/github-automation](https://github.com/crmne/github-automation) and is
+replaced when that policy changes. Do not edit it here. If it does not fit this
+repository, say so in a review or issue, and put repository-specific rules in a
+separate section, which takes precedence.
+
+Review evidence stays out of the repository. Before-and-after screenshots,
+captures, comparison pages, recordings, and anything else made to show
+reviewers a change go in the pull request description or its comments: attach
+the files there, or link a page published elsewhere. Only media the project
+itself uses, such as documentation figures, release-note images, and app
+assets, belongs in the repository.
+
+Dependencies come from their package registry, such as crates.io, RubyGems, or
+npm, or from repositories the maintainer controls, under `github.com/crmne/`
+or this repository's own organization. A git dependency, or a patch, override,
+or replace entry, may point only at such a repository, and adding or changing
+one needs the maintainer's explicit approval. Never point a dependency at a
+contributor's fork or any other source the maintainer does not control. When a
+dependency needs a fix, send it upstream and ask the maintainer to carry it in
+a fork they control until a release includes it.
+
+Reviewers treat either problem in a pull request as a blocker.
+<!-- /github-automation: pull-requests -->
 
 ## Branches
 

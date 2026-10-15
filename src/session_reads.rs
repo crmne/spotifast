@@ -7,7 +7,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use base64::Engine as _;
 use librespot_core::{FileId, Session, SpotifyUri, error::ErrorKind, spotify_id::SpotifyId};
-use librespot_metadata::artist::Artist as SessionArtist;
+use librespot_metadata::artist::{Artist as SessionArtist, CountryTopTracks};
 use librespot_metadata::image::Images;
 use librespot_metadata::playlist::attribute::PlaylistAttributes;
 use librespot_metadata::playlist::item::PlaylistItem as SessionRow;
@@ -28,6 +28,52 @@ use crate::api::models::{
 };
 
 const IMAGE_HOST: &str = "https://i.scdn.co/image/";
+
+/// Popular tracks in the playback account's market, retaining Spotify's ranking.
+pub async fn artist_top_tracks(session: &Session, id: &str) -> Result<Vec<Track>, Failure> {
+    use librespot_metadata::Metadata as _;
+    let uri = SpotifyUri::Artist {
+        id: SpotifyId::from_base62(id)?,
+    };
+    let artist = SessionArtist::get(session, &uri).await?;
+    let uris = artist_top_track_uris(&artist.top_tracks, &session.country()).ok_or_else(|| {
+        Failure::Retry(anyhow::anyhow!(
+            "artist metadata has no popular tracks for this market"
+        ))
+    })?;
+    let found = metadata(session, uris.iter()).await?;
+    resolved_artist_top_tracks(&uris, &found)
+}
+
+/// Keep a genuinely empty ranking, but retry another source if no ranked song resolved.
+fn resolved_artist_top_tracks(
+    uris: &[SpotifyUri],
+    found: &HashMap<String, PlayableItem>,
+) -> Result<Vec<Track>, Failure> {
+    let tracks: Vec<Track> = uris
+        .iter()
+        .map(SpotifyUri::to_uri)
+        .filter_map(|uri| match found.get(&uri) {
+            Some(PlayableItem::Track(track)) => Some(track.clone()),
+            _ => None,
+        })
+        .collect();
+    if tracks.is_empty() && !uris.is_empty() {
+        return Err(Failure::Retry(anyhow::anyhow!(
+            "no popular track details were available from the session"
+        )));
+    }
+    Ok(tracks)
+}
+
+/// Select the account's market or the worldwide ranking, retaining its first ten URIs.
+fn artist_top_track_uris(top_tracks: &CountryTopTracks, country: &str) -> Option<Vec<SpotifyUri>> {
+    top_tracks
+        .iter()
+        .find(|top| top.country == country)
+        .or_else(|| top_tracks.iter().find(|top| top.country == "ZZ"))
+        .map(|top| top.tracks.iter().take(10).cloned().collect())
+}
 
 /// Why the session could not answer a read.
 #[derive(Debug)]
@@ -66,6 +112,170 @@ fn refused(error: librespot_core::Error) -> Failure {
     }
 }
 
+/// A future album's own mapping and ordered preview rows, through the same
+/// playback session. An unknown row remains a non-playable placeholder.
+pub async fn prerelease(
+    session: &Session,
+    web: &crate::api::ApiClient,
+    uri: &str,
+) -> anyhow::Result<crate::prerelease::Prerelease> {
+    anyhow::ensure!(
+        crate::link::parse(uri).as_deref() == Some(uri) && uri.starts_with("spotify:prerelease:"),
+        "invalid prerelease URI"
+    );
+    let mut request = BatchedEntityRequest::new();
+    request.entity_request.push(EntityRequest {
+        entity_uri: uri.into(),
+        query: vec![ExtensionQuery {
+            extension_kind: EnumOrUnknown::new(ExtensionKind::PRERELEASE),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    let response = session.spclient().get_extended_metadata(request).await?;
+    let mut page = None;
+    for array in &response.extended_metadata {
+        if array.extension_kind.enum_value() != Ok(ExtensionKind::PRERELEASE) {
+            continue;
+        }
+        anyhow::ensure!(
+            matches!(array.header.provider_error_status, 0 | 200),
+            "Spotify could not resolve this prerelease"
+        );
+        for data in &array.extension_data {
+            if data.entity_uri != uri {
+                continue;
+            }
+            anyhow::ensure!(
+                matches!(data.header.status_code, 0 | 200),
+                "Spotify prerelease answered {}",
+                data.header.status_code
+            );
+            let bytes = &data
+                .extension_data
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("empty prerelease response"))?
+                .value;
+            page = Some(crate::prerelease::Prerelease::decode(bytes, uri)?);
+        }
+    }
+    let mut page = page.ok_or_else(|| anyhow::anyhow!("Spotify did not return this prerelease"))?;
+    let login = session.login5().auth_token().await?;
+    let client_token = session.spclient().client_token().await?;
+    let mut offset = 0;
+    loop {
+        let query = serde_json::json!({
+            "operationName":"getAlbum",
+            "variables":{"uri":page.album.uri,"locale":"","offset":offset,"limit":50},
+            "extensions":{"persistedQuery":{"version":1,"sha256Hash":"b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"}}
+        });
+        let body = web
+            .partner_request(&login.access_token, &client_token, &query)
+            .await?;
+        let (rows, total) = page.album_preview(&body)?;
+        anyhow::ensure!(
+            offset == 0 || page.album.total_tracks == Some(total),
+            "Spotify changed this track list while loading"
+        );
+        page.album.total_tracks = Some(total);
+        offset += rows.len();
+        page.tracks.extend(rows);
+        if offset >= total as usize {
+            break;
+        }
+        anyhow::ensure!(
+            offset > 0 && offset <= 1000,
+            "Spotify returned an incomplete track list"
+        );
+    }
+    match prerelease_saved(session, &page.album.uri).await {
+        Ok(saved) => page.saved = Some(saved),
+        Err(_) => {
+            page.save_error =
+                Some("Could not check pre-save state. Open the link again to retry.".into())
+        }
+    }
+    Ok(page)
+}
+
+fn collection_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    let value =
+        reqwest::header::HeaderValue::from_static("application/vnd.collection-v2.spotify.proto");
+    headers.insert(reqwest::header::CONTENT_TYPE, value.clone());
+    headers.insert(reqwest::header::ACCEPT, value);
+    headers
+}
+
+/// Whether this account has already pre-saved the album resolved from the countdown page.
+pub async fn prerelease_saved(session: &Session, uri: &str) -> anyhow::Result<bool> {
+    let body = crate::prerelease::contains_request(&session.username(), uri)?;
+    let bytes = session
+        .spclient()
+        .request(
+            &reqwest::Method::POST,
+            "/collection/v2/contains",
+            Some(collection_headers()),
+            Some(&body),
+        )
+        .await?;
+    crate::prerelease::contains_response(&bytes)
+}
+
+/// Pre-save or remove only after a user action, then confirm the collection's
+/// answer. Opening a page never calls this mutation.
+pub async fn set_prerelease_saved(
+    session: &Session,
+    http: &reqwest::Client,
+    uri: &str,
+    saved: bool,
+) -> anyhow::Result<()> {
+    let body = crate::prerelease::write_request(
+        &session.username(),
+        uri,
+        saved,
+        jiff::Timestamp::now().as_second(),
+    )?;
+    let endpoint = format!(
+        "{}/collection/v2/write",
+        session.spclient().base_url().await?
+    );
+    let login = session.login5().auth_token().await?;
+    let client_token = session.spclient().client_token().await?;
+    // SpClient retries failed requests, including writes. Only this transport
+    // disables retry and redirect policies; concurrent playback keeps its own.
+    write_collection(http, &endpoint, &login.access_token, &client_token, body).await?;
+    anyhow::ensure!(
+        prerelease_saved(session, uri).await? == saved,
+        "Spotify has not confirmed the pre-save change. Open the link again to check."
+    );
+    Ok(())
+}
+
+async fn write_collection(
+    http: &reqwest::Client,
+    endpoint: &str,
+    bearer: &str,
+    client_token: &str,
+    body: Vec<u8>,
+) -> anyhow::Result<()> {
+    let response = http
+        .post(endpoint)
+        .bearer_auth(bearer)
+        .header("client-token", client_token)
+        .headers(collection_headers())
+        .body(body)
+        .send()
+        .await
+        .map_err(reqwest::Error::without_url)?;
+    anyhow::ensure!(
+        response.status().is_success(),
+        "Spotify did not accept pre-save (HTTP {}). Open the link again to check.",
+        response.status().as_u16()
+    );
+    Ok(())
+}
+
 /// A playlist's header: name, owner, cover, and snapshot.
 pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> {
     let list = window(session, id, 0, 0).await?;
@@ -74,7 +284,9 @@ pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> 
     // lists and as the id for anyone else's, until the app finds the name
     // where the Web API gave it: the account's own, or the library list.
     if let Some(owner) = playlist.owner.id.clone().filter(|owner| owner != "spotify") {
-        playlist.owner.display_name = user_display_name(session, &owner).await;
+        playlist.owner.display_name = user_profile(session, &owner)
+            .await
+            .and_then(|profile| profile.name);
     }
     Ok(playlist)
 }
@@ -166,7 +378,7 @@ pub async fn station(session: &Session, station: &str) -> anyhow::Result<Vec<Tra
         })?;
     Ok(uris
         .iter()
-        .filter_map(|uri| uri.to_uri().ok())
+        .map(SpotifyUri::to_uri)
         .filter_map(|uri| match found.get(&uri) {
             Some(PlayableItem::Track(track)) => Some(track.clone()),
             _ => None,
@@ -190,7 +402,7 @@ fn station_songs(context: &librespot_protocol::context::Context) -> Vec<SpotifyU
             },
         )
         .filter(|uri| matches!(uri, SpotifyUri::Track { .. }))
-        .filter(|uri| uri.to_uri().is_ok_and(|text| seen.insert(text)))
+        .filter(|uri| seen.insert(uri.to_uri()))
         .collect()
 }
 
@@ -246,18 +458,38 @@ fn audiobooks_in(response: &BatchedExtensionResponse) -> Vec<String> {
     audiobooks
 }
 
-/// The display name behind a user id, from the profile view Spotify's
-/// clients read; `None` when nothing answers.
-pub async fn user_display_name(session: &Session, user_id: &str) -> Option<String> {
+/// What the profile view says about a user: their display name and avatar,
+/// each when Spotify gives it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UserProfile {
+    pub name: Option<String>,
+    pub image_url: Option<String>,
+}
+
+/// The profile behind a user id, from the view Spotify's own clients read;
+/// `None` when nothing answers.
+pub async fn user_profile(session: &Session, user_id: &str) -> Option<UserProfile> {
     let bytes = session
         .spclient()
         .get_user_profile(user_id, Some(0), Some(0))
         .await
         .ok()?;
     let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    json.get("name")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
+    Some(profile_from_json(&json))
+}
+
+/// Reads the name and avatar out of a profile view answer.
+fn profile_from_json(json: &serde_json::Value) -> UserProfile {
+    let text = |key: &str| {
+        json.get(key)
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    UserProfile {
+        name: text("name"),
+        image_url: text("image_url"),
+    }
 }
 
 /// The list's header and the `length` rows from `from`; none for the header
@@ -380,7 +612,7 @@ fn non_empty(text: &str) -> Option<String> {
 /// so its details are looked up, not taken. A local file has no details
 /// to look up; its URI carries what the Web API would have said of it.
 fn item(row: &SessionRow, playables: &HashMap<String, PlayableItem>) -> PlaylistItem {
-    let uri = row.id.to_uri().unwrap_or_default();
+    let uri = row.id.to_uri();
     PlaylistItem {
         added_at: iso8601(row.attributes.timestamp.as_timestamp_ms()),
         added_by: non_empty(&row.attributes.added_by).map(|id| UserRef { id: Some(id) }),
@@ -456,9 +688,7 @@ fn batch<'a>(
             SpotifyUri::Episode { .. } => ExtensionKind::EPISODE_V4,
             _ => continue,
         };
-        let Ok(text) = uri.to_uri() else {
-            continue;
-        };
+        let text = uri.to_uri();
         if !asked.insert(text.clone()) {
             continue;
         }
@@ -533,7 +763,7 @@ fn playable(kind: ExtensionKind, bytes: &[u8]) -> Option<PlayableItem> {
             // the row's link to the show needs.
             let show_id = SpotifyId::from_raw(message.show.gid())
                 .ok()
-                .and_then(|id| id.to_base62().ok());
+                .map(|id| id.to_base62());
             Some(PlayableItem::Episode(episode(
                 SessionEpisode::try_from(&message).ok()?,
                 show_id,
@@ -545,8 +775,8 @@ fn playable(kind: ExtensionKind, bytes: &[u8]) -> Option<PlayableItem> {
 
 fn track(track: SessionTrack) -> Track {
     Track {
-        id: track.id.to_id().ok(),
-        uri: track.id.to_uri().unwrap_or_default(),
+        id: Some(track.id.to_id()),
+        uri: track.id.to_uri(),
         name: track.name,
         duration_ms: u32::try_from(track.duration).unwrap_or_default(),
         explicit: track.is_explicit,
@@ -561,8 +791,8 @@ fn track(track: SessionTrack) -> Track {
 
 fn album(album: SessionAlbum) -> Album {
     Album {
-        id: album.id.to_id().unwrap_or_default(),
-        uri: album.id.to_uri().unwrap_or_default(),
+        id: album.id.to_id(),
+        uri: album.id.to_uri(),
         images: images(&album.covers),
         artists: album.artists.iter().map(artist_ref).collect(),
         label: non_empty(&album.label),
@@ -573,8 +803,8 @@ fn album(album: SessionAlbum) -> Album {
 
 fn episode(episode: SessionEpisode, show_id: Option<String>) -> Episode {
     Episode {
-        id: episode.id.to_id().unwrap_or_default(),
-        uri: episode.id.to_uri().unwrap_or_default(),
+        id: episode.id.to_id(),
+        uri: episode.id.to_uri(),
         name: episode.name,
         duration_ms: u32::try_from(episode.duration).unwrap_or_default(),
         description: episode.description,
@@ -593,9 +823,9 @@ fn episode(episode: SessionEpisode, show_id: Option<String>) -> Episode {
 
 fn artist_ref(artist: &SessionArtist) -> ArtistRef {
     ArtistRef {
-        id: artist.id.to_id().ok(),
+        id: Some(artist.id.to_id()),
         name: artist.name.clone(),
-        uri: artist.id.to_uri().ok(),
+        uri: Some(artist.id.to_uri()),
     }
 }
 
@@ -623,6 +853,55 @@ fn iso8601(timestamp_ms: i64) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// A lost reply is uncertain, including when the server accepted the write.
+    /// HTTP errors and redirect responses must never resend the mutation either.
+    #[tokio::test]
+    async fn presave_writes_are_not_replayed_after_failure_or_redirect() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        for status in [None, Some(429), Some(503), Some(307)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let endpoint = format!("http://{address}/collection/v2/write");
+            let location = endpoint.clone();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0u8; 4096];
+                while !bytes.ends_with(b"mutation") {
+                    let received = socket.read(&mut buffer).await.unwrap();
+                    assert!(received > 0);
+                    bytes.extend_from_slice(&buffer[..received]);
+                }
+                assert!(bytes.starts_with(b"POST /collection/v2/write "));
+                if let Some(status) = status {
+                    let response = format!(
+                        "HTTP/1.1 {status} Test\r\nRetry-After: 0\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                }
+                drop(socket);
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(250), listener.accept())
+                        .await
+                        .is_err(),
+                    "one button press must send exactly one write"
+                );
+            });
+            let http =
+                crate::http::build_collection_client(&crate::settings::ProxyConfig::Off).unwrap();
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                write_collection(&http, &endpoint, "dummy", "dummy", b"mutation".to_vec()),
+            )
+            .await
+            .expect("write must return without retrying");
+            assert!(result.is_err());
+            server.await.unwrap();
+        }
+    }
     use librespot_metadata::Metadata as _;
     use librespot_protocol::playlist4_external::{Item, SelectedListContent};
 
@@ -630,6 +909,126 @@ mod tests {
 
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const EPISODE: &str = "spotify:episode:7GhIk7Il098yCjg4BQjzvb";
+
+    /// Another market's ranking must not replace the account's own or worldwide list.
+    #[test]
+    fn popular_tracks_prefer_the_account_market_and_preserve_its_first_ten() {
+        use librespot_metadata::artist::TopTracks;
+        use librespot_metadata::track::Tracks;
+        let ranked: Vec<SpotifyUri> = (1..=12)
+            .map(|id| SpotifyUri::Track {
+                id: SpotifyId::from_base62(&format!("{id:022}")).unwrap(),
+            })
+            .collect();
+        let world = SpotifyUri::from_uri(TRACK).unwrap();
+        let lists = CountryTopTracks(vec![
+            TopTracks {
+                country: "ZZ".into(),
+                tracks: Tracks(vec![world.clone()]),
+            },
+            TopTracks {
+                country: "US".into(),
+                tracks: Tracks(ranked.clone()),
+            },
+        ]);
+        assert_eq!(
+            artist_top_track_uris(&lists, "US"),
+            Some(ranked[..10].to_vec())
+        );
+        assert_eq!(artist_top_track_uris(&lists, "HU"), Some(vec![world]));
+        let only_other_market = CountryTopTracks(vec![TopTracks {
+            country: "DE".into(),
+            tracks: Tracks(ranked),
+        }]);
+        assert_eq!(
+            artist_top_track_uris(&only_other_market, "US"),
+            None,
+            "do not substitute another market's ranking"
+        );
+        assert_eq!(
+            artist_top_track_uris(&CountryTopTracks::default(), "US"),
+            None
+        );
+        let empty_market = CountryTopTracks(vec![TopTracks {
+            country: "US".into(),
+            tracks: Tracks::default(),
+        }]);
+        assert_eq!(
+            artist_top_track_uris(&empty_market, "US"),
+            Some(Vec::new()),
+            "a known empty ranking is successful"
+        );
+    }
+
+    /// An artist with an explicitly empty ranking needs no Web API fallback.
+    #[test]
+    fn an_empty_popular_ranking_is_a_successful_empty_answer() {
+        assert!(
+            resolved_artist_top_tracks(&[], &HashMap::new())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// A nonempty ranking whose metadata is entirely 404/451 must try the Web API.
+    #[test]
+    fn popular_tracks_retry_when_every_ranked_track_is_unavailable() {
+        let gone = "spotify:track:0000000000000000000001";
+        let uris: Vec<_> = [TRACK, gone]
+            .into_iter()
+            .map(|uri| SpotifyUri::from_uri(uri).unwrap())
+            .collect();
+        let found = answers(
+            &asked(&[TRACK, gone]),
+            response([
+                answer(ExtensionKind::TRACK_V4, TRACK, 404, None),
+                answer(ExtensionKind::TRACK_V4, gone, 451, None),
+            ]),
+        )
+        .unwrap();
+        assert!(matches!(
+            resolved_artist_top_tracks(&uris, &found),
+            Err(Failure::Retry(_))
+        ));
+    }
+
+    /// A resolved episode cannot stand in for the only ranked artist track.
+    #[test]
+    fn popular_tracks_retry_when_metadata_contains_only_non_tracks() {
+        let uris = [SpotifyUri::from_uri(TRACK).unwrap()];
+        let found = HashMap::from([(TRACK.to_string(), PlayableItem::Episode(Episode::default()))]);
+        assert!(matches!(
+            resolved_artist_top_tracks(&uris, &found),
+            Err(Failure::Retry(_))
+        ));
+    }
+
+    /// Partial metadata preserves the remaining tracks in ranking order without fallback.
+    #[test]
+    fn partial_popular_metadata_keeps_the_available_ranking_order() {
+        let other = "spotify:track:0000000000000000000001";
+        let gone = "spotify:track:0000000000000000000002";
+        let uris: Vec<_> = [other, gone, TRACK]
+            .into_iter()
+            .map(|uri| SpotifyUri::from_uri(uri).unwrap())
+            .collect();
+        let mut found = playables();
+        found.insert(
+            other.to_string(),
+            PlayableItem::Track(Track {
+                uri: other.into(),
+                ..Default::default()
+            }),
+        );
+        let tracks = resolved_artist_top_tracks(&uris, &found).unwrap();
+        assert_eq!(
+            tracks
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect::<Vec<_>>(),
+            [other, TRACK]
+        );
+    }
 
     fn playlist_uri() -> SpotifyUri {
         SpotifyUri::Playlist {
@@ -676,6 +1075,36 @@ mod tests {
             Some("2023-11-14T22:13:20Z")
         );
         assert_eq!(iso8601(0), None, "never recorded");
+    }
+
+    /// The profile view gives a user's name and avatar; blanks and nulls
+    /// read as absent.
+    #[test]
+    fn a_profile_read_carries_the_name_and_avatar() {
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{"uri":"spotify:user:alice","name":"Alice","image_url":"https://i.scdn.co/image/avatar"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            profile_from_json(&json),
+            UserProfile {
+                name: Some("Alice".into()),
+                image_url: Some("https://i.scdn.co/image/avatar".into()),
+            }
+        );
+
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"name":"Bob","image_url":null}"#).unwrap();
+        assert_eq!(
+            profile_from_json(&json),
+            UserProfile {
+                name: Some("Bob".into()),
+                image_url: None,
+            }
+        );
+
+        let json: serde_json::Value = serde_json::from_str("{}").unwrap();
+        assert_eq!(profile_from_json(&json), UserProfile::default());
     }
 
     #[test]
@@ -802,7 +1231,7 @@ mod tests {
         0xef,
     ];
     fn id_of(gid: &[u8]) -> String {
-        SpotifyId::from_raw(gid).unwrap().to_base62().unwrap()
+        SpotifyId::from_raw(gid).unwrap().to_base62()
     }
 
     fn cover(file_id: u8, width: i32) -> librespot_protocol::metadata::Image {
@@ -891,7 +1320,7 @@ mod tests {
 
         let show_id = SpotifyId::from_raw(message.show.gid())
             .ok()
-            .and_then(|id| id.to_base62().ok());
+            .map(|id| id.to_base62());
         let episode = episode(SessionEpisode::try_from(&message).unwrap(), show_id);
         assert_eq!(episode.uri, format!("spotify:episode:{}", id_of(&GID)));
         assert_eq!(episode.name, "Episode 1");
@@ -1315,7 +1744,7 @@ mod tests {
         };
         let uris: Vec<String> = station_songs(&context)
             .iter()
-            .map(|uri| uri.to_uri().unwrap())
+            .map(SpotifyUri::to_uri)
             .collect();
         assert_eq!(
             uris,

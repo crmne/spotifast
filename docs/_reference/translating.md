@@ -20,28 +20,27 @@ not contact an online translation service.
 | --- | --- | --- |
 | English | `en` | Source language |
 | Spanish | `es` | Complete |
-| German | `de-DE` | Partial |
-| Dutch | `nl` | Partial |
-| Portuguese (Brazil) | `pt-BR` | Partial |
-| Portuguese (Portugal) | `pt-PT` | Partial |
-| French | `fr` | Partial |
-| Swedish | `sv` | Partial |
-| Polish | `pl` | Partial |
-| Russian | `ru` | Partial |
-| Italian | `it` | Partial |
-| Japanese | `ja` | Partial |
-| Chinese (Simplified) | `zh-Hans` | Partial |
-| Chinese (Traditional) | `zh-Hant` | Partial |
+| German | `de-DE` | Complete |
+| Dutch | `nl` | Complete |
+| Portuguese (Brazil) | `pt-BR` | Complete |
+| Portuguese (Portugal) | `pt-PT` | Complete |
+| French | `fr` | Complete |
+| Swedish | `sv` | Complete |
+| Polish | `pl` | Complete |
+| Russian | `ru` | Complete |
+| Italian | `it` | Complete |
+| Japanese | `ja` | Complete |
+| Chinese (Simplified) | `zh-Hans` | Complete |
+| Chinese (Traditional) | `zh-Hant` | Complete |
 | Turkish | `tr` | Complete |
 | Ukrainian | `uk` | Complete |
 
 The interface is marked for translation throughout: navigation, Home, Search,
 Library and collection pages, menus, the player bar, Queue and Lyrics, dialogs,
 keyboard shortcuts, sign-in, Settings and notifications, including tooltips
-and screen-reader names. The partial catalogues translate the earlier pilot:
-navigation, Library controls, the player bar, Queue and Lyrics. Everything they
-do not translate yet appears in English. The tray menu, the macOS menu bar and
-Dock menu, and the Windows taskbar buttons are still English in every language,
+and screen-reader names. All bundled catalogues cover every message in the
+source template. The tray menu, the macOS menu bar and Dock menu, and the Windows
+taskbar buttons are still English in every language,
 as are error details reported by Spotify, the network or the system.
 
 A regional system language uses the closest catalogue: `es-MX` and `es-419`
@@ -118,9 +117,9 @@ Normal application builds need no external gettext tools. The build validates
 the PO files and compiles their translations and plural expressions to Rust.
 Missing, empty, fuzzy, or incomplete plural entries fall back to the full English
 phrase, so a catalogue can be published before it is complete. The localization
-test requires completeness only of catalogues that claim it (currently
-Spanish); every catalogue must keep the placeholders of what it translates. Each locale's `Plural-Forms` header determines its plural choices;
-languages are not restricted to two forms.
+test requires all bundled catalogues to be complete; every catalogue must keep
+the placeholders of what it translates. Each locale's `Plural-Forms` header
+determines its plural choices; languages are not restricted to two forms.
 
 ## Another language or a correction
 

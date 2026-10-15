@@ -1,0 +1,452 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Windows Installer package (WiX Toolset 5), built from a release binary
+  by build-msi.py (native-packages runs it on every tag):
+
+    python packaging\windows\build-msi.py PAYLOAD dist\spotifast.msi 1.2.3 amd64
+
+  It needs no administrator rights: Spotifast goes to the user's own
+  Programs folder (%LOCALAPPDATA%\Programs\Spotifast) with a Start menu
+  shortcut, an optional desktop shortcut and the spotify: links, as the Inno
+  Setup program (spotifast.iss) installed it. A running copy is closed before
+  an update replaces it, and uninstalling never leaves part of Spotifast
+  behind while it runs (running-copy.c). Uninstalling also removes what the
+  updater staged in the folder; an update never does (update-leftovers.c).
+
+  The updater runs it as
+    msiexec /i PACKAGE /qn /norestart /l*v LOG INSTALLFOLDER=<the app's folder>
+  and the package takes over a copy the Inno Setup program installed: the
+  same folder, settings and links, with one uninstall entry left.
+
+  Settings, caches and sign-ins live outside the installation folder, so no
+  install, update or removal touches them.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!--
+    Who the package is. Releases use these values; test-msi.py builds a
+    throwaway identity so its installs never touch a real Spotifast.
+  -->
+  <?ifndef Identity ?>
+    <?define Identity = "Spotifast" ?>
+  <?endif?>
+  <?ifndef LinkScheme ?>
+    <?define LinkScheme = "spotify" ?>
+  <?endif?>
+  <?ifndef UpgradeCode ?>
+    <!-- Never change: it is how Windows tells an update from a new program. -->
+    <?define UpgradeCode = "{3DFFED43-88FE-4A31-9461-50BE03094316}" ?>
+  <?endif?>
+  <?ifndef ProgramComponent ?>
+    <?define ProgramComponent = "{8EC6378E-B3EB-41F9-873B-01AE4466E5EE}" ?>
+  <?endif?>
+  <?ifndef InnoAppId ?>
+    <!-- spotifast.iss AppId, without Inno's doubled opening brace. -->
+    <?define InnoAppId = "{FCED1EA0-EBF5-4C32-BA3B-A3AD724BACC3}" ?>
+  <?endif?>
+  <?define InnoUninstallKey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(InnoAppId)_is1" ?>
+  <?define InstallerKey = "Software\$(Identity)\Installer" ?>
+
+  <Package
+    Name="$(Identity)"
+    Manufacturer="Carmine Paolino"
+    Version="$(Version)"
+    UpgradeCode="$(UpgradeCode)"
+    Scope="perUser"
+    Language="1033"
+    Codepage="1252">
+    <SummaryInformation Description="$(Identity)" Comments="© 2026 Carmine Paolino" />
+
+    <!-- Inside the transaction: if the new version fails, the old one comes back. -->
+    <MajorUpgrade
+      Schedule="afterInstallInitialize"
+      AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="WINDOWSBUILD">
+      <RegistrySearch Id="WindowsBuild" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+        Name="CurrentBuildNumber" Type="raw" />
+    </Property>
+    <Launch Condition="Installed OR NOT WINDOWSBUILD OR WINDOWSBUILD &gt;= 10240"
+      Message="[ProductName] needs Windows 10 or later." />
+
+    <Icon Id="spotifast.ico" SourceFile="$(Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="spotifast.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://spotifast.rocks" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/crmne/spotifast/issues" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://spotifast.rocks/download/" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" Sequence="execute" />
+
+    <!--
+      Replace every file, whatever its version or date. An Inno Setup install
+      holds the same files, and Windows Installer otherwise keeps a file that
+      looks edited since it was installed; the update would never take.
+    -->
+    <Property Id="REINSTALLMODE" Value="amus" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="UserProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="$(Identity)" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!--
+      Where Spotifast goes, in order: the folder on the command line (the
+      updater passes the one the app runs from), the folder this package
+      installed to before, the folder an Inno Setup install used, or the
+      default. The two searches are what makes a hand-run package and an
+      uninstall find a copy outside the default folder.
+    -->
+    <Property Id="PREVIOUSFOLDER">
+      <RegistrySearch Id="PreviousFolder" Root="HKCU" Key="$(InstallerKey)" Name="InstallFolder"
+        Type="directory" />
+    </Property>
+    <Property Id="INNOFOLDER">
+      <RegistrySearch Id="InnoInstallLocation" Root="HKCU" Key="$(InnoUninstallKey)"
+        Name="InstallLocation" Type="directory" />
+      <RegistrySearch Id="InnoAppPath" Root="HKCU" Key="$(InnoUninstallKey)"
+        Name="Inno Setup: App Path" Type="directory" />
+    </Property>
+    <!--
+      Set as properties before costing: only then does an empty
+      INSTALLFOLDER mean the command line left it out.
+    -->
+    <SetProperty Id="INSTALLFOLDER" Action="UsePreviousFolder" Value="[PREVIOUSFOLDER]"
+      After="AppSearch" Sequence="first" Condition="NOT INSTALLFOLDER AND PREVIOUSFOLDER" />
+    <SetProperty Id="INSTALLFOLDER" Action="UseInnoFolder" Value="[INNOFOLDER]"
+      After="UsePreviousFolder" Sequence="first" Condition="NOT INSTALLFOLDER AND INNOFOLDER" />
+
+    <!--
+      The desktop shortcut is optional and off by default. An update keeps
+      the choice made before, here or in the Inno Setup program's tasks.
+      DESKTOPSHORTCUT=1 or =0 on the command line decides instead.
+    -->
+    <Property Id="DESKTOPSHORTCUT" Secure="yes" />
+    <Property Id="PREVIOUSDESKTOPSHORTCUT">
+      <RegistrySearch Id="PreviousDesktopShortcut" Root="HKCU" Key="$(InstallerKey)"
+        Name="DesktopShortcut" Type="raw" />
+    </Property>
+    <Property Id="INNOTASKS">
+      <RegistrySearch Id="InnoTasks" Root="HKCU" Key="$(InnoUninstallKey)"
+        Name="Inno Setup: Selected Tasks" Type="raw" />
+    </Property>
+    <SetProperty Id="DESKTOPSHORTCUT" Action="KeepDesktopShortcut" Value="1" After="AppSearch"
+      Sequence="first"
+      Condition='NOT DESKTOPSHORTCUT AND (PREVIOUSDESKTOPSHORTCUT = "1" OR INNOTASKS ~>&lt; "desktopicon")' />
+
+    <!--
+      The spotify: link command as it is now, and as this installation wrote
+      it, read before anything is removed.
+    -->
+    <Property Id="LINKCOMMAND">
+      <RegistrySearch Id="LinkCommand" Root="HKCU" Key="Software\Classes\$(LinkScheme)\shell\open\command"
+        Type="raw" />
+    </Property>
+    <Property Id="OWNLINKCOMMAND">
+      <RegistrySearch Id="OwnLinkCommand" Root="HKCU"
+        Key="Software\Classes\$(Identity).spotify\shell\open\command" Type="raw" />
+    </Property>
+
+    <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
+      <!-- A per-user component keeps its key path in HKCU. -->
+      <Component Id="Program" Guid="$(ProgramComponent)">
+        <File Id="SpotifastExe" Source="$(Payload)\spotifast.exe" KeyPath="no" />
+        <File Id="Readme" Source="$(Payload)\README.md" KeyPath="no" />
+        <File Id="License" Source="$(Payload)\LICENSE" KeyPath="no" />
+        <!-- Tells the updater a Windows installer put Spotifast here. -->
+        <File Id="InstallerMarker" Source="$(Payload)\spotifast-installer.txt" KeyPath="no" />
+        <RegistryValue Root="HKCU" Key="$(InstallerKey)" Name="InstallFolder" Type="string"
+          Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <!--
+          Only an empty folder goes: RemoveUpdateLeftovers (below) has emptied
+          it of the updater's staging folders on a real uninstall.
+        -->
+        <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+
+        <!--
+          Taking over an Inno Setup install, in the same transaction: its
+          uninstaller and uninstall entry go, and the files, links and Start
+          menu shortcut it shares with this package now belong to the
+          package. Its uninstaller is never run: it would delete them.
+        -->
+        <RemoveFile Id="InnoUninstaller" Name="unins000.exe" On="install" />
+        <RemoveFile Id="InnoUninstallLog" Name="unins000.dat" On="install" />
+        <RemoveFile Id="InnoUninstallMessages" Name="unins000.msg" On="install" />
+        <RemoveRegistryKey Action="removeOnInstall" Root="HKCU" Key="$(InnoUninstallKey)" />
+      </Component>
+
+      <Component Id="Links">
+        <!-- Spotify links reach Spotifast through its own class. -->
+        <RegistryKey Root="HKCU" Key="Software\Classes\$(Identity).spotify" ForceDeleteOnUninstall="yes">
+          <RegistryValue Type="string" Value="URL:Spotify link" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" />
+          <RegistryValue Key="DefaultIcon" Type="string" Value='"[#SpotifastExe]",0' />
+          <RegistryValue Key="shell\open\command" Type="string" Value='"[#SpotifastExe]" "%1"'
+            KeyPath="yes" />
+        </RegistryKey>
+        <!-- Settings > Apps > Default apps lists Spotifast for spotify: links. -->
+        <RegistryKey Root="HKCU" Key="Software\$(Identity)\Capabilities" ForceDeleteOnUninstall="yes">
+          <RegistryValue Name="ApplicationName" Type="string" Value="$(Identity)" />
+          <RegistryValue Name="ApplicationDescription" Type="string" Value="A native Spotify client" />
+          <RegistryValue Key="URLAssociations" Name="$(LinkScheme)" Type="string"
+            Value="$(Identity).spotify" />
+        </RegistryKey>
+        <RegistryValue Root="HKCU" Key="Software\RegisteredApplications" Name="$(Identity)"
+          Type="string" Value="Software\$(Identity)\Capabilities" />
+        <!--
+          The spotify: key is shared with whatever else opens the links, so
+          uninstalling takes it away only while it still opens this
+          installation. An update keeps it.
+        -->
+        <util:RemoveRegistryKey Id="SharedLinks" Root="HKCU" Key="Software\Classes\$(LinkScheme)"
+          On="uninstall" Condition="NOT UPGRADINGPRODUCTCODE AND OWNLINKCOMMAND AND LINKCOMMAND ~= OWNLINKCOMMAND" />
+      </Component>
+
+      <!--
+        Spotify links (spotify:track:…) open in Spotifast, for this user only.
+        The official client registers the same scheme when it is installed;
+        whichever was set up last has the links, and Settings > Apps > Default
+        apps can hand them to the other. Windows Installer never removes this
+        key on its own (no component GUID): the Links component above does,
+        and only while it still names this installation.
+      -->
+      <Component Id="SharedLinks" Guid="">
+        <RegistryKey Root="HKCU" Key="Software\Classes\$(LinkScheme)">
+          <RegistryValue Type="string" Value="URL:Spotify link" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" />
+          <RegistryValue Key="DefaultIcon" Type="string" Value='"[#SpotifastExe]",0' />
+          <RegistryValue Key="shell\open\command" Type="string" Value='"[#SpotifastExe]" "%1"'
+            KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      The conditions hold while removing too (OR REMOVE), so an uninstall
+      always takes what an install put there.
+    -->
+    <ComponentGroup Id="Shortcuts">
+      <!-- Same name and place as the Inno Setup shortcut, which it replaces. -->
+      <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+        <RemoveFile Id="InnoStartMenuShortcut" Name="$(Identity).lnk" On="install" />
+        <Shortcut Id="StartMenuShortcut" Name="$(Identity)" Target="[#SpotifastExe]"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="$(InstallerKey)" Name="StartMenuShortcut" Type="string"
+          Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="DesktopShortcut" Directory="DesktopFolder" Condition='DESKTOPSHORTCUT = "1" OR REMOVE'>
+        <RemoveFile Id="InnoDesktopShortcut" Name="$(Identity).lnk" On="install" />
+        <Shortcut Id="DesktopShortcut" Name="$(Identity)" Target="[#SpotifastExe]"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="$(InstallerKey)" Name="DesktopShortcut" Type="string"
+          Value="1" KeyPath="yes" />
+      </Component>
+      <!-- An Inno Setup desktop shortcut that is not wanted any more. -->
+      <Component Id="RetiredDesktopShortcut" Directory="DesktopFolder"
+        Condition='(DESKTOPSHORTCUT &lt;&gt; "1" AND INNOTASKS ~>&lt; "desktopicon") OR REMOVE'>
+        <RemoveFile Id="RetiredInnoDesktopShortcut" Name="$(Identity).lnk" On="install" />
+        <RegistryValue Root="HKCU" Key="$(InstallerKey)" Name="RetiredDesktopShortcut" Type="string"
+          Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Spotifast" Title="$(Identity)" AllowAbsent="no">
+      <ComponentGroupRef Id="Program" />
+      <ComponentGroupRef Id="Shortcuts" />
+    </Feature>
+
+    <!-- running-copy.c and update-leftovers.c. -->
+    <Binary Id="CustomActions" SourceFile="$(CustomActions)" />
+
+    <!-- A running copy: see running-copy.c. -->
+    <CustomAction Id="CheckRunningCopy" BinaryRef="CustomActions" DllEntry="CheckRunningCopy"
+      Execute="immediate" Return="check" />
+
+    <!--
+      What the updater leaves here: see update-leftovers.c. fastframe-update
+      stages each update in .spotifast-update-<suffix> inside INSTALLFOLDER,
+      and runs msiexec /i from the helper in it, beside a copy of the
+      previous version. Those go on a real uninstall and never otherwise.
+
+      In an update the new package removes the old one (RemoveExistingProducts)
+      in a session of the old package's own, with UPGRADINGPRODUCTCODE set,
+      and that session runs the old package's uninstall actions: an
+      On="uninstall" removal there would delete the running helper and its
+      backup mid-update. So the action's sequence condition, evaluated when
+      that session runs and not when the component was installed, requires
+      REMOVE="ALL" without UPGRADINGPRODUCTCODE.
+
+      Not util:RemoveFolderEx: it removes one folder named by a property,
+      and these have random names. Pointed at INSTALLFOLDER instead, it would
+      delete everything in a folder the user may have chosen and shared with
+      other files. Its removals would also run through RemoveFiles, where a
+      file held open asks for a restart; here such a file just stays.
+
+      Deferred, before RemoveFiles: that action also removes the folder for
+      RemoveInstallFolder (a RemoveFile row), after the package's own files,
+      so the staging folders must be gone by then. It always succeeds:
+      leftovers it cannot remove never fail an uninstall. A rolled-back
+      uninstall does not bring them back, and nothing needs them once
+      Spotifast is going.
+    -->
+    <SetProperty Id="RemoveUpdateLeftovers" Value="[INSTALLFOLDER]" Before="RemoveUpdateLeftovers"
+      Sequence="execute" Condition='REMOVE = "ALL" AND NOT UPGRADINGPRODUCTCODE' />
+    <CustomAction Id="RemoveUpdateLeftovers" BinaryRef="CustomActions" DllEntry="RemoveUpdateLeftovers"
+      Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- The package being replaced in an update has nothing to check. -->
+      <Custom Action="CheckRunningCopy" Before="InstallValidate" Condition="NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RemoveUpdateLeftovers" Before="RemoveFiles"
+        Condition='REMOVE = "ALL" AND NOT UPGRADINGPRODUCTCODE' />
+    </InstallExecuteSequence>
+
+    <!-- The wizard: welcome, license, folder and desktop shortcut, install, launch. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch $(Identity)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#SpotifastExe]" />
+    <CustomAction Id="LaunchSpotifast" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec"
+      Impersonate="yes" />
+
+    <UI Id="SpotifastUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="BrowseDlg" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <!--
+        WixUI's InstallDirDlg with the Inno Setup program's one task. An
+        update stays in the folder it has: the folder cannot change then.
+      -->
+      <Dialog Id="DestinationDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes"
+          Text="!(loc.WixUINext)" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes"
+          Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes"
+          NoPrefix="yes" Text="Choose where [ProductName] goes and whether it gets a desktop shortcut." />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes"
+          Text="{\WixUI_Font_Title}Destination and Shortcuts" />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no"
+          Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="FolderLabel" Type="Text" X="20" Y="60" Width="320" Height="24" NoPrefix="yes"
+          Text="!(loc.InstallDirDlgFolderLabel)" HideCondition="PREVIOUSFOLDER OR INNOFOLDER" />
+        <Control Id="UpdateLabel" Type="Text" X="20" Y="60" Width="320" Height="24" NoPrefix="yes" Hidden="yes"
+          Text="[ProductName] is already installed in this folder, and is updated there:"
+          ShowCondition="PREVIOUSFOLDER OR INNOFOLDER" />
+        <Control Id="Folder" Type="PathEdit" X="20" Y="88" Width="320" Height="18" Property="WIXUI_INSTALLDIR"
+          Indirect="yes" DisableCondition="PREVIOUSFOLDER OR INNOFOLDER" />
+        <Control Id="ChangeFolder" Type="PushButton" X="20" Y="110" Width="56" Height="17"
+          Text="!(loc.InstallDirDlgChange)" DisableCondition="PREVIOUSFOLDER OR INNOFOLDER" />
+        <Control Id="DesktopShortcut" Type="CheckBox" X="20" Y="148" Width="320" Height="17"
+          Property="DESKTOPSHORTCUT" CheckBoxValue="1" Text="Create a &amp;desktop shortcut" />
+      </Dialog>
+
+      <Publish Dialog="BrowseDlg" Control="OK" Event="DoAction" Value="WixUIValidatePath_$(sys.BUILDARCHSHORT)"
+        Order="3" Condition="NOT WIXUI_DONTVALIDATEPATH" />
+      <Publish Dialog="BrowseDlg" Control="OK" Event="SpawnDialog" Value="InvalidDirDlg" Order="4"
+        Condition='NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID &lt;&gt; "1"' />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg"
+        Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg"
+        Condition="Installed AND PATCH" />
+
+      <Publish Dialog="LicenseAgreementDlg" Control="Print" Event="DoAction"
+        Value="WixUIPrintEula_$(sys.BUILDARCHSHORT)" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="DestinationDlg"
+        Condition='LicenseAccepted = "1"' />
+
+      <Publish Dialog="DestinationDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
+      <Publish Dialog="DestinationDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]"
+        Order="1" />
+      <Publish Dialog="DestinationDlg" Control="Next" Event="DoAction"
+        Value="WixUIValidatePath_$(sys.BUILDARCHSHORT)" Order="2" Condition="NOT WIXUI_DONTVALIDATEPATH" />
+      <Publish Dialog="DestinationDlg" Control="Next" Event="SpawnDialog" Value="InvalidDirDlg" Order="3"
+        Condition='NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID &lt;&gt; "1"' />
+      <Publish Dialog="DestinationDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="4"
+        Condition='WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID = "1"' />
+      <Publish Dialog="DestinationDlg" Control="ChangeFolder" Property="_BrowseProperty"
+        Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="DestinationDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg"
+        Order="2" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="DestinationDlg" Order="1"
+        Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2"
+        Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2"
+        Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+
+      <!-- Launch after an interactive install, as the Finish page offers. -->
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchSpotifast" Order="1"
+        Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+<?if $(sys.BUILDARCH) = x64 ?>
+      <!--
+        Windows on ARM runs this package under emulation, and a copy installed
+        from it keeps updating to x64. The ARM package has everything this one
+        has and runs natively, so point to it. A silent install (an update)
+        goes ahead without asking.
+      -->
+      <Dialog Id="ArmWarningDlg" Width="300" Height="112" Title="!(loc.CancelDlg_Title)">
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" FixedSize="yes" IconSize="32"
+          Text="WixUI_Ico_Exclam" />
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="237" Height="62" NoPrefix="yes"
+          Text="This PC has an ARM processor. The ARM installer (aarch64) runs natively, faster and on less battery.&#13;&#10;&#13;&#10;Install the version for Intel and AMD processors anyway?" />
+        <Control Id="Yes" Type="PushButton" X="166" Y="85" Width="56" Height="17" Text="!(loc.WixUIYes)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="No" Type="PushButton" X="229" Y="85" Width="56" Height="17" Default="yes" Cancel="yes"
+          Text="!(loc.WixUINo)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+      <InstallUISequence>
+        <!-- Before the wizard's first page. -->
+        <Show Dialog="ArmWarningDlg" After="CostFinalize" Condition='NOT Installed AND NATIVEARCH = "ARM64"' />
+      </InstallUISequence>
+<?endif?>
+    </UI>
+    <UIRef Id="WixUI_Common" />
+
+<?if $(sys.BUILDARCH) = x64 ?>
+    <Property Id="NATIVEARCH">
+      <RegistrySearch Id="NativeArch" Root="HKLM"
+        Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment" Name="PROCESSOR_ARCHITECTURE"
+        Type="raw" />
+    </Property>
+<?endif?>
+  </Package>
+</Wix>

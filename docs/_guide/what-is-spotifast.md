@@ -84,16 +84,16 @@ help explain why, even when you started the app from your desktop.
 
 ## Prior art
 
-Spotifast is written in Rust, with [egui](https://github.com/emilk/egui) for
-its interface and [librespot](https://github.com/librespot-org/librespot) for
-Spotify playback. It takes inspiration from
+Spotifast is written in Rust, with [egui](https://www.egui.rs) and
+[fastframe](https://fastframe.dev) for its interface and
+[librespot](https://github.com/librespot-org/librespot) for Spotify playback.
+fastframe is the shared foundation of a family of native apps, including
+Spotifast's sibling [ZapFast](https://zapfast.rocks), a native client for
+WhatsApp. Spotifast takes inspiration from
 [spotify-tui](https://github.com/Rigellute/spotify-tui),
 [spotify-player](https://github.com/aome510/spotify-player),
 [ncspot](https://github.com/hrkfdn/ncspot), and
-[Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify). Spotifast is
-a sibling of [ZapFast](https://zapfast.rocks), a native client for WhatsApp.
-Both are built on [fastframe](https://github.com/crmne/fastframe), the shared
-foundation for native Rust apps built with egui.
+[Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify).
 
 Spotifast is an independent project, not affiliated with or endorsed by
 Spotify AB. Spotify is a trademark of Spotify AB.

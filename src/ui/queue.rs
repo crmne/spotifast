@@ -373,7 +373,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                     Some(_) => 4.0,
                     None => 0.0,
                 },
-                0.12,
+                crate::motion::seconds(ui.ctx(), 0.12),
             );
             queue_row(app, ui, index, compact, shift);
             ui.allocate_space(egui::vec2(width, gap));

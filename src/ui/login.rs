@@ -26,7 +26,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             } else {
                 rect
             };
-            super::titlebar_drag(ui, drag_rect);
+            fastframe_titlebar::drag(ui, drag_rect);
             let top = super::blend(palette.window, palette.accent, 0.10);
             super::widgets::paint_vertical_gradient(ui, rect, top, palette.window);
             let card_width = 440.0;

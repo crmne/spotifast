@@ -45,18 +45,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let id = album.id.clone();
                 let uri = album.uri.clone();
                 let subtitle = join_names(album.artists.iter().map(|artist| artist.name.as_str()));
-                let playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
-                    && app.believed_playing();
+                let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
+                let playing_here = context_here && app.believed_playing();
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&album.images, 640),
+                    pick_image(&album.images, card_art),
                     &album.name,
                     &subtitle,
                     widgets::CardCover::square(playing_here),
                 );
                 if card.play {
-                    if playing_here {
+                    if context_here {
                         app.actions.push(Action::TogglePlay);
                     } else {
                         app.actions.push(Action::PlayContext {
@@ -102,18 +103,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let artist = app.library.artists.items[index].clone();
                 let id = artist.id.clone();
                 let uri = artist.uri.clone();
-                let playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
-                    && app.believed_playing();
+                let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
+                let playing_here = context_here && app.believed_playing();
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&artist.images, 640),
+                    pick_image(&artist.images, card_art),
                     &artist.name,
                     &artist_label,
                     widgets::CardCover::portrait(playing_here),
                 );
                 if card.play {
-                    if playing_here {
+                    if context_here {
                         app.actions.push(Action::TogglePlay);
                     } else {
                         app.actions.push(Action::PlayContext {
@@ -159,10 +161,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
             widgets::virtual_wrapped_cards(ui, count, card_height, |ui, index| {
                 let show = app.library.shows.items[index].show.clone();
                 let id = show.id.clone();
+                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
-                    pick_image(&show.images, 640),
+                    pick_image(&show.images, card_art),
                     &show.name,
                     &show.publisher,
                     widgets::CardCover::default(),
@@ -248,6 +251,19 @@ fn footer(
     icon: Icon,
 ) {
     let palette = app.palette;
+    if !app.network_reachable && empty {
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::WifiOff,
+            &gettext(app.locale, "You're offline"),
+            &gettext(
+                app.locale,
+                "Spotifast will reconnect automatically when your connection returns.",
+            ),
+        );
+        return;
+    }
     if loading {
         ui.add_space(8.0);
         widgets::loading_row(ui, &palette, app.locale);

@@ -2,7 +2,8 @@
 
 [`native-packages.yaml`](native-packages.yaml) is the packaging configuration:
 it pins the shared CLI and nFPM versions and declares Linux amd64/arm64 inputs,
-DEB/RPM/AppImage contents, dependencies, recipe templates and downstream repositories.
+DEB/RPM/AppImage contents, dependencies, the macOS disk image and Windows
+Installer packages, recipe templates and downstream repositories.
 Application assets and native recipes stay in `packaging/`.
 
 Public AUR, Homebrew, DEB/RPM and release download names use Spotifast, and
@@ -29,7 +30,7 @@ Linux desktop assets beside its binaries and packages the signed macOS
 desktop hooks.
 
 ```sh
-gem install native-packages --version 0.8.1
+gem install native-packages --version 0.9.0
 native-packages validate
 native-packages doctor --target linux-amd64 --target linux-arm64
 native-packages build --release v1.2.3 --target linux-amd64 --target linux-arm64
@@ -98,10 +99,10 @@ AUR automation needs `PUBLISH_AUR=true`, `AUR_SSH_KEY` and `AUR_KNOWN_HOSTS`;
 Homebrew automation needs `PUBLISH_HOMEBREW=true` and
 `HOMEBREW_TAP_GITHUB_TOKEN`. Enable only configured destinations.
 
-The macOS target, Windows and Flatpak build steps remain responsible
+The macOS and Windows targets and the Flatpak build step remain responsible
 for their native artifacts. Additional nFPM formats require suitable platform
 inputs and dependencies; adding a format does not port the application.
-See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.8.1)
+See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.9.0)
 for commands and supported formats.
 
 The manual **Flatpak from release** workflow can rebuild a missing Flatpak from
@@ -118,7 +119,8 @@ recipe's prepare/build/check directory handling with Cargo calls stubbed out;
 it does not replace compilation or native package installation checks.
 
 To upgrade the tool, change `tool.version` in `native-packages.yaml`, the matching
-immutable workflow reference, and any release-job gem installation pin together.
+immutable workflow reference, and the gem installation pins in the release and
+CI workflows together.
 Applications need no packaging Gemfile, lockfile or Ruby wrapper.
 
 ## Automatic macOS notarization
@@ -141,7 +143,7 @@ secrets, which the job exposes as environment variables:
 A complete set enables notarization automatically. An incomplete set fails;
 no values retain local builds without Developer ID signing. Application inputs
 and the user's normal keychains remain unchanged. See the shared
-[Apple setup and phase contract](https://github.com/crmne/native-packages/blob/v0.8.1/docs/apple-notarization.md).
+[Apple setup and phase contract](https://github.com/crmne/native-packages/blob/v0.9.0/docs/apple-notarization.md).
 
 After preparing `dist/macos-input` on a Mac, test packaging without publishing:
 
@@ -152,6 +154,69 @@ native-packages build \
 
 Secret configuration applies to future builds. Existing published DMGs retain
 their original signatures; this setup does not replace release assets.
+
+## Windows Installer package
+
+Each Windows release job builds the Inno Setup program
+(`packaging/windows/spotifast.iss`) and the Windows Installer package from the
+same binary. The package comes from `packaging/windows/spotifast.wxs` (WiX
+Toolset 5): native-packages selects `windows-amd64` or `windows-arm64` with
+`--defer-recipes` and runs `packaging/windows/build-msi.py`. That script
+compiles the package's custom actions (`running-copy.c`,
+`update-leftovers.c`) with the job's MSVC tools, refuses an executable whose
+version resource does not carry the release version, and runs WiX with
+`-pdbtype none`, so the package is the only output.
+
+Windows installs move to the package over two releases. The next release
+ships both `-setup.exe` and `.msi`: earlier versions only know the setup
+program and update through it, and that release's updater prefers the package.
+Later releases can drop the setup program, `spotifast.iss` and
+`test-uninstall.py`.
+
+The updater (fastframe-update) runs `msiexec /i PACKAGE /qn /norestart /l*v LOG
+INSTALLFOLDER="<the app's folder>"` and accepts exit codes 0 and 3010. The package:
+
+- installs per user, without elevation, to `%LOCALAPPDATA%\Programs\Spotifast`
+  or `INSTALLFOLDER`. Run by hand, it finds the folder an earlier package or
+  the setup program used.
+- keeps one `UpgradeCode`, `{3DFFED43-88FE-4A31-9461-50BE03094316}`, forever.
+  An update replaces the earlier version in one transaction, so a failed
+  update restores it.
+- takes over a setup program install in the same transaction. It replaces the
+  files, removes `unins000.*` and the `{FCED1EA0-EBF5-4C32-BA3B-A3AD724BACC3}_is1`
+  uninstall entry, and keeps the Start menu entry and the desktop shortcut
+  task. It never runs Inno's uninstaller, which would delete the package's files.
+- installs the `spotifast-installer.txt` marker the updater looks for.
+- replaces every file whatever its version or date (`REINSTALLMODE=amus`).
+- closes a running installed copy before an update, and removes nothing while
+  it runs (#766). A portable copy elsewhere is never closed.
+- removes the updater's staging folders (`.spotifast-update-*`, its helper
+  and the previous version) from the installation folder on a real uninstall,
+  so the folder goes too. Never in an update: there the old version is
+  uninstalled while the helper in one of them runs the package
+  (`update-leftovers.c`, conditioned on `REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE`).
+
+To build it on Windows, install WiX with
+`dotnet tool install --global wix --version 5.0.2` and open a Visual Studio
+developer prompt for the target architecture. Put `spotifast.exe`, `README.md`,
+`LICENSE` and `packaging\windows\spotifast-installer.txt` in a folder, then:
+
+```powershell
+python packaging\windows\build-msi.py FOLDER dist\spotifast.msi 1.2.3 amd64
+```
+
+With the same files in `dist\msi-input-x86_64-pc-windows-msvc`,
+`native-packages build --version 1.2.3 --target windows-amd64 --defer-recipes`
+builds it as the release does.
+
+`python packaging\windows\test-msi.py [ISCC.exe]` installs, updates and removes
+throwaway copies of the package, with an identity of their own, so it never
+touches a real installation. It covers a running installed copy, a portable
+copy, a missing executable, links another program took over, the updater's
+staging folders in an uninstall and an update, and takeovers of a setup
+program install. CI runs it on x64 and arm64.
+`python packaging\windows\test-uninstall.py ISCC.exe` covers the setup
+program's uninstaller.
 
 `packaging/release-names.py DIST TAG` checks the release's `spotifast-`
 downloads and writes their checksums. Run `python3 packaging/test-release-names.py`

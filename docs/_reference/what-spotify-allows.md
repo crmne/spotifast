@@ -23,7 +23,8 @@ Spotifast uses the Web API for:
   also save and remove items.
 - **Playlists:** reading, creating, renaming, changing the description and
   visibility, adding and removing songs, reordering songs, and following and
-  unfollowing. Custom playlist cover uploads are available since 0.9.0.
+  unfollowing. The playlist view reports how many people saved a playlist.
+  Custom playlist cover uploads are available since 0.9.0.
 - **Catalogue:** albums, artists, tracks, shows, episodes, search, and
   recommendations. Artist pages include top tracks, releases, and related
   artists.
@@ -63,13 +64,38 @@ clients. Spotifast uses its session for:
   account, and a newer Web API answer takes precedence over an older disk
   cache. A song the session reads first has unknown availability; if it cannot
   play, it is skipped when reached, as it would be anywhere else.
+- **Library playlists the Web API lists blank.** The library list gives
+  some of Spotify's own playlists, "This Is" ones among them, no name,
+  cover, description, or songs. Spotifast reads each one's header over the
+  session once per sign-in to fill its row. Without local playback those
+  rows stay blank.
 - **Lyrics** when Spotify has them.
-- **Display names** for the user IDs attached to songs in a playlist.
+- **Artist popular tracks.** The account's market-specific ranking and batched
+  track details, with the shared Web API as fallback when the session cannot
+  supply them. This uses librespot's existing metadata support.
+- **Upcoming album pages.** Prerelease metadata supplies the real album mapping,
+  cover and release time. Pathfinder supplies ordered preview rows and explicit
+  playability; unpublished rows stay visible without entering playback. The
+  session collection service reads pre-save state and writes it only after the
+  user presses the button. No Web API grant implements this operation.
+- **Display names and avatars** for the user IDs attached to songs in a
+  playlist and for a playlist's owner, from the profile view Spotify's own
+  clients read.
 - **Precise EP types** for releases that the Web API groups with singles.
+- **Made for you** through Spotify's personalized Home section. This private
+  request uses the playback session and an already verified Web API grant;
+  when it succeeds, it does not spend the shared app's playlist-search quota.
+  If it fails, the shared Web API can supply approximate playlist-name search
+  results in the same **Made for you** shelf. Spotify may change the private Home
+  response without a Web API version change.
 - **Radio and autoplay** through Spotify's context resolver: stations seeded
   by a song, playlist, album, or artist. Each resolution is a fresh mix of 50
   songs, so a radio page plays the songs it shows rather than asking again.
 - **Audiobook detection** for saved shows, which the Web API lists as podcasts.
+- **Google Cast speakers and groups.** librespot has no Cast sender, so
+  Spotifast starts Spotify's receiver on the device itself. The session then
+  obtains a token for that receiver, as Spotify's own apps do. See
+  [how it connects](/how-it-connects/#google-cast-devices).
 
 ## librespot playback
 
@@ -81,13 +107,17 @@ librespot provides:
 - Spotify Connect, so another Spotify client can transfer playback to this
   computer.
 - Shuffle, repeat, seek, and volume.
+- Control of restricted Connect devices, including Sonos, through the signed-in
+  playback session. Sonos receivers are discovered on the local network;
+  the Web API alone cannot start or control them.
 - Songs and podcast episodes.
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 
-Spotifast uses a small librespot fork. Its patches add queue controls,
-normalisation data for the visualisers, and an event for rejected audio keys.
-They are listed in `Cargo.toml`. Larger changes go upstream first.
+Spotifast uses a small librespot fork: librespot's development branch with a
+few patches that are also proposed upstream, such as normalisation data for the
+visualisers and an event for rejected audio keys. They are listed in
+`Cargo.toml` and dropped as librespot merges them.
 
 ## Not available
 
@@ -102,6 +132,9 @@ The Web API and librespot do not provide these features:
   generates these for its own clients. Spotifast only has plain shuffle.
   A Blend that a Spotify app already made opens like any playlist, with
   who added each song, but Spotifast cannot start or manage one.
+- **Spotify DJ.** Its special playlist context does not expose playable tracks
+  to librespot, so Spotifast leaves its card out of Made for you. See
+  [librespot issue #1604](https://github.com/librespot-org/librespot/issues/1604).
 - **Lossless audio.** librespot does not receive lossless streams. Spotifast
   will reconsider this if librespot gains lawful support, but it will not
   bypass Spotify's DRM.
@@ -111,11 +144,6 @@ The Web API and librespot do not provide these features:
 - **Audiobooks.** librespot does not play them. Spotify lists some
   audiobooks among saved shows; since 0.10.0, Spotifast asks the
   librespot session which ones and leaves them out of the Podcasts shelf.
-- **Google Cast.** Spotify's own apps find Cast speakers on the local
-  network and start Spotify's receiver on them. librespot has no Cast
-  sender, and the Web API only lists a Cast device once a Spotify app has
-  already woken it, so Spotifast cannot discover or start one itself. See
-  [issue #566](https://github.com/crmne/spotifast/issues/566).
 - **Offline listening and downloads.** Spotify's DRM and the project's scope
   rule these out.
 - **Playback speed.** librespot does not change it. Spotifast would have to

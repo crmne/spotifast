@@ -98,25 +98,64 @@ The same rules apply to hand-written and AI-assisted changes. The author must
 understand every line and answer review comments with specific reasoning.
 
 Code changes should include tests for behaviour that can regress. UI changes
-should include before/after screenshots or a short recording and should use
-demo mode where possible. User-visible behaviour, settings, files, or network
-access must be documented in the same pull request.
+should include before/after screenshots or a short recording in the pull
+request, not in the repository, and should use demo mode where possible.
+User-visible behaviour, settings, files, or network access must be documented
+in the same pull request.
+
+Dependencies come from crates.io or from repositories the maintainer owns
+under `github.com/crmne/`. A `git` dependency or `[patch]` entry may point only
+at such a repository, and adding or changing one needs the maintainer's
+explicit approval. Never point a dependency at your own fork or any other
+source. If a dependency needs a fix, send it upstream and link it from the pull
+request; the maintainer can carry it in a `crmne` fork until a release
+includes it. CI fails when `Cargo.toml`, `Cargo.lock` or `.cargo/config.toml`
+names any other git source or registry.
+
+### Settings
+
+Do not add a setting (a new field in `Settings`, a toggle, a slider, a choice
+of options) without the maintainer's approval in the issue first. The answer is
+usually no: prefer a good default that serves everyone, or a keyboard shortcut
+or command for the people who want something else. A pull request that adds a
+setting without that approval will be asked to remove it. CI fails when a pull
+request adds a field to a `Settings` struct in `src/settings.rs`, until the
+maintainer adds the `setting-approved` label.
 
 ### Visual reviews
 
-Provide an HTML comparison with actual before-and-after captures, using demo
-mode where possible. Match the data, page, interaction state, zoom and window
-size so the difference shows the proposed change. Identify the baseline and
-candidate, and report which platforms actually produced the captures.
+Review evidence lives in the pull request, never in the repository. Attach
+captures and recordings to the pull request description, or to a comment when
+you update them, by dragging the files into GitHub's editor. Do not commit
+screenshots, comparison pages or recordings, under `docs/assets/` or anywhere
+else. CI fails when `docs/assets/` holds a file no page uses, or when an image,
+video or HTML file is named for a review (review, compare, comparison, before,
+after). Only images the project itself uses, such as a figure a documentation
+page shows or an icon the app draws, belong in the repository.
 
-Include light/dark and narrow/normal window selectors, plus Before and After
-buttons or a comparison slider. Show relevant open menus, loading, error and
-empty states. Explain the visible change briefly and list any remaining checks.
+Use actual before-and-after captures, from demo mode where possible. Match the
+data, page, interaction state, zoom and window size so the difference shows the
+proposed change. Identify the baseline and candidate, and report which
+platforms actually produced the captures.
+
+Lay the captures out in the description as a table with Before and After side
+by side, for light and dark themes at a narrow and a normal window size. Show
+relevant open menus, loading, error and empty states, and attach a short
+recording when the change moves. Explain the visible change briefly and list
+any remaining checks.
+
+An interactive HTML comparison, with theme and size selectors and Before and
+After buttons or a slider, helps with larger changes. Attach it to the pull
+request as one self-contained `.html` file with the captures embedded, which
+GitHub hands readers as a download to open in a browser, or publish it
+elsewhere, for example with GitHub Pages from your fork, and link it from the
+description. A gist does not work: GitHub shows its HTML as source.
 
 When reviewing several changes, provide one index with the PR number and name,
 a selector and Previous/Next controls, and a direct link to each comparison.
-Load only the selected review. The maintainer can approve by PR number and
-give exceptions or requested adjustments in a normal message.
+Load only the selected review, and publish the index outside the repository
+too. The maintainer can approve by PR number and give exceptions or requested
+adjustments in a normal message.
 
 Visual approval covers the described appearance and interaction; integration
 still requires the relevant checks. Retain approval across rebases that preserve
@@ -128,6 +167,9 @@ ask again only if the resulting scope goes beyond what was approved or requested
 Run the same checks CI runs before submitting:
 
 ```sh
+python3 .github/scripts/check-dependency-sources.py
+python3 .github/scripts/check-review-evidence.py
+python3 .github/scripts/check-new-settings.py --base origin/main
 python3 packaging/test-launchers.py
 cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
@@ -169,8 +211,8 @@ Translation changes also need `.github/scripts/update-translations.sh --check`,
 using GNU gettext tools with Rust support. Run the script without `--check` when
 translatable source strings change, and review any fuzzy or missing entries in
 the updated PO files. Normal Cargo builds compile the catalogs without gettext
-tools. See [Translating Spotifast](docs/_reference/translating.md) for the pilot
-scope and contributor workflow.
+tools. See [Translating Spotifast](docs/_reference/translating.md) for language
+coverage and the contributor workflow.
 
 Documentation deployments take their canonical URL from the domain configured
 in GitHub Pages. When changing domains, configure DNS and GitHub Pages before

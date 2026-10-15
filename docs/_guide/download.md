@@ -6,6 +6,13 @@ nav_order: 1
 
 {% assign v = site.spotifast_version %}
 {% assign base = "https://github.com/crmne/spotifast/releases/download/v" | append: v %}
+{% comment %} Releases after 0.12.0 ship a Windows Installer package (.msi). {% endcomment %}
+{% assign version = v | split: "." %}
+{% assign major = version[0] | plus: 0 %}
+{% assign minor = version[1] | plus: 0 %}
+{% assign patch = version[2] | plus: 0 %}
+{% assign windows_installer = "-setup.exe" %}
+{% if major > 0 or minor > 12 or minor == 12 and patch > 0 %}{% assign windows_installer = ".msi" %}{% endif %}
 
 The current version is **v{{ v }}**. You can use the
 [download checksums]({{ base }}/checksums.txt) to check that a file has not
@@ -45,9 +52,15 @@ Download and run the installer. It adds Spotifast to the Start menu and does
 not need an administrator password. Choose the first download for most PCs,
 or the ARM version if your PC uses an ARM processor:
 
-- [Windows installer (most PCs)]({{ base }}/spotifast-v{{ v }}-x86_64-pc-windows-msvc-setup.exe)
-- [Windows installer (ARM PCs)]({{ base }}/spotifast-v{{ v }}-aarch64-pc-windows-msvc-setup.exe)
-
+- [Windows installer (most PCs)]({{ base }}/spotifast-v{{ v }}-x86_64-pc-windows-msvc{{ windows_installer }})
+- [Windows installer (ARM PCs)]({{ base }}/spotifast-v{{ v }}-aarch64-pc-windows-msvc{{ windows_installer }})
+{% if windows_installer == ".msi" %}
+The installer is a Windows Installer package (`.msi`). Spotifast installed
+with the earlier setup program (`-setup.exe`) moves to it through its own
+updates, or right away when you run the new installer, and keeps its settings,
+its folder and its Start menu entry. Windows then lists one Spotifast under
+installed apps.
+{% endif %}
 To run Spotifast without an installer, download a ZIP file, extract it, and
 open `spotifast.exe`.
 
@@ -59,11 +72,15 @@ choose **More info**, then **Run anyway**.
 
 Spotifast needs OpenGL 2.0 or newer, which every current Windows graphics
 driver provides. In a virtual machine or remote session that only has the
-Microsoft Basic Display Adapter, it may not start; install the machine's
-graphics driver, or enable GPU acceleration for the virtual machine.
+Microsoft Basic Display Adapter, it cannot open its window and says so in a
+message that links to this page; install the machine's graphics driver, or
+enable GPU acceleration for the virtual machine.
 
 To choose which app opens Spotify links, use **Settings → Apps → Default apps**
 in Windows.
+
+Uninstalling while Spotifast runs removes nothing until it is closed. The
+installer offers to close it for you; closing it that way ends it at once.
 
 ## Linux
 
@@ -81,7 +98,7 @@ yay -S spotifast-git      # built from the latest commit
 ### Flatpak
 
 Download the [Spotifast Flatpak]({{ base }}/spotifast-v{{ v }}-x86_64.flatpak?flatpak-id=rocks.spotifast.Spotifast).
-It requires Flatpak and the Freedesktop 24.08 runtime, a set of shared
+It requires Flatpak and the Freedesktop 25.08 runtime, a set of shared
 components used by Flatpak apps:
 
 ```sh

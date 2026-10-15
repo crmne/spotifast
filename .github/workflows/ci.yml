@@ -18,6 +18,43 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Dependencies come only from crates.io or from crmne repositories,
+  # review evidence (captures, comparison pages, recordings) stays in the pull
+  # request instead of the tree, and a pull request adds no setting without
+  # the maintainer's approval. See CONTRIBUTING.md.
+  policy:
+    name: policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dependency sources
+        run: python3 .github/scripts/check-dependency-sources.py
+      - name: No review evidence in the tree
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/check-review-evidence.py
+      - name: Policy check regressions
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/test-policy-checks.py
+      # Pull requests only: the maintainer's own commits on main are not
+      # checked. The label is read when the job runs, so after adding
+      # setting-approved, re-run this job.
+      - name: New settings need approval
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE"
+          labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '.[].name')
+          approved=()
+          if grep -qx setting-approved <<< "$labels"; then approved=(--approved); fi
+          python3 .github/scripts/check-new-settings.py --base "$BASE" "${approved[@]}"
+
   quality:
     name: quality
     runs-on: ubuntu-latest
@@ -136,6 +173,42 @@ jobs:
           if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
           & $iscc "/DVersion=$version" "/DArch=$arch" "/DBinary=$PWD\target\debug\spotifast.exe" "/DOutputDir=$env:RUNNER_TEMP\spotifast-installer-check" packaging\windows\spotifast.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # The Windows Installer package, which native-packages builds as the
+      # release does (native-packages.yaml), from the executable built above.
+      - uses: ruby/setup-ruby@v1
+        if: runner.os == 'Windows'
+        with:
+          ruby-version: '4.0'
+      - name: Windows Installer package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet tool install wix --version 5.0.2 --tool-path "$env:RUNNER_TEMP\wix"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$env:RUNNER_TEMP\wix" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          $env:PATH = "$env:RUNNER_TEMP\wix;$env:PATH"
+          gem install native-packages --version 0.9.0 --no-document
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          $target, $id = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64-pc-windows-msvc', 'windows-arm64' } else { 'x86_64-pc-windows-msvc', 'windows-amd64' }
+          $payload = "dist\msi-input-$target"
+          New-Item -ItemType Directory -Force $payload | Out-Null
+          Copy-Item target\debug\spotifast.exe, README.md, LICENSE, packaging\windows\spotifast-installer.txt $payload
+          native-packages build --version $version --target $id --defer-recipes --output "$env:RUNNER_TEMP\spotifast-msi-check"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Installs, updates and removes throwaway copies of the package, with
+      # an identity of their own: a running copy, a portable copy, and an
+      # Inno Setup install it takes over (#766 and the updater's contract).
+      - name: Windows Installer install, update and uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          python packaging\windows\test-msi.py $iscc -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: macOS bundle identity and helper startup

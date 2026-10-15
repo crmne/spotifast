@@ -1,5 +1,6 @@
 //! Spotifast's internals, exposed so diagnostics and tests can reach them.
 
+pub mod account_cache;
 pub mod api;
 pub mod app;
 #[cfg(target_os = "linux")]
@@ -8,6 +9,7 @@ pub mod auth;
 pub mod autoscroll;
 pub mod backend;
 pub mod bidi;
+pub mod cast;
 pub mod credentials;
 #[cfg(any(test, feature = "demo"))]
 pub mod demo;
@@ -29,19 +31,24 @@ pub mod mac_menu;
 pub mod mac_notch;
 #[cfg(target_os = "macos")]
 pub mod mac_touchbar_crash_guard;
+pub mod made_for_you;
 pub mod milkdrop;
 pub mod model;
+pub mod motion;
 pub mod notch;
 pub mod opener;
 pub mod paths;
 pub mod player;
 pub mod playlist_cover;
+pub mod power;
+pub mod prerelease;
 pub mod resample;
 pub mod session_reads;
 pub mod settings;
 pub mod single_instance;
 pub mod sink;
 pub mod skin;
+pub mod sonos;
 pub mod system_fonts;
 pub mod theme;
 pub mod thumbbar;

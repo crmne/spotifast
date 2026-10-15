@@ -168,6 +168,74 @@ pub(crate) fn clear_search(ctx: &egui::Context) {
 }
 const PROXY_DIRTY_ID: &str = "proxy-settings-dirty";
 
+/// A frame-rate dial: 30, 60, the screen's rate once known, the current rate
+/// and Uncapped. Returns the rate a move lands on.
+fn frame_rate_dial(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    locale: crate::i18n::Locale,
+    screen_hz: u32,
+    fps: u32,
+) -> Option<u32> {
+    // The dial stops at the rates worth having and passes
+    // through nothing in between, the way a gear lever does.
+    let stops = crate::milkdrop::fps_stops(screen_hz, fps);
+    let last = stops.len().saturating_sub(1);
+    let mut at = stops.iter().position(|rate| *rate == fps).unwrap_or(1);
+    let labels: Vec<String> = stops
+        .iter()
+        .map(|rate| crate::milkdrop::fps_label(locale, *rate, screen_hz))
+        .collect();
+    let shown = labels.clone();
+    let typed = stops.clone();
+    let changed = setting_slider(
+        ui,
+        palette,
+        &mut at,
+        0..=last,
+        |slider| slider.step_by(1.0),
+        // A drag moves one stop every twenty points.
+        |value| {
+            value
+                .speed(0.05)
+                .custom_formatter(move |value, _| {
+                    shown
+                        .get((value.round().max(0.0) as usize).min(shown.len() - 1))
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .custom_parser(move |text| {
+                    // A rate typed in lands on the nearest stop, since
+                    // the stops are all this dial can hold.
+                    let text = text.trim().to_lowercase();
+                    if text.starts_with("un") {
+                        return Some(typed.len().saturating_sub(1) as f64);
+                    }
+                    let wanted: u32 = text
+                        .trim_end_matches("fps")
+                        .trim()
+                        .split(',')
+                        .next()?
+                        .trim()
+                        .parse()
+                        .ok()?;
+                    typed
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, rate)| **rate > 0)
+                        .min_by_key(|(_, rate)| rate.abs_diff(wanted))
+                        .map(|(index, _)| index as f64)
+                })
+        },
+    )
+    .changed();
+    if changed {
+        stops.get(at).copied()
+    } else {
+        None
+    }
+}
+
 fn section(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -288,10 +356,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if row_matches(&needle, &format!("{sign_out} {account}"), "") {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 14.0;
-                    let avatar = app
-                        .user
-                        .as_ref()
-                        .and_then(|user| pick_image(&user.images, 64).map(str::to_string));
+                    let avatar = app.user.as_ref().and_then(|user| {
+                        pick_image(&user.images, app.art_px(56.0)).map(str::to_string)
+                    });
                     widgets::cover(ui, &palette, avatar.as_deref(), 56.0, 28.0, Icon::User);
                     ui.vertical(|ui| {
                         let name = app
@@ -423,6 +490,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             gettext(locale, "Connecting to Spotify…"),
             None,
         ),
+        crate::backend::LocalPlayback::WaitingForNetwork => (
+            pgettext(locale, "playback status", "Waiting for network"),
+            gettext(
+                locale,
+                "Waiting for network connectivity to resume playback.",
+            ),
+            None,
+        ),
         crate::backend::LocalPlayback::Failed(message) => (
             pgettext(locale, "playback status", "Unavailable"),
             message.clone().into(),
@@ -500,13 +575,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
         )
         .when(cfg!(target_os = "linux")),
-        RowText::new(
-            gettext(locale, "Output device"),
-            gettext(
-                locale,
-                "Where music on this computer is heard. System default follows the device your computer uses.",
-            ),
-        ),
         RowText::new(
             gettext(locale, "Output buffer"),
             gettext(
@@ -667,7 +735,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     playback_dirty = true;
                 }
             });
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[16], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[15], |ui| {
                 // The control area lays out right-to-left: the switch is the
                 // rightmost item, and the slider sits to its left.
                 ui.horizontal(|ui| {
@@ -718,7 +786,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             #[cfg(target_os = "macos")]
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[15], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[14], |ui| {
                 if widgets::switch(
                     ui,
                     &palette,
@@ -742,7 +810,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     changed = true;
                 }
             });
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[14], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[13], |ui| {
                 if widgets::switch(
                     ui,
                     &palette,
@@ -780,11 +848,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     });
                 });
             }
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[9], |ui| {
-                output_device_picker(app, ui, &mut changed, &mut playback_dirty);
-            });
             #[cfg(windows)]
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[10], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[9], |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let current = app.settings.audio_buffer_ms;
@@ -800,7 +865,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     }
                 });
             });
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[11], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[10], |ui| {
                 // The control area lays out right-to-left: add the rightmost item first.
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
@@ -833,8 +898,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
             ui.add_space(4.0);
             if playback_dirty
+                || playback_rows[11].matches(&needle, &playback)
                 || playback_rows[12].matches(&needle, &playback)
-                || playback_rows[13].matches(&needle, &playback)
             {
                 ui.horizontal(|ui| {
                     if playback_dirty {
@@ -860,7 +925,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let tracklist_compact = gettext(locale, "Compact track list");
     let middle_click = gettext(locale, "Middle-click autoscroll");
     let custom_titlebar = gettext(locale, "Custom title bar");
+    let show_custom_titlebar = cfg!(target_os = "linux") || app.windows_controls_visible();
     let player_bar_vis = gettext(locale, "Player bar visualizer");
+    let player_bar_vis_click = gettext(locale, "Click player bar to change visualizer");
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
             let detail = theme::catalog_detail(
@@ -927,15 +994,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             custom_titlebar.clone(),
             gettext(
                 locale,
-                "Draw Spotifast's own title bar and window buttons instead of the standard Windows ones.",
+                "Draw Spotifast's own title bar and window buttons instead of the desktop's.",
             ),
         )
-        .when(app.windows_controls_visible()),
+        .when(show_custom_titlebar),
         RowText::new(
             player_bar_vis.clone(),
             gettext(
                 locale,
                 "Show the song moving behind the player bar's controls while it plays here.",
+            ),
+        ),
+        RowText::new(
+            player_bar_vis_click.clone(),
+            gettext(locale, "Allow clicks on empty player bar space to cycle the visualizer."),
+        ),
+        RowText::new(
+            gettext(locale, "Frame rate"),
+            gettext(
+                locale,
+                "How often the player bar and mini player visualizers draw. Lower rates use fewer resources. MilkDrop has its own.",
             ),
         ),
     ];
@@ -1127,6 +1205,44 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 &needle,
                 &appearance,
+                &appearance_rows[9],
+                |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        &player_bar_vis_click,
+                        &mut app.settings.player_bar_vis_click,
+                    )
+                    .changed()
+                    {
+                        changed = true;
+                    }
+                },
+            );
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &appearance,
+                &appearance_rows[10],
+                |ui| {
+                    if let Some(rate) = frame_rate_dial(
+                        ui,
+                        &palette,
+                        locale,
+                        app.visualiser_screen_hz(),
+                        app.settings.visualizer_fps,
+                    ) {
+                        app.settings.visualizer_fps = rate;
+                        changed = true;
+                    }
+                },
+            );
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &appearance,
                 &appearance_rows[3],
                 |ui| {
                     if widgets::switch(
@@ -1211,7 +1327,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     },
                 );
             }
-            if app.windows_controls_visible() {
+            if show_custom_titlebar {
                 filtered_row(
                     ui,
                     &palette,
@@ -1513,7 +1629,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 
     let presets_folder = app.dirs.milkdrop_dir();
-    app.winamp.presets.refresh(&presets_folder);
+    app.winamp
+        .presets
+        .refresh(&presets_folder, Some(ui.ctx().clone()));
     let count = app.winamp.presets.count();
     let screen_hz = app.settings.milkdrop_screen_hz;
     let milkdrop_window = gettext(locale, "MilkDrop window");
@@ -1569,7 +1687,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         RowText::new(
             gettext(locale, "Frame rate"),
             match screen_hz {
-                0 => gettext(
+                hz if !crate::milkdrop::is_screen_rate(hz) => gettext(
                     locale,
                     "Lower rates use fewer resources. Uncapped draws as fast as possible.",
                 ),
@@ -1674,61 +1792,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             filtered_row(ui, &palette, &needle, "MilkDrop", &milkdrop_rows[3], |ui| {
-                let fps = app.settings.milkdrop_fps;
-                // The dial stops at the rates worth having and passes
-                // through nothing in between, the way a gear lever does.
-                let stops = crate::milkdrop::fps_stops(screen_hz, fps);
-                let last = stops.len().saturating_sub(1);
-                let mut at = stops.iter().position(|rate| *rate == fps).unwrap_or(1);
-                let labels: Vec<String> = stops
-                    .iter()
-                    .map(|rate| crate::milkdrop::fps_label(locale, *rate, screen_hz))
-                    .collect();
-                let shown = labels.clone();
-                let typed = stops.clone();
-                let changed = setting_slider(
-                    ui,
-                    &palette,
-                    &mut at,
-                    0..=last,
-                    |slider| slider.step_by(1.0),
-                    // A drag moves one stop every twenty points.
-                    |value| {
-                        value
-                            .speed(0.05)
-                            .custom_formatter(move |value, _| {
-                                shown
-                                    .get((value.round().max(0.0) as usize).min(shown.len() - 1))
-                                    .cloned()
-                                    .unwrap_or_default()
-                            })
-                            .custom_parser(move |text| {
-                                // A rate typed in lands on the nearest stop, since
-                                // the stops are all this dial can hold.
-                                let text = text.trim().to_lowercase();
-                                if text.starts_with("un") {
-                                    return Some(typed.len().saturating_sub(1) as f64);
-                                }
-                                let wanted: u32 = text
-                                    .trim_end_matches("fps")
-                                    .trim()
-                                    .split(',')
-                                    .next()?
-                                    .trim()
-                                    .parse()
-                                    .ok()?;
-                                typed
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, rate)| **rate > 0)
-                                    .min_by_key(|(_, rate)| rate.abs_diff(wanted))
-                                    .map(|(index, _)| index as f64)
-                            })
-                    },
-                )
-                .changed();
-                if changed && let Some(rate) = stops.get(at) {
-                    app.actions.push(Action::SetMilkdropFps(*rate));
+                if let Some(rate) =
+                    frame_rate_dial(ui, &palette, locale, screen_hz, app.settings.milkdrop_fps)
+                {
+                    app.actions.push(Action::SetMilkdropFps(rate));
                 }
             });
             filtered_row(ui, &palette, &needle, "MilkDrop", &milkdrop_rows[4], |ui| {
@@ -1995,110 +2062,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// A band's frequency the short way: 60, 170, 1K, 16K.
-/// The output device local playback opens: the system default, or one of
-/// the devices the machine listed.
-///
-/// The list is asked for the first time the row is shown, and again from
-/// Refresh. Asking the audio system can take a moment, so it happens off
-/// the UI thread and the row says it is looking until the answer arrives.
-/// A device that was saved and is no longer connected stays selectable, so
-/// plugging it back in keeps the choice.
-fn output_device_picker(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    changed: &mut bool,
-    playback_dirty: &mut bool,
-) {
-    let locale = app.locale;
-    let system = gettext(locale, "System default");
-    let saved = app
-        .settings
-        .audio_device
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_string);
-    let listed = app.output_devices().map(<[String]>::to_vec);
-    if listed.is_none() {
-        app.refresh_output_devices(ui.ctx());
-    }
-    let selected = saved.clone().unwrap_or_else(|| system.to_string());
-    let title = gettext(locale, "Output device");
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        let response = egui::ComboBox::from_id_salt("output_device")
-            .selected_text(&selected)
-            .width(240.0_f32.min(ui.available_width()))
-            .height(1000.0)
-            .show_ui(ui, |ui| {
-                if ui
-                    .selectable_label(saved.is_none(), system.as_ref())
-                    .clicked()
-                    && saved.is_some()
-                {
-                    app.settings.audio_device = None;
-                    *changed = true;
-                    *playback_dirty = true;
-                }
-                let Some(devices) = listed else {
-                    ui.add_enabled(
-                        false,
-                        egui::Button::new(gettext(locale, "Looking for devices…").as_ref()),
-                    );
-                    return;
-                };
-                let mut names: Vec<String> = devices
-                    .into_iter()
-                    .filter(|name| !name.trim().is_empty())
-                    .collect();
-                if let Some(saved) = &saved
-                    && !names.iter().any(|name| name == saved)
-                {
-                    names.insert(0, saved.clone());
-                }
-                if names.is_empty() {
-                    ui.add_enabled(
-                        false,
-                        egui::Button::new(gettext(locale, "No other device found").as_ref()),
-                    );
-                    return;
-                }
-                ui.separator();
-                for name in names {
-                    if ui
-                        .selectable_label(saved.as_deref() == Some(name.as_str()), &name)
-                        .clicked()
-                        && saved.as_deref() != Some(name.as_str())
-                    {
-                        app.settings.audio_device = Some(name);
-                        *changed = true;
-                        *playback_dirty = true;
-                    }
-                }
-            });
-        response.response.widget_info(|| {
-            let mut info = egui::WidgetInfo::labeled(
-                egui::WidgetType::ComboBox,
-                ui.is_enabled(),
-                title.as_ref(),
-            );
-            info.current_text_value = Some(selected.clone());
-            info
-        });
-        if theme::soft_button(
-            ui,
-            &app.palette,
-            Some(Icon::Refresh),
-            &gettext(locale, "Refresh"),
-            false,
-        )
-        .clicked()
-        {
-            app.refresh_output_devices(ui.ctx());
-        }
-    });
-}
-
 /// The interface language: System first, then each language by its own name,
 /// so a reader can find theirs whatever language the app is showing.
 fn language_picker(app: &mut App, ui: &mut egui::Ui) {

@@ -126,6 +126,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
+            key(
+                Modifiers::NONE,
+                Key::F,
+                Action::SetLyricsFullscreen(app.lyrics_fullscreen.is_none()),
+            );
         }
     });
     if !typing
@@ -212,6 +217,7 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
         (keys("R"), gettext(locale, "Cycle repeat")),
         (keys("Q"), gettext(locale, "Show the queue")),
         (keys("L"), gettext(locale, "Show the lyrics")),
+        (keys("F"), gettext(locale, "Full screen lyrics")),
         (keys("Esc"), gettext(locale, "Lyrics: leave full screen")),
         (
             keys("Shift+↑  /  Shift+↓"),
@@ -643,6 +649,22 @@ mod tests {
             press(&mut app, Key::B, command),
             format!("{:?}", [Action::ToggleSidebar]),
             "the sidebar shortcut still toggles the sidebar"
+        );
+        assert_eq!(
+            press(&mut app, Key::F, command),
+            format!("{:?}", [Action::FocusSearch]),
+            "the search shortcut is not taken by plain F"
+        );
+        assert_eq!(
+            press(&mut app, Key::F, Modifiers::NONE),
+            format!("{:?}", [Action::SetLyricsFullscreen(true)]),
+            "F enters lyrics full screen"
+        );
+        app.lyrics_fullscreen = Some(false);
+        assert_eq!(
+            press(&mut app, Key::F, Modifiers::NONE),
+            format!("{:?}", [Action::SetLyricsFullscreen(false)]),
+            "F leaves lyrics full screen"
         );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);

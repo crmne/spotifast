@@ -7,7 +7,7 @@ use egui::{Align, CornerRadius, Galley, Layout, Sense, Vec2, pos2, vec2};
 use crate::api::models::pick_image;
 use crate::app::App;
 use crate::i18n::gettext;
-use crate::model::{Action, Page};
+use crate::model::{Action, BackgroundActivity, Page};
 use crate::theme::{self, Icon, Palette};
 
 /// The gap the bar keeps between everything it lays out.
@@ -196,18 +196,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
     let width = ui.available_width();
-    let window_controls = super::window_controls_reservation(
+    let mut window_controls = super::window_controls_reservation(
         ui.ctx(),
         app.show_queue_panel,
         app.show_lyrics_panel,
         width,
     );
+    if !app.settings.sidebar_visible {
+        window_controls.topbar_top = window_controls
+            .topbar_top
+            .max(super::linux_left_controls_inset(ui.ctx()));
+    }
     // Where the titlebar used to be: the bar grows upwards into that space and
     // its empty parts drag the window.
     let inset = theme::titlebar_inset(ui.ctx());
-    let content_height = theme::TOP_BAR_HEIGHT + inset;
-    if crate::window::custom_titlebar() {
-        super::titlebar_drag(
+    let content_height = theme::top_bar_height() + inset;
+    if fastframe_titlebar::enabled() {
+        fastframe_titlebar::drag(
             ui,
             egui::Rect::from_min_size(
                 ui.cursor().min,
@@ -215,9 +220,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
         );
     }
-    ui.add_space(window_controls.topbar_top);
+    // Balance the visible Windows header, including the gap below the
+    // control row.
+    let top_padding = if cfg!(windows) && fastframe_titlebar::enabled() {
+        4.0
+    } else {
+        0.0
+    };
+    ui.add_space(window_controls.topbar_top + top_padding);
     ui.allocate_ui_with_layout(
-        vec2(width, content_height),
+        vec2(width, content_height - top_padding),
         Layout::left_to_right(Align::Center),
         |ui| {
             ui.add_space(super::widgets::PAGE_PADDING);
@@ -270,7 +282,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
             // The badges sit at the right end but grow with their text, so
             // measure them here, before the search field takes its share.
-            let device_galley = app.now_playing().filter(|now| !now.local).map(|now| {
+            let remote_now = app.now_playing().filter(|now| !now.local);
+            let device_icon = remote_now
+                .as_ref()
+                .and_then(|now| now.device_kind.as_deref())
+                .map_or(Icon::Speaker, crate::ui::devices::device_icon);
+            let device_galley = remote_now.map(|now| {
                 let label = match now.device_name {
                     Some(device) => {
                         // Translators: {device} is the name of the device playing the music.
@@ -300,15 +317,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
             // Ask once, so the bar reserves room for exactly the spinner it
             // then draws.
-            let busy = app
-                .backend
-                .activity()
-                .busy(std::time::Duration::from_millis(1000));
+            let activity = app.background_activity();
+            let busy = activity.is_some();
             let badges = |labels: bool| {
                 badge_width(device_galley.as_ref(), DEVICE_BADGE_PADDING, labels)
                     + badge_width(update_galley.as_ref(), UPDATE_BADGE_PADDING, labels)
             };
             let controls = RIGHT_CONTROLS_WIDTH
+                + if !app.network_reachable {
+                    ICON_BUTTON_SIZE + 4.0
+                } else {
+                    0.0
+                }
                 + if busy {
                     SPINNER_SIZE + ITEM_SPACING
                 } else {
@@ -325,6 +345,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             let search_width = fit.search;
             let id = egui::Id::new("global-search");
             let before = app.search.query.clone();
+            let selected = egui::TextEdit::load_state(ui.ctx(), id)
+                .and_then(|state| state.cursor.char_range())
+                .is_some_and(|range| !range.is_empty());
             let response = super::widgets::search_field(
                 ui,
                 &palette,
@@ -345,6 +368,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 app.actions.push(Action::Open(Page::Search));
             }
             if app.search.query != before {
+                // Typing over a selection, or emptying the field, starts a
+                // new query rather than editing the last one.
+                if selected || app.search.query.is_empty() {
+                    app.actions.push(Action::EndSearchRun);
+                }
                 app.search.typed_at = Some(std::time::Instant::now());
                 if !cleared && !matches!(app.page(), Page::Search) {
                     app.actions.push(Action::Open(Page::Search));
@@ -368,7 +396,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .map(|user| {
                         (
                             user.name().to_string(),
-                            pick_image(&user.images, 64).map(str::to_string),
+                            pick_image(&user.images, app.art_px(28.0)).map(str::to_string),
                         )
                     })
                     .unwrap_or_default();
@@ -463,6 +491,36 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             app.actions.push(Action::SignOut);
                         }
                     });
+                if !app.network_reachable {
+                    ui.add_space(4.0);
+                    let (rect, response) =
+                        ui.allocate_exact_size(Vec2::splat(ICON_BUTTON_SIZE), Sense::hover());
+                    if ui.is_rect_visible(rect) {
+                        let fill = if response.hovered() {
+                            if palette.dark {
+                                egui::Color32::from_rgb(38, 110, 205)
+                            } else {
+                                egui::Color32::from_rgb(66, 133, 244)
+                            }
+                        } else if palette.dark {
+                            egui::Color32::from_rgb(28, 92, 178)
+                        } else {
+                            egui::Color32::from_rgb(41, 121, 255)
+                        };
+                        ui.painter().circle_filled(rect.center(), 14.5, fill);
+                        theme::paint_icon(
+                            ui,
+                            Icon::WifiOff,
+                            rect,
+                            ICON_BUTTON_ICON,
+                            egui::Color32::WHITE,
+                        );
+                    }
+                    response.on_hover_text(gettext(
+                        locale,
+                        "Spotifast is offline. Reconnecting automatically when connection returns.",
+                    ));
+                }
                 ui.add_space(4.0);
                 if theme::icon_button(
                     ui,
@@ -510,11 +568,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::ToggleWinampWindow);
                 }
-                // A quiet spinner once the app has been talking to Spotify for a
-                // while, long enough that fast requests never flash it.
-                if busy {
+                // A quiet spinner once the app has been at something in the
+                // background for a while, long enough that fast requests
+                // never flash it.
+                if let Some(activity) = activity {
+                    let hint = match activity {
+                        BackgroundActivity::Library => gettext(locale, "Updating your library…"),
+                        BackgroundActivity::Updates => gettext(locale, "Checking for updates…"),
+                        BackgroundActivity::Spotify => gettext(locale, "Waiting for Spotify…"),
+                    };
                     theme::spinner(ui, SPINNER_SIZE, palette.secondary)
-                        .on_hover_text(gettext(locale, "Waiting for Spotify…").as_ref());
+                        .on_hover_text(hint.as_ref());
                 }
                 // Where playback is.
                 if let Some(galley) = device_galley {
@@ -522,7 +586,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     let response = badge(
                         ui,
                         &palette,
-                        Icon::Speaker,
+                        device_icon,
                         galley,
                         DEVICE_BADGE_PADDING,
                         fit.labels,

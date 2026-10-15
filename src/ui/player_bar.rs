@@ -35,9 +35,6 @@ const WAVE_ECHO_ALPHA: f32 = 0.18;
 const LIGHT_STRENGTH: f32 = 1.5;
 /// The gap between spectrum bars.
 const SPECTRUM_GAP: f32 = 2.0;
-/// How often a moving visualizer is drawn: sixty times a second, as the
-/// mini player's.
-const VIS_FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
 
 /// Forget this bar's animation session while the sign-in screen is shown.
 pub(crate) fn end_tint_session(ctx: &egui::Context) {
@@ -62,27 +59,31 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
             if visualizer(app, ui, behind, now.as_ref()) {
-                ui.ctx().request_repaint_after(VIS_FRAME);
+                theme::visualiser_frame(ui.ctx(), app.visualiser_fps());
             }
             // Its empty space is the visualizer's control, as Winamp's
             // visualizer was: a click moves to the next mode. The controls
             // drawn after it take their own clicks.
-            let empty = ui.interact(
-                behind,
-                ui.id().with("player-bar-visualizer"),
-                Sense::click(),
-            );
-            // An open tooltip stays while the pointer is inside its widget's
-            // rect, and this one spans the bar: offer it only while the empty
-            // space itself is hovered, not the controls over it.
-            let empty = if empty.hovered() {
-                empty
-                    .on_hover_text_at_pointer(gettext(app.locale, "Click to change the visualizer"))
-            } else {
-                empty
-            };
-            if empty.clicked() {
-                app.actions.push(Action::CyclePlayerBarVis);
+            if app.settings.player_bar_vis_click {
+                let empty = ui.interact(
+                    behind,
+                    ui.id().with("player-bar-visualizer"),
+                    Sense::click(),
+                );
+                // An open tooltip stays while the pointer is inside its widget's
+                // rect, and this one spans the bar: offer it only while the empty
+                // space itself is hovered, not the controls over it.
+                let empty = if empty.hovered() {
+                    empty.on_hover_text_at_pointer(gettext(
+                        app.locale,
+                        "Click to change the visualizer",
+                    ))
+                } else {
+                    empty
+                };
+                if empty.clicked() {
+                    app.actions.push(Action::CyclePlayerBarVis);
+                }
             }
             ui.painter().hline(
                 rect.x_range(),
@@ -365,7 +366,7 @@ fn eased_fill(ctx: &egui::Context, panel: Color32, tint: Option<Color32>) -> Col
         ctx.animate_value_with_time(
             egui::Id::new(("player-bar-tint", session, axis)),
             f32::from(value),
-            TINT_FADE_SECONDS,
+            crate::motion::seconds(ctx, TINT_FADE_SECONDS),
         )
         .round() as u8
     };
@@ -410,14 +411,14 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         return;
     };
 
-    super::widgets::paint_cover(
+    super::widgets::playing_cover(
         ui,
         &palette,
-        now.art_small.as_deref().or(now.art_url.as_deref()),
+        app.backend.art(),
+        "player-bar",
+        app.small_art(now, cover_rect.width()),
         cover_rect,
         6.0,
-        Icon::Music,
-        Some(app.backend.art()),
     );
     let song = app.now_playing_item();
     let drag_sense = if song.is_some() {
@@ -531,16 +532,19 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 
     if !now.is_episode {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
-        let (icon, color, tooltip) = if saved {
+        // A liked heart stays green under the pointer, like shuffle.
+        let (icon, color, hover, tooltip) = if saved {
             (
                 Icon::HeartFilled,
                 palette.accent,
+                palette.accent_hover,
                 gettext(app.locale, "Remove from Liked Songs"),
             )
         } else {
             (
                 Icon::Heart,
                 palette.secondary,
+                palette.text,
                 gettext(app.locale, "Save to Liked Songs"),
             )
         };
@@ -564,7 +568,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        if theme::icon_button(&mut heart_ui, icon, 17.0, color, palette.text, &tooltip).clicked() {
+        if theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip).clicked() {
             app.actions.push(Action::ToggleSaved(now.uri.clone()));
         }
     }
@@ -872,9 +876,14 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     }
     ui.add_space(4.0);
     let remote = now.is_some_and(|now| !now.local);
+    // Playing elsewhere, the button shows that device's own icon.
+    let icon = now
+        .filter(|now| !now.local)
+        .and_then(|now| now.device_kind.as_deref())
+        .map_or(Icon::Speaker, super::devices::device_icon);
     let devices = theme::icon_button(
         ui,
-        Icon::Speaker,
+        icon,
         18.0,
         if remote {
             palette.accent

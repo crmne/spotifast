@@ -1,5 +1,5 @@
 title: Spotifast
-spotifast_version: "0.12.0"
+spotifast_version: "0.13.2"
 description: A fast, lightweight Spotify app for Linux, macOS, and Windows.
 lang: en-US
 timezone: Europe/Berlin
@@ -33,6 +33,7 @@ defaults:
         - Spotify client
         - Rust
         - egui
+        - fastframe
         - librespot
         - Spotify Connect
         - Linux music player

@@ -12,8 +12,8 @@ use crate::theme::Icon;
 use crate::util;
 
 use super::collection::{
-    Actions, Hero, Table, actions_row, hero, hero_images, remember_table_items, songs_and_duration,
-    table, table_items_hit,
+    Actions, Hero, HeroArt, Table, actions_row, hero, hero_images, remember_table_items,
+    songs_and_duration, table, table_items_hit,
 };
 use super::widgets;
 
@@ -72,12 +72,13 @@ pub fn radio(app: &mut App, ui: &mut egui::Ui, seed: &str) {
         app,
         ui,
         Hero {
-            images: hero_images(&images, None, false),
+            images: hero_images(&images, None, false, HeroArt::of(app)),
             liked: false,
             kind: gettext(locale, "Radio"),
             title: &name,
             description,
             byline,
+            avatar: None,
             round: false,
         },
     );

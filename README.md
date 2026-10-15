@@ -20,11 +20,13 @@
 </p>
 
 Spotifast is a Spotify client written in Rust with
-[egui](https://github.com/emilk/egui). It plays music through
+[egui](https://www.egui.rs) and [fastframe](https://fastframe.dev), the
+framework behind a family of native desktop apps. It plays music through
 [librespot](https://github.com/librespot-org/librespot), typically uses
 100–250 MB of RAM, starts in well under a second, and has no browser engine.
 
-The interface includes complete Spanish, Turkish, and Ukrainian translations.
+The interface includes complete
+[translations for all supported languages](docs/_reference/translating.md#languages-and-coverage).
 
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast.
@@ -45,7 +47,7 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | Feature | What you can do |
 |---|---|
 | **Library and search** | Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own. |
-| **Spotify Connect** | Play on this computer or control playback on your other devices. |
+| **Spotify Connect** | Play on this computer or control playback on your other devices, including Google Cast speakers and groups. |
 | **Themes** | Choose light, dark, system appearance, or custom colours. On Omarchy, follow your desktop theme. |
 | **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings. |
 | **Winamp mini player** | Use classic skins with an equalizer, playlist, and animated sound displays. |
@@ -133,15 +135,29 @@ is described in [PACKAGING.md](PACKAGING.md).
 
 **Want WhatsApp just as fast and native?** [ZapFast](https://zapfast.rocks)
 is Spotifast's sibling. Both are built on
-[fastframe](https://github.com/crmne/fastframe).
+[fastframe](https://fastframe.dev).
+
+## Sonos playback
+
+Sonos speakers use the Spotify Connect session for playback control. Enable
+local playback first, then select the speaker in the device picker.
 
 ## Acknowledgements
 
 Spotifast uses [librespot](https://github.com/librespot-org/librespot),
-[egui](https://github.com/emilk/egui), the [Inter](https://rsms.me/inter/)
+[egui](https://www.egui.rs), [fastframe](https://fastframe.dev), the [Inter](https://rsms.me/inter/)
 typeface (OFL), and [Lucide](https://lucide.dev) icons (ISC).
 
 Spotifast is an independent project and is not affiliated with Spotify.
 Spotify is a trademark of Spotify AB.
 
 Licensed under the [MIT License](LICENSE).
+
+## Star history
+
+<a href="https://www.star-history.com/?repos=crmne%2Fspotifast&amp;type=date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date&amp;theme=dark">
+    <img alt="Spotifast GitHub stars over time" src="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date">
+  </picture>
+</a>

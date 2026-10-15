@@ -275,6 +275,11 @@ pub struct Settings {
     pub accent_from_art: bool,
     /// A spectrum or waveform of the playing song behind the player bar.
     pub player_bar_vis: PlayerBarVis,
+    /// Allow clicks on the player bar background to cycle visualizer modes.
+    pub player_bar_vis_click: bool,
+    /// How many frames a second the player bar's visualizer and the mini
+    /// player's analyser draw; 0 is uncapped. MilkDrop has its own.
+    pub visualizer_fps: u32,
     /// Last local volume, 0..=65535.
     pub volume: u16,
     /// Whether the library sidebar is visible.
@@ -323,14 +328,16 @@ pub struct Settings {
     /// Explicit order per Library shelf. Missing shelves keep their previous
     /// behaviour; selecting another order never deletes the local arrangement.
     pub library_sort: std::collections::BTreeMap<LibraryShelf, LibrarySort>,
+    /// Show only playlists owned by the signed-in account in the playlist shelf.
+    pub library_by_you: bool,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
     /// The Winamp window is open.
     pub winamp_window: bool,
     /// Windows and X11: keep a taskbar button while the Winamp window is visible.
     pub winamp_show_taskbar: bool,
-    /// Windows: draw Spotifast's own title bar and window buttons instead of
-    /// the standard Windows frame.
+    /// Windows and Linux: draw Spotifast's own title bar and window buttons
+    /// instead of the desktop frame.
     pub custom_titlebar: bool,
     /// Skin file or folder name. `None` selects the built-in skin.
     pub skin: Option<String>,
@@ -423,6 +430,8 @@ impl std::fmt::Debug for Settings {
 }
 
 impl Default for Settings {
+    /// Supply the initial preferences and defaults for fields absent from older
+    /// settings files, including an inactive playlist ownership filter.
     fn default() -> Self {
         Self {
             device_name: "Spotifast".to_string(),
@@ -445,6 +454,8 @@ impl Default for Settings {
             home: HomeSettings::default(),
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
+            player_bar_vis_click: true,
+            visualizer_fps: crate::milkdrop::DEFAULT_FPS,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_visible: true,
             art_expanded: false,
@@ -469,6 +480,7 @@ impl Default for Settings {
             liked_songs_pinned: true,
             sidebar_order: Vec::new(),
             library_sort: std::collections::BTreeMap::new(),
+            library_by_you: false,
             zoom: 1.0,
             winamp_window: false,
             winamp_show_taskbar: true,
@@ -589,6 +601,7 @@ impl Settings {
                     Self::default()
                 });
                 settings.migrate_proxy(text);
+                settings.forget_unusable_screen_rate();
                 settings.migrate_crossfade(text);
                 settings.proxy_password_legacy = !settings.proxy_password.is_empty();
                 settings
@@ -597,21 +610,18 @@ impl Settings {
         }
     }
 
+    /// The settings as their file holds them.
+    pub fn encode(&self) -> Option<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|error| log::warn!("unable to encode settings: {error}"))
+            .ok()
+    }
+
+    /// Writes the settings and waits for the disk. The app saves through
+    /// its [`fastframe_file::Writer`] instead.
     pub fn save(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let text = match serde_json::to_string_pretty(self) {
-            Ok(text) => text,
-            Err(error) => {
-                log::warn!("unable to encode settings: {error}");
-                return;
-            }
-        };
-        let temporary = path.with_extension("json.tmp");
-        let written = std::fs::write(&temporary, text)
-            .and_then(|()| crate::util::replace_file(&temporary, path));
-        if let Err(error) = written {
+        let Some(text) = self.encode() else { return };
+        if let Err(error) = fastframe_file::write(path, text) {
             log::warn!("unable to save settings to {}: {error}", path.display());
         }
     }
@@ -642,6 +652,21 @@ impl Settings {
         if !text.contains("\"crossfade\"") {
             self.crossfade = self.crossfade_secs > 0;
         }
+    }
+
+    /// Forgets the frame rate an earlier version set from Windows's 1 Hz
+    /// "hardware default", taken then as MilkDrop's first screen rate, and
+    /// that screen rate with it, so MilkDrop's next real report is learned
+    /// as the first. A frame rate chosen since, or learned from a real
+    /// screen before, stays, and so does the 1 Hz beside it, which no dial
+    /// shows and the next real report replaces.
+    pub(crate) fn forget_unusable_screen_rate(&mut self) {
+        let hz = self.milkdrop_screen_hz;
+        if hz == 0 || crate::milkdrop::is_screen_rate(hz) || self.milkdrop_fps != hz {
+            return;
+        }
+        self.milkdrop_fps = crate::milkdrop::DEFAULT_FPS;
+        self.milkdrop_screen_hz = 0;
     }
 
     pub(crate) fn migrate_proxy(&mut self, text: &str) {
@@ -1085,6 +1110,35 @@ mod tests {
         assert!(!settings.home.made_for_you.visible);
     }
 
+    /// Earlier versions kept Windows's 1 Hz "hardware default" as MilkDrop's
+    /// screen rate and, the first time, as its frame rate. Loading forgets
+    /// both, and leaves a frame rate chosen since, and a real rate, alone.
+    #[test]
+    fn a_saved_hardware_default_screen_rate_is_forgotten() {
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-screen-default-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("settings.json");
+        let load = |text: &str| {
+            std::fs::write(&path, text).unwrap();
+            let settings = Settings::load(&path);
+            (settings.milkdrop_screen_hz, settings.milkdrop_fps)
+        };
+        let learned = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":1}"#);
+        let chosen = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":30}"#);
+        let sixty = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":60}"#);
+        let real = load(r#"{"milkdrop_screen_hz":144,"milkdrop_fps":144}"#);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(learned, (0, crate::milkdrop::DEFAULT_FPS));
+        assert_eq!(chosen, (1, 30), "their rate stands");
+        assert_eq!(
+            sixty,
+            (1, 60),
+            "a chosen 60 is not taken for the default, which a real report would replace"
+        );
+        assert_eq!(real, (144, 144), "a real rate stays");
+    }
+
     #[test]
     fn older_settings_keep_the_sidebar_visible() {
         let settings: Settings = serde_json::from_str("{}").unwrap();
@@ -1122,33 +1176,6 @@ mod tests {
         assert!(!settings.playlist_shaded);
         assert!(!settings.eq_shaded);
         assert!(!settings.winamp_shaded);
-        assert!(settings.audio_device.is_none());
-    }
-
-    #[test]
-    fn a_blank_output_device_follows_the_system_default() {
-        let missing: Settings = serde_json::from_str(r#"{"volume": 37}"#).unwrap();
-        assert!(missing.audio_device.is_none());
-        for blank in ["", "   "] {
-            let settings: Settings =
-                serde_json::from_str(&format!(r#"{{"audio_device": "{blank}"}}"#)).unwrap();
-            assert_eq!(settings.audio_device.as_deref(), Some(blank));
-            assert!(
-                settings
-                    .audio_device
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|name| !name.is_empty())
-                    .is_none()
-            );
-        }
-        let chosen = Settings {
-            audio_device: Some("USB DAC".into()),
-            ..Settings::default()
-        };
-        let json = serde_json::to_string(&chosen).unwrap();
-        let restored: Settings = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.audio_device.as_deref(), Some("USB DAC"));
     }
 
     #[test]
@@ -1233,11 +1260,45 @@ mod tests {
         assert!(restored.tracklist_compact);
     }
 
+    /// The main window's visualizers draw 60 frames a second until the user
+    /// picks another rate, and the rate they pick, uncapped included, is
+    /// the rate they get back, without touching MilkDrop's.
+    #[test]
+    fn the_visualizer_frame_rate_defaults_to_60_and_round_trips() {
+        let settings: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.visualizer_fps, 60);
+        assert_eq!(Settings::default().visualizer_fps, 60);
+        for rate in [30, 144, 0] {
+            let chosen = Settings {
+                visualizer_fps: rate,
+                ..Settings::default()
+            };
+            let json = serde_json::to_string(&chosen).unwrap();
+            let restored: Settings = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored.visualizer_fps, rate);
+            assert_eq!(restored.milkdrop_fps, Settings::default().milkdrop_fps);
+        }
+        let milkdrop_only: Settings =
+            serde_json::from_value(serde_json::json!({"milkdrop_fps": 30})).unwrap();
+        assert_eq!(
+            milkdrop_only.visualizer_fps, 60,
+            "MilkDrop's rate is its own"
+        );
+    }
+
     #[test]
     fn the_player_bar_visualizer_is_opt_in_and_round_trips() {
         use super::PlayerBarVis;
         let settings: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(settings.player_bar_vis, PlayerBarVis::Off);
+        assert!(settings.player_bar_vis_click);
+        let disabled = Settings {
+            player_bar_vis_click: false,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&disabled).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(!restored.player_bar_vis_click);
         for mode in [PlayerBarVis::Spectrum, PlayerBarVis::Waveform] {
             let settings = Settings {
                 player_bar_vis: mode,
@@ -1587,10 +1648,16 @@ pub struct SessionState {
     pub shuffle_on: bool,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
-    /// Last window inner size, to restore on next launch.
+    /// Last window inner size, to restore on next launch. Logical pixels
+    /// (points at zoom 1) since fastframe-shell's `Geometry`; earlier
+    /// versions saved points at the interface zoom, the same at zoom 1.
     pub window_size: Option<[f32; 2]>,
-    /// Last window outer position, to restore on next launch.
+    /// Last window position, to restore on next launch: the outer frame's
+    /// corner, the content's on macOS.
     pub window_pos: Option<[f32; 2]>,
+    /// Whether the window was maximized; `window_size` and `window_pos`
+    /// stay those of the normal window behind it.
+    pub window_maximized: bool,
     /// Whether the queue panel was open.
     pub queue_open: Option<bool>,
     /// Which tab the queue panel showed: `queue` or `recents`.
@@ -1622,21 +1689,18 @@ impl SessionState {
             .unwrap_or_default()
     }
 
+    /// The session as its file holds it.
+    pub fn encode(&self) -> Option<String> {
+        serde_json::to_string(self)
+            .map_err(|error| log::warn!("unable to encode session: {error}"))
+            .ok()
+    }
+
+    /// Writes the session and waits for the disk. The app saves through
+    /// its [`fastframe_file::Writer`] instead.
     pub fn save(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let text = match serde_json::to_string(self) {
-            Ok(text) => text,
-            Err(error) => {
-                log::warn!("unable to encode session: {error}");
-                return;
-            }
-        };
-        let temporary = path.with_extension("json.tmp");
-        let written = std::fs::write(&temporary, text)
-            .and_then(|()| crate::util::replace_file(&temporary, path));
-        if let Err(error) = written {
+        let Some(text) = self.encode() else { return };
+        if let Err(error) = fastframe_file::write(path, text) {
             log::warn!("unable to save session to {}: {error}", path.display());
         }
     }
@@ -1646,6 +1710,20 @@ impl SessionState {
 mod session_tests {
     use super::{CachedRootlist, SessionState};
     use crate::player::RootlistEntry;
+
+    /// A session saved before the maximized state was remembered keeps its
+    /// window size and positions, and reads as an ordinary window.
+    #[test]
+    fn old_sessions_keep_their_window_geometry() {
+        let state: SessionState = serde_json::from_str(
+            r#"{"window_size":[1100.0,700.0],"window_pos":[100.0,150.0],"winamp_pos":[300.0,200.0]}"#,
+        )
+        .unwrap();
+        assert_eq!(state.window_size, Some([1100.0, 700.0]));
+        assert_eq!(state.window_pos, Some([100.0, 150.0]));
+        assert!(!state.window_maximized);
+        assert_eq!(state.winamp_pos, Some([300.0, 200.0]));
+    }
 
     #[test]
     fn old_sessions_without_a_playlist_tree_remain_readable() {
@@ -1695,7 +1773,7 @@ mod session_tests {
             SessionState::load(&path).last_page.as_deref(),
             Some("liked")
         );
-        assert!(!path.with_extension("json.tmp").exists());
+        assert!(crate::util::temporary_files(path.parent().unwrap()).is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 }

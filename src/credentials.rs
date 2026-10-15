@@ -157,12 +157,96 @@ impl Error {
     }
 }
 
-fn native_error(error: keyring_core::Error) -> Error {
-    // Some provider errors contain the secret or arbitrary platform data.
-    // Never propagate their Debug/Display text into application diagnostics.
+fn native_error(operation: &str, error: keyring_core::Error) -> Error {
+    log::warn!(
+        "credential store {operation} failed: {}",
+        describe_native_error(&error)
+    );
     match error {
         keyring_core::Error::NoStorageAccess(_) => Error::Locked,
         _ => Error::Unavailable,
+    }
+}
+
+/// What a provider error may say in the log: its kind, and on Windows the
+/// error code. Some provider errors contain the secret or arbitrary platform
+/// data, so their own Debug/Display text is never used, except the Windows
+/// store's fixed "Windows ERROR_NAME" or "Windows error code N" (#815).
+fn describe_native_error(error: &keyring_core::Error) -> String {
+    use keyring_core::Error as E;
+    let (kind, platform) = match error {
+        E::PlatformFailure(platform) => ("platform failure", Some(platform)),
+        E::NoStorageAccess(platform) => ("no storage access", Some(platform)),
+        E::NoEntry => ("no entry", None),
+        E::BadEncoding(_) => ("bad encoding", None),
+        E::BadDataFormat(..) => ("bad data format", None),
+        E::BadStoreFormat(_) => ("bad store format", None),
+        E::TooLong(..) => ("attribute too long", None),
+        E::Invalid(..) => ("invalid parameter", None),
+        E::Ambiguous(_) => ("ambiguous entry", None),
+        E::NoDefaultStore => ("no default store", None),
+        E::NotSupportedByStore(_) => ("not supported by store", None),
+        _ => ("other", None),
+    };
+    let code = platform
+        .map(ToString::to_string)
+        .filter(|text| windows_error_code(text));
+    match code {
+        Some(code) => format!("{kind} ({code})"),
+        None => kind.to_owned(),
+    }
+}
+
+fn windows_error_code(text: &str) -> bool {
+    if let Some(name) = text.strip_prefix("Windows ERROR_") {
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte == b'_')
+    } else if let Some(number) = text.strip_prefix("Windows error code ") {
+        !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+    } else {
+        false
+    }
+}
+
+/// Windows writes with Enterprise persistence, which survives a restart and
+/// roams with the profile. Some machines refuse it, or keep the credential
+/// for the logon session only, so the grant is gone after a restart (#815).
+/// Either way, write it again with Local persistence, which also survives a
+/// restart. `enterprise` returns the persistence the store reports after the
+/// write, when it can tell.
+#[cfg(any(windows, test))]
+fn write_preferring_enterprise(
+    enterprise: impl FnOnce() -> Result<Option<String>, keyring_core::Error>,
+    local: impl FnOnce() -> Result<(), keyring_core::Error>,
+) -> Result<(), Error> {
+    let kept = match enterprise() {
+        Ok(persistence) if persistence.as_deref().is_none_or(|kind| kind != "Session") => {
+            return Ok(());
+        }
+        Ok(_) => {
+            log::warn!(
+                "credential store kept the grant for this logon session only; writing it with Local persistence"
+            );
+            true
+        }
+        Err(error) => {
+            native_error("write with Enterprise persistence", error);
+            false
+        }
+    };
+    match local() {
+        Ok(()) => {
+            log::info!("credential store write with Local persistence succeeded");
+            Ok(())
+        }
+        // The session-only copy still serves until the restart.
+        Err(error) if kept => {
+            native_error("write with Local persistence", error);
+            Ok(())
+        }
+        Err(error) => Err(native_error("write with Local persistence", error)),
     }
 }
 
@@ -179,6 +263,14 @@ struct NativeStore {
 
 impl NativeStore {
     fn entry(&mut self, key: &str) -> Result<keyring_core::Entry, Error> {
+        self.entry_with(key, None)
+    }
+
+    fn entry_with(
+        &mut self,
+        key: &str,
+        modifiers: Option<&std::collections::HashMap<&str, &str>>,
+    ) -> Result<keyring_core::Entry, Error> {
         if self.store.is_none() {
             #[cfg(target_os = "linux")]
             let store = zbus_secret_service_keyring_store::Store::new();
@@ -186,13 +278,13 @@ impl NativeStore {
             let store = apple_native_keyring_store::keychain::Store::new();
             #[cfg(windows)]
             let store = windows_native_keyring_store::Store::new();
-            self.store = Some(store.map_err(native_error)?);
+            self.store = Some(store.map_err(|error| native_error("open", error))?);
         }
         self.store
             .as_ref()
             .ok_or(Error::Unavailable)?
-            .build(SERVICE, key, None)
-            .map_err(native_error)
+            .build(SERVICE, key, modifiers)
+            .map_err(|error| native_error("entry", error))
     }
 }
 
@@ -201,16 +293,37 @@ impl ProtectedStore for NativeStore {
         match self.entry(key)?.get_secret() {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring_core::Error::NoEntry) => Ok(None),
-            Err(error) => Err(native_error(error)),
+            Err(error) => Err(native_error("read", error)),
         }
     }
+    #[cfg(not(windows))]
     fn write(&mut self, key: &str, secret: &[u8]) -> Result<(), Error> {
-        self.entry(key)?.set_secret(secret).map_err(native_error)
+        self.entry(key)?
+            .set_secret(secret)
+            .map_err(|error| native_error("write", error))
+    }
+    #[cfg(windows)]
+    fn write(&mut self, key: &str, secret: &[u8]) -> Result<(), Error> {
+        let enterprise = self.entry(key)?;
+        let local = self.entry_with(
+            key,
+            Some(&std::collections::HashMap::from([("persistence", "Local")])),
+        )?;
+        write_preferring_enterprise(
+            || {
+                enterprise.set_secret(secret)?;
+                Ok(enterprise
+                    .get_attributes()
+                    .ok()
+                    .and_then(|mut attributes| attributes.remove("persistence")))
+            },
+            || local.set_secret(secret),
+        )
     }
     fn delete(&mut self, key: &str) -> Result<(), Error> {
         match self.entry(key)?.delete_credential() {
             Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
-            Err(error) => Err(native_error(error)),
+            Err(error) => Err(native_error("delete", error)),
         }
     }
 }
@@ -355,17 +468,14 @@ impl Store {
     }
 
     fn write_marker(&self, slot: Slot, revoked: bool) -> Result<(), Error> {
-        let path = self.marker_path(slot);
-        let parent = path.parent().ok_or(Error::Filesystem)?;
-        std::fs::create_dir_all(parent).map_err(|_| Error::Filesystem)?;
         let bytes = serde_json::to_vec(&Marker {
             version: 1,
             revoked,
         })
         .map_err(|_| Error::Invalid)?;
-        let temporary = path.with_extension("json.tmp");
-        std::fs::write(&temporary, bytes).map_err(|_| Error::Filesystem)?;
-        crate::util::replace_file(&temporary, &path).map_err(|_| Error::Filesystem)
+        // It holds no secret, but it lives with the credentials, which only
+        // their owner reads.
+        fastframe_file::write_private(&self.marker_path(slot), bytes).map_err(|_| Error::Filesystem)
     }
 
     fn legacy_paths(&self, slot: Slot) -> Vec<PathBuf> {
@@ -638,6 +748,95 @@ impl Lease {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[derive(Debug)]
+    struct Platform(&'static str);
+    impl std::fmt::Display for Platform {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+    impl std::error::Error for Platform {}
+    fn platform(text: &'static str) -> keyring_core::Error {
+        keyring_core::Error::PlatformFailure(Box::new(Platform(text)))
+    }
+
+    /// Windows error codes reach the log; no other provider text does,
+    /// since it may carry the secret (#815).
+    #[test]
+    fn native_errors_log_windows_codes_and_never_provider_text() {
+        assert_eq!(
+            describe_native_error(&platform("Windows error code 1312")),
+            "platform failure (Windows error code 1312)"
+        );
+        assert_eq!(
+            describe_native_error(&keyring_core::Error::NoStorageAccess(Box::new(Platform(
+                "Windows ERROR_NO_SUCH_LOGON_SESSION"
+            )))),
+            "no storage access (Windows ERROR_NO_SUCH_LOGON_SESSION)"
+        );
+        for leaky in [
+            platform("Windows error code 5 dummy-secret"),
+            platform("dummy-secret"),
+            keyring_core::Error::BadEncoding(b"dummy-secret".to_vec()),
+            keyring_core::Error::Invalid("secret".into(), "dummy-secret".into()),
+        ] {
+            assert!(!describe_native_error(&leaky).contains("dummy-secret"));
+        }
+        assert_eq!(native_error("write", platform("x")), Error::Unavailable);
+        assert_eq!(
+            native_error(
+                "write",
+                keyring_core::Error::NoStorageAccess(Box::new(Platform("x")))
+            ),
+            Error::Locked
+        );
+    }
+
+    /// A refused or session-only Enterprise write falls back to Local
+    /// persistence, which survives a restart (#815, #748, #803).
+    #[test]
+    fn windows_write_falls_back_to_local_persistence() {
+        let local_called = std::cell::Cell::new(0);
+        let local_ok = || {
+            local_called.set(local_called.get() + 1);
+            Ok(())
+        };
+        assert_eq!(
+            write_preferring_enterprise(|| Ok(Some("Enterprise".into())), local_ok),
+            Ok(())
+        );
+        assert_eq!(write_preferring_enterprise(|| Ok(None), local_ok), Ok(()));
+        assert_eq!(local_called.get(), 0);
+
+        assert_eq!(
+            write_preferring_enterprise(|| Err(platform("Windows error code 1312")), local_ok),
+            Ok(())
+        );
+        assert_eq!(
+            write_preferring_enterprise(|| Ok(Some("Session".into())), local_ok),
+            Ok(())
+        );
+        assert_eq!(local_called.get(), 2);
+
+        assert_eq!(
+            write_preferring_enterprise(
+                || Err(platform("Windows error code 1312")),
+                || Err(keyring_core::Error::NoStorageAccess(Box::new(Platform(
+                    "x"
+                ))))
+            ),
+            Err(Error::Locked)
+        );
+        // The session copy still serves this run when Local is refused too.
+        assert_eq!(
+            write_preferring_enterprise(
+                || Ok(Some("Session".into())),
+                || Err(platform("Windows error code 1312"))
+            ),
+            Ok(())
+        );
+    }
 
     #[derive(Default)]
     struct Fake {

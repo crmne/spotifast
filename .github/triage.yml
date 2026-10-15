@@ -76,6 +76,24 @@ instructions: |
   cover it. For feature requests, check relevant documentation for existing
   support before leaving product decisions to the maintainer.
 
+  For pull requests, three contribution rules are requirements the author must
+  meet before review, so name the one a pull request misses in one short reply
+  and leave the next move to the author. Review evidence is never committed:
+  screenshots, captures, comparison pages, or recordings, such as a new folder
+  under docs/assets/, belong in the pull request description or comments.
+  Dependencies come only from crates.io or from repositories under
+  github.com/crmne: when Cargo.toml or Cargo.lock changes, read its diff, and
+  flag a git dependency, [patch] entry, or lockfile source that points at a
+  contributor's fork or anywhere else. Adding or changing a git source needs
+  the maintainer's explicit approval. And a pull request adds no new
+  setting (a new field in a Settings struct in src/settings.rs, a toggle, a
+  slider, an option) without the maintainer's approval in the issue first.
+  Cite CONTRIBUTING.md.
+
+  For feature requests that ask for a new setting or option, do not propose
+  one: new settings need the maintainer's review and the default answer is
+  no, so leave the decision to the maintainer.
+
   For opening Spotify links, login setup, and proxies, select
   docs/_guide/getting-started.md. Distinguish released features from support
   documented only on main; do not imply development features are in 0.8.0.

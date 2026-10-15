@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use fastframe_audio::{Buffer, BufferSize, Maintained, OutputOptions, Render};
+use fastframe_audio::{Buffer, BufferSize, Maintained, OutputOptions, Reason, Render};
 use librespot_playback::audio_backend::{Sink, SinkError, SinkResult};
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
@@ -41,22 +41,6 @@ pub const NO_DEVICE: &str =
 /// Opens the output: the device by name, else the default.
 type Opener = fn(Option<&str>, u32, &AudioControl) -> Result<Output, OpenError>;
 
-/// Output devices the machine currently offers, by the names
-/// [`fastframe_audio::output_device_names`] reports. Nothing is opened.
-///
-/// Asking the audio system can take a moment, so call this off the UI
-/// thread. An empty list means no device was found, or the list could not
-/// be read; either way the caller falls back to the system default.
-pub fn output_device_names() -> Vec<String> {
-    match fastframe_audio::output_device_names() {
-        Ok(names) => names,
-        Err(error) => {
-            log::debug!("audio outputs could not be listed: {error}");
-            Vec::new()
-        }
-    }
-}
-
 /// Maximum queued rodio chunks before `write` blocks, about 200 ms of audio.
 const QUEUE_LIMIT: usize = 12;
 
@@ -67,7 +51,7 @@ const QUEUE_LIMIT: usize = 12;
 const REFILL: Duration = Duration::from_millis(20);
 
 /// Longest `write` waits for rodio before it looks at the device again: a
-/// stream that has failed finishes no chunk to wake it.
+/// stream that has failed or stopped playing finishes no chunk to wake it.
 const QUEUE_WAIT: Duration = Duration::from_millis(50);
 
 /// Maximum time `stop` waits for the queue to drain.
@@ -692,8 +676,9 @@ impl Output {
     }
 
     /// Has the device ask for sound, reopening it if it failed, moved to a
-    /// new default output, or was let go after a long pause. Returns whether
-    /// the queue was replaced, which needs the volume set again.
+    /// new default output, stopped playing, or was let go after a long
+    /// pause. Returns whether the queue was replaced, which needs the volume
+    /// set again.
     fn run(&mut self, control: &AudioControl) -> Result<bool, OpenError> {
         self.device.resume();
         for error in self.device.take_errors() {
@@ -709,7 +694,16 @@ impl Output {
                 sample_rate,
                 reason,
                 ..
-            } => log::info!("audio output reopened ({reason:?}): {device} at {sample_rate} Hz"),
+            } => match reason {
+                // A stream can stop asking for sound without reporting an
+                // error, and then nothing would ever make room (#731).
+                Reason::Stalled => log::warn!(
+                    "the audio output stopped playing; opened it again: {device} at {sample_rate} Hz"
+                ),
+                Reason::Failed | Reason::DefaultChanged | Reason::Resumed => {
+                    log::info!("audio output reopened ({reason:?}): {device} at {sample_rate} Hz")
+                }
+            },
             Maintained::Failed(error) => return Err(error.into()),
             Maintained::Unchanged | Maintained::Released => {}
         }
@@ -1074,13 +1068,28 @@ impl Sink for RodioSink {
         // played `REFILL` of it, then is topped up in one go.
         let refill = u64::from(output.sample_rate) * REFILL.as_millis() as u64 / 1_000;
         while output.sink.len() > QUEUE_LIMIT {
-            if output.failed() {
-                let message = "The audio output stopped working".to_string();
-                (self.on_error)(message.clone());
-                return Err(SinkError::OnWrite(message));
+            // Headphones that connect, a new default output, a device that
+            // went away or a stream that stopped asking for sound: the
+            // output moves to the one to use now and the music carries on.
+            // Only an output that will not open stops it.
+            match output.run(&self.control) {
+                Ok(replaced) if !output.failed() => {
+                    if replaced {
+                        self.applied_volume = -1.0;
+                    }
+                }
+                Ok(_) | Err(_) => {
+                    let message = "The audio output stopped working".to_string();
+                    (self.on_error)(message.clone());
+                    return Err(SinkError::OnWrite(message));
+                }
+            }
+            if output.sink.len() <= QUEUE_LIMIT {
+                break;
             }
             output.queued.wait_for_room(refill);
         }
+        self.apply_volume();
         Ok(())
     }
 }
@@ -1339,8 +1348,7 @@ mod tests {
 
     /// A machine without audio (CI, a PC with nothing plugged in) must get
     /// an error and a message for the interface, never a panic. A machine
-    /// with audio opens its default device. Listing devices opens none of
-    /// them, and answers with names or with nothing.
+    /// with audio opens its default device.
     #[test]
     fn starting_without_a_device_is_an_error_not_a_panic() {
         let reported: Arc<Mutex<Option<String>>> = Arc::default();
@@ -1360,8 +1368,6 @@ mod tests {
             Err(other) => panic!("unexpected error: {other}"),
         }
         assert!(sink.stop().is_ok());
-        let names = output_device_names();
-        assert!(names.iter().all(|name| !name.trim().is_empty()));
     }
 
     /// #636: a paused player stops the device asking for sound, and Play,
@@ -1572,7 +1578,7 @@ mod tests {
             librespot_core::SpotifyUri::from_uri("spotify:track:14XWXWv5FoCbFzLksawpEe").unwrap();
         let item = AudioItem {
             track_id: track_id.clone(),
-            uri: track_id.to_uri().unwrap(),
+            uri: track_id.to_uri(),
             files: Default::default(),
             name: "Next song".into(),
             covers: vec![],
@@ -1789,7 +1795,7 @@ mod tests {
         use librespot_metadata::audio::{AudioItem, UniqueFields};
         AudioItem {
             track_id: track_id.clone(),
-            uri: track_id.to_uri().unwrap(),
+            uri: track_id.to_uri(),
             files: Default::default(),
             name: "Next song".into(),
             covers: vec![],
@@ -1949,7 +1955,8 @@ mod tests {
     }
 
     /// A stream that has stopped consuming finishes no chunk, so the wait
-    /// gives up by itself and `write` gets to look at the device.
+    /// gives up by itself and `write` gets to have the device maintained,
+    /// which reopens a stream that stopped playing (Reason::Stalled).
     #[test]
     fn waiting_for_room_gives_up_when_nothing_plays() {
         let queued = Queued::new();

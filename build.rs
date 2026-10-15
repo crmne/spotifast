@@ -51,7 +51,8 @@ fn main() {
         resource
             .set_icon("packaging/windows/spotifast.ico")
             .set("ProductName", "Spotifast")
-            .set("FileDescription", "A native Spotify client");
+            // Task Manager and the Windows mixer name the process by its description.
+            .set("FileDescription", "Spotifast");
         if let Err(error) = resource.compile() {
             println!("cargo:warning=Windows resources not embedded: {error}");
         }

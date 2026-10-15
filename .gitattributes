@@ -1,1 +1,6 @@
 .github/workflows/*.lock.yml linguist-generated=true
+# Protobuf fixtures must retain every wire byte across Windows checkouts.
+*.pb binary
+# So must the Cast root certificates and the Cast test chain.
+assets/cast/** binary
+src/testdata/cast/** binary

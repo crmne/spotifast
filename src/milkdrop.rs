@@ -32,9 +32,16 @@ pub const DEFAULT_SECONDS: u32 = 10;
 pub const DEFAULT_FPS: u32 = 60;
 /// Configurable frame-rate range. Zero is handled separately as uncapped.
 pub const FPS_RANGE: std::ops::RangeInclusive<u32> = 10..=360;
+/// Whether a refresh rate a screen reports is a rate at all: Windows reports
+/// 0 or 1 Hz for "the hardware's default", which says nothing. Screens
+/// faster than the dial goes still count.
+pub fn is_screen_rate(hz: u32) -> bool {
+    hz >= *FPS_RANGE.start()
+}
 /// Frame-rate slider stops: 30, 60, screen rate, current rate, and uncapped.
 pub fn fps_stops(screen: u32, current: u32) -> Vec<u32> {
     let mut rates = vec![30, 60];
+    let screen = if is_screen_rate(screen) { screen } else { 0 };
     for extra in [screen, current] {
         if extra > 0 && !rates.contains(&extra) {
             rates.push(extra);
@@ -58,6 +65,13 @@ pub fn fps_label(locale: crate::i18n::Locale, rate: u32, screen: u32) -> String 
         .replace("{rate}", &rate.to_string()),
         rate => format!("{rate} fps"),
     }
+}
+
+/// A screen's refresh rate in whole hertz, from the millihertz a monitor
+/// reports, when it is a rate at all (see [`is_screen_rate`]).
+pub fn screen_hz(millihertz: u32) -> Option<u32> {
+    let hz = (f64::from(millihertz) / 1000.0).round() as u32;
+    is_screen_rate(hz).then_some(hz)
 }
 
 /// The window's size when it first opens, in logical points.
@@ -106,7 +120,12 @@ pub enum Request {
 /// The presets in the folder and the order they have played in.
 pub struct Presets {
     files: Vec<PathBuf>,
+    /// When the listing in `files`, or the one under way, was started.
     listed: Option<Instant>,
+    /// A listing of the folder under way on a thread of its own: a pack
+    /// holds thousands of presets, and walking them took a third of a second
+    /// on Windows, which froze the window whenever it ran on the UI thread.
+    listing: Option<mpsc::Receiver<Vec<PathBuf>>>,
     /// Played presets and the current position for Previous and Next.
     history: Vec<PathBuf>,
     at: usize,
@@ -129,6 +148,7 @@ impl Presets {
         Self {
             files: Vec::new(),
             listed: None,
+            listing: None,
             history: Vec::new(),
             at: 0,
             locked: false,
@@ -138,17 +158,39 @@ impl Presets {
         }
     }
 
-    /// Lists the folder again if the listing is old.
-    pub fn refresh(&mut self, folder: &Path) {
-        if self.listed.is_none_or(|at| at.elapsed() > LISTED_FRESH) {
-            self.list(folder);
+    /// Takes a finished listing, and lists the folder again on another
+    /// thread if the listing is old. The new listing shows from a later
+    /// call; `wake`, if given, asks for that call once it is ready.
+    pub fn refresh(&mut self, folder: &Path, wake: Option<egui::Context>) {
+        if let Some(receiver) = &self.listing {
+            match receiver.try_recv() {
+                Ok(files) => {
+                    self.files = files;
+                    self.listing = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => return,
+                Err(mpsc::TryRecvError::Disconnected) => self.listing = None,
+            }
         }
-    }
-
-    /// Lists the folder: every `.milk` file in it, folders included.
-    pub fn list(&mut self, folder: &Path) {
+        if self.listed.is_some_and(|at| at.elapsed() <= LISTED_FRESH) {
+            return;
+        }
         self.listed = Some(Instant::now());
-        self.files = list_presets(folder);
+        let (sender, receiver) = mpsc::channel();
+        let folder = folder.to_path_buf();
+        let spawned = std::thread::Builder::new()
+            .name("milkdrop-list".into())
+            .spawn(move || {
+                if sender.send(list_presets(&folder)).is_ok()
+                    && let Some(ctx) = wake
+                {
+                    ctx.request_repaint();
+                }
+            });
+        match spawned {
+            Ok(_) => self.listing = Some(receiver),
+            Err(error) => log::warn!("could not start listing presets: {error}"),
+        }
     }
 
     pub fn count(&self) -> usize {
@@ -337,7 +379,7 @@ fn walk(folder: &Path, depth: usize, files: &mut Vec<PathBuf>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        if is_folder(&entry) {
             if depth + 1 < MAX_DEPTH {
                 walk(&path, depth + 1, files);
             }
@@ -347,10 +389,48 @@ fn walk(folder: &Path, depth: usize, files: &mut Vec<PathBuf>) {
     }
 }
 
+/// Whether the folder holds a preset, looking no further than the first:
+/// cheap enough for the UI thread, where a full listing is not.
+pub fn has_presets(folder: &Path) -> bool {
+    fn find(folder: &Path, depth: usize) -> bool {
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return false;
+        };
+        entries.flatten().any(|entry| {
+            let path = entry.path();
+            if is_folder(&entry) {
+                depth + 1 < MAX_DEPTH && find(&path, depth + 1)
+            } else {
+                is_preset(&path)
+            }
+        })
+    }
+    find(folder, 0)
+}
+
+/// Whether a folder entry is a folder, following a link to one. The entry
+/// already knows its type on every system, which saves asking the file
+/// system again for each of thousands of presets.
+fn is_folder(entry: &std::fs::DirEntry) -> bool {
+    entry
+        .file_type()
+        .is_ok_and(|kind| kind.is_dir() || (kind.is_symlink() && entry.path().is_dir()))
+}
+
 pub fn is_preset(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("milk"))
+}
+
+/// A name that stays in the folder it is joined to on every platform: one
+/// ordinary component, without the drive prefix (`C:x.milk`) or stream
+/// suffix that a colon means on Windows.
+fn is_plain_file_name(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none()
+        && !name.contains(':')
 }
 
 /// Downloads a pack and unpacks its presets into the folder, flat, since
@@ -382,7 +462,7 @@ pub fn unpack_presets(zip: &[u8], folder: &Path) -> Result<usize, String> {
             continue;
         }
         let file_name = entry.base_name();
-        if file_name.is_empty() || !is_preset(Path::new(file_name)) {
+        if !is_plain_file_name(file_name) || !is_preset(Path::new(file_name)) {
             continue;
         }
         let bytes = archive.read(entry).map_err(|error| error.to_string())?;
@@ -429,6 +509,58 @@ mod tests {
         assert!(list_presets(Path::new("/nonexistent/milkdrop")).is_empty());
     }
 
+    /// A pack holds thousands of presets, too many to walk on the UI
+    /// thread: the listing runs on another and shows from a later refresh,
+    /// and a fresh listing is not walked again.
+    #[test]
+    fn presets_are_listed_off_the_calling_thread() {
+        let dir = temp_dir("milkdrop-refresh");
+        std::fs::write(dir.join("a.milk"), b"").unwrap();
+        std::fs::write(dir.join("b.milk"), b"").unwrap();
+        let mut presets = Presets::new();
+        presets.refresh(&dir, None);
+        assert_eq!(presets.count(), 0, "the first refresh only starts it");
+        let started = Instant::now();
+        while presets.count() == 0 && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(5));
+            presets.refresh(&dir, None);
+        }
+        assert_eq!(presets.count(), 2);
+        assert!(presets.listing.is_none());
+        std::fs::write(dir.join("c.milk"), b"").unwrap();
+        presets.refresh(&dir, None);
+        assert!(presets.listing.is_none(), "a fresh listing is kept");
+        assert_eq!(presets.count(), 2);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Opening MilkDrop fetches the packs only into a folder without a
+    /// preset, which is told without listing the whole folder.
+    #[test]
+    fn a_folder_has_presets_when_one_is_found_at_any_depth() {
+        let dir = temp_dir("milkdrop-has");
+        assert!(!has_presets(&dir));
+        assert!(!has_presets(&dir.join("missing")));
+        std::fs::create_dir_all(dir.join("pack").join("style")).unwrap();
+        std::fs::write(dir.join("readme.txt"), b"").unwrap();
+        assert!(!has_presets(&dir));
+        std::fs::write(dir.join("pack").join("style").join("glow.milk"), b"").unwrap();
+        assert!(has_presets(&dir));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Windows's "hardware default" is no screen rate; any real one is,
+    /// screens faster than the dial goes included.
+    #[test]
+    fn a_hardware_default_is_no_screen_rate() {
+        assert!(!is_screen_rate(0));
+        assert!(!is_screen_rate(1), "Windows's hardware default");
+        assert!(is_screen_rate(60));
+        assert!(is_screen_rate(165));
+        assert!(is_screen_rate(480), "faster than the dial goes");
+        assert_eq!(fps_stops(1, 60), vec![30, 60, 0], "no stop for it");
+    }
+
     /// The dial stops at the two rates everyone knows, the screen's own
     /// when it is neither of them, and uncapped, in that order.
     #[test]
@@ -452,6 +584,19 @@ mod tests {
             "144 fps, your screen"
         );
         assert_eq!(fps_label(crate::i18n::Locale::English, 30, 144), "30 fps");
+    }
+
+    /// A monitor's millihertz round to the hertz the dial shows, the default
+    /// Windows reports instead of a rate is no rate at all, and a screen
+    /// faster than the dial goes keeps its rate.
+    #[test]
+    fn a_screen_reports_its_rate_in_millihertz() {
+        assert_eq!(screen_hz(59_940), Some(60));
+        assert_eq!(screen_hz(143_981), Some(144));
+        assert_eq!(screen_hz(164_000), Some(164));
+        assert_eq!(screen_hz(0), None);
+        assert_eq!(screen_hz(1_000), None, "Windows's hardware default");
+        assert_eq!(screen_hz(480_000), Some(480), "faster than the dial goes");
     }
 
     /// R switches between random and the folder's own order; in order,
@@ -543,5 +688,26 @@ mod tests {
         names.sort();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(names, ["One.milk", "Two.milk"]);
+    }
+
+    #[test]
+    fn a_pack_cannot_name_a_file_outside_its_folder() {
+        for name in [
+            "C:Evil.milk",
+            "pack/D:Evil.milk",
+            "Good.milk:stream.milk",
+            "..",
+        ] {
+            assert!(!is_plain_file_name(name), "{name}");
+        }
+        assert!(is_plain_file_name("Good One.milk"));
+        let dir = temp_dir("milkdrop-confined");
+        let zip = crate::skin::zip::write(&[
+            ("pack/C:Evil.milk", b"[preset00]".as_slice(), false),
+            ("pack/Good.milk", b"[preset00]".as_slice(), false),
+        ]);
+        let written = unpack_presets(&zip, &dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(written, Ok(1));
     }
 }

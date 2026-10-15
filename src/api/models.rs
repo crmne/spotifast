@@ -119,6 +119,34 @@ pub struct Image {
     pub height: Option<u32>,
 }
 
+/// The width of the smallest rendition Spotify serves: what rows, tiles and
+/// thumbnails ask for at one pixel per point.
+pub const SMALL_ART_WIDTH: u32 = 64;
+
+/// How many times the pixels it covers artwork is asked for at. It is scaled
+/// down on the CPU to what it covers before it reaches the GPU, and a little
+/// more than that hides the source's compression in the copy. Asking for
+/// twice took the 640 pixel rendition for a page header at 100%, when the
+/// 300 pixel one, the card's, has all the pixels it shows.
+const ART_OVERSAMPLE: f32 = 1.25;
+
+/// The pixel width to ask for, for art drawn `points` wide at
+/// `pixels_per_point`. Asking by points alone stretches a 64 pixel
+/// thumbnail over 90 pixels at 150% scaling, which shows as soft, blocky art.
+pub fn art_target(pixels_per_point: f32, points: f32) -> u32 {
+    let pixels = points * pixels_per_point;
+    let wanted = (pixels * ART_OVERSAMPLE).ceil().max(1.0);
+    // Spotify's smallest rendition loses fine detail to its compression,
+    // which shows unless it is drawn at half its size or less: a playlist's
+    // logo in a library row breaks up.
+    let wanted = if pixels * 2.0 > SMALL_ART_WIDTH as f32 {
+        wanted.max(SMALL_ART_WIDTH as f32 + 1.0)
+    } else {
+        wanted
+    };
+    wanted as u32
+}
+
 /// Picks the smallest image at least `target` pixels wide, or the largest.
 pub fn pick_image(images: &[Image], target: u32) -> Option<&str> {
     let mut best: Option<&Image> = None;
@@ -483,6 +511,10 @@ pub struct Playlist {
     pub tracks: Option<TrackCount>,
     #[serde(default, rename = "items")]
     pub items_count: Option<TrackCount>,
+    /// How many people saved the playlist. Only the Web API's playlist view
+    /// reports it; a header read over the streaming session carries none.
+    #[serde(default)]
+    pub followers: Option<Followers>,
     #[serde(default)]
     pub external_urls: ExternalUrls,
 }
@@ -510,6 +542,27 @@ impl Playlist {
         }
         if self.images.is_empty() {
             self.images = listed.images.clone();
+        }
+    }
+
+    /// Take what a library entry listed blank lacks from the header the
+    /// streaming session read. Spotify's Web API lists some of its own
+    /// playlists, "This Is" ones among them, with no name, cover,
+    /// description or songs, though the session reads them whole. An entry
+    /// with a name is as Spotify listed it and stays.
+    pub fn fill_blank_from(&mut self, header: &Playlist) {
+        if !self.name.is_empty() {
+            return;
+        }
+        self.name = header.name.clone();
+        if self.images.is_empty() {
+            self.images = header.images.clone();
+        }
+        if self.description.as_deref().is_none_or(str::is_empty) {
+            self.description = header.description.clone();
+        }
+        if self.track_total() == 0 {
+            self.items_count = header.items_count.clone();
         }
     }
 
@@ -892,6 +945,20 @@ mod tests {
         assert_eq!(playlist.track_total(), 12);
         assert!(playlist.owned_by("me"));
         assert_eq!(playlist.owner_name(), "Me");
+        assert_eq!(playlist.followers, None);
+    }
+
+    /// The Web API's playlist view reports how many people saved it; a null
+    /// or missing count reads as none.
+    #[test]
+    fn playlist_followers_come_from_the_web_api_view() {
+        let json = r#"{"id":"p","followers":{"total":1845680}}"#;
+        let playlist: Playlist = serde_json::from_str(json).unwrap();
+        assert_eq!(playlist.followers.map(|f| f.total), Some(1_845_680));
+
+        let json = r#"{"id":"p","followers":null}"#;
+        let playlist: Playlist = serde_json::from_str(json).unwrap();
+        assert_eq!(playlist.followers, None);
     }
 
     /// An owner without a display name shows as the id, except Spotify,
@@ -975,6 +1042,39 @@ mod tests {
         assert_eq!(pick_image(&images, 100), Some("medium"));
         assert_eq!(pick_image(&images, 1000), Some("large"));
         assert_eq!(pick_image(&[], 64), None);
+    }
+
+    /// Art is asked for at a quarter more than the pixels it covers, and
+    /// Spotify's blurry 64 pixel rendition only for covers of 32 pixels or
+    /// less: a 44 point row takes the 300 pixel one. A page header takes the
+    /// card's 300 pixel rendition at 100%, and the 640 from 125%; a card
+    /// keeps the 300 up to 150% and takes the 640 from 175%, the scaling
+    /// steps on either side of its switch at 163%.
+    #[test]
+    fn art_is_picked_for_the_display_pixels() {
+        let images = [640, 300, 64].map(|width| Image {
+            url: width.to_string(),
+            width: Some(width),
+            height: Some(width),
+        });
+        let pick = |pixels_per_point: f32, points: f32| {
+            pick_image(&images, art_target(pixels_per_point, points))
+        };
+        assert_eq!(pick(1.0, 24.0), Some("64"));
+        assert_eq!(pick(1.0, 32.0), Some("64"));
+        assert_eq!(pick(1.0, 33.0), Some("300"));
+        assert_eq!(pick(1.0, 44.0), Some("300"));
+        assert_eq!(pick(1.0, 148.0), Some("300"));
+        assert_eq!(pick(1.5, 148.0), Some("300"));
+        assert_eq!(pick(1.62, 148.0), Some("300"));
+        assert_eq!(pick(1.63, 148.0), Some("640"));
+        assert_eq!(pick(1.75, 148.0), Some("640"));
+        assert_eq!(pick(2.0, 148.0), Some("640"));
+        assert_eq!(pick(1.0, 212.0), Some("300"));
+        assert_eq!(pick(1.13, 212.0), Some("300"));
+        assert_eq!(pick(1.14, 212.0), Some("640"));
+        assert_eq!(pick(1.25, 212.0), Some("640"));
+        assert_eq!(art_target(1.25, 44.0), 69);
     }
 
     #[test]

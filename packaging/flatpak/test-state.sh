@@ -5,7 +5,7 @@
 #   packaging/flatpak/test-state.sh org.kde.Platform 6.9
 set -euo pipefail
 runtime="${1:-org.freedesktop.Platform}"
-runtime_branch="${2:-24.08}"
+runtime_branch="${2:-25.08}"
 here="$(cd "$(dirname "$0")" && pwd)"
 probe_dir="$(mktemp -d)"
 probe_id="rocks.spotifast.StateProbe.p$$"

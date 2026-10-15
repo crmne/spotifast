@@ -38,7 +38,7 @@ static FACES: LazyLock<Vec<(&'static [u8], u32)>> = LazyLock::new(|| {
     };
     faces.push((include_bytes!("../../../assets/fonts/NotoEmoji.ttf"), 0));
     for fallback in fastframe_fonts::system::fallbacks() {
-        faces.push((&fallback.bytes, fallback.index));
+        faces.push((fallback.bytes, fallback.index));
     }
     faces
 });

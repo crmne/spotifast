@@ -18,10 +18,9 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
         executable_names: &["Spotifast"],
         legacy_bundle_names: &[],
     },
-    // Releases are verified against checksums.txt alone until they are
-    // signed. Only a version shipped after the first signed release may
-    // carry the key: from then on an unsigned release is refused.
-    publisher_key: None,
+    // Releases publish an Ed25519 signature for checksums.txt. Require it
+    // before downloading an update, using the release workflow's public key.
+    publisher_key: Some(include_str!("../assets/update-public-key.hex")),
     ..UpdateConfig::new(
         "crmne/spotifast",
         "Spotifast",
@@ -44,5 +43,14 @@ mod tests {
     fn update_config_is_valid() {
         CONFIG.validate().unwrap();
         assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn updates_require_the_release_signing_key() {
+        assert!(
+            CONFIG.publisher_key.is_some(),
+            "updates must require a publisher signature"
+        );
+        CONFIG.validate().unwrap();
     }
 }
