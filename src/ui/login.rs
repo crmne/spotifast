@@ -322,6 +322,7 @@ mod tests {
             },
         );
         app.auth = AuthStatus::Connecting;
+        app.locale = crate::i18n::Locale::English;
         app.sign_in_url = Some("https://accounts.spotify.com/authorize".into());
         let output = ctx.run_ui(
             egui::RawInput {
