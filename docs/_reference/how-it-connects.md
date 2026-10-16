@@ -510,6 +510,31 @@ name is sent through CONNECT, and a proxy failure never falls back to a
 direct connection. Proxy URLs and credentials are not logged by this
 connector. The change adds no destination or background polling.
 
+## Jam
+
+Jam uses the playback session and needs no extra authorization. Nothing is sent
+until you press **Start a Jam**, apart from the one read below.
+
+- When the engine connects, Spotifast asks Spotify which Jam the account is in
+  (`GET /social-connect/v2/sessions/current` on the session’s spclient), so a
+  Jam started on a phone shows up. Spotify answers 404 when there is none.
+- **Start a Jam** sends `GET /social-connect/v2/sessions/current_or_new` with
+  this computer’s device ID. Spotify returns the running Jam or creates one
+  hosted here, with the invite link. The request carries the
+  `spotify-connection-id` of the session’s Dealer connection, which ties the
+  Jam to this device.
+- **Leave** reads the current Jam again. If the account owns it, Spotifast ends
+  it for everyone with `DELETE /social-connect/v3/sessions/{id}`; otherwise it
+  leaves with `POST /social-connect/v2/sessions/leave`.
+- Changes to the member list arrive on the session’s existing Dealer
+  connection, as a second listener on the `social-connect/v2/session_update`
+  topic. This opens no connection and polls nothing.
+
+Once the Jam exists, guests’ queue and playback commands reach this computer
+through Spotify Connect like any other remote control. Spotifast keeps neither
+the invite link nor the member list on disk. The Jam is shown only while local
+playback is set up, and is dropped when the playback session ends.
+
 ## Proxy
 
 Since 0.9.0, Settings → Proxy has four modes:
