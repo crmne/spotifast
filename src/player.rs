@@ -923,6 +923,13 @@ fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
                 Some("Spotify refused the audio key. Try again later".into()),
             );
             changed |= set(&mut state.loading, false);
+            // Loading a replacement keeps the previous playing face until
+            // audio starts. A refused key ends that handoff without Playing
+            // or Paused, so explicitly stop claiming that audio is playing.
+            // Keep the track and position for an intentional retry, and do
+            // not report Stopped, which can trigger end-of-list autoplay.
+            changed |= set(&mut state.playback, Playback::Paused);
+            changed |= set(&mut state.position_at, None);
             changed
         }
         PlayerEvent::VolumeChanged { volume } => set(&mut state.volume, volume),
@@ -1631,6 +1638,62 @@ mod tests {
             state.error.as_deref(),
             Some("Spotify refused the audio key. Try again later")
         );
+    }
+
+    #[test]
+    fn a_rejected_audio_key_stops_playing_and_preserves_the_retry_position() {
+        for playback in [Playback::Playing, Playback::Loading, Playback::Paused] {
+            let mut state = LocalState {
+                playback,
+                connected: true,
+                track: Some(LocalTrack {
+                    uri: uri().to_uri(),
+                    duration_ms: 100_000,
+                    ..Default::default()
+                }),
+                loading: true,
+                position_ms: 30_000,
+                position_at: Some(Instant::now() - Duration::from_secs(2)),
+                ..Default::default()
+            };
+            let track = state.track.clone();
+            let failure = || PlayerEvent::AudioKeyUnavailable {
+                play_request_id: 1,
+                track_id: uri(),
+            };
+            assert!(apply_event(&mut state, failure()));
+            assert_eq!(state.playback, Playback::Paused);
+            assert!(!state.loading);
+            assert_eq!(state.position_at, None);
+            assert_eq!(state.position_now(), 30_000);
+            assert_eq!(state.track, track);
+            assert!(state.connected, "a refusal does not end the session");
+            assert!(!apply_event(&mut state, failure()));
+
+            apply_event(
+                &mut state,
+                PlayerEvent::Loading {
+                    play_request_id: 2,
+                    track_id: uri(),
+                    position_ms: 30_000,
+                },
+            );
+            assert!(
+                state.error.is_none(),
+                "an intentional retry clears the error"
+            );
+            apply_event(
+                &mut state,
+                PlayerEvent::Playing {
+                    play_request_id: 2,
+                    track_id: uri(),
+                    position_ms: 30_000,
+                },
+            );
+            assert_eq!(state.playback, Playback::Playing);
+            assert!(!state.loading);
+            assert!(state.position_at.is_some());
+        }
     }
 
     #[test]

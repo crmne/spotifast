@@ -2665,6 +2665,13 @@ impl App {
             && self.local.error.as_deref() != Some(error.as_str())
         {
             self.toast_error(engine_error_text(self.locale, error));
+            if matches!(self.target(), Target::Local) {
+                // A failed retry can remain Paused on the same track, so
+                // neither the playback nor track-change path clears its
+                // optimistic playing state and pending spinner above.
+                self.optimistic_playing = None;
+                self.clear_play_pending();
+            }
             // One unavailable track is Spotify's catalogue; several in a
             // row is the session's audio-key service gone bad, which
             // leaves librespot feeding the decoder encrypted bytes and
@@ -24995,6 +25002,43 @@ mod tests {
         app.handle_local(started);
         app.refresh_frame_now();
         assert!(!app.now_playing().unwrap().loading);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_local_failure_clears_a_same_track_retry_without_consuming_the_queue() {
+        let mut app = headless_app();
+        app.remote = None;
+        app.selected_device = None;
+        app.local = LocalState {
+            connected: true,
+            playback: Playback::Paused,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:a".into(),
+                duration_ms: 100_000,
+                ..Default::default()
+            }),
+            position_ms: 30_000,
+            ..Default::default()
+        };
+        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:b".into()];
+        app.set_play_pending(vec!["spotify:track:a".into()]);
+        app.optimistic_playing = Some((true, Instant::now()));
+        assert!(app.any_play_pending());
+        assert!(app.believed_playing());
+
+        let mut failed = app.local.clone();
+        failed.error = Some("Spotify refused the audio key. Try again later".into());
+        app.handle_local(failed);
+        app.refresh_frame_now();
+        assert!(!app.any_play_pending());
+        assert!(!app.believed_playing());
+        let now = app.now_playing().unwrap();
+        assert!(!now.loading);
+        assert!(!now.playing);
+        assert_eq!(now.uri, "spotify:track:a");
+        assert_eq!(app.local.position_now(), 30_000);
+        assert_eq!(app.manual_queue, ["spotify:track:b", "spotify:track:b"]);
         app.backend.shutdown();
     }
 

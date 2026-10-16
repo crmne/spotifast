@@ -264,7 +264,18 @@ from the cache described in [Settings & Files](/settings-and-files/).
 Spotify can also explicitly refuse the key needed to decrypt a track. When
 that happens, Spotifast stops local playback and leaves the rest of the queue
 alone instead of treating every following track as unavailable. This refusal
-comes from Spotify; trying again later may work.
+comes from Spotify; trying again later may work. A failed load clears the
+pending Play indicator and leaves the player paused at its last reported
+position, rather than claiming that silent audio is playing. The track and
+queue remain available for an intentional retry.
+
+A persistent key refusal cannot be repaired by reinstalling Spotifast or
+clearing its cache. It is tracked in [issue #283](https://github.com/crmne/spotifast/issues/283).
+To listen meanwhile, start playback in Spotify's own app or web player and
+select that device in Spotifast's device menu. Keep that player open: choosing
+**Spotifast (this computer)** sends audio back to the local engine that could
+not obtain the key. Web API rate limits can separately delay device discovery
+and playback controls; they do not establish why Spotify refused an audio key.
 
 Before adding songs to an existing playlist, Spotifast checks the rows it
 already holds. A known duplicate produces an immediate confirmation naming the
