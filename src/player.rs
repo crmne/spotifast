@@ -42,6 +42,8 @@ use crate::api::models::ArtistRef;
 use crate::sink::{AudioControl, ErrorHook, RodioSink};
 use crate::vis::{AudioTap, Tapped};
 
+const AUDIO_KEY_REFUSED: &str = "Spotify refused the audio key. Try again later";
+
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
     pub device_name: String,
@@ -842,6 +844,16 @@ fn start_replay(state: &mut LocalState) -> bool {
 fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
     match event {
         PlayerEvent::Stopped { .. } => {
+            // librespot follows AudioKeyUnavailable with Stopped. Keep the
+            // failed track paused: dropping it would expose a stale Connect
+            // snapshot claiming this computer is still playing, and reset
+            // the position saved for an intentional retry.
+            if state.error.as_deref() == Some(AUDIO_KEY_REFUSED) {
+                let mut changed = set(&mut state.playback, Playback::Paused);
+                changed |= set(&mut state.loading, false);
+                changed |= set(&mut state.position_at, None);
+                return changed;
+            }
             let mut changed = set(&mut state.playback, Playback::Stopped);
             changed |= set(&mut state.loading, false);
             changed |= set(&mut state.position_ms, 0);
@@ -920,7 +932,7 @@ fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
         PlayerEvent::AudioKeyUnavailable { .. } => {
             let mut changed = set(
                 &mut state.error,
-                Some("Spotify refused the audio key. Try again later".into()),
+                Some(AUDIO_KEY_REFUSED.into()),
             );
             changed |= set(&mut state.loading, false);
             // Loading a replacement keeps the previous playing face until
@@ -1669,6 +1681,16 @@ mod tests {
             assert_eq!(state.track, track);
             assert!(state.connected, "a refusal does not end the session");
             assert!(!apply_event(&mut state, failure()));
+            apply_event(
+                &mut state,
+                PlayerEvent::Stopped {
+                    play_request_id: 1,
+                    track_id: uri(),
+                },
+            );
+            assert_eq!(state.playback, Playback::Paused);
+            assert_eq!(state.position_now(), 30_000);
+            assert_eq!(state.track, track);
 
             apply_event(
                 &mut state,
