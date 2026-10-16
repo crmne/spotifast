@@ -24,7 +24,7 @@ use crate::credentials::{
 };
 use crate::http::Http;
 use crate::images::{ArtLoader, accent_color};
-use crate::model::PlaylistCache;
+use crate::model::{PlaylistCache, TopPeriod};
 use crate::paths::AppDirs;
 use crate::player::{
     Engine, EngineConfig, EngineEvent, Heard, LocalState, PlaybackResume, PlayerCommand,
@@ -128,6 +128,7 @@ pub enum ApiRequest {
         limit: u32,
     },
     TopTracks {
+        period: TopPeriod,
         offset: u32,
         full: bool,
         generation: u64,
@@ -367,6 +368,7 @@ pub enum ApiResponse {
         result: ApiResult<CursorPage<PlayHistory>>,
     },
     TopTracks {
+        period: TopPeriod,
         offset: u32,
         full: bool,
         generation: u64,
@@ -1021,6 +1023,8 @@ pub struct Backend {
     #[cfg(test)]
     home_cache_stores:
         std::sync::Mutex<Vec<crate::account_cache::Cache<crate::model::HomeSnapshot>>>,
+    #[cfg(test)]
+    top_tracks_requests: std::sync::Mutex<Vec<(TopPeriod, u32, bool, u64)>>,
 }
 
 impl Backend {
@@ -1115,6 +1119,8 @@ impl Backend {
             library_cache_stores: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             home_cache_stores: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            top_tracks_requests: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -1264,6 +1270,19 @@ impl Backend {
                     *generation,
                 ));
         }
+        #[cfg(test)]
+        if let ApiRequest::TopTracks {
+            period,
+            offset,
+            full,
+            generation,
+        } = &request
+        {
+            self.top_tracks_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push((*period, *offset, *full, *generation));
+        }
         self.send(Command::Api(request));
     }
 
@@ -1296,6 +1315,16 @@ impl Backend {
         std::mem::take(
             &mut *self
                 .home_episode_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_top_tracks_requests(&self) -> Vec<(TopPeriod, u32, bool, u64)> {
+        std::mem::take(
+            &mut *self
+                .top_tracks_requests
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
@@ -4545,11 +4574,17 @@ async fn handle(
             result: routed!(recently_played(limit, None, before.as_deref())),
         },
         ApiRequest::TopTracks {
+            period,
             offset,
             full,
             generation,
         } => ApiResponse::TopTracks {
-            result: routed!(top_tracks("short_term", if full { 50 } else { 20 }, offset)),
+            result: routed!(top_tracks(
+                period.as_spotify(),
+                if full { 50 } else { 20 },
+                offset
+            )),
+            period,
             offset,
             full,
             generation,
