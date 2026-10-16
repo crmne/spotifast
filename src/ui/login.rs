@@ -96,6 +96,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                                 theme::spinner(ui, 18.0, palette.accent);
                                 theme::text(ui, gettext(locale, "Connecting to Spotify…"), theme::medium(14.0), palette.text);
                             });
+                            // A manual sign-in can be cancelled while its
+                            // account check waits through a rate limit. The
+                            // consumed browser URL must no longer be offered.
+                            if app.sign_in_url.is_some() {
+                                ui.add_space(14.0);
+                                if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked() {
+                                    app.actions.push(Action::CancelSignIn);
+                                }
+                            }
                         }
                         AuthStatus::Failed(message) => {
                             let message = message.clone();
@@ -290,6 +299,52 @@ fn big_button(ui: &mut egui::Ui, app: &App, label: &str) -> bool {
 mod tests {
     use super::*;
     use crate::{app::AppOptions, backend::Waker, paths::AppDirs, settings::Settings};
+
+    #[test]
+    fn account_verification_hides_the_consumed_browser_link_but_keeps_cancel() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let root =
+            std::env::temp_dir().join(format!("spotifast-verifying-login-{}", std::process::id()));
+        let mut app = App::new(
+            &Waker::default(),
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+            },
+        );
+        app.auth = AuthStatus::Connecting;
+        app.sign_in_url = Some("https://accounts.spotify.com/authorize".into());
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(760.0, 520.0),
+                )),
+                ..Default::default()
+            },
+            |ui| show(&mut app, ui, true),
+        );
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let labels: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| node.label())
+            .collect();
+        assert!(labels.contains(&"Connecting to Spotify…"));
+        assert!(labels.contains(&"Cancel"));
+        assert!(!labels.contains(&"Waiting for Spotify in your browser…"));
+        assert!(!labels.contains(&"Didn't open? Open the sign-in page again"));
+        app.backend.shutdown();
+    }
 
     #[test]
     fn expanded_proxy_settings_remain_reachable_in_a_short_window() {

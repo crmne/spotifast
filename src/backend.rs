@@ -2635,6 +2635,12 @@ impl Worker {
     }
 
     fn on_web_signed_in(&mut self, source: ApiSource, token: crate::auth::StoredToken) {
+        // The browser callback has already finished and its listener is gone.
+        // Verification can wait through shared API throttling, so stop offering
+        // the expired browser URL while we check the account.
+        if !self.signed_in {
+            self.emit(Event::Auth(AuthStatus::Connecting));
+        }
         let lease = self.credentials.lease(web_slot(source));
         let tokens = WebTokens::new(
             self.http.clone(),
@@ -7741,6 +7747,46 @@ mod authorization_tests {
                 ..Default::default()
             },
         );
+    }
+
+    #[test]
+    fn browser_completion_shows_account_verification_without_downgrading_a_ready_account() {
+        for signed_in in [false, true] {
+            let (runtime, mut worker, events) = worker(if signed_in {
+                "browser-finished-ready"
+            } else {
+                "browser-finished-waiting"
+            });
+            let _entered = runtime.enter();
+            worker.signed_in = signed_in;
+            worker.authorizing_source = Some(ApiSource::Shared);
+            worker.on_web_signed_in(
+                ApiSource::Shared,
+                crate::auth::StoredToken {
+                    client_id: crate::auth::DEFAULT_WEB_CLIENT_ID.into(),
+                    access_token: "dummy-access".into(),
+                    refresh_token: "dummy-refresh".into(),
+                    ..Default::default()
+                },
+            );
+            let emitted: Vec<_> = events.try_iter().collect();
+            assert_eq!(
+                emitted
+                    .iter()
+                    .any(|event| matches!(event, Event::Auth(AuthStatus::Connecting))),
+                !signed_in
+            );
+            assert!(
+                emitted.iter().all(|event| !matches!(
+                    event,
+                    Event::Auth(AuthStatus::WaitingForBrowser { .. })
+                ))
+            );
+            assert_eq!(
+                worker.api.state(ApiSource::Shared),
+                SessionState::Authorizing
+            );
+        }
     }
 
     #[test]

@@ -59,6 +59,12 @@ app using that port, then choose **Try again**. Since 0.13.2, playback setup
 does the same with its port, 8898: if another app holds it, Settings shows the
 error, the browser stays closed, and a saved playback approval is kept.
 
+After the Web API browser approval completes, the sign-in screen switches to
+**Connecting to Spotify…** while verifying the account. Spotify rate limits
+can delay that check. The consumed browser link is no longer offered, since
+its callback listener has closed; **Cancel** remains available during a
+manual sign-in's verification.
+
 Artist pages read popular tracks over the verified account's local playback
 session when it is ready. The list uses that account's country, or Spotify's
 worldwide (`ZZ`) ranking when its country is absent, and keeps the first ten
