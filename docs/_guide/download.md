@@ -68,7 +68,8 @@ open `spotifast.exe`.
 - [Windows ZIP (ARM PCs)]({{ base }}/spotifast-v{{ v }}-aarch64-pc-windows-msvc.zip)
 
 Either way, SmartScreen may warn about an unknown publisher on first run;
-choose **More info**, then **Run anyway**.
+choose **More info**, then **Run anyway**. The Windows files are not signed
+with a publisher certificate, so Windows has no publisher name to show.
 
 Spotifast needs OpenGL 2.0 or newer, which every current Windows graphics
 driver provides. In a virtual machine or remote session that only has the
@@ -81,6 +82,24 @@ in Windows.
 
 Uninstalling while Spotifast runs removes nothing until it is closed. The
 installer offers to close it for you; closing it that way ends it at once.
+
+### Check a Windows download
+
+To check a file against the [published checksums]({{ base }}/checksums.txt),
+print its SHA-256 hash in PowerShell and compare it with that file's line,
+ignoring letter case:
+
+```powershell
+Get-FileHash "$HOME\Downloads\spotifast-v{{ v }}-*-pc-windows-msvc*"
+```
+
+If Windows Security flags a download, open **Windows Security → Virus &
+threat protection → Protection history** and note the threat name. Include it,
+and the file's hash, when you
+[report the problem](https://github.com/crmne/spotifast/issues/new?template=bug.yml).
+To ask Microsoft to review the file, send it through
+[Submit a file for malware analysis](https://www.microsoft.com/en-us/wdsi/filesubmission)
+as incorrectly detected.
 
 ## Linux
 
