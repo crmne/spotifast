@@ -5405,6 +5405,19 @@ impl App {
             }
             Loadable::Failed(err) => {
                 self.home.top_tracks = Loadable::Failed(err.clone());
+                if self.network_reachable {
+                    self.home.top_tracks_by_period[idx] = Loadable::Loading;
+                    self.home.top_tracks = Loadable::Loading;
+                    self.home.top_tracks_generations[idx] =
+                        self.home.top_tracks_generations[idx].max(self.home.generation) + 1;
+                    let generation = self.home.top_tracks_generations[idx];
+                    self.backend.api(ApiRequest::TopTracks {
+                        period,
+                        offset: 0,
+                        full: false,
+                        generation,
+                    });
+                }
             }
             Loadable::NotLoaded => {
                 if let Some(songs) = self.home.top_songs_by_period[idx].get() {
@@ -6988,8 +7001,8 @@ impl App {
                             }
                         }
                         Err(error) => {
-                            self.home.top_tracks_by_period[idx] =
-                                Loadable::Failed(error.to_string());
+                            self.home.top_tracks_by_period[idx]
+                                .refresh(Err::<Vec<Track>, _>(error.to_string()));
                             if self.home.top_period == period
                                 && offset == 0
                                 && self.home.top_tracks.get().is_none()
@@ -15361,15 +15374,15 @@ mod tests {
 
         assert_eq!(
             TopPeriod::ShortTerm.subtitle(en),
-            "Your most-played tracks from the last four weeks."
+            "Calculated from your listening over approximately the last 4 weeks."
         );
         assert_eq!(
             TopPeriod::MediumTerm.subtitle(en),
-            "Your most-played tracks from the last six months."
+            "Calculated from your listening over approximately the last 6 months."
         );
         assert_eq!(
             TopPeriod::LongTerm.subtitle(en),
-            "Your most-played tracks from the past year."
+            "Calculated from several years of listening history."
         );
     }
 
@@ -15620,9 +15633,13 @@ mod tests {
             result: Err(crate::api::ApiError::RateLimited),
         });
 
-        // The cached songs remain visible.
+        // The cached songs remain visible in both the active shelf and the period cache.
         assert_eq!(
             app.home.top_tracks.get(),
+            Some(&vec![song("spotify:track:existing")])
+        );
+        assert_eq!(
+            app.home.top_tracks_by_period[0].get(),
             Some(&vec![song("spotify:track:existing")])
         );
         assert!(app.home.refresh_failed);

@@ -655,11 +655,18 @@ impl TopPeriod {
     pub fn subtitle(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
         use crate::i18n::gettext;
         match self {
-            Self::ShortTerm => gettext(locale, "Your most-played tracks from the last four weeks."),
-            Self::MediumTerm => {
-                gettext(locale, "Your most-played tracks from the last six months.")
-            }
-            Self::LongTerm => gettext(locale, "Your most-played tracks from the past year."),
+            Self::ShortTerm => gettext(
+                locale,
+                "Calculated from your listening over approximately the last 4 weeks.",
+            ),
+            Self::MediumTerm => gettext(
+                locale,
+                "Calculated from your listening over approximately the last 6 months.",
+            ),
+            Self::LongTerm => gettext(
+                locale,
+                "Calculated from several years of listening history.",
+            ),
         }
     }
 }
