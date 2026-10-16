@@ -2977,6 +2977,16 @@ impl App {
         self.home = HomeData {
             generation: self.home.generation,
             top_songs_generation: self.home.top_songs_generation,
+            top_tracks_generations: [
+                self.home.top_tracks_generations[0] + 1,
+                self.home.top_tracks_generations[1] + 1,
+                self.home.top_tracks_generations[2] + 1,
+            ],
+            top_songs_generations: [
+                self.home.top_songs_generations[0] + 1,
+                self.home.top_songs_generations[1] + 1,
+                self.home.top_songs_generations[2] + 1,
+            ],
             made_for_you_generation: self.home.made_for_you_generation,
             new_releases_generation: self.home.new_releases_generation,
             new_release_tracks_generation: self.home.new_release_tracks_generation,
@@ -4883,9 +4893,26 @@ impl App {
             home.top_artists = Loadable::Loaded(artists);
         }
         if let Some(tracks) = cached.top_tracks
-            && home.top_tracks.get().is_none()
+            && home.top_tracks_by_period[0].get().is_none()
         {
-            home.top_tracks = Loadable::Loaded(tracks);
+            home.top_tracks_by_period[0] = Loadable::Loaded(tracks);
+        }
+        if let Some(tracks) = cached.top_tracks_medium
+            && home.top_tracks_by_period[1].get().is_none()
+        {
+            home.top_tracks_by_period[1] = Loadable::Loaded(tracks);
+        }
+        if let Some(tracks) = cached.top_tracks_long
+            && home.top_tracks_by_period[2].get().is_none()
+        {
+            home.top_tracks_by_period[2] = Loadable::Loaded(tracks);
+        }
+        if home.top_tracks.get().is_none() {
+            home.top_period = cached.top_period;
+            let idx = home.top_period.index();
+            if let Some(tracks) = home.top_tracks_by_period[idx].get().cloned() {
+                home.top_tracks = Loadable::Loaded(tracks);
+            }
         }
         if home.made_for_you.get().is_none() {
             let personalized = cached.made_for_you.is_some() && cached.made_for_you_personalized;
@@ -4940,7 +4967,22 @@ impl App {
         let snapshot = HomeSnapshot {
             recently_played: home.recently_played.get().cloned(),
             top_artists: home.top_artists.get().cloned(),
-            top_tracks: home.top_tracks.get().cloned(),
+            top_tracks: home.top_tracks_by_period[0].get().cloned().or_else(|| {
+                (home.top_period == TopPeriod::ShortTerm)
+                    .then(|| home.top_tracks.get().cloned())
+                    .flatten()
+            }),
+            top_tracks_medium: home.top_tracks_by_period[1].get().cloned().or_else(|| {
+                (home.top_period == TopPeriod::MediumTerm)
+                    .then(|| home.top_tracks.get().cloned())
+                    .flatten()
+            }),
+            top_tracks_long: home.top_tracks_by_period[2].get().cloned().or_else(|| {
+                (home.top_period == TopPeriod::LongTerm)
+                    .then(|| home.top_tracks.get().cloned())
+                    .flatten()
+            }),
+            top_period: home.top_period,
             made_for_you: home.made_for_you.get().cloned(),
             made_for_you_personalized: home.made_for_you_personalized,
             top_mixes: home.top_mixes.get().cloned(),
@@ -5153,7 +5195,10 @@ impl App {
             limit: HOME_RECENTS,
         });
         self.backend.api(ApiRequest::TopArtists { generation });
+        let period = self.home.top_period;
+        self.home.top_tracks_generations[period.index()] = generation;
         self.backend.api(ApiRequest::TopTracks {
+            period,
             offset: 0,
             full: false,
             generation,
@@ -5317,18 +5362,84 @@ impl App {
     }
 
     fn load_top_songs(&mut self, force: bool) {
-        if self.home.top_songs_loading || (!force && self.home.top_songs_complete) {
+        let period = self.home.top_period;
+        let idx = period.index();
+        if self.home.top_songs_by_period_loading[idx]
+            || (!force && self.home.top_songs_by_period_complete[idx])
+        {
             return;
         }
-        self.home.top_songs = Loadable::Loading;
+        self.home.top_songs_by_period_loading[idx] = true;
+        self.home.top_songs_by_period_complete[idx] = false;
+        self.home.top_songs_generation += 1;
+        let generation = self.home.top_songs_generation;
+        self.home.top_songs_generations[idx] = generation;
+
         self.home.top_songs_loading = true;
         self.home.top_songs_complete = false;
-        self.home.top_songs_generation += 1;
+        if force || self.home.top_songs_by_period[idx].get().is_none() {
+            self.home.top_songs = Loadable::Loading;
+            self.home.top_songs_by_period[idx] = Loadable::Loading;
+        }
         self.backend.api(ApiRequest::TopTracks {
+            period,
             offset: 0,
             full: true,
-            generation: self.home.top_songs_generation,
+            generation,
         });
+    }
+
+    pub fn set_top_period(&mut self, period: TopPeriod) {
+        if self.home.top_period == period {
+            return;
+        }
+        self.home.top_period = period;
+        let idx = period.index();
+
+        match &self.home.top_tracks_by_period[idx] {
+            Loadable::Loaded(tracks) => {
+                self.home.top_tracks = Loadable::Loaded(tracks.clone());
+            }
+            Loadable::Loading => {
+                self.home.top_tracks = Loadable::Loading;
+            }
+            Loadable::Failed(err) => {
+                self.home.top_tracks = Loadable::Failed(err.clone());
+            }
+            Loadable::NotLoaded => {
+                if let Some(songs) = self.home.top_songs_by_period[idx].get() {
+                    let preview: Vec<Track> = songs.iter().take(20).cloned().collect();
+                    self.home.top_tracks_by_period[idx] = Loadable::Loaded(preview.clone());
+                    self.home.top_tracks = Loadable::Loaded(preview);
+                } else if self.network_reachable {
+                    self.home.top_tracks_by_period[idx] = Loadable::Loading;
+                    self.home.top_tracks = Loadable::Loading;
+                    self.home.top_tracks_generations[idx] =
+                        self.home.top_tracks_generations[idx].max(self.home.generation) + 1;
+                    let generation = self.home.top_tracks_generations[idx];
+                    self.backend.api(ApiRequest::TopTracks {
+                        period,
+                        offset: 0,
+                        full: false,
+                        generation,
+                    });
+                }
+            }
+        }
+
+        self.home.top_songs = self.home.top_songs_by_period[idx].clone();
+        self.home.top_songs_loading = self.home.top_songs_by_period_loading[idx];
+        self.home.top_songs_complete = self.home.top_songs_by_period_complete[idx];
+        self.home.top_songs_generation += 1;
+        self.table_rows.remove(&Page::TopSongs);
+
+        if matches!(self.page(), Page::TopSongs)
+            && self.network_reachable
+            && !self.home.top_songs_by_period_complete[idx]
+            && !self.home.top_songs_by_period_loading[idx]
+        {
+            self.load_top_songs(false);
+        }
     }
 
     pub fn load_recents(&mut self, force: bool) {
@@ -6769,13 +6880,15 @@ impl App {
                 }
             },
             ApiResponse::TopTracks {
+                period,
                 offset,
                 full,
                 generation,
                 result,
             } => {
+                let idx = period.index();
                 if full {
-                    if generation != self.home.top_songs_generation {
+                    if generation != self.home.top_songs_generations[idx] {
                         return;
                     }
                     match result {
@@ -6786,61 +6899,109 @@ impl App {
                                 tracks.iter().map(|track| track.uri.clone()).collect();
                             self.request_contains(uris);
                             if offset == 0 {
-                                self.home.top_songs = Loadable::Loaded(tracks);
-                            } else if let Some(current) = self.home.top_songs.get_mut() {
+                                self.home.top_songs_by_period[idx] = Loadable::Loaded(tracks);
+                            } else if let Some(current) =
+                                self.home.top_songs_by_period[idx].get_mut()
+                            {
                                 current.extend(tracks);
+                            }
+                            if self.home.top_tracks_by_period[idx].get().is_none()
+                                && let Some(loaded) = self.home.top_songs_by_period[idx].get()
+                            {
+                                let preview = loaded.iter().take(20).cloned().collect();
+                                self.home.top_tracks_by_period[idx] = Loadable::Loaded(preview);
+                                if self.home.top_period == period {
+                                    self.home.top_tracks =
+                                        self.home.top_tracks_by_period[idx].clone();
+                                }
                             }
                             if page.next.is_some() && received > 0 && offset + received < 100 {
                                 self.backend.api(ApiRequest::TopTracks {
+                                    period,
                                     offset: offset + received,
                                     full: true,
                                     generation,
                                 });
                             } else {
-                                self.home.top_songs_loading = false;
-                                self.home.top_songs_complete = true;
+                                self.home.top_songs_by_period_loading[idx] = false;
+                                self.home.top_songs_by_period_complete[idx] = true;
+                            }
+                            if self.home.top_period == period {
+                                self.home.top_songs = self.home.top_songs_by_period[idx].clone();
+                                self.home.top_songs_loading =
+                                    self.home.top_songs_by_period_loading[idx];
+                                self.home.top_songs_complete =
+                                    self.home.top_songs_by_period_complete[idx];
                             }
                         }
                         Err(error) => {
-                            self.home.top_songs.refresh(Err::<Vec<Track>, _>(error));
-                            self.home.top_songs_loading = false;
+                            self.home.top_songs_by_period[idx].refresh(Err::<Vec<Track>, _>(error));
+                            self.home.top_songs_by_period_loading[idx] = false;
+                            if self.home.top_period == period {
+                                self.home.top_songs = self.home.top_songs_by_period[idx].clone();
+                                self.home.top_songs_loading = false;
+                            }
                         }
                     }
-                } else if generation != self.home.generation {
-                } else if let Ok(page) = result {
-                    let tracks = page.items;
-                    let seeds: Vec<String> = tracks
-                        .iter()
-                        .filter_map(|track| track.id.clone())
-                        .take(5)
-                        .collect();
-                    if seeds.is_empty() {
-                        // Nothing to seed recommendations with: an empty
-                        // shelf is hidden, where one never asked for would
-                        // show its loading rows for good.
-                        if self.home.recommendations.get().is_none() {
-                            self.home.recommendations = Loadable::Loaded(Vec::new());
-                        }
-                    } else {
-                        if self.home.recommendations.get().is_none() {
-                            self.home.recommendations = Loadable::Loading;
-                        }
-                        self.backend.api(ApiRequest::Recommendations {
-                            seed_tracks: seeds,
-                            seed_artists: Vec::new(),
-                            generation,
-                        });
+                } else {
+                    if generation != self.home.top_tracks_generations[idx] {
+                        return;
                     }
-                    let uris: Vec<String> = tracks.iter().map(|track| track.uri.clone()).collect();
-                    self.request_contains(uris);
-                    self.home.top_tracks = Loadable::Loaded(tracks);
-                    self.home_answered(true);
-                } else if let Err(error) = result {
-                    if offset == 0 && self.home.top_tracks.get().is_none() {
-                        self.home.top_tracks = Loadable::Failed(error.to_string());
+                    match result {
+                        Ok(page) => {
+                            let tracks = page.items;
+                            let seeds: Vec<String> = tracks
+                                .iter()
+                                .filter_map(|track| track.id.clone())
+                                .take(5)
+                                .collect();
+                            if seeds.is_empty() {
+                                // Nothing to seed recommendations with: an empty
+                                // shelf is hidden, where one never asked for would
+                                // show its loading rows for good.
+                                if generation == self.home.generation
+                                    && self.home.recommendations.get().is_none()
+                                {
+                                    self.home.recommendations = Loadable::Loaded(Vec::new());
+                                }
+                            } else if generation == self.home.generation {
+                                if self.home.recommendations.get().is_none() {
+                                    self.home.recommendations = Loadable::Loading;
+                                }
+                                self.backend.api(ApiRequest::Recommendations {
+                                    seed_tracks: seeds,
+                                    seed_artists: Vec::new(),
+                                    generation,
+                                });
+                            }
+                            let uris: Vec<String> =
+                                tracks.iter().map(|track| track.uri.clone()).collect();
+                            self.request_contains(uris);
+                            self.home.top_tracks_by_period[idx] = Loadable::Loaded(tracks.clone());
+                            if self.home.top_period == period {
+                                self.home.top_tracks = Loadable::Loaded(tracks);
+                            }
+                            if generation == self.home.generation {
+                                self.home_answered(true);
+                            } else {
+                                self.store_home_cache();
+                            }
+                        }
+                        Err(error) => {
+                            self.home.top_tracks_by_period[idx] =
+                                Loadable::Failed(error.to_string());
+                            if self.home.top_period == period
+                                && offset == 0
+                                && self.home.top_tracks.get().is_none()
+                            {
+                                self.home.top_tracks = Loadable::Failed(error.to_string());
+                            }
+                            if generation == self.home.generation {
+                                self.home.refresh_failed = true;
+                                self.home_answered(false);
+                            }
+                        }
                     }
-                    self.home.refresh_failed = true;
-                    self.home_answered(false);
                 }
             }
             ApiResponse::TopArtists { generation, result } => {
@@ -11085,6 +11246,7 @@ impl App {
                 self.settings_dirty = true;
             }
             Action::SetSearchFilter(filter) => self.search.filter = filter,
+            Action::SetTopPeriod(period) => self.set_top_period(period),
             Action::FocusSearch => {
                 self.search.focus_requested = true;
                 if !matches!(self.page(), Page::Search) {
@@ -14989,6 +15151,7 @@ mod tests {
                 },
                 Vec::new(),
             )],
+            ..Default::default()
         }
     }
 
@@ -15001,6 +15164,7 @@ mod tests {
         app.load_home(false);
         let generation = app.home.generation;
         app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::ShortTerm,
             offset: 0,
             full: false,
             generation,
@@ -15009,6 +15173,7 @@ mod tests {
         assert_eq!(app.home.recommendations.get(), Some(&Vec::new()));
 
         app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::ShortTerm,
             offset: 0,
             full: false,
             generation,
@@ -15063,6 +15228,7 @@ mod tests {
             result: Err(crate::api::ApiError::RateLimited),
         });
         app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::ShortTerm,
             offset: 0,
             full: false,
             generation,
@@ -15171,6 +15337,295 @@ mod tests {
             app.home.top_tracks.get(),
             Some(&vec![song("spotify:track:cached-top")])
         );
+    }
+
+    #[test]
+    fn top_period_spotify_mappings_and_labels() {
+        assert_eq!(TopPeriod::ShortTerm.as_spotify(), "short_term");
+        assert_eq!(TopPeriod::MediumTerm.as_spotify(), "medium_term");
+        assert_eq!(TopPeriod::LongTerm.as_spotify(), "long_term");
+
+        assert_eq!(TopPeriod::ShortTerm.index(), 0);
+        assert_eq!(TopPeriod::MediumTerm.index(), 1);
+        assert_eq!(TopPeriod::LongTerm.index(), 2);
+
+        assert_eq!(TopPeriod::from_index(0), TopPeriod::ShortTerm);
+        assert_eq!(TopPeriod::from_index(1), TopPeriod::MediumTerm);
+        assert_eq!(TopPeriod::from_index(2), TopPeriod::LongTerm);
+        assert_eq!(TopPeriod::from_index(99), TopPeriod::ShortTerm);
+
+        let en = crate::i18n::Locale::English;
+        assert_eq!(TopPeriod::ShortTerm.label(en), "Last 4 weeks");
+        assert_eq!(TopPeriod::MediumTerm.label(en), "Last 6 months");
+        assert_eq!(TopPeriod::LongTerm.label(en), "Past year");
+
+        assert_eq!(
+            TopPeriod::ShortTerm.subtitle(en),
+            "Your most-played tracks from the last four weeks."
+        );
+        assert_eq!(
+            TopPeriod::MediumTerm.subtitle(en),
+            "Your most-played tracks from the last six months."
+        );
+        assert_eq!(
+            TopPeriod::LongTerm.subtitle(en),
+            "Your most-played tracks from the past year."
+        );
+    }
+
+    #[test]
+    fn switching_to_cached_period_uses_cache_without_network_request() {
+        let mut app = listener_app();
+        app.home.top_tracks_by_period[0] = Loadable::Loaded(vec![song("spotify:track:short-1")]);
+        app.home.top_tracks_by_period[1] = Loadable::Loaded(vec![song("spotify:track:med-1")]);
+        app.home.top_period = TopPeriod::ShortTerm;
+        app.home.top_tracks = app.home.top_tracks_by_period[0].clone();
+
+        app.backend.take_top_tracks_requests();
+
+        // Switch to medium term (cached).
+        app.actions
+            .push(Action::SetTopPeriod(TopPeriod::MediumTerm));
+        app.apply_actions(&egui::Context::default());
+        assert_eq!(app.home.top_period, TopPeriod::MediumTerm);
+        assert_eq!(
+            app.home.top_tracks.get(),
+            Some(&vec![song("spotify:track:med-1")])
+        );
+
+        // No new backend API requests should have been sent.
+        let requests = app.backend.take_top_tracks_requests();
+        assert!(requests.is_empty(), "cached period requires zero requests");
+    }
+
+    #[test]
+    fn switching_to_uncached_period_requests_only_that_period_once() {
+        let mut app = listener_app();
+        app.home.top_tracks_by_period[0] = Loadable::Loaded(vec![song("spotify:track:short-1")]);
+        app.home.top_period = TopPeriod::ShortTerm;
+        app.home.top_tracks = app.home.top_tracks_by_period[0].clone();
+
+        app.backend.take_top_tracks_requests();
+
+        // Switch to medium term (uncached).
+        app.actions
+            .push(Action::SetTopPeriod(TopPeriod::MediumTerm));
+        app.apply_actions(&egui::Context::default());
+        assert_eq!(app.home.top_period, TopPeriod::MediumTerm);
+        assert!(app.home.top_tracks.is_loading());
+
+        let requests = app.backend.take_top_tracks_requests();
+        assert_eq!(requests.len(), 1);
+        let (period, offset, full, _gen) = requests[0];
+        assert_eq!(period, TopPeriod::MediumTerm);
+        assert_eq!(offset, 0);
+        assert!(!full, "Home shelf asks for preview limit, not full list");
+
+        // Selecting the same loading period again does not duplicate the request.
+        app.actions
+            .push(Action::SetTopPeriod(TopPeriod::MediumTerm));
+        app.apply_actions(&egui::Context::default());
+        assert!(app.backend.take_top_tracks_requests().is_empty());
+    }
+
+    #[test]
+    fn stale_responses_do_not_overwrite_newer_selection() {
+        let mut app = listener_app();
+        app.home.top_period = TopPeriod::ShortTerm;
+
+        // User switches to MediumTerm.
+        app.actions
+            .push(Action::SetTopPeriod(TopPeriod::MediumTerm));
+        app.apply_actions(&egui::Context::default());
+        let requests_med = app.backend.take_top_tracks_requests();
+        assert_eq!(requests_med.len(), 1);
+        let (period_med, _, _, gen_med) = requests_med[0];
+        assert_eq!(period_med, TopPeriod::MediumTerm);
+
+        // Before response arrives, user switches to LongTerm.
+        app.actions.push(Action::SetTopPeriod(TopPeriod::LongTerm));
+        app.apply_actions(&egui::Context::default());
+        let requests_long = app.backend.take_top_tracks_requests();
+        assert_eq!(requests_long.len(), 1);
+        let (period_long, _, _, gen_long) = requests_long[0];
+        assert_eq!(period_long, TopPeriod::LongTerm);
+        assert!(app.home.top_tracks.is_loading());
+
+        // Stale response for MediumTerm arrives.
+        app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::MediumTerm,
+            offset: 0,
+            full: false,
+            generation: gen_med,
+            result: Ok(crate::api::models::Page {
+                items: vec![song("spotify:track:med-ans")],
+                ..Default::default()
+            }),
+        });
+
+        // MediumTerm cache is populated, but currently displayed shelf is still LongTerm (Loading).
+        assert_eq!(
+            app.home.top_tracks_by_period[TopPeriod::MediumTerm.index()].get(),
+            Some(&vec![song("spotify:track:med-ans")])
+        );
+        assert!(
+            app.home.top_tracks.is_loading(),
+            "stale response must not overwrite the newer period selection"
+        );
+
+        // Outdated generation for LongTerm arrives: should be dropped.
+        app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::LongTerm,
+            offset: 0,
+            full: false,
+            generation: gen_long.wrapping_sub(1),
+            result: Ok(crate::api::models::Page {
+                items: vec![song("spotify:track:long-obsolete")],
+                ..Default::default()
+            }),
+        });
+        assert!(app.home.top_tracks.is_loading());
+
+        // Correct generation for LongTerm arrives: active shelf updates.
+        app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::LongTerm,
+            offset: 0,
+            full: false,
+            generation: gen_long,
+            result: Ok(crate::api::models::Page {
+                items: vec![song("spotify:track:long-ans")],
+                ..Default::default()
+            }),
+        });
+        assert_eq!(
+            app.home.top_tracks.get(),
+            Some(&vec![song("spotify:track:long-ans")])
+        );
+    }
+
+    #[test]
+    fn home_and_top_songs_pages_share_period_selection_consistently() {
+        let mut app = connected_listener();
+        app.home.top_period = TopPeriod::ShortTerm;
+
+        // Switch to LongTerm.
+        app.actions.push(Action::SetTopPeriod(TopPeriod::LongTerm));
+        app.apply_actions(&egui::Context::default());
+        assert_eq!(app.home.top_period, TopPeriod::LongTerm);
+
+        // Open TopSongs page: ensure_loaded is called.
+        app.open(Page::TopSongs);
+        assert_eq!(app.home.top_period, TopPeriod::LongTerm);
+        let requests = app.backend.take_top_tracks_requests();
+        // TopSongs requests the full list for LongTerm.
+        assert!(
+            requests
+                .iter()
+                .any(|(p, _, full, _)| *p == TopPeriod::LongTerm && *full)
+        );
+    }
+
+    #[test]
+    fn snapshot_serialization_round_trip_and_backward_compatibility() {
+        // Test backwards compatibility with older snapshot containing only top_tracks.
+        let older_json = r#"{
+            "recently_played": [],
+            "top_artists": [],
+            "top_tracks": [{"id": "old-track", "uri": "spotify:track:old-track"}],
+            "discover": {},
+            "podcasts": []
+        }"#;
+        let restored: HomeSnapshot = serde_json::from_str(older_json).unwrap();
+        assert_eq!(restored.top_period, TopPeriod::ShortTerm);
+        assert_eq!(
+            restored.top_tracks.as_ref().map(|v| v[0].id.as_deref()),
+            Some(Some("old-track"))
+        );
+        assert_eq!(restored.top_tracks_medium, None);
+        assert_eq!(restored.top_tracks_long, None);
+
+        // Test restoring into App.
+        let mut app = listener_app();
+        app.restore_home(restored);
+        assert_eq!(
+            app.home.top_tracks.get().map(|v| v[0].id.as_deref()),
+            Some(Some("old-track"))
+        );
+        assert_eq!(
+            app.home.top_tracks_by_period[0]
+                .get()
+                .map(|v| v[0].id.as_deref()),
+            Some(Some("old-track"))
+        );
+
+        // Test round trip with all three periods.
+        let full_snapshot = HomeSnapshot {
+            top_period: TopPeriod::MediumTerm,
+            top_tracks: Some(vec![song("spotify:track:short")]),
+            top_tracks_medium: Some(vec![song("spotify:track:med")]),
+            top_tracks_long: Some(vec![song("spotify:track:long")]),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&full_snapshot).unwrap();
+        let deserialized: HomeSnapshot = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, full_snapshot);
+    }
+
+    #[test]
+    fn sign_out_resets_period_caches_and_rejects_in_flight_answers() {
+        let mut app = listener_app();
+        app.home.top_tracks_by_period[0] = Loadable::Loaded(vec![song("spotify:track:s1")]);
+        app.home.top_tracks_by_period[1] = Loadable::Loaded(vec![song("spotify:track:m1")]);
+        app.home.top_period = TopPeriod::MediumTerm;
+        app.home.top_tracks = app.home.top_tracks_by_period[1].clone();
+
+        let old_gen = app.home.top_tracks_generations[1];
+
+        // Sign out resets data for the signed-out account.
+        app.reset_data();
+        assert_eq!(app.home.top_tracks.get(), None);
+        assert_eq!(app.home.top_tracks_by_period[0].get(), None);
+        assert_eq!(app.home.top_tracks_by_period[1].get(), None);
+
+        // Late response from previous account arrives: should not be absorbed.
+        app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::MediumTerm,
+            offset: 0,
+            full: false,
+            generation: old_gen,
+            result: Ok(crate::api::models::Page {
+                items: vec![song("spotify:track:leaked")],
+                ..Default::default()
+            }),
+        });
+        assert_eq!(app.home.top_tracks.get(), None);
+        assert_eq!(app.home.top_tracks_by_period[1].get(), None);
+    }
+
+    #[test]
+    fn failed_refresh_preserves_previously_cached_period_tracks() {
+        let mut app = listener_app();
+        app.load_home(false);
+        let generation = app.home.generation;
+
+        app.home.top_tracks_by_period[0] = Loadable::Loaded(vec![song("spotify:track:existing")]);
+        app.home.top_tracks = Loadable::Loaded(vec![song("spotify:track:existing")]);
+
+        // API returns RateLimited error for top tracks.
+        app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::ShortTerm,
+            offset: 0,
+            full: false,
+            generation,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+
+        // The cached songs remain visible.
+        assert_eq!(
+            app.home.top_tracks.get(),
+            Some(&vec![song("spotify:track:existing")])
+        );
+        assert!(app.home.refresh_failed);
     }
 
     fn connected_listener() -> App {

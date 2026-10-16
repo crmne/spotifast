@@ -10,7 +10,7 @@ use crate::app::App;
 use crate::i18n::{Locale, gettext, ngettext};
 use crate::model::{
     Action, Dialog, DragTrack, Loadable, Page, PagedList, RowContext, RowPick, SortColumn,
-    TableItem, TableRowsCache, TableSort,
+    TableItem, TableRowsCache, TableSort, TopPeriod,
 };
 use crate::theme::{self, Icon, Palette};
 use crate::util;
@@ -1590,13 +1590,23 @@ pub fn top_songs(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(4.0);
     theme::text(
         ui,
-        gettext(
-            app.locale,
-            "Your most-played tracks from the last four weeks.",
-        ),
+        app.home.top_period.subtitle(app.locale),
         theme::regular(13.5),
         palette.secondary,
     );
+    ui.add_space(12.0);
+
+    let labels: Vec<_> = TopPeriod::ALL
+        .iter()
+        .map(|p| (*p, p.label(app.locale)))
+        .collect();
+    let options: Vec<(TopPeriod, &str)> = labels
+        .iter()
+        .map(|(period, label)| (*period, label.as_ref()))
+        .collect();
+    if let Some(period) = widgets::chips(ui, &palette, &options, app.home.top_period) {
+        app.actions.push(Action::SetTopPeriod(period));
+    }
     ui.add_space(18.0);
 
     let tracks = match &app.home.top_songs {
