@@ -701,12 +701,6 @@ fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
     let more = gettext(app.locale, "Show more top songs");
     let tracks = app.home.top_tracks.clone();
 
-    if let Loadable::Loaded(ref list) = tracks
-        && list.is_empty()
-    {
-        return;
-    }
-
     if theme::link(ui, &*title, theme::bold(17.0), palette.text).clicked() {
         app.actions.push(Action::Open(Page::TopSongs));
     }
