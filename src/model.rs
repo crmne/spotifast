@@ -1144,6 +1144,12 @@ pub enum Action {
     /// Send the account to a receiver found on the local network.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
+    /// Start a Jam hosted by this computer.
+    JamStart,
+    /// Put the Jam's invite link on the clipboard.
+    JamCopyLink,
+    /// Leave the Jam, or end it for everyone when this account owns it.
+    JamLeave,
     /// Empty Next up of its queued songs, keeping the context's own.
     ClearQueue,
     /// Save the current and upcoming queue as a playlist.

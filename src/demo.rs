@@ -4017,8 +4017,8 @@ mod tests {
             .unwrap()
             .rect();
         assert!(
-            popup.height() < 160.0,
-            "a list with only this computer should shrink to fit: {popup:?}"
+            popup.height() < 200.0,
+            "a list with only this computer and the Jam row should shrink to fit: {popup:?}"
         );
         app.backend.shutdown();
     }
