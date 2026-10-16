@@ -2525,6 +2525,8 @@ impl App {
         };
         self.liked_songs = crate::liked::LikedSongs::default();
         self.liked_recheck_at = None;
+        self.liked_focus_read_at = None;
+        self.liked_focus_wanted = false;
         // Answers still on their way belong to the signed-out account's
         // Home.
         self.home = HomeData {

@@ -45,6 +45,9 @@ struct Change {
     /// Only a refresh started after the write can retire its optimistic state.
     #[serde(skip)]
     confirmed_generation: u64,
+    /// Whether `item.added_at` was supplied by a Spotify server row.
+    #[serde(default)]
+    server_origin: bool,
 }
 
 struct Refresh {
@@ -164,10 +167,11 @@ impl LikedSongs {
                         }
                     } else {
                         complete
-                            || match (change_ts, oldest_loaded_ts) {
-                                (Some(change_ts), Some(oldest_ts)) => change_ts > oldest_ts,
-                                _ => false,
-                            }
+                            || (change.server_origin
+                                && match (change_ts, oldest_loaded_ts) {
+                                    (Some(change_ts), Some(oldest_ts)) => change_ts > oldest_ts,
+                                    _ => false,
+                                })
                     };
                 !retired
             });
@@ -195,16 +199,25 @@ impl LikedSongs {
 
     pub fn change(&mut self, uri: String, saved: bool, track: Track) {
         self.synced = None;
-        let item = self
+        let (item, server_origin) = self
             .server
             .items
             .iter()
             .find(|item| item.track.uri == uri)
-            .cloned()
-            .or_else(|| self.changes.get(&uri).map(|change| change.item.clone()))
-            .unwrap_or_else(|| SavedTrack {
-                added_at: Some(jiff::Timestamp::now().to_string()),
-                track,
+            .map(|item| (item.clone(), true))
+            .or_else(|| {
+                self.changes
+                    .get(&uri)
+                    .map(|change| (change.item.clone(), change.server_origin))
+            })
+            .unwrap_or_else(|| {
+                (
+                    SavedTrack {
+                        added_at: Some(jiff::Timestamp::now().to_string()),
+                        track,
+                    },
+                    false,
+                )
             });
         self.changes.insert(
             uri,
@@ -213,6 +226,7 @@ impl LikedSongs {
                 item,
                 confirmed: false,
                 confirmed_generation: self.generation,
+                server_origin,
             },
         );
     }
@@ -893,6 +907,36 @@ mod tests {
             songs.changes.len(),
             2,
             "both unconfirmed and concurrently confirmed changes are preserved"
+        );
+    }
+
+    #[test]
+    fn unloaded_track_unlike_with_placeholder_timestamp_is_not_retired_by_prefix() {
+        let mut songs = LikedSongs {
+            cache_checked: true,
+            ..Default::default()
+        };
+        songs.start_refresh(1);
+        let mut first_page = page(0, 50, 500);
+        first_page.items[0] = item_with_date(0, "2026-08-01T00:00:00Z");
+        first_page.items[49] = item_with_date(49, "2026-05-01T00:00:00Z");
+        songs.absorb(0, first_page, 10_000);
+
+        // Track 999 is unliked when not in server.items (placeholder timestamp).
+        songs.change(item(999).track.uri, false, item(999).track);
+        songs.confirm(&item(999).track.uri, false, true);
+
+        // Refresh completes for page 0 without track 999.
+        songs.start_refresh(2);
+        let mut next_page = page(0, 50, 500);
+        next_page.items[0] = item_with_date(0, "2026-08-01T00:00:00Z");
+        next_page.items[49] = item_with_date(49, "2026-05-01T00:00:00Z");
+        songs.absorb(0, next_page, 20_000);
+
+        assert_eq!(
+            songs.changes.len(),
+            1,
+            "placeholder timestamp must not authorize partial-prefix deletion inference"
         );
     }
 }
