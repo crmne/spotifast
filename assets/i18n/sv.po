@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-17 19:53+0200\n"
+"POT-Creation-Date: 2026-10-17 21:20+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -111,21 +111,21 @@ msgstr "Sök i biblioteket"
 msgid "Library"
 msgstr "Bibliotek"
 
-#: src/ui/sidebar.rs:1095 src/app.rs:7205 src/model.rs:707 src/ui/search.rs:667
+#: src/ui/sidebar.rs:1095 src/app.rs:7205 src/model.rs:718 src/ui/search.rs:667
 msgid "Playlists"
 msgstr "Spellistor"
 
-#: src/ui/sidebar.rs:1096 src/model.rs:706 src/model.rs:831
+#: src/ui/sidebar.rs:1096 src/model.rs:717 src/model.rs:842
 #: src/ui/library.rs:17 src/ui/search.rs:594
 msgid "Albums"
 msgstr "Album"
 
-#: src/ui/sidebar.rs:1097 src/model.rs:705 src/ui/library.rs:22
+#: src/ui/sidebar.rs:1097 src/model.rs:716 src/ui/library.rs:22
 #: src/ui/search.rs:526
 msgid "Artists"
 msgstr "Artister"
 
-#: src/ui/sidebar.rs:1098 src/model.rs:708 src/ui/library.rs:27
+#: src/ui/sidebar.rs:1098 src/model.rs:719 src/ui/library.rs:27
 #: src/ui/search.rs:718
 msgid "Podcasts"
 msgstr "Poddar"
@@ -163,7 +163,7 @@ msgstr "Inga träffar."
 msgid "Sort by recently played"
 msgstr "Sortera efter nyligen spelade"
 
-#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:768 src/ui/widgets.rs:1182
+#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:768 src/ui/widgets.rs:1206
 #: src/ui/artist.rs:390 src/ui/collection.rs:289 src/ui/prerelease.rs:309
 #: src/ui/search.rs:408 src/ui/show.rs:389
 msgid "Play"
@@ -238,12 +238,12 @@ msgid "Add to playlist"
 msgstr "Lägg till i spellista"
 
 #: src/ui/player_bar.rs:581 src/ui/widgets.rs:740 src/ui/widgets.rs:1011
-#: src/ui/widgets.rs:1934
+#: src/ui/widgets.rs:1958
 msgid "Save to Liked Songs"
 msgstr "Spara i Gillade låtar"
 
 #: src/ui/player_bar.rs:642 src/ui/widgets.rs:737 src/ui/widgets.rs:1008
-#: src/ui/widgets.rs:1932
+#: src/ui/widgets.rs:1956
 msgid "Remove from Liked Songs"
 msgstr "Ta bort från Gillade låtar"
 
@@ -350,7 +350,7 @@ msgstr "Härnäst"
 msgid "Next up"
 msgstr "Sedan"
 
-#: src/ui/queue.rs:624 src/ui/queue.rs:657 src/ui/widgets.rs:2736
+#: src/ui/queue.rs:624 src/ui/queue.rs:657 src/ui/widgets.rs:2760
 #: src/ui/collection.rs:1195 src/ui/prerelease.rs:242
 msgid "Retry"
 msgstr "Försök igen"
@@ -427,7 +427,7 @@ msgstr "Instrumental"
 msgid "No timed lyrics for this track."
 msgstr "Ingen synkroniserad text för den här låten."
 
-#: src/ui/lyrics.rs:462 src/ui/widgets.rs:2702 src/app.rs:12094
+#: src/ui/lyrics.rs:462 src/ui/widgets.rs:2726 src/app.rs:12094
 #: src/ui/collection.rs:851
 msgid "Loading…"
 msgstr "Läser in…"
@@ -440,7 +440,7 @@ msgstr "Lämna helskärm (Esc)"
 msgid "Play next"
 msgstr "Spela härnäst"
 
-#: src/ui/widgets.rs:723 src/ui/widgets.rs:981 src/ui/widgets.rs:1204
+#: src/ui/widgets.rs:723 src/ui/widgets.rs:981 src/ui/widgets.rs:1228
 msgid "Add to queue"
 msgstr "Lägg till i kön"
 
@@ -492,74 +492,78 @@ msgstr "Gå till artist"
 msgid "Go to album"
 msgstr "Gå till album"
 
-#: src/ui/widgets.rs:1143
+#: src/ui/widgets.rs:1154
+msgid "Go to playing context"
+msgstr "Till källan"
+
+#: src/ui/widgets.rs:1167
 msgid "Go to podcast"
 msgstr "Gå till podd"
 
-#: src/ui/widgets.rs:1155 src/ui/widgets.rs:1267 src/ui/prerelease.rs:226
+#: src/ui/widgets.rs:1179 src/ui/widgets.rs:1291 src/ui/prerelease.rs:226
 msgid "Copy link"
 msgstr "Kopiera länk"
 
-#: src/ui/widgets.rs:1163 src/ui/widgets.rs:1275 src/ui/prerelease.rs:230
+#: src/ui/widgets.rs:1187 src/ui/widgets.rs:1299 src/ui/prerelease.rs:230
 msgid "Open in Spotify"
 msgstr "Öppna i Spotify"
 
-#: src/ui/widgets.rs:1194
+#: src/ui/widgets.rs:1218
 msgid "Shuffle play"
 msgstr "Spela blandat"
 
-#: src/ui/widgets.rs:1214
+#: src/ui/widgets.rs:1238
 msgctxt "artist"
 msgid "Unfollow"
 msgstr "Sluta följa"
 
-#: src/ui/widgets.rs:1215 src/ui/artist.rs:406
+#: src/ui/widgets.rs:1239 src/ui/artist.rs:406
 msgctxt "artist"
 msgid "Follow"
 msgstr "Följ"
 
-#: src/ui/widgets.rs:1216 src/ui/collection.rs:2055 src/ui/collection.rs:2077
+#: src/ui/widgets.rs:1240 src/ui/collection.rs:2055 src/ui/collection.rs:2077
 #: src/ui/show.rs:241
 msgid "Remove from Your Library"
 msgstr "Ta bort från Ditt bibliotek"
 
-#: src/ui/widgets.rs:1217 src/ui/collection.rs:2054
+#: src/ui/widgets.rs:1241 src/ui/collection.rs:2054
 msgid "Add to Your Library"
 msgstr "Lägg till i Ditt bibliotek"
 
-#: src/ui/widgets.rs:1227 src/ui/dialogs.rs:464
+#: src/ui/widgets.rs:1251 src/ui/dialogs.rs:464
 msgid "Edit details"
 msgstr "Redigera information"
 
-#: src/ui/widgets.rs:1241 src/ui/dialogs.rs:100
+#: src/ui/widgets.rs:1265 src/ui/dialogs.rs:100
 msgid "Delete"
 msgstr "Radera"
 
-#: src/ui/widgets.rs:1252
+#: src/ui/widgets.rs:1276
 msgid "Go to playlist radio"
 msgstr "Gå till spellisteradio"
 
-#: src/ui/widgets.rs:1253
+#: src/ui/widgets.rs:1277
 msgid "Go to album radio"
 msgstr "Gå till albumradio"
 
-#: src/ui/widgets.rs:1254
+#: src/ui/widgets.rs:1278
 msgid "Go to artist radio"
 msgstr "Gå till artistradio"
 
 #. Translators: {title} is a song or episode name, {subtitle} its artists or podcast.
-#: src/ui/widgets.rs:1459
+#: src/ui/widgets.rs:1483
 #, rust-format
 msgid "Play {title}, {subtitle}"
 msgstr "Spela {title}, {subtitle}"
 
-#: src/ui/widgets.rs:1979 src/ui/artist.rs:420 src/ui/collection.rs:392
+#: src/ui/widgets.rs:2003 src/ui/artist.rs:420 src/ui/collection.rs:392
 #: src/ui/show.rs:259 src/ui/show.rs:467
 msgid "More"
 msgstr "Mer"
 
 #. Translators: The label beside the pointer while songs are dragged. {name} is the first song's name and {count} how many more songs are dragged with it.
-#: src/ui/widgets.rs:2131
+#: src/ui/widgets.rs:2155
 #, rust-format
 msgid "{name} + {count} more"
 msgid_plural "{name} + {count} more"
@@ -567,90 +571,90 @@ msgstr[0] "{name} + {count} till"
 msgstr[1] "{name} + {count} till"
 
 #. Translators: {column} is a column heading of a song list, such as Title.
-#: src/ui/widgets.rs:2248
+#: src/ui/widgets.rs:2272
 #, rust-format
 msgid "Sort by {column}"
 msgstr "Sortera efter {column}"
 
-#: src/ui/widgets.rs:2298
+#: src/ui/widgets.rs:2322
 msgid "Sort by playlist order"
 msgstr "Sortera efter spellistans ordning"
 
-#: src/ui/widgets.rs:2333
+#: src/ui/widgets.rs:2357
 msgid "Original order, reversed"
 msgstr "Ursprunglig ordning, omvänd"
 
-#: src/ui/widgets.rs:2346
+#: src/ui/widgets.rs:2370
 msgctxt "column heading"
 msgid "TITLE"
 msgstr "TITEL"
 
-#: src/ui/widgets.rs:2369
+#: src/ui/widgets.rs:2393
 msgctxt "column heading"
 msgid "ALBUM"
 msgstr "ALBUM"
 
-#: src/ui/widgets.rs:2378
+#: src/ui/widgets.rs:2402
 msgctxt "column heading"
 msgid "ADDED BY"
 msgstr "TILLAGD AV"
 
-#: src/ui/widgets.rs:2387
+#: src/ui/widgets.rs:2411
 msgctxt "column heading"
 msgid "DATE ADDED"
 msgstr "DATUM TILLAGD"
 
-#: src/ui/widgets.rs:2408 src/ui/widgets.rs:2438
+#: src/ui/widgets.rs:2432 src/ui/widgets.rs:2462
 msgid "Sort by duration"
 msgstr "Sortera efter längd"
 
-#: src/ui/widgets.rs:2713 src/app.rs:12265 src/app.rs:12279
+#: src/ui/widgets.rs:2737 src/app.rs:12265 src/app.rs:12279
 msgid "Network connection error. Check your connection."
 msgstr "Nätverksanslutningsfel. Kontrollera din anslutning."
 
-#: src/ui/widgets.rs:2971
+#: src/ui/widgets.rs:2995
 msgid "Cut"
 msgstr "Klipp ut"
 
-#: src/ui/widgets.rs:2976
+#: src/ui/widgets.rs:3000
 msgid "Copy"
 msgstr "Kopiera"
 
-#: src/ui/widgets.rs:2981
+#: src/ui/widgets.rs:3005
 msgid "Paste"
 msgstr "Klistra in"
 
-#: src/ui/widgets.rs:2998
+#: src/ui/widgets.rs:3022
 msgid "Select all"
 msgstr "Markera allt"
 
-#: src/ui/widgets.rs:3105
+#: src/ui/widgets.rs:3129
 msgid "Clear"
 msgstr "Rensa"
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
-#: src/ui/widgets.rs:3150
+#: src/ui/widgets.rs:3174
 #, rust-format
 msgid "Built with love by {name}"
 msgstr "Byggd med kärlek av {name}"
 
-#: src/ui/widgets.rs:3295
+#: src/ui/widgets.rs:3319
 msgid "Host"
 msgstr "Värd"
 
-#: src/ui/widgets.rs:3312
+#: src/ui/widgets.rs:3336
 msgid "Port"
 msgstr "Port"
 
-#: src/ui/widgets.rs:3330
+#: src/ui/widgets.rs:3354
 msgid "Username"
 msgstr "Användarnamn"
 
-#: src/ui/widgets.rs:3341
+#: src/ui/widgets.rs:3365
 msgid "Password"
 msgstr "Lösenord"
 
-#: src/ui/widgets.rs:3359
+#: src/ui/widgets.rs:3383
 msgid ""
 "Proxy login applies to Web requests. Local playback uses this proxy only "
 "without a login."
@@ -658,7 +662,7 @@ msgstr ""
 "Proxyinloggningen gäller webbförfrågningar. Lokal uppspelning använder bara "
 "proxyn om ingen inloggning anges."
 
-#: src/ui/widgets.rs:3363
+#: src/ui/widgets.rs:3387
 msgid ""
 "Spotify hostnames are resolved by the proxy. Local playback connects "
 "directly."
@@ -1959,7 +1963,7 @@ msgstr "Singel"
 msgid "Compilation"
 msgstr "Samling"
 
-#: src/api/models.rs:298 src/model.rs:833
+#: src/api/models.rs:298 src/model.rs:844
 msgid "Appears On"
 msgstr "Medverkar på"
 
@@ -1973,20 +1977,20 @@ msgstr "Obegränsad"
 msgid "{rate} fps, your screen"
 msgstr "{rate} fps, din skärm"
 
-#: src/model.rs:703 src/model.rs:830
+#: src/model.rs:714 src/model.rs:841
 msgctxt "filter"
 msgid "All"
 msgstr "Alla"
 
-#: src/model.rs:704 src/ui/search.rs:443
+#: src/model.rs:715 src/ui/search.rs:443
 msgid "Songs"
 msgstr "Låtar"
 
-#: src/model.rs:709 src/ui/library.rs:32 src/ui/search.rs:286
+#: src/model.rs:720 src/ui/library.rs:32 src/ui/search.rs:286
 msgid "Episodes"
 msgstr "Avsnitt"
 
-#: src/model.rs:832
+#: src/model.rs:843
 msgid "Singles & EPs"
 msgstr "Singlar och EP"
 
