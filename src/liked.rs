@@ -45,6 +45,9 @@ struct Change {
     /// Only a refresh started after the write can retire its optimistic state.
     #[serde(skip)]
     confirmed_generation: u64,
+    /// Whether `item.added_at` was supplied by a Spotify server row.
+    #[serde(default)]
+    server_origin: bool,
 }
 
 struct Refresh {
@@ -144,15 +147,33 @@ impl LikedSongs {
             self.refreshed_at = now;
             self.saved_through = None;
             let complete = self.server.is_complete();
+            let contiguous_prefix = self.server.base_offset == 0 && self.server.windows.is_empty();
+            let oldest_loaded_ts = if contiguous_prefix {
+                self.server.items.last().and_then(track_timestamp)
+            } else {
+                None
+            };
             self.changes.retain(|uri, change| {
-                let present = self.server.items.iter().any(|item| &item.track.uri == uri);
-                !(change.confirmed
+                let server_item = self.server.items.iter().find(|item| &item.track.uri == uri);
+                let change_ts = track_timestamp(&change.item);
+                let retired = change.confirmed
                     && change.confirmed_generation < self.generation
                     && if change.saved {
-                        present
+                        server_item.is_some()
+                    } else if let Some(server_track) = server_item {
+                        match (track_timestamp(server_track), change_ts) {
+                            (Some(server_ts), Some(change_ts)) => server_ts > change_ts,
+                            _ => false,
+                        }
                     } else {
-                        complete && !present
-                    })
+                        complete
+                            || (change.server_origin
+                                && match (change_ts, oldest_loaded_ts) {
+                                    (Some(change_ts), Some(oldest_ts)) => change_ts > oldest_ts,
+                                    _ => false,
+                                })
+                    };
+                !retired
             });
         } else {
             // A page at the end of the loaded rows leaves those rows as they
@@ -178,16 +199,25 @@ impl LikedSongs {
 
     pub fn change(&mut self, uri: String, saved: bool, track: Track) {
         self.synced = None;
-        let item = self
+        let (item, server_origin) = self
             .server
             .items
             .iter()
             .find(|item| item.track.uri == uri)
-            .cloned()
-            .or_else(|| self.changes.get(&uri).map(|change| change.item.clone()))
-            .unwrap_or_else(|| SavedTrack {
-                added_at: Some(jiff::Timestamp::now().to_string()),
-                track,
+            .map(|item| (item.clone(), true))
+            .or_else(|| {
+                self.changes
+                    .get(&uri)
+                    .map(|change| (change.item.clone(), change.server_origin))
+            })
+            .unwrap_or_else(|| {
+                (
+                    SavedTrack {
+                        added_at: Some(jiff::Timestamp::now().to_string()),
+                        track,
+                    },
+                    false,
+                )
             });
         self.changes.insert(
             uri,
@@ -196,6 +226,7 @@ impl LikedSongs {
                 item,
                 confirmed: false,
                 confirmed_generation: self.generation,
+                server_origin,
             },
         );
     }
@@ -369,6 +400,10 @@ fn count(total: u32, counted: &[bool]) -> u32 {
             total.saturating_sub(1)
         }
     })
+}
+
+fn track_timestamp(track: &SavedTrack) -> Option<jiff::Timestamp> {
+    track.added_at.as_deref()?.parse().ok()
 }
 
 pub async fn read(path: &std::path::Path, account: &str) -> Option<Cache> {
@@ -676,5 +711,232 @@ mod tests {
         let mut broken = cache;
         broken.next_offset = Some(75);
         assert!(!broken.valid_for("alice"));
+    }
+
+    fn item_with_date(n: u32, added_at: &str) -> SavedTrack {
+        SavedTrack {
+            added_at: Some(added_at.into()),
+            track: Track {
+                uri: format!("spotify:track:{n}"),
+                name: format!("Song {n}"),
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn cross_device_relike_with_newer_timestamp_retires_unlike_override() {
+        let mut songs = LikedSongs {
+            cache_checked: true,
+            ..Default::default()
+        };
+        songs.start_refresh(1);
+        let mut first_page = page(0, 50, 500);
+        first_page.items[0] = item_with_date(0, "2026-09-01T10:00:00Z");
+        songs.absorb(0, first_page, 10_000);
+
+        songs.change(item(0).track.uri, false, item(0).track);
+        songs.confirm(&item(0).track.uri, false, true);
+        assert_eq!(songs.changes.len(), 1);
+
+        // A refresh starts (generation 2).
+        songs.start_refresh(2);
+        // Spotify returns item(0) with a newer timestamp (re-liked on another device).
+        let mut refreshed_page = page(0, 50, 500);
+        refreshed_page.items[0] = item_with_date(0, "2026-10-15T12:00:00Z");
+        songs.absorb(0, refreshed_page, 20_000);
+
+        assert!(
+            songs.changes.is_empty(),
+            "newer server timestamp retires the unlike override"
+        );
+        let mut view = PagedList::default();
+        songs.sync_view(&mut view);
+        assert_eq!(view.items[0].track.uri, item(0).track.uri);
+    }
+
+    #[test]
+    fn lagging_server_with_equal_or_older_timestamp_retains_unlike_override() {
+        let mut songs = LikedSongs {
+            cache_checked: true,
+            ..Default::default()
+        };
+        songs.start_refresh(1);
+        let mut first_page = page(0, 50, 500);
+        first_page.items[0] = item_with_date(0, "2026-09-01T10:00:00Z");
+        songs.absorb(0, first_page, 10_000);
+
+        songs.change(item(0).track.uri, false, item(0).track);
+        songs.confirm(&item(0).track.uri, false, true);
+
+        // Spotify lags on DELETE and returns the same timestamp.
+        songs.start_refresh(2);
+        let mut lagging_page = page(0, 50, 500);
+        lagging_page.items[0] = item_with_date(0, "2026-09-01T10:00:00Z");
+        songs.absorb(0, lagging_page, 20_000);
+
+        assert_eq!(
+            songs.changes.len(),
+            1,
+            "equal timestamp preserves the override against server lag"
+        );
+        let mut view = PagedList::default();
+        songs.sync_view(&mut view);
+        assert!(
+            !view.items.iter().any(|x| x.track.uri == item(0).track.uri),
+            "unliked track remains suppressed in the view"
+        );
+    }
+
+    #[test]
+    fn missing_or_invalid_timestamps_retain_unlike_override() {
+        let mut songs = LikedSongs {
+            cache_checked: true,
+            ..Default::default()
+        };
+        songs.start_refresh(1);
+        let mut first_page = page(0, 50, 500);
+        first_page.items[0] = item_with_date(0, "2026-09-01T10:00:00Z");
+        songs.absorb(0, first_page, 10_000);
+
+        songs.change(item(0).track.uri, false, item(0).track);
+        songs.confirm(&item(0).track.uri, false, true);
+
+        // Server returns track with invalid timestamp string.
+        songs.start_refresh(2);
+        let mut invalid_page = page(0, 50, 500);
+        invalid_page.items[0].added_at = Some("not-a-valid-date".into());
+        songs.absorb(0, invalid_page, 20_000);
+        assert_eq!(songs.changes.len(), 1, "invalid timestamp retains override");
+
+        // Server returns track with missing timestamp.
+        songs.start_refresh(3);
+        let mut missing_page = page(0, 50, 500);
+        missing_page.items[0].added_at = None;
+        songs.absorb(0, missing_page, 20_000);
+        assert_eq!(songs.changes.len(), 1, "missing timestamp retains override");
+    }
+
+    #[test]
+    fn partial_library_absent_track_retired_when_newer_than_oldest_loaded() {
+        let mut songs = LikedSongs {
+            cache_checked: true,
+            ..Default::default()
+        };
+        songs.start_refresh(1);
+        let mut first_page = page(0, 50, 500);
+        first_page.items[0] = item_with_date(0, "2026-08-01T00:00:00Z");
+        first_page.items[49] = item_with_date(49, "2026-05-01T00:00:00Z");
+        songs.absorb(0, first_page, 10_000);
+
+        songs.change(item(0).track.uri, false, item(0).track);
+        songs.confirm(&item(0).track.uri, false, true);
+
+        // Refresh completes and the 50 items do not contain item(0).
+        // Since item(0) was 2026-08-01 and the last item is 2026-05-01,
+        // it cannot be on later pages.
+        songs.start_refresh(2);
+        let mut next_page = page(0, 50, 500);
+        for (i, it) in next_page.items.iter_mut().enumerate() {
+            it.added_at = Some(format!("2026-07-{:02}T00:00:00Z", 29 - (i % 28)));
+        }
+        next_page.items[0] = item_with_date(999, "2026-07-30T00:00:00Z");
+        next_page.items[49] = item_with_date(49, "2026-05-01T00:00:00Z");
+        songs.absorb(0, next_page, 20_000);
+
+        assert!(
+            songs.changes.is_empty(),
+            "deletion confirmed because track is absent from range newer than oldest loaded"
+        );
+    }
+
+    #[test]
+    fn partial_library_absent_track_retained_on_boundary_or_older() {
+        let mut songs = LikedSongs {
+            cache_checked: true,
+            ..Default::default()
+        };
+        songs.start_refresh(1);
+        let mut first_page = page(0, 50, 500);
+        first_page.items[0] = item_with_date(0, "2026-05-01T00:00:00Z");
+        first_page.items[49] = item_with_date(49, "2026-05-01T00:00:00Z");
+        songs.absorb(0, first_page, 10_000);
+
+        songs.change(item(0).track.uri, false, item(0).track);
+        songs.confirm(&item(0).track.uri, false, true);
+
+        // Refresh completes without item(0), but oldest is equal (boundary tie) or newer.
+        songs.start_refresh(2);
+        let mut next_page = page(0, 50, 500);
+        for it in next_page.items.iter_mut() {
+            it.added_at = Some("2026-05-01T00:00:00Z".into());
+        }
+        next_page.items[0] = item_with_date(999, "2026-05-01T00:00:00Z");
+        songs.absorb(0, next_page, 20_000);
+
+        assert_eq!(
+            songs.changes.len(),
+            1,
+            "boundary tie must preserve override because item may be on next page"
+        );
+    }
+
+    #[test]
+    fn generation_safety_unconfirmed_and_concurrent_writes_preserved() {
+        let mut songs = LikedSongs {
+            cache_checked: true,
+            ..Default::default()
+        };
+        songs.start_refresh(1);
+        songs.absorb(0, page(0, 50, 500), 10_000);
+
+        // Change 1: created during refresh generation 2, unconfirmed.
+        songs.start_refresh(2);
+        songs.change(item(10).track.uri, false, item(10).track);
+
+        // Change 2: confirmed during generation 2 (confirmed_generation == 2).
+        songs.change(item(20).track.uri, false, item(20).track);
+        songs.confirm(&item(20).track.uri, false, true);
+
+        let mut next_page = page(0, 50, 500);
+        next_page.items.remove(10);
+        next_page.items.remove(19);
+        songs.absorb(0, next_page, 20_000);
+
+        assert_eq!(
+            songs.changes.len(),
+            2,
+            "both unconfirmed and concurrently confirmed changes are preserved"
+        );
+    }
+
+    #[test]
+    fn unloaded_track_unlike_with_placeholder_timestamp_is_not_retired_by_prefix() {
+        let mut songs = LikedSongs {
+            cache_checked: true,
+            ..Default::default()
+        };
+        songs.start_refresh(1);
+        let mut first_page = page(0, 50, 500);
+        first_page.items[0] = item_with_date(0, "2026-08-01T00:00:00Z");
+        first_page.items[49] = item_with_date(49, "2026-05-01T00:00:00Z");
+        songs.absorb(0, first_page, 10_000);
+
+        // Track 999 is unliked when not in server.items (placeholder timestamp).
+        songs.change(item(999).track.uri, false, item(999).track);
+        songs.confirm(&item(999).track.uri, false, true);
+
+        // Refresh completes for page 0 without track 999.
+        songs.start_refresh(2);
+        let mut next_page = page(0, 50, 500);
+        next_page.items[0] = item_with_date(0, "2026-08-01T00:00:00Z");
+        next_page.items[49] = item_with_date(49, "2026-05-01T00:00:00Z");
+        songs.absorb(0, next_page, 20_000);
+
+        assert_eq!(
+            songs.changes.len(),
+            1,
+            "placeholder timestamp must not authorize partial-prefix deletion inference"
+        );
     }
 }
