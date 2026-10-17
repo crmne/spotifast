@@ -682,10 +682,8 @@ pub struct FriendActivity {
     pub context_name: Option<String>,
 }
 
-/// The feed behind Spotify's Listening Activity panel. It lists the same
-/// people the desktop app shows, with the song playing now, where the older
-/// buddy list reports a song only once it has finished.
-const LISTENING_ACTIVITY: &str = "https://spclient.wg.spotify.com/listening-activity/v1/feed";
+/// How many entries to ask the live feed for.
+const LISTENING_ACTIVITY_LIMIT: u32 = 100;
 
 /// Names that rarely change, kept between polls so each refresh asks only
 /// for the songs. Only answers are kept: a read that failed is asked again
@@ -763,10 +761,9 @@ struct LiveActivity {
 /// stands in.
 pub async fn friend_activity(
     session: &Session,
-    http: &reqwest::Client,
     names: &tokio::sync::Mutex<FriendNames>,
 ) -> anyhow::Result<Vec<FriendActivity>> {
-    let live = match live_activity(session, http).await {
+    let live = match live_activity(session).await {
         Ok(live) => live,
         Err(error) => {
             log::warn!("listening activity feed unavailable, using the buddy list: {error:#}");
@@ -871,21 +868,15 @@ pub async fn friend_activity(
     Ok(friends)
 }
 
-async fn live_activity(
-    session: &Session,
-    http: &reqwest::Client,
-) -> anyhow::Result<Vec<LiveActivity>> {
-    let login = session.login5().auth_token().await?;
-    let client_token = session.spclient().client_token().await?;
-    let response = http
-        .post(LISTENING_ACTIVITY)
-        .bearer_auth(&login.access_token)
-        .header("client-token", client_token)
-        .json(&serde_json::json!({"unused": true, "resultLimit": 100}))
-        .send()
-        .await?
-        .error_for_status()?;
-    let json: serde_json::Value = response.json().await?;
+/// The feed behind Spotify's Listening Activity panel. It lists the same
+/// people the desktop app shows, with the song playing now, where the older
+/// buddy list reports a song only once it has finished.
+async fn live_activity(session: &Session) -> anyhow::Result<Vec<LiveActivity>> {
+    let bytes = session
+        .spclient()
+        .get_listening_activity(LISTENING_ACTIVITY_LIMIT)
+        .await?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
     live_from_json(&json)
 }
 
@@ -964,15 +955,7 @@ fn live_context(uri: &str) -> String {
 
 /// The older buddy list Spotify's desktop app read before the live feed.
 async fn buddy_list(session: &Session) -> anyhow::Result<Vec<FriendActivity>> {
-    let bytes = session
-        .spclient()
-        .request(
-            &reqwest::Method::GET,
-            "/presence-view/v1/buddylist",
-            None,
-            None,
-        )
-        .await?;
+    let bytes = session.spclient().get_buddylist().await?;
     let json: serde_json::Value = serde_json::from_slice(&bytes)?;
     Ok(friends_from_json(&json))
 }
