@@ -57,9 +57,10 @@ Once the browser hands back a grant, the sign-in screen shows "Connecting to
 Spotify…" instead of the browser prompt, and the browser is free for another
 approval. Until someone is signed in, **Cancel** stops the account check,
 including a restored grant's, since it retries through rate limits and server
-errors alike. If Spotify rate limits the check, the sign-in screen says so. When a personal app is configured, a browser sign-in held back
-this way opens that app's approval once, so the personal app can finish
-signing in while the shared app waits.
+errors alike. If Spotify rate limits the check, the sign-in screen says so.
+When a personal app is configured, a browser sign-in held back this way opens
+that app's approval once, so the personal app can finish signing in while the
+shared app waits.
 
 Web API sign-in opens the browser only after its local callback port is available. If
 port 8989 is occupied, the sign-in screen keeps the error visible. Close the
