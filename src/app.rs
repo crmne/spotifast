@@ -12085,6 +12085,63 @@ mod tests {
         )));
     }
 
+    /// Full-screen lyrics show no sidebar or side panel, so the window stops
+    /// asking for their room while they are up: a portrait screen narrower
+    /// than that room must still hold the full-screen window (#783). The
+    /// panels' minimum comes back when full screen ends.
+    #[test]
+    fn full_screen_lyrics_drop_the_side_panels_minimum_width() {
+        fn draw(ctx: &egui::Context, app: &mut App, fullscreen: bool) -> Option<f32> {
+            let mut input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 1700.0),
+                )),
+                ..Default::default()
+            };
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .fullscreen = Some(fullscreen);
+            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .rev()
+                .find_map(|command| match command {
+                    egui::ViewportCommand::MinInnerSize(size) => Some(size.x),
+                    _ => None,
+                })
+        }
+        let ctx = egui::Context::default();
+        let mut app = test_app("full-screen-lyrics-min-width");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.settings.sidebar_visible = true;
+        app.show_lyrics_panel = true;
+
+        let panels = draw(&ctx, &mut app, false).expect("the panels raise the minimum");
+        assert!(panels > crate::window::MAIN_MIN_SIZE[0], "{panels}");
+
+        app.actions.push(Action::SetLyricsFullscreen(true));
+        draw(&ctx, &mut app, false);
+        assert!(app.lyrics_fullscreen.is_some());
+        assert_eq!(
+            draw(&ctx, &mut app, true),
+            Some(crate::window::MAIN_MIN_SIZE[0]),
+            "full screen asks for no room for panels it does not show"
+        );
+        assert_eq!(draw(&ctx, &mut app, true), None, "sent once");
+
+        app.actions.push(Action::SetLyricsFullscreen(false));
+        draw(&ctx, &mut app, true);
+        assert!(app.lyrics_fullscreen.is_none());
+        assert_eq!(draw(&ctx, &mut app, false), Some(panels));
+        app.backend.shutdown();
+    }
+
     /// Linux autoscrolls once the listener turns it on; macOS never does.
     #[test]
     fn middle_clicking_a_playlist_row_autoscrolls_on_linux_when_chosen() {
