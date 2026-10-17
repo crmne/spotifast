@@ -481,27 +481,64 @@ pub fn blend(base: Color32, tint: Color32, amount: f32) -> Color32 {
     color
 }
 
+/// How long a toast takes to fade in, and to fade out at the end of its
+/// life.
+const TOAST_FADE_IN: f32 = 0.15;
+const TOAST_FADE_OUT: f32 = 0.4;
+
+/// How much of a toast `age` seconds old shows: it fades in and, at the end
+/// of its life, out. Less motion shows it whole for all of it.
+fn toast_opacity(age: f32, still: bool) -> f32 {
+    let life = crate::app::TOAST_LIFETIME.as_secs_f32();
+    if still {
+        1.0
+    } else if age < TOAST_FADE_IN {
+        age / TOAST_FADE_IN
+    } else {
+        ((life - age) / TOAST_FADE_OUT).clamp(0.0, 1.0)
+    }
+}
+
+/// When the toasts of these `ages` next need a frame: at once while one
+/// fades, otherwise when the next starts to fade out or, with less motion,
+/// leaves. `None` with no toasts.
+pub(crate) fn toast_wake(
+    ages: impl Iterator<Item = f32>,
+    still: bool,
+) -> Option<std::time::Duration> {
+    let life = crate::app::TOAST_LIFETIME.as_secs_f32();
+    ages.map(|age| {
+        let fades_out = life - TOAST_FADE_OUT;
+        let wait = if still {
+            life - age
+        } else if age < TOAST_FADE_IN || age >= fades_out {
+            0.0
+        } else {
+            fades_out - age
+        };
+        std::time::Duration::from_secs_f32(wait.max(0.0))
+    })
+    .min()
+}
+
 fn toasts(app: &mut App, ctx: &egui::Context, bottom_offset: f32) {
     if app.toasts.is_empty() {
         return;
     }
     let palette = app.palette;
+    let still = app.motion.reduced();
     egui::Area::new(egui::Id::new("toasts"))
         .anchor(Align2::RIGHT_BOTTOM, vec2(-20.0, -bottom_offset))
         .order(egui::Order::Tooltip)
         .interactable(false)
+        // Each toast fades itself in; the area's own fade would ask for
+        // frames at the display's rate on top.
+        .fade_in(false)
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             for toast in &app.toasts {
                 let age = toast.created.elapsed().as_secs_f32();
-                let alpha = if age < 0.15 {
-                    age / 0.15
-                } else if age > 2.8 {
-                    ((3.2 - age) / 0.4).clamp(0.0, 1.0)
-                } else {
-                    1.0
-                };
-                ui.set_opacity(alpha);
+                ui.set_opacity(toast_opacity(age, still));
                 Frame::new()
                     .fill(palette.overlay)
                     .stroke(Stroke::new(1.0, palette.outline))
@@ -535,6 +572,31 @@ fn toasts(app: &mut App, ctx: &egui::Context, bottom_offset: f32) {
                     });
             }
         });
+}
+
+#[cfg(test)]
+mod toast_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Toasts ask for frames only while one fades in or out, and wait for
+    /// the next fade otherwise. With less motion they wait until one
+    /// leaves, and show whole meanwhile.
+    #[test]
+    fn toasts_wake_the_window_only_to_fade() {
+        let wake = |ages: &[f32], still| toast_wake(ages.iter().copied(), still);
+        assert_eq!(wake(&[], false), None);
+        assert_eq!(wake(&[0.05], false), Some(Duration::ZERO));
+        let held = wake(&[1.0], false).unwrap().as_secs_f32();
+        assert!((held - 1.8).abs() < 1e-3, "{held}");
+        assert_eq!(wake(&[1.0, 2.9], false), Some(Duration::ZERO));
+        let leaves = wake(&[1.0], true).unwrap().as_secs_f32();
+        assert!((leaves - 2.2).abs() < 1e-3, "{leaves}");
+        assert_eq!(toast_opacity(0.05, true), 1.0);
+        assert!(toast_opacity(0.05, false) < 0.5);
+        assert_eq!(toast_opacity(1.0, false), 1.0);
+        assert!(toast_opacity(3.1, false) < 0.5);
+    }
 }
 
 #[cfg(test)]

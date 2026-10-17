@@ -884,12 +884,43 @@ fn next_beat(due: f64, now: f64, interval: f64) -> f64 {
     }
 }
 
+/// The frame interval of an animation while the app saves energy: about
+/// thirty a second, half a common display's rate.
+const SAVER_ANIMATION_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
+
+/// Asks for the next frame of a short interface animation, a toast's fade
+/// say, within the power budget: at the display's own rate as designed,
+/// about thirty a second while saving energy or out of focus, and none when
+/// nobody can see the window.
+pub fn animation_frame(ctx: &egui::Context) {
+    use crate::power::Budget;
+    match Budget::of(ctx) {
+        Budget::Normal => ctx.request_repaint(),
+        Budget::Saver => repaint_after(ctx, SAVER_ANIMATION_FRAME),
+        Budget::Background => {}
+    }
+}
+
+/// How often a spinner turns: thirty times a second.
+const SPINNER_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
+
+/// Asks for a spinner's next frame. A spinner can turn for minutes while a
+/// library loads, so it turns thirty times a second rather than at the
+/// display's rate, and not at all while nobody can see it.
+fn spinner_frame(ctx: &egui::Context) {
+    match crate::power::Budget::of(ctx) {
+        crate::power::Budget::Normal | crate::power::Budget::Saver => {
+            repaint_after(ctx, SPINNER_FRAME)
+        }
+        crate::power::Budget::Background => {}
+    }
+}
+
 /// An animated busy indicator paced independently of the graphics driver.
 pub fn spinner(ui: &mut egui::Ui, size: f32, color: Color32) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
     if ui.is_rect_visible(rect) {
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(33));
+        spinner_frame(ui.ctx());
         let radius = size / 2.0 - 2.0;
         let start = ui.input(|input| input.time) * std::f64::consts::TAU * 1.2;
         let sweep = 250_f64.to_radians();
@@ -1206,6 +1237,45 @@ mod tests {
         let seen = std::sync::Arc::clone(&delays);
         ctx.set_request_repaint_callback(move |info| seen.lock().unwrap().push(info.delay));
         repaint_after(&ctx, std::time::Duration::from_millis(33));
+        let delays = delays.lock().unwrap();
+        assert_eq!(delays.len(), 1);
+        let ms = delays[0].as_secs_f64() * 1_000.0;
+        assert!((ms - 33.0).abs() < 0.5, "{ms} ms");
+    }
+
+    /// Interface animations follow the power budget: the display's rate as
+    /// designed, a true 33 ms while saving energy, and nothing unseen.
+    #[test]
+    fn interface_animations_follow_the_power_budget() {
+        use crate::power::Budget;
+        let asked = |budget: Budget| {
+            let ctx = egui::Context::default();
+            let delays = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let seen = std::sync::Arc::clone(&delays);
+            ctx.set_request_repaint_callback(move |info| seen.lock().unwrap().push(info.delay));
+            budget.store(&ctx);
+            animation_frame(&ctx);
+            let mut asked = Vec::new();
+            std::mem::swap(&mut asked, &mut delays.lock().unwrap());
+            asked
+        };
+        assert_eq!(asked(Budget::Normal), [std::time::Duration::ZERO]);
+        let saver = asked(Budget::Saver);
+        assert_eq!(saver.len(), 1);
+        let ms = saver[0].as_secs_f64() * 1_000.0;
+        assert!((ms - 33.0).abs() < 0.5, "{ms} ms");
+        assert!(asked(Budget::Background).is_empty());
+    }
+
+    /// A spinner turns thirty times a second whatever the display's rate.
+    #[test]
+    fn a_spinner_turns_thirty_times_a_second() {
+        let ctx = egui::Context::default();
+        crate::power::Budget::Normal.store(&ctx);
+        let delays = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = std::sync::Arc::clone(&delays);
+        ctx.set_request_repaint_callback(move |info| seen.lock().unwrap().push(info.delay));
+        spinner_frame(&ctx);
         let delays = delays.lock().unwrap();
         assert_eq!(delays.len(), 1);
         let ms = delays[0].as_secs_f64() * 1_000.0;
