@@ -705,6 +705,83 @@ fn sample_lyrics() -> crate::lyrics::Lyrics {
     }
 }
 
+/// Invented friends for `--demo-show friends`: one listening now, long
+/// titles in two scripts, and each kind of place a song plays from.
+#[cfg(feature = "demo")]
+fn demo_friends() -> Vec<crate::session_reads::FriendActivity> {
+    let now = jiff::Timestamp::now().as_millisecond();
+    let friend = |name: &str,
+                  minutes: i64,
+                  playing: bool,
+                  track: &str,
+                  artist: &str,
+                  context: Option<(&str, &str)>| {
+        crate::session_reads::FriendActivity {
+            user_uri: format!("spotify:user:{}", name.to_lowercase()),
+            user_name: name.into(),
+            image_url: None,
+            timestamp_ms: now - minutes * 60_000,
+            playing,
+            track_uri: "spotify:track:4uLU6hMCjMI75M1A2tKUQC".into(),
+            track_name: track.into(),
+            artist_uri: Some("spotify:artist:0OdUWJ0sBjDrqHygGUXeCF".into()),
+            artist_name: artist.into(),
+            album_uri: Some("spotify:album:6akEvsycLGftJxYudPjmqK".into()),
+            cover_url: None,
+            context_uri: context.map(|(uri, _)| uri.to_string()),
+            context_name: context.map(|(_, name)| name.to_string()),
+        }
+    };
+    vec![
+        friend(
+            "Ana",
+            0,
+            true,
+            "Northern Lights",
+            "The Glass Harbour",
+            Some((
+                "spotify:album:6akEvsycLGftJxYudPjmqK",
+                "A Thousand Things I Could Tell You",
+            )),
+        ),
+        friend(
+            "Marek",
+            58,
+            false,
+            "Legendary Duo",
+            "Aleshen",
+            Some((
+                "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+                "Late night drive",
+            )),
+        ),
+        friend(
+            "Yuki",
+            75,
+            false,
+            "熱異常 (feat. 宵崎奏&朝比奈まふゆ&東雲絵名&暁山瑞希&KAITO)",
+            "25時、ナイトコードで。",
+            Some(("spotify:user:yuki:collection", "")),
+        ),
+        friend(
+            "Sam Whitfield-Montgomery",
+            1300,
+            false,
+            "Maneater",
+            "Nelly Furtado",
+            Some(("spotify:artist:0OdUWJ0sBjDrqHygGUXeCF", "Nelly Furtado")),
+        ),
+        friend(
+            "Lee",
+            7200,
+            false,
+            "Paper Moon Static",
+            "Velvetroot Drift",
+            Some(("spotify:track:4uLU6hMCjMI75M1A2tKUQC", "Paper Moon Static")),
+        ),
+    ]
+}
+
 /// Applies `--demo-page` and `--demo-show`.
 /// Makes the displayed song this computer's playback, with that song's own
 /// metadata, so the player bar draws the same as without it.
@@ -866,6 +943,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.library.filter = "No matching playlist".into();
             }
             "queue" => app.show_queue_panel = true,
+            "friends" => {
+                app.show_friends_panel = true;
+                app.friends = Loadable::Loaded(demo_friends());
+            }
             "playing-next" => {
                 app.show_queue_panel = true;
                 if let Loadable::Loaded(queue) = &app.queue {

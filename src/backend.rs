@@ -752,6 +752,9 @@ pub enum Command {
     },
     /// Resolve user ids to display names through the streaming session.
     UserNames(Vec<String>),
+    /// Read what friends are listening to through the streaming session,
+    /// for the app's request generation.
+    FriendActivity(u64),
     LoadLikedSongsCache {
         generation: u64,
     },
@@ -905,6 +908,12 @@ pub enum Event {
         generation: u64,
         snapshot: String,
         success: bool,
+    },
+    /// What friends are listening to, newest first, or why it could not be
+    /// read, answering the request of `generation`.
+    FriendActivity {
+        generation: u64,
+        result: Result<Vec<session_reads::FriendActivity>, String>,
     },
     /// A user id resolved to a display name and avatar (each `None` when
     /// nothing answers).
@@ -1598,6 +1607,9 @@ struct Worker {
     engine_proxy: Option<reqwest::Url>,
     web_client_id: Option<String>,
     http: Http,
+    /// Friends' names and avatars and their playlists' names, kept between
+    /// Friend activity polls.
+    friend_names: Arc<tokio::sync::Mutex<session_reads::FriendNames>>,
     api: Arc<ApiGateway>,
     made_for_you: Arc<crate::made_for_you::MadeForYou>,
     connect: Arc<crate::sonos::Controller>,
@@ -1696,6 +1708,7 @@ impl Worker {
             connect: Arc::default(),
             background_session: Arc::new(tokio::sync::Semaphore::new(4)),
             http,
+            friend_names: Arc::default(),
             art,
             events,
             commands,
@@ -2320,6 +2333,7 @@ impl Worker {
                     }
                 }
                 Command::UserNames(ids) => self.fetch_user_names(ids),
+                Command::FriendActivity(generation) => self.fetch_friend_activity(generation),
                 Command::LoadLikedSongsCache { generation } => {
                     if let Some(account) = self.api.account() {
                         let account_id = account.as_str().to_string();
@@ -2953,6 +2967,8 @@ impl Worker {
         self.rootlist_pending = false;
         self.made_for_you = Arc::new(crate::made_for_you::MadeForYou::new(self.http.clone()));
         self.session.send_modify(|generation| *generation += 1);
+        // Friends' names belong to the account that read them.
+        self.friend_names = Arc::default();
         self.connect = Arc::default();
         self.authorization_attempt += 1;
         if let Err(error) = self.credentials.revoke_spotify() {
@@ -4100,6 +4116,39 @@ impl Worker {
                 let _ = events.send(Event::UserName { id, name, image });
                 waker.wake();
             }
+        });
+    }
+
+    /// Ask the streaming session what friends are listening to. Without one
+    /// there is nobody to ask, which the panel says.
+    /// A read still running when the session ends is dropped, so nothing
+    /// from the last account reaches the next.
+    fn fetch_friend_activity(&self, generation: u64) {
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let send = move |result| {
+            let _ = events.send(Event::FriendActivity { generation, result });
+            waker.wake();
+        };
+        let Some(engine) = self.engine.clone() else {
+            send(Err("Listening activity needs playback enabled.".into()));
+            return;
+        };
+        let names = self.friend_names.clone();
+        let mut cancelled = self.session.subscribe();
+        tokio::spawn(async move {
+            let read = tokio::time::timeout(
+                Duration::from_secs(15),
+                session_reads::friend_activity(engine.session(), &names),
+            );
+            let result = tokio::select! {
+                biased;
+                _ = cancelled.changed() => return,
+                result = read => result,
+            }
+            .map_err(|_| "Spotify took too long to answer.".to_string())
+            .and_then(|result| result.map_err(|error| error.to_string()));
+            send(result);
         });
     }
 

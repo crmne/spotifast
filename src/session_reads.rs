@@ -661,6 +661,348 @@ fn profile_from_json(json: &serde_json::Value) -> UserProfile {
     }
 }
 
+/// What one friend is listening to, or last played, with names to show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FriendActivity {
+    pub user_uri: String,
+    pub user_name: String,
+    pub image_url: Option<String>,
+    /// Milliseconds since the epoch.
+    pub timestamp_ms: i64,
+    /// Whether the friend is playing the song right now. Only the live feed
+    /// says so; the older buddy list never does.
+    pub playing: bool,
+    pub track_uri: String,
+    pub track_name: String,
+    pub artist_uri: Option<String>,
+    pub artist_name: String,
+    pub album_uri: Option<String>,
+    pub cover_url: Option<String>,
+    pub context_uri: Option<String>,
+    pub context_name: Option<String>,
+}
+
+/// How many entries to ask the live feed for.
+const LISTENING_ACTIVITY_LIMIT: u32 = 100;
+
+/// Names that rarely change, kept between polls so each refresh asks only
+/// for the songs. Only answers are kept: a read that failed is asked again
+/// on the next refresh.
+#[derive(Default)]
+pub struct FriendNames {
+    profiles: HashMap<String, UserProfile>,
+    playlists: HashMap<String, String>,
+}
+
+/// How many name reads run at once on a first load.
+const NAME_READS: usize = 6;
+
+/// A person's or a playlist's name, read for the panel; `None` when the
+/// read failed.
+enum NameRead {
+    Profile(String, Option<UserProfile>),
+    Playlist(String, Option<String>),
+}
+
+/// The user id at the end of `spotify:user:…`.
+fn user_id(uri: &str) -> String {
+    uri.rsplit(':').next().unwrap_or_default().to_string()
+}
+
+/// The playlist id a context names, if it is a playlist.
+fn playlist_id(uri: &str) -> Option<String> {
+    uri.contains(":playlist:")
+        .then(|| uri.rsplit(':').next().unwrap_or_default().to_string())
+}
+
+/// Reads the names the cache lacks, a few at a time, without holding it.
+async fn read_names(session: &Session, users: Vec<String>, lists: Vec<String>) -> Vec<NameRead> {
+    let limit = std::sync::Arc::new(tokio::sync::Semaphore::new(NAME_READS));
+    let mut reads = tokio::task::JoinSet::new();
+    for id in users {
+        let (session, limit) = (session.clone(), limit.clone());
+        reads.spawn(async move {
+            let _turn = limit.acquire_owned().await;
+            let profile = user_profile(&session, &id).await;
+            NameRead::Profile(id, profile)
+        });
+    }
+    for id in lists {
+        let (session, limit) = (session.clone(), limit.clone());
+        reads.spawn(async move {
+            let _turn = limit.acquire_owned().await;
+            let name = playlist(&session, &id).await.ok().map(|list| list.name);
+            NameRead::Playlist(id, name)
+        });
+    }
+    let mut done = Vec::new();
+    while let Some(read) = reads.join_next().await {
+        if let Ok(read) = read {
+            done.push(read);
+        }
+    }
+    done
+}
+
+/// One friend's latest entry in the live feed, before the song and the
+/// person have names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LiveActivity {
+    user_uri: String,
+    track_uri: String,
+    context_uri: Option<String>,
+    playing: bool,
+    timestamp_ms: i64,
+}
+
+/// What friends are listening to, newest first, as Spotify's own Listening
+/// Activity shows it, read with the session's own token. There is no Web
+/// API for it. When the live feed does not answer, the older buddy list
+/// stands in.
+pub async fn friend_activity(
+    session: &Session,
+    names: &tokio::sync::Mutex<FriendNames>,
+) -> anyhow::Result<Vec<FriendActivity>> {
+    let live = match live_activity(session).await {
+        Ok(live) => live,
+        Err(error) => {
+            log::warn!("listening activity feed unavailable, using the buddy list: {error:#}");
+            return buddy_list(session).await;
+        }
+    };
+    let uris: Vec<SpotifyUri> = live
+        .iter()
+        .filter_map(|entry| SpotifyUri::from_uri(&entry.track_uri).ok())
+        .collect();
+    let tracks = metadata(session, uris.iter())
+        .await
+        .map_err(|failure| match failure {
+            Failure::Definitive(error) => anyhow::anyhow!("{error:?}"),
+            Failure::Retry(error) => error,
+        })?;
+    let (users, lists) = {
+        let names = names.lock().await;
+        let users: BTreeSet<String> = live
+            .iter()
+            .map(|entry| user_id(&entry.user_uri))
+            .filter(|id| !names.profiles.contains_key(id))
+            .collect();
+        let lists: BTreeSet<String> = live
+            .iter()
+            .filter_map(|entry| entry.context_uri.as_deref().and_then(playlist_id))
+            .filter(|id| !names.playlists.contains_key(id))
+            .collect();
+        (users.into_iter().collect(), lists.into_iter().collect())
+    };
+    let read = read_names(session, users, lists).await;
+    let mut names = names.lock().await;
+    for read in read {
+        match read {
+            NameRead::Profile(id, Some(profile)) => {
+                names.profiles.insert(id, profile);
+            }
+            NameRead::Playlist(id, Some(name)) => {
+                names.playlists.insert(id, name);
+            }
+            NameRead::Profile(_, None) | NameRead::Playlist(_, None) => {}
+        }
+    }
+    let mut friends = Vec::with_capacity(live.len());
+    for entry in live {
+        let Some(PlayableItem::Track(track)) = tracks.get(&entry.track_uri) else {
+            continue;
+        };
+        let user_id = user_id(&entry.user_uri);
+        let profile = names.profiles.get(&user_id);
+        let user_name = profile
+            .and_then(|profile| profile.name.clone())
+            .unwrap_or_else(|| user_id.clone());
+        let image_url = profile.and_then(|profile| profile.image_url.clone());
+        let album = track.album.as_ref().filter(|album| !album.uri.is_empty());
+        let artist = track.artists.first();
+        // Without a context Spotify names the song's album, as its own
+        // panel does.
+        let context_uri = entry
+            .context_uri
+            .or_else(|| album.map(|album| album.uri.clone()));
+        let context_name = match context_uri.as_deref() {
+            Some(uri) if uri.contains(":playlist:") => {
+                playlist_id(uri).and_then(|id| names.playlists.get(&id).cloned())
+            }
+            // A song played on its own names itself as where it plays from.
+            Some(uri) if uri == entry.track_uri => Some(track.name.clone()),
+            Some(uri) => album
+                .filter(|album| album.uri == uri)
+                .map(|album| album.name.clone())
+                .or_else(|| {
+                    track
+                        .artists
+                        .iter()
+                        .find(|artist| artist.uri.as_deref() == Some(uri))
+                        .map(|artist| artist.name.clone())
+                }),
+            None => None,
+        };
+        friends.push(FriendActivity {
+            user_uri: entry.user_uri,
+            user_name,
+            image_url,
+            timestamp_ms: entry.timestamp_ms,
+            playing: entry.playing,
+            track_uri: entry.track_uri,
+            track_name: track.name.clone(),
+            artist_uri: artist
+                .and_then(|artist| artist.uri.clone())
+                .filter(|uri| !uri.is_empty()),
+            artist_name: artist.map(|artist| artist.name.clone()).unwrap_or_default(),
+            album_uri: album
+                .map(|album| album.uri.clone())
+                .filter(|uri| !uri.is_empty()),
+            cover_url: album
+                .and_then(|album| crate::api::models::pick_image(&album.images, 128))
+                .map(str::to_string),
+            context_uri,
+            context_name,
+        });
+    }
+    Ok(friends)
+}
+
+/// The feed behind Spotify's Listening Activity panel. It lists the same
+/// people the desktop app shows, with the song playing now, where the older
+/// buddy list reports a song only once it has finished.
+async fn live_activity(session: &Session) -> anyhow::Result<Vec<LiveActivity>> {
+    let bytes = session
+        .spclient()
+        .get_listening_activity(LISTENING_ACTIVITY_LIMIT)
+        .await?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    live_from_json(&json)
+}
+
+/// Reads the live feed: each friend's latest song, newest first. Entries
+/// that are not a person playing a song are passed over; an answer without
+/// its list fails, rather than pass for nobody listening.
+fn live_from_json(json: &serde_json::Value) -> anyhow::Result<Vec<LiveActivity>> {
+    let entities = json
+        .get("entities")
+        .and_then(|entities| entities.as_array())
+        .ok_or_else(|| anyhow::anyhow!("listening activity answered without entities"))?;
+    let mut latest: HashMap<String, LiveActivity> = HashMap::new();
+    for item in entities {
+        let Some(entity) = item.get("userEntity").or_else(|| item.get("followEntity")) else {
+            continue;
+        };
+        let Some(user_uri) = entity
+            .get("uri")
+            .and_then(|uri| uri.as_str())
+            .filter(|uri| uri.starts_with("spotify:user:"))
+        else {
+            continue;
+        };
+        let Some(activity) = entity.get("activity") else {
+            continue;
+        };
+        let Some(track_uri) = activity
+            .get("entityUri")
+            .and_then(|uri| uri.as_str())
+            .filter(|uri| uri.starts_with("spotify:track:"))
+        else {
+            continue;
+        };
+        let Some(timestamp_ms) = activity
+            .get("timestamp")
+            .and_then(|time| time.as_str())
+            .and_then(|time| time.parse::<jiff::Timestamp>().ok())
+            .map(|time| time.as_millisecond())
+        else {
+            continue;
+        };
+        let context_uri = activity
+            .get("contextUri")
+            .and_then(|uri| uri.as_str())
+            .map(live_context)
+            .filter(|uri| !uri.is_empty());
+        let entry = LiveActivity {
+            user_uri: user_uri.to_string(),
+            track_uri: track_uri.to_string(),
+            context_uri,
+            playing: activity
+                .get("isPlaying")
+                .and_then(|playing| playing.as_bool())
+                .unwrap_or(false),
+            timestamp_ms,
+        };
+        if latest
+            .get(user_uri)
+            .is_none_or(|known| known.timestamp_ms < timestamp_ms)
+        {
+            latest.insert(user_uri.to_string(), entry);
+        }
+    }
+    let mut live: Vec<LiveActivity> = latest.into_values().collect();
+    live.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp_ms));
+    Ok(live)
+}
+
+/// The live feed names play from an artist's Popular songs as a list of its
+/// own; that is the artist.
+fn live_context(uri: &str) -> String {
+    uri.strip_prefix("spotify:list:popular-release-segments-main-roles:artist_")
+        .map(|id| format!("spotify:artist:{id}"))
+        .unwrap_or_else(|| uri.to_string())
+}
+
+/// The older buddy list Spotify's desktop app read before the live feed.
+async fn buddy_list(session: &Session) -> anyhow::Result<Vec<FriendActivity>> {
+    let bytes = session.spclient().get_buddylist().await?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    Ok(friends_from_json(&json))
+}
+
+/// Reads the buddy list answer, most recent first, skipping friends whose
+/// entry lacks a user or a track.
+fn friends_from_json(json: &serde_json::Value) -> Vec<FriendActivity> {
+    let text = |value: &serde_json::Value, key: &str| {
+        value
+            .get(key)
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let mut friends: Vec<FriendActivity> = json
+        .get("friends")
+        .and_then(|friends| friends.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|friend| {
+            let user = friend.get("user")?;
+            let track = friend.get("track")?;
+            let context = track.get("context");
+            let artist = track.get("artist");
+            Some(FriendActivity {
+                user_uri: text(user, "uri")?,
+                user_name: text(user, "name").or_else(|| text(user, "uri"))?,
+                image_url: text(user, "imageUrl"),
+                timestamp_ms: friend.get("timestamp")?.as_i64()?,
+                playing: false,
+                track_uri: text(track, "uri")?,
+                track_name: text(track, "name")?,
+                artist_uri: artist.and_then(|artist| text(artist, "uri")),
+                artist_name: artist
+                    .and_then(|artist| text(artist, "name"))
+                    .unwrap_or_default(),
+                album_uri: track.get("album").and_then(|album| text(album, "uri")),
+                cover_url: text(track, "imageUrl"),
+                context_uri: context.and_then(|context| text(context, "uri")),
+                context_name: context.and_then(|context| text(context, "name")),
+            })
+        })
+        .collect();
+    friends.sort_by_key(|friend| std::cmp::Reverse(friend.timestamp_ms));
+    friends
+}
+
 /// The list's header and the `length` rows from `from`; none for the header
 /// alone.
 async fn window(
@@ -2073,5 +2415,63 @@ mod tests {
         page.items.push(bare);
         assert!(matches!(library_rows(&[page]), Err(Failure::Retry(_))));
         assert!(matches!(library_rows(&[]), Ok(rows) if rows.is_empty()));
+    }
+
+    /// The live feed keeps each friend's latest song, newest first, says
+    /// who is playing now, and reads an artist's Popular list as the artist.
+    #[test]
+    fn the_live_feed_reads_each_friends_latest_song() {
+        let json = serde_json::json!({"entities": [
+            {"followEntity": {"uri": "spotify:user:a", "activity": {
+                "entityUri": "spotify:track:1", "isPlaying": false,
+                "contextUri": "spotify:playlist:p", "timestamp": "2026-10-14T17:00:00Z"}}},
+            {"userEntity": {"uri": "spotify:user:b", "activity": {
+                "entityUri": "spotify:track:2", "isPlaying": true,
+                "contextUri": "spotify:list:popular-release-segments-main-roles:artist_X",
+                "timestamp": "2026-10-14T17:30:00Z"}}},
+            {"followEntity": {"uri": "spotify:user:a", "activity": {
+                "entityUri": "spotify:track:3", "contextUri": "spotify:track:3",
+                "timestamp": "2026-10-14T17:10:00Z"}}},
+            {"followEntity": {"uri": "spotify:user:c", "activity": {
+                "entityUri": "spotify:episode:4", "timestamp": "2026-10-14T17:20:00Z"}}},
+            {"followEntity": {"uri": "spotify:artist:d"}},
+        ]});
+        let live = live_from_json(&json).unwrap();
+        assert_eq!(live.len(), 2);
+        assert_eq!(live[0].user_uri, "spotify:user:b");
+        assert!(live[0].playing);
+        assert_eq!(live[0].context_uri.as_deref(), Some("spotify:artist:X"));
+        assert_eq!(live[1].track_uri, "spotify:track:3");
+        assert!(!live[1].playing);
+        assert_eq!(live[1].context_uri.as_deref(), Some("spotify:track:3"));
+        assert!(live_from_json(&serde_json::json!({})).is_err());
+    }
+
+    /// The buddy list reads newest first, and an entry without a user or a
+    /// track is skipped rather than shown blank.
+    #[test]
+    fn friend_activity_reads_newest_first_and_skips_incomplete_entries() {
+        let json = serde_json::json!({"friends": [
+            {"timestamp": 1000, "user": {"uri": "spotify:user:a", "name": "Ann"},
+             "track": {"uri": "spotify:track:1", "name": "Old", "imageUrl": "http://i.scdn.co/image/x",
+                       "artist": {"uri": "spotify:artist:1", "name": "Band"},
+                       "album": {"uri": "spotify:album:1", "name": "Record"},
+                       "context": {"uri": "spotify:playlist:p", "name": "Mix", "index": 0}}},
+            {"timestamp": 2000, "user": {"uri": "spotify:user:b", "name": ""},
+             "track": {"uri": "spotify:track:2", "name": "New"}},
+            {"timestamp": 3000, "user": {"uri": "spotify:user:c", "name": "Cy"}},
+        ]});
+        let friends = friends_from_json(&json);
+        assert_eq!(friends.len(), 2);
+        assert_eq!(friends[0].track_name, "New");
+        assert_eq!(friends[0].user_name, "spotify:user:b");
+        assert_eq!(friends[0].context_uri, None);
+        assert_eq!(friends[1].user_name, "Ann");
+        assert_eq!(friends[1].artist_name, "Band");
+        assert_eq!(friends[1].artist_uri.as_deref(), Some("spotify:artist:1"));
+        assert_eq!(friends[1].album_uri.as_deref(), Some("spotify:album:1"));
+        assert_eq!(friends[0].album_uri, None);
+        assert_eq!(friends[1].context_name.as_deref(), Some("Mix"));
+        assert!(friends_from_json(&serde_json::json!({})).is_empty());
     }
 }
