@@ -837,6 +837,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     }
     for surface in show.unwrap_or("").split(',').map(str::trim) {
         match surface {
+            "library-right" => app.demo_library_right = true,
             "presaved" => {
                 for page in app.album_pages.values_mut() {
                     if let Some(data) = &mut page.prerelease {

@@ -196,13 +196,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
     let width = ui.available_width();
+    let library_right = super::library_on_right(app);
     let mut window_controls = super::window_controls_reservation(
         ui.ctx(),
-        app.show_queue_panel,
-        app.show_lyrics_panel,
+        if library_right {
+            app.settings.sidebar_visible
+        } else {
+            app.show_queue_panel
+        },
+        !library_right && app.show_lyrics_panel,
         width,
     );
-    if !app.settings.sidebar_visible {
+    let page_at_left = if library_right {
+        !app.show_queue_panel && !app.show_lyrics_panel
+    } else {
+        !app.settings.sidebar_visible
+    };
+    if page_at_left {
         window_controls.topbar_top = window_controls
             .topbar_top
             .max(super::linux_left_controls_inset(ui.ctx()));

@@ -32,6 +32,38 @@ use crate::backend::AuthStatus;
 use crate::model::{Action, Loadable, Page, ToastKind};
 use crate::theme::{self, Icon};
 
+/// Layout experiment available only with offline demo data. Release builds
+/// retain the existing placement and do not gain a saved preference.
+pub(super) fn library_on_right(app: &App) -> bool {
+    #[cfg(any(test, feature = "demo"))]
+    return app.offline && app.demo_library_right;
+    #[cfg(not(any(test, feature = "demo")))]
+    {
+        let _ = app;
+        false
+    }
+}
+
+/// Keep a panel's identity, and therefore its resize and content state, when
+/// reviewing it on the other edge.
+pub(super) fn panel_at_edge(id: &'static str, right: bool) -> egui::Panel {
+    if right {
+        egui::Panel::right(id)
+    } else {
+        egui::Panel::left(id)
+    }
+}
+
+/// Caption buttons belong to the window edge, regardless of which panel
+/// occupies it. macOS and left-button Linux desktops reserve the left edge.
+pub(super) fn panel_caption_inset(ctx: &Context, right: bool) -> f32 {
+    if right {
+        window_controls_reservation(ctx, true, false, 0.0).queue_top
+    } else {
+        theme::titlebar_inset(ctx) + linux_left_controls_inset(ctx)
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let ctx = &ctx;

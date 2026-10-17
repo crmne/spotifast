@@ -341,6 +341,9 @@ pub struct App {
     pub taskbar_hiding_supported: bool,
     #[cfg(any(test, feature = "demo"))]
     pub demo_windows_controls: bool,
+    /// Experimental sidebar placement for offline layout reviews only.
+    #[cfg(any(test, feature = "demo"))]
+    pub demo_library_right: bool,
     applied_dark: Option<bool>,
     /// Reveals new colours from the middle of the window outwards.
     theme_transition: fastframe_theme::Transition,
@@ -906,6 +909,8 @@ impl App {
             taskbar_hiding_supported: cfg!(windows),
             #[cfg(any(test, feature = "demo"))]
             demo_windows_controls: false,
+            #[cfg(any(test, feature = "demo"))]
+            demo_library_right: false,
             applied_dark: None,
             theme_transition: fastframe_theme::Transition::default(),
             reveal_theme_changes: true,
@@ -12083,6 +12088,85 @@ mod tests {
             egui::ViewportCommand::MinInnerSize(size)
                 if size.x == crate::window::MAIN_MIN_SIZE[0]
         )));
+    }
+
+    #[test]
+    fn demo_library_moves_without_losing_panel_widths_or_playback_state() {
+        for auxiliary in [None, Some("queue-panel"), Some("lyrics-panel")] {
+            let ctx = egui::Context::default();
+            let mut app = test_app("demo-library-placement");
+            app.attach(&ctx);
+            crate::demo::populate(&mut app);
+            app.open(Page::Playlist("pl1".into()));
+            app.settings.sidebar_width = 400.0;
+            app.settings.queue_width = 500.0;
+            app.settings.lyrics_width = 500.0;
+            app.show_queue_panel = auxiliary == Some("queue-panel");
+            app.show_lyrics_panel = auxiliary == Some("lyrics-panel");
+            let song = app.now_playing().unwrap().uri;
+            let queue = app.queue_playlist_uris();
+            let panel = |id| {
+                egui::containers::panel::PanelState::load(&ctx, egui::Id::new(id))
+                    .unwrap()
+                    .outer_rect
+            };
+
+            // Move the same live panels twice, including while they are
+            // clamped by the window, then give their chosen widths back.
+            for right in [false, true, false] {
+                app.demo_library_right = right;
+                for width in [1000.0, 1800.0, 1000.0] {
+                    for _ in 0..3 {
+                        let mut output = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(width, 700.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ui| app.frame_ui(ui),
+                        );
+                        output.textures_delta.clear();
+                    }
+                    let library = panel("sidebar");
+                    let edge = if right {
+                        library.right()
+                    } else {
+                        library.left()
+                    };
+                    assert!((edge - if right { width } else { 0.0 }).abs() < 0.5);
+                    let mut page_width = width - library.width();
+                    if let Some(id) = auxiliary {
+                        let other = panel(id);
+                        if right {
+                            assert!(other.left().abs() < 0.5);
+                            assert!(other.right() <= library.left());
+                        } else {
+                            assert!((other.right() - width).abs() < 0.5);
+                            assert!(library.right() <= other.left());
+                        }
+                        page_width -= other.width();
+                        assert!(other.width() >= crate::theme::SIDE_PANEL_MIN_WIDTH);
+                        if width == 1800.0 {
+                            assert_eq!(other.width(), 500.0);
+                        }
+                    }
+                    assert!(page_width + 0.5 >= crate::ui::topbar::least_width(&ctx));
+                    assert!(library.width() >= crate::ui::SIDEBAR_MIN_WIDTH);
+                    if width == 1800.0 {
+                        assert_eq!(library.width(), 400.0);
+                    }
+                    assert_eq!(app.settings.sidebar_width, 400.0);
+                    assert_eq!(app.settings.queue_width, 500.0);
+                    assert_eq!(app.settings.lyrics_width, 500.0);
+                    assert_eq!(app.page(), &Page::Playlist("pl1".into()));
+                    assert_eq!(app.now_playing().unwrap().uri, song);
+                    assert_eq!(app.queue_playlist_uris(), queue);
+                }
+            }
+            app.backend.shutdown();
+        }
     }
 
     /// Linux autoscrolls once the listener turns it on; macOS never does.
