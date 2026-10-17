@@ -4134,16 +4134,12 @@ impl Worker {
             send(Err("Listening activity needs playback enabled.".into()));
             return;
         };
-        let http = match self.http.client() {
-            Ok(http) => http,
-            Err(error) => return send(Err(error)),
-        };
         let names = self.friend_names.clone();
         let mut cancelled = self.session.subscribe();
         tokio::spawn(async move {
             let read = tokio::time::timeout(
                 Duration::from_secs(15),
-                session_reads::friend_activity(engine.session(), &http, &names),
+                session_reads::friend_activity(engine.session(), &names),
             );
             let result = tokio::select! {
                 biased;

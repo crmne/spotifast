@@ -140,7 +140,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
 /// Hovering the avatar offers to play the song, or to pause it when it is
 /// the song playing here; the song, its artist and where it plays from open
 /// their pages. Someone listening right now has a dot on their avatar and
-/// moving bars in place of the time.
+/// bars in place of the time.
 fn row(
     app: &App,
     ui: &mut egui::Ui,
@@ -323,33 +323,24 @@ fn line_font() -> egui::FontId {
 }
 const CONTEXT_ICON: f32 = 13.0;
 
-/// Four bars rising and falling while a friend listens. Reduced motion
-/// holds them still.
+/// Four bars of uneven height while a friend listens. They hold still: a
+/// moving picture would redraw the window every frame for as long as anyone
+/// listens, and the panel stays open for hours.
 fn listening_bars(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
-    const BARS: usize = 4;
+    const LEVELS: [f32; 4] = [0.6, 1.0, 0.45, 0.8];
     const BAR: f32 = 2.5;
     const GAP: f32 = 2.0;
     const HEIGHT: f32 = 13.0;
-    let size = egui::vec2(BARS as f32 * BAR + (BARS - 1) as f32 * GAP, HEIGHT);
+    let bars = LEVELS.len() as f32;
+    let size = egui::vec2(bars * BAR + (bars - 1.0) * GAP, HEIGHT);
     let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-    let still = crate::motion::reduced(ui.ctx());
-    let time = ui.input(|input| input.time) as f32;
-    for bar in 0..BARS {
-        let phase = bar as f32 * 1.7;
-        let level = if still {
-            [0.6, 1.0, 0.45, 0.8][bar]
-        } else {
-            0.35 + 0.65 * (0.5 + 0.5 * (time * 6.0 + phase).sin())
-        };
+    for (bar, level) in LEVELS.iter().enumerate() {
         let x = rect.left() + bar as f32 * (BAR + GAP);
         let bar_rect = egui::Rect::from_min_max(
             egui::pos2(x, rect.bottom() - HEIGHT * level),
             egui::pos2(x + BAR, rect.bottom()),
         );
         ui.painter().rect_filled(bar_rect, BAR / 2.0, color);
-    }
-    if !still {
-        ui.ctx().request_repaint();
     }
     response
 }

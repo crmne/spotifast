@@ -45,10 +45,9 @@ local playback:
    this session: the Web API has no stations. Opening one resolves the
    station and reads its songs' details in one batched request.
    The **Listening activity** panel also needs this session. While the panel
-   is open, and only then, Spotifast posts to Spotify's private
-   `listening-activity/v1/feed` on `spclient.wg.spotify.com` every 15 seconds
-   with the session's Login5 bearer and client token, then reads the songs'
-   details in one batched request. Friends' names, avatars and playlist names
+   is open, and only then, the session reads Spotify's private
+   `listening-activity/v1/feed` every 15 seconds through librespot's
+   spclient, then reads the songs' details in one batched request. Friends' names, avatars and playlist names
    are read once per run and kept in memory. Nothing from the panel is written
    to disk or logged. If the feed fails, the session's older
    `presence-view/v1/buddylist` stands in.

@@ -528,9 +528,9 @@ people you follow on Spotify are listening to. It takes the place of the
 Queue or Lyrics panel on the right, and they take its place in turn. While
 it is open it refreshes every 15 seconds.
 
-A blue dot on the avatar and moving bars in place of the time mean the
-person is listening right now. Hover an avatar to play their song, or to
-pause it when that song is already playing here. The song's title opens its
+A blue dot on the avatar and bars in place of the time mean the person is
+listening right now. Pointing at an avatar shows a play button: click it to
+play their song, or to pause it when that song is already playing here. The song's title opens its
 album, the artist opens their page, and the line below opens the playlist,
 album or artist it plays from.
 

@@ -32,8 +32,7 @@ fn main() -> anyhow::Result<()> {
         println!("connected as {}", session.username());
 
         let names = tokio::sync::Mutex::default();
-        let http = reqwest::Client::new();
-        match spotifast::session_reads::friend_activity(&session, &http, &names).await {
+        match spotifast::session_reads::friend_activity(&session, &names).await {
             Ok(friends) => {
                 println!("friends -> ok: {} friends", friends.len());
                 for friend in friends {
