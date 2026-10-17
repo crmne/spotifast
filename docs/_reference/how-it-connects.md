@@ -53,6 +53,14 @@ app's verification is still waiting. That verification keeps retrying in the
 background through rate limits without showing the top bar's "Waiting for
 Spotify" spinner, since nothing on screen waits for it.
 
+Once the browser hands back a grant, the sign-in screen shows "Connecting to
+Spotify…" instead of the browser prompt, and the browser is free for another
+approval. If Spotify rate limits the account check before anyone is signed in,
+the sign-in screen says so and offers **Cancel**, which also stops a restored
+grant's check. When a personal app is configured, a browser sign-in held back
+this way opens that app's approval once, so the personal app can finish
+signing in while the shared app waits.
+
 Web API sign-in opens the browser only after its local callback port is available. If
 port 8989 is occupied, the sign-in screen keeps the error visible. Close the
 app using that port, then choose **Try again**. Since 0.13.2, playback setup

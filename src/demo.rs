@@ -904,6 +904,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.auth = AuthStatus::Connecting;
                 app.user = None;
             }
+            "rate-limited" => {
+                app.auth = AuthStatus::RateLimited;
+                app.user = None;
+            }
             "recents" => {
                 app.show_queue_panel = true;
                 app.queue_tab = QueueTab::Recents;
