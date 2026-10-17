@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-16 18:36-0700\n"
+"POT-Creation-Date: 2026-10-16 18:50-0700\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Simplified Chinese\n"
@@ -398,7 +398,7 @@ msgid "Couldn't fetch the lyrics: {error}"
 msgstr "无法获取歌词：{error}"
 
 #: src/ui/lyrics.rs:177 src/ui/lyrics.rs:431 src/ui/lyrics.rs:646
-#: src/ui/settings.rs:504 src/ui/login.rs:130
+#: src/ui/settings.rs:504 src/ui/login.rs:136
 msgid "Try again"
 msgstr "再试一次"
 
@@ -1548,7 +1548,7 @@ msgstr ""
 "“关闭”会忽略环境变量。“系统”会使用环境变量，在 macOS 和 Windows 上还会使用操"
 "作系统代理。"
 
-#: src/ui/settings.rs:1372 src/ui/login.rs:273
+#: src/ui/settings.rs:1372 src/ui/login.rs:279
 msgid "Apply settings"
 msgstr "应用设置"
 
@@ -2206,7 +2206,7 @@ msgid "“{name}” will no longer appear in Your Library."
 msgstr "“{name}”将不再显示在你的音乐库中。"
 
 #: src/ui/dialogs.rs:104 src/ui/dialogs.rs:147 src/ui/dialogs.rs:425
-#: src/ui/dialogs.rs:606 src/ui/login.rs:95 src/ui/login.rs:119
+#: src/ui/dialogs.rs:606 src/ui/login.rs:95 src/ui/login.rs:125
 msgid "Cancel"
 msgstr "取消"
 
@@ -2584,15 +2584,15 @@ msgstr ""
 "Spotify 正在限制共享 Spotifast 应用的请求。一旦 Spotify 允许，登录会自动完"
 "成。"
 
-#: src/ui/login.rs:138 src/ui/login.rs:173
+#: src/ui/login.rs:144 src/ui/login.rs:179
 msgid "Use the shared Spotify app instead"
 msgstr "改用共享 Spotify 应用"
 
-#: src/ui/login.rs:152
+#: src/ui/login.rs:158
 msgid "Sign in with Spotify"
 msgstr "使用 Spotify 登录"
 
-#: src/ui/login.rs:158
+#: src/ui/login.rs:164
 msgid ""
 "Sign in through your browser. Spotifast never sees your password. Local "
 "playback needs Spotify Premium."
@@ -2600,12 +2600,12 @@ msgstr ""
 "通过浏览器登录。Spotifast 永远不会看到你的密码。本地播放需要 Spotify "
 "Premium。"
 
-#: src/ui/login.rs:191
+#: src/ui/login.rs:197
 msgid "Proxy Settings"
 msgstr "代理设置"
 
 #. Translators: {version} is the app's version number, such as 1.2.0.
-#: src/ui/login.rs:212
+#: src/ui/login.rs:218
 #, rust-format
 msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr "Spotifast {version} • 与 Spotify 无关"

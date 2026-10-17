@@ -2759,11 +2759,13 @@ impl Worker {
         self.emit(Event::Auth(AuthStatus::RateLimited));
         if source == ApiSource::Shared
             && self.web_client_id.is_some()
-            && std::mem::take(&mut self.personal_fallback)
             && matches!(
                 self.api.state(ApiSource::Personal),
                 SessionState::Unavailable
             )
+            // Spent only once the personal app can be authorized: a
+            // personal grant still restoring may turn out unusable.
+            && std::mem::take(&mut self.personal_fallback)
         {
             if self.cancel_signin.is_some() {
                 self.pending_authorization = Some(ApiSource::Personal);
@@ -7353,6 +7355,37 @@ mod authorization_tests {
             1,
             "a signed-in account showed the sign-in notice"
         );
+    }
+
+    /// A personal grant still restoring keeps the one personal-app attempt
+    /// for later, in case the restored grant turns out unusable.
+    #[test]
+    fn a_restoring_personal_grant_keeps_the_personal_app_attempt() {
+        let _port = WEB_PORT.lock().unwrap_or_else(|p| p.into_inner());
+        let (runtime, mut worker, events) = worker("rate-limited-restoring-personal");
+        let _entered = runtime.enter();
+        let _occupied =
+            std::net::TcpListener::bind(("127.0.0.1", crate::auth::WEB_REDIRECT_PORT)).unwrap();
+        worker.personal_fallback = true;
+        worker
+            .api
+            .set_state(ApiSource::Shared, SessionState::Authorizing);
+        worker
+            .api
+            .set_state(ApiSource::Personal, SessionState::Authorizing);
+
+        worker.on_web_verification_rate_limited(ApiSource::Shared);
+        assert_eq!(login_port_failures(&events), 0);
+        assert!(
+            worker.personal_fallback,
+            "the attempt was spent while restoring"
+        );
+
+        // The restore found no usable personal grant.
+        worker.api.clear(ApiSource::Personal);
+        worker.on_web_verification_rate_limited(ApiSource::Shared);
+        assert_eq!(login_port_failures(&events), 1);
+        assert!(!worker.personal_fallback);
     }
 
     /// Cancel stops an account check that outlived its browser step, or a

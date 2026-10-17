@@ -48,7 +48,7 @@ struct Cli {
     /// `shortcuts`, `create`, `light`, `focus`, `update`, `personal-app`,
     /// `windows-taskbar`, `german`, `lyrics`, `lyrics-fullscreen`, `collection-loading`,
     /// `shuffle-selected`, `shuffle-started`, `undated-mix`, `signed-out`, `connecting`, `rate-limited`,
-    /// `library-list`,
+    /// `rate-limited-personal`, `library-list`,
     /// `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
     /// or `library-grid-wide`.
     #[cfg(feature = "demo")]

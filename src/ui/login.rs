@@ -104,8 +104,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                             });
                             if app.auth == AuthStatus::RateLimited {
                                 // Spotify can hold the shared app back for a
-                                // long time, so say so and offer a way out
-                                // rather than spin with no word (#861).
+                                // long time, so say so rather than spin with
+                                // no word (#861).
                                 ui.add_space(6.0);
                                 let notice = if app.settings.web_client_id.is_some() {
                                     gettext(locale, "Spotify is limiting requests from the shared Spotifast app. Approve your personal app in the browser to sign in without waiting.")
@@ -115,6 +115,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                                 ui.add(
                                     egui::Label::new(egui::RichText::new(notice).font(theme::regular(12.5)).color(palette.secondary)).wrap(),
                                 );
+                            }
+                            // The account check retries through rate limits
+                            // and server errors alike, so it can always be
+                            // stopped. A signed-in account still loading is
+                            // not a sign-in to cancel.
+                            if matches!(app.auth, AuthStatus::Connecting | AuthStatus::RateLimited) {
                                 ui.add_space(14.0);
                                 if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked() {
                                     app.actions.push(Action::CancelSignIn);
@@ -315,8 +321,8 @@ mod tests {
     use super::*;
     use crate::{app::AppOptions, backend::Waker, paths::AppDirs, settings::Settings};
 
-    /// A rate-limited sign-in says why it is waiting and can be cancelled
-    /// (#861).
+    /// A rate-limited sign-in says why it is waiting, and any account check
+    /// can be cancelled (#861).
     #[test]
     fn rate_limited_sign_in_explains_the_wait_and_offers_cancel() {
         let ctx = egui::Context::default();
@@ -340,27 +346,41 @@ mod tests {
                 tray: false,
             },
         );
-        app.auth = AuthStatus::RateLimited;
         let screen = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(760.0, 620.0));
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(screen),
-                ..Default::default()
-            },
-            |ui| show(&mut app, ui, true),
-        );
-        output.textures_delta.clear();
-        let tree = output.platform_output.accesskit_update.unwrap();
-        let has = |predicate: &dyn Fn(&egui::accesskit::Node) -> bool| {
-            tree.nodes.iter().any(|(_, node)| predicate(node))
+        let frame = |app: &mut App| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| show(app, ui, true),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
         };
-        assert!(has(
-            &|node| node.label() == Some("Cancel") && node.role() == egui::accesskit::Role::Button
-        ));
-        assert!(has(&|node| node
-            .value()
-            .or(node.label())
-            .is_some_and(|text| text.contains("limiting requests"))));
+        let cancel = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Cancel") && node.role() == egui::accesskit::Role::Button
+            })
+        };
+        let notice = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.value()
+                    .or(node.label())
+                    .is_some_and(|text| text.contains("limiting requests"))
+            })
+        };
+
+        app.auth = AuthStatus::RateLimited;
+        let tree = frame(&mut app);
+        assert!(cancel(&tree));
+        assert!(notice(&tree));
+
+        // Server errors retry without a notice, and can still be stopped.
+        app.auth = AuthStatus::Connecting;
+        let tree = frame(&mut app);
+        assert!(cancel(&tree));
+        assert!(!notice(&tree));
     }
 
     #[test]

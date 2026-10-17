@@ -55,9 +55,9 @@ Spotify" spinner, since nothing on screen waits for it.
 
 Once the browser hands back a grant, the sign-in screen shows "Connecting to
 Spotify…" instead of the browser prompt, and the browser is free for another
-approval. If Spotify rate limits the account check before anyone is signed in,
-the sign-in screen says so and offers **Cancel**, which also stops a restored
-grant's check. When a personal app is configured, a browser sign-in held back
+approval. Until someone is signed in, **Cancel** stops the account check,
+including a restored grant's, since it retries through rate limits and server
+errors alike. If Spotify rate limits the check, the sign-in screen says so. When a personal app is configured, a browser sign-in held back
 this way opens that app's approval once, so the personal app can finish
 signing in while the shared app waits.
 

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-16 18:36-0700\n"
+"POT-Creation-Date: 2026-10-16 18:50-0700\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Brazilian Portuguese\n"
@@ -404,7 +404,7 @@ msgid "Couldn't fetch the lyrics: {error}"
 msgstr "Não foi possível buscar a letra: {error}"
 
 #: src/ui/lyrics.rs:177 src/ui/lyrics.rs:431 src/ui/lyrics.rs:646
-#: src/ui/settings.rs:504 src/ui/login.rs:130
+#: src/ui/settings.rs:504 src/ui/login.rs:136
 msgid "Try again"
 msgstr "Tentar novamente"
 
@@ -1600,7 +1600,7 @@ msgstr ""
 "Desativado ignora as variáveis de ambiente. Sistema usa essas variáveis e, "
 "no macOS e no Windows, o proxy do sistema operacional."
 
-#: src/ui/settings.rs:1372 src/ui/login.rs:273
+#: src/ui/settings.rs:1372 src/ui/login.rs:279
 msgid "Apply settings"
 msgstr "Aplicar configurações"
 
@@ -2292,7 +2292,7 @@ msgid "“{name}” will no longer appear in Your Library."
 msgstr "“{name}” não vai mais aparecer na Sua Biblioteca."
 
 #: src/ui/dialogs.rs:104 src/ui/dialogs.rs:147 src/ui/dialogs.rs:425
-#: src/ui/dialogs.rs:606 src/ui/login.rs:95 src/ui/login.rs:119
+#: src/ui/dialogs.rs:606 src/ui/login.rs:95 src/ui/login.rs:125
 msgid "Cancel"
 msgstr "Cancelar"
 
@@ -2676,15 +2676,15 @@ msgstr ""
 "O Spotify está limitando as solicitações do app compartilhado do Spotifast. "
 "A entrada termina sozinha assim que o Spotify permitir."
 
-#: src/ui/login.rs:138 src/ui/login.rs:173
+#: src/ui/login.rs:144 src/ui/login.rs:179
 msgid "Use the shared Spotify app instead"
 msgstr "Usar o app compartilhado do Spotify"
 
-#: src/ui/login.rs:152
+#: src/ui/login.rs:158
 msgid "Sign in with Spotify"
 msgstr "Entrar com o Spotify"
 
-#: src/ui/login.rs:158
+#: src/ui/login.rs:164
 msgid ""
 "Sign in through your browser. Spotifast never sees your password. Local "
 "playback needs Spotify Premium."
@@ -2692,12 +2692,12 @@ msgstr ""
 "Entre pelo navegador. O Spotifast nunca vê sua senha. A reprodução local "
 "requer o Spotify Premium."
 
-#: src/ui/login.rs:191
+#: src/ui/login.rs:197
 msgid "Proxy Settings"
 msgstr "Configurações de proxy"
 
 #. Translators: {version} is the app's version number, such as 1.2.0.
-#: src/ui/login.rs:212
+#: src/ui/login.rs:218
 #, rust-format
 msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr "Spotifast {version} • sem afiliação com o Spotify"
