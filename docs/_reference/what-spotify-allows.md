@@ -70,6 +70,12 @@ clients. Spotifast uses its session for:
   session once per sign-in to fill its row. Without local playback those
   rows stay blank.
 - **Lyrics** when Spotify has them.
+- **Jam**, Spotify’s group listening. From the device picker, Spotifast can
+  start a Jam hosted by this computer, copy its invite link, show who is in it,
+  and leave it or end it. Friends who join from the link can queue songs and
+  control playback. Joining someone else’s Jam from Spotifast, removing a
+  member, and Jam’s other modes are not supported yet. Jam needs local
+  playback. See [how it connects](/how-it-connects/#jam).
 - **Artist popular tracks.** The account's market-specific ranking and batched
   track details, with the shared Web API as fallback when the session cannot
   supply them. This uses librespot's existing metadata support.
@@ -127,7 +133,7 @@ The Web API and librespot do not provide these features:
   support its protocol. Spotifast's pins are local and are stored in
   `settings.json`. See [issue #31](https://github.com/crmne/spotifast/issues/31).
 - **Editing playlist folders.** librespot can only read them.
-- **Smart Shuffle, Jam, Blend, and similar Spotify features.** Spotify
+- **Smart Shuffle, Blend, and similar Spotify features.** Spotify
   generates these for its own clients. Spotifast only has plain shuffle.
   A Blend that a Spotify app already made opens like any playlist, with
   who added each song, but Spotifast cannot start or manage one.

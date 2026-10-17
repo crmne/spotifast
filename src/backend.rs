@@ -599,6 +599,15 @@ struct PlaylistCacheWrite {
     next_offset: Option<u32>,
 }
 
+/// What to do with the Jam this account is in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JamRequest {
+    /// Start one hosted by this device, or find the one that runs.
+    Start,
+    /// Leave it, or end it for everyone when the account owns it.
+    Leave,
+}
+
 pub enum Command {
     OpenThemesFolder,
     ProxyRestored {
@@ -725,6 +734,8 @@ pub enum Command {
     },
     /// The words of a track, from LRCLIB.
     Lyrics(Box<LyricsRequest>),
+    /// Starts or leaves the Jam this account is in.
+    Jam(JamRequest),
     /// The account's playlist tree, folders and all, from the session.
     Rootlist,
     /// Internal: a rootlist read completed for this signed-in session.
@@ -882,6 +893,10 @@ pub enum Event {
         manual: bool,
         result: Result<Option<crate::updates::Release>, String>,
     },
+    /// The Jam this account is in, or `None` once it is in none.
+    Jam(Option<crate::jam::Jam>),
+    /// Starting or leaving a Jam failed.
+    JamFailed(String),
     /// Track lyrics, or `None` when unavailable.
     Lyrics {
         uri: String,
@@ -1607,6 +1622,8 @@ struct Worker {
     commands: mpsc::UnboundedSender<Command>,
     waker: Waker,
     engine: Option<Arc<Engine>>,
+    /// Follows the Jam's changes on the engine's session.
+    jam_watch: Option<tokio::task::AbortHandle>,
     /// What the engine is heard at, so the engine that replaces it starts
     /// there. `engine_config` alone knows only the level the app launched
     /// with.
@@ -1701,6 +1718,7 @@ impl Worker {
             commands,
             waker,
             engine: None,
+            jam_watch: None,
             heard: None,
             rootlist_pending: false,
             album_type_lookup: AlbumTypeLookup::default(),
@@ -2262,6 +2280,7 @@ impl Worker {
                     });
                 }
                 Command::Lyrics(request) => self.fetch_lyrics(*request),
+                Command::Jam(request) => self.run_jam(request),
                 Command::Rootlist => self.fetch_rootlist(),
                 Command::RootlistFinished { generation, result } => {
                     self.on_rootlist_finished(generation, result);
@@ -2975,6 +2994,7 @@ impl Worker {
         self.radio_waiting.clear();
         self.prerelease_waiting = None;
         self.carry_volume();
+        self.drop_jam();
         if let Some(engine) = self.engine.take() {
             engine.shutdown();
         }
@@ -3168,6 +3188,7 @@ impl Worker {
         self.album_type_lookup.requeue_active_for_new_engine();
         self.playlist_header_lookup.requeue_active_for_new_engine();
         self.carry_volume();
+        self.drop_jam();
         if let Some(engine) = self.engine.take() {
             self.resume = engine.resume_point();
             engine.shutdown();
@@ -3446,6 +3467,7 @@ impl Worker {
                     self.schedule_resume_check(1_500);
                 }
                 self.engine = Some(engine);
+                self.start_jam_watch();
                 self.start_rootlist();
                 self.reconnects.clear();
                 self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
@@ -3511,6 +3533,7 @@ impl Worker {
             self.album_type_lookup.clear_engine_work();
             self.playlist_header_lookup.clear_engine_work();
             self.carry_volume();
+            self.drop_jam();
             if let Some(engine) = self.engine.take() {
                 engine.shutdown();
             }
@@ -4009,6 +4032,62 @@ impl Worker {
             result,
         });
         self.start_album_type_lookup();
+    }
+
+    /// Reads the Jam the account is already in, so one started on a phone
+    /// shows at launch, then follows its changes on the engine's session.
+    fn start_jam_watch(&mut self) {
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        let session = engine.session().clone();
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let handle = tokio::spawn(async move {
+            match crate::jam::current(&session).await {
+                Ok(jam) => {
+                    let _ = events.send(Event::Jam(jam));
+                    waker.wake();
+                }
+                Err(error) => log::warn!("jam: {error:#}"),
+            }
+            crate::jam::watch(session, events, waker).await;
+        });
+        self.jam_watch = Some(handle.abort_handle());
+    }
+
+    /// Stops following the Jam of an engine that goes away.
+    fn drop_jam(&mut self) {
+        if let Some(watch) = self.jam_watch.take() {
+            watch.abort();
+            self.emit(Event::Jam(None));
+        }
+    }
+
+    fn run_jam(&self, request: JamRequest) {
+        let Some(engine) = self.engine.clone() else {
+            self.emit(Event::JamFailed(
+                "Playback is not set up on this computer.".into(),
+            ));
+            return;
+        };
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::spawn(async move {
+            let session = engine.session();
+            let result = match request {
+                JamRequest::Start => crate::jam::start(session).await.map(Some),
+                JamRequest::Leave => crate::jam::leave(session).await.map(|()| None),
+            };
+            let _ = events.send(match result {
+                Ok(jam) => Event::Jam(jam),
+                Err(error) => {
+                    log::warn!("jam: {error:#}");
+                    Event::JamFailed(format!("{error:#}"))
+                }
+            });
+            waker.wake();
+        });
     }
 
     fn fetch_lyrics(&self, request: LyricsRequest) {

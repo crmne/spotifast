@@ -13,8 +13,8 @@ use crate::api::models::{
     Show, Track, TrackCount, User, UserRef, pick_image,
 };
 use crate::backend::{
-    ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, LyricsRequest,
-    PLAYLIST_PAGE_SIZE, PlaylistCacheRows, RecentsFor, RemoteAction, Waker,
+    ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, JamRequest, LocalPlayback,
+    LyricsRequest, PLAYLIST_PAGE_SIZE, PlaylistCacheRows, RecentsFor, RemoteAction, Waker,
 };
 use crate::i18n::{Locale, gettext, ngettext};
 use crate::model::QueueTab;
@@ -388,6 +388,10 @@ pub struct App {
     /// it plays if music played then or plays now.
     activating_play: bool,
     pub devices_loading: bool,
+    /// The Jam this account is in.
+    pub jam: Option<crate::jam::Jam>,
+    /// Whether a request to start or leave a Jam is out.
+    pub jam_busy: bool,
     devices_fetched_at: Option<Instant>,
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
@@ -930,6 +934,8 @@ impl App {
             activating_receiver: None,
             activating_play: false,
             devices_loading: false,
+            jam: None,
+            jam_busy: false,
             devices_fetched_at: None,
             selected_device: None,
             queue: if session.last_track.is_some() && !session.last_queue_rows.is_empty() {
@@ -2114,6 +2120,14 @@ impl App {
                     }
                     Err(error) => log::warn!("rootlist unavailable: {error}"),
                 },
+                Event::Jam(jam) => {
+                    self.jam_busy = false;
+                    self.jam = jam;
+                }
+                Event::JamFailed(error) => {
+                    self.jam_busy = false;
+                    self.toast_error(format!("{}: {error}", gettext(self.locale, "Jam failed")));
+                }
                 Event::Lyrics { uri, result } => {
                     if self.lyrics_uri.as_deref() == Some(uri.as_str()) {
                         self.lyrics = match result {
@@ -10059,6 +10073,21 @@ impl App {
                 self.devices_fetched_at = None;
                 self.refresh_devices();
                 self.backend.send(Command::DiscoverReceivers);
+            }
+            Action::JamStart | Action::JamLeave if self.jam_busy => {}
+            Action::JamStart => {
+                self.jam_busy = true;
+                self.backend.send(Command::Jam(JamRequest::Start));
+            }
+            Action::JamLeave => {
+                self.jam_busy = true;
+                self.backend.send(Command::Jam(JamRequest::Leave));
+            }
+            Action::JamCopyLink => {
+                if let Some(link) = self.jam.as_ref().and_then(|jam| jam.link.clone()) {
+                    ctx.copy_text(link);
+                    self.toast(gettext(self.locale, "Link copied"));
+                }
             }
             Action::ClearQueue => self.clear_queue(),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),

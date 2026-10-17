@@ -170,6 +170,94 @@ fn receiver_row(app: &mut App, ui: &mut egui::Ui, receiver: &crate::zeroconf::Re
     }
 }
 
+/// The badges that follow a member's name: who owns the Jam and who is this
+/// account.
+fn member_badges(locale: crate::i18n::Locale, member: &crate::jam::JamMember) -> String {
+    let mut badges = Vec::new();
+    if member.host {
+        badges.push(gettext(locale, "Host"));
+    }
+    if member.you {
+        badges.push(gettext(locale, "You"));
+    }
+    badges.join(" · ")
+}
+
+/// Start a Jam hosted by this computer, or show who is in the one running
+/// with its invite link and a way out.
+fn jam_section(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let locale = app.locale;
+    super::widgets::menu_separator(ui, &palette);
+    ui.horizontal(|ui| {
+        ui.add_space(6.0);
+        theme::text(ui, gettext(locale, "Jam"), theme::bold(14.0), palette.text);
+        if app.jam_busy {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                theme::spinner(ui, 16.0, palette.accent);
+            });
+        }
+    });
+    ui.add_space(4.0);
+    let Some(jam) = app.jam.clone() else {
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
+            if theme::soft_button(ui, &palette, None, &gettext(locale, "Start a Jam"), false)
+                .clicked()
+            {
+                app.actions.push(Action::JamStart);
+            }
+        });
+        return;
+    };
+    for member in &jam.members {
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
+        let painter = ui.painter().with_clip_rect(rect);
+        let badges = member_badges(locale, member);
+        let reserved = if badges.is_empty() { 12.0 } else { 100.0 };
+        crate::bidi::paint_line(
+            &painter,
+            rect.left() + 8.0,
+            rect.right() - reserved,
+            rect.center().y,
+            &member.name,
+            theme::regular(13.0),
+            palette.text,
+        );
+        painter.text(
+            pos2(rect.right() - 8.0, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            badges,
+            theme::regular(12.0),
+            palette.secondary,
+        );
+    }
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(6.0);
+        if jam.link.is_some()
+            && theme::soft_button(
+                ui,
+                &palette,
+                None,
+                &gettext(locale, "Copy invite link"),
+                false,
+            )
+            .clicked()
+        {
+            app.actions.push(Action::JamCopyLink);
+        }
+        let leave = if jam.owner {
+            gettext(locale, "End Jam")
+        } else {
+            gettext(locale, "Leave")
+        };
+        if theme::soft_button(ui, &palette, None, &leave, false).clicked() {
+            app.actions.push(Action::JamLeave);
+        }
+    });
+}
+
 pub fn popup(app: &mut App, ctx: &egui::Context) {
     if !app.show_devices {
         return;
@@ -374,6 +462,9 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                         }
                     },
                 );
+                if app.local_ready {
+                    jam_section(app, ui);
+                }
             });
         });
     let popup_rect = area.response.rect;

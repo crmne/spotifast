@@ -147,6 +147,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-
 # HTTP proxy (environment, and the OS proxy on macOS and Windows).
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
 http = "1"
+# `StreamExt` for the dealer subscription in `jam.rs`; already in the lockfile through librespot.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # `fs` is used by the playlist cache in `backend.rs`. On Linux the MPRIS
 # dependency happens to turn it on, which is why leaving it out built
 # there and nowhere else. `net` is the local HTTP-proxy tests.
