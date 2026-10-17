@@ -61,8 +61,6 @@ const PLAYLISTS_RETRY: Duration = Duration::from_secs(60);
 const BACKGROUND_QUIET: Duration = Duration::from_secs(1);
 /// How often coming back to the window reads the playlist tree again.
 const ROOTLIST_REFRESH: Duration = Duration::from_secs(5);
-/// How often coming back to the window refreshes Liked Songs.
-const LIKED_FOCUS_REFRESH: Duration = Duration::from_secs(60);
 /// How far into a song Previous restarts it rather than stepping back,
 /// matching what librespot does during playback.
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
@@ -631,16 +629,11 @@ pub struct App {
     account_caches_due: bool,
     /// When the tree was last asked for.
     rootlist_read_at: Option<Instant>,
-    /// When Liked Songs was last refreshed on window focus.
-    liked_focus_read_at: Option<Instant>,
     /// Whether the window had focus last frame.
     window_focused: bool,
     /// Coming back to the window asked for the tree, and it has not been
     /// read since.
     rootlist_wanted: bool,
-    /// Coming back to the window asked for Liked Songs, and it has not been
-    /// refreshed since.
-    liked_focus_wanted: bool,
     /// Playlists the account may add songs to by Spotify's own word, by
     /// URI: the ones shared with it by invitation, which the Web API's
     /// collaborative flag does not show. Empty until the session answers.
@@ -1090,10 +1083,8 @@ impl App {
             account_caches_generation: 0,
             account_caches_due: false,
             rootlist_read_at: None,
-            liked_focus_read_at: None,
             window_focused: true,
             rootlist_wanted: false,
-            liked_focus_wanted: false,
             editable_by_grant: std::collections::BTreeSet::new(),
             pending_link: None,
             prerelease_request: None,
@@ -2525,8 +2516,6 @@ impl App {
         };
         self.liked_songs = crate::liked::LikedSongs::default();
         self.liked_recheck_at = None;
-        self.liked_focus_read_at = None;
-        self.liked_focus_wanted = false;
         // Answers still on their way belong to the signed-out account's
         // Home.
         self.home = HomeData {
@@ -4117,13 +4106,11 @@ impl App {
         self.backend.send(Command::Rootlist);
     }
 
-    /// Spotify's own apps can reorder playlists and folders or change liked
-    /// songs while Spotifast waits behind them, so coming back refreshes them.
-    /// The rootlist read goes over the playback session and spends no Web API
-    /// quota. Liked songs refresh goes over the Web API and is throttled by
-    /// `LIKED_FOCUS_REFRESH`. A return soon after the last read waits out the
-    /// rest of the throttle interval, and the time left is returned so the
-    /// caller can wake up for it.
+    /// Spotify's own apps can reorder playlists and folders while Spotifast
+    /// waits behind them, so coming back reads the tree again. The read
+    /// goes over the playback session and spends no Web API quota. A return
+    /// soon after the last read waits out the rest of `ROOTLIST_REFRESH`,
+    /// and the time left is returned so the caller can wake up for it.
     ///
     /// `focused` is `None` on a frame that does not say, such as one run
     /// without a window; that frame neither leaves nor comes back.
@@ -4135,56 +4122,27 @@ impl App {
         if let Some(focused) = focused {
             if focused && !self.window_focused {
                 self.rootlist_wanted = true;
-                self.liked_focus_wanted = true;
             }
             self.window_focused = focused;
         }
-        let rootlist_wait = if self.rootlist_wanted
-            && self.is_connected()
-            && matches!(self.library.playlists, Loadable::Loaded(_))
-            && self.library.playlists_next.is_none()
-            && self.library.playlists_asked.is_none()
-            && self.library.playlists_loading_since.is_none()
+        // Until every playlist has arrived, the first read is still to come.
+        if !self.rootlist_wanted
+            || !self.is_connected()
+            || !matches!(self.library.playlists, Loadable::Loaded(_))
+            || self.library.playlists_next.is_some()
+            || self.library.playlists_asked.is_some()
+            || self.library.playlists_loading_since.is_some()
         {
-            let wait = self.rootlist_read_at.map_or(Duration::ZERO, |at| {
-                ROOTLIST_REFRESH.saturating_sub(at.elapsed())
-            });
-            if wait.is_zero() {
-                self.read_rootlist();
-                None
-            } else {
-                Some(wait)
-            }
-        } else {
-            None
-        };
-        let liked_wait = if self.window_focused
-            && self.liked_focus_wanted
-            && self.is_connected()
-            && self.network_reachable
-            && self.liked_songs.cache_checked
-            && !self.liked_songs.refreshing()
-            && !self.library.liked.loading
-        {
-            let wait = self.liked_focus_read_at.map_or(Duration::ZERO, |at| {
-                LIKED_FOCUS_REFRESH.saturating_sub(at.elapsed())
-            });
-            if wait.is_zero() {
-                self.liked_focus_wanted = false;
-                self.refresh_liked_songs();
-                None
-            } else {
-                Some(wait)
-            }
-        } else {
-            None
-        };
-        match (rootlist_wait, liked_wait) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (Some(a), None) => Some(a),
-            (None, Some(b)) => Some(b),
-            (None, None) => None,
+            return None;
         }
+        let wait = self.rootlist_read_at.map_or(Duration::ZERO, |at| {
+            ROOTLIST_REFRESH.saturating_sub(at.elapsed())
+        });
+        if wait.is_zero() {
+            self.read_rootlist();
+            return None;
+        }
+        Some(wait)
     }
 
     /// Reads the playlists from the top. A list already shown stays until
@@ -11628,7 +11586,6 @@ impl App {
             self.ensure_liked_songs();
             return;
         }
-        self.liked_focus_read_at = Some(Instant::now());
         self.load_generation = self.load_generation.wrapping_add(1);
         self.liked_songs.start_refresh(self.load_generation);
         self.library.liked.loading = true;
@@ -26764,67 +26721,6 @@ mod tests {
         app.rootlist_read_at = Some(Instant::now() - ROOTLIST_REFRESH);
         app.window_focus(Some(false));
         assert_eq!(reads(&mut app, true), (false, None), "signed out");
-        app.backend.shutdown();
-    }
-
-    /// Spotify Liked Songs change on other devices; coming back refreshes them,
-    /// at most every `LIKED_FOCUS_REFRESH`, once cached rows are present.
-    #[test]
-    fn returning_to_the_window_refreshes_liked_songs_throttled() {
-        let mut app = test_app("liked-focus");
-        app.auth = AuthStatus::Connected {
-            username: "listener".into(),
-        };
-        app.network_reachable = true;
-        // Liked songs not cached yet: focus does not trigger refresh.
-        app.window_focus(Some(false));
-        assert_eq!(app.window_focus(Some(true)), None);
-        assert!(!app.liked_songs.refreshing());
-
-        // Cache checked and loaded: return triggers refresh.
-        app.liked_songs.cache_checked = true;
-        app.window_focus(Some(false));
-        let wait = app.window_focus(Some(true));
-        assert_eq!(wait, None);
-        assert!(app.liked_songs.refreshing());
-        assert!(!app.liked_focus_wanted);
-
-        // A refresh is already running: focus does not start a duplicate.
-        app.window_focus(Some(false));
-        let wait = app.window_focus(Some(true));
-        assert_eq!(wait, None);
-        assert!(app.liked_focus_wanted, "intent preserved while busy");
-
-        // Complete the refresh.
-        app.liked_songs = Default::default();
-        app.liked_songs.cache_checked = true;
-        app.library.liked.loading = false;
-
-        // Coming back soon after waits for the rest of LIKED_FOCUS_REFRESH.
-        app.window_focus(Some(false));
-        let wait = app.window_focus(Some(true));
-        assert!(wait.is_some_and(|w| w <= LIKED_FOCUS_REFRESH));
-        assert!(app.liked_focus_wanted, "intent preserved during throttle");
-
-        // Staying focused until deadline expires executes the deferred refresh.
-        app.liked_focus_read_at = Some(Instant::now() - LIKED_FOCUS_REFRESH);
-        let wait = app.window_focus(Some(true));
-        assert_eq!(wait, None);
-        assert!(app.liked_songs.refreshing(), "deferred refresh executed");
-        assert!(!app.liked_focus_wanted);
-
-        // Manual reload resets the focus throttle.
-        app.liked_songs = Default::default();
-        app.liked_songs.cache_checked = true;
-        app.library.liked.loading = false;
-        app.refresh_liked_songs();
-        app.liked_songs = Default::default();
-        app.liked_songs.cache_checked = true;
-        app.library.liked.loading = false;
-        app.window_focus(Some(false));
-        let wait = app.window_focus(Some(true));
-        assert!(wait.is_some_and(|w| w <= LIKED_FOCUS_REFRESH));
-
         app.backend.shutdown();
     }
 
