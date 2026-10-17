@@ -904,6 +904,16 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.auth = AuthStatus::Connecting;
                 app.user = None;
             }
+            "rate-limited" => {
+                app.auth = AuthStatus::RateLimited;
+                app.user = None;
+            }
+            // The same wait with a personal app configured.
+            "rate-limited-personal" => {
+                app.auth = AuthStatus::RateLimited;
+                app.user = None;
+                app.settings.web_client_id = Some("demo-personal-app".into());
+            }
             "recents" => {
                 app.show_queue_panel = true;
                 app.queue_tab = QueueTab::Recents;

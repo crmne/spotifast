@@ -40,8 +40,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.actions.push(Action::InstallSkin(path));
     }
     let signed_in = app.is_connected() && app.user.is_some();
-    let connecting = matches!(app.auth, AuthStatus::Connecting | AuthStatus::Starting)
-        || (app.is_connected() && app.user.is_none());
+    let connecting = matches!(
+        app.auth,
+        AuthStatus::Connecting | AuthStatus::RateLimited | AuthStatus::Starting
+    ) || (app.is_connected() && app.user.is_none());
     if !signed_in {
         player_bar::end_tint_session(ctx);
         login::show(app, ui, connecting);
