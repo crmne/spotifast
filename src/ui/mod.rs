@@ -44,6 +44,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         || (app.is_connected() && app.user.is_none());
     if !signed_in {
         player_bar::end_tint_session(ctx);
+        forget_glow(ctx);
         login::show(app, ui, connecting);
         update::show(app, ctx);
         toasts(app, ctx, 20.0);
@@ -207,7 +208,17 @@ where
     }
 }
 
-fn page_tint(app: &mut App) -> Option<Color32> {
+/// The colour a page's header glows with.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum PageTint {
+    Color(Color32),
+    None,
+    /// The page's cover is still being read for its colour: the glow holds
+    /// what it shows rather than flash the song's colour first.
+    Pending,
+}
+
+fn page_tint(app: &mut App) -> PageTint {
     let page = app.page().clone();
     let image = match &page {
         Page::Playlist(id) => app
@@ -240,34 +251,177 @@ fn page_tint(app: &mut App) -> Option<Color32> {
             .map(str::to_string),
         Page::Radio(seed) => pick_image(&app.radio_images(seed), 64).map(str::to_string),
         Page::LikedSongs => {
-            return app
-                .settings
-                .accent_from_art
-                .then_some(Color32::from_rgb(0x50, 0x38, 0xc8));
+            return if app.settings.accent_from_art {
+                PageTint::Color(Color32::from_rgb(0x50, 0x38, 0xc8))
+            } else {
+                PageTint::None
+            };
         }
         _ => None,
     };
     if !app.settings.accent_from_art && image.is_some() {
-        return None;
+        return PageTint::None;
     }
     match image {
-        Some(url) => app.tint_for(Some(&url)).or_else(|| app.now_playing_tint()),
-        None => app.now_playing_tint(),
+        Some(url) => match app.tint_for(Some(&url)) {
+            Some(color) => PageTint::Color(color),
+            None if app.tint_missing(&url) => app.song_tint(),
+            None => PageTint::Pending,
+        },
+        None => app.song_tint(),
     }
+}
+
+/// How quickly the glow follows a new colour or strength: most of the way
+/// in about half a second, settled in about four fifths of one.
+const GLOW_SECONDS: f32 = 0.16;
+
+/// Where the header's glow as last painted is kept.
+const GLOW_ID: &str = "spotifast-page-glow";
+
+/// The header's glow as shown: its colour, unmultiplied, and how strongly
+/// it shows over the window.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Glow {
+    rgb: [f32; 3],
+    strength: f32,
+}
+
+impl Glow {
+    /// No glow at all.
+    const DARK: Self = Self {
+        rgb: [0.0; 3],
+        strength: 0.0,
+    };
+
+    /// A glow of `color` at `strength`.
+    fn of(color: Color32, strength: f32) -> Self {
+        let [r, g, b, _] = color.to_srgba_unmultiplied();
+        Self {
+            rgb: [r, g, b].map(f32::from),
+            strength,
+        }
+    }
+
+    /// The colour as painted, rounded to whole levels.
+    fn color(self) -> Color32 {
+        let [r, g, b] = self
+            .rgb
+            .map(|channel| channel.round().clamp(0.0, 255.0) as u8);
+        Color32::from_rgb(r, g, b)
+    }
+
+    /// `self` moved `elapsed` seconds towards `target`, easing out. A glow
+    /// that has faded away takes the new colour at once, so it rises in that
+    /// colour rather than through the old one. Less motion shows the end.
+    fn toward(self, target: Self, elapsed: f32, still: bool) -> Self {
+        if still {
+            return target;
+        }
+        let rgb = if self.strength < 0.01 {
+            target.rgb
+        } else {
+            self.rgb
+        };
+        let step = 1.0 - (-elapsed / GLOW_SECONDS).exp();
+        let near = |from: f32, to: f32, close: f32| {
+            let value = from + (to - from) * step;
+            if (to - value).abs() < close {
+                to
+            } else {
+                value
+            }
+        };
+        // It settles once what is left would change the painted colour by
+        // a level or so, rather than easing on unseen.
+        Self {
+            rgb: [0, 1, 2].map(|channel| near(rgb[channel], target.rgb[channel], 1.5)),
+            strength: near(self.strength, target.strength, 0.006),
+        }
+    }
+}
+
+/// The glow as last painted, kept between frames.
+#[derive(Clone, Copy)]
+struct Shown {
+    glow: Glow,
+    /// Where it was heading, which a page still reading its colour keeps
+    /// heading to.
+    target: Glow,
+    /// Whether the theme was dark.
+    dark: bool,
+    /// The palette's own wash it settled on without art.
+    rest: Option<Glow>,
+    at: f64,
+}
+
+/// The glow to paint this frame for `tint` at `strength`, easing from the
+/// one painted last, and whether it is still moving. A page without a
+/// colour settles on `rest`, the palette's own wash, or fades out.
+fn glow(
+    ctx: &Context,
+    tint: PageTint,
+    strength: f32,
+    rest: Option<Glow>,
+    still: bool,
+) -> (Glow, bool) {
+    let id = egui::Id::new(GLOW_ID);
+    let now = ctx.input(|input| input.time);
+    let dark = ctx.theme() == egui::Theme::Dark;
+    let shown = ctx.data(|data| data.get_temp::<Shown>(id));
+    // The palette's wash is there from the first frame, like its window
+    // colour; only a cover's colour rises in.
+    let current = shown.map_or(rest.unwrap_or(Glow::DARK), |shown| shown.glow);
+    let target = match tint {
+        PageTint::Color(color) => Glow::of(color, strength),
+        PageTint::None => rest.unwrap_or(Glow {
+            strength: 0.0,
+            ..current
+        }),
+        PageTint::Pending => shown.map_or(current, |shown| shown.target),
+    };
+    // A new theme brings its own tint of the same colour under its reveal,
+    // so the glow takes it at once rather than crossing over from the old;
+    // so does a new palette, dark or light alike, whose wash has the old
+    // window's colour in it.
+    let still = still || shown.is_some_and(|shown| shown.dark != dark || shown.rest != rest);
+    let elapsed = shown.map_or(0.0, |shown| (now - shown.at).clamp(0.0, 1.0 / 30.0) as f32);
+    let glow = current.toward(target, elapsed, still);
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            id,
+            Shown {
+                glow,
+                target,
+                dark,
+                rest,
+                at: now,
+            },
+        )
+    });
+    (glow, glow != target)
+}
+
+/// Forget the glow while the sign-in screen shows, so the next session's
+/// first page rises in its own colour rather than crossing over from the
+/// last one's.
+fn forget_glow(ctx: &Context) {
+    ctx.data_mut(|data| data.remove::<Shown>(egui::Id::new(GLOW_ID)));
 }
 
 fn central(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let tint = page_tint(app);
+    let page = app.page().clone();
+    let overview = matches!(
+        page,
+        Page::Home | Page::Search | Page::Settings | Page::Queue
+    );
+    let strength = if overview { 0.45 } else { 0.85 };
     egui::CentralPanel::default()
         .frame(Frame::new().fill(palette.window))
         .show(ui, |ui| {
             let rect = ui.max_rect();
-            let page = app.page().clone();
-            let overview = matches!(
-                page,
-                Page::Home | Page::Search | Page::Settings | Page::Queue
-            );
             // The wash belongs to the page's hero, so it scrolls away with
             // it. The page's offset is known once it has been laid out, so
             // the previous frame's serves.
@@ -276,7 +430,15 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                 .ctx()
                 .data(|data| data.get_temp::<f32>(scrolled_id))
                 .unwrap_or(0.0);
-            if let Some((top, bottom)) = header_wash(&palette, overview, tint) {
+            // The glow rises in when a page or song brings a colour, and
+            // crosses over to the next one, or to the palette's own wash,
+            // rather than jumping.
+            let rest = resting_glow(&palette);
+            let (glow, moving) = glow(ui.ctx(), tint, strength, rest, app.motion.reduced());
+            if moving {
+                theme::animation_frame(ui.ctx());
+            }
+            if let Some((top, bottom)) = header_wash(&palette, glow) {
                 widgets::paint_vertical_gradient(ui, header_rect(rect, scrolled), top, bottom);
             }
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
@@ -326,20 +488,36 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
         });
 }
 
-/// The gradient behind a page's header, top to bottom: the art's colour
-/// blended into the window, stronger on a cover's own page than on an
-/// overview, or else the palette's `tint` fading out, whose alpha is its
-/// strength. `None` leaves the plain window.
-fn header_wash(
-    palette: &theme::Palette,
-    overview: bool,
-    art: Option<Color32>,
-) -> Option<(Color32, Color32)> {
-    if let Some(art) = art {
-        let strength = if overview { 0.45 } else { 0.85 };
-        return Some((blend(palette.window, art, strength), palette.window));
+/// The gradient behind a page's header, top to bottom: the glow's colour
+/// blended into the window at its strength, which is the art's, stronger
+/// on a cover's own page than on an overview, or the palette's `tint`
+/// (see [`resting_glow`]). `None` leaves the plain window.
+fn header_wash(palette: &theme::Palette, glow: Glow) -> Option<(Color32, Color32)> {
+    (glow.strength > 0.0).then(|| {
+        (
+            blend(palette.window, glow.color(), glow.strength),
+            palette.window,
+        )
+    })
+}
+
+/// The glow a page without art settles on: the palette's `tint` as it
+/// shows over the window, fading out down the header, or none when it is
+/// transparent. `Color32` is premultiplied and egui blends in gamma space,
+/// so this opaque colour paints exactly what the tint would, and the glow
+/// can cross over between it and a cover's colour.
+fn resting_glow(palette: &theme::Palette) -> Option<Glow> {
+    let tint = palette.tint;
+    if tint.a() == 0 {
+        return None;
     }
-    (palette.tint.a() > 0).then_some((palette.tint, Color32::TRANSPARENT))
+    let behind = 1.0 - f32::from(tint.a()) / 255.0;
+    let [r, g, b] = [0, 1, 2].map(|channel| {
+        (f32::from(tint[channel]) + f32::from(palette.window[channel]) * behind)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    });
+    Some(Glow::of(Color32::from_rgb(r, g, b), 1.0))
 }
 
 /// Where the header's wash is painted: the top of the panel, moved up by
@@ -481,27 +659,64 @@ pub fn blend(base: Color32, tint: Color32, amount: f32) -> Color32 {
     color
 }
 
+/// How long a toast takes to fade in, and to fade out at the end of its
+/// life.
+const TOAST_FADE_IN: f32 = 0.15;
+const TOAST_FADE_OUT: f32 = 0.4;
+
+/// How much of a toast `age` seconds old shows: it fades in and, at the end
+/// of its life, out. Less motion shows it whole for all of it.
+fn toast_opacity(age: f32, still: bool) -> f32 {
+    let life = crate::app::TOAST_LIFETIME.as_secs_f32();
+    if still {
+        1.0
+    } else if age < TOAST_FADE_IN {
+        age / TOAST_FADE_IN
+    } else {
+        ((life - age) / TOAST_FADE_OUT).clamp(0.0, 1.0)
+    }
+}
+
+/// When the toasts of these `ages` next need a frame: at once while one
+/// fades, otherwise when the next starts to fade out or, with less motion,
+/// leaves. `None` with no toasts.
+pub(crate) fn toast_wake(
+    ages: impl Iterator<Item = f32>,
+    still: bool,
+) -> Option<std::time::Duration> {
+    let life = crate::app::TOAST_LIFETIME.as_secs_f32();
+    ages.map(|age| {
+        let fades_out = life - TOAST_FADE_OUT;
+        let wait = if still {
+            life - age
+        } else if age < TOAST_FADE_IN || age >= fades_out {
+            0.0
+        } else {
+            fades_out - age
+        };
+        std::time::Duration::from_secs_f32(wait.max(0.0))
+    })
+    .min()
+}
+
 fn toasts(app: &mut App, ctx: &egui::Context, bottom_offset: f32) {
     if app.toasts.is_empty() {
         return;
     }
     let palette = app.palette;
+    let still = app.motion.reduced();
     egui::Area::new(egui::Id::new("toasts"))
         .anchor(Align2::RIGHT_BOTTOM, vec2(-20.0, -bottom_offset))
         .order(egui::Order::Tooltip)
         .interactable(false)
+        // Each toast fades itself in; the area's own fade would ask for
+        // frames at the display's rate on top.
+        .fade_in(false)
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             for toast in &app.toasts {
                 let age = toast.created.elapsed().as_secs_f32();
-                let alpha = if age < 0.15 {
-                    age / 0.15
-                } else if age > 2.8 {
-                    ((3.2 - age) / 0.4).clamp(0.0, 1.0)
-                } else {
-                    1.0
-                };
-                ui.set_opacity(alpha);
+                ui.set_opacity(toast_opacity(age, still));
                 Frame::new()
                     .fill(palette.overlay)
                     .stroke(Stroke::new(1.0, palette.outline))
@@ -535,6 +750,31 @@ fn toasts(app: &mut App, ctx: &egui::Context, bottom_offset: f32) {
                     });
             }
         });
+}
+
+#[cfg(test)]
+mod toast_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Toasts ask for frames only while one fades in or out, and wait for
+    /// the next fade otherwise. With less motion they wait until one
+    /// leaves, and show whole meanwhile.
+    #[test]
+    fn toasts_wake_the_window_only_to_fade() {
+        let wake = |ages: &[f32], still| toast_wake(ages.iter().copied(), still);
+        assert_eq!(wake(&[], false), None);
+        assert_eq!(wake(&[0.05], false), Some(Duration::ZERO));
+        let held = wake(&[1.0], false).unwrap().as_secs_f32();
+        assert!((held - 1.8).abs() < 1e-3, "{held}");
+        assert_eq!(wake(&[1.0, 2.9], false), Some(Duration::ZERO));
+        let leaves = wake(&[1.0], true).unwrap().as_secs_f32();
+        assert!((leaves - 2.2).abs() < 1e-3, "{leaves}");
+        assert_eq!(toast_opacity(0.05, true), 1.0);
+        assert!(toast_opacity(0.05, false) < 0.5);
+        assert_eq!(toast_opacity(1.0, false), 1.0);
+        assert!(toast_opacity(3.1, false) < 0.5);
+    }
 }
 
 #[cfg(test)]
@@ -607,21 +847,27 @@ mod tests {
     #[test]
     fn the_header_fades_from_the_art_or_the_palettes_wash() {
         let mut palette = theme::Palette::dark();
-        assert_eq!(header_wash(&palette, false, None), None);
+        assert_eq!(resting_glow(&palette), None, "no wash of its own");
+        assert_eq!(header_wash(&palette, Glow::DARK), None);
 
         let art = Color32::from_rgb(0x50, 0x38, 0xc8);
-        let (page, _) = header_wash(&palette, false, Some(art)).unwrap();
-        let (overview, _) = header_wash(&palette, true, Some(art)).unwrap();
+        let (page, bottom) = header_wash(&palette, Glow::of(art, 0.85)).unwrap();
+        let (overview, _) = header_wash(&palette, Glow::of(art, 0.45)).unwrap();
         assert_eq!(page, blend(palette.window, art, 0.85));
         assert_eq!(overview, blend(palette.window, art, 0.45));
+        assert_eq!(bottom, palette.window);
 
+        // The palette's wash, painted as the colour the tint shows over the
+        // window: black at alpha 24 over the window's own colour.
         palette.tint = Color32::from_black_alpha(24);
+        let rest = resting_glow(&palette).unwrap();
+        let (top, bottom) = header_wash(&palette, rest).unwrap();
+        let shown = |channel: u8| (f32::from(channel) * (1.0 - 24.0 / 255.0)).round() as u8;
+        let [r, g, b, _] = palette.window.to_array();
+        assert_eq!(top, Color32::from_rgb(shown(r), shown(g), shown(b)));
+        assert_eq!(bottom, palette.window);
         assert_eq!(
-            header_wash(&palette, false, None),
-            Some((palette.tint, Color32::TRANSPARENT))
-        );
-        assert_eq!(
-            header_wash(&palette, false, Some(art)).unwrap().0,
+            header_wash(&palette, Glow::of(art, 0.85)).unwrap().0,
             page,
             "art wins over the wash"
         );
@@ -681,5 +927,233 @@ mod tests {
             assert!(top.color.a() > 0);
             assert_eq!((top.color.r(), top.color.g(), top.color.b()), (0, 0, 0));
         }
+    }
+}
+
+#[cfg(test)]
+mod glow_tests {
+    use super::*;
+
+    /// A pink glow at a page's full strength.
+    fn pink() -> Glow {
+        Glow::of(Color32::from_rgb(240, 80, 160), 0.85)
+    }
+
+    /// With a palette that has a wash of its own, a page without art
+    /// settles on it, and the glow crosses over between it and a cover's
+    /// colour instead of jumping.
+    #[test]
+    fn the_glow_rests_on_the_palettes_wash() {
+        let mut palette = theme::Palette::dark();
+        palette.tint = Color32::from_rgba_unmultiplied(0x30, 0x60, 0x90, 40);
+        let rest = resting_glow(&palette);
+        let ctx = egui::Context::default();
+        let frame = |time: f64, tint: PageTint| {
+            let mut result = (Glow::DARK, false);
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| result = glow(ui.ctx(), tint, 0.85, rest, false),
+            );
+            output.textures_delta.clear();
+            result
+        };
+        let settle = |time: &mut f64, tint: PageTint| {
+            for _ in 0..240 {
+                let (glow, moving) = frame(*time, tint);
+                *time += 1.0 / 60.0;
+                if !moving {
+                    return glow;
+                }
+            }
+            panic!("the glow never settled");
+        };
+        let mut time = 0.0;
+        assert_eq!(settle(&mut time, PageTint::None), rest.unwrap());
+        let art = PageTint::Color(pink().color());
+        let (between, moving) = frame(time, art);
+        assert!(moving, "crosses over to the cover's colour");
+        assert!(between != rest.unwrap() && between != pink());
+        time += 1.0 / 60.0;
+        assert_eq!(settle(&mut time, art), pink());
+        let (leaving, _) = frame(time, PageTint::None);
+        assert!(leaving.strength > 0.85, "heads back for the wash, not out");
+    }
+
+    /// The palette's wash shows from the first frame, and a new palette's
+    /// wash, dark like the last, lands at once under the theme's reveal.
+    #[test]
+    fn a_palettes_wash_is_there_at_once_and_a_new_one_lands() {
+        let wash = |tint: Color32| {
+            let mut palette = theme::Palette::dark();
+            palette.tint = tint;
+            resting_glow(&palette)
+        };
+        let first = wash(Color32::from_rgba_unmultiplied(0x30, 0x60, 0x90, 40));
+        let second = wash(Color32::from_rgba_unmultiplied(0x90, 0x30, 0x60, 60));
+        let ctx = egui::Context::default();
+        let frame = |time: f64, rest: Option<Glow>| {
+            let mut result = (Glow::DARK, false);
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| result = glow(ui.ctx(), PageTint::None, 0.85, rest, false),
+            );
+            output.textures_delta.clear();
+            result
+        };
+        assert_eq!(frame(0.0, first), (first.unwrap(), false), "no rise in");
+        assert_eq!(frame(1.0 / 60.0, second), (second.unwrap(), false));
+    }
+
+    /// A glow from nothing takes its colour at once, rises in it and settles
+    /// within a second.
+    #[test]
+    fn the_glow_rises_in_its_own_colour() {
+        let mut glow = Glow::DARK;
+        glow = glow.toward(pink(), 1.0 / 60.0, false);
+        assert_eq!(glow.rgb, pink().rgb, "no fade through black");
+        assert!(
+            glow.strength > 0.0 && glow.strength < 0.2,
+            "{}",
+            glow.strength
+        );
+        let mut frames = 1;
+        while glow != pink() && frames < 120 {
+            glow = glow.toward(pink(), 1.0 / 60.0, false);
+            frames += 1;
+        }
+        assert!(
+            frames <= 50,
+            "settled in {frames} frames, not easing on unseen"
+        );
+    }
+
+    /// A glow that shows moves towards a new colour in steps; less motion
+    /// lands on it.
+    #[test]
+    fn a_new_colour_crosses_over_rather_than_jumping() {
+        let blue = Glow::of(Color32::from_rgb(40, 90, 230), 0.85);
+        let glow = pink().toward(blue, 1.0 / 60.0, false);
+        assert!(glow.rgb[0] < pink().rgb[0] && glow.rgb[0] > blue.rgb[0]);
+        assert_eq!(pink().toward(blue, 1.0 / 60.0, true), blue, "less motion");
+    }
+
+    /// While a page's colour is being read the glow holds what it shows,
+    /// and a page without a colour lets it fade.
+    #[test]
+    fn a_pending_colour_holds_and_none_fades() {
+        let ctx = egui::Context::default();
+        let frame = |time: f64, tint: PageTint| {
+            let mut result = (Glow::DARK, false);
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| result = glow(ui.ctx(), tint, 0.85, None, false),
+            );
+            output.textures_delta.clear();
+            result
+        };
+        let mut time = 0.0;
+        let pink_tint = PageTint::Color(pink().color());
+        for _ in 0..120 {
+            if !frame(time, pink_tint).1 {
+                break;
+            }
+            time += 1.0 / 60.0;
+        }
+        let (held, moving) = frame(time + 0.5, PageTint::Pending);
+        assert_eq!(held, pink());
+        assert!(!moving);
+        let (fading, moving) = frame(time + 0.52, PageTint::None);
+        assert!(fading.strength < 0.85 && moving);
+        assert_eq!(fading.rgb, pink().rgb);
+    }
+
+    /// A page that starts reading its colour halfway through a crossing
+    /// keeps heading where the glow was going, rather than stopping on the
+    /// colour between.
+    #[test]
+    fn a_pending_colour_keeps_heading_for_the_last_one() {
+        let ctx = egui::Context::default();
+        let frame = |time: f64, tint: PageTint| {
+            let mut result = (Glow::DARK, false);
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| result = glow(ui.ctx(), tint, 0.85, None, false),
+            );
+            output.textures_delta.clear();
+            result
+        };
+        let blue = Glow::of(Color32::from_rgb(40, 90, 230), 0.85);
+        let mut time = 0.0;
+        for _ in 0..120 {
+            if !frame(time, PageTint::Color(pink().color())).1 {
+                break;
+            }
+            time += 1.0 / 60.0;
+        }
+        time += 1.0 / 60.0;
+        let (between, moving) = frame(time, PageTint::Color(blue.color()));
+        assert!(moving && between != blue);
+        let mut glow = between;
+        for _ in 0..120 {
+            time += 1.0 / 60.0;
+            let (now, moving) = frame(time, PageTint::Pending);
+            glow = now;
+            if !moving {
+                break;
+            }
+        }
+        assert_eq!(glow, blue, "it lands where it was going");
+    }
+
+    /// A change of theme lands the glow on the new theme's tint at once,
+    /// under the theme's own reveal, and the sign-in screen forgets it.
+    #[test]
+    fn a_new_theme_lands_the_glow_and_signing_out_forgets_it() {
+        let ctx = egui::Context::default();
+        let frame = |time: f64, dark: bool, tint: PageTint| {
+            ctx.set_theme(if dark {
+                egui::Theme::Dark
+            } else {
+                egui::Theme::Light
+            });
+            let mut result = (Glow::DARK, false);
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| result = glow(ui.ctx(), tint, 0.85, None, false),
+            );
+            output.textures_delta.clear();
+            result
+        };
+        let dark_tint = Color32::from_rgb(120, 40, 90);
+        let light_tint = Color32::from_rgb(240, 160, 200);
+        let mut time = 0.0;
+        for _ in 0..120 {
+            if !frame(time, true, PageTint::Color(dark_tint)).1 {
+                break;
+            }
+            time += 1.0 / 60.0;
+        }
+        let (landed, moving) = frame(time + 1.0 / 60.0, false, PageTint::Color(light_tint));
+        assert_eq!(landed, Glow::of(light_tint, 0.85));
+        assert!(!moving);
+        forget_glow(&ctx);
+        let (first, _) = frame(time + 2.0 / 60.0, false, PageTint::Color(dark_tint));
+        assert_eq!(first.rgb, Glow::of(dark_tint, 0.85).rgb, "no crossing");
+        assert!(first.strength < 0.2, "it rises in from nothing");
     }
 }

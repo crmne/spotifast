@@ -378,7 +378,9 @@ song, wherever the row sits.
 behind the player bar's controls: **Spectrum** draws glowing bars from bass
 to treble with peaks that hang and fall, and **Waveform** draws the sound's
 wave as a glowing line, both in colours drawn from the cover. It follows the equalizer, not the volume, and moves only while the
-song plays on this computer. It is off by default. Clicking the player
+song plays on this computer. The wave grows from its midline when the sound
+starts, not while the song loads, and settles back onto it when the song
+stops. It is off by default. Clicking the player
 bar's empty space switches it, as Winamp's visualizer did: off, then
 Spectrum, then Waveform, then off again. **Frame rate** in **Settings >
 Appearance** sets how often it and the mini player's analyser draw: 30, 60
@@ -393,8 +395,13 @@ visualizer** in **Settings > Appearance** to prevent accidental changes.
 Spotifast follows the system when it asks for less motion: **Animation
 effects** turned off in Windows, **Reduce motion** on macOS, or GNOME's
 **Animations** turned off. Its animations then show where they end at once:
-the player bar's colour changes without fading, lyrics jump to the sung line,
-and a new theme replaces the old one without the reveal. Spinners still turn.
+glows and the player bar's colour change without fading, the wave appears and
+goes without growing or settling, lyrics jump to the sung line, toasts appear
+and leave without fading, and a new theme replaces the old one without the
+reveal. Spinners still turn, thirty times a second. When the system does not
+ask for less motion, toasts and the page header's glow fade at the display's
+own rate, at about 30 frames a second while the system saves energy or the
+window is out of focus, and not at all while nobody can see the window.
 
 In **Settings > Appearance**, **Compact track list** puts each song on one
 line. In narrow lists, the added date follows the artist credits with a spaced

@@ -4692,6 +4692,37 @@ mod tests {
         );
     }
 
+    /// A notice too long for the mini player's marquee moves through it
+    /// with no song loaded, as a song's name does, until the notice leaves.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_long_notice_moves_through_the_mini_players_marquee() {
+        let (ctx, mut app) = accessible_app("winamp-notice");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("winamp"));
+        app.remote = None;
+        app.local.track = None;
+        assert!(app.now_playing().is_none());
+        let delay = |app: &mut App| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+            output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+        };
+        // The first frames settle start-up work that asks for frames of its
+        // own; the steady state is what matters.
+        app.toast("Downloading MilkDrop preset packs, which takes a while");
+        for _ in 0..3 {
+            delay(&mut app);
+        }
+        let moving = delay(&mut app);
+        assert!(
+            moving <= std::time::Duration::from_millis(250),
+            "the marquee moves a character every 220 ms, not when the notice \
+             leaves: asked for {moving:?}"
+        );
+        app.backend.shutdown();
+    }
+
     /// The player bar's visualizer draws only when chosen and while the
     /// song plays on this computer, and asks for frames only then.
     #[cfg(feature = "demo")]
@@ -4758,11 +4789,59 @@ mod tests {
         assert!(!drawn(&output));
         assert!(!wants_frames(&output), "nothing to animate");
 
-        // #when the song is paused
+        // #when the waveform is chosen again, it rises from nothing
         app.settings.player_bar_vis = PlayerBarVis::Waveform;
+        let mut output = draw(&mut app);
+        for _ in 0..60 {
+            output = draw(&mut app);
+        }
+        assert!(waveform(&output), "the waveform is back");
+
+        // #when the song is paused, the output stops and empties the tap,
+        // as the real sink does; the wave settles from the last one drawn,
+        // and then it is still and asks for nothing
         app.local.playback = crate::player::Playback::Paused;
+        app.winamp.tap.clear();
         let output = draw(&mut app);
+        assert!(waveform(&output), "the light dies down rather than vanish");
+        // A wave has height; the midline is flat.
+        let wavy = output.shapes.iter().any(|shape| match &shape.shape {
+            egui::Shape::Path(path) => {
+                let (low, high) = path
+                    .points
+                    .iter()
+                    .fold((f32::MAX, f32::MIN), |(low, high), point| {
+                        (low.min(point.y), high.max(point.y))
+                    });
+                high - low > 2.0
+            }
+            _ => false,
+        });
+        assert!(wavy, "the last wave settles, not a flat line");
+        let mut output = output;
+        for _ in 0..120 {
+            if !waveform(&output) {
+                break;
+            }
+            output = draw(&mut app);
+        }
         assert!(!waveform(&output), "a paused song is still");
+        assert!(!wants_frames(&output), "nothing left to animate");
+
+        // #when it is turned off at full light and chosen again once the
+        // song is paused, nothing flashes up and dies down
+        app.local.playback = crate::player::Playback::Playing;
+        app.winamp.tap.push(&demo_sound(), 1.0);
+        for _ in 0..60 {
+            draw(&mut app);
+        }
+        assert!(waveform(&draw(&mut app)), "risen again");
+        app.settings.player_bar_vis = PlayerBarVis::Off;
+        draw(&mut app);
+        app.local.playback = crate::player::Playback::Paused;
+        app.settings.player_bar_vis = PlayerBarVis::Waveform;
+        let output = draw(&mut app);
+        assert!(!waveform(&output), "no flash of the last light");
         app.backend.shutdown();
     }
 
