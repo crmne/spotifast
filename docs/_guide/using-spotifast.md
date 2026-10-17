@@ -581,7 +581,9 @@ genuine.
 Since 0.10.0, **Go to song radio** in a song's menu opens a page
 of songs Spotify picks to go with it, without starting playback. Playlist,
 album, and artist menus have **Go to playlist radio**, **Go to album radio**,
-and **Go to artist radio**.
+and **Go to artist radio**. A song's menu also offers **Go to playing context**
+to open the playlist, album, artist, podcast or Liked Songs page the currently
+playing track comes from.
 
 Spotify mixes a radio afresh each time it is asked, so the page keeps the
 songs it shows: **Play**, **Shuffle**, and a double-clicked row play those

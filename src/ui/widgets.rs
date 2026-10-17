@@ -1133,6 +1133,30 @@ fn item_menu_at(
                 app.actions
                     .push(Action::Open(Page::Album(album.id.clone())));
             }
+
+            // Only show this for the currently playing track, since "Go to playing context"
+            // means navigating to where the song is playing from. Use the actual playing
+            // context first, and fall back to the row's context when the player has none
+            // (for example, on a sorted or filtered view).
+            if app.current_track_uri().is_some_and(|uri| uri == item.uri()) {
+                let playing_context = app.playing_context_uri();
+                let row_context = match context {
+                    Some(RowContext::Context { uri, .. }) => Some(uri.as_str()),
+                    _ => None,
+                };
+
+                if let Some(uri) = playing_context.as_deref().or(row_context)
+                    && let Some(page) = Page::from_uri(uri)
+                    && menu_item(
+                        ui,
+                        &palette,
+                        Some(Icon::ListMusic),
+                        &gettext(locale, "Go to playing context"),
+                    )
+                {
+                    app.actions.push(Action::Open(page));
+                }
+            }
         }
         PlayableItem::Episode(episode) => {
             if let Some(show) = &episode.show
