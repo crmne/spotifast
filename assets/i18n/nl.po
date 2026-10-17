@@ -1301,6 +1301,10 @@ msgid "Gapless playback"
 msgstr "Naadloos afspelen"
 
 #: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "Crossfade"
+
+#: src/ui/settings.rs:519
 msgid "Keep music playing when the window closes"
 msgstr "Muziek blijven afspelen als het venster sluit"
 
@@ -1419,6 +1423,14 @@ msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "Toon interactieve widget voor Wordt afgespeeld bij het aanwijzen van de "
 "notch."
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr ""
+"Laat het einde van een nummer overvloeien in het begin van het volgende. "
+"Als crossfade is uitgeschakeld, blijft de overgang ongewijzigd."
 
 #: src/ui/settings.rs:620
 msgid "Reconnect"
@@ -1569,6 +1581,12 @@ msgstr ""
 #: src/ui/settings.rs:1105
 msgid "Off"
 msgstr "Uit"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} s"
 
 #: src/ui/settings.rs:1106
 msgid "Spectrum"

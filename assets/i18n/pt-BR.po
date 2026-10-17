@@ -1298,6 +1298,10 @@ msgid "Gapless playback"
 msgstr "Reprodução sem intervalos"
 
 #: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "Transição gradual"
+
+#: src/ui/settings.rs:519
 msgid "Keep music playing when the window closes"
 msgstr "Continuar tocando ao fechar a janela"
 
@@ -1414,6 +1418,14 @@ msgstr "Widget do notch do MacBook"
 msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "Mostrar widget interativo Tocando agora ao passar o cursor sobre o notch."
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr ""
+"Faz o fim de uma música entrar no início da próxima. Desligado, a troca "
+"permanece como está."
 
 #: src/ui/settings.rs:620
 msgid "Reconnect"
@@ -1565,6 +1577,12 @@ msgstr ""
 #: src/ui/settings.rs:1105
 msgid "Off"
 msgstr "Desativado"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} s"
 
 #: src/ui/settings.rs:1106
 msgid "Spectrum"

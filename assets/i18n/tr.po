@@ -1299,6 +1299,10 @@ msgid "Gapless playback"
 msgstr "Kesintisiz çalma"
 
 #: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "Geçiş"
+
+#: src/ui/settings.rs:519
 msgid "Keep music playing when the window closes"
 msgstr "Pencere kapandığında müzik çalmaya devam etsin"
 
@@ -1415,6 +1419,14 @@ msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "İmleç çentiğin üzerine getirildiğinde etkileşimli Şu An Çalan araç takımını "
 "göster."
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr ""
+"Bir şarkının sonunu sonrakinin başlangıcına bindirir. Kapalıyken geçiş "
+"olduğu gibi kalır."
 
 #: src/ui/settings.rs:620
 msgid "Reconnect"
@@ -1568,6 +1580,12 @@ msgstr ""
 #: src/ui/settings.rs:1105
 msgid "Off"
 msgstr "Kapalı"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} sn"
 
 #: src/ui/settings.rs:1106
 msgid "Spectrum"
