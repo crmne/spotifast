@@ -10776,7 +10776,7 @@ impl App {
         let mut request = request;
         self.queue_shuffle_pending = None;
         // Whatever plays now replaces a discography play still waiting.
-        self.pending_discography_play = None;
+        self.abandon_discography_play();
         let target = match self.start_on.take() {
             Some(device) => Target::Remote(Some(device)),
             None => self.target(),
