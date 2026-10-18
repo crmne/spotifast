@@ -1540,6 +1540,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                             ReleaseTracks::Loading {
                                 songs: Vec::new(),
                                 next: 0,
+                                asked: Instant::now(),
                             },
                         );
                     }
