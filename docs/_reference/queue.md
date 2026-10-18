@@ -70,12 +70,17 @@ start. A play chosen while a sleeping speaker wakes is meant for that
 speaker: it keeps waiting when the speaker appears and starts there. Until
 the chosen release's own songs arrive there is no song to show yet, so the
 player bar keeps the song from before, and Play or Pause there cancels the
-wait and acts on that song. If the songs stop arriving for ten
-seconds once the chosen release is in, or after thirty seconds in all, or the
-song lists stop (a rate limit, an exhausted quota, an expired sign-in, a
+wait and acts on that song. What was playing goes on during the wait. If it
+comes within two seconds of its end, if the songs stop arriving for ten
+seconds once the chosen release is in, or after thirty seconds in all, or if
+the song lists stop (a rate limit, an exhausted quota, an expired sign-in, a
 network failure or a Spotify server error), the play starts with the songs
 that came, up to the first release that did not, and says the queue ends
-early. Offline the page's songs and release
+early. Starting before the old song ends keeps it from moving on to its next
+song, perhaps one of yours under **Playing next**, which the play would then
+cut off, so the play starts then even if the chosen release's own songs have
+not come. A song on Repeat one starts over instead, and the wait goes on.
+Offline the page's songs and release
 buttons cannot be used, as in other lists of songs. If the chosen release's own songs
 never arrive, that release plays on its own, as Spotify knows it. A play holds
 at most 500 songs, counted from the chosen release's first song; a song chosen

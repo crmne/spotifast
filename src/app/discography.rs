@@ -23,6 +23,10 @@ const TRACKS_IN_FLIGHT_FOR_PLAY: usize = 4;
 const PLAY_STALL: Duration = Duration::from_secs(10);
 /// The longest a play waits, however its song lists are coming along.
 const PLAY_WAIT: Duration = Duration::from_secs(30);
+/// How close to its end the song still playing during a wait may come
+/// before the play starts anyway: a pass of the app's loop, and a remote
+/// device running ahead of its last report while the start reaches it.
+const PLAY_BEFORE_END: Duration = Duration::from_secs(2);
 
 impl App {
     /// The heading of an artist's discography page.
@@ -600,8 +604,9 @@ impl App {
     }
 
     /// Starts `play` once every song list it needs has arrived or failed.
-    /// A wait that stalls, once the clicked release is in, or that runs too
-    /// long, starts with the songs that have arrived.
+    /// A wait that stalls, once the clicked release is in, that runs too
+    /// long, or that would outlast the song still playing, starts with the
+    /// songs that have arrived.
     fn start_discography_play(&mut self, mut play: PendingDiscographyPlay) {
         let Some(page) = self
             .discography_pages
@@ -616,9 +621,12 @@ impl App {
             .tracks
             .get(&play.releases[0])
             .is_some_and(ReleaseTracks::resolved);
+        // The song from before the click plays on meanwhile; once it ends,
+        // its play moves on to a song the start would cut off.
         let give_up = page.halted.is_some()
             || play.clicked.elapsed() >= PLAY_WAIT
-            || (start_resolved && play.progress.elapsed() >= PLAY_STALL);
+            || (start_resolved && play.progress.elapsed() >= PLAY_STALL)
+            || self.playing_song_ending();
         if waiting && !give_up {
             // The click shows at once and stays shown: the play holds the
             // song it will start and the spinners itself.
@@ -694,14 +702,34 @@ impl App {
         self.start_play(request, false);
     }
 
-    /// A play that stopped seeing its songs arrive, or waited too long,
-    /// starts with the songs it has.
+    /// A play that stopped seeing its songs arrive, waited too long, or
+    /// would outlast the song still playing, starts with the songs it has.
     pub(super) fn settle_overdue_discography_play(&mut self) {
-        if self.pending_discography_play.as_ref().is_some_and(|play| {
-            play.progress.elapsed() >= PLAY_STALL || play.clicked.elapsed() >= PLAY_WAIT
-        }) {
+        let Some(play) = &self.pending_discography_play else {
+            return;
+        };
+        let overdue = play.progress.elapsed() >= PLAY_STALL || play.clicked.elapsed() >= PLAY_WAIT;
+        if overdue || self.playing_song_ending() {
             self.resolve_discography_play();
         }
+    }
+
+    /// Whether the song still playing while a play waits is about to end.
+    /// The wait must not outlast it: the old play would move on to its next
+    /// song, perhaps one the user queued, and the start would cut that off.
+    /// Not now_playing(): its preview is the waiting play's song. A song on
+    /// Repeat one starts over instead, moving nothing on. This goes by the
+    /// clock: the old play can still move on first when skipped from
+    /// another device, or on a device further ahead of its last report than
+    /// the margin allows.
+    fn playing_song_ending(&self) -> bool {
+        self.now_playing_live().is_some_and(|now| {
+            now.playing
+                && now.repeat != RepeatMode::Track
+                && now.duration_ms > 0
+                && Duration::from_millis(now.duration_ms.saturating_sub(now.position_ms).into())
+                    <= PLAY_BEFORE_END
+        })
     }
 
     /// Looks again at a waiting play: start it if its songs are all in or
@@ -2162,6 +2190,68 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// What played before the click goes on during the wait. If it ended
+    /// first, the old play would start the song the user queued next, and
+    /// the start would then cut that song off.
+    #[test]
+    fn a_wait_never_outlasts_the_song_still_playing() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-song-end");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:old".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.local.position_ms = 150_000;
+        app.local.position_at = Some(Instant::now());
+        app.manual_queue = vec!["spotify:track:x".into()];
+        waiting_play(&mut app, &ctx);
+        app.settle_overdue_discography_play();
+        assert!(
+            app.pending_discography_play.is_some() && app.queued_play.is_none(),
+            "fifty seconds are left"
+        );
+        app.local.playback = Playback::Paused;
+        app.local.position_ms = 199_000;
+        app.settle_overdue_discography_play();
+        assert!(
+            app.pending_discography_play.is_some(),
+            "a paused song does not end"
+        );
+        app.local.playback = Playback::Playing;
+        app.local.position_at = Some(Instant::now());
+        app.local.repeat = RepeatMode::Track;
+        app.settle_overdue_discography_play();
+        assert!(
+            app.pending_discography_play.is_some(),
+            "a song on Repeat one starts over, and the queue stays where it is"
+        );
+        app.local.repeat = RepeatMode::Off;
+        app.settle_overdue_discography_play();
+        assert!(app.pending_discography_play.is_none());
+        assert_eq!(played(&app), (uris(&["c1", "c2", "b1"]), Some(0)));
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("ends early"))
+        );
+        // The play's own song starts, not the queued one.
+        let mut started = app.local.clone();
+        started.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:c1".into(),
+            ..Default::default()
+        });
+        started.track_sequence += 1;
+        app.handle_local(started);
+        assert_eq!(
+            app.manual_queue,
+            vec!["spotify:track:x".to_string()],
+            "the song queued next is still next"
+        );
+        app.backend.shutdown();
+    }
+
     /// Until the clicked release's songs arrive the play has no song to show,
     /// so the player bar still shows the paused song with its Play button:
     /// Play cancels the wait and resumes that song, as the button promises.
@@ -2316,6 +2406,114 @@ mod tests {
             generation,
             result: Err(crate::api::ApiError::RateLimited),
         });
+        assert_eq!(played(&app), (uris(&["c1", "c2", "b1"]), Some(0)));
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("ends early"))
+        );
+        app.backend.shutdown();
+    }
+
+    /// A song playing on another device ends where its last report, carried
+    /// on by the clock, puts it: the wait starts the play there before then.
+    #[test]
+    fn a_wait_starts_on_a_remote_device_before_its_song_ends() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-remote-song-end");
+        let report = |progress_ms, is_playing| RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(Device {
+                    id: Some("phone".into()),
+                    name: "Phone".into(),
+                    ..Default::default()
+                }),
+                is_playing,
+                progress_ms: Some(progress_ms),
+                item: Some(PlayableItem::Track(song("old"))),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        };
+        app.remote = Some(report(150_000, true));
+        waiting_play(&mut app, &ctx);
+        app.settle_overdue_discography_play();
+        assert!(
+            app.pending_discography_play.is_some(),
+            "fifty seconds are left"
+        );
+        app.remote = Some(report(199_000, false));
+        app.settle_overdue_discography_play();
+        assert!(
+            app.pending_discography_play.is_some(),
+            "a paused song does not end"
+        );
+        assert!(app.backend.take_remote_play_requests().is_empty());
+        app.remote = Some(report(199_000, true));
+        app.settle_overdue_discography_play();
+        assert!(app.pending_discography_play.is_none());
+        let requests = app.backend.take_remote_play_requests();
+        assert!(
+            matches!(
+                requests.as_slice(),
+                [ApiRequest::Remote { device_id: Some(device), play: Some(play), .. }]
+                    if device == "phone"
+                        && play.uris == uris(&["c1", "c2", "b1"])
+                        && play.offset_position == Some(0)
+            ),
+            "{requests:?}"
+        );
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("ends early"))
+        );
+        app.backend.shutdown();
+    }
+
+    /// A click in the last seconds of the song playing starts at once with
+    /// the songs that have come, as a wait would outlast that song.
+    #[test]
+    fn a_click_as_the_playing_song_ends_starts_at_once() {
+        let ctx = egui::Context::default();
+        let mut app = app("click-song-end");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:old".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.local.position_ms = 199_000;
+        app.local.position_at = Some(Instant::now());
+        open(&mut app, &ctx, three_releases());
+        songs_arrive(&mut app, "c", vec![song("c1"), song("c2")]);
+        // A release whose own songs have not come plays on its own.
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "b".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_none());
+        let request = app.queued_play.as_ref().expect("a play request");
+        assert_eq!(request.context_uri.as_deref(), Some("spotify:album:b"));
+        assert!(request.uris.is_empty());
+        app.toasts.clear();
+        songs_arrive(&mut app, "b", vec![song("b1")]);
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Discography {
+                    artist_id: ARTIST.into(),
+                    album_id: "c".into(),
+                },
+                uri: "spotify:track:c1".into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_none());
         assert_eq!(played(&app), (uris(&["c1", "c2", "b1"]), Some(0)));
         assert!(
             app.toasts
