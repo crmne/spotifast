@@ -55,8 +55,12 @@ An artist's discography page, opened with **Show all**, plays the page
 itself. A double-clicked song, or a release's play button, plays the releases
 from that one to the end of the page in the order shown, newest or oldest
 first, with each release's songs in album order and unavailable songs and
-local files left out. **Next up** is that list. A song on two releases starts
-from the copy that was chosen. The list begins with the chosen release's
+local files left out. **Next up** is that list. While one of a release's songs
+is the current song, its play button pauses and resumes that song where it
+is, as the player bar does, instead of starting the release over. The page's
+list is not kept when Spotifast closes, so after a restart that song resumes
+without the rest of the page. A song on
+two releases starts from the copy that was chosen. The list begins with the chosen release's
 first song, so **Previous** steps back within it, and Shuffle and Repeat keep
 to the releases from the chosen one on. When the songs after the chosen one
 have not all loaded, the play waits for them and shows the chosen song as
@@ -71,8 +75,9 @@ buttons cannot be used, as in other lists of songs. If the chosen release's own 
 never arrive, that release plays on its own, as Spotify knows it. A play holds
 at most 500 songs, counted from the chosen release's first song; a song chosen
 further down than that starts the 500 from itself. Like other lists of songs,
-it shows no **Playing from** line. The tests in `src/app/discography.rs` check
-these rules.
+it shows no **Playing from** line. The tests in `src/app/discography.rs`, and
+the discography tests in `src/demo.rs` for the page's buttons, check these
+rules.
 
 Since 0.9.0, starting another song on this computer keeps the
 selected Repeat mode, with Shuffle on or off. Loading a playlist no longer

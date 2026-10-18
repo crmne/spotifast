@@ -479,10 +479,14 @@ fn release_buttons(
     let tracks = page.tracks.get(&album.id);
     let songs = tracks.and_then(ReleaseTracks::songs);
     let current = app.current_track_uri();
-    let playing_here = current
+    // The release holding the current song pauses and resumes it where it
+    // is, as the song's number does; only another release plays the page
+    // from its first song. The page plays a plain list, with no context
+    // to match, so the song is what says which release is current.
+    let current_here = current
         .as_ref()
-        .is_some_and(|uri| songs.is_some_and(|songs| songs.iter().any(|song| song.uri == *uri)))
-        && app.believed_playing();
+        .is_some_and(|uri| songs.is_some_and(|songs| songs.iter().any(|song| song.uri == *uri)));
+    let playing_here = current_here && app.believed_playing();
     let first_song = songs.and_then(|songs| songs.iter().find(|song| playable(song)));
     // A release whose songs arrived, or failed, with none to play.
     let playable_release = !tracks.is_some_and(ReleaseTracks::resolved) || first_song.is_some();
@@ -519,7 +523,7 @@ fn release_buttons(
         .inner
     };
     if clicked {
-        if playing_here {
+        if current_here {
             app.actions.push(Action::TogglePlay);
         } else {
             app.actions.push(Action::PlayDiscography {
