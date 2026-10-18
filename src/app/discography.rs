@@ -659,18 +659,9 @@ impl App {
             return;
         };
         let waiting = !waiting_for(page, &play).is_empty();
-        let start_tracks = page.tracks.get(&play.releases[0]);
-        let start_resolved = start_tracks.is_some_and(ReleaseTracks::resolved);
-        // A clicked release whose songs failed plays on its own whatever
-        // comes after it, so waiting for the rest gains nothing.
-        let start_failed = matches!(start_tracks, Some(ReleaseTracks::Failed(_)));
         // The song from before the click plays on meanwhile; once it ends,
         // its play moves on to a song the start would cut off.
-        let give_up = page.halted.is_some()
-            || start_failed
-            || play.clicked.elapsed() >= PLAY_WAIT
-            || (start_resolved && play.progress.elapsed() >= PLAY_STALL)
-            || self.playing_song_ending();
+        let give_up = wait_over(page, &play) || self.playing_song_ending();
         if waiting && !give_up {
             // The click shows at once and stays shown: the play holds the
             // song it will start and the spinners itself.
@@ -778,12 +769,20 @@ impl App {
 
     /// A play that stopped seeing its songs arrive, waited too long, or
     /// would outlast the song still playing, starts with the songs it has.
+    /// This runs every pass, so it reads only the clock, the page and the
+    /// player, and looks at the wait again only once the wait can end.
     pub(super) fn settle_overdue_discography_play(&mut self) {
         let Some(play) = &self.pending_discography_play else {
             return;
         };
-        let overdue = play.progress.elapsed() >= PLAY_STALL || play.clicked.elapsed() >= PLAY_WAIT;
-        if overdue || self.playing_song_ending() {
+        // The start also clears a play whose page went away or was
+        // reloaded.
+        let over = self
+            .discography_pages
+            .get(&play.artist_id)
+            .filter(|page| page.generation == play.generation)
+            .is_none_or(|page| wait_over(page, play));
+        if over || self.playing_song_ending() {
             self.resolve_discography_play();
         }
     }
@@ -1007,6 +1006,24 @@ fn waiting_for(page: &DiscographyPage, play: &PendingDiscographyPlay) -> Vec<Str
         };
     }
     waiting
+}
+
+/// Whether a waiting play starts now with the songs it has, whatever is
+/// still on its way: its page stopped asking, the clicked release's songs
+/// failed, it has waited as long as a play may, or the clicked release is
+/// in and no song list has come for a while. The start and the overdue
+/// check of every pass both ask this, so the check never runs a wait that
+/// cannot end yet.
+fn wait_over(page: &DiscographyPage, play: &PendingDiscographyPlay) -> bool {
+    let start_tracks = page.tracks.get(&play.releases[0]);
+    // A clicked release whose songs failed plays on its own whatever comes
+    // after it, so waiting for the rest gains nothing.
+    let start_failed = matches!(start_tracks, Some(ReleaseTracks::Failed(_)));
+    let start_resolved = start_tracks.is_some_and(ReleaseTracks::resolved);
+    page.halted.is_some()
+        || start_failed
+        || play.clicked.elapsed() >= PLAY_WAIT
+        || (start_resolved && play.progress.elapsed() >= PLAY_STALL)
 }
 
 /// Whether a play of the clicked release on its own leaves out songs the
@@ -3812,6 +3829,59 @@ mod tests {
                 .iter()
                 .any(|toast| toast.message.contains("ends early")),
             "the last release leaves nothing out"
+        );
+        app.backend.shutdown();
+    }
+
+    /// The overdue check of every pass runs a wait again only once it can
+    /// end: a stall does not end it while the clicked release's own songs
+    /// are on their way.
+    #[test]
+    fn a_stall_leaves_a_wait_for_the_clicked_release_itself_alone() {
+        let ctx = egui::Context::default();
+        let mut app = app("overdue-check");
+        open(&mut app, &ctx, three_releases());
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        asked_songs(&app);
+        let play = app.pending_discography_play.as_mut().unwrap();
+        assert_eq!(play.keys, ["spotify:album:c"]);
+        play.progress -= PLAY_STALL;
+        // The wait writes the spinning keys on every pass it runs: cleared,
+        // they show whether the check ran it again.
+        play.keys.clear();
+        assert!(
+            !wait_over(
+                &app.discography_pages[ARTIST],
+                app.pending_discography_play.as_ref().unwrap()
+            ),
+            "c's own songs are still on their way"
+        );
+        app.settle_overdue_discography_play();
+        let play = app
+            .pending_discography_play
+            .as_ref()
+            .expect("the play still waits");
+        assert!(play.keys.is_empty(), "the check left the wait alone");
+        assert!(asked_songs(&app).is_empty());
+        assert!(app.queued_play.is_none());
+        app.pending_discography_play.as_mut().unwrap().clicked -= PLAY_WAIT;
+        app.settle_overdue_discography_play();
+        assert!(
+            app.pending_discography_play.is_none(),
+            "the longest wait is over"
+        );
+        assert_eq!(
+            app.queued_play
+                .as_ref()
+                .and_then(|request| request.context_uri.as_deref()),
+            Some("spotify:album:c")
         );
         app.backend.shutdown();
     }
