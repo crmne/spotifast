@@ -1080,10 +1080,11 @@ impl DiscographyPage {
 }
 
 /// A release date as (year, month, day), with 0 for a part Spotify leaves
-/// out: dates come as `2024-03-15`, `2024-03` or `2024`.
+/// out: dates come as `2024-03-15`, `2024-03` or `2024`. A year of `0000`
+/// is no date, so such a release sorts with the undated ones.
 pub fn release_date_key(date: &str) -> Option<(u16, u8, u8)> {
     let mut parts = date.trim().split('-');
-    let year = parts.next()?.parse().ok()?;
+    let year = parts.next()?.parse::<u16>().ok().filter(|&year| year > 0)?;
     let month = match parts.next() {
         Some(month) => month.parse().ok()?,
         None => 0,
@@ -1862,6 +1863,8 @@ mod discography_tests {
         assert_eq!(release_date_key(""), None);
         assert_eq!(release_date_key("soon"), None);
         assert_eq!(release_date_key("2024-xx"), None);
+        assert_eq!(release_date_key("0000"), None);
+        assert_eq!(release_date_key("0000-00-00"), None);
     }
 
     #[test]
@@ -1897,12 +1900,13 @@ mod discography_tests {
     fn releases_without_a_date_come_last_in_both_orders() {
         let mut page = page_with(vec![
             release("undated", None),
+            release("zero-year", Some("0000")),
             release("dated", Some("2010")),
             release("garbled", Some("unknown")),
         ]);
-        assert_eq!(ids(&page), ["dated", "undated", "garbled"]);
+        assert_eq!(ids(&page), ["dated", "undated", "zero-year", "garbled"]);
         page.newest_first = false;
-        assert_eq!(ids(&page), ["dated", "undated", "garbled"]);
+        assert_eq!(ids(&page), ["dated", "undated", "zero-year", "garbled"]);
     }
 
     #[test]
