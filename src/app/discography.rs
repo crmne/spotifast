@@ -613,7 +613,7 @@ impl App {
             .get(&play.artist_id)
             .filter(|page| page.generation == play.generation)
         else {
-            self.pending_discography_play = None;
+            self.abandon_discography_play();
             return;
         };
         let waiting = !waiting_for(page, &play).is_empty();
@@ -637,10 +637,20 @@ impl App {
             play.shown = shown.as_ref().map(|song| song.uri.clone());
             play.keys = play.shown.iter().cloned().chain(album_uri).collect();
             let artist_id = play.artist_id.clone();
+            // Only a change of song asks for lyrics: a later pass of the
+            // same wait leaves a failed answer to Try again.
+            let moved = self
+                .pending_discography_play
+                .as_ref()
+                .and_then(|old| old.shown.as_deref())
+                != play.shown.as_deref();
             if let Some(song) = shown {
                 self.cache_song(song);
             }
             self.pending_discography_play = Some(play);
+            if moved {
+                self.follow_shown_lyrics();
+            }
             self.pump_discography(&artist_id);
             return;
         }
@@ -648,13 +658,24 @@ impl App {
         let album_uri = page
             .release(&play.releases[0])
             .map(|album| album.uri.clone());
-        self.pending_discography_play = None;
+        // A newer click that does not wait replaces an older play still
+        // waiting, and the lyrics of the song that one showed go with it.
+        if self
+            .pending_discography_play
+            .take()
+            .is_some_and(|old| old.shown.is_some() && old.shown != play.shown)
+        {
+            self.follow_shown_lyrics();
+        }
         let Some((songs, index)) = list else {
             // The release's songs never came: play it as Spotify knows it.
             if let Some(uri) = album_uri.filter(|_| play.start.is_none()) {
                 self.played_row = None;
                 self.start_on = play.device.clone();
                 self.start_play(PlayRequest::context(uri), false);
+            } else if play.shown.is_some() {
+                // Nothing starts: the bar goes back to the song playing.
+                self.follow_shown_lyrics();
             }
             return;
         };
@@ -740,9 +761,24 @@ impl App {
         }
     }
 
-    /// Forgets a waiting play and what it showed.
+    /// Forgets a waiting play and what it showed: the bar, and the lyrics
+    /// on show, go back to the song still playing.
     pub(super) fn abandon_discography_play(&mut self) {
-        self.pending_discography_play = None;
+        if self
+            .pending_discography_play
+            .take()
+            .is_some_and(|play| play.shown.is_some())
+        {
+            self.follow_shown_lyrics();
+        }
+    }
+
+    /// Lyrics on show follow the player bar's song when a waiting play
+    /// changes it, as they follow a song that starts.
+    fn follow_shown_lyrics(&mut self) {
+        if self.show_lyrics_panel || self.lyrics_fullscreen.is_some() {
+            self.request_lyrics();
+        }
     }
 
     /// The player bar's song while a play waits for its songs: the clicked
@@ -2187,6 +2223,149 @@ mod tests {
         assert_eq!(app.resume_track.as_deref(), Some("spotify:track:x"));
         assert_eq!(app.resume_context.as_deref(), Some("spotify:playlist:p"));
         assert_eq!(app.resume_position_ms, 83_000);
+        app.backend.shutdown();
+    }
+
+    /// Lyrics opened while a play waits are the waiting song's, as the bar
+    /// shows it. Pause cancels the wait, and the bar and the lyrics go back
+    /// to the song still playing.
+    #[test]
+    fn lyrics_opened_during_a_wait_go_back_to_the_playing_song_when_it_is_cancelled() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-lyrics-cancel");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        waiting_play(&mut app, &ctx);
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert_eq!(app.lyrics_uri.as_deref(), Some("spotify:track:c1"));
+        app.apply(Action::TogglePlay, &ctx);
+        assert!(app.pending_discography_play.is_none());
+        assert_eq!(
+            app.lyrics_uri.as_deref(),
+            Some("spotify:track:x"),
+            "a cancelled wait puts back the playing song's lyrics"
+        );
+        app.backend.shutdown();
+    }
+
+    /// With the lyrics already on show, a click that waits brings its
+    /// song's lyrics along with the bar, and a newer click its own.
+    #[test]
+    fn the_lyrics_on_show_follow_the_song_a_play_waits_to_start() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-lyrics-follow");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert_eq!(app.lyrics_uri.as_deref(), Some("spotify:track:x"));
+        waiting_play(&mut app, &ctx);
+        assert_eq!(
+            app.lyrics_uri.as_deref(),
+            Some("spotify:track:c1"),
+            "the panel shows the waiting song's lyrics, as the bar shows its song"
+        );
+        // A later pass of the same wait leaves a failed answer to Try
+        // again rather than asking again on every pass.
+        app.lyrics = Loadable::Failed("unreachable".into());
+        app.resolve_discography_play();
+        assert!(
+            app.pending_discography_play.is_some(),
+            "the play still waits"
+        );
+        assert!(matches!(app.lyrics, Loadable::Failed(_)));
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Discography {
+                    artist_id: ARTIST.into(),
+                    album_id: "c".into(),
+                },
+                uri: "spotify:track:c2".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_some(), "it waits for a too");
+        assert_eq!(app.lyrics_uri.as_deref(), Some("spotify:track:c2"));
+        app.backend.shutdown();
+    }
+
+    /// Another play replaces a wait, and the lyrics it showed go with it,
+    /// even when that play starts the song already playing, so that no new
+    /// song comes to ask for lyrics again.
+    #[test]
+    fn another_play_replacing_a_wait_puts_back_the_playing_song_lyrics() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-lyrics-replaced");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        waiting_play(&mut app, &ctx);
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert_eq!(app.lyrics_uri.as_deref(), Some("spotify:track:c1"));
+        app.apply(
+            Action::PlayUris {
+                uris: vec!["spotify:track:x".into()],
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_none());
+        assert_eq!(app.lyrics_uri.as_deref(), Some("spotify:track:x"));
+        app.backend.shutdown();
+    }
+
+    /// A newer click that does not wait replaces an older wait, and the
+    /// lyrics that one showed go back to the song still playing, as for any
+    /// play, until the new song starts.
+    #[test]
+    fn a_newer_click_that_does_not_wait_puts_back_the_playing_song_lyrics() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-lyrics-newer");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        open(&mut app, &ctx, three_releases());
+        songs_arrive(&mut app, "c", vec![song("c1"), song("c2")]);
+        songs_arrive(&mut app, "a", vec![song("a1"), song("a2")]);
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Discography {
+                    artist_id: ARTIST.into(),
+                    album_id: "c".into(),
+                },
+                uri: "spotify:track:c1".into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_some(), "it waits for b");
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert_eq!(app.lyrics_uri.as_deref(), Some("spotify:track:c1"));
+        // The last release has all it needs, so this play starts at once.
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Discography {
+                    artist_id: ARTIST.into(),
+                    album_id: "a".into(),
+                },
+                uri: "spotify:track:a1".into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_none());
+        assert!(app.queued_play.is_some(), "a starts");
+        assert_eq!(app.lyrics_uri.as_deref(), Some("spotify:track:x"));
         app.backend.shutdown();
     }
 
