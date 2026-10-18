@@ -4,31 +4,53 @@
 //! A page keeps lists of its own rather than the artist page's, which loads
 //! releases a page at a time and must not grow behind the user's back. The
 //! release list loads whole, because only the whole list can be ordered by
-//! date. Song lists then load a release or two at a time while the page is
-//! open: the releases on screen first, then those after them as far as a
-//! play from the screen could reach. A song played here plays the page from
-//! that song to its end; when some of the songs after it have not arrived,
-//! the play waits for them, showing the song as starting meanwhile.
+//! date. Song lists then load while the page is open, the releases on
+//! screen first, then those after them as far as a play from the screen
+//! could reach: in batches over the playback session, or a release or two
+//! at a time from the Web API without it. A song played here plays the
+//! page from that song to its end; when some of the songs after it have not
+//! arrived, the play waits for them, showing the song as starting
+//! meanwhile.
 
 use super::*;
 
-/// Song lists in flight at once while the user reads the page: enough to
-/// keep ahead of scrolling, few enough to leave playback control room on a
-/// rate-limited app.
+/// Song lists read from the Web API at once while the user reads the page:
+/// enough to keep ahead of scrolling, few enough to leave playback control
+/// room on a rate-limited app.
 const TRACKS_IN_FLIGHT: usize = 2;
-/// Song lists in flight while a play waits for them.
+/// Song lists read from the Web API at once while a play waits for them.
 const TRACKS_IN_FLIGHT_FOR_PLAY: usize = 4;
+/// Session batches read at once while the user reads the page.
+const BATCHES_IN_FLIGHT: usize = 1;
+/// Session batches read at once while a play waits: its own beside the one
+/// already on its way.
+const BATCHES_IN_FLIGHT_FOR_PLAY: usize = 2;
+/// Releases in one session batch: as many as the New releases page asks
+/// the session for together.
+const RELEASES_PER_BATCH: usize = 50;
+/// Songs in one session batch, by the releases' own counts: half of a play,
+/// so the two batches a waiting play may have in flight hold all it can
+/// play. A longer release goes alone.
+const SONGS_PER_BATCH: usize = MAX_PLAYED_URIS / BATCHES_IN_FLIGHT_FOR_PLAY;
+/// How long the pages read songs from the Web API after the session could
+/// not read a batch, unless local playback is ready again sooner.
+const SESSION_SONGS_AGAIN_AFTER: Duration = Duration::from_secs(120);
 /// A waiting play that has seen no song list arrive for this long starts
 /// with the songs it has.
 const PLAY_STALL: Duration = Duration::from_secs(10);
+// Every batch answer restarts a waiting play's stall clock, so a batch the
+// session gives up on hands its releases to the Web API with a fresh wait.
+const _: () = assert!(crate::backend::DISCOGRAPHY_SESSION_TIMEOUT.as_secs() < PLAY_STALL.as_secs());
 /// The longest a play waits, however its song lists are coming along.
 const PLAY_WAIT: Duration = Duration::from_secs(30);
 /// A song list unanswered this long is taken as lost and asked for again.
-/// The backend lets go of some answers, such as one sent under a sign-in
-/// that was replaced on its way, and a lost one must not hold its request
-/// slot and its spinner for good. Well past a play's wait and the three
-/// rate-limit waits of up to 30 seconds a request can sit through, so a
-/// slow answer is seldom asked for twice; one that still comes is used once.
+/// The backend lets go of some Web API answers, such as one sent under a
+/// sign-in that was replaced on its way, and a lost one must not hold its
+/// request slot and its spinner for good. Well past a play's wait, the three
+/// rate-limit waits of up to 30 seconds a Web API request can sit through,
+/// and a session batch's eight seconds, so a slow answer is seldom asked for
+/// twice. A late Web API answer is still used once; a late batch is not,
+/// since its releases were asked for again.
 const TRACKS_LOST_AFTER: Duration = Duration::from_secs(120);
 /// How close to its end the song still playing during a wait may come
 /// before the play starts anyway: a pass of the app's loop, and a remote
@@ -328,12 +350,24 @@ impl App {
         matches!(self.page(), Page::Discography(id) if id == artist_id)
     }
 
+    /// Whether the pages ask the playback session for their songs: local
+    /// playback is ready, and the session has not just failed a batch.
+    fn songs_over_session(&self) -> bool {
+        self.local_ready
+            && self
+                .discography_session_failed_at
+                .is_none_or(|at| at.elapsed() >= SESSION_SONGS_AGAIN_AFTER)
+    }
+
     /// Asks for the next song lists: first those a waiting play needs, then,
     /// while the page is open, the releases on screen and those after them
-    /// as far as a play from the screen could reach.
+    /// as far as a play from the screen could reach. Over the playback
+    /// session they go in batches, otherwise to the Web API one release at a
+    /// time.
     pub(super) fn pump_discography(&mut self, artist_id: &str) {
         let open = self.discography_open(artist_id);
         let reachable = self.network_reachable;
+        let over_session = self.songs_over_session();
         let Some(page) = self.discography_pages.get(artist_id) else {
             return;
         };
@@ -341,14 +375,14 @@ impl App {
             return;
         }
         let mut wanted: Vec<String> = Vec::new();
-        let mut limit = TRACKS_IN_FLIGHT;
+        let (mut limit, mut batch_limit) = (TRACKS_IN_FLIGHT, BATCHES_IN_FLIGHT);
         if let Some(play) = self
             .pending_discography_play
             .as_ref()
             .filter(|play| play.artist_id == artist_id && play.generation == page.generation)
         {
             wanted.extend(waiting_for(page, play));
-            limit = TRACKS_IN_FLIGHT_FOR_PLAY;
+            (limit, batch_limit) = (TRACKS_IN_FLIGHT_FOR_PLAY, BATCHES_IN_FLIGHT_FOR_PLAY);
         }
         if open && page.list().is_some_and(PagedList::is_complete) {
             let releases = page.ordered();
@@ -370,13 +404,21 @@ impl App {
         if wanted.is_empty() {
             return;
         }
-        let in_flight = page
+        // The two lanes count apart, so a batch on its way holds no Web API
+        // slot.
+        let fetching = page
             .tracks
             .values()
-            .filter(|tracks| !tracks.resolved())
+            .filter(|tracks| matches!(tracks, ReleaseTracks::Loading { .. }))
             .count();
+        let batches: HashSet<u64> = page
+            .tracks
+            .values()
+            .filter_map(ReleaseTracks::batch)
+            .collect();
         let generation = page.generation;
-        let mut free = limit.saturating_sub(in_flight);
+        let mut free = limit.saturating_sub(fetching);
+        let mut batched: Vec<Album> = Vec::new();
         let mut ready = Vec::new();
         let mut ask = Vec::new();
         let mut seen = HashSet::new();
@@ -394,11 +436,28 @@ impl App {
                 ready.push((id, songs));
                 continue;
             }
-            if free > 0 && reachable {
-                free -= 1;
-                ask.push(id);
+            if !reachable {
+                continue;
+            }
+            // A malformed entity would fail its whole batch.
+            let session_album = page.release(&id).filter(|album| {
+                over_session
+                    && !page.web_api_only.contains(&id)
+                    && album.uri == format!("spotify:album:{id}")
+            });
+            match session_album {
+                Some(album) => batched.push(release_stub(album)),
+                None if free > 0 => {
+                    free -= 1;
+                    ask.push(id);
+                }
+                None => {}
             }
         }
+        let sends: Vec<Vec<Album>> = split_batches(batched)
+            .into_iter()
+            .take(batch_limit.saturating_sub(batches.len()))
+            .collect();
         let Some(page) = self.discography_pages.get_mut(artist_id) else {
             return;
         };
@@ -418,6 +477,25 @@ impl App {
                     asked: now,
                 },
             );
+        }
+        let mut batches = Vec::new();
+        for albums in sends {
+            let batch = page.new_batch();
+            for album in &albums {
+                page.tracks.insert(
+                    album.id.clone(),
+                    ReleaseTracks::Batched { batch, asked: now },
+                );
+            }
+            batches.push((batch, albums));
+        }
+        for (batch, albums) in batches {
+            self.backend.api(ApiRequest::DiscographySongs {
+                artist_id: artist_id.to_string(),
+                albums,
+                batch,
+                generation,
+            });
         }
         for album_id in ask {
             self.backend.api(ApiRequest::DiscographyTracks {
@@ -518,15 +596,84 @@ impl App {
             }
             Outcome::Halt(error) => {
                 page.tracks.remove(&album_id);
-                // The backend lets go of the answers the ended sign-in
-                // refuses on their way, so the song lists still waiting
-                // give up their slots: Retry, on the page or on a release,
-                // asks for them again.
+                // The backend lets go of the Web API answers the ended
+                // sign-in refuses on their way, so the song lists still
+                // waiting on the Web API give up their slots: Retry, on the
+                // page or on a release, asks for them again. A session
+                // batch's answer still comes.
                 if sign_in_expired {
-                    page.tracks.retain(|_, tracks| tracks.resolved());
+                    page.tracks
+                        .retain(|_, tracks| !matches!(tracks, ReleaseTracks::Loading { .. }));
                 }
                 page.halted = Some(error);
             }
+        }
+        self.describe_releases_in_view(&artist_id);
+        self.pump_discography(&artist_id);
+        self.resolve_discography_play();
+    }
+
+    /// A session batch's answer. Only the batch that asked counts: a release
+    /// asked for again in a newer batch waits for that one.
+    pub(super) fn receive_discography_songs(
+        &mut self,
+        artist_id: String,
+        batch: u64,
+        generation: u64,
+        songs: Option<Vec<(String, Vec<Track>)>>,
+    ) {
+        let Some(page) = self
+            .discography_pages
+            .get_mut(&artist_id)
+            .filter(|page| page.generation == generation)
+        else {
+            return;
+        };
+        if !page
+            .tracks
+            .values()
+            .any(|tracks| tracks.batch() == Some(batch))
+        {
+            return;
+        }
+        let failed = songs.is_none();
+        for (album_id, mut songs) in songs.unwrap_or_default() {
+            if page.tracks.get(&album_id).and_then(ReleaseTracks::batch) != Some(batch) {
+                continue;
+            }
+            // A song the session leaves out, as one Spotify no longer has or
+            // withholds, would shrink the room the release holds and move
+            // the rows below it, which the user may be reading by the time
+            // the answer comes. The Web API keeps each song's place.
+            let short = page
+                .release(&album_id)
+                .and_then(|album| album.total_tracks)
+                .is_some_and(|total| songs.len() < total as usize);
+            if songs.is_empty() || short {
+                // Gone, withheld, unanswered or empty: the Web API says which.
+                page.tracks.remove(&album_id);
+                page.web_api_only.insert(album_id);
+            } else {
+                if let Some(album) = page.release(&album_id).cloned() {
+                    fill_album(&mut songs, &album);
+                }
+                page.tracks.insert(album_id, ReleaseTracks::Loaded(songs));
+            }
+        }
+        // A release the answer did not list, or every release of a batch the
+        // session could not read, is asked for again: over the Web API while
+        // the session rests.
+        page.tracks
+            .retain(|_, tracks| tracks.batch() != Some(batch));
+        if failed {
+            self.discography_session_failed_at = Some(Instant::now());
+        }
+        if let Some(play) = self
+            .pending_discography_play
+            .as_mut()
+            .filter(|play| play.artist_id == artist_id)
+        {
+            play.progress = Instant::now();
         }
         self.describe_releases_in_view(&artist_id);
         self.pump_discography(&artist_id);
@@ -558,10 +705,10 @@ impl App {
         self.pump_discography(artist_id);
     }
 
-    /// Forgets the song lists whose answer has not come for
-    /// [`TRACKS_LOST_AFTER`] and asks for them again wherever a page still
-    /// wants them. A forgotten list waits on as one not yet asked for, so
-    /// nothing on the page changes meanwhile.
+    /// Forgets the song lists and session batches whose answer has not come
+    /// for [`TRACKS_LOST_AFTER`] and asks for them again wherever a page
+    /// still wants them. A forgotten list waits on as one not yet asked for,
+    /// so nothing on the page changes meanwhile.
     pub(super) fn forget_lost_song_lists(&mut self) {
         let now = Instant::now();
         let mut forgot = Vec::new();
@@ -569,6 +716,7 @@ impl App {
             let before = page.tracks.len();
             page.tracks.retain(|_, tracks| {
                 !matches!(tracks, ReleaseTracks::Loading { asked, .. }
+                    | ReleaseTracks::Batched { asked, .. }
                     if now.saturating_duration_since(*asked) >= TRACKS_LOST_AFTER)
             });
             if page.tracks.len() < before {
@@ -954,7 +1102,7 @@ fn song_count(page: &DiscographyPage, album: &Album) -> usize {
             songs.iter().filter(|song| playable_song(song)).count()
         }
         Some(ReleaseTracks::Failed(_)) => 0,
-        Some(ReleaseTracks::Loading { .. }) | None => {
+        Some(ReleaseTracks::Loading { .. } | ReleaseTracks::Batched { .. }) | None => {
             album.total_tracks.unwrap_or(1).max(1) as usize
         }
     }
@@ -963,7 +1111,16 @@ fn song_count(page: &DiscographyPage, album: &Album) -> usize {
 /// Gives album-less songs, as Spotify lists a release's songs, the release
 /// they belong to, for their rows, menus and the player bar.
 fn fill_album(songs: &mut [Track], album: &Album) {
-    let stub = Album {
+    let stub = release_stub(album);
+    for song in songs.iter_mut().filter(|song| song.album.is_none()) {
+        song.album = Some(stub.clone());
+    }
+}
+
+/// The release as its songs carry it, for their rows, menus and the player
+/// bar.
+fn release_stub(album: &Album) -> Album {
+    Album {
         id: album.id.clone(),
         name: album.name.clone(),
         uri: album.uri.clone(),
@@ -974,10 +1131,29 @@ fn fill_album(songs: &mut [Track], album: &Album) {
         artists: album.artists.clone(),
         release_date: album.release_date.clone(),
         ..Album::default()
-    };
-    for song in songs.iter_mut().filter(|song| song.album.is_none()) {
-        song.album = Some(stub.clone());
     }
+}
+
+/// Cuts `releases`, in order, into session batches of at most
+/// [`RELEASES_PER_BATCH`] releases and [`SONGS_PER_BATCH`] songs by their
+/// track counts. A release longer than that goes alone.
+fn split_batches(releases: Vec<Album>) -> Vec<Vec<Album>> {
+    let mut batches: Vec<Vec<Album>> = Vec::new();
+    let mut songs = 0;
+    for release in releases {
+        let count = release.total_tracks.unwrap_or(1).max(1) as usize;
+        match batches.last_mut() {
+            Some(batch) if batch.len() < RELEASES_PER_BATCH && songs + count <= SONGS_PER_BATCH => {
+                songs += count;
+                batch.push(release);
+            }
+            _ => {
+                songs = count;
+                batches.push(vec![release]);
+            }
+        }
+    }
+    batches
 }
 
 /// The releases a play needs that have not arrived: from the clicked one
@@ -1145,7 +1321,12 @@ mod tests {
     const ARTIST: &str = "art";
 
     /// A signed-in app with nothing sent anywhere: requests are recorded,
-    /// and a play waits in `queued_play` for this computer's player.
+    /// and a play waits in `queued_play` for this computer's player. Its
+    /// playback session has just failed a batch of song lists, so they come
+    /// from the Web API a release at a time, as without local playback;
+    /// [`session_app`] reads them in batches. A test that sends
+    /// `LocalPlayback::Ready`, or runs for two minutes, reads them in
+    /// batches too.
     fn app(name: &str) -> App {
         let root = std::env::temp_dir().join(format!(
             "spotifast-discography-{name}-{}",
@@ -1172,6 +1353,15 @@ mod tests {
             username: "test".into(),
         };
         app.backend.set_offline(true);
+        app.discography_session_failed_at = Some(Instant::now());
+        app
+    }
+
+    /// As [`app`], with a playback session that reads song lists in
+    /// batches.
+    fn session_app(name: &str) -> App {
+        let mut app = app(name);
+        app.discography_session_failed_at = None;
         app
     }
 
@@ -1506,7 +1696,9 @@ mod tests {
             .tracks
             .values_mut()
         {
-            if let ReleaseTracks::Loading { asked, .. } = tracks {
+            if let ReleaseTracks::Loading { asked, .. } | ReleaseTracks::Batched { asked, .. } =
+                tracks
+            {
                 *asked -= TRACKS_LOST_AFTER;
             }
         }
@@ -4141,6 +4333,647 @@ mod tests {
         }
         assert!(app.discography_pages.contains_key(ARTIST));
         assert!(app.discography_pages.len() <= 4);
+        app.backend.shutdown();
+    }
+
+    /// `count` releases r0 to r{count-1}, dated 2000 on, each of `songs`
+    /// songs: the newest is the last.
+    fn releases(count: usize, songs: u32) -> Vec<Album> {
+        (0..count)
+            .map(|index| release(&format!("r{index}"), &format!("{}", 2000 + index), songs))
+            .collect()
+    }
+
+    /// The song lists asked for since the last call, in both lanes: the
+    /// session batches by number with their album ids, and the Web API's
+    /// album ids. It drains both.
+    fn asked_lanes(app: &App) -> (Vec<(u64, Vec<String>)>, Vec<String>) {
+        let mut batches = Vec::new();
+        let mut web_api = Vec::new();
+        for request in app.backend.take_discography_requests() {
+            match request {
+                ApiRequest::DiscographySongs { batch, albums, .. } => {
+                    batches.push((batch, albums.into_iter().map(|album| album.id).collect()));
+                }
+                ApiRequest::DiscographyTracks { album_id, .. } => web_api.push(album_id),
+                _ => {}
+            }
+        }
+        (batches, web_api)
+    }
+
+    fn batch(number: u64, ids: &[&str]) -> (u64, Vec<String>) {
+        (number, ids.iter().map(|id| id.to_string()).collect())
+    }
+
+    /// The session's answer for batch `batch`: each release with its songs.
+    fn batch_arrives(app: &mut App, batch: u64, lists: Vec<(&str, Vec<Track>)>) {
+        let generation = generation(app);
+        app.handle_api(ApiResponse::DiscographySongs {
+            artist_id: ARTIST.into(),
+            batch,
+            generation,
+            songs: Some(
+                lists
+                    .into_iter()
+                    .map(|(album, songs)| (album.to_string(), songs))
+                    .collect(),
+            ),
+        });
+    }
+
+    /// No playback session of this account could read batch `batch`.
+    fn batch_unread(app: &mut App, batch: u64) {
+        let generation = generation(app);
+        app.handle_api(ApiResponse::DiscographySongs {
+            artist_id: ARTIST.into(),
+            batch,
+            generation,
+            songs: None,
+        });
+    }
+
+    fn all_three() -> Vec<(&'static str, Vec<Track>)> {
+        vec![
+            ("c", vec![song("c1"), song("c2")]),
+            ("b", vec![song("b1"), song("b2"), song("b3")]),
+            ("a", vec![song("a1"), song("a2")]),
+        ]
+    }
+
+    fn batched_in(app: &App, album: &str) -> Option<u64> {
+        app.discography_pages[ARTIST]
+            .tracks
+            .get(album)
+            .and_then(ReleaseTracks::batch)
+    }
+
+    fn loaded(app: &App, album: &str) -> bool {
+        matches!(
+            app.discography_pages[ARTIST].tracks.get(album),
+            Some(ReleaseTracks::Loaded(_))
+        )
+    }
+
+    #[test]
+    fn song_lists_come_over_the_session_in_a_batch_from_the_screen_down() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("session-batch");
+        open(&mut app, &ctx, three_releases());
+        let requests = app.backend.take_discography_requests();
+        let [
+            ApiRequest::DiscographyAlbums { .. },
+            ApiRequest::DiscographySongs {
+                artist_id,
+                albums,
+                batch: 1,
+                generation: asked_generation,
+            },
+        ] = requests.as_slice()
+        else {
+            panic!("the release list, then one batch: {requests:?}");
+        };
+        assert_eq!(artist_id, ARTIST);
+        assert_eq!(*asked_generation, generation(&app));
+        let named: Vec<(&str, &str, Option<u32>)> = albums
+            .iter()
+            .map(|album| (album.id.as_str(), album.uri.as_str(), album.total_tracks))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("c", "spotify:album:c", Some(2)),
+                ("b", "spotify:album:b", Some(3)),
+                ("a", "spotify:album:a", Some(2)),
+            ]
+        );
+        for album in ["c", "b", "a"] {
+            assert_eq!(batched_in(&app, album), Some(1), "{album}");
+        }
+        batch_arrives(&mut app, 1, all_three());
+        for album in ["c", "b", "a"] {
+            let songs = app.discography_pages[ARTIST].tracks[album]
+                .songs()
+                .expect("loaded");
+            assert!(!songs.is_empty());
+            assert!(
+                songs
+                    .iter()
+                    .all(|song| song.album.as_ref().is_some_and(|it| it.id == album)),
+                "{album}'s songs name it"
+            );
+        }
+        assert_eq!(asked_lanes(&app), (vec![], vec![]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_batch_holds_at_most_fifty_releases_and_two_hundred_fifty_songs() {
+        let sizes = |counts: &[Option<u32>]| -> Vec<Vec<Option<u32>>> {
+            let releases = counts
+                .iter()
+                .enumerate()
+                .map(|(index, count)| Album {
+                    id: format!("r{index}"),
+                    total_tracks: *count,
+                    ..Album::default()
+                })
+                .collect();
+            split_batches(releases)
+                .into_iter()
+                .map(|batch| batch.into_iter().map(|album| album.total_tracks).collect())
+                .collect()
+        };
+        let singles = (0..60)
+            .map(|index| Album {
+                id: format!("r{index}"),
+                total_tracks: Some(1),
+                ..Album::default()
+            })
+            .collect();
+        let batches = split_batches(singles);
+        assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), [50, 10]);
+        let order: Vec<String> = batches
+            .into_iter()
+            .flatten()
+            .map(|album| album.id)
+            .collect();
+        let expected: Vec<String> = (0..60).map(|index| format!("r{index}")).collect();
+        assert_eq!(order, expected, "in order");
+        assert_eq!(
+            sizes(&[Some(200), Some(100), Some(600), Some(10)]),
+            [
+                vec![Some(200)],
+                vec![Some(100)],
+                vec![Some(600)],
+                vec![Some(10)]
+            ],
+            "a release longer than a batch goes alone"
+        );
+        assert_eq!(
+            sizes(&[Some(100), Some(100), Some(50), Some(1)]),
+            [vec![Some(100), Some(100), Some(50)], vec![Some(1)]]
+        );
+        assert_eq!(sizes(&[None, None]), [vec![None, None]]);
+    }
+
+    #[test]
+    fn one_batch_is_read_at_a_time_while_browsing_and_one_more_for_a_waiting_play() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batches-in-flight");
+        open(&mut app, &ctx, releases(10, 100));
+        assert_eq!(asked_lanes(&app), (vec![batch(1, &["r9", "r8"])], vec![]));
+        let in_view = |app: &mut App| {
+            app.apply(
+                Action::DiscographyInView {
+                    artist_id: ARTIST.into(),
+                    first: 2,
+                    last: 3,
+                },
+                &ctx,
+            );
+        };
+        in_view(&mut app);
+        assert_eq!(asked_lanes(&app), (vec![], vec![]), "one on its way");
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "r1".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_some());
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![batch(2, &["r1", "r0"])], vec![]),
+            "the play's own batch goes beside it"
+        );
+        in_view(&mut app);
+        assert_eq!(asked_lanes(&app), (vec![], vec![]));
+        batch_arrives(
+            &mut app,
+            1,
+            vec![("r9", songs("r9-", 100)), ("r8", songs("r8-", 100))],
+        );
+        assert_eq!(asked_lanes(&app), (vec![batch(3, &["r7", "r6"])], vec![]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_batch_the_session_cannot_read_goes_to_the_web_api_two_at_a_time() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-unread");
+        open(&mut app, &ctx, three_releases());
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![batch(1, &["c", "b", "a"])], vec![])
+        );
+        batch_unread(&mut app, 1);
+        assert!(
+            app.discography_pages[ARTIST]
+                .tracks
+                .values()
+                .all(|tracks| tracks.batch().is_none())
+        );
+        assert!(app.discography_session_failed_at.is_some());
+        assert_eq!(asked_lanes(&app), (vec![], vec!["c".into(), "b".into()]));
+        songs_arrive(&mut app, "c", vec![song("c1"), song("c2")]);
+        assert_eq!(asked_lanes(&app), (vec![], vec!["a".into()]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn songs_come_over_the_session_again_two_minutes_after_it_failed() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("session-again");
+        open(&mut app, &ctx, three_releases());
+        asked_lanes(&app);
+        batch_unread(&mut app, 1);
+        assert_eq!(asked_lanes(&app), (vec![], vec!["c".into(), "b".into()]));
+        app.discography_session_failed_at = Some(Instant::now() - SESSION_SONGS_AGAIN_AFTER);
+        songs_arrive(&mut app, "c", vec![song("c1"), song("c2")]);
+        assert_eq!(asked_lanes(&app), (vec![batch(2, &["a"])], vec![]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn local_playback_coming_up_sends_song_lists_back_to_the_session() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("session-ready");
+        open(&mut app, &ctx, three_releases());
+        asked_lanes(&app);
+        batch_unread(&mut app, 1);
+        assert_eq!(asked_lanes(&app), (vec![], vec!["c".into(), "b".into()]));
+        app.handle_backend_events(vec![Event::Playback(LocalPlayback::Ready {
+            device_id: "dev".into(),
+        })]);
+        assert!(app.discography_session_failed_at.is_none());
+        songs_arrive(&mut app, "c", vec![song("c1"), song("c2")]);
+        assert_eq!(asked_lanes(&app), (vec![batch(2, &["a"])], vec![]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn without_local_playback_song_lists_come_from_the_web_api() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("no-session");
+        app.local_ready = false;
+        open(&mut app, &ctx, three_releases());
+        assert_eq!(asked_lanes(&app), (vec![], vec!["c".into(), "b".into()]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_release_the_session_lists_no_songs_for_is_read_from_the_web_api_alone() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("session-empty");
+        open(&mut app, &ctx, three_releases());
+        asked_lanes(&app);
+        batch_arrives(
+            &mut app,
+            1,
+            vec![
+                ("c", vec![song("c1"), song("c2")]),
+                ("b", vec![]),
+                ("a", vec![song("a1"), song("a2")]),
+            ],
+        );
+        assert!(loaded(&app, "c") && loaded(&app, "a"));
+        let page = &app.discography_pages[ARTIST];
+        assert!(matches!(
+            page.tracks.get("b"),
+            Some(ReleaseTracks::Loading { .. })
+        ));
+        assert!(page.web_api_only.contains("b"));
+        assert_eq!(asked_lanes(&app), (vec![], vec!["b".into()]));
+        let generation = generation(&app);
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "b".into(),
+            offset: 0,
+            generation,
+            result: Err(crate::api::ApiError::Status {
+                status: 404,
+                message: "Not found".into(),
+            }),
+        });
+        let page = &app.discography_pages[ARTIST];
+        assert!(matches!(
+            page.tracks.get("b"),
+            Some(ReleaseTracks::Failed(_))
+        ));
+        assert!(page.halted.is_none());
+        assert_eq!(asked_lanes(&app), (vec![], vec![]));
+        app.apply(
+            Action::RetryDiscography {
+                artist_id: ARTIST.into(),
+                album_id: Some("b".into()),
+            },
+            &ctx,
+        );
+        assert_eq!(asked_lanes(&app), (vec![], vec!["b".into()]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_batch_answer_for_a_reloaded_page_changes_nothing() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-stale");
+        open(&mut app, &ctx, three_releases());
+        asked_lanes(&app);
+        let old = generation(&app);
+        app.apply(Action::Reload(Page::Discography(ARTIST.into())), &ctx);
+        let reloaded = generation(&app);
+        assert_ne!(reloaded, old);
+        app.handle_api(ApiResponse::DiscographyAlbums {
+            artist_id: ARTIST.into(),
+            groups: DiscographyFilter::All.groups().into(),
+            offset: 0,
+            generation: reloaded,
+            result: Ok(page(three_releases(), 0, 50, 3)),
+        });
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![batch(1, &["c", "b", "a"])], vec![])
+        );
+        // The old page's batch 1 shares the new one's number.
+        app.handle_api(ApiResponse::DiscographySongs {
+            artist_id: ARTIST.into(),
+            batch: 1,
+            generation: old,
+            songs: Some(vec![("c".into(), vec![song("c1")])]),
+        });
+        assert_eq!(batched_in(&app, "c"), Some(1));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_batch_whose_answer_never_comes_is_asked_again_and_a_late_answer_changes_nothing() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-lost");
+        open(&mut app, &ctx, three_releases());
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![batch(1, &["c", "b", "a"])], vec![])
+        );
+        app.forget_lost_song_lists();
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![], vec![]),
+            "a batch on its way is waited for"
+        );
+        age_unanswered(&mut app);
+        app.forget_lost_song_lists();
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![batch(2, &["c", "b", "a"])], vec![])
+        );
+        batch_arrives(&mut app, 1, all_three());
+        for album in ["c", "b", "a"] {
+            assert_eq!(batched_in(&app, album), Some(2), "{album} waits for 2");
+        }
+        batch_unread(&mut app, 1);
+        for album in ["c", "b", "a"] {
+            assert_eq!(batched_in(&app, album), Some(2), "{album} waits for 2");
+        }
+        assert!(
+            app.discography_session_failed_at.is_none(),
+            "a late failure says nothing of the session now"
+        );
+        batch_arrives(&mut app, 2, all_three());
+        assert!(["c", "b", "a"].iter().all(|album| loaded(&app, album)));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn offline_no_batch_is_asked_until_the_network_is_back() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-offline");
+        open(&mut app, &ctx, releases(5, 200));
+        assert_eq!(asked_lanes(&app), (vec![batch(1, &["r4"])], vec![]));
+        app.network_reachable = false;
+        batch_arrives(&mut app, 1, vec![("r4", songs("r4-", 200))]);
+        assert_eq!(asked_lanes(&app), (vec![], vec![]));
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+        assert_eq!(asked_lanes(&app), (vec![batch(2, &["r3"])], vec![]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_waiting_play_starts_once_its_batch_arrives() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-play");
+        open(&mut app, &ctx, three_releases());
+        asked_lanes(&app);
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        let play = app
+            .pending_discography_play
+            .as_ref()
+            .expect("a waiting play");
+        assert_eq!(play.keys, ["spotify:album:c"]);
+        assert_eq!(asked_lanes(&app), (vec![], vec![]), "already on its way");
+        batch_arrives(&mut app, 1, all_three());
+        assert!(app.pending_discography_play.is_none());
+        assert_eq!(
+            played(&app).0,
+            uris(&["c1", "c2", "b1", "b2", "b3", "a1", "a2"])
+        );
+        assert!(app.toasts.is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_waiting_play_whose_batch_the_session_cannot_read_asks_the_web_api_for_its_releases() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-play-unread");
+        open(&mut app, &ctx, three_releases());
+        asked_lanes(&app);
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        batch_unread(&mut app, 1);
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![], vec!["c".into(), "b".into(), "a".into()])
+        );
+        assert!(app.pending_discography_play.is_some());
+        load_all(&mut app);
+        assert_eq!(
+            played(&app).0,
+            uris(&["c1", "c2", "b1", "b2", "b3", "a1", "a2"])
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_batch_answer_keeps_a_waiting_play_alive_even_when_the_session_cannot_read_it() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-progress");
+        open(&mut app, &ctx, releases(10, 100));
+        assert_eq!(asked_lanes(&app), (vec![batch(1, &["r9", "r8"])], vec![]));
+        batch_arrives(
+            &mut app,
+            1,
+            vec![("r9", songs("r9-", 100)), ("r8", songs("r8-", 100))],
+        );
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "r9".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_some());
+        assert_eq!(
+            asked_lanes(&app),
+            (
+                vec![batch(2, &["r7", "r6"]), batch(3, &["r5", "r4"])],
+                vec![]
+            )
+        );
+        app.pending_discography_play.as_mut().unwrap().progress -= PLAY_STALL;
+        batch_arrives(
+            &mut app,
+            2,
+            vec![("r7", songs("r7-", 100)), ("r6", songs("r6-", 100))],
+        );
+        app.settle_overdue_discography_play();
+        assert!(
+            app.pending_discography_play.is_some(),
+            "a batch arriving is progress, so the play keeps waiting for r5"
+        );
+        app.pending_discography_play.as_mut().unwrap().progress -= PLAY_STALL;
+        batch_unread(&mut app, 3);
+        app.settle_overdue_discography_play();
+        assert!(
+            app.pending_discography_play.is_some(),
+            "the Web API gets a fresh wait for the releases the session could not read"
+        );
+        assert!(asked_lanes(&app).1.contains(&"r5".to_string()));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_release_the_session_lists_fewer_songs_for_is_read_from_the_web_api_alone() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("session-short");
+        open(&mut app, &ctx, three_releases());
+        asked_lanes(&app);
+        batch_arrives(
+            &mut app,
+            1,
+            vec![
+                ("c", vec![song("c1"), song("c2"), song("c3")]),
+                ("b", vec![song("b1"), song("b3")]),
+                ("a", vec![song("a1"), song("a2")]),
+            ],
+        );
+        assert!(
+            loaded(&app, "c") && loaded(&app, "a"),
+            "only a list shorter than its release would move the rows below"
+        );
+        let page = &app.discography_pages[ARTIST];
+        assert!(matches!(
+            page.tracks.get("b"),
+            Some(ReleaseTracks::Loading { .. })
+        ));
+        assert!(page.web_api_only.contains("b"));
+        assert_eq!(asked_lanes(&app), (vec![], vec!["b".into()]));
+        songs_arrive(
+            &mut app,
+            "b",
+            vec![song("b1"), Track::default(), song("b3")],
+        );
+        assert_eq!(
+            app.discography_pages[ARTIST].tracks["b"]
+                .songs()
+                .map(<[Track]>::len),
+            Some(3),
+            "the Web API keeps the missing song's place"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn an_expired_sign_in_keeps_releases_on_their_way_over_the_session() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-sign-in");
+        open(&mut app, &ctx, releases(6, 100));
+        assert_eq!(asked_lanes(&app), (vec![batch(1, &["r5", "r4"])], vec![]));
+        batch_arrives(&mut app, 1, vec![("r5", vec![]), ("r4", songs("r4-", 100))]);
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![batch(2, &["r3", "r2"])], vec!["r5".into()])
+        );
+        let generation = generation(&app);
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "r5".into(),
+            offset: 0,
+            generation,
+            result: Err(crate::api::ApiError::SignInExpired {
+                api_source: crate::api::ApiSource::Personal,
+            }),
+        });
+        let page = &app.discography_pages[ARTIST];
+        assert!(page.halted.is_some());
+        assert!(!page.tracks.contains_key("r5"));
+        assert_eq!(batched_in(&app, "r3"), Some(2));
+        assert_eq!(batched_in(&app, "r2"), Some(2));
+        batch_arrives(
+            &mut app,
+            2,
+            vec![("r3", songs("r3-", 100)), ("r2", songs("r2-", 100))],
+        );
+        assert!(loaded(&app, "r3") && loaded(&app, "r2"));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_batch_on_its_way_holds_no_web_api_slot() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-slots");
+        open(&mut app, &ctx, releases(6, 100));
+        assert_eq!(asked_lanes(&app), (vec![batch(1, &["r5", "r4"])], vec![]));
+        app.discography_session_failed_at = Some(Instant::now());
+        app.apply(
+            Action::DiscographyInView {
+                artist_id: ARTIST.into(),
+                first: 2,
+                last: 3,
+            },
+            &ctx,
+        );
+        assert_eq!(asked_lanes(&app), (vec![], vec!["r3".into(), "r2".into()]));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_release_without_a_spotify_album_uri_is_read_from_the_web_api() {
+        let ctx = egui::Context::default();
+        let mut app = session_app("batch-uri");
+        let mut releases = three_releases();
+        releases[2].uri.clear();
+        assert_eq!(releases[2].id, "c");
+        open(&mut app, &ctx, releases);
+        assert_eq!(
+            asked_lanes(&app),
+            (vec![batch(1, &["b", "a"])], vec!["c".into()])
+        );
         app.backend.shutdown();
     }
 
