@@ -13414,7 +13414,19 @@ impl App {
                         self.remember_device_choice(&key);
                     }
                     self.activating_receiver = Some(receiver.name.clone());
-                    self.activating_play = self.now_playing().is_some_and(|now| now.playing);
+                    // A discography play still waiting for its songs shows
+                    // its song as playing before anything plays it. The
+                    // speaker takes over what really plays, so that decides.
+                    let waiting = self
+                        .pending_discography_play
+                        .as_ref()
+                        .is_some_and(|play| play.shown.is_some());
+                    let now = if waiting {
+                        self.now_playing_live()
+                    } else {
+                        self.now_playing()
+                    };
+                    self.activating_play = now.is_some_and(|now| now.playing);
                     self.backend.send(Command::ActivateReceiver(receiver));
                 }
             }
