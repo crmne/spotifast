@@ -11577,6 +11577,55 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A discography play waiting for its songs takes no queue row: the
+    /// queued copy of its song keeps its number in Next up, no spinner.
+    #[test]
+    fn a_waiting_discography_play_spins_no_queue_row() {
+        let (ctx, mut app) = accessible_app("queue-waiting-discography");
+        // Fragments holds the playing Rosewood and the queued Otomo; the
+        // next release's songs are still on their way.
+        let (first, later) = {
+            let ordered = app.discography_pages["art0"].ordered();
+            (ordered[0].id.clone(), ordered[1].id.clone())
+        };
+        app.discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .remove(&later);
+        app.apply(
+            crate::model::Action::PlayFromRow {
+                context: crate::model::RowContext::Discography {
+                    artist_id: "art0".into(),
+                    album_id: first,
+                },
+                uri: "spotify:track:trk1".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert_eq!(app.waiting_discography_song(), Some("spotify:track:trk1"));
+        view_frame(&ctx, &mut app, vec![], crate::ui::queue::page);
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::queue::page);
+        // Otomo shows twice: in Now playing, then as Next up's first row.
+        let otomo: Vec<egui::Rect> = painted
+            .iter()
+            .filter(|(text, _)| text == "Otomo")
+            .map(|(_, rect)| *rect)
+            .collect();
+        let [now_playing, queued] = otomo[..] else {
+            panic!("Otomo in Now playing and Next up: {otomo:?}");
+        };
+        assert!(now_playing.top() < queued.top());
+        assert!(
+            painted.iter().any(|(text, rect)| text == "1"
+                && rect.right() < queued.left()
+                && (rect.center().y - queued.center().y).abs() < 20.0),
+            "the queued copy keeps its number"
+        );
+        app.backend.shutdown();
+    }
+
     /// "Next up" plays from the current context, not from a list Spotifast
     /// can rewrite, so it is never a drop target: dropping a queued row on
     /// it must not move or insert anything, even though the row sits inside
