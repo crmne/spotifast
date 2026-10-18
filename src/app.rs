@@ -415,6 +415,10 @@ pub struct App {
     /// from. Finding the file touches the disk and the controls are synced
     /// every frame, so the answer is kept until the artwork changes.
     media_art: Option<(String, PathBuf)>,
+    /// The position the media controls show jumped in a way an update
+    /// cannot carry, as they take a new position only with a new song or
+    /// playback state. The next sync sends where the song now is as a jump.
+    media_seek: bool,
     tray: Option<fastframe_tray::Tray>,
     /// A hidden start's deadline for a panel to show the tray item: a start
     /// at login can beat the desktop's tray host, and without one by then
@@ -1275,6 +1279,7 @@ impl App {
             #[cfg(target_os = "linux")]
             system_appearance,
             media_art: None,
+            media_seek: false,
             tray,
             tray_wait: None,
             autostart: None,
@@ -6006,8 +6011,15 @@ impl App {
                 ..MediaState::default()
             },
         };
+        // The jump is to where this update puts the song, so it never
+        // contradicts it: with a new song it only says the same again.
+        let seek = (std::mem::take(&mut self.media_seek) && state.track.is_some())
+            .then_some(state.position);
         if let Some(controls) = &mut self.media_controls {
             controls.update(state);
+            if let Some(position) = seek {
+                controls.seeked(position);
+            }
         }
         let playing = self.now_playing().is_some_and(|now| now.playing);
         if let Some(tray) = &mut self.tray
@@ -11342,6 +11354,8 @@ impl App {
             .filter(|play| play.shown.is_some())
         {
             play.position_ms = position_ms;
+            // The desktop's controls move with it at once.
+            self.media_seek = true;
             return;
         }
         // Dragging the bar under the remembered song moves the point a press
