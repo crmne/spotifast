@@ -26,6 +26,10 @@ on:
         description: Preview without changing the report
         type: boolean
         default: true
+      quiet:
+        description: Only place the card on the board; post, label, and close nothing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,3 +46,4 @@ jobs:
       kind: ${{ inputs.kind || '' }}
       number: ${{ inputs.number || '' }}
       dry_run: ${{ inputs.dry_run || false }}
+      quiet: ${{ inputs.quiet || false }}
