@@ -1193,7 +1193,7 @@ impl App {
             seek_preview: None,
             volume_preview: None,
             window_geometry: fastframe_shell::window::Geometry {
-                size: session.window_size,
+                size: crate::window::usable_size(session.window_size),
                 position: session.window_pos,
                 maximized: session.window_maximized,
             },
@@ -15742,6 +15742,48 @@ mod tests {
         );
         assert_eq!(app.winamp.geometry.position, Some([300.0, 200.0]));
         assert_eq!(app.window_geometry, main);
+    }
+
+    /// #704: a window size saved below the minimum is not restored, so the
+    /// window opens at its default size. The position is kept.
+    #[test]
+    fn a_saved_window_below_its_minimum_opens_at_the_default_size() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-undersized-window-test-{}",
+            std::process::id()
+        ));
+        let dirs = || AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        std::fs::create_dir_all(&dirs().state).unwrap();
+        for (saved, expected) in [
+            (Some([64.0, 64.0]), None),
+            (Some([1240.0, 800.0]), Some([1240.0, 800.0])),
+        ] {
+            SessionState {
+                window_size: saved,
+                window_pos: Some([100.0, 150.0]),
+                ..SessionState::default()
+            }
+            .save(&dirs().session_file());
+            let mut app = App::new(
+                &Waker::default(),
+                dirs(),
+                Settings::default(),
+                AppOptions {
+                    media_controls: false,
+                    restore_sign_in: false,
+                    tray: false,
+                    autostart: false,
+                },
+            );
+            assert_eq!(app.window_geometry.size, expected, "{saved:?}");
+            assert_eq!(app.window_geometry.position, Some([100.0, 150.0]));
+            app.backend.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A window left maximized or full screen comes back that way, instead of
