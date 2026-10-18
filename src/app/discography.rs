@@ -704,7 +704,7 @@ impl App {
         // loses songs from its end, so Previous, Shuffle and Repeat keep the
         // start of that release. Only a start past the limit itself takes
         // the usual window from the clicked song.
-        let (uris, index) = if index < MAX_PLAYED_URIS {
+        let (uris, index) = if window_start(index) == 0 {
             uris.truncate(MAX_PLAYED_URIS);
             (uris, index as u32)
         } else {
@@ -928,23 +928,61 @@ fn fill_album(songs: &mut [Track], album: &Album) {
 
 /// The releases a play needs that have not arrived: from the clicked one
 /// on, in the order shown at the click, as far as the songs a play can hold
-/// reach.
+/// reach, counted from where the play's songs begin: the clicked release's
+/// first song, or the clicked song itself when it lies past that limit.
 fn waiting_for(page: &DiscographyPage, play: &PendingDiscographyPlay) -> Vec<String> {
+    let left_out = songs_left_out(page, play);
     let mut waiting = Vec::new();
     let mut reach = 0usize;
-    for id in &play.releases {
+    for (position, id) in play.releases.iter().enumerate() {
         if reach >= MAX_PLAYED_URIS {
             break;
         }
         if !page.tracks.get(id).is_some_and(ReleaseTracks::resolved) {
             waiting.push(id.clone());
         }
-        reach += match page.release(id) {
+        let count = match page.release(id) {
             Some(album) => song_count(page, album),
             None => 1,
         };
+        reach += if position == 0 {
+            count.saturating_sub(left_out)
+        } else {
+            count
+        };
     }
     waiting
+}
+
+/// The clicked release's playable songs a play leaves out before its
+/// start: none, unless the start lies past the songs a play can hold, when
+/// the play's songs begin at the start itself. None are known until the
+/// release's songs have arrived.
+fn songs_left_out(page: &DiscographyPage, play: &PendingDiscographyPlay) -> usize {
+    let Some(songs) = play
+        .releases
+        .first()
+        .and_then(|id| page.tracks.get(id))
+        .and_then(ReleaseTracks::songs)
+    else {
+        return 0;
+    };
+    let before = start_row(songs, &play.start).map_or(0, |row| {
+        songs[..row]
+            .iter()
+            .filter(|song| playable_song(song))
+            .count()
+    });
+    window_start(before)
+}
+
+/// Where the songs a play sends begin in its list, given its start's place
+/// there: at the clicked release's first song, unless the start lies past
+/// the songs a play can hold, when they begin at the start itself. The wait
+/// counts its songs from here and the play cuts its list here, so the two
+/// always agree.
+fn window_start(index: usize) -> usize {
+    if index < MAX_PLAYED_URIS { 0 } else { index }
 }
 
 /// The row of a release's songs a play starts at: the clicked song, found
@@ -3145,6 +3183,132 @@ mod tests {
         );
         assert_eq!(played.len(), 50);
         assert_eq!(index, Some(0));
+        app.backend.shutdown();
+    }
+
+    /// A play from song 551 of a 600-song release, before the 460 songs of
+    /// the release after it have arrived.
+    fn play_past_the_cap(app: &mut App, ctx: &egui::Context) {
+        play_long_release_from(app, ctx, 550);
+    }
+
+    /// A play from row `row` of a 600-song release, before the 460 songs of
+    /// the release after it have arrived.
+    fn play_long_release_from(app: &mut App, ctx: &egui::Context, row: u32) {
+        open(
+            app,
+            ctx,
+            vec![release("next", "2020", 460), release("long", "2024", 600)],
+        );
+        songs_arrive(app, "long", songs("l", 600));
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Discography {
+                    artist_id: ARTIST.into(),
+                    album_id: "long".into(),
+                },
+                uri: format!("spotify:track:l{row}"),
+                index: row,
+            },
+            ctx,
+        );
+    }
+
+    #[test]
+    fn a_start_at_song_five_hundred_plays_at_once_from_its_release_start() {
+        let ctx = egui::Context::default();
+        let mut app = app("cap-edge-in");
+        play_long_release_from(&mut app, &ctx, 499);
+        assert!(app.pending_discography_play.is_none());
+        let (played, index) = played(&app);
+        assert_eq!(
+            played,
+            (0..500)
+                .map(|n| format!("spotify:track:l{n}"))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(index, Some(499));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_start_at_song_five_hundred_and_one_waits_for_the_releases_after_it() {
+        let ctx = egui::Context::default();
+        let mut app = app("cap-edge-past");
+        play_long_release_from(&mut app, &ctx, 500);
+        assert!(
+            app.queued_play.is_none(),
+            "the songs after the click are waited for"
+        );
+        songs_arrive(&mut app, "next", songs("x", 460));
+        let (played, index) = played(&app);
+        assert_eq!(
+            played,
+            (500..600)
+                .map(|n| format!("spotify:track:l{n}"))
+                .chain((0..400).map(|n| format!("spotify:track:x{n}")))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(index, Some(0));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_start_past_five_hundred_songs_waits_for_the_releases_after_it() {
+        let ctx = egui::Context::default();
+        let mut app = app("cap-past-wait");
+        play_past_the_cap(&mut app, &ctx);
+        assert!(
+            app.queued_play.is_none(),
+            "the songs after the click are waited for"
+        );
+        assert!(app.pending_discography_play.is_some());
+        assert_eq!(
+            app.current_track_uri().as_deref(),
+            Some("spotify:track:l550")
+        );
+        songs_arrive(&mut app, "next", songs("x", 460));
+        let (played, index) = played(&app);
+        assert_eq!(played.len(), MAX_PLAYED_URIS);
+        assert_eq!(
+            played.first().map(String::as_str),
+            Some("spotify:track:l550")
+        );
+        assert_eq!(
+            played.last().map(String::as_str),
+            Some("spotify:track:x449")
+        );
+        assert_eq!(index, Some(0));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_start_past_five_hundred_songs_says_when_its_queue_ends_early() {
+        let ctx = egui::Context::default();
+        let mut app = app("cap-past-early");
+        play_past_the_cap(&mut app, &ctx);
+        let generation = generation(&app);
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "next".into(),
+            offset: 0,
+            generation,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        assert_eq!(
+            played(&app),
+            (
+                (550..600)
+                    .map(|n| format!("spotify:track:l{n}"))
+                    .collect::<Vec<_>>(),
+                Some(0)
+            )
+        );
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("ends early"))
+        );
         app.backend.shutdown();
     }
 
