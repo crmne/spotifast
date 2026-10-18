@@ -2692,7 +2692,25 @@ impl App {
         self.pending_discography_play
             .as_ref()
             .is_some_and(|play| play.keys.iter().any(|k| k == key))
-            || (self.pending_fresh() && self.pending_play_keys.iter().any(|k| k == key))
+            || self.request_pending(key)
+    }
+
+    /// Whether a row holding `uri` in `context` shows its song starting.
+    /// A queue row is a place in the queue: a discography play waiting for
+    /// its songs takes no queue row, so a queued copy of its song is an
+    /// ordinary row and only Now playing spins. A play sent to Spotify,
+    /// one started from a queue row among them, still marks its rows until
+    /// Spotify answers.
+    pub fn row_play_pending(&self, context: &RowContext, uri: &str) -> bool {
+        match context {
+            RowContext::Queue => self.request_pending(uri),
+            _ => self.play_pending(uri),
+        }
+    }
+
+    /// The play request sent for `key` is still waiting for Spotify.
+    fn request_pending(&self, key: &str) -> bool {
+        self.pending_fresh() && self.pending_play_keys.iter().any(|k| k == key)
     }
 
     /// Records who is behind a user id. A lookup that found nothing never

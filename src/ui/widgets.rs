@@ -1826,14 +1826,15 @@ fn track_row_contents(
     // sit in the queue while it plays (a repeat wrapping around, a song
     // queued twice), and only the Now playing row is the playing one.
     // A song started from one of its copies in this list marks that copy
-    // alone: the others are other places in the list.
+    // alone: the others are other places in the list. A discography play
+    // waiting for its songs takes no queue row, so it spins none.
     let played_copy = app.row_is_played_copy(row.context, row.index, row.item.uri());
     let is_current = !matches!(row.context, RowContext::Queue)
         && played_copy
         && app
             .current_track_uri()
             .is_some_and(|uri| uri == row.item.uri());
-    let pending = played_copy && app.play_pending(row.item.uri());
+    let pending = played_copy && app.row_play_pending(row.context, row.item.uri());
     let playing = is_current && app.believed_playing();
     let hovered = ui.is_enabled() && (ui.rect_contains_pointer(rect) || response.has_focus());
     if row.picked {

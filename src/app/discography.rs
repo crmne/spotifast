@@ -764,7 +764,7 @@ impl App {
 
     /// Looks again at a waiting play: start it if its songs are all in or
     /// its wait is over.
-    pub(super) fn resolve_discography_play(&mut self) {
+    pub(crate) fn resolve_discography_play(&mut self) {
         if let Some(play) = self.pending_discography_play.clone() {
             self.start_discography_play(play);
         }
@@ -808,6 +808,12 @@ impl App {
             now.take_device_from(actual);
         }
         Some(now)
+    }
+
+    /// The song a discography play shows while it waits for its songs. No
+    /// queue row was taken for it, unlike a song started from Next up.
+    pub fn waiting_discography_song(&self) -> Option<&str> {
+        self.pending_discography_play.as_ref()?.shown.as_deref()
     }
 
     /// The player bar's song, except one a discography play only shows
@@ -2676,6 +2682,58 @@ mod tests {
             app.manual_queue,
             vec!["spotify:track:x".to_string()],
             "the song queued next is still next"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A waiting play shows its song as starting in Now playing alone: it
+    /// takes no queue row, so a queued copy of the song is an ordinary row
+    /// further on. A play from a queue row still marks that row.
+    #[test]
+    fn a_waiting_play_leaves_queued_copies_of_its_song_alone() {
+        let ctx = egui::Context::default();
+        let mut app = app("queued-copy");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.manual_queue = vec!["spotify:track:c1".into()];
+        app.queue = Loadable::Loaded(Queue {
+            currently_playing: Some(PlayableItem::Track(song("x"))),
+            queue: vec![
+                PlayableItem::Track(song("c1")),
+                PlayableItem::Track(song("y")),
+            ],
+        });
+        waiting_play(&mut app, &ctx);
+        let now_playing = RowContext::Uris(std::sync::Arc::from(["spotify:track:c1".to_string()]));
+        assert!(
+            app.row_play_pending(&now_playing, "spotify:track:c1"),
+            "the Now playing row shows the song starting"
+        );
+        assert!(
+            !app.row_play_pending(&RowContext::Queue, "spotify:track:c1"),
+            "the queued copy is an ordinary row"
+        );
+        assert!(app.play_pending("spotify:track:c1"));
+        assert_eq!(
+            app.queue.get().unwrap().queue[0].uri(),
+            "spotify:track:c1",
+            "the wait takes no queue row"
+        );
+        assert_eq!(app.manual_queue, vec!["spotify:track:c1".to_string()]);
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:y".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(
+            app.row_play_pending(&RowContext::Queue, "spotify:track:y"),
+            "a play from a queue row spins until Spotify answers"
         );
         app.backend.shutdown();
     }
