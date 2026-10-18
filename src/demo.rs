@@ -2541,6 +2541,84 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The order button turns the releases round on the very next frame:
+    /// the order the page keeps from one frame to the next is let go.
+    #[test]
+    fn the_discography_order_turns_round_on_the_next_frame() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("discography-order");
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        // The page draws from the order it keeps, not a sort each frame.
+        assert!(app.discography_pages["art0"].order_kept());
+        let order = accessible_node(&tree, "Newest first", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(order, Action::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(app.discography_pages["art0"].order_kept());
+        accessible_node(&tree, "Oldest first", Role::Button);
+        // Oldest first: There Is Love in You (2010), last of the eight
+        // newest first, now heads the page above Immunity (2013).
+        let top = |label: &str| {
+            let id = accessible_node(&tree, label, Role::Link);
+            tree.nodes
+                .iter()
+                .find(|(node, _)| *node == id)
+                .and_then(|(_, node)| node.bounds())
+                .expect("a placed title")
+                .y0
+        };
+        assert!(top("There Is Love in You") < top("Immunity"));
+        app.backend.shutdown();
+    }
+
+    /// The page keeps its lines from frame to frame while nothing they show
+    /// changes, and lays them out again the frame a release's songs come.
+    #[test]
+    fn discography_songs_take_their_rows_on_the_frame_they_come() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("discography-lines");
+        let songs = app
+            .discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .insert(
+                "alb0".into(),
+                ReleaseTracks::Loading {
+                    songs: Vec::new(),
+                    next: 0,
+                    asked: Instant::now(),
+                },
+            )
+            .expect("Fragments' songs");
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let has_row = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Play Otomo, Bonobo") && node.role() == Role::Button
+            })
+        };
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!has_row(&tree), "Fragments' songs are on their way");
+        let kept = crate::ui::discography::kept_lines(&ctx).expect("the page's lines");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let again = crate::ui::discography::kept_lines(&ctx).expect("the page's lines");
+        assert!(Arc::ptr_eq(&kept, &again), "nothing changed");
+        app.discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .insert("alb0".into(), songs);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(has_row(&tree), "Fragments' songs have their rows");
+        app.backend.shutdown();
+    }
+
     /// A release whose song is paused resumes it where it was, as the song's
     /// number and the player bar do, instead of starting the page over from
     /// the release's first song.
