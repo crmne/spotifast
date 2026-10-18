@@ -2171,7 +2171,18 @@ impl App {
         {
             return false;
         }
-        let Some(played) = self.played_row.as_ref().filter(|played| played.uri == uri) else {
+        // A discography play waiting to start this song chose none of its
+        // copies, so every one shows it at the click; the remembered row
+        // is kept for a wait that ends in nothing.
+        let waiting = self
+            .pending_discography_play
+            .as_ref()
+            .and_then(|play| play.shown.as_deref());
+        let Some(played) = self
+            .played_row
+            .as_ref()
+            .filter(|played| played.uri == uri && waiting != Some(uri))
+        else {
             return true;
         };
         let applies = match context {
@@ -4610,11 +4621,13 @@ impl App {
         self.toasts
             .retain(|toast| toast.created.elapsed() < TOAST_LIFETIME);
         // The chosen row stays marked only while its song is the current
-        // one; a later return to that song may be another copy.
+        // one; a later return to that song may be another copy. A
+        // discography play's song, shown while the play waits, does not
+        // count until that play starts.
         if self
             .played_row
             .as_ref()
-            .is_some_and(|played| self.current_track_uri().as_ref() != Some(&played.uri))
+            .is_some_and(|played| self.started_track_uri().as_ref() != Some(&played.uri))
         {
             self.played_row = None;
         }
