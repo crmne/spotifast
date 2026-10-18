@@ -55,10 +55,12 @@ An artist's discography page, opened with **Show all**, plays the page
 itself. A double-clicked song, or a release's play button, plays the releases
 from that one to the end of the page in the order shown, newest or oldest
 first, with each release's songs in album order and unavailable songs and
-local files left out. **Next up** is that list. While one of a release's songs
-is the current song, its play button pauses and resumes that song where it
-is, as the player bar does, instead of starting the release over. The page's
-list is not kept when Spotifast closes, so after a restart that song resumes
+local files left out. A song read over the playback session carries no
+availability flag, so if it cannot play it is skipped when reached instead.
+**Next up** is that list. While one of a release's songs is the current song,
+its play button pauses and resumes that song where it is, as the player bar
+does, instead of starting the release over. The page's list is not kept
+when Spotifast closes, so after a restart that song resumes
 without the rest of the page. A song on
 two releases starts from the copy that was chosen. The list begins with the chosen release's
 first song, so **Previous** steps back within it, and Shuffle and Repeat keep
@@ -73,10 +75,11 @@ player bar keeps the song from before, and Play or Pause there cancels the
 wait and acts on that song. What was playing goes on during the wait. If it
 comes within two seconds of its end, if the songs stop arriving for ten
 seconds once the chosen release is in, or after thirty seconds in all, or if
-the song lists stop (a rate limit, an exhausted quota, an expired sign-in, a
-network failure or a Spotify server error), the play starts with the songs
-that came, up to the first release that did not, and says the queue ends
-early. Starting before the old song ends keeps it from moving on to its next
+a Web API read stops the song lists (a rate limit, an exhausted quota, an
+expired sign-in, a network failure or a Spotify server error), the play
+starts with the songs that came, up to the first release that did not, and
+says the queue ends early. Starting before the old song ends keeps it from
+moving on to its next
 song, perhaps one of yours under **Playing next**, which the play would then
 cut off, so the play starts then even if the chosen release's own songs have
 not come. A song on Repeat one starts over instead, and the wait goes on.

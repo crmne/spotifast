@@ -1,6 +1,6 @@
 //! UI state, loaded data, and pending actions.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -976,14 +976,22 @@ pub struct ArtistPage {
 /// What the discography page knows of one release's songs.
 #[derive(Debug)]
 pub enum ReleaseTracks {
-    /// Asked for. Pages arrive in album order, and the songs show only once
-    /// every page has, so a play never starts from half a release. `next`
-    /// is the offset of the page on its way, and `asked` when it was asked
-    /// for: an answer that has not come long after is taken as lost, and
-    /// the release is asked for again.
+    /// Asked for from the Web API, a page of 50 at a time. Pages arrive in
+    /// album order, and the songs show only once every page has, so a play
+    /// never starts from half a release. `next` is the offset of the page on
+    /// its way, and `asked` when it was asked for: an answer that has not
+    /// come long after is taken as lost, and the release is asked for again.
     Loading {
         songs: Vec<Track>,
         next: u32,
+        asked: Instant,
+    },
+    /// Asked for over the playback session together with the other releases
+    /// of batch `batch`, at `asked`. The songs arrive whole, in one answer
+    /// for the batch; one that has not come long after is taken as lost, and
+    /// the releases are asked for again.
+    Batched {
+        batch: u64,
         asked: Instant,
     },
     Loaded(Vec<Track>),
@@ -1000,7 +1008,16 @@ impl ReleaseTracks {
 
     /// Loaded or given up on: a play waits for neither.
     pub fn resolved(&self) -> bool {
-        !matches!(self, Self::Loading { .. })
+        !matches!(self, Self::Loading { .. } | Self::Batched { .. })
+    }
+
+    /// The session batch the release was asked for in, while its answer is
+    /// on its way.
+    pub fn batch(&self) -> Option<u64> {
+        match self {
+            Self::Batched { batch, .. } => Some(*batch),
+            _ => None,
+        }
     }
 }
 
@@ -1100,6 +1117,13 @@ pub struct DiscographyPage {
     pub in_view: Option<(usize, usize)>,
     /// The artist has been asked for, to name a page opened without it.
     pub artist_requested: bool,
+    /// Releases the playback session listed no songs for, or fewer than
+    /// they have, as when Spotify no longer has them or withholds them.
+    /// Their songs come from the Web API, which says whether the release is
+    /// gone and keeps each song's place, for as long as the page lasts.
+    pub web_api_only: HashSet<String>,
+    /// The number of the last session batch of song lists this page sent.
+    batches: u64,
     /// The current filter's order, kept by [`Self::keep_order`] for as long
     /// as the list, the filter and the order stay as they were.
     order: Option<ReleaseOrder>,
@@ -1138,8 +1162,17 @@ impl DiscographyPage {
             halted: None,
             in_view: None,
             artist_requested: false,
+            web_api_only: HashSet::new(),
+            batches: 0,
             order: None,
         }
+    }
+
+    /// A number for the next session batch of song lists, unique within
+    /// this page; the first is 1. The page's generation tells pages apart.
+    pub fn new_batch(&mut self) -> u64 {
+        self.batches = self.batches.wrapping_add(1);
+        self.batches
     }
 
     /// The current filter's release list, when it has been asked for.
@@ -2216,6 +2249,30 @@ mod discography_tests {
         lists.retain(|_, tracks| tracks.resolved());
         assert!(moved(&lists), "a list let go");
         assert!(lists.is_empty());
+    }
+
+    /// A release asked for in a session batch is waited for as one being
+    /// read from the Web API, and knows its batch; each page numbers its
+    /// batches from 1.
+    #[test]
+    fn a_release_in_a_session_batch_waits_like_one_being_read() {
+        let batched = ReleaseTracks::Batched {
+            batch: 3,
+            asked: Instant::now(),
+        };
+        assert!(!batched.resolved());
+        assert!(batched.songs().is_none());
+        assert_eq!(batched.batch(), Some(3));
+        let loading = ReleaseTracks::Loading {
+            songs: Vec::new(),
+            next: 0,
+            asked: Instant::now(),
+        };
+        assert_eq!(loading.batch(), None);
+        assert_eq!(ReleaseTracks::Loaded(Vec::new()).batch(), None);
+        let mut page = DiscographyPage::new(1, None, DiscographyFilter::All);
+        assert_eq!(page.new_batch(), 1);
+        assert_eq!(page.new_batch(), 2);
     }
 
     #[test]

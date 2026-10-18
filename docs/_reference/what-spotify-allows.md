@@ -122,6 +122,13 @@ clients. Spotifast uses its session for:
   When it fails, the Web API's followed artists and their latest albums and
   singles stand in, for up to 50 artists. The songs on the New releases page
   come from two batched metadata reads over the session.
+- **Artist discography songs.** The songs on an artist's discography page
+  come from the same two batched metadata reads as the New releases page, up
+  to 50 releases at a time. A release the session lists no songs for, or
+  fewer than it has, and every release while the session cannot answer,
+  comes from the Web API's album tracks instead. These songs carry no
+  per-market availability flag: one that cannot play is skipped when
+  reached.
 - **Hide in this playlist** for songs in Spotify's own playlists, such as
   Discover Weekly and the other mixes made for you, through the session's
   collection service: the account's `playcontextbans` set, one item per
