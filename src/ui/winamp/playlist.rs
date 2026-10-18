@@ -270,7 +270,7 @@ fn rows_visible(height: u32) -> usize {
 }
 
 /// What is playing, then the queue, numbered the way Winamp numbered a
-/// playlist. The queue's URIs come along for playing from a row.
+/// playlist. The queue's URIs that Save list keeps come along.
 fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
     let queue = app.queue.get();
     let ids = |item: &PlayableItem| match item {
@@ -330,7 +330,11 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
             artist_id,
         });
     }
-    let uris = queued.iter().map(|item| item.uri().to_string()).collect();
+    let uris = app
+        .saved_queue_rows()
+        .iter()
+        .map(|item| item.uri().to_string())
+        .collect();
     (rows, uris)
 }
 
@@ -1025,6 +1029,120 @@ mod tests {
         );
         assert!(rows[1].label.starts_with("2. "), "{}", rows[1].label);
         assert_eq!(rows.len(), app.queue.get().unwrap().queue.len());
+        app.backend.shutdown();
+    }
+
+    /// While a discography play waits, the fetched queue's Next up is still
+    /// the play before it, which the waiting play replaces: Save list keeps
+    /// the waiting song and the songs queued under Playing next. Pause
+    /// cancels the wait, and the old play's rows count again.
+    #[test]
+    fn save_list_leaves_out_the_old_next_up_while_a_discography_play_waits() {
+        use crate::app::AppOptions;
+        use crate::paths::AppDirs;
+        use crate::settings::Settings;
+        use egui::accesskit::{Action as Access, ActionRequest, Role, TreeId};
+
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-winamp-waiting-save-{}",
+            std::process::id()
+        ));
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let waker = crate::backend::Waker::default();
+        let mut app = App::new(
+            &waker,
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        crate::demo::populate(&mut app);
+        // trk1 heads the queue as a song queued here; the rest is the
+        // playing release's Next up.
+        app.manual_queue = vec!["spotify:track:trk1".into()];
+        let (first, later) = {
+            let ordered = app.discography_pages["art0"].ordered();
+            (ordered[0].id.clone(), ordered[1].id.clone())
+        };
+        app.discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .remove(&later);
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Discography {
+                    artist_id: "art0".into(),
+                    album_id: first,
+                },
+                uri: "spotify:track:trk3".into(),
+                index: 3,
+            },
+            &ctx,
+        );
+        assert_eq!(app.waiting_discography_song(), Some("spotify:track:trk3"));
+
+        let save = |app: &mut App| {
+            let now = app.now_playing();
+            let (rows, queue_uris) = rows(app, now.as_ref());
+            let frame = |app: &mut App, events| {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| list_menu(app, ui, &rows, &queue_uris),
+                );
+                output.textures_delta.clear();
+                output.platform_output.accesskit_update.unwrap()
+            };
+            let tree = frame(app, vec![]);
+            let button = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some("Save list") && node.role() == Role::Button)
+                .unwrap()
+                .0;
+            app.actions.clear();
+            frame(
+                app,
+                vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                    target_tree: TreeId::ROOT,
+                    target_node: button,
+                    action: Access::Click,
+                    data: None,
+                })],
+            );
+            match app.actions.as_slice() {
+                [Action::CreatePlaylist { add_uris, .. }] => add_uris.clone(),
+                actions => panic!("{actions:?}"),
+            }
+        };
+        assert_eq!(
+            save(&mut app),
+            ["spotify:track:trk3", "spotify:track:trk1"],
+            "the old Next up is left out"
+        );
+        app.apply(Action::TogglePlay, &ctx);
+        assert_eq!(app.waiting_discography_song(), None);
+        let queue = app.queue.get().unwrap();
+        let full: Vec<String> = queue
+            .currently_playing
+            .iter()
+            .chain(&queue.queue)
+            .map(|item| item.uri().to_string())
+            .collect();
+        assert_eq!(full[..2], ["spotify:track:trk0", "spotify:track:trk1"]);
+        assert_eq!(save(&mut app), full, "the old play's rows count again");
         app.backend.shutdown();
     }
 }

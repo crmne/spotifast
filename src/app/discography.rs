@@ -2380,6 +2380,82 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// While a play waits, the fetched queue still lists the album playing
+    /// before the click, whose next songs the waiting play replaces. A
+    /// queue saved meanwhile holds the waiting song and the songs the user
+    /// queued, which stay ahead of the play.
+    #[test]
+    fn a_queue_saved_while_a_play_waits_leaves_out_the_old_next_up() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-save-queue");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:o1".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = Loadable::Loaded(Queue {
+            currently_playing: Some(PlayableItem::Track(song("o1"))),
+            queue: ["x", "o2", "o3"]
+                .iter()
+                .map(|id| PlayableItem::Track(song(id)))
+                .collect(),
+        });
+        app.manual_queue = uris(&["x"]);
+        waiting_play(&mut app, &ctx);
+        assert_eq!(app.queue_playlist_uris(), uris(&["c1", "x"]));
+        let saved: Vec<String> = app
+            .saved_queue_rows()
+            .iter()
+            .map(|item| item.uri().to_string())
+            .collect();
+        assert_eq!(saved, uris(&["x"]), "Winamp's Save list keeps these");
+        app.apply(Action::SaveQueueAsPlaylist, &ctx);
+        assert!(
+            app.actions.iter().any(|action| matches!(
+                action,
+                Action::CreatePlaylist { add_uris, public: false, .. }
+                    if *add_uris == uris(&["c1", "x"])
+            )),
+            "{:?}",
+            app.actions
+        );
+        assert!(
+            app.pending_discography_play.is_some(),
+            "saving leaves the play waiting"
+        );
+        // Pause cancels the wait: the old album plays on, and its next
+        // songs count again.
+        app.apply(Action::TogglePlay, &ctx);
+        assert!(app.pending_discography_play.is_none());
+        assert_eq!(app.queue_playlist_uris(), uris(&["o1", "x", "o2", "o3"]));
+        app.backend.shutdown();
+    }
+
+    /// Right after launch, the queue on show is the last session's, its
+    /// Playing next the songs queued then. Those come back only when the
+    /// remembered song resumes, so a queue saved while a play of another
+    /// song waits leaves them out.
+    #[test]
+    fn a_queue_saved_while_a_play_waits_after_launch_keeps_the_last_queue_for_its_song_only() {
+        let ctx = egui::Context::default();
+        for (remembered, saved) in [("o1", uris(&["c1"])), ("c1", uris(&["c1", "q1", "q2"]))] {
+            let mut app = app("wait-save-restored-queue");
+            app.resume_track = Some(format!("spotify:track:{remembered}"));
+            app.resume_queue = uris(&["q1", "q2"]);
+            app.queue = Loadable::Loaded(Queue {
+                currently_playing: None,
+                queue: ["q1", "q2", "o2"]
+                    .iter()
+                    .map(|id| PlayableItem::Track(song(id)))
+                    .collect(),
+            });
+            waiting_play(&mut app, &ctx);
+            assert_eq!(app.waiting_discography_song(), Some("spotify:track:c1"));
+            assert_eq!(app.queue_playlist_uris(), saved, "remembered {remembered}");
+            app.backend.shutdown();
+        }
+    }
+
     /// Lyrics opened while a play waits are the waiting song's, as the bar
     /// shows it. Pause cancels the wait, and the bar and the lyrics go back
     /// to the song still playing.

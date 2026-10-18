@@ -7693,15 +7693,41 @@ impl App {
         self.toast(gettext(self.locale, "Queue cleared"));
     }
 
+    /// The queue rows that follow the playing song into a saved playlist.
+    /// While a discography play waits with its song shown, the fetched
+    /// queue's Next up still belongs to the play before it, which the
+    /// waiting play replaces; only the songs queued under Playing next stay
+    /// ahead. Right after launch, the last session's Playing next comes
+    /// back only with the remembered song resuming here, so a play of any
+    /// other song leaves it out too.
+    pub fn saved_queue_rows(&self) -> &[PlayableItem] {
+        let rows = self
+            .queue
+            .get()
+            .map_or(&[][..], |queue| queue.queue.as_slice());
+        let Some(waiting) = self.waiting_discography_song() else {
+            return rows;
+        };
+        let manual = if self.manual_queue.is_empty()
+            && self.resume_only()
+            && self.resume_track.as_deref() == Some(waiting)
+            && matches!(self.target(), Target::Local)
+        {
+            &self.resume_queue
+        } else {
+            &self.manual_queue
+        };
+        &rows[..Self::end_of_queued_rows(rows, manual)]
+    }
+
     /// Current and upcoming track URIs, deduplicated in playback order.
     pub fn queue_playlist_uris(&self) -> Vec<String> {
         let mut seen = std::collections::HashSet::new();
         let mut uris = Vec::new();
-        let queued = self.queue.get();
         let rows = self.now_playing().map(|now| now.uri).into_iter().chain(
-            queued
+            self.saved_queue_rows()
                 .iter()
-                .flat_map(|queue| queue.queue.iter().map(|item| item.uri().to_string())),
+                .map(|item| item.uri().to_string()),
         );
         for uri in rows {
             if seen.insert(uri.clone()) {
