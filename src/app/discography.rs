@@ -2190,6 +2190,107 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The song still playing while a play waits can give way to the next
+    /// one. That song is the point to resume from, in the playlist it plays
+    /// from, though only the waiting song is lit meanwhile.
+    #[test]
+    fn a_song_change_during_a_wait_resumes_in_the_playlist_still_playing() {
+        // The playlist started just now, or long before the click.
+        for (index, started) in [
+            Duration::ZERO,
+            ASSUMED_CONTEXT_HOLD + Duration::from_secs(1),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let ctx = egui::Context::default();
+            let mut app = app(&format!("wait-song-change-{index}"));
+            app.assumed_context = Some(AssumedContext {
+                uri: "spotify:playlist:p".into(),
+                shuffle: None,
+                at: Instant::now() - started,
+            });
+            let mut playing = app.local.clone();
+            playing.playback = Playback::Playing;
+            playing.track = Some(crate::player::LocalTrack {
+                uri: "spotify:track:x".into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            });
+            playing.track_sequence += 1;
+            app.handle_local(playing);
+            waiting_play(&mut app, &ctx);
+            // Skipped from another device, say: the playlist moves on.
+            let mut next = app.local.clone();
+            next.track = Some(crate::player::LocalTrack {
+                uri: "spotify:track:z".into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            });
+            next.track_sequence += 1;
+            app.handle_local(next);
+            assert!(
+                app.pending_discography_play.is_some(),
+                "the play still waits"
+            );
+            assert_eq!(
+                app.playing_context_uri(),
+                None,
+                "nothing else is lit meanwhile"
+            );
+            app.save_session();
+            assert_eq!(app.resume_context.as_deref(), Some("spotify:playlist:p"));
+            assert_eq!(app.resume_track.as_deref(), Some("spotify:track:z"));
+            assert_eq!(app.resume_position_ms, 0);
+            app.backend.shutdown();
+        }
+    }
+
+    /// The same on a phone: a poll that finds the phone's playlist moved on
+    /// makes its new song the point to resume from, in that playlist.
+    #[test]
+    fn a_song_change_on_a_phone_during_a_wait_resumes_in_its_playlist() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-song-change-phone");
+        let phone = |song_id: &str| PlaybackState {
+            device: Some(Device {
+                id: Some("phone".into()),
+                name: "Galaxy S23".into(),
+                kind: "Smartphone".into(),
+                ..Default::default()
+            }),
+            context: Some(crate::api::models::Context {
+                uri: "spotify:playlist:p".into(),
+                ..Default::default()
+            }),
+            is_playing: true,
+            item: Some(PlayableItem::Track(song(song_id))),
+            ..Default::default()
+        };
+        app.remote = Some(RemoteSnapshot {
+            state: phone("x"),
+            received_at: Instant::now(),
+        });
+        waiting_play(&mut app, &ctx);
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: app.remote_poll_seq,
+            result: Ok(Some(phone("z"))),
+        });
+        assert!(
+            app.pending_discography_play.is_some(),
+            "the play still waits"
+        );
+        assert_eq!(
+            app.playing_context_uri(),
+            None,
+            "nothing else is lit meanwhile"
+        );
+        app.save_session();
+        assert_eq!(app.resume_context.as_deref(), Some("spotify:playlist:p"));
+        assert_eq!(app.resume_track.as_deref(), Some("spotify:track:z"));
+        app.backend.shutdown();
+    }
+
     /// What played before the click goes on during the wait. If it ended
     /// first, the old play would start the song the user queued next, and
     /// the start would then cut that song off.
