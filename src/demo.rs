@@ -2540,6 +2540,88 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A release whose song is paused resumes it where it was, as the song's
+    /// number and the player bar do, instead of starting the page over from
+    /// the release's first song.
+    #[test]
+    fn a_discography_releases_play_button_resumes_its_paused_song() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("discography-resume");
+        // The page's own play, a plain list with no context, paused on
+        // Fragments' fourth song: any of the release's songs, not only its
+        // first, makes it the current release.
+        let song = app.discography_pages["art0"].tracks["alb0"]
+            .songs()
+            .expect("Fragments' songs")[3]
+            .clone();
+        let state = &mut app.remote.as_mut().unwrap().state;
+        state.is_playing = false;
+        state.context = None;
+        state.item = Some(PlayableItem::Track(song));
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play Fragments", Role::Button);
+        app.backend.take_remote_play_requests();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, Action::Click, None)],
+        );
+        let requests = app.backend.take_remote_play_requests();
+        assert!(
+            matches!(
+                requests.as_slice(),
+                [crate::backend::ApiRequest::Remote {
+                    action: crate::backend::RemoteAction::Play,
+                    play: None,
+                    ..
+                }]
+            ),
+            "a resume of the paused song, not a new list: {requests:?}"
+        );
+        // The button shows the result at once.
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Pause Fragments", Role::Button);
+        app.backend.shutdown();
+    }
+
+    /// While a song is paused, a release that does not hold it still plays
+    /// the page from its own first song rather than resuming that song.
+    #[test]
+    fn another_discography_release_plays_from_its_first_song_after_a_pause() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("discography-other-release");
+        // The demo plays Rosewood, the first song of Fragments; pause it.
+        app.remote.as_mut().unwrap().state.is_playing = false;
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play Promises", Role::Button);
+        app.backend.take_remote_play_requests();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, Action::Click, None)],
+        );
+        let requests = app.backend.take_remote_play_requests();
+        let [
+            crate::backend::ApiRequest::Remote {
+                play: Some(request),
+                ..
+            },
+        ] = requests.as_slice()
+        else {
+            panic!("a new list from Promises, not a resume: {requests:?}");
+        };
+        assert_eq!(
+            request.uris.first().map(String::as_str),
+            Some("spotify:track:trk20"),
+            "the list starts at Promises' first song"
+        );
+        app.backend.shutdown();
+    }
+
     /// Offline, the releases already there stay readable, and a list still
     /// to come says the page is waiting for the network rather than loading.
     #[test]

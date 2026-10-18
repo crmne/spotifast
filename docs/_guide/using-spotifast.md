@@ -814,8 +814,10 @@ of the same album.
 Double-click a song, or click its number, to play the page from that song to
 the last song of the last release shown. **Next up** follows the page: the
 rest of that release, then each release below it, songs in album order. A
-release's play button does the same from its first song. Unavailable songs and
-local files are left out, and one play holds at most 500 songs. If the songs
+release's play button does the same from its first song; while one of its
+songs is the current song, playing or paused, the button pauses or resumes it
+instead. Unavailable songs and local files are left out, and one play holds
+at most 500 songs. If the songs
 below the one you chose are still loading, the song shows as starting and
 the play waits for them; **Pause** cancels it. **Play** in a release's **…**
 menu plays only that release.
