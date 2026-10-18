@@ -1778,6 +1778,147 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Until the clicked release's songs arrive the play has no song to show,
+    /// so the player bar still shows the paused song with its Play button:
+    /// Play cancels the wait and resumes that song, as the button promises.
+    #[test]
+    fn play_before_a_release_play_shows_a_song_resumes_the_paused_one() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-unshown-play");
+        app.resume_track = Some("spotify:track:x".into());
+        app.resume_context = Some("spotify:playlist:p".into());
+        app.resume_position_ms = 83_000;
+        app.cache_song(song("x"));
+        open(&mut app, &ctx, three_releases());
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        assert!(
+            app.pending_discography_play
+                .as_ref()
+                .is_some_and(|play| play.shown.is_none()),
+            "the release's songs have not arrived"
+        );
+        let bar = app.now_playing().expect("the paused song");
+        assert_eq!(bar.uri, "spotify:track:x");
+        assert!(!bar.playing && !app.believed_playing());
+        app.apply(Action::TogglePlay, &ctx);
+        assert!(
+            app.pending_discography_play.is_none(),
+            "the wait is cancelled"
+        );
+        let request = app.queued_play.as_ref().expect("the paused song resumes");
+        assert_eq!(request.context_uri.as_deref(), Some("spotify:playlist:p"));
+        assert_eq!(request.offset_uri.as_deref(), Some("spotify:track:x"));
+        assert_eq!(request.position_ms, 83_000);
+        load_all(&mut app);
+        assert_eq!(
+            app.queued_play
+                .as_ref()
+                .and_then(|request| request.offset_uri.as_deref()),
+            Some("spotify:track:x"),
+            "the cancelled release play never starts"
+        );
+        app.backend.shutdown();
+    }
+
+    /// The same for a song paused on a phone: Play resumes it there, and the
+    /// release does not start over it once its songs arrive.
+    #[test]
+    fn play_before_a_release_play_shows_a_song_resumes_it_on_its_device() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-unshown-play-phone");
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(Device {
+                    id: Some("phone".into()),
+                    name: "Galaxy S23".into(),
+                    kind: "Smartphone".into(),
+                    ..Default::default()
+                }),
+                is_playing: false,
+                item: Some(PlayableItem::Track(song("x"))),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        assert_eq!(app.target(), Target::Remote(Some("phone".into())));
+        open(&mut app, &ctx, three_releases());
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        assert!(
+            app.pending_discography_play
+                .as_ref()
+                .is_some_and(|play| play.shown.is_none()),
+            "the release's songs have not arrived"
+        );
+        app.apply(Action::TogglePlay, &ctx);
+        assert!(
+            app.pending_discography_play.is_none(),
+            "the wait is cancelled"
+        );
+        let requests = app.backend.take_remote_play_requests();
+        assert!(
+            matches!(
+                &requests[..],
+                [ApiRequest::Remote {
+                    action: RemoteAction::Play,
+                    device_id: Some(device),
+                    play: None,
+                    ..
+                }] if device == "phone"
+            ),
+            "the phone resumes its song: {requests:?}"
+        );
+        load_all(&mut app);
+        assert!(
+            app.backend.take_remote_play_requests().is_empty() && app.queued_play.is_none(),
+            "the cancelled release play never starts"
+        );
+        app.backend.shutdown();
+    }
+
+    /// With no song from before either, the bar is empty and the release is
+    /// the only play Play can mean: the wait goes on and the release starts.
+    #[test]
+    fn play_with_nothing_before_a_release_play_shows_a_song_lets_it_come() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-unshown-play-empty");
+        open(&mut app, &ctx, three_releases());
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        assert!(app.now_playing().is_none(), "the bar has no song");
+        app.apply(Action::TogglePlay, &ctx);
+        assert!(
+            app.pending_discography_play.is_some(),
+            "the release still waits for its songs"
+        );
+        assert!(app.toasts.is_empty(), "nothing asks to pick something");
+        load_all(&mut app);
+        assert_eq!(
+            played(&app),
+            (uris(&["c1", "c2", "b1", "b2", "b3", "a1", "a2"]), Some(0))
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn a_rate_limit_during_a_wait_plays_what_came_and_says_so() {
         let ctx = egui::Context::default();

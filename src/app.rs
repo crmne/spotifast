@@ -12707,19 +12707,26 @@ impl App {
         ) {
             self.supersede_play_search();
         }
-        if self.pending_discography_play.is_some() {
+        if let Some(play) = &self.pending_discography_play {
+            let shown = play.shown.is_some();
             match &action {
                 // Pause on a song still on its way stops it from starting,
                 // and stops whatever plays meanwhile instead of resuming it.
-                Action::TogglePlay => {
+                Action::TogglePlay if shown => {
                     self.abandon_discography_play();
                     if self.believed_playing() {
                         self.toggle_play();
                     }
                     return;
                 }
-                // Next, Previous or another device mean the user moved on.
-                Action::Next | Action::Previous | Action::Transfer(_) => {
+                // With no song from before either, the bar is empty and the
+                // release on its way is the only play Play can mean.
+                Action::TogglePlay if self.now_playing().is_none() => return,
+                // Next, Previous or another device mean the user moved on,
+                // and so does Play or Pause before the play has a song to
+                // show: the bar still shows the song from before, and the
+                // press is for that one.
+                Action::TogglePlay | Action::Next | Action::Previous | Action::Transfer(_) => {
                     self.abandon_discography_play();
                 }
                 _ => {}

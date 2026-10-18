@@ -819,8 +819,10 @@ songs is the current song, playing or paused, the button pauses or resumes it
 instead. Unavailable songs and local files are left out, and one play holds
 at most 500 songs. If the songs
 below the one you chose are still loading, the song shows as starting and
-the play waits for them; **Pause** cancels it. **Play** in a release's **…**
-menu plays only that release.
+the play waits for them; **Pause** cancels it. Until a release's own songs
+arrive there is no song to show yet, so the player bar keeps the song from
+before, and **Play** or **Pause** there cancels the release and acts on that
+song. **Play** in a release's **…** menu plays only that release.
 
 Songs on this page have their usual menu, liked hearts, and drag and drop.
 Tab moves between songs; the arrow-key and selection shortcuts of playlist
