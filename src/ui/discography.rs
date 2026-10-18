@@ -2,6 +2,8 @@
 //! oldest first, opened by Show all on the artist page. A song played here
 //! plays the page from that song to its end.
 
+use std::sync::Arc;
+
 use egui::{Align, Id, Layout, Rect, Sense, UiBuilder, vec2};
 
 use crate::api::models::{Album, PlayableItem, pick_image};
@@ -57,10 +59,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, artist_id: &str) {
     let title = app
         .discography_title(artist_id)
         .unwrap_or_else(|| gettext(app.locale, "Discography").into_owned());
-    let Some(page) = app.discography_pages.remove(artist_id) else {
+    let Some(mut page) = app.discography_pages.remove(artist_id) else {
         widgets::skeleton_rows(ui, &app.palette, app.locale, 8);
         return;
     };
+    // Sorted once per change, not on every repaint of a long discography.
+    page.keep_order();
     draw(app, ui, artist_id, &page, &title);
     app.discography_pages.insert(artist_id.to_string(), page);
 }
@@ -114,27 +118,20 @@ fn draw(app: &mut App, ui: &mut egui::Ui, artist_id: &str, page: &DiscographyPag
     } else {
         theme::ROW_HEIGHT
     };
-    let mut lines = Vec::new();
-    for (index, album) in releases.iter().enumerate() {
-        lines.push((Line::Heading(index), HEADER_HEIGHT));
-        match page.tracks.get(&album.id).and_then(ReleaseTracks::songs) {
-            Some(songs) => {
-                if !songs.is_empty() {
-                    lines.push((Line::Columns(index), COLUMNS_HEIGHT));
-                }
-                lines.extend((0..songs.len()).map(|row| (Line::Song(index, row), song_height)));
-            }
-            // Hold the room the songs will take, whether they are on their
-            // way, failed or stopped, so nothing above the view moves what
-            // the user is reading.
-            None => {
-                lines.push((Line::Columns(index), COLUMNS_HEIGHT));
-                let count = album.total_tracks.unwrap_or(1).max(1) as usize;
-                lines.extend((0..count).map(|row| (Line::Reserved(index, row), song_height)));
-            }
-        }
-        lines.push((Line::Gap(index), RELEASE_GAP));
-    }
+    let laid_out = page_lines(
+        ui.ctx(),
+        LinesKey {
+            artist_id: artist_id.to_string(),
+            generation: page.generation,
+            filter: page.filter,
+            newest_first: page.newest_first,
+            releases: (list.revision, list.items.len()),
+            songs: page.tracks.revision(),
+            song_height,
+        },
+        || release_lines(page, &releases, song_height),
+    );
+    let (lines, tops) = (&laid_out.lines, &laid_out.tops);
     let thin = app.settings.tracklist_compact;
     // Lines keep their ids by artist, release and row, never by position, so
     // focus and open menus stay with their song as the page scrolls and as
@@ -163,7 +160,7 @@ fn draw(app: &mut App, ui: &mut egui::Ui, artist_id: &str, page: &DiscographyPag
         }
         Line::Columns(_) | Line::Reserved(..) | Line::Gap(_) => false,
     };
-    let on_screen = measured_lines(ui, &lines, key, focusable, |ui, line| match line {
+    let on_screen = measured_lines(ui, lines, tops, key, focusable, |ui, line| match line {
         Line::Heading(index) => release_heading(app, ui, artist_id, page, releases[index]),
         Line::Columns(_) => columns(ui, app),
         Line::Song(index, row) => {
@@ -256,7 +253,7 @@ fn draw(app: &mut App, ui: &mut egui::Ui, artist_id: &str, page: &DiscographyPag
     // Tell the app which releases are on screen, when that changes, so
     // their songs load first.
     if let Some(range) = on_screen {
-        let shown = releases_on_screen(&lines, range);
+        let shown = releases_on_screen(lines, range);
         if page.in_view != Some(shown) {
             app.actions.push(Action::DiscographyInView {
                 artist_id: artist_id.to_string(),
@@ -639,20 +636,117 @@ fn retry_row(ui: &mut egui::Ui, app: &mut App, message: &str, retry: Action) {
     });
 }
 
+/// What a discography's lines are laid out from.
+#[derive(PartialEq)]
+struct LinesKey {
+    artist_id: String,
+    generation: u64,
+    filter: DiscographyFilter,
+    newest_first: bool,
+    /// The release list's revision and length, as for the order it keeps.
+    releases: (u64, usize),
+    /// The revision of the releases' songs.
+    songs: u64,
+    song_height: f32,
+}
+
+/// A discography's lines, kept from one frame to the next.
+pub(crate) struct PageLines {
+    key: LinesKey,
+    lines: Vec<(Line, f32)>,
+    /// Where each line starts below the first one's top, then where the
+    /// last one ends.
+    tops: Vec<f32>,
+}
+
+/// The lines of the discography shown, laid out again only when the
+/// releases, their order, their songs or the height of a song change, so
+/// a long discography is not laid out over on every repaint. One page's
+/// lines are kept at a time.
+fn page_lines(
+    ctx: &egui::Context,
+    key: LinesKey,
+    lay_out: impl FnOnce() -> Vec<(Line, f32)>,
+) -> Arc<PageLines> {
+    if let Some(kept) = kept_lines(ctx).filter(|kept| kept.key == key) {
+        return kept;
+    }
+    let lines = lay_out();
+    let tops = line_tops(lines.iter().map(|(_, height)| *height));
+    let laid_out = Arc::new(PageLines { key, lines, tops });
+    ctx.data_mut(|data| data.insert_temp(lines_id(), Arc::clone(&laid_out)));
+    laid_out
+}
+
+fn lines_id() -> Id {
+    Id::new("discography-lines")
+}
+
+/// The lines kept for the discography shown last.
+pub(crate) fn kept_lines(ctx: &egui::Context) -> Option<Arc<PageLines>> {
+    ctx.data(|data| data.get_temp::<Arc<PageLines>>(lines_id()))
+}
+
+/// Every release's heading, its songs or the room they will take, and the
+/// space after it, in the order shown.
+fn release_lines(
+    page: &DiscographyPage,
+    releases: &[&Album],
+    song_height: f32,
+) -> Vec<(Line, f32)> {
+    let mut lines = Vec::new();
+    for (index, album) in releases.iter().enumerate() {
+        lines.push((Line::Heading(index), HEADER_HEIGHT));
+        match page.tracks.get(&album.id).and_then(ReleaseTracks::songs) {
+            Some(songs) => {
+                if !songs.is_empty() {
+                    lines.push((Line::Columns(index), COLUMNS_HEIGHT));
+                }
+                lines.extend((0..songs.len()).map(|row| (Line::Song(index, row), song_height)));
+            }
+            // Hold the room the songs will take, whether they are on their
+            // way, failed or stopped, so nothing above the view moves what
+            // the user is reading.
+            None => {
+                lines.push((Line::Columns(index), COLUMNS_HEIGHT));
+                let count = album.total_tracks.unwrap_or(1).max(1) as usize;
+                lines.extend((0..count).map(|row| (Line::Reserved(index, row), song_height)));
+            }
+        }
+        lines.push((Line::Gap(index), RELEASE_GAP));
+    }
+    lines
+}
+
+/// Where lines of the given heights start below the first one's top, then
+/// where the last one ends.
+fn line_tops(heights: impl IntoIterator<Item = f32>) -> Vec<f32> {
+    let mut top = 0.0;
+    let mut tops = vec![top];
+    for height in heights {
+        top += height;
+        tops.push(top);
+    }
+    tops
+}
+
 /// Lays out only the lines that meet the visible part of the enclosing
 /// scroll view, plus one neighbour on either side so Tab can reach it and
 /// scroll it in. Every line takes exactly its given height, so the lines
-/// skipped above and below are stood in for by empty space. Each drawn line
+/// skipped above and below are stood in for by empty space. `tops` holds
+/// where each line starts, as [`line_tops`] works it out. Each drawn line
 /// gets the id `key` names, independent of what was drawn before it.
 /// Returns the first and last line on screen, if any; the neighbours drawn
 /// only for Tab are not among them.
 fn measured_lines(
     ui: &mut egui::Ui,
     lines: &[(Line, f32)],
+    tops: &[f32],
     key: impl Fn(Line) -> Id,
     focusable: impl Fn(Line) -> bool,
     mut draw: impl FnMut(&mut egui::Ui, Line),
 ) -> Option<(usize, usize)> {
+    debug_assert_eq!(tops.len(), lines.len() + 1);
     if lines.is_empty() {
         return None;
     }
@@ -660,22 +754,11 @@ fn measured_lines(
     ui.spacing_mut().item_spacing.y = 0.0;
     let clip = ui.clip_rect();
     let width = ui.available_width();
-    let (shown, range) = visible_lines(
-        ui.cursor().top(),
-        lines.iter().map(|(_, height)| *height),
-        clip,
-    );
+    let (shown, range) = visible_lines(ui.cursor().top(), tops, clip);
     let range = reach_focusable(range, lines.len(), |index| focusable(lines[index].0));
-    let mut top = ui.cursor().top();
-    let mut tops = Vec::with_capacity(lines.len() + 1);
-    for (_, height) in lines {
-        tops.push(top);
-        top += height;
-    }
-    tops.push(top);
     let (first, last) = range;
     if first > 0 {
-        ui.allocate_space(vec2(width, tops[first] - tops[0]));
+        ui.allocate_space(vec2(width, tops[first]));
     }
     for (line, height) in &lines[first..last] {
         let (_, rect) = ui.allocate_space(vec2(width, *height));
@@ -725,29 +808,18 @@ fn reach_focusable(
 
 /// The lines that meet `clip`, then the lines to draw: those with one
 /// neighbour on either side so Tab can reach it. Both are half-open ranges
-/// for lines of the given heights laid out from `top`; the first is empty
-/// when no line meets `clip`.
-fn visible_lines(
-    top: f32,
-    heights: impl Iterator<Item = f32>,
-    clip: Rect,
-) -> ((usize, usize), (usize, usize)) {
-    let mut first = None;
-    let mut last = 0;
-    let mut y = top;
-    let mut count = 0;
-    for (index, height) in heights.enumerate() {
-        let bottom = y + height;
-        if first.is_none() && bottom > clip.top() {
-            first = Some(index);
-        }
-        if y < clip.bottom() {
-            last = index + 1;
-        }
-        y = bottom;
-        count = index + 1;
-    }
-    let first = first.unwrap_or(count);
+/// for lines laid out from `top`, starting where `tops` says; the first is
+/// empty when no line meets `clip`. Lines never overlap, so both ends are
+/// looked up rather than walked to.
+fn visible_lines(top: f32, tops: &[f32], clip: Rect) -> ((usize, usize), (usize, usize)) {
+    let count = tops.len().saturating_sub(1);
+    // The first line that ends below the top of the view, and the end of
+    // the lines that start above its bottom.
+    let first = tops
+        .get(1..)
+        .unwrap_or_default()
+        .partition_point(|&end| top + end <= clip.top());
+    let last = tops[..count].partition_point(|&start| top + start < clip.bottom());
     let shown = (first.min(last), last);
     let drawn_last = (last + 1).min(count);
     let drawn = (first.saturating_sub(1).min(drawn_last), drawn_last);
@@ -768,12 +840,12 @@ mod tests {
         // y 120 to 200, the 30 and the first two 56s.
         let heights = [100.0, 30.0, 56.0, 56.0, 56.0, 100.0];
         assert_eq!(
-            visible_lines(0.0, heights.into_iter(), clip(120.0, 200.0)),
+            visible_lines(0.0, &line_tops(heights), clip(120.0, 200.0)),
             ((1, 4), (0, 5))
         );
         // Scrolled to the end: the last line and the one before it.
         assert_eq!(
-            visible_lines(0.0, heights.into_iter(), clip(300.0, 398.0)),
+            visible_lines(0.0, &line_tops(heights), clip(300.0, 398.0)),
             ((5, 6), (4, 6))
         );
     }
@@ -782,7 +854,7 @@ mod tests {
     fn a_list_below_the_view_draws_only_its_first_line() {
         let heights = [56.0; 10];
         assert_eq!(
-            visible_lines(1000.0, heights.into_iter(), clip(0.0, 500.0)),
+            visible_lines(1000.0, &line_tops(heights), clip(0.0, 500.0)),
             ((0, 0), (0, 1))
         );
     }
@@ -791,7 +863,7 @@ mod tests {
     fn a_list_above_the_view_draws_only_its_last_line() {
         let heights = [56.0; 10];
         assert_eq!(
-            visible_lines(0.0, heights.into_iter(), clip(1000.0, 1500.0)),
+            visible_lines(0.0, &line_tops(heights), clip(1000.0, 1500.0)),
             ((10, 10), (9, 10))
         );
     }
@@ -814,9 +886,43 @@ mod tests {
     #[test]
     fn an_empty_list_draws_nothing() {
         assert_eq!(
-            visible_lines(0.0, std::iter::empty(), clip(0.0, 500.0)),
+            visible_lines(0.0, &line_tops([]), clip(0.0, 500.0)),
             ((0, 0), (0, 0))
         );
+    }
+
+    /// A long discography is laid out once for each change, not on every
+    /// repaint.
+    #[test]
+    fn a_discography_is_laid_out_again_only_when_its_lines_change() {
+        let ctx = egui::Context::default();
+        let key = |songs| LinesKey {
+            artist_id: "artist".into(),
+            generation: 1,
+            filter: DiscographyFilter::All,
+            newest_first: true,
+            releases: (1, 1),
+            songs,
+            song_height: theme::ROW_HEIGHT,
+        };
+        let laid_out = std::cell::Cell::new(0);
+        let lay_out = || {
+            laid_out.set(laid_out.get() + 1);
+            vec![
+                (Line::Heading(0), HEADER_HEIGHT),
+                (Line::Gap(0), RELEASE_GAP),
+            ]
+        };
+        let first = page_lines(&ctx, key(1), lay_out);
+        assert_eq!(
+            first.tops,
+            [0.0, HEADER_HEIGHT, HEADER_HEIGHT + RELEASE_GAP]
+        );
+        assert!(Arc::ptr_eq(&first, &page_lines(&ctx, key(1), lay_out)));
+        assert_eq!(laid_out.get(), 1);
+        // The release's songs came.
+        assert!(!Arc::ptr_eq(&first, &page_lines(&ctx, key(2), lay_out)));
+        assert_eq!(laid_out.get(), 2);
     }
 
     /// Focus, open menus and screen readers follow a song by its id, so the
@@ -825,6 +931,7 @@ mod tests {
     fn a_line_keeps_its_id_whatever_is_drawn_above_it() {
         let ctx = egui::Context::default();
         let lines: Vec<(Line, f32)> = (0..40).map(|row| (Line::Song(0, row), 56.0)).collect();
+        let tops = line_tops(lines.iter().map(|(_, height)| *height));
         let mut ids = Vec::new();
         let mut first_drawn = Vec::new();
         for offset in [300.0, 600.0] {
@@ -841,6 +948,7 @@ mod tests {
                             measured_lines(
                                 ui,
                                 &lines,
+                                &tops,
                                 |line| match line {
                                     Line::Song(_, row) => Id::new(("song", row)),
                                     _ => Id::new("other"),
@@ -882,6 +990,7 @@ mod tests {
             lines.extend((0..3).map(|row| (Line::Song(index, row), theme::ROW_HEIGHT)));
             lines.push((Line::Gap(index), RELEASE_GAP));
         }
+        let tops = line_tops(lines.iter().map(|(_, height)| *height));
         // Where the second release's heading starts.
         let second = HEADER_HEIGHT + COLUMNS_HEIGHT + 3.0 * theme::ROW_HEIGHT + RELEASE_GAP;
         // The first release on screen with the view scrolled to `offset`,
@@ -901,6 +1010,7 @@ mod tests {
                             let shown = measured_lines(
                                 ui,
                                 &lines,
+                                &tops,
                                 |line| {
                                     let (kind, row) = match line {
                                         Line::Heading(_) => ("heading", 0),

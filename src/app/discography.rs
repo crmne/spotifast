@@ -935,7 +935,7 @@ fn credited_name(page: &DiscographyPage, artist_id: &str) -> Option<String> {
 /// catalogue shifts between pages. Same-named versions all stay.
 fn dedupe_releases(list: &mut PagedList<Album>) {
     let mut seen = HashSet::new();
-    list.items.retain(|album| seen.insert(album.id.clone()));
+    list.retain(|album| seen.insert(album.id.clone()));
 }
 
 /// Whether Spotify can be asked to play the song, as for any track row.
