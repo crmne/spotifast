@@ -675,6 +675,13 @@ impl App {
         if play.shown.is_some() {
             request.position_ms = play.position_ms;
         }
+        // A speaker woken while the song showed as playing takes it over
+        // playing, even if waking the speaker stops the music here first.
+        if play.shown.is_some()
+            && (self.activating_receiver.is_some() || self.pending_transfer_to.is_some())
+        {
+            self.activating_play = true;
+        }
         // The playlist row an earlier play started from stops being the
         // marked copy now that this play starts, not at the click: a wait
         // that ends in nothing leaves it marked.
@@ -1909,21 +1916,86 @@ mod tests {
     }
 
     /// A speaker that had to be woken is switched to once it shows up,
-    /// without an Action, and that too means the user moved on.
+    /// without an Action, and that too means the user moved on. The song a
+    /// waiting play shows does not count as music playing when the speaker
+    /// is chosen: only what really played then, or plays when the speaker
+    /// appears, makes it play.
     #[test]
     fn a_speaker_woken_for_a_switch_cancels_a_waiting_play() {
         let ctx = egui::Context::default();
-        let mut app = app("woken-speaker");
-        waiting_play(&mut app, &ctx);
-        app.pending_transfer_to = Some(("Kitchen".into(), Instant::now()));
-        app.handle_api(ApiResponse::Devices(Ok(vec![crate::api::models::Device {
-            id: Some("kitchen".into()),
+        let speaker = crate::zeroconf::Receiver {
             name: "Kitchen".into(),
-            ..Default::default()
-        }])));
-        assert!(app.pending_transfer_to.is_none(), "the switch happened");
-        assert!(app.pending_discography_play.is_none());
-        app.backend.shutdown();
+            device_id: Some(crate::cast::device_id("Kitchen")),
+            address: "192.0.2.1".parse().unwrap(),
+            port: 8009,
+            path: "/".into(),
+            cast: true,
+        };
+        // Whether the song loaded here played when the speaker was chosen,
+        // whether the waiting play starts before the speaker appears (then
+        // it counts as music played when the speaker was chosen, even once
+        // waking the speaker stops it), and the play flag of the switch.
+        for (playing_at_pick, starts, play) in [
+            (false, false, false),
+            (true, false, true),
+            (false, true, true),
+        ] {
+            let mut app = app(&format!("woken-speaker-{playing_at_pick}-{starts}"));
+            app.local.track = Some(crate::player::LocalTrack {
+                uri: "spotify:track:x".into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            });
+            app.local.playback = if playing_at_pick {
+                Playback::Playing
+            } else {
+                Playback::Paused
+            };
+            waiting_play(&mut app, &ctx);
+            assert!(
+                app.now_playing()
+                    .is_some_and(|now| now.playing && now.uri == "spotify:track:c1"),
+                "the click shows as playing"
+            );
+            app.apply(Action::ActivateReceiver(Box::new(speaker.clone())), &ctx);
+            if starts {
+                // The play starts here while the speaker wakes and the player
+                // here takes it. The few seconds it shows as playing whatever
+                // the player says run out before the speaker appears.
+                songs_arrive(&mut app, "a", vec![song("a1")]);
+                assert!(app.pending_discography_play.is_none(), "the play started");
+                app.queued_play = None;
+                app.optimistic_playing = None;
+                app.local.track = Some(crate::player::LocalTrack {
+                    uri: "spotify:track:c1".into(),
+                    duration_ms: 200_000,
+                    ..Default::default()
+                });
+            }
+            // Waking the speaker can stop the music here.
+            app.local.playback = Playback::Paused;
+            app.handle_backend_events(vec![crate::backend::Event::ReceiverActivated {
+                name: speaker.name.clone(),
+                result: Ok(()),
+            }]);
+            app.handle_api(ApiResponse::Devices(Ok(vec![crate::api::models::Device {
+                id: speaker.device_id.clone(),
+                name: speaker.name.clone(),
+                ..Default::default()
+            }])));
+            assert!(app.pending_transfer_to.is_none(), "the switch happened");
+            assert!(app.pending_discography_play.is_none());
+            let transfers = app.backend.take_transfer_requests();
+            assert!(
+                matches!(
+                    transfers.as_slice(),
+                    [ApiRequest::Transfer { device_id, play: sent }]
+                        if Some(device_id) == speaker.device_id.as_ref() && *sent == play
+                ),
+                "{playing_at_pick} {starts}: {transfers:?}"
+            );
+            app.backend.shutdown();
+        }
     }
 
     #[test]
