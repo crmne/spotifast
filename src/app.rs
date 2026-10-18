@@ -230,6 +230,19 @@ pub struct NowPlaying {
     pub resuming: bool,
 }
 
+impl NowPlaying {
+    /// A preview names the song; the device playing now, and what it
+    /// allows, come from the live state.
+    fn take_device_from(&mut self, live: NowPlaying) {
+        self.device_name = live.device_name;
+        self.device_kind = live.device_kind;
+        self.repeat = live.repeat;
+        self.volume_percent = live.volume_percent;
+        self.can_control = live.can_control;
+        self.can_set_volume = live.can_set_volume;
+    }
+}
+
 /// What Soloist's state does to the window: see `App::soloist_view`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SoloistView {
@@ -2457,12 +2470,7 @@ impl App {
         now.loading = true;
         now.resuming = false;
         if let Some(actual) = actual {
-            now.device_name = actual.device_name;
-            now.device_kind = actual.device_kind;
-            now.repeat = actual.repeat;
-            now.volume_percent = actual.volume_percent;
-            now.can_control = actual.can_control;
-            now.can_set_volume = actual.can_set_volume;
+            now.take_device_from(actual);
         }
         Some(now)
     }

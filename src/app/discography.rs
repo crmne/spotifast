@@ -805,11 +805,7 @@ impl App {
         now.loading = false;
         now.resuming = false;
         if let Some(actual) = actual {
-            now.device_name = actual.device_name;
-            now.repeat = actual.repeat;
-            now.volume_percent = actual.volume_percent;
-            now.can_control = actual.can_control;
-            now.can_set_volume = actual.can_set_volume;
+            now.take_device_from(actual);
         }
         Some(now)
     }
@@ -2207,6 +2203,44 @@ mod tests {
         let request = app.queued_play.as_ref().expect("a play request");
         assert_eq!(request.uris, uris(&["c1", "c2", "b1", "a1"]));
         assert_eq!(request.position_ms, 52_000);
+        app.backend.shutdown();
+    }
+
+    /// A play waiting on another device keeps that device's icon: the
+    /// waiting song plays where the music plays now.
+    #[test]
+    fn a_play_waiting_on_a_phone_keeps_the_phone_icon() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-phone");
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(Device {
+                    id: Some("phone".into()),
+                    name: "Galaxy S23".into(),
+                    kind: "Smartphone".into(),
+                    ..Default::default()
+                }),
+                is_playing: true,
+                item: Some(PlayableItem::Track(song("x"))),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        assert_eq!(app.target(), Target::Remote(Some("phone".into())));
+        waiting_play(&mut app, &ctx);
+        let now = app.now_playing().expect("the waiting song");
+        assert_eq!(now.uri, "spotify:track:c1");
+        assert!(!now.local);
+        assert_eq!(now.device_name.as_deref(), Some("Galaxy S23"));
+        assert_eq!(
+            now.device_kind.as_deref(),
+            Some("Smartphone"),
+            "the phone's icon stays through the wait"
+        );
+        assert!(matches!(
+            crate::ui::devices::device_icon(now.device_kind.as_deref().unwrap()),
+            crate::theme::Icon::Smartphone
+        ));
         app.backend.shutdown();
     }
 
