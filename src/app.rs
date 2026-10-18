@@ -2114,6 +2114,13 @@ impl App {
         {
             return None;
         }
+        self.live_context_uri()
+    }
+
+    /// The context of what plays now, as `playing_context_uri` names it
+    /// before a waiting discography play hides it. The song that plays
+    /// meanwhile comes from it, so its resume point does too.
+    fn live_context_uri(&self) -> Option<String> {
         let remote = self
             .remote
             .as_ref()
@@ -4449,7 +4456,9 @@ impl App {
         if now.local {
             self.last_now_playing_sequence = self.local.track_sequence;
         }
-        self.resume_context = self.playing_context_uri();
+        // The song that changed is the live one, so its context is too,
+        // even while a waiting discography play lights none.
+        self.resume_context = self.live_context_uri();
         self.resume_track = Some(now.uri.clone());
         self.resume_position_ms = 0;
         if now.local
