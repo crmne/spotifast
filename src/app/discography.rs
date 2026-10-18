@@ -592,6 +592,7 @@ impl App {
             clicked: now,
             progress: now,
             position_ms: 0,
+            device: None,
         };
         // The newest click wins over a play held for a connecting engine.
         self.queued_play = None;
@@ -644,6 +645,7 @@ impl App {
             // The release's songs never came: play it as Spotify knows it.
             if let Some(uri) = album_uri.filter(|_| play.start.is_none()) {
                 self.played_row = None;
+                self.start_on = play.device.clone();
                 self.start_play(PlayRequest::context(uri), false);
             }
             return;
@@ -686,6 +688,8 @@ impl App {
         // marked copy now that this play starts, not at the click: a wait
         // that ends in nothing leaves it marked.
         self.played_row = None;
+        // A play kept for a woken speaker starts there.
+        self.start_on = play.device.clone();
         // The precedence was taken at the click.
         self.start_play(request, false);
     }
@@ -732,6 +736,20 @@ impl App {
             now.can_set_volume = actual.can_set_volume;
         }
         Some(now)
+    }
+
+    /// The player bar's song, except one a discography play only shows
+    /// while it waits: then what a device is actually playing.
+    pub(super) fn now_playing_heard(&self) -> Option<NowPlaying> {
+        if self
+            .pending_discography_play
+            .as_ref()
+            .is_some_and(|play| play.shown.is_some())
+        {
+            self.now_playing_live()
+        } else {
+            self.now_playing()
+        }
     }
 
     /// The current song, but for the one a waiting play shows: nothing was
@@ -1916,10 +1934,10 @@ mod tests {
     }
 
     /// A speaker that had to be woken is switched to once it shows up,
-    /// without an Action, and that too means the user moved on. The song a
-    /// waiting play shows does not count as music playing when the speaker
-    /// is chosen: only what really played then, or plays when the speaker
-    /// appears, makes it play.
+    /// without an Action, and that too means the user moved on from a play
+    /// clicked before the speaker was chosen. The song a waiting play shows
+    /// does not count as music playing when the speaker is chosen: only what
+    /// really played then, or plays when the speaker appears, makes it play.
     #[test]
     fn a_speaker_woken_for_a_switch_cancels_a_waiting_play() {
         let ctx = egui::Context::default();
@@ -1994,6 +2012,107 @@ mod tests {
                 ),
                 "{playing_at_pick} {starts}: {transfers:?}"
             );
+            app.backend.shutdown();
+        }
+    }
+
+    /// A play clicked while a sleeping speaker wakes is meant for that
+    /// speaker: its arrival keeps the play waiting, moves only what is heard
+    /// across, and the play then starts there, even while the player here
+    /// still holds the old song because Spotify's handoff has not stopped it
+    /// yet. Another speaker chosen once the first is ready does not make the
+    /// play count as one clicked before the first was chosen.
+    #[test]
+    fn a_play_clicked_while_a_speaker_wakes_waits_on_and_starts_there() {
+        let ctx = egui::Context::default();
+        let receiver = |name: &str| crate::zeroconf::Receiver {
+            name: name.into(),
+            device_id: Some(crate::cast::device_id(name)),
+            address: "192.0.2.1".parse().unwrap(),
+            port: 8009,
+            path: "/".into(),
+            cast: true,
+        };
+        let speaker = receiver("Kitchen");
+        // Whether the player here stops before the last songs arrive, and
+        // whether another speaker is chosen once the first one is ready.
+        for (stops_first, another) in [(true, false), (false, false), (false, true)] {
+            let mut app = app(&format!("woken-speaker-after-{stops_first}-{another}"));
+            app.local.connected = true;
+            app.local.track = Some(crate::player::LocalTrack {
+                uri: "spotify:track:old".into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            });
+            app.local.playback = Playback::Paused;
+            app.apply(Action::ActivateReceiver(Box::new(speaker.clone())), &ctx);
+            waiting_play(&mut app, &ctx);
+            app.handle_backend_events(vec![crate::backend::Event::ReceiverActivated {
+                name: speaker.name.clone(),
+                result: Ok(()),
+            }]);
+            if another {
+                app.apply(Action::ActivateReceiver(Box::new(receiver("Hall"))), &ctx);
+            }
+            app.handle_api(ApiResponse::Devices(Ok(vec![crate::api::models::Device {
+                id: speaker.device_id.clone(),
+                name: speaker.name.clone(),
+                ..Default::default()
+            }])));
+            assert!(app.pending_transfer_to.is_none(), "the switch happened");
+            let transfers = app.backend.take_transfer_requests();
+            assert!(
+                matches!(
+                    transfers.as_slice(),
+                    [ApiRequest::Transfer { device_id, play: false }]
+                        if Some(device_id) == speaker.device_id.as_ref()
+                ),
+                "the paused song moves across paused: {transfers:?}"
+            );
+            assert!(
+                app.pending_discography_play.is_some(),
+                "{stops_first} {another}: the play clicked for the speaker still waits"
+            );
+            assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:c1"));
+
+            if stops_first {
+                // Spotify hands the session to the speaker, and the player
+                // here stops.
+                app.local.playback = Playback::Stopped;
+            }
+            app.backend.take_player_commands();
+            songs_arrive(&mut app, "a", vec![song("a1")]);
+            let requests = app.backend.take_remote_play_requests();
+            assert!(
+                matches!(
+                    requests.as_slice(),
+                    [ApiRequest::Remote { device_id: Some(device), play: Some(play), .. }]
+                        if Some(device) == speaker.device_id.as_ref()
+                            && play.uris == uris(&["c1", "c2", "b1", "a1"])
+                            && play.offset_position == Some(0)
+                ),
+                "{stops_first} {another}: {requests:?}"
+            );
+            assert!(
+                app.queued_play.is_none(),
+                "nothing waits for the player here"
+            );
+            let commands = app.backend.take_player_commands();
+            assert!(
+                !commands
+                    .iter()
+                    .any(|command| matches!(command, PlayerCommand::Load(_))),
+                "nothing loads here: {commands:?}"
+            );
+            assert!(app.pending_discography_play.is_none());
+            if !stops_first {
+                // The handoff stops the player here only now: the song
+                // started on the speaker stays.
+                let mut state = app.local.clone();
+                state.playback = Playback::Stopped;
+                app.handle_local(state);
+            }
+            assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:c1"));
             app.backend.shutdown();
         }
     }

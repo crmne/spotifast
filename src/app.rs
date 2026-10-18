@@ -274,6 +274,8 @@ struct PendingDiscographyPlay {
     progress: Instant,
     /// Where the shown song starts: a seek while the play waits moves it.
     position_ms: u32,
+    /// The woken speaker the play was kept waiting for: it starts there.
+    device: Option<String>,
 }
 
 struct PendingQueueAdd {
@@ -571,6 +573,10 @@ pub struct App {
     /// can stop playback before the receiver is ready, so the transfer after
     /// it plays if music played then or plays now.
     activating_play: bool,
+    /// When the receiver being handed the account was chosen. It goes along
+    /// to `pending_transfer_to` once that receiver is ready, so a receiver
+    /// chosen after it cannot change when it was chosen.
+    activating_since: Option<Instant>,
     pub devices_loading: bool,
     /// This computer's audio outputs, listed when the device picker asks.
     pub output_devices: Loadable<Vec<fastframe_audio::DeviceInfo>>,
@@ -733,11 +739,19 @@ pub struct App {
     /// A play request made while the local engine was still connecting; it
     /// starts the moment the engine reports ready.
     queued_play: Option<PlayRequest>,
+    /// The device the next play started goes to, rather than where
+    /// `target` points; set just before that start. A discography play kept
+    /// for a woken speaker starts there, though the player here holds the
+    /// song from before until Spotify's handoff stops it.
+    start_on: Option<String>,
     /// Last list sent to local playback. Used for autoplay because librespot
     /// cannot continue a list without a context URI.
     local_list: Option<Vec<String>>,
-    /// Activated receiver waiting to appear in Spotify's device list.
-    pending_transfer_to: Option<(String, Instant)>,
+    /// Activated receiver waiting to appear in Spotify's device list, since
+    /// when, and when it was chosen. A discography play clicked before the
+    /// choice is left behind by the switch to it; one clicked since is meant
+    /// for the receiver and waits on.
+    pending_transfer_to: Option<(String, Instant, Option<Instant>)>,
     /// When to take a confirming look at remote playback after a command.
     remote_recheck_at: Option<Instant>,
     /// When Spotify pushed a change to another device that no poll since
@@ -1337,6 +1351,7 @@ impl App {
             device_history: session.device_history.clone(),
             activating_receiver: None,
             activating_play: false,
+            activating_since: None,
             devices_loading: false,
             output_devices: Loadable::NotLoaded,
             devices_fetched_at: None,
@@ -1450,6 +1465,7 @@ impl App {
             pending_play_keys: Vec::new(),
             pending_play_at: None,
             queued_play: None,
+            start_on: None,
             local_list: None,
             pending_transfer_to: None,
             remote_recheck_at: None,
@@ -2271,7 +2287,13 @@ impl App {
     /// Shows a user-requested track until the responsible playback surface
     /// has had a chance to report what really started.
     fn expect_track(&mut self, uri: String, position_ms: u32) {
-        let confirmation = match self.target() {
+        let target = self.target();
+        self.expect_track_on(uri, position_ms, &target);
+    }
+
+    /// As [`Self::expect_track`], for a song asked of `target`.
+    fn expect_track_on(&mut self, uri: String, position_ms: u32, target: &Target) {
+        let confirmation = match target {
             Target::Local => TrackConfirmation::Local,
             Target::Remote(_) => TrackConfirmation::Remote {
                 after_poll: self.remote_poll_seq,
@@ -3056,7 +3078,8 @@ impl App {
                                 gettext(self.locale, "{name} is ready").replace("{name}", &name),
                             );
                             // It takes a moment to appear in the device list.
-                            self.pending_transfer_to = Some((name, Instant::now()));
+                            self.pending_transfer_to =
+                                Some((name, Instant::now(), self.activating_since));
                             self.devices_fetched_at = None;
                             self.refresh_devices();
                         }
@@ -8305,7 +8328,7 @@ impl App {
                         self.devices = devices;
                         self.bind_soloist_device();
                         self.control_devices_stale = true;
-                        if let Some((name, since)) = self.pending_transfer_to.clone() {
+                        if let Some((name, since, chosen)) = self.pending_transfer_to.clone() {
                             // The receiver's own id keeps another device of the
                             // same name from taking over. A rescan can drop the
                             // receiver; then the name has to do.
@@ -8330,10 +8353,23 @@ impl App {
                             if let Some(id) = matching {
                                 self.pending_transfer_to = None;
                                 // Switching to it, though no Action asked for
-                                // the switch, still means the user moved on.
-                                self.abandon_discography_play();
+                                // the switch, still means the user moved on
+                                // from a play clicked before the receiver was
+                                // chosen. One clicked since is meant for the
+                                // receiver: it waits on and starts there,
+                                // whatever the player here still holds.
+                                match &mut self.pending_discography_play {
+                                    Some(play)
+                                        if chosen.is_some_and(|chosen| play.clicked >= chosen) =>
+                                    {
+                                        play.device = Some(id.clone());
+                                    }
+                                    _ => self.abandon_discography_play(),
+                                }
+                                // What moves across is what is heard, not the
+                                // song a waiting play only shows.
                                 let play = self.activating_play
-                                    || self.now_playing().is_some_and(|now| now.playing);
+                                    || self.now_playing_heard().is_some_and(|now| now.playing);
                                 self.transfer_remote(id, play);
                             } else if since.elapsed() > Duration::from_secs(20) {
                                 self.pending_transfer_to = None;
@@ -10732,6 +10768,10 @@ impl App {
         self.queue_shuffle_pending = None;
         // Whatever plays now replaces a discography play still waiting.
         self.pending_discography_play = None;
+        let target = match self.start_on.take() {
+            Some(device) => Target::Remote(Some(device)),
+            None => self.target(),
+        };
         if shuffle_first {
             self.shuffle_wanted = true;
             self.shuffle_set_at = Some(Instant::now());
@@ -10786,7 +10826,7 @@ impl App {
             if let Some(context) = &request.context_uri {
                 self.cache_track_from_context(context, &uri);
             }
-            self.expect_track(uri, request.position_ms);
+            self.expect_track_on(uri, request.position_ms, &target);
         } else {
             self.intent_track = None;
         }
@@ -10801,13 +10841,13 @@ impl App {
             shuffle: shuffle.then_some(true),
             at: Instant::now(),
         });
-        self.queue_start_pending = Some(self.target());
+        self.queue_start_pending = Some(target.clone());
         // Held for Soloist, never handed to the built-in player meanwhile.
         if self.soloist_waiting() {
             self.queued_play = Some(request);
             return;
         }
-        match self.target() {
+        match target {
             Target::Local if !self.local.connected => {
                 // Hold the request while the local engine reconnects.
                 self.queued_play = Some(request);
@@ -13414,19 +13454,10 @@ impl App {
                         self.remember_device_choice(&key);
                     }
                     self.activating_receiver = Some(receiver.name.clone());
-                    // A discography play still waiting for its songs shows
-                    // its song as playing before anything plays it. The
-                    // speaker takes over what really plays, so that decides.
-                    let waiting = self
-                        .pending_discography_play
-                        .as_ref()
-                        .is_some_and(|play| play.shown.is_some());
-                    let now = if waiting {
-                        self.now_playing_live()
-                    } else {
-                        self.now_playing()
-                    };
-                    self.activating_play = now.is_some_and(|now| now.playing);
+                    self.activating_since = Some(Instant::now());
+                    // The speaker takes over what really plays, not the song
+                    // a waiting discography play only shows.
+                    self.activating_play = self.now_playing_heard().is_some_and(|now| now.playing);
                     self.backend.send(Command::ActivateReceiver(receiver));
                 }
             }
