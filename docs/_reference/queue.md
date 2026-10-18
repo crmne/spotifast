@@ -82,7 +82,10 @@ cut off, so the play starts then even if the chosen release's own songs have
 not come. A song on Repeat one starts over instead, and the wait goes on.
 Offline the page's songs and release
 buttons cannot be used, as in other lists of songs. If the chosen release's own songs
-never arrive, that release plays on its own, as Spotify knows it. A play holds
+never arrive, that release plays on its own, as Spotify knows it, and the
+play says the queue ends early when that leaves out later releases with
+songs. Once Spotify cannot list the chosen release's songs, this happens at
+once rather than after the wait. A play holds
 at most 500 songs, counted from the chosen release's first song; a song chosen
 further down than that starts the 500 from itself. Like other lists of songs,
 it shows no **Playing from** line. The tests in `src/app/discography.rs`, and
