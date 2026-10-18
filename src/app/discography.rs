@@ -649,6 +649,9 @@ impl App {
             }
             self.pending_discography_play = Some(play);
             if moved {
+                // The desktop's controls may have shown this song already,
+                // elsewhere in it, as when it is the song playing.
+                self.media_seek = true;
                 self.follow_shown_lyrics();
             }
             self.pump_discography(&artist_id);
@@ -660,12 +663,18 @@ impl App {
             .map(|album| album.uri.clone());
         // A newer click that does not wait replaces an older play still
         // waiting, and the lyrics of the song that one showed go with it.
-        if self
+        // The desktop's controls counted the wait as playing time: what
+        // follows a shown song, even that song starting where it was shown,
+        // reaches them as a jump.
+        if let Some(old) = self
             .pending_discography_play
             .take()
-            .is_some_and(|old| old.shown.is_some() && old.shown != play.shown)
+            .filter(|old| old.shown.is_some())
         {
-            self.follow_shown_lyrics();
+            self.media_seek = true;
+            if old.shown != play.shown {
+                self.follow_shown_lyrics();
+            }
         }
         let Some((songs, index)) = list else {
             // The release's songs never came: play it as Spotify knows it.
@@ -769,6 +778,9 @@ impl App {
             .take()
             .is_some_and(|play| play.shown.is_some())
         {
+            // The desktop's controls go back with the bar, perhaps to the
+            // same song elsewhere in it.
+            self.media_seek = true;
             self.follow_shown_lyrics();
         }
     }
@@ -2195,6 +2207,108 @@ mod tests {
         let request = app.queued_play.as_ref().expect("a play request");
         assert_eq!(request.uris, uris(&["c1", "c2", "b1", "a1"]));
         assert_eq!(request.position_ms, 52_000);
+        app.backend.shutdown();
+    }
+
+    /// The desktop's controls take a position only with a new song or
+    /// playback state, so they counted the wait as playing. A seek during
+    /// the wait, and the start, reach them as jumps.
+    #[test]
+    fn the_desktop_controls_hear_where_a_waited_song_starts() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-media-seek");
+        waiting_play(&mut app, &ctx);
+        assert_eq!(
+            media_jump(&app),
+            Some(("spotify:track:c1".to_string(), 0)),
+            "the click shows the song where it will start"
+        );
+        app.sync_media_controls(&ctx);
+        assert!(!app.media_seek, "sent with the next update");
+        app.apply(Action::Seek(42_000), &ctx);
+        assert_eq!(
+            media_jump(&app),
+            Some(("spotify:track:c1".to_string(), 42_000)),
+            "the seek moves the controls at once"
+        );
+        app.sync_media_controls(&ctx);
+        assert!(!app.media_seek, "sent with the next update");
+        songs_arrive(&mut app, "a", vec![song("a1")]);
+        assert!(app.pending_discography_play.is_none());
+        assert_eq!(
+            app.queued_play.as_ref().map(|play| play.position_ms),
+            Some(42_000)
+        );
+        assert_eq!(
+            media_jump(&app),
+            Some(("spotify:track:c1".to_string(), 42_000)),
+            "the song starts now, from where it was shown, not where the controls counted to"
+        );
+        app.sync_media_controls(&ctx);
+        // Every release is in by now, so this play starts at once.
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Discography {
+                    artist_id: ARTIST.into(),
+                    album_id: "b".into(),
+                },
+                uri: "spotify:track:b1".into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_none());
+        assert!(
+            !app.media_seek,
+            "a play that did not wait has nothing to correct"
+        );
+        app.backend.shutdown();
+    }
+
+    /// The jump the next sync sends the desktop's controls: to where the
+    /// bar puts its song.
+    fn media_jump(app: &App) -> Option<(String, u32)> {
+        app.media_seek
+            .then(|| app.now_playing())
+            .flatten()
+            .map(|now| (now.uri, now.position_ms))
+    }
+
+    /// A double-click on the song playing shows it from where the play will
+    /// start it, and a wait dropped takes the bar back to where that song
+    /// really is. The song and the playback state stay the same, so the
+    /// desktop's controls follow only as jumps.
+    #[test]
+    fn the_desktop_controls_go_back_with_a_dropped_wait_on_the_song_playing() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-media-seek-back");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:c1".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.local.position_ms = 90_000;
+        waiting_play(&mut app, &ctx);
+        assert_eq!(
+            media_jump(&app),
+            Some(("spotify:track:c1".to_string(), 0)),
+            "the click moves the controls to where the song will start"
+        );
+        app.sync_media_controls(&ctx);
+        app.apply(Action::Seek(180_000), &ctx);
+        assert_eq!(
+            media_jump(&app),
+            Some(("spotify:track:c1".to_string(), 180_000))
+        );
+        app.sync_media_controls(&ctx);
+        app.apply(Action::Reload(Page::Discography(ARTIST.into())), &ctx);
+        assert!(app.pending_discography_play.is_none());
+        assert_eq!(
+            media_jump(&app),
+            Some(("spotify:track:c1".to_string(), 90_000)),
+            "the controls go back to where the song plays"
+        );
         app.backend.shutdown();
     }
 
