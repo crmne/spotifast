@@ -66,11 +66,14 @@ to the releases from the chosen one on. When the songs after the chosen one
 have not all loaded, the play waits for them and shows the chosen song as
 playing; Pause, Next, Previous, a queue row, another device or another play
 cancels the wait, and a seek meanwhile moves where the chosen song will
-start. If the songs stop arriving for ten seconds once the chosen release is
-in, or after thirty seconds in all, or the song lists stop (a rate limit, an
-exhausted quota, an expired sign-in, a network failure or a Spotify server
-error), the play starts with the songs that came, up to the first release that
-did not, and says the queue ends early. Offline the page's songs and release
+start. Until the chosen release's own songs arrive there is no song to show
+yet, so the player bar keeps the song from before, and Play or Pause there
+cancels the wait and acts on that song. If the songs stop arriving for ten
+seconds once the chosen release is in, or after thirty seconds in all, or the
+song lists stop (a rate limit, an exhausted quota, an expired sign-in, a
+network failure or a Spotify server error), the play starts with the songs
+that came, up to the first release that did not, and says the queue ends
+early. Offline the page's songs and release
 buttons cannot be used, as in other lists of songs. If the chosen release's own songs
 never arrive, that release plays on its own, as Spotify knows it. A play holds
 at most 500 songs, counted from the chosen release's first song; a song chosen
