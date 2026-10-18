@@ -570,9 +570,6 @@ impl App {
         // The click is the choice, not the start after the wait: a
         // play-search in flight is superseded now, one sent later is newer.
         self.supersede_play_search();
-        // Nor does the playlist row an earlier play started from stay the
-        // one marked as playing.
-        self.played_row = None;
         // Nowhere to play: say so at once rather than after the wait. The
         // click still replaces an older play waiting for its songs. A device
         // playing without an id, a Sonos, is somewhere, as for any play.
@@ -646,6 +643,7 @@ impl App {
         let Some((songs, index)) = list else {
             // The release's songs never came: play it as Spotify knows it.
             if let Some(uri) = album_uri.filter(|_| play.start.is_none()) {
+                self.played_row = None;
                 self.start_play(PlayRequest::context(uri), false);
             }
             return;
@@ -677,6 +675,10 @@ impl App {
         if play.shown.is_some() {
             request.position_ms = play.position_ms;
         }
+        // The playlist row an earlier play started from stops being the
+        // marked copy now that this play starts, not at the click: a wait
+        // that ends in nothing leaves it marked.
+        self.played_row = None;
         // The precedence was taken at the click.
         self.start_play(request, false);
     }
@@ -723,6 +725,28 @@ impl App {
             now.can_set_volume = actual.can_set_volume;
         }
         Some(now)
+    }
+
+    /// The current song, but for the one a waiting play shows: nothing was
+    /// asked to play that song yet, so the song asked for or playing before
+    /// the click still counts.
+    pub(super) fn started_track_uri(&self) -> Option<String> {
+        if self
+            .pending_discography_play
+            .as_ref()
+            .is_none_or(|play| play.shown.is_none())
+        {
+            return self.current_track_uri();
+        }
+        if let Some(intent) = &self.intent_track
+            && (intent.at.elapsed() < PLAYBACK_HOLD || self.queued_play.is_some())
+        {
+            return Some(intent.uri.clone());
+        }
+        // Not now_playing(): its preview is the waiting play's song.
+        self.now_playing_live()
+            .or_else(|| self.resume_preview())
+            .map(|now| now.uri)
     }
 
     fn cache_song(&mut self, song: Track) {
@@ -1054,6 +1078,35 @@ mod tests {
     fn played(app: &App) -> (Vec<String>, Option<u32>) {
         let request = app.queued_play.as_ref().expect("a play request");
         (request.uris.clone(), request.offset_position)
+    }
+
+    /// Song `id` playing here, started from its copy at row 3 of a playlist
+    /// that holds it more than once, so that copy alone shows as playing.
+    fn playing_from_playlist_copy(app: &mut App, id: &str) -> RowContext {
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: format!("spotify:track:{id}"),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.played_row = Some(PlayedRow {
+            context: "spotify:playlist:pl".into(),
+            view: false,
+            index: 3,
+            uri: format!("spotify:track:{id}"),
+        });
+        RowContext::Context {
+            uri: "spotify:playlist:pl".into(),
+            editable_playlist: None,
+        }
+    }
+
+    /// One pass of the app's housekeeping, as between frames.
+    fn background_pass(app: &mut App, ctx: &egui::Context) {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.background_frame(ui.ctx());
+        });
+        output.textures_delta.clear();
     }
 
     #[test]
@@ -1495,6 +1548,146 @@ mod tests {
         assert!(
             app.row_is_played_copy(&playlist, 1, "spotify:track:b2"),
             "every copy in the playlist is the playing song again"
+        );
+        app.backend.shutdown();
+    }
+
+    /// The playlist copy the playing song was started from stays the
+    /// marked one through a wait that ends in nothing.
+    #[test]
+    fn a_cancelled_wait_leaves_the_playlist_copy_the_playing_song_came_from() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-played-copy");
+        let playlist = playing_from_playlist_copy(&mut app, "x");
+        waiting_play(&mut app, &ctx);
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:c1"));
+        background_pass(&mut app, &ctx);
+        app.apply(Action::TogglePlay, &ctx);
+        assert!(app.pending_discography_play.is_none());
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:x"));
+        background_pass(&mut app, &ctx);
+        assert!(app.row_is_played_copy(&playlist, 3, "spotify:track:x"));
+        assert!(
+            !app.row_is_played_copy(&playlist, 8, "spotify:track:x"),
+            "the other copy stays an ordinary row"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A release play has no song to show until its songs arrive, and the
+    /// song playing meanwhile keeps its one marked copy until the play
+    /// starts.
+    #[test]
+    fn a_release_waiting_for_its_songs_keeps_the_playing_copy_marked_until_it_starts() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-release-played-copy");
+        let playlist = playing_from_playlist_copy(&mut app, "x");
+        open(&mut app, &ctx, three_releases());
+        songs_arrive(&mut app, "c", vec![song("c1")]);
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "b".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        assert!(app.pending_discography_play.is_some());
+        assert_eq!(
+            app.current_track_uri().as_deref(),
+            Some("spotify:track:x"),
+            "no song is shown yet"
+        );
+        background_pass(&mut app, &ctx);
+        assert!(app.row_is_played_copy(&playlist, 3, "spotify:track:x"));
+        assert!(
+            !app.row_is_played_copy(&playlist, 8, "spotify:track:x"),
+            "the other copy stays an ordinary row"
+        );
+        songs_arrive(&mut app, "b", vec![song("b1"), song("b2"), song("b3")]);
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:b1"));
+        background_pass(&mut app, &ctx);
+        assert!(
+            app.played_row.is_some(),
+            "x still plays while the release waits for a"
+        );
+        songs_arrive(&mut app, "a", vec![song("a1"), song("a2")]);
+        assert_eq!(
+            played(&app),
+            (uris(&["b1", "b2", "b3", "a1", "a2"]), Some(0))
+        );
+        assert!(app.played_row.is_none(), "the release started");
+        app.backend.shutdown();
+    }
+
+    /// The song playing while a play waits can still change, and the copy
+    /// it was started from stops being the marked one then.
+    #[test]
+    fn a_song_change_during_a_wait_unmarks_the_playlist_copy() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-song-change-played-copy");
+        let playlist = playing_from_playlist_copy(&mut app, "x");
+        waiting_play(&mut app, &ctx);
+        background_pass(&mut app, &ctx);
+        assert!(!app.row_is_played_copy(&playlist, 8, "spotify:track:x"));
+        // x ended and the playlist moved on.
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:z".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        background_pass(&mut app, &ctx);
+        assert!(app.pending_discography_play.is_some());
+        assert!(
+            app.row_is_played_copy(&playlist, 8, "spotify:track:x"),
+            "a later return to x may be any copy"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A song asked for just before the click counts as the one playing
+    /// while the play waits, so its copy stays marked.
+    #[test]
+    fn a_song_asked_for_before_a_wait_keeps_its_playlist_copy_marked() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-intent-played-copy");
+        let playlist = playing_from_playlist_copy(&mut app, "x");
+        // x was asked for, and z still plays until it starts.
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:z".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        app.expect_track("spotify:track:x".into(), 0);
+        waiting_play(&mut app, &ctx);
+        background_pass(&mut app, &ctx);
+        assert!(app.row_is_played_copy(&playlist, 3, "spotify:track:x"));
+        assert!(!app.row_is_played_copy(&playlist, 8, "spotify:track:x"));
+        app.backend.shutdown();
+    }
+
+    /// A play of the song a playlist copy started chose no copy, so every
+    /// one shows it at the click, as once it starts; a cancel gives the
+    /// chosen copy back.
+    #[test]
+    fn a_waiting_play_of_the_marked_song_shows_every_playlist_copy() {
+        let ctx = egui::Context::default();
+        let mut app = app("wait-same-played-copy");
+        let playlist = playing_from_playlist_copy(&mut app, "c1");
+        waiting_play(&mut app, &ctx);
+        background_pass(&mut app, &ctx);
+        assert!(app.row_is_played_copy(&playlist, 3, "spotify:track:c1"));
+        assert!(
+            app.row_is_played_copy(&playlist, 8, "spotify:track:c1"),
+            "the click played c1 from none of the playlist's rows"
+        );
+        app.apply(Action::TogglePlay, &ctx);
+        assert!(app.pending_discography_play.is_none());
+        background_pass(&mut app, &ctx);
+        assert!(app.row_is_played_copy(&playlist, 3, "spotify:track:c1"));
+        assert!(
+            !app.row_is_played_copy(&playlist, 8, "spotify:track:c1"),
+            "the copy c1 came from is the marked one again"
         );
         app.backend.shutdown();
     }
