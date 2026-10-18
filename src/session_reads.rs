@@ -3098,6 +3098,126 @@ mod tests {
         assert!(playable(ExtensionKind::ALBUM_V4, &track_bytes()).is_none());
     }
 
+    /// An album's metadata with these discs, each holding songs by gid.
+    fn album_bytes(discs: &[&[Vec<u8>]]) -> Vec<u8> {
+        let mut album = librespot_protocol::metadata::Album::new();
+        for gids in discs {
+            let mut disc = librespot_protocol::metadata::Disc::new();
+            for gid in *gids {
+                let mut track = librespot_protocol::metadata::Track::new();
+                track.set_gid(gid.clone());
+                disc.track.push(track);
+            }
+            album.disc.push(disc);
+        }
+        album.write_to_bytes().unwrap()
+    }
+
+    fn song_uri(gid: &[u8]) -> SpotifyUri {
+        SpotifyUri::Track {
+            id: SpotifyId::from_raw(gid).unwrap(),
+        }
+    }
+
+    /// An album's songs come disc by disc, each in its own order, and a
+    /// song whose gid names nothing is left out.
+    #[test]
+    fn an_album_answer_lists_its_songs_disc_by_disc() {
+        let album = "spotify:album:one";
+        let bytes = album_bytes(&[&[vec![0x11; 16], vec![0x01, 0x02, 0x03]], &[vec![0x22; 16]]]);
+        let lists = album_track_lists(&response([answer(
+            ExtensionKind::ALBUM_V4,
+            album,
+            200,
+            Some(bytes),
+        )]))
+        .unwrap();
+        assert_eq!(
+            lists,
+            HashMap::from([(
+                album.to_string(),
+                vec![song_uri(&[0x11; 16]), song_uri(&[0x22; 16])]
+            )])
+        );
+    }
+
+    /// An album Spotify no longer has, or withholds for legal reasons, is
+    /// left out of the answer while the others keep their songs.
+    #[test]
+    fn an_album_spotify_no_longer_has_or_withholds_is_left_out() {
+        let kept = "spotify:album:kept";
+        let lists = album_track_lists(&response([
+            answer(ExtensionKind::ALBUM_V4, "spotify:album:gone", 404, None),
+            answer(ExtensionKind::ALBUM_V4, "spotify:album:withheld", 451, None),
+            answer(
+                ExtensionKind::ALBUM_V4,
+                kept,
+                200,
+                Some(album_bytes(&[&[vec![0x11; 16]]])),
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(
+            lists,
+            HashMap::from([(kept.to_string(), vec![song_uri(&[0x11; 16])])])
+        );
+    }
+
+    /// Any other refusal of an album, or an answer that does not read as
+    /// one, is asked for again rather than read as an album without songs.
+    #[test]
+    fn an_album_answer_refused_otherwise_or_unreadable_is_a_retry() {
+        let album = "spotify:album:one";
+        let refused = album_track_lists(&response([answer(
+            ExtensionKind::ALBUM_V4,
+            album,
+            500,
+            None,
+        )]))
+        .unwrap_err();
+        assert!(matches!(refused, Failure::Retry(_)), "{refused:?}");
+        assert!(format!("{refused:?}").contains("500"));
+        let empty = album_track_lists(&response([answer(
+            ExtensionKind::ALBUM_V4,
+            album,
+            200,
+            None,
+        )]))
+        .unwrap_err();
+        assert!(matches!(empty, Failure::Retry(_)), "{empty:?}");
+    }
+
+    /// A provider failing the album batch is asked for again; an answer of
+    /// another kind beside the albums is passed over.
+    #[test]
+    fn a_provider_error_on_an_album_batch_is_a_retry() {
+        let album = "spotify:album:one";
+        let mut failed = answer(
+            ExtensionKind::ALBUM_V4,
+            album,
+            200,
+            Some(album_bytes(&[&[vec![0x11; 16]]])),
+        );
+        failed.header.mut_or_insert_default().provider_error_status = 503;
+        let failure = album_track_lists(&response([failed])).unwrap_err();
+        assert!(matches!(failure, Failure::Retry(_)), "{failure:?}");
+
+        let lists = album_track_lists(&response([
+            answer(ExtensionKind::TRACK_V4, TRACK, 200, Some(track_bytes())),
+            answer(
+                ExtensionKind::ALBUM_V4,
+                album,
+                200,
+                Some(album_bytes(&[&[vec![0x11; 16]]])),
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(
+            lists,
+            HashMap::from([(album.to_string(), vec![song_uri(&[0x11; 16])])])
+        );
+    }
+
     #[test]
     fn a_station_lists_each_song_once_in_spotify_order() {
         use librespot_protocol::context::Context;
