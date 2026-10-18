@@ -2665,6 +2665,63 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Song lists load first for the releases the page reports on screen,
+    /// so a release drawn above the view only for Tab is not among them.
+    #[test]
+    fn the_discography_page_loads_from_the_release_whose_heading_tops_the_view() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("discography-in-view");
+        app.open(Page::Discography("art0".into()));
+        let frame = |app: &mut App, offset: f32| {
+            app.actions.clear();
+            let mut viewport = None;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900.0, 900.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    let shown = egui::ScrollArea::vertical()
+                        .id_salt("discography-in-view")
+                        .auto_shrink([false, false])
+                        .vertical_scroll_offset(offset)
+                        .show(ui, |ui| crate::ui::discography::show(app, ui, "art0"));
+                    viewport = Some(shown.inner_rect);
+                },
+            );
+            output.textures_delta.clear();
+            // A frame drawn in more than one pass reports in each.
+            let first = app.actions.iter().rev().find_map(|action| match action {
+                crate::model::Action::DiscographyInView { first, .. } => Some(*first),
+                _ => None,
+            });
+            (
+                viewport.unwrap(),
+                output.platform_output.accesskit_update.unwrap(),
+                first,
+            )
+        };
+        let (viewport, tree, first) = frame(&mut app, 0.0);
+        assert_eq!(first, Some(0), "the top of the page shows Fragments");
+        // Newest first, Promises is the second release.
+        let promises = accessible_node(&tree, "Promises", Role::Link);
+        let title = tree
+            .nodes
+            .iter()
+            .find(|(node, _)| *node == promises)
+            .and_then(|(_, node)| node.bounds())
+            .expect("a placed title")
+            .y0 as f32;
+        // Start the view at Promises' title, inside its heading: Fragments'
+        // last song and spacing are drawn just above it, for Tab alone.
+        let (_, _, first) = frame(&mut app, title - viewport.top());
+        assert_eq!(first, Some(1), "Promises tops the view");
+        app.backend.shutdown();
+    }
+
     #[test]
     fn accessible_navigation_and_pause_work_without_a_pointer() {
         use egui::accesskit::{Action, Role};
