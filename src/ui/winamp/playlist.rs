@@ -284,6 +284,8 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
     // The queue arrives over the Web API and lags a double-click by a
     // round trip; what the player says is on right now wins, and a queued
     // copy of that song is left out until the fetched queue catches up.
+    // A discography play shows its song while it waits without taking a
+    // queue row, so a queued copy of that song is a later place and stays.
     let current = queue
         .and_then(|queue| queue.currently_playing.as_ref())
         .filter(|item| now.is_none_or(|now| now.uri == item.uri()));
@@ -310,7 +312,7 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
         });
     }
     let queued: &[PlayableItem] = queue.map(|queue| queue.queue.as_slice()).unwrap_or(&[]);
-    let stale = current.is_none() && queue.is_some();
+    let stale = current.is_none() && queue.is_some() && app.waiting_discography_song().is_none();
     let mut skipped_playing = false;
     for (index, item) in queued.iter().enumerate() {
         if stale && !skipped_playing && now.is_some_and(|now| now.uri == item.uri()) {
@@ -923,6 +925,106 @@ mod tests {
             app.actions
         );
         assert!(app.winamp.playlist_selection.is_empty());
+        app.backend.shutdown();
+    }
+
+    /// A discography play waiting for its songs shows its song first, but
+    /// took no queue row: a queued copy of that song is a later place, so
+    /// the list keeps it and its numbering.
+    #[test]
+    fn a_waiting_discography_play_keeps_the_queued_copy_listed() {
+        use crate::app::AppOptions;
+        use crate::paths::AppDirs;
+        use crate::settings::Settings;
+
+        let root =
+            std::env::temp_dir().join(format!("spotifast-winamp-waiting-{}", std::process::id()));
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        let mut app = App::new(
+            &waker,
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        crate::demo::populate(&mut app);
+        // The newest release holds the playing trk0 and the queued trk1;
+        // the next release's songs are still on their way.
+        let (first, later) = {
+            let ordered = app.discography_pages["art0"].ordered();
+            (ordered[0].id.clone(), ordered[1].id.clone())
+        };
+        let held = app
+            .discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .remove(&later)
+            .unwrap();
+        assert_eq!(
+            app.queue.get().unwrap().queue[0].uri(),
+            "spotify:track:trk1"
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Discography {
+                    artist_id: "art0".into(),
+                    album_id: first,
+                },
+                uri: "spotify:track:trk1".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert_eq!(app.waiting_discography_song(), Some("spotify:track:trk1"));
+        let now = app.now_playing();
+        let (rows, _) = rows(&app, now.as_ref());
+        assert!(rows[0].current && rows[0].uri == "spotify:track:trk1");
+        assert_eq!(
+            (rows[1].uri.as_str(), rows[1].queued),
+            ("spotify:track:trk1", Some(0)),
+            "the queued copy stays listed"
+        );
+        assert_eq!(rows.len(), 1 + app.queue.get().unwrap().queue.len());
+        // Once the songs are in, the play starts, and the fetched queue lags
+        // it by a round trip as after any play: the copy is the song
+        // starting, left out until the queue catches up.
+        app.discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .insert(later, held);
+        app.resolve_discography_play();
+        assert_eq!(app.waiting_discography_song(), None);
+        assert_eq!(
+            app.queue
+                .get()
+                .unwrap()
+                .currently_playing
+                .as_ref()
+                .map(PlayableItem::uri),
+            Some("spotify:track:trk0"),
+            "the fetched queue still says what played before"
+        );
+        let now = app.now_playing();
+        let (rows, _) = super::rows(&app, now.as_ref());
+        assert!(rows[0].current && rows[0].uri == "spotify:track:trk1");
+        assert_eq!(
+            (rows[1].uri.as_str(), rows[1].queued),
+            ("spotify:track:trk2", Some(1)),
+            "the starting song's queued copy is left out"
+        );
+        assert!(rows[1].label.starts_with("2. "), "{}", rows[1].label);
+        assert_eq!(rows.len(), app.queue.get().unwrap().queue.len());
         app.backend.shutdown();
     }
 }
