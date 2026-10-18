@@ -163,7 +163,7 @@ fn draw(app: &mut App, ui: &mut egui::Ui, artist_id: &str, page: &DiscographyPag
         }
         Line::Columns(_) | Line::Reserved(..) | Line::Gap(_) => false,
     };
-    let drawn = measured_lines(ui, &lines, key, focusable, |ui, line| match line {
+    let on_screen = measured_lines(ui, &lines, key, focusable, |ui, line| match line {
         Line::Heading(index) => release_heading(app, ui, artist_id, page, releases[index]),
         Line::Columns(_) => columns(ui, app),
         Line::Song(index, row) => {
@@ -255,8 +255,8 @@ fn draw(app: &mut App, ui: &mut egui::Ui, artist_id: &str, page: &DiscographyPag
     });
     // Tell the app which releases are on screen, when that changes, so
     // their songs load first.
-    if let Some((first, last)) = drawn {
-        let shown = (lines[first].0.release(), lines[last].0.release());
+    if let Some(range) = on_screen {
+        let shown = releases_on_screen(&lines, range);
         if page.in_view != Some(shown) {
             app.actions.push(Action::DiscographyInView {
                 artist_id: artist_id.to_string(),
@@ -644,7 +644,8 @@ fn retry_row(ui: &mut egui::Ui, app: &mut App, message: &str, retry: Action) {
 /// scroll it in. Every line takes exactly its given height, so the lines
 /// skipped above and below are stood in for by empty space. Each drawn line
 /// gets the id `key` names, independent of what was drawn before it.
-/// Returns the first and last line drawn.
+/// Returns the first and last line on screen, if any; the neighbours drawn
+/// only for Tab are not among them.
 fn measured_lines(
     ui: &mut egui::Ui,
     lines: &[(Line, f32)],
@@ -659,7 +660,7 @@ fn measured_lines(
     ui.spacing_mut().item_spacing.y = 0.0;
     let clip = ui.clip_rect();
     let width = ui.available_width();
-    let range = visible_lines(
+    let (shown, range) = visible_lines(
         ui.cursor().top(),
         lines.iter().map(|(_, height)| *height),
         clip,
@@ -690,7 +691,19 @@ fn measured_lines(
         ui.allocate_space(vec2(width, tops[lines.len()] - tops[last]));
     }
     ui.spacing_mut().item_spacing = previous_spacing;
-    (first < last).then(|| (first, last - 1))
+    (shown.0 < shown.1).then(|| (shown.0, shown.1 - 1))
+}
+
+/// The first and last releases on screen, from the first and last lines
+/// that are. The space after a release shows none of it, so when that is
+/// all of a release at the top of the view, the next release comes first.
+fn releases_on_screen(lines: &[(Line, f32)], (first, last): (usize, usize)) -> (usize, usize) {
+    let first = if first < last && matches!(lines[first].0, Line::Gap(_)) {
+        first + 1
+    } else {
+        first
+    };
+    (lines[first].0.release(), lines[last].0.release())
 }
 
 /// Widens a drawn range past lines that hold nothing to focus, so the
@@ -710,10 +723,15 @@ fn reach_focusable(
     (first, last)
 }
 
-/// The lines to draw, as a half-open range: those that meet `clip`, with
-/// one neighbour on either side, for lines of the given heights laid out
-/// from `top`.
-fn visible_lines(top: f32, heights: impl Iterator<Item = f32>, clip: Rect) -> (usize, usize) {
+/// The lines that meet `clip`, then the lines to draw: those with one
+/// neighbour on either side so Tab can reach it. Both are half-open ranges
+/// for lines of the given heights laid out from `top`; the first is empty
+/// when no line meets `clip`.
+fn visible_lines(
+    top: f32,
+    heights: impl Iterator<Item = f32>,
+    clip: Rect,
+) -> ((usize, usize), (usize, usize)) {
     let mut first = None;
     let mut last = 0;
     let mut y = top;
@@ -729,9 +747,11 @@ fn visible_lines(top: f32, heights: impl Iterator<Item = f32>, clip: Rect) -> (u
         y = bottom;
         count = index + 1;
     }
-    let first = first.unwrap_or(count).saturating_sub(1);
-    let last = (last + 1).min(count);
-    (first.min(last), last)
+    let first = first.unwrap_or(count);
+    let shown = (first.min(last), last);
+    let drawn_last = (last + 1).min(count);
+    let drawn = (first.saturating_sub(1).min(drawn_last), drawn_last);
+    (shown, drawn)
 }
 
 #[cfg(test)]
@@ -749,12 +769,12 @@ mod tests {
         let heights = [100.0, 30.0, 56.0, 56.0, 56.0, 100.0];
         assert_eq!(
             visible_lines(0.0, heights.into_iter(), clip(120.0, 200.0)),
-            (0, 5)
+            ((1, 4), (0, 5))
         );
         // Scrolled to the end: the last line and the one before it.
         assert_eq!(
             visible_lines(0.0, heights.into_iter(), clip(300.0, 398.0)),
-            (4, 6)
+            ((5, 6), (4, 6))
         );
     }
 
@@ -763,7 +783,7 @@ mod tests {
         let heights = [56.0; 10];
         assert_eq!(
             visible_lines(1000.0, heights.into_iter(), clip(0.0, 500.0)),
-            (0, 1)
+            ((0, 0), (0, 1))
         );
     }
 
@@ -772,7 +792,7 @@ mod tests {
         let heights = [56.0; 10];
         assert_eq!(
             visible_lines(0.0, heights.into_iter(), clip(1000.0, 1500.0)),
-            (9, 10)
+            ((10, 10), (9, 10))
         );
     }
 
@@ -795,7 +815,7 @@ mod tests {
     fn an_empty_list_draws_nothing() {
         assert_eq!(
             visible_lines(0.0, std::iter::empty(), clip(0.0, 500.0)),
-            (0, 0)
+            ((0, 0), (0, 0))
         );
     }
 
@@ -808,6 +828,7 @@ mod tests {
         let mut ids = Vec::new();
         let mut first_drawn = Vec::new();
         for offset in [300.0, 600.0] {
+            let mut first = None;
             let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 600.0))),
@@ -817,7 +838,7 @@ mod tests {
                     egui::ScrollArea::vertical()
                         .vertical_scroll_offset(offset)
                         .show(ui, |ui| {
-                            let drawn = measured_lines(
+                            measured_lines(
                                 ui,
                                 &lines,
                                 |line| match line {
@@ -826,16 +847,19 @@ mod tests {
                                 },
                                 |_| true,
                                 |ui, line| {
+                                    if let Line::Song(_, row) = line {
+                                        first.get_or_insert(row);
+                                    }
                                     if matches!(line, Line::Song(_, 15)) {
                                         ids.push(ui.unique_id());
                                     }
                                 },
                             );
-                            first_drawn.push(drawn.map(|(first, _)| first));
                         });
                 },
             );
             output.textures_delta.clear();
+            first_drawn.push(first);
         }
         assert_ne!(
             first_drawn[0], first_drawn[1],
@@ -843,5 +867,75 @@ mod tests {
         );
         assert_eq!(ids.len(), 2, "line 15 is on screen at both offsets");
         assert_eq!(ids[0], ids[1]);
+    }
+
+    /// Song lists load first for the releases on screen, so what is drawn
+    /// above the view only for Tab, and the space after a release, never
+    /// count that release as shown.
+    #[test]
+    fn the_releases_on_screen_leave_out_what_is_drawn_only_for_tab() {
+        let ctx = egui::Context::default();
+        let mut lines = Vec::new();
+        for index in 0..2 {
+            lines.push((Line::Heading(index), HEADER_HEIGHT));
+            lines.push((Line::Columns(index), COLUMNS_HEIGHT));
+            lines.extend((0..3).map(|row| (Line::Song(index, row), theme::ROW_HEIGHT)));
+            lines.push((Line::Gap(index), RELEASE_GAP));
+        }
+        // Where the second release's heading starts.
+        let second = HEADER_HEIGHT + COLUMNS_HEIGHT + 3.0 * theme::ROW_HEIGHT + RELEASE_GAP;
+        // The first release on screen with the view scrolled to `offset`,
+        // and whether the first release's spacing was drawn.
+        let at = |offset: f32| {
+            let mut first = None;
+            let mut drew_gap = false;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 300.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .vertical_scroll_offset(offset)
+                        .show(ui, |ui| {
+                            let shown = measured_lines(
+                                ui,
+                                &lines,
+                                |line| {
+                                    let (kind, row) = match line {
+                                        Line::Heading(_) => ("heading", 0),
+                                        Line::Columns(_) => ("columns", 0),
+                                        Line::Song(_, row) => ("song", row),
+                                        Line::Reserved(_, row) => ("reserved", row),
+                                        Line::Gap(_) => ("gap", 0),
+                                    };
+                                    Id::new((kind, line.release(), row))
+                                },
+                                |line| matches!(line, Line::Heading(_) | Line::Song(..)),
+                                |_, line| drew_gap |= matches!(line, Line::Gap(0)),
+                            );
+                            first = shown.map(|range| releases_on_screen(&lines, range).0);
+                        });
+                },
+            );
+            output.textures_delta.clear();
+            (first, drew_gap)
+        };
+        assert_eq!(
+            at(second + 20.0),
+            (Some(1), true),
+            "the view starts inside the second release's heading: the first \
+             release's last song and spacing are drawn for Tab, not shown"
+        );
+        assert_eq!(
+            at(second - 10.0).0,
+            Some(1),
+            "the view starts in the spacing after the first release"
+        );
+        assert_eq!(
+            at(second - RELEASE_GAP - 10.0).0,
+            Some(0),
+            "the view starts on the first release's last song"
+        );
     }
 }
