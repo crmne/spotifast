@@ -978,10 +978,13 @@ pub struct ArtistPage {
 pub enum ReleaseTracks {
     /// Asked for. Pages arrive in album order, and the songs show only once
     /// every page has, so a play never starts from half a release. `next`
-    /// is the offset of the page on its way.
+    /// is the offset of the page on its way, and `asked` when it was asked
+    /// for: an answer that has not come long after is taken as lost, and
+    /// the release is asked for again.
     Loading {
         songs: Vec<Track>,
         next: u32,
+        asked: Instant,
     },
     Loaded(Vec<Track>),
     Failed(String),

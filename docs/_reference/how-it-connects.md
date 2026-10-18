@@ -469,7 +469,11 @@ that needs releases not read yet asks for them first, up to four at a time. Like
 EP labels are asked for only for the releases on screen. A rate limit, an
 exhausted quota, an expired sign-in, a network failure or a Spotify server
 error stops the song lists until **Retry**; a release Spotify cannot list fails
-alone and offers its own **Retry**. Offline the page asks for nothing; when the
+alone and offers its own **Retry**. A release whose songs have not come two
+minutes after they were asked for is asked for again, and after an expired
+sign-in **Retry**, on the page or on a release, also asks again for every
+release still waiting, so an answer that never arrives cannot stop the page
+loading. Offline the page asks for nothing; when the
 network comes back, the open page reads what it lacks, including song lists a
 failure stopped, and a play still waiting asks for the songs it needs. A page
 restored at startup asks for the artist once to show their name.

@@ -4660,6 +4660,7 @@ impl App {
             ctx.request_repaint_after(wait);
         }
         self.settle_overdue_discography_play();
+        self.forget_lost_song_lists();
         let now = Instant::now();
         if self.winamp_level_reassert > 0 {
             self.winamp_level_reassert -= 1;

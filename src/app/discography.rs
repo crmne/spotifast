@@ -23,6 +23,13 @@ const TRACKS_IN_FLIGHT_FOR_PLAY: usize = 4;
 const PLAY_STALL: Duration = Duration::from_secs(10);
 /// The longest a play waits, however its song lists are coming along.
 const PLAY_WAIT: Duration = Duration::from_secs(30);
+/// A song list unanswered this long is taken as lost and asked for again.
+/// The backend lets go of some answers, such as one sent under a sign-in
+/// that was replaced on its way, and a lost one must not hold its request
+/// slot and its spinner for good. Well past a play's wait and the three
+/// rate-limit waits of up to 30 seconds a request can sit through, so a
+/// slow answer is seldom asked for twice; one that still comes is used once.
+const TRACKS_LOST_AFTER: Duration = Duration::from_secs(120);
 /// How close to its end the song still playing during a wait may come
 /// before the play starts anyway: a pass of the app's loop, and a remote
 /// device running ahead of its last report while the start reaches it.
@@ -401,12 +408,14 @@ impl App {
             }
             page.tracks.insert(id, ReleaseTracks::Loaded(songs));
         }
+        let now = Instant::now();
         for id in &ask {
             page.tracks.insert(
                 id.clone(),
                 ReleaseTracks::Loading {
                     songs: Vec::new(),
                     next: 0,
+                    asked: now,
                 },
             );
         }
@@ -437,7 +446,8 @@ impl App {
             return;
         };
         let album = page.release(&album_id).cloned();
-        let Some(ReleaseTracks::Loading { songs, next }) = page.tracks.get_mut(&album_id) else {
+        let Some(ReleaseTracks::Loading { songs, next, asked }) = page.tracks.get_mut(&album_id)
+        else {
             return;
         };
         if *next != offset {
@@ -455,6 +465,7 @@ impl App {
                 crate::api::ApiError::Decode("songs out of order".into()).to_string(),
             ))
         };
+        let sign_in_expired = matches!(result, Err(crate::api::ApiError::SignInExpired { .. }));
         let outcome = match result {
             Ok(tracks) if tracks.offset == offset => {
                 let following = tracks.next_offset();
@@ -491,7 +502,9 @@ impl App {
         }
         match outcome {
             Outcome::More(following) => {
+                // The wait for a lost answer starts again for each page.
                 *next = following;
+                *asked = Instant::now();
                 self.backend.api(ApiRequest::DiscographyTracks {
                     artist_id,
                     album_id,
@@ -505,6 +518,13 @@ impl App {
             }
             Outcome::Halt(error) => {
                 page.tracks.remove(&album_id);
+                // The backend lets go of the answers the ended sign-in
+                // refuses on their way, so the song lists still waiting
+                // give up their slots: Retry, on the page or on a release,
+                // asks for them again.
+                if sign_in_expired {
+                    page.tracks.retain(|_, tracks| tracks.resolved());
+                }
                 page.halted = Some(error);
             }
         }
@@ -536,6 +556,28 @@ impl App {
             }
         }
         self.pump_discography(artist_id);
+    }
+
+    /// Forgets the song lists whose answer has not come for
+    /// [`TRACKS_LOST_AFTER`] and asks for them again wherever a page still
+    /// wants them. A forgotten list waits on as one not yet asked for, so
+    /// nothing on the page changes meanwhile.
+    pub(super) fn forget_lost_song_lists(&mut self) {
+        let now = Instant::now();
+        let mut forgot = Vec::new();
+        for (artist_id, page) in &mut self.discography_pages {
+            let before = page.tracks.len();
+            page.tracks.retain(|_, tracks| {
+                !matches!(tracks, ReleaseTracks::Loading { asked, .. }
+                    if now.saturating_duration_since(*asked) >= TRACKS_LOST_AFTER)
+            });
+            if page.tracks.len() < before {
+                forgot.push(artist_id.clone());
+            }
+        }
+        for artist_id in forgot {
+            self.pump_discography(&artist_id);
+        }
     }
 
     /// The network is back: as Retry, the release list resumes where it
@@ -1435,6 +1477,187 @@ mod tests {
             &ctx,
         );
         assert_eq!(asked_songs(&app), ["c", "a"]);
+        app.backend.shutdown();
+    }
+
+    /// Ages every song list on its way past the wait for a lost answer.
+    fn age_unanswered(app: &mut App) {
+        for tracks in app
+            .discography_pages
+            .get_mut(ARTIST)
+            .unwrap()
+            .tracks
+            .values_mut()
+        {
+            if let ReleaseTracks::Loading { asked, .. } = tracks {
+                *asked -= TRACKS_LOST_AFTER;
+            }
+        }
+    }
+
+    #[test]
+    fn a_song_list_whose_answer_never_comes_is_asked_again() {
+        let ctx = egui::Context::default();
+        let mut app = app("lost-answer");
+        open(&mut app, &ctx, three_releases());
+        assert_eq!(asked_songs(&app), ["c", "b"]);
+        app.forget_lost_song_lists();
+        assert!(
+            asked_songs(&app).is_empty(),
+            "an answer on its way is waited for"
+        );
+        // The backend let go of both answers.
+        age_unanswered(&mut app);
+        app.forget_lost_song_lists();
+        assert_eq!(asked_songs(&app), ["c", "b"]);
+        songs_arrive(&mut app, "c", vec![song("c1"), song("c2")]);
+        assert_eq!(asked_songs(&app), ["a"], "the slot was let go");
+        // A late copy of the first answer changes nothing.
+        songs_arrive(&mut app, "c", vec![song("c1")]);
+        assert_eq!(
+            app.discography_pages[ARTIST].tracks["c"]
+                .songs()
+                .map(<[Track]>::len),
+            Some(2)
+        );
+        assert!(asked_songs(&app).is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn page_retry_asks_again_for_song_lists_a_halt_left_unanswered() {
+        let ctx = egui::Context::default();
+        let mut app = app("halt-unanswered");
+        open(&mut app, &ctx, three_releases());
+        assert_eq!(asked_songs(&app), ["c", "b"]);
+        let generation = generation(&app);
+        // The personal app's sign-in ends: c says so and stops the page,
+        // and the backend lets go of b's answer.
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "c".into(),
+            offset: 0,
+            generation,
+            result: Err(crate::api::ApiError::SignInExpired {
+                api_source: crate::api::ApiSource::Personal,
+            }),
+        });
+        assert!(app.discography_pages[ARTIST].halted.is_some());
+        app.apply(
+            Action::RetryDiscography {
+                artist_id: ARTIST.into(),
+                album_id: None,
+            },
+            &ctx,
+        );
+        assert_eq!(asked_songs(&app), ["c", "b"]);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_release_retry_asks_again_for_song_lists_a_halt_left_unanswered() {
+        let ctx = egui::Context::default();
+        let mut app = app("release-retry-unanswered");
+        open(&mut app, &ctx, three_releases());
+        assert_eq!(asked_songs(&app), ["c", "b"]);
+        let generation = generation(&app);
+        // Spotify cannot list c, and a takes its slot.
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "c".into(),
+            offset: 0,
+            generation,
+            result: Err(crate::api::ApiError::Status {
+                status: 404,
+                message: "Not found".into(),
+            }),
+        });
+        assert_eq!(asked_songs(&app), ["a"]);
+        // The personal app's sign-in ends: b says so and stops the page,
+        // and the backend lets go of a's answer.
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "b".into(),
+            offset: 0,
+            generation,
+            result: Err(crate::api::ApiError::SignInExpired {
+                api_source: crate::api::ApiSource::Personal,
+            }),
+        });
+        assert!(app.discography_pages[ARTIST].halted.is_some());
+        // The user retries the release that failed, not the page.
+        app.apply(
+            Action::RetryDiscography {
+                artist_id: ARTIST.into(),
+                album_id: Some("c".into()),
+            },
+            &ctx,
+        );
+        assert_eq!(asked_songs(&app), ["c", "b"]);
+        songs_arrive(&mut app, "c", vec![song("c1"), song("c2")]);
+        assert_eq!(asked_songs(&app), ["a"]);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn page_retry_after_a_rate_limit_waits_for_a_song_list_on_its_way() {
+        let ctx = egui::Context::default();
+        let mut app = app("halt-on-its-way");
+        open(&mut app, &ctx, three_releases());
+        assert_eq!(asked_songs(&app), ["c", "b"]);
+        let generation = generation(&app);
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "c".into(),
+            offset: 0,
+            generation,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        assert!(app.discography_pages[ARTIST].halted.is_some());
+        app.apply(
+            Action::RetryDiscography {
+                artist_id: ARTIST.into(),
+                album_id: None,
+            },
+            &ctx,
+        );
+        assert_eq!(asked_songs(&app), ["c"], "b's answer is still coming");
+        songs_arrive(&mut app, "b", vec![song("b1")]);
+        assert_eq!(
+            app.discography_pages[ARTIST].tracks["b"]
+                .songs()
+                .map(<[Track]>::len),
+            Some(1)
+        );
+        assert_eq!(asked_songs(&app), ["a"]);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn each_page_of_a_long_release_is_waited_for_afresh() {
+        let ctx = egui::Context::default();
+        let mut app = app("long-lost");
+        open(&mut app, &ctx, vec![release("long", "2020", 51)]);
+        asked_songs(&app);
+        age_unanswered(&mut app);
+        let generation = generation(&app);
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "long".into(),
+            offset: 0,
+            generation,
+            result: Ok(page(songs("t", 50), 0, 50, 51)),
+        });
+        assert!(matches!(
+            app.backend.take_discography_requests().as_slice(),
+            [ApiRequest::DiscographyTracks { offset: 50, .. }]
+        ));
+        app.forget_lost_song_lists();
+        assert!(asked_songs(&app).is_empty());
+        assert!(matches!(
+            app.discography_pages[ARTIST].tracks.get("long"),
+            Some(ReleaseTracks::Loading { next: 50, .. })
+        ));
         app.backend.shutdown();
     }
 
