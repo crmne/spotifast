@@ -617,13 +617,15 @@ impl App {
             return;
         };
         let waiting = !waiting_for(page, &play).is_empty();
-        let start_resolved = page
-            .tracks
-            .get(&play.releases[0])
-            .is_some_and(ReleaseTracks::resolved);
+        let start_tracks = page.tracks.get(&play.releases[0]);
+        let start_resolved = start_tracks.is_some_and(ReleaseTracks::resolved);
+        // A clicked release whose songs failed plays on its own whatever
+        // comes after it, so waiting for the rest gains nothing.
+        let start_failed = matches!(start_tracks, Some(ReleaseTracks::Failed(_)));
         // The song from before the click plays on meanwhile; once it ends,
         // its play moves on to a song the start would cut off.
         let give_up = page.halted.is_some()
+            || start_failed
             || play.clicked.elapsed() >= PLAY_WAIT
             || (start_resolved && play.progress.elapsed() >= PLAY_STALL)
             || self.playing_song_ending();
@@ -658,6 +660,7 @@ impl App {
             return;
         }
         let list = play_list(page, &play);
+        let left_out = list.is_none() && leaves_out_later_songs(page, &play);
         let album_uri = page
             .release(&play.releases[0])
             .map(|album| album.uri.clone());
@@ -677,8 +680,12 @@ impl App {
             }
         }
         let Some((songs, index)) = list else {
-            // The release's songs never came: play it as Spotify knows it.
+            // The release's songs never came: play it as Spotify knows it,
+            // and say so when that leaves out the releases after it.
             if let Some(uri) = album_uri.filter(|_| play.start.is_none()) {
+                if left_out {
+                    self.say_queue_ends_early();
+                }
                 self.played_row = None;
                 self.start_on = play.device.clone();
                 self.start_play(PlayRequest::context(uri), false);
@@ -689,12 +696,7 @@ impl App {
             return;
         };
         if waiting {
-            self.toast(gettext(
-                self.locale,
-                // Translators: a play from an artist's discography page started
-                // before every song after the chosen one had loaded.
-                "Some songs didn't load in time, so the queue ends early",
-            ));
+            self.say_queue_ends_early();
         }
         if let Some(song) = songs.get(index) {
             self.cache_song(song.clone());
@@ -852,6 +854,17 @@ impl App {
             .map(|now| now.uri)
     }
 
+    /// A play from the page that holds fewer songs than the page would give
+    /// it.
+    fn say_queue_ends_early(&mut self) {
+        self.toast(gettext(
+            self.locale,
+            // Translators: a play from an artist's discography page started
+            // before every song after the chosen one had loaded.
+            "Some songs didn't load in time, so the queue ends early",
+        ));
+    }
+
     fn cache_song(&mut self, song: Track) {
         let Some(id) = song
             .id
@@ -952,6 +965,18 @@ fn waiting_for(page: &DiscographyPage, play: &PendingDiscographyPlay) -> Vec<Str
         };
     }
     waiting
+}
+
+/// Whether a play of the clicked release on its own leaves out songs the
+/// play would have held: a later release that adds any, while the clicked
+/// one leaves room under the cap. One that failed or has nothing playable
+/// adds none.
+fn leaves_out_later_songs(page: &DiscographyPage, play: &PendingDiscographyPlay) -> bool {
+    let count = |id: &String| page.release(id).map_or(1, |album| song_count(page, album));
+    let Some((clicked, later)) = play.releases.split_first() else {
+        return false;
+    };
+    count(clicked) < MAX_PLAYED_URIS && later.iter().any(|id| count(id) > 0)
 }
 
 /// The clicked release's playable songs a play leaves out before its
@@ -3559,7 +3584,225 @@ mod tests {
         app.settle_overdue_discography_play();
         let request = app.queued_play.as_ref().expect("a play request");
         assert_eq!(request.context_uri.as_deref(), Some("spotify:album:a"));
+        assert!(
+            !app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("ends early")),
+            "the last release leaves nothing out"
+        );
         app.backend.shutdown();
+    }
+
+    /// The newest release's songs stop at a rate limit, fail on their own,
+    /// or never come: it plays alone, without the releases after it, and
+    /// the play says so. A failure ends the wait at once.
+    #[test]
+    fn a_release_whose_songs_never_came_plays_alone_and_says_so() {
+        fn fail(app: &mut App, error: crate::api::ApiError) {
+            let generation = generation(app);
+            app.handle_api(ApiResponse::DiscographyTracks {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                offset: 0,
+                generation,
+                result: Err(error),
+            });
+        }
+        let ends: [fn(&mut App); 3] = [
+            |app| fail(app, crate::api::ApiError::RateLimited),
+            |app| {
+                fail(
+                    app,
+                    crate::api::ApiError::Status {
+                        status: 404,
+                        message: "Not found".into(),
+                    },
+                )
+            },
+            |app| {
+                app.pending_discography_play.as_mut().unwrap().clicked -= PLAY_WAIT;
+                app.settle_overdue_discography_play();
+            },
+        ];
+        for (case, end) in ends.into_iter().enumerate() {
+            let ctx = egui::Context::default();
+            let mut app = app(&format!("alone-{case}"));
+            open(&mut app, &ctx, three_releases());
+            songs_arrive(&mut app, "b", vec![song("b1")]);
+            app.apply(
+                Action::PlayDiscography {
+                    artist_id: ARTIST.into(),
+                    album_id: "c".into(),
+                    start: None,
+                },
+                &ctx,
+            );
+            assert!(app.pending_discography_play.is_some(), "case {case}");
+            end(&mut app);
+            assert!(app.pending_discography_play.is_none(), "case {case}");
+            let request = app.queued_play.as_ref().expect("a play request");
+            assert_eq!(
+                request.context_uri.as_deref(),
+                Some("spotify:album:c"),
+                "case {case}"
+            );
+            assert!(
+                app.toasts
+                    .iter()
+                    .any(|toast| toast.message.contains("ends early")),
+                "case {case}: b and a are left out"
+            );
+            app.backend.shutdown();
+        }
+    }
+
+    /// The newest release fails once every release after it has loaded:
+    /// nothing else is on its way, and the play still says it ends early.
+    #[test]
+    fn a_release_failing_after_the_rest_loaded_plays_alone_and_says_so() {
+        let ctx = egui::Context::default();
+        let mut app = app("alone-rest-loaded");
+        open(&mut app, &ctx, three_releases());
+        songs_arrive(&mut app, "b", vec![song("b1")]);
+        songs_arrive(&mut app, "a", vec![song("a1")]);
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        let play = app
+            .pending_discography_play
+            .as_ref()
+            .expect("the play waits for c");
+        assert_eq!(
+            waiting_for(&app.discography_pages[ARTIST], play),
+            ["c"],
+            "only c's own songs are on their way"
+        );
+        let generation = generation(&app);
+        app.handle_api(ApiResponse::DiscographyTracks {
+            artist_id: ARTIST.into(),
+            album_id: "c".into(),
+            offset: 0,
+            generation,
+            result: Err(crate::api::ApiError::Status {
+                status: 404,
+                message: "Not found".into(),
+            }),
+        });
+        assert!(app.pending_discography_play.is_none());
+        let request = app.queued_play.as_ref().expect("a play request");
+        assert_eq!(request.context_uri.as_deref(), Some("spotify:album:c"));
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("ends early")),
+            "b and a are left out"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_release_played_alone_says_nothing_when_the_rest_failed() {
+        let ctx = egui::Context::default();
+        let mut app = app("alone-rest-failed");
+        open(&mut app, &ctx, three_releases());
+        let generation = generation(&app);
+        for album in ["b", "a"] {
+            app.handle_api(ApiResponse::DiscographyTracks {
+                artist_id: ARTIST.into(),
+                album_id: album.into(),
+                offset: 0,
+                generation,
+                result: Err(crate::api::ApiError::Status {
+                    status: 404,
+                    message: "Not found".into(),
+                }),
+            });
+        }
+        app.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "c".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        app.pending_discography_play.as_mut().unwrap().clicked -= PLAY_WAIT;
+        app.settle_overdue_discography_play();
+        let request = app.queued_play.as_ref().expect("a play request");
+        assert_eq!(request.context_uri.as_deref(), Some("spotify:album:c"));
+        assert!(
+            !app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("ends early")),
+            "the releases after it had no songs to add"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A release whose songs never came plays alone without a word when
+    /// that leaves nothing out: the releases after it have nothing
+    /// playable, or it alone fills a play.
+    #[test]
+    fn a_release_played_alone_says_nothing_when_nothing_is_left_out() {
+        fn unplayable(id: &str) -> Track {
+            Track {
+                is_playable: Some(false),
+                ..song(id)
+            }
+        }
+        let setups: [fn(&mut App, &egui::Context) -> &'static str; 2] = [
+            |app, ctx| {
+                open(app, ctx, three_releases());
+                songs_arrive(app, "b", vec![unplayable("b1")]);
+                songs_arrive(app, "a", vec![unplayable("a1")]);
+                "c"
+            },
+            |app, ctx| {
+                open(
+                    app,
+                    ctx,
+                    vec![release("long", "2024", 600), release("next", "2020", 3)],
+                );
+                songs_arrive(app, "next", songs("n", 3));
+                "long"
+            },
+        ];
+        for (case, setup) in setups.into_iter().enumerate() {
+            let ctx = egui::Context::default();
+            let mut app = app(&format!("alone-nothing-left-out-{case}"));
+            let clicked = setup(&mut app, &ctx);
+            app.apply(
+                Action::PlayDiscography {
+                    artist_id: ARTIST.into(),
+                    album_id: clicked.into(),
+                    start: None,
+                },
+                &ctx,
+            );
+            app.pending_discography_play
+                .as_mut()
+                .unwrap_or_else(|| panic!("case {case}: the play waits"))
+                .clicked -= PLAY_WAIT;
+            app.settle_overdue_discography_play();
+            let request = app.queued_play.as_ref().expect("a play request");
+            assert_eq!(
+                request.context_uri,
+                Some(format!("spotify:album:{clicked}")),
+                "case {case}"
+            );
+            assert!(
+                !app.toasts
+                    .iter()
+                    .any(|toast| toast.message.contains("ends early")),
+                "case {case}: nothing is left out"
+            );
+            app.backend.shutdown();
+        }
     }
 
     #[test]
