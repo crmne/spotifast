@@ -2619,6 +2619,70 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A release whose songs are on their way in a session batch is drawn
+    /// as one read from the Web API, keeping the same room for its songs,
+    /// and its songs take their rows on the frame they come.
+    #[test]
+    fn a_release_in_a_session_batch_takes_its_rows_when_its_songs_come() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("discography-batched");
+        let wait = |app: &mut App, tracks: ReleaseTracks| {
+            app.discography_pages
+                .get_mut("art0")
+                .unwrap()
+                .tracks
+                .insert("alb0".into(), tracks)
+        };
+        let songs = wait(
+            &mut app,
+            ReleaseTracks::Loading {
+                songs: Vec::new(),
+                next: 0,
+                asked: Instant::now(),
+            },
+        )
+        .expect("Fragments' songs");
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let has_row = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Play Otomo, Bonobo") && node.role() == Role::Button
+            })
+        };
+        let loading = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.role() == Role::Label && node.value() == Some("Loading…"))
+        };
+        // Where the next release starts, below the room Fragments keeps.
+        let promises = |tree: &egui::accesskit::TreeUpdate| {
+            let id = accessible_node(tree, "Promises", Role::Link);
+            tree.nodes
+                .iter()
+                .find(|(node, _)| *node == id)
+                .and_then(|(_, node)| node.bounds())
+                .expect("a placed title")
+                .y0
+        };
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let read_alone = promises(&tree);
+        wait(
+            &mut app,
+            ReleaseTracks::Batched {
+                batch: 1,
+                asked: Instant::now(),
+            },
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(loading(&tree), "Fragments shows its songs loading");
+        assert_eq!(promises(&tree), read_alone, "the same room for its songs");
+        assert!(!has_row(&tree), "Fragments' songs are on their way");
+        wait(&mut app, songs);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(has_row(&tree), "Fragments' songs have their rows");
+        app.backend.shutdown();
+    }
+
     /// A release whose song is paused resumes it where it was, as the song's
     /// number and the player bar do, instead of starting the page over from
     /// the release's first song.

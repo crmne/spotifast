@@ -922,6 +922,10 @@ pub struct App {
     pending_queue_adds: Vec<PendingQueueAdd>,
     pending_album_queues: HashMap<u64, PendingAlbumQueue>,
     pending_discography_play: Option<PendingDiscographyPlay>,
+    /// When the playback session last could not read a batch of discography
+    /// songs. The pages then read them from the Web API, until local
+    /// playback is next ready or `SESSION_SONGS_AGAIN_AFTER` has passed.
+    discography_session_failed_at: Option<Instant>,
     pending_queue_batches: HashMap<u64, Target>,
     album_queue_serial: u64,
     /// The latest `play-search` command. Its answer plays only while this
@@ -1566,6 +1570,7 @@ impl App {
             pending_queue_adds: Vec::new(),
             pending_album_queues: HashMap::new(),
             pending_discography_play: None,
+            discography_session_failed_at: None,
             pending_queue_batches: HashMap::new(),
             album_queue_serial: 0,
             play_search_serial: 0,
@@ -3640,6 +3645,9 @@ impl App {
                         }
                     }
                 }
+                // A new playback session may read discography songs again
+                // at once.
+                self.discography_session_failed_at = None;
                 self.replay_queued_play();
             }
             LocalPlayback::Unavailable => {
@@ -3916,6 +3924,7 @@ impl App {
         self.play_count_generation = self.play_count_generation.wrapping_add(1);
         self.discography_pages.clear();
         self.pending_discography_play = None;
+        self.discography_session_failed_at = None;
         self.show_pages.clear();
         self.album_types_requested.clear();
         self.audiobook_shows.clear();
@@ -9839,6 +9848,12 @@ impl App {
                 generation,
                 result,
             } => self.receive_discography_tracks(artist_id, album_id, offset, generation, result),
+            ApiResponse::DiscographySongs {
+                artist_id,
+                batch,
+                generation,
+                songs,
+            } => self.receive_discography_songs(artist_id, batch, generation, songs),
             ApiResponse::Album { id, result } => {
                 // An earlier Web API header has no page generation. Once the
                 // session resolves a countdown page, its preview and playable
