@@ -77,6 +77,8 @@ const SLOW_BANNER_INTERVAL: jiff::SignedDuration = jiff::SignedDuration::from_ho
 /// A "too many requests" answer older than this no longer brings up the
 /// banner: Spotify has likely caught up by the time a dialog closes.
 const SLOW_BANNER_FRESH: Duration = Duration::from_secs(60);
+/// How close a report must be to a seek's position to confirm it.
+const SEEK_AGREES_MS: u32 = 1500;
 
 /// How long a newly started context remains visible while Spotify catches up.
 /// During local takeover, Spotify may briefly alternate between old and new
@@ -2013,6 +2015,30 @@ impl App {
         }))
     }
 
+    /// Ends a seek's hold on another device's position once a report agrees
+    /// with it, or the song changes. Until then, Spotify can still report the
+    /// old position a second after the seek.
+    fn end_agreed_seek(&mut self, previous_uri: Option<&str>) {
+        let Some((sought, at)) = self.pending_remote_position else {
+            return;
+        };
+        let Some(state) = self.remote.as_ref().map(|remote| &remote.state) else {
+            return;
+        };
+        let sought = if state.is_playing {
+            sought.saturating_add(at.elapsed().as_millis() as u32)
+        } else {
+            sought
+        };
+        let agrees = state
+            .progress_ms
+            .is_some_and(|reported| reported.abs_diff(sought) < SEEK_AGREES_MS);
+        let uri = state.item.as_ref().map(|item| item.uri());
+        if agrees || uri != previous_uri {
+            self.pending_remote_position = None;
+        }
+    }
+
     pub fn now_playing(&self) -> Option<NowPlaying> {
         if let Some(now) = &self.frame_now {
             return Some(now.clone());
@@ -2145,17 +2171,21 @@ impl App {
             Some((playing, at)) if at.elapsed() < PLAYBACK_HOLD => playing,
             _ => remote.state.is_playing,
         };
-        let position = match self.pending_remote_position {
-            Some((position, at)) if at.elapsed() < OPTIMISTIC_HOLD => position,
-            _ => {
-                let base = remote.state.progress_ms.unwrap_or(0);
-                if remote.state.is_playing {
-                    (base as u64 + remote.received_at.elapsed().as_millis() as u64)
-                        .min(item.duration_ms() as u64) as u32
-                } else {
-                    base
-                }
+        let advanced = |position: u32, since: Instant, playing: bool| {
+            if playing {
+                (position as u64 + since.elapsed().as_millis() as u64)
+                    .min(item.duration_ms() as u64) as u32
+            } else {
+                position
             }
+        };
+        let position = match self.pending_remote_position {
+            Some((sought, at)) if at.elapsed() < PLAYBACK_HOLD => advanced(sought, at, playing),
+            _ => advanced(
+                remote.state.progress_ms.unwrap_or(0),
+                remote.received_at,
+                remote.state.is_playing,
+            ),
         };
         let volume = if self.has_soloist_output_volume()
             && self.soloist_device_id.is_some()
@@ -7146,6 +7176,7 @@ impl App {
                             state,
                             received_at: Instant::now(),
                         });
+                        self.end_agreed_seek(previous_uri.as_deref());
                         if let (Some(previous), Some(current)) = (
                             previous_shuffle,
                             self.remote
@@ -13112,7 +13143,14 @@ impl App {
         let polling = self
             .is_connected()
             .then(|| self.connected_repaint_interval());
-        [playing, pending, polling].into_iter().flatten().min()
+        // A held seek ends on time, even with no report and nothing playing.
+        let seek_hold = self
+            .pending_remote_position
+            .and_then(|(_, at)| PLAYBACK_HOLD.checked_sub(at.elapsed()));
+        [playing, pending, polling, seek_hold]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// How long the headless loop may sleep after this tick: until the next
@@ -14544,6 +14582,56 @@ mod tests {
         }
         assert!(shelf_left < initial_left, "Shift+wheel must move the shelf");
         assert_eq!(page_offset, 0.0, "the enclosing page must stay put");
+    }
+
+    /// After a seek on another device, a report that Spotify fetched before
+    /// the seek landed must not pull the position back. One that agrees, or
+    /// a new song, ends the hold.
+    #[test]
+    fn a_remote_seek_holds_until_a_report_agrees() {
+        let mut app = headless_app();
+        let report = |app: &mut App, uri: &str, progress_ms: u32| {
+            app.handle_api(ApiResponse::PlaybackState {
+                seq: app.remote_poll_seq,
+                result: Ok(Some(PlaybackState {
+                    is_playing: false,
+                    progress_ms: Some(progress_ms),
+                    item: Some(PlayableItem::Track(Track {
+                        uri: uri.into(),
+                        duration_ms: 200_000,
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                })),
+            });
+        };
+        let position = |app: &App| app.now_playing().unwrap().position_ms;
+        report(&mut app, "spotify:track:a", 84_000);
+        app.pending_remote_position = Some((40_000, Instant::now()));
+
+        // Still the old position.
+        report(&mut app, "spotify:track:a", 84_000);
+        assert_eq!(position(&app), 40_000);
+
+        // A report that agrees takes over.
+        report(&mut app, "spotify:track:a", 40_300);
+        assert_eq!(position(&app), 40_300);
+        assert_eq!(app.pending_remote_position, None);
+
+        // A new song ends the hold.
+        app.pending_remote_position = Some((40_000, Instant::now()));
+        report(&mut app, "spotify:track:b", 0);
+        assert_eq!(position(&app), 0);
+
+        // A seek Spotify never carries out stops holding in time.
+        app.pending_remote_position = Some((40_000, Instant::now() - PLAYBACK_HOLD));
+        report(&mut app, "spotify:track:b", 84_000);
+        assert_eq!(position(&app), 84_000);
+
+        // Paused, with no report coming: a pass still runs when the hold ends.
+        let left = Duration::from_secs(1);
+        app.pending_remote_position = Some((40_000, Instant::now() - (PLAYBACK_HOLD - left)));
+        assert!(app.next_pass().is_some_and(|due| due <= left));
     }
 
     /// A song started outside a playlist must turn off the playlist's
