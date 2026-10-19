@@ -503,16 +503,28 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     let heart_width = if now.is_episode { 0.0 } else { 42.0 };
     let text_left = cover_rect.right() + 12.0;
     let text_width = (region.right() - text_left - heart_width).max(40.0);
-    let text_rect = Rect::from_min_size(pos2(text_left, cy - 18.0), vec2(text_width, 36.0));
-    let info_response = ui.interact(text_rect, egui::Id::new("now-playing-info"), drag_sense);
+    let displayed_text_width: f32 = {
+        let title =
+            ui.painter()
+                .layout_no_wrap(now.title.clone(), theme::medium(14.0), palette.text);
+        let subtitle = ui.painter().layout_no_wrap(
+            now.subtitle.clone(),
+            theme::regular(12.0),
+            palette.secondary,
+        );
+        title.size().x.max(subtitle.size().x).min(text_width)
+    };
+    let info_rect = Rect::from_min_size(pos2(text_left, cy - 18.0), vec2(text_width, 36.0));
+
     let mut text_ui = ui.new_child(
         UiBuilder::new()
-            .max_rect(text_rect)
+            .max_rect(info_rect)
             .layout(Layout::top_down(Align::Min)),
     );
-    text_ui.set_clip_rect(text_rect.intersect(ui.clip_rect()));
+    text_ui.set_clip_rect(info_rect.intersect(ui.clip_rect()));
     text_ui.spacing_mut().item_spacing.y = 2.0;
-    let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text);
+    let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text)
+        .interact(drag_sense);
     if title_response.clicked() {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
@@ -520,25 +532,41 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             app.actions.push(Action::Open(Page::Show(id.clone())));
         }
     }
+    let mut responses = vec![cover_response, title_response];
     text_ui.horizontal_top(|ui| {
         if now.artists.is_empty() {
-            if theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary).clicked()
+            let response = theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary)
+                .interact(drag_sense);
+            if response.clicked()
                 && let Some(id) = &now.show_id
             {
                 app.actions.push(Action::Open(Page::Show(id.clone())));
             }
+            responses.push(response);
         } else {
-            super::widgets::artist_links(
-                ui,
-                app,
-                &now.artists,
-                theme::regular(12.0),
-                palette.secondary,
-            );
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for (index, artist) in now.artists.iter().enumerate() {
+                if index > 0 {
+                    theme::text(ui, ", ", theme::regular(12.0), palette.secondary);
+                }
+                let response = if artist.id.is_some() {
+                    theme::link(ui, &artist.name, theme::regular(12.0), palette.secondary)
+                } else {
+                    theme::text(ui, &artist.name, theme::regular(12.0), palette.secondary)
+                }
+                .interact(drag_sense);
+                if response.clicked()
+                    && let Some(id) = &artist.id
+                {
+                    app.actions.push(Action::Open(Page::Artist(id.clone())));
+                }
+                responses.push(response);
+            }
         }
     });
-    if (cover_response.drag_started_by(egui::PointerButton::Primary)
-        || info_response.drag_started_by(egui::PointerButton::Primary))
+    if responses
+        .iter()
+        .any(|response| response.drag_started_by(egui::PointerButton::Primary))
         && let Some(item) = &song
     {
         egui::DragAndDrop::set_payload(
@@ -554,10 +582,10 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     }
 
     // The playing thing answers the same right-click menu as a table row,
-    // from the cover, the empty space around the words, or the words.
+    // from the cover or the words.
     if let Some(item) = &song {
         let context = app.editable_context_playlist();
-        for response in [&cover_response, &info_response, &title_response] {
+        for response in &responses {
             egui::Popup::context_menu(response)
                 .frame(super::widgets::menu_frame(&palette))
                 .show(|ui| super::widgets::item_menu(ui, app, item, context.as_ref(), None));
@@ -584,18 +612,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         };
         // Sit the heart just past the actual text, not at the region's far
         // edge, so it stays visually attached to the title.
-        let natural = {
-            let title =
-                ui.painter()
-                    .layout_no_wrap(now.title.clone(), theme::medium(14.0), palette.text);
-            let subtitle = ui.painter().layout_no_wrap(
-                now.subtitle.clone(),
-                theme::regular(12.0),
-                palette.secondary,
-            );
-            title.size().x.max(subtitle.size().x).min(text_width)
-        };
-        let heart_x = (text_left + natural + 21.0).min(region.right() - 21.0);
+        let heart_x = (text_left + displayed_text_width + 21.0).min(region.right() - 21.0);
         let heart_rect = Rect::from_center_size(pos2(heart_x, cy), Vec2::splat(30.0));
         let mut heart_ui = ui.new_child(
             UiBuilder::new()
