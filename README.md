@@ -139,6 +139,19 @@ is described in [PACKAGING.md](PACKAGING.md).
 is Spotifast's sibling. Both are built on
 [fastframe](https://fastframe.dev).
 
+## Spotify Connect updates
+
+With local playback enabled, Spotify pushes changes from other devices over
+Spotifast's existing Connect session. Playback changes trigger a refresh.
+Volume-only changes appear directly for the active playback device without
+an extra request; an unconfirmed volume change made in Spotifast takes
+precedence. Push-triggered refreshes are at least a second apart and wait for
+a pending playback read to finish. Changes received during that read are
+folded into one follow-up.
+Connect pushes are ignored when this computer is the active device both
+before and after; position-only updates cause no requests. Regular polling
+remains the fallback.
+
 ## Sonos playback
 
 Sonos speakers use the Spotify Connect session for playback control. Enable

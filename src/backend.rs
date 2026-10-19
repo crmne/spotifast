@@ -983,6 +983,14 @@ pub enum Event {
         result: Result<(), String>,
     },
     Local(Box<LocalState>),
+    /// Playback on another device changed; poll it now rather than later.
+    RemoteChanged,
+    /// The volume Spotify pushed for the device playing elsewhere, by its
+    /// Connect id, on librespot's 0 to 65535 scale.
+    RemoteVolume {
+        device_id: String,
+        volume: u16,
+    },
     Api(Box<ApiResponse>),
     Accent {
         url: String,
@@ -3296,6 +3304,14 @@ impl Worker {
                 }
                 EngineEvent::SessionEnded => {
                     let _ = commands.send(Command::Reconnect);
+                }
+                EngineEvent::RemoteChanged => {
+                    let _ = events.send(Event::RemoteChanged);
+                    waker.wake();
+                }
+                EngineEvent::RemoteVolume { device_id, volume } => {
+                    let _ = events.send(Event::RemoteVolume { device_id, volume });
+                    waker.wake();
                 }
             }
         })

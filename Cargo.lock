@@ -6197,6 +6197,7 @@ dependencies = [
  "fastframe-tray",
  "fastframe-update",
  "flate2",
+ "futures-util",
  "glutin",
  "glutin-winit",
  "hmac 0.12.1",
