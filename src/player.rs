@@ -40,7 +40,7 @@ use sha1::{Digest, Sha1};
 
 use crate::api::models::ArtistRef;
 use crate::sink::{AudioControl, DeviceHook, ErrorHook, RodioSink};
-use crate::vis::{AudioTap, Tapped};
+use crate::vis::{AudioTap, Paced, Tapped};
 
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
@@ -395,6 +395,248 @@ pub struct Engine {
     /// The player came from a dropped session and still plays what that
     /// session left it, until something is loaded through this one.
     carrying: std::sync::atomic::AtomicBool,
+    mirror: Mirror,
+}
+
+/// The song another device plays, for the visualisers to follow.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Follow {
+    pub uri: String,
+    pub clock: Clock,
+}
+
+/// A play position at an instant. It moves on while playing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Clock {
+    pub position_ms: u32,
+    pub at: Instant,
+    pub playing: bool,
+}
+
+impl Clock {
+    fn position_at(&self, now: Instant) -> u32 {
+        let played = if self.playing {
+            now.saturating_duration_since(self.at).as_millis() as u32
+        } else {
+            0
+        };
+        self.position_ms.saturating_add(played)
+    }
+}
+
+/// A silent second player for the visualisers while another device plays:
+/// no sound reaches this computer then, so the mirror plays the same song
+/// into the tap. The app runs it only while a visualiser shows. Spirc does
+/// not know it, so Spotify never sees it as a device.
+struct Mirror {
+    player: Arc<Player>,
+    state: Arc<Mutex<MirrorState>>,
+}
+
+#[derive(Default)]
+struct MirrorState {
+    following: Option<Follow>,
+    /// Where the mirror's own player is, from its events.
+    heard: Option<Clock>,
+    /// A small drift, and when the reading that showed it was taken. A later
+    /// reading must confirm it.
+    confirm: Option<(i64, Instant)>,
+    last_seek: Option<Instant>,
+    /// The player reached the end of its song. It runs ahead of the device,
+    /// so it gets there first, and a replay of the same song must load again.
+    ended: bool,
+}
+
+#[derive(Debug, PartialEq)]
+enum MirrorStep {
+    Stop,
+    Load,
+    Play,
+    Pause,
+}
+
+/// The mirror's decoder runs this far ahead of what the visualisers show.
+const LAG_MS: u32 = (crate::vis::LAG as u64 * 1000 / librespot_playback::SAMPLE_RATE as u64) as u32;
+/// How far the mirror may be from the device and still count as in step.
+const IN_STEP_MS: i64 = 100;
+/// A gap this large is the device seeking, and is followed at once.
+const JUMP_MS: i64 = 1500;
+/// How long after a seek the mirror waits before it corrects again.
+const SEEK_SETTLE: Duration = Duration::from_secs(1);
+
+/// What the mirror does to go from following `last` to following `next`,
+/// when its player has `ended` its song or not. Its position is matched by
+/// [`correction`].
+fn mirror_step(last: Option<&Follow>, next: Option<&Follow>, ended: bool) -> Option<MirrorStep> {
+    match (last, next) {
+        (None, None) => None,
+        (Some(_), None) => Some(MirrorStep::Stop),
+        (Some(last), Some(next)) if last.uri == next.uri && !(ended && next.clock.playing) => {
+            match (last.clock.playing, next.clock.playing) {
+                (false, true) => Some(MirrorStep::Play),
+                (true, false) => Some(MirrorStep::Pause),
+                _ => None,
+            }
+        }
+        (_, Some(_)) => Some(MirrorStep::Load),
+    }
+}
+
+/// Where the mirror seeks to, if it is out of step with the device.
+///
+/// A jump is followed at once. A small drift must show in two readings in a
+/// row, so one stale report does not move the mirror. The check runs more
+/// often than the player reports, so it sees most readings twice.
+fn correction(state: &mut MirrorState, now: Instant) -> Option<u32> {
+    let (Some(following), Some(heard)) = (&state.following, state.heard) else {
+        state.confirm = None;
+        return None;
+    };
+    let settling = state
+        .last_seek
+        .is_some_and(|at| now.saturating_duration_since(at) < SEEK_SETTLE);
+    if !following.clock.playing || !heard.playing || settling {
+        return None;
+    }
+    let target = following.clock.position_at(now).saturating_add(LAG_MS);
+    let drift = i64::from(heard.position_at(now)) - i64::from(target);
+    if drift.abs() <= IN_STEP_MS {
+        state.confirm = None;
+        return None;
+    }
+    if drift.abs() < JUMP_MS {
+        match state.confirm {
+            Some((_, seen_at)) if seen_at == heard.at => return None,
+            Some((seen, _)) if (seen - drift).abs() <= IN_STEP_MS => {}
+            _ => {
+                state.confirm = Some((drift, heard.at));
+                return None;
+            }
+        }
+    }
+    state.confirm = None;
+    state.heard = None;
+    state.last_seek = Some(now);
+    Some(target)
+}
+
+impl Mirror {
+    fn new(config: &EngineConfig, session: Session) -> Self {
+        let player_config = PlayerConfig {
+            // Enough for a picture, at under a third of the data.
+            bitrate: Bitrate::Bitrate96,
+            position_update_interval: Some(Duration::from_millis(500)),
+            // A new song then stops the sink, so `Paced` starts its clock
+            // again. Otherwise it rushes through the gap since the last song.
+            gapless: false,
+            ..PlayerConfig::default()
+        };
+        let tap = Arc::clone(&config.tap);
+        let eq = Arc::clone(&config.eq);
+        let unity = Arc::new(std::sync::atomic::AtomicU64::new(1.0f64.to_bits()));
+        let player = Player::new(player_config, session, Box::new(NoOpVolume), move || {
+            Box::new(Tapped::new(
+                Box::new(Paced::default()),
+                AudioControl::new(0),
+                tap,
+                Box::new(NoOpVolume),
+                true,
+                eq,
+                unity,
+            )) as Box<dyn Sink>
+        });
+        let state = Arc::<Mutex<MirrorState>>::default();
+        tokio::spawn(keep_in_step(
+            Arc::downgrade(&player),
+            player.get_player_event_channel(),
+            Arc::clone(&state),
+        ));
+        Self { player, state }
+    }
+
+    fn follow(&self, next: Option<Follow>) -> Result<()> {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        let step = mirror_step(state.following.as_ref(), next.as_ref(), state.ended);
+        state.following = next;
+        let Some(step) = step else { return Ok(()) };
+        log::debug!("mirror: {step:?}");
+        match step {
+            MirrorStep::Stop => self.player.stop(),
+            MirrorStep::Load => {
+                let next = state.following.as_ref().expect("a load has a song");
+                let uri = SpotifyUri::from_uri(&next.uri).context("invalid track URI")?;
+                let position = next
+                    .clock
+                    .position_at(Instant::now())
+                    .saturating_add(LAG_MS);
+                self.player.load(uri, next.clock.playing, position);
+            }
+            MirrorStep::Play => self.player.play(),
+            MirrorStep::Pause => self.player.pause(),
+        }
+        Ok(())
+    }
+}
+
+/// Reads where the mirror's player is and seeks it back into step with the
+/// device. Ends with the player.
+async fn keep_in_step(
+    player: std::sync::Weak<Player>,
+    mut events: tokio::sync::mpsc::UnboundedReceiver<PlayerEvent>,
+    state: Arc<Mutex<MirrorState>>,
+) {
+    let mut ticks = tokio::time::interval(Duration::from_millis(250));
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        // Only a playing mirror can drift. An idle one wakes on its next
+        // event, not four times a second.
+        let playing = state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .heard
+            .is_some_and(|heard| heard.playing);
+        tokio::select! {
+            event = events.recv() => {
+                let Some(event) = event else { return };
+                let mut state = state.lock().unwrap_or_else(|p| p.into_inner());
+                let now = Instant::now();
+                let playing = state.heard.is_none_or(|heard| heard.playing);
+                match event {
+                    PlayerEvent::EndOfTrack { .. } => state.ended = true,
+                    PlayerEvent::Loading { .. } | PlayerEvent::Playing { .. } => state.ended = false,
+                    _ => {}
+                }
+                state.heard = match event {
+                    PlayerEvent::Playing { position_ms, .. }
+                    | PlayerEvent::PositionChanged { position_ms, .. }
+                    | PlayerEvent::PositionCorrection { position_ms, .. } => {
+                        Some(Clock { position_ms, at: now, playing: true })
+                    }
+                    PlayerEvent::Seeked { position_ms, .. } => {
+                        Some(Clock { position_ms, at: now, playing })
+                    }
+                    PlayerEvent::Paused { position_ms, .. } => {
+                        Some(Clock { position_ms, at: now, playing: false })
+                    }
+                    PlayerEvent::Loading { .. }
+                    | PlayerEvent::Stopped { .. }
+                    | PlayerEvent::EndOfTrack { .. } => None,
+                    _ => continue,
+                };
+            }
+            _ = ticks.tick(), if playing => {
+                let Some(player) = player.upgrade() else { return };
+                let seek = correction(
+                    &mut state.lock().unwrap_or_else(|p| p.into_inner()),
+                    Instant::now(),
+                );
+                if let Some(position_ms) = seek {
+                    log::debug!("mirror: in step at {position_ms} ms");
+                    player.seek(position_ms);
+                }
+            }
+        }
+    }
 }
 
 impl Engine {
@@ -482,6 +724,7 @@ impl Engine {
         });
 
         let device_id = config.device_id();
+        let mirror = Mirror::new(config, session.clone());
         Ok(Self {
             player,
             spirc: Arc::new(spirc),
@@ -494,6 +737,7 @@ impl Engine {
             closing,
             audio,
             carrying: std::sync::atomic::AtomicBool::new(carrying),
+            mirror,
         })
     }
 
@@ -583,6 +827,11 @@ impl Engine {
     fn stop_carrying(&self) {
         self.carrying
             .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Plays `follow` silently for the visualisers, or stops when `None`.
+    pub fn mirror(&self, follow: Option<Follow>) -> Result<()> {
+        self.mirror.follow(follow)
     }
 
     /// Playback state to resume after replacing this engine.
@@ -675,6 +924,9 @@ impl Engine {
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = self.spirc.shutdown();
         self.player.stop();
+        // Lookups can hold the engine a while longer. Its mirror must not
+        // play into the tap beside the next engine's.
+        let _ = self.mirror.follow(None);
     }
 
     /// Ends the session but leaves the player playing, for an engine that
@@ -683,6 +935,7 @@ impl Engine {
         self.closing
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = self.spirc.shutdown();
+        let _ = self.mirror.follow(None);
     }
 
     pub fn resume_point(&self) -> Option<PlaybackResume> {
@@ -1449,6 +1702,96 @@ mod tests {
 
     use super::*;
     use librespot_core::SpotifyUri;
+
+    fn song(uri: &str, playing: bool, at: Instant) -> Follow {
+        Follow {
+            uri: uri.into(),
+            clock: Clock {
+                position_ms: 10_000,
+                at,
+                playing,
+            },
+        }
+    }
+
+    #[test]
+    fn the_mirror_loads_pauses_and_stops_when_the_device_does() {
+        let at = Instant::now();
+        let a = song("spotify:track:a", true, at);
+        let paused = song("spotify:track:a", false, at);
+        let b = song("spotify:track:b", true, at);
+        use MirrorStep::*;
+        let cases = [
+            (None, None, None),
+            (None, Some(&a), Some(Load)),
+            (Some(&a), None, Some(Stop)),
+            (Some(&a), Some(&b), Some(Load)),
+            (Some(&a), Some(&a), None),
+            (Some(&a), Some(&paused), Some(Pause)),
+            (Some(&paused), Some(&a), Some(Play)),
+        ];
+        for (last, next, step) in cases {
+            assert_eq!(mirror_step(last, next, false), step, "{last:?} -> {next:?}");
+        }
+        // Played to the end, then the device plays the same song again.
+        assert_eq!(mirror_step(Some(&a), Some(&a), true), Some(Load));
+        assert_eq!(mirror_step(Some(&paused), Some(&a), true), Some(Load));
+        assert_eq!(mirror_step(Some(&a), Some(&paused), true), Some(Pause));
+    }
+
+    #[test]
+    fn the_mirror_seeks_into_step_with_the_device() {
+        let at = Instant::now();
+        // The device is at 10 s; the mirror should be LAG ahead of it.
+        let target = 10_000 + LAG_MS;
+        let state = |heard_ms: u32, playing: bool| MirrorState {
+            following: Some(song("spotify:track:a", playing, at)),
+            heard: Some(Clock {
+                position_ms: heard_ms,
+                at,
+                playing,
+            }),
+            ..MirrorState::default()
+        };
+
+        // In step: nothing.
+        assert_eq!(correction(&mut state(target + 50, true), at), None);
+        // Paused: nothing.
+        assert_eq!(correction(&mut state(0, false), at), None);
+        // A jump: at once.
+        assert_eq!(
+            correction(&mut state(target + 30_000, true), at),
+            Some(target)
+        );
+
+        let reading = |position_ms: u32, at: Instant| {
+            Some(Clock {
+                position_ms,
+                at,
+                playing: true,
+            })
+        };
+        // A small drift once: wait for a second reading.
+        let mut drifting = state(target - 400, true);
+        assert_eq!(correction(&mut drifting, at), None);
+        // The same reading again proves nothing.
+        let tick = Duration::from_millis(250);
+        assert_eq!(correction(&mut drifting, at + tick), None);
+        // A new reading with the same drift: seek.
+        let next = at + 2 * tick;
+        drifting.heard = reading(target + 100, next);
+        assert_eq!(correction(&mut drifting, next), Some(target + 500));
+        // Right after the seek, drift does not count.
+        drifting.heard = reading(target + 100, next);
+        assert_eq!(correction(&mut drifting, next + tick), None);
+
+        // A one-off stale reading is dropped when the next one is in step.
+        let mut glitch = state(target - 400, true);
+        assert_eq!(correction(&mut glitch, at), None);
+        glitch.heard.as_mut().unwrap().position_ms = target;
+        assert_eq!(correction(&mut glitch, at), None);
+        assert_eq!(glitch.confirm, None);
+    }
 
     /// #268: a dropped session leaves the song playing or paused where it
     /// is, for the next session to pick up; a shutdown stops it.

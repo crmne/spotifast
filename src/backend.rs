@@ -765,6 +765,7 @@ pub enum Command {
         config: ProxyConfig,
     },
     Player(PlayerCommand),
+    Mirror(Option<crate::player::Follow>),
     Api(ApiRequest),
     ApiFinished {
         generation: u64,
@@ -1189,6 +1190,8 @@ pub struct Backend {
     #[cfg(test)]
     transfer_requests: std::sync::Mutex<Vec<ApiRequest>>,
     #[cfg(test)]
+    mirror_requests: std::sync::Mutex<Vec<Option<crate::player::Follow>>>,
+    #[cfg(test)]
     queue_requests: std::sync::Mutex<Vec<ApiRequest>>,
     #[cfg(test)]
     queued_tracks: std::sync::Mutex<Vec<String>>,
@@ -1291,6 +1294,8 @@ impl Backend {
             remote_shuffle_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             transfer_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            mirror_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             queue_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
@@ -1596,6 +1601,11 @@ impl Backend {
     }
 
     #[cfg(test)]
+    pub fn take_mirror_requests(&self) -> Vec<Option<crate::player::Follow>> {
+        std::mem::take(&mut *self.mirror_requests.lock().unwrap())
+    }
+
+    #[cfg(test)]
     pub fn take_remote_shuffle_requests(&self) -> Vec<ApiRequest> {
         std::mem::take(&mut *self.remote_shuffle_requests.lock().unwrap())
     }
@@ -1613,6 +1623,12 @@ impl Backend {
     #[cfg(test)]
     pub(crate) fn take_player_commands(&self) -> Vec<PlayerCommand> {
         std::mem::take(&mut *self.player_commands.lock().unwrap())
+    }
+
+    pub fn mirror(&self, follow: Option<crate::player::Follow>) {
+        #[cfg(test)]
+        self.mirror_requests.lock().unwrap().push(follow.clone());
+        self.send(Command::Mirror(follow));
     }
 
     pub fn player(&self, command: PlayerCommand) {
@@ -2410,6 +2426,13 @@ impl Worker {
                     self.replace_engine();
                 }
                 Command::ApplyProxy { request, config } => self.change_proxy(request, config, None),
+                Command::Mirror(follow) => {
+                    if let Some(engine) = &self.engine
+                        && let Err(error) = engine.mirror(follow)
+                    {
+                        log::debug!("mirror: {error:#}");
+                    }
+                }
                 Command::Player(command) => {
                     if matches!(&command, PlayerCommand::Load(_)) {
                         self.resume = None;
