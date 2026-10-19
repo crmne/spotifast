@@ -23,7 +23,9 @@ corner to resize it.
 
 Like the other visualisers, MilkDrop follows changes you make with the
 equalizer. Turning down the volume does not change the picture, even at zero.
-It reacts only to music playing on this computer.
+It reacts to music playing on this computer, and to music another device
+plays while playback is set up here: see the player bar visualizer in
+[Using Spotifast](/using-spotifast/).
 
 MilkDrop stops drawing while its window is minimised, and on macOS and Linux
 also while it is covered. While the system saves energy it draws at most 30

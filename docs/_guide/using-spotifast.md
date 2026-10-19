@@ -446,10 +446,12 @@ to treble with peaks that hang and fall, and **Waveform** draws the sound's
 wave as a glowing line. With **Colour from album art** on, both sweep from
 bass to treble across up to four colours read from the cover, its hues first
 and its greys after, so a black and white cover moves in grey; with it off,
-they take the accent colour. It follows the equalizer, not the volume, and moves only while the
-song plays on this computer. It is off by default. Clicking the player
-bar's empty space switches it, as Winamp's visualizer did: off, then
-Spectrum, then Waveform, then off again. **Frame rate** in **Settings >
+they take the accent colour. It follows the equalizer, not the volume. It is
+off by default. Clicking the player bar's empty space switches it, as
+Winamp's visualizer did: off, then Spectrum, then Waveform, then off again.
+It also moves while another device, such as a speaker, plays the song, if
+playback is set up on this computer. Spotifast then plays the song silently
+at 96 kbps for the picture alone, and only while a visualizer shows. **Frame rate** in **Settings >
 Appearance** sets how often it and the mini player's analyser draw: 30, 60
 (the default), the rate of the screen showing the window, or Uncapped,
 which follows the display. They draw at half that rate while Spotifast's

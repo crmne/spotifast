@@ -611,6 +611,14 @@ Nothing is wasted when the song then plays: its load uses all three.
 Skipping further than two songs ahead loads the song as before. These
 requests go through the playback session and use no Web API quota.
 
+While another device plays and a visualizer shows (the player bar's, the
+mini player's, or MilkDrop), the engine plays the same song with a second
+librespot player that has no audio output, at 96 kbps, so the visualizers
+have its sound. It follows the song, play state and position that the Web API
+reports for that device, and seeks itself back into step from its own
+position reports. It is not a Connect device, Spotify does not see it, and it
+stops as soon as no visualizer shows or playback returns to this computer.
+
 Local playback has one output on every platform, fastframe-audio: CoreAudio on
 macOS, WASAPI on Windows, and on Linux PipeWire when it is running, otherwise a
 PulseAudio server, otherwise ALSA directly. It talks only to the local sound

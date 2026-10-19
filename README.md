@@ -94,8 +94,8 @@ window sizes, controls, and the return to the main player.
 
 ## Music in motion
 
-MilkDrop reacts to music playing on this computer, with more than 10,000
-presets downloaded on first use. Open it from the visualiser button,
+MilkDrop reacts to music playing on this computer or on another device,
+such as a speaker, with more than 10,000 presets downloaded on first use. Open it from the visualiser button,
 Settings, or the mini player's **V** menu.
 
 ![MilkDrop visualiser displaying coloured concentric patterns in Spotifast](docs/assets/images/milkdrop-poster.jpg)
