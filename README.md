@@ -143,6 +143,9 @@ is Spotifast's sibling. Both are built on
 
 Sonos speakers use the Spotify Connect session for playback control. Enable
 local playback first, then select the speaker in the device picker.
+If Spotify cannot find an idle Sonos, Spotifast tries to sign it in with a
+Sonos authorization code before transferring playback. If activation is refused,
+start the speaker in Spotify once, then select it again in Spotifast.
 
 ## Acknowledgements
 

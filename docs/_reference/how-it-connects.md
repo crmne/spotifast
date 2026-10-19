@@ -475,9 +475,25 @@ control another device.
 A Sonos is recognised by its receiver endpoint (`/spotifyzc` on port 1400)
 and is offered in the picker from the network even while Spotify does not list
 it. Its receiver asks for an OAuth authorization code instead of the librespot
-credential. Spotifast does not send a login blob or access token to that HTTP
-endpoint. Transfer and player commands go through Spotify using the existing
-playback session. Other receivers keep the encrypted login blob described above.
+credential. Transfer and player commands go through Spotify using the existing
+playback session. If both transfer routes report that the device cannot be found,
+Spotifast probes the selected Sonos again and checks its device ID and token type.
+It then exchanges the session's existing Login5 token at
+`https://accounts.spotify.com/api/token` for an authorization code with the fixed
+Sonos audience and the `streaming` scope. This exchange follows the playback
+session's proxy configuration. The access token and reusable login credential
+are never sent to the speaker.
+
+Only the resulting authorization code is sent to the same `/spotifyzc` endpoint
+using `addUser`, together with the account username and this computer's Connect
+device ID. LAN requests bypass proxies, do not follow redirects, and limit replies
+to 64 KiB. Activation has a 20-second limit. A successful activation is followed
+by at most five rounds of transfer attempts, retaining the session-source
+fallback, 300 ms apart while Spotify still reports the device missing. Other
+transfer failures do not trigger activation. Codes and
+token responses are neither saved nor logged. If Spotify or Sonos refuses
+activation, start the speaker in Spotify once, then select it again in Spotifast.
+Other receivers keep the encrypted login blob described above.
 
 ## Google Cast devices
 
