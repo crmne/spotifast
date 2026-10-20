@@ -16,7 +16,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
     if !app.artist_pages.contains_key(id) {
         app.ensure_loaded(Page::Artist(id.to_string()));
     }
-    let Some(page) = app.artist_pages.remove(id) else {
+    let Some(mut page) = app.artist_pages.remove(id) else {
         return;
     };
     let preview =
@@ -129,7 +129,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 });
             }
             ui.add_space(10.0);
-            match page.albums.get(page.filter.groups()) {
+            // Keep the list already on screen until the chosen category has
+            // an answer. Otherwise its first load shrinks the page to a
+            // spinner, and the scroll area clamps the reader back up.
+            let shown = if page
+                .albums
+                .get(page.filter.groups())
+                .is_some_and(|list| list.loaded_once)
+            {
+                page.filter
+            } else {
+                page.shown_filter
+            };
+            match page.albums.get(shown.groups()) {
                 Some(list) => {
                     let mut seen = std::collections::HashSet::new();
                     let albums: Vec<_> = list
@@ -203,8 +215,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                         )
                         .clicked()
                         {
-                            app.actions
-                                .push(Action::LoadMoreArtistAlbums(id.to_string()));
+                            app.actions.push(Action::LoadMoreArtistAlbums {
+                                id: id.to_string(),
+                                filter: shown,
+                            });
                         }
                     }
                 }
@@ -212,6 +226,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     widgets::skeleton_cards(ui, &palette, app.locale, 6, false)
                 }),
             }
+            page.shown_filter = shown;
             ui.add_space(20.0);
 
             // Related.

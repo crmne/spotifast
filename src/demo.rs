@@ -10973,4 +10973,154 @@ mod tests {
         );
         app.backend.shutdown();
     }
+
+    /// Choosing a discography category for the first time must not move the
+    /// page: its answer is still on the way, so the list already on screen
+    /// stays until the new one can take its place.
+    #[test]
+    fn a_discography_category_keeps_the_page_scrolled_while_it_loads() {
+        use egui::accesskit::Role;
+
+        let (ctx, mut app) = accessible_app("discography-filter-scroll");
+        let page = Page::Artist("art0".into());
+        app.open(page.clone());
+        let scrolled_id = egui::Id::new(("page-scrolled", page.encode()));
+        let singles = DiscographyFilter::Singles.label(app.locale).into_owned();
+        let screen = egui::vec2(1280.0, 900.0);
+        let mut time = 0.0;
+        let mut draw = |app: &mut App, events: Vec<egui::Event>| {
+            time += 1.0 / 60.0;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, screen)),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            let offset = ctx
+                .data(|data| data.get_temp::<f32>(scrolled_id))
+                .unwrap_or(0.0);
+            let tree = output.platform_output.accesskit_update.unwrap();
+            (offset, tree)
+        };
+        for _ in 0..4 {
+            draw(&mut app, Vec::new());
+        }
+        let wheel = |notches: f32| {
+            vec![
+                egui::Event::PointerMoved(egui::pos2(550.0, 400.0)),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: egui::vec2(0.0, -notches),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        let chip_bounds = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == Role::Button && node.label() == Some(singles.as_str())
+                })
+                .and_then(|(_, node)| node.bounds())
+        };
+        // egui smooths a wheel notch over a few frames, so let the page come
+        // to rest after each one before reading the chip's position.
+        macro_rules! settle {
+            () => {{
+                let mut last = f32::NAN;
+                let mut still = 0;
+                let mut offset = 0.0;
+                for _ in 0..120 {
+                    offset = draw(&mut app, Vec::new()).0;
+                    if (offset - last).abs() < 0.01 {
+                        still += 1;
+                    } else {
+                        still = 0;
+                    }
+                    last = offset;
+                    if still >= 3 {
+                        break;
+                    }
+                }
+                offset
+            }};
+        }
+        let mut at = None;
+        let mut before = 0.0;
+        let mut direction = 1.0;
+        for _ in 0..20 {
+            let (offset, tree) = draw(&mut app, Vec::new());
+            let Some(bounds) = chip_bounds(&tree) else {
+                draw(&mut app, wheel(direction));
+                settle!();
+                continue;
+            };
+            if bounds.y0 >= 60.0 && bounds.y1 <= 200.0 {
+                before = offset;
+                at = Some(egui::pos2(
+                    ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                    ((bounds.y0 + bounds.y1) / 2.0) as f32,
+                ));
+                break;
+            }
+            direction = if bounds.y0 < 60.0 { -1.0 } else { 1.0 };
+            draw(&mut app, wheel(direction));
+            settle!();
+        }
+        let at = at.unwrap_or_else(|| panic!("no visible {singles:?} chip"));
+        draw(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let after = settle!();
+        assert_eq!(
+            app.artist_pages["art0"].filter,
+            DiscographyFilter::Singles,
+            "the click must select the chip"
+        );
+        assert!(
+            after >= before - 1.0,
+            "selecting {singles:?} moved the page from {before} to {after}"
+        );
+
+        // The answer arrives with as many cards as the list it replaces, so
+        // taking its place must leave the reader where they were.
+        let mut list = PagedList::default();
+        list.absorb(0, super::page((0..8).map(super::album).collect()));
+        app.artist_pages
+            .get_mut("art0")
+            .unwrap()
+            .albums
+            .insert(DiscographyFilter::Singles.groups().to_string(), list);
+        let loaded = settle!();
+        assert_eq!(
+            app.artist_pages["art0"].shown_filter,
+            DiscographyFilter::Singles,
+            "the loaded category takes the old list's place"
+        );
+        assert!(
+            loaded >= before - 1.0,
+            "loading {singles:?} moved the page from {before} to {loaded}"
+        );
+        app.backend.shutdown();
+    }
 }

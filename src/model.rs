@@ -866,6 +866,11 @@ pub struct ArtistPage {
     pub albums: HashMap<String, PagedList<Album>>,
     pub related: Loadable<Vec<Artist>>,
     pub filter: DiscographyFilter,
+    /// The category whose albums are on screen. It follows [`Self::filter`]
+    /// once that category has loaded, so choosing one for the first time
+    /// keeps the previous list in place instead of collapsing the page
+    /// while the answer is on its way.
+    pub shown_filter: DiscographyFilter,
     pub show_all_top: bool,
 }
 
@@ -1228,7 +1233,10 @@ pub enum Action {
     LoadMoreRecents,
     ReloadRecents,
     SetQueueTab(QueueTab),
-    LoadMoreArtistAlbums(String),
+    LoadMoreArtistAlbums {
+        id: String,
+        filter: DiscographyFilter,
+    },
     SetDiscographyFilter {
         artist_id: String,
         filter: DiscographyFilter,
