@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-20 10:32+0200\n"
+"POT-Creation-Date: 2026-10-20 19:33+0200\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -305,7 +305,7 @@ msgstr "待播清單"
 msgid "Lyrics"
 msgstr "歌詞"
 
-#: src/ui/player_bar.rs:1066 src/ui/friends.rs:53
+#: src/ui/player_bar.rs:1067 src/ui/friends.rs:53
 msgid "Listening activity"
 msgstr "收聽動態"
 
@@ -1155,7 +1155,7 @@ msgid "Preset name"
 msgstr "預設名稱"
 
 #. Translators: a search keyword for saving equalizer presets.
-#: src/ui/settings.rs:97 src/ui/settings.rs:2056
+#: src/ui/settings.rs:97 src/ui/settings.rs:2080
 msgid "Save preset"
 msgstr "儲存預設"
 
@@ -1560,65 +1560,69 @@ msgstr "播放列視覺效果"
 msgid "Click player bar to change visualizer"
 msgstr "點擊播放列切換視覺化效果"
 
-#: src/ui/settings.rs:1109
+#: src/ui/settings.rs:1101
+msgid "Show Listening Activity Button"
+msgstr "顯示收聽動態按鈕"
+
+#: src/ui/settings.rs:1110
 msgid "Light mode theme"
 msgstr "淺色模式主題"
 
-#: src/ui/settings.rs:1112
+#: src/ui/settings.rs:1113
 msgid ""
 "Used while your computer is in light mode. Only light themes are listed."
 msgstr "電腦處於淺色模式時使用。僅列出淺色主題。"
 
-#: src/ui/settings.rs:1116
+#: src/ui/settings.rs:1117
 msgid "Dark mode theme"
 msgstr "深色模式主題"
 
-#: src/ui/settings.rs:1119
+#: src/ui/settings.rs:1120
 msgid "Used while your computer is in dark mode. Only dark themes are listed."
 msgstr "電腦處於深色模式時使用。僅列出深色主題。"
 
-#: src/ui/settings.rs:1136
+#: src/ui/settings.rs:1137
 msgid "Follow system uses your Omarchy colours."
 msgstr "「跟隨系統」會使用你的 Omarchy 色彩。"
 
-#: src/ui/settings.rs:1140
+#: src/ui/settings.rs:1141
 msgid "Follow system uses your desktop's light or dark appearance."
 msgstr "「跟隨系統」會使用桌面的淺色或深色外觀。"
 
-#: src/ui/settings.rs:1145 src/ui/settings.rs:2486
+#: src/ui/settings.rs:1146 src/ui/settings.rs:2510
 msgid "Language"
 msgstr "語言"
 
-#: src/ui/settings.rs:1148
+#: src/ui/settings.rs:1149
 msgid ""
 "System follows your computer's language. Untranslated text stays in English."
 msgstr "「系統」會跟隨電腦的語言。未翻譯的文字會以英文顯示。"
 
-#: src/ui/settings.rs:1155
+#: src/ui/settings.rs:1156
 msgid "Use the current cover's colour on pages and the player bar."
 msgstr "在頁面和播放列中使用目前封面的顏色。"
 
-#: src/ui/settings.rs:1160
+#: src/ui/settings.rs:1161
 msgid "Show names without covers in the sidebar."
 msgstr "在側邊欄中只顯示名稱，不顯示封面。"
 
-#: src/ui/settings.rs:1164
+#: src/ui/settings.rs:1165
 msgid "Show each track on one line without a cover."
 msgstr "每首歌曲顯示為一行，不顯示封面。"
 
-#: src/ui/settings.rs:1167
+#: src/ui/settings.rs:1168
 msgid "Interface zoom"
 msgstr "介面縮放"
 
-#: src/ui/settings.rs:1171
+#: src/ui/settings.rs:1172
 msgid "Ctrl+Plus and Ctrl+Minus work anywhere; Ctrl+0 resets."
 msgstr "Ctrl+加號和 Ctrl+減號隨處可用，Ctrl+0 可重設。"
 
-#: src/ui/settings.rs:1175
+#: src/ui/settings.rs:1176
 msgid "Cmd+Plus and Cmd+Minus work anywhere; Cmd+0 resets."
 msgstr "Cmd+加號和 Cmd+減號隨處可用，Cmd+0 可重設。"
 
-#: src/ui/settings.rs:1184
+#: src/ui/settings.rs:1185
 msgid ""
 "Middle-click a list, then move the pointer to scroll it. Off by default, "
 "because a middle click usually pastes on Linux."
@@ -1626,25 +1630,25 @@ msgstr ""
 "在清單上按一下滑鼠中鍵，然後移動指標即可捲動。預設為關閉，因為在 Linux 上按中"
 "鍵通常會貼上。"
 
-#: src/ui/settings.rs:1192
+#: src/ui/settings.rs:1193
 msgid ""
 "Draw Spotifast's own title bar and window buttons instead of the desktop's."
 msgstr "使用 Spotifast 自己的標題列和視窗按鈕，而不是桌面環境提供的。"
 
-#: src/ui/settings.rs:1200
+#: src/ui/settings.rs:1201
 msgid ""
 "Show the song moving behind the player bar's controls while it plays here."
 msgstr "歌曲在本機播放時，在播放列控制項後方顯示它的律動。"
 
-#: src/ui/settings.rs:1205
+#: src/ui/settings.rs:1206
 msgid "Allow clicks on empty player bar space to cycle the visualizer."
 msgstr "允許點擊播放列的空白區域來切換視覺化效果。"
 
-#: src/ui/settings.rs:1208 src/ui/settings.rs:1893
+#: src/ui/settings.rs:1209 src/ui/settings.rs:1917
 msgid "Frame rate"
 msgstr "影格速率"
 
-#: src/ui/settings.rs:1211
+#: src/ui/settings.rs:1212
 msgid ""
 "How often the player bar and mini player visualizers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
@@ -1652,36 +1656,40 @@ msgstr ""
 "播放列和迷你播放器視覺化效果的繪製頻率。影格速率越低，使用的資源越少。"
 "MilkDrop 有獨立的設定。"
 
-#: src/ui/settings.rs:1356
+#: src/ui/settings.rs:1219
+msgid "Show the Listening activity button in the player bar."
+msgstr "在播放器列中顯示收聽動態按鈕。"
+
+#: src/ui/settings.rs:1380
 msgid "Off"
 msgstr "關閉"
 
-#: src/ui/settings.rs:1357
+#: src/ui/settings.rs:1381
 msgid "Spectrum"
 msgstr "頻譜"
 
-#: src/ui/settings.rs:1358
+#: src/ui/settings.rs:1382
 msgid "Waveform"
 msgstr "波形"
 
-#: src/ui/settings.rs:1553
+#: src/ui/settings.rs:1577
 msgid "Proxy"
 msgstr "Proxy"
 
-#: src/ui/settings.rs:1555
+#: src/ui/settings.rs:1579
 msgid "Mode, host, port, username and password"
 msgstr "模式、主機、連接埠、使用者名稱和密碼"
 
-#: src/ui/settings.rs:1558
+#: src/ui/settings.rs:1582
 msgid "Off, System, HTTP or SOCKS5 proxy for network requests."
 msgstr "網路要求的 Proxy：關閉、系統、HTTP 或 SOCKS5。"
 
-#: src/ui/settings.rs:1568
+#: src/ui/settings.rs:1592
 msgctxt "proxy"
 msgid "Mode"
 msgstr "模式"
 
-#: src/ui/settings.rs:1571
+#: src/ui/settings.rs:1595
 msgid ""
 "Off ignores environment variables. System uses them, and the OS proxy on "
 "macOS and Windows."
@@ -1689,35 +1697,35 @@ msgstr ""
 "「關閉」會忽略環境變數。「系統」會使用環境變數，在 macOS 和 Windows 上還會使"
 "用作業系統的 Proxy。"
 
-#: src/ui/settings.rs:1623 src/ui/login.rs:274
+#: src/ui/settings.rs:1647 src/ui/login.rs:274
 msgid "Apply settings"
 msgstr "套用設定"
 
-#: src/ui/settings.rs:1635
+#: src/ui/settings.rs:1659
 msgid "Not using a proxy."
 msgstr "未使用 Proxy。"
 
-#: src/ui/settings.rs:1636
+#: src/ui/settings.rs:1660
 msgid "Using the system proxy."
 msgstr "正在使用系統 Proxy。"
 
-#: src/ui/settings.rs:1647
+#: src/ui/settings.rs:1671
 msgid "Winamp skins"
 msgstr "Winamp 面板"
 
-#: src/ui/settings.rs:1648 src/ui/winamp/mod.rs:721 src/ui/winamp/mod.rs:867
+#: src/ui/settings.rs:1672 src/ui/winamp/mod.rs:721 src/ui/winamp/mod.rs:867
 msgid "Always on top"
 msgstr "最上層顯示"
 
-#: src/ui/settings.rs:1649
+#: src/ui/settings.rs:1673
 msgid "Show Winamp in taskbar"
 msgstr "在工作列中顯示 Winamp"
 
-#: src/ui/settings.rs:1652
+#: src/ui/settings.rs:1676
 msgid "Mini player"
 msgstr "迷你播放器"
 
-#: src/ui/settings.rs:1656
+#: src/ui/settings.rs:1680
 msgid ""
 "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
 "return. Drop a skin on either window to add it."
@@ -1725,7 +1733,7 @@ msgstr ""
 "使用經典的 Winamp .wsz 面板。按 Ctrl+M 或按一下面板標誌即可返回。將面板拖放到"
 "任一視窗即可新增。"
 
-#: src/ui/settings.rs:1660
+#: src/ui/settings.rs:1684
 msgid ""
 "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
 "return. Drop a skin on either window to add it."
@@ -1733,65 +1741,65 @@ msgstr ""
 "使用經典的 Winamp .wsz 面板。按 Cmd+Shift+M 或按一下面板標誌即可返回。將面板"
 "拖放到任一視窗即可新增。"
 
-#: src/ui/settings.rs:1666
+#: src/ui/settings.rs:1690
 msgid "Skin"
 msgstr "面板"
 
 #. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1670
+#: src/ui/settings.rs:1694
 #, rust-format
 msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
 msgstr "已安裝的面板位於 {folder}。可在 Winamp Skin Museum 找到更多面板。"
 
-#: src/ui/settings.rs:1675 src/ui/winamp/mod.rs:708
+#: src/ui/settings.rs:1699 src/ui/winamp/mod.rs:708
 msgid "Size"
 msgstr "大小"
 
-#: src/ui/settings.rs:1676
+#: src/ui/settings.rs:1700
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr "以整數倍縮放可讓面板像素保持清晰。"
 
-#: src/ui/settings.rs:1681
+#: src/ui/settings.rs:1705
 msgid "Keep the Winamp window above everything else."
 msgstr "讓 Winamp 視窗一律顯示在其他視窗之上。"
 
-#: src/ui/settings.rs:1687 src/ui/winamp/mod.rs:731
+#: src/ui/settings.rs:1711 src/ui/winamp/mod.rs:731
 msgid "Show in taskbar"
 msgstr "在工作列中顯示"
 
-#: src/ui/settings.rs:1690
+#: src/ui/settings.rs:1714
 msgid ""
 "Keep a taskbar button for the mini player. The tray icon stays available "
 "when hidden."
 msgstr "在工作列中保留迷你播放器的按鈕。隱藏後仍可使用系統匣圖示。"
 
-#: src/ui/settings.rs:1695
+#: src/ui/settings.rs:1719
 msgid "Installed skins"
 msgstr "已安裝的面板"
 
-#: src/ui/settings.rs:1708
+#: src/ui/settings.rs:1732
 msgid "Switch to it"
 msgstr "切換至此面板"
 
-#: src/ui/settings.rs:1721
+#: src/ui/settings.rs:1745
 msgid "Skin Museum"
 msgstr "Skin Museum"
 
-#: src/ui/settings.rs:1747
+#: src/ui/settings.rs:1771
 msgid "Random"
 msgstr "隨機"
 
-#: src/ui/settings.rs:1786
+#: src/ui/settings.rs:1810
 #, rust-format
 msgid ""
 "Now showing {skin}. Another one is picked each time the mini player opens."
 msgstr "目前外觀：{skin}。每次開啟迷你播放器都會換一個。"
 
-#: src/ui/settings.rs:1842
+#: src/ui/settings.rs:1866
 msgid "MilkDrop window"
 msgstr "MilkDrop 視窗"
 
-#: src/ui/settings.rs:1850
+#: src/ui/settings.rs:1874
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1800,7 +1808,7 @@ msgstr ""
 "用於本機播放的 projectM 視覺效果。可從這裡、頂端列、按 Ctrl+Shift+K 或透過迷"
 "你播放器的 V 選單開啟。按 ? 或 F1 查看快捷鍵。"
 
-#: src/ui/settings.rs:1854
+#: src/ui/settings.rs:1878
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1809,12 +1817,12 @@ msgstr ""
 "用於本機播放的 projectM 視覺效果。可從這裡、頂端列、按 Cmd+Shift+K 或透過迷你"
 "播放器的 V 選單開啟。按 ? 或 F1 查看快捷鍵。"
 
-#: src/ui/settings.rs:1860 src/ui/settings.rs:2039
+#: src/ui/settings.rs:1884 src/ui/settings.rs:2063
 msgid "Presets"
 msgstr "預設集"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1865
+#: src/ui/settings.rs:1889
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -1824,7 +1832,7 @@ msgstr ""
 "料夾是空的，Spotifast 會下載預設集。"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1871
+#: src/ui/settings.rs:1895
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -1834,7 +1842,7 @@ msgstr ""
 "料夾是空的，Spotifast 會下載預設集。"
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:1877
+#: src/ui/settings.rs:1901
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -1846,20 +1854,20 @@ msgstr[0] ""
 "{folder} 中有 {count} 個預設集。請將 .milk 檔案加入這裡。第一次開啟 MilkDrop "
 "時若資料夾是空的，Spotifast 會下載預設集。"
 
-#: src/ui/settings.rs:1886
+#: src/ui/settings.rs:1910
 msgid "Time per preset"
 msgstr "每個預設集的時間"
 
-#: src/ui/settings.rs:1889
+#: src/ui/settings.rs:1913
 msgid "How long each preset plays before the next fades in."
 msgstr "每個預設集播放多久後再淡入下一個。"
 
-#: src/ui/settings.rs:1897
+#: src/ui/settings.rs:1921
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr "影格速率越低，使用的資源越少。「不限制」會盡可能快速繪製。"
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:1902
+#: src/ui/settings.rs:1926
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -1868,178 +1876,178 @@ msgstr ""
 "你的螢幕更新頻率為 {hz} Hz，更高的速率不會增加可見的影格。「不限制」會盡可能"
 "快速繪製。"
 
-#: src/ui/settings.rs:1909
+#: src/ui/settings.rs:1933
 msgid "Resolution"
 msgstr "解析度"
 
-#: src/ui/settings.rs:1912
+#: src/ui/settings.rs:1936
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr "「一半」和「四分之一」使用較少資源，並會將畫面放大顯示。"
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:1919
+#: src/ui/settings.rs:1943
 msgid "Get presets"
 msgstr "取得預設集"
 
-#: src/ui/settings.rs:1957
+#: src/ui/settings.rs:1981
 msgid "Fetching..."
 msgstr "正在取得..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:1960
+#: src/ui/settings.rs:1984
 #, rust-format
 msgid "Get {pack}"
 msgstr "取得 {pack}"
 
-#: src/ui/settings.rs:2011
+#: src/ui/settings.rs:2035
 msgctxt "resolution"
 msgid "Full"
 msgstr "完整"
 
-#: src/ui/settings.rs:2012
+#: src/ui/settings.rs:2036
 msgctxt "resolution"
 msgid "Half"
 msgstr "一半"
 
-#: src/ui/settings.rs:2013
+#: src/ui/settings.rs:2037
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "四分之一"
 
-#: src/ui/settings.rs:2027
+#: src/ui/settings.rs:2051
 msgid "Equalizer"
 msgstr "等化器"
 
-#: src/ui/settings.rs:2033
+#: src/ui/settings.rs:2057
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
 msgstr "用於這台電腦播放的十段等化器，不會影響其他裝置。"
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2041
+#: src/ui/settings.rs:2065
 msgid "Preamp"
 msgstr "前級放大"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:2043
+#: src/ui/settings.rs:2067
 msgid "Bands"
 msgstr "頻段"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2125
+#: src/ui/settings.rs:2149
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "前級"
 
-#: src/ui/settings.rs:2142
+#: src/ui/settings.rs:2166
 msgid "Storage"
 msgstr "儲存空間"
 
-#: src/ui/settings.rs:2145
+#: src/ui/settings.rs:2169
 msgid "Artwork cache"
 msgstr "封面圖片快取"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:2147 src/ui/settings.rs:2153
+#: src/ui/settings.rs:2171 src/ui/settings.rs:2177
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "儲存於 {folder}"
 
-#: src/ui/settings.rs:2159
+#: src/ui/settings.rs:2183
 msgid "Play history"
 msgstr "播放紀錄"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:2163
+#: src/ui/settings.rs:2187
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr "在這裡播放的歌曲會儲存在 {file}。這個檔案永遠不會上傳。"
 
-#: src/ui/settings.rs:2168
+#: src/ui/settings.rs:2192
 msgid "Sign-in"
 msgstr "登入"
 
-#: src/ui/settings.rs:2171
+#: src/ui/settings.rs:2195
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr "登入資訊會在可用時儲存在系統的認證存放區中。"
 
-#: src/ui/settings.rs:2183
+#: src/ui/settings.rs:2207
 msgid "Clear artwork"
 msgstr "清除封面圖片"
 
-#: src/ui/settings.rs:2197
+#: src/ui/settings.rs:2221
 msgid "Clear history"
 msgstr "清除紀錄"
 
-#: src/ui/settings.rs:2209 src/ui/show.rs:42
+#: src/ui/settings.rs:2233 src/ui/show.rs:42
 msgid "About"
 msgstr "關於"
 
-#: src/ui/settings.rs:2212
+#: src/ui/settings.rs:2236
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr "使用 Rust、egui 和 librespot 打造。與 Spotify 無關。"
 
-#: src/ui/settings.rs:2214
+#: src/ui/settings.rs:2238
 msgid "Check for updates"
 msgstr "檢查更新"
 
-#: src/ui/settings.rs:2215
+#: src/ui/settings.rs:2239
 msgid "Checking…"
 msgstr "正在檢查…"
 
-#: src/ui/settings.rs:2216 src/ui/dialogs.rs:159 src/ui/keys.rs:306
+#: src/ui/settings.rs:2240 src/ui/dialogs.rs:159 src/ui/keys.rs:306
 #: src/ui/topbar.rs:479
 msgid "Keyboard shortcuts"
 msgstr "鍵盤快捷鍵"
 
-#: src/ui/settings.rs:2217 src/ui/update.rs:65
+#: src/ui/settings.rs:2241 src/ui/update.rs:65
 msgid "Release notes"
 msgstr "版本資訊"
 
-#: src/ui/settings.rs:2218
+#: src/ui/settings.rs:2242
 msgid "Source code"
 msgstr "原始碼"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:2302
+#: src/ui/settings.rs:2326
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "沒有與「{query}」相關的設定"
 
-#: src/ui/settings.rs:2303
+#: src/ui/settings.rs:2327
 msgid "Try fewer words, or check the spelling."
 msgstr "請減少字詞，或檢查拼字。"
 
-#: src/ui/settings.rs:2324
+#: src/ui/settings.rs:2348
 msgctxt "start with your computer"
 msgid "Off"
 msgstr "關閉"
 
-#: src/ui/settings.rs:2325
+#: src/ui/settings.rs:2349
 msgid "With the window"
 msgstr "開啟視窗"
 
-#: src/ui/settings.rs:2326
+#: src/ui/settings.rs:2350
 msgid "In the tray"
 msgstr "在系統匣中"
 
-#: src/ui/settings.rs:2343
+#: src/ui/settings.rs:2367
 msgid "Allow Spotifast in System Settings, General, Login Items."
 msgstr "請在「系統設定」>「一般」>「登入項目」中允許 Spotifast。"
 
-#: src/ui/settings.rs:2348
+#: src/ui/settings.rs:2372
 msgid ""
 "Starting in the tray needs Keep music playing when the window closes. Until "
 "then, the window opens."
 msgstr ""
 "要在系統匣中啟動，需要開啟「關閉視窗後繼續播放音樂」。在此之前會開啟視窗。"
 
-#: src/ui/settings.rs:2353
+#: src/ui/settings.rs:2377
 msgid "Open Spotifast when you log in, with its window or in the tray."
 msgstr "登入時開啟 Spotifast，顯示視窗或留在系統匣中。"
 
-#: src/ui/settings.rs:2459
+#: src/ui/settings.rs:2483
 msgctxt "language"
 msgid "System"
 msgstr "系統"

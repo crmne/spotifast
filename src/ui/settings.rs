@@ -1098,6 +1098,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let show_custom_titlebar = cfg!(target_os = "linux") || app.windows_controls_visible();
     let player_bar_vis = gettext(locale, "Player bar visualizer");
     let player_bar_vis_click = gettext(locale, "Click player bar to change visualizer");
+    let show_listening_activity_button = gettext(locale, "Show Listening Activity Button");
     // Follow system's own light and dark palettes. Omarchy's palette already
     // follows the desktop, so they are offered only without it.
     let show_pair = app.settings.custom_theme.is_none()
@@ -1213,6 +1214,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ),
         pair_row(fastframe_theme::Base::Light),
         pair_row(fastframe_theme::Base::Dark),
+        RowText::new(
+            show_listening_activity_button.clone(),
+            gettext(locale, "Show the Listening activity button in the player bar."),
+        ),
     ];
     if section_matches(&needle, &appearance, &appearance_rows) {
         any_visible = true;
@@ -1343,6 +1348,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         &palette,
                         &accent_from_art,
                         &mut app.settings.accent_from_art,
+                    )
+                    .changed()
+                    {
+                        changed = true;
+                    }
+                },
+            );
+            filtered_row(
+                ui,
+                &palette,
+                &needle,
+                &appearance,
+                &appearance_rows[13],
+                |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        &show_listening_activity_button,
+                        &mut app.settings.show_listening_activity_button,
                     )
                     .changed()
                     {

@@ -3732,6 +3732,55 @@ mod tests {
     }
 
     #[test]
+    fn listening_activity_setting_hides_the_player_bar_button_and_can_restore_it() {
+        use egui::accesskit::{Action as AccessibleAction, Role, Toggled};
+        let (ctx, mut app) = accessible_app("listening-activity-button");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Listening activity", Role::Button);
+
+        for visible in [false, true] {
+            app.open(Page::Settings);
+            ctx.data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new("settings-filter"),
+                    "Show Listening Activity Button".to_owned(),
+                );
+            });
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let switch = accessible_node(&tree, "Show Listening Activity Button", Role::CheckBox);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(switch, AccessibleAction::Click, None)],
+            );
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            assert_eq!(app.settings.show_listening_activity_button, visible);
+            let node = &tree.nodes.iter().find(|(id, _)| *id == switch).unwrap().1;
+            assert_eq!(
+                node.toggled(),
+                Some(if visible {
+                    Toggled::True
+                } else {
+                    Toggled::False
+                })
+            );
+            app.open(Page::Home);
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            assert_eq!(
+                tree.nodes.iter().any(|(_, node)| {
+                    node.label() == Some("Listening activity") && node.role() == Role::Button
+                }),
+                visible
+            );
+        }
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+    }
+
+    #[test]
     fn accessible_switch_has_a_name_state_and_keyboard_activation() {
         use egui::accesskit::{Action, Role, Toggled};
         let ctx = egui::Context::default();

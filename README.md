@@ -55,6 +55,10 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | **Winamp mini player** | Use classic skins with an equalizer, playlist, and animated sound displays. |
 | **MilkDrop** | Watch music-reactive visuals in a separate window or full screen. See platform availability below. |
 
+To hide the Listening activity button from the bottom player bar, turn off
+**Settings → Appearance → Show Listening Activity Button**. It is on by
+default, and your choice is kept across restarts.
+
 ## Install
 
 | Platform | Installation |
