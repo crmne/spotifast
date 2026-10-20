@@ -10988,7 +10988,12 @@ impl App {
                     }
                 }
             }
-            Action::OpenPlaylistPicker(items) => self.open_playlist_picker(items),
+            Action::OpenPlaylistPicker { items, anchor } => {
+                self.open_playlist_picker(items);
+                if let Some(draft) = &mut self.playlist_picker {
+                    draft.anchor = Some(anchor);
+                }
+            }
             Action::EditPlaylistPicker(draft) => self.playlist_picker = Some(draft),
             Action::CancelPlaylistPicker => self.playlist_picker = None,
             Action::CommitPlaylistPicker => self.commit_playlist_picker(),

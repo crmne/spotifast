@@ -1158,7 +1158,10 @@ pub enum Action {
         to: u32,
     },
     ManagePlayingMembership(String),
-    OpenPlaylistPicker(Vec<PlayableItem>),
+    OpenPlaylistPicker {
+        items: Vec<PlayableItem>,
+        anchor: egui::Rect,
+    },
     EditPlaylistPicker(crate::playlist_membership::Draft),
     CancelPlaylistPicker,
     CommitPlaylistPicker,

@@ -78,7 +78,9 @@ a black check stays visible when the song belongs to Liked Songs or any
 playlist in your Library.
 
 Click a green check, or right-click a song or selection and choose **Add to
-playlist**, to open the same playlist picker. Liked Songs appears first,
+playlist**, to open the same compact playlist picker beside the clicked
+control. It opens above or to the left when needed to fit inside the window,
+and stays in place while you search or change selections. Liked Songs appears first,
 followed by playlists already containing the selection, then other playlists.
 Your existing local pins come first within each group, in their pin order.
 Each row has its cover and song count; playlists inside folders also show
@@ -86,15 +88,14 @@ the folder path. Search matches playlist names and folder paths.
 
 Toggle circles to stage additions and removals, then choose **Done** to
 apply them together. **Cancel**, Esc, and clicking outside discard every
-staged change, including a new playlist name. **New playlist** stages a
-private playlist containing the selected songs; it is created only on Done.
+staged change. **New playlist** stages a private playlist containing the
+selected songs, named after the first selected song without asking for a name.
+It is created only on Done. Click **New playlist** again to unstage it.
 For a multi-song selection, a minus in a green circle means some songs are
 present. Select it to add only the missing songs. Cycle through all, none,
 and the original partial selection without adding duplicate copies.
 Unchecking a playlist removes every copy of the selected songs from that
-playlist. Playlists you cannot edit remain visible with their membership,
-but their circles cannot be changed. Remove them from your Library using
-the playlist's own menu instead.
+playlist. Only playlists you can edit appear in the picker.
 
 Playlist checks run in the background. An unchecked circle is shown only
 when membership is known; a spinner means it is still being checked. A

@@ -4460,9 +4460,12 @@ mod tests {
                 crate::theme::Palette::dark()
             };
             app.open_playlist_picker(vec![PlayableItem::Track(track(0))]);
-            app.playlist_picker.as_mut().unwrap().new_name = Some("A new playlist".into());
             app.playlist_picker.as_mut().unwrap().liked_error = true;
             for size in [egui::vec2(760.0, 520.0), egui::vec2(1280.0, 800.0)] {
+                app.playlist_picker.as_mut().unwrap().anchor = Some(egui::Rect::from_pos(
+                    egui::pos2(size.x - 12.0, size.y - 12.0),
+                ));
+                app.playlist_picker.as_mut().unwrap().position = None;
                 for _ in 0..3 {
                     view_frame_sized(&ctx, &mut app, vec![], |app, ui| app.frame_ui(ui), size);
                 }
@@ -4539,6 +4542,75 @@ mod tests {
         );
         assert!(app.playlist_picker.is_none());
         assert!(app.backend.take_playlist_add_requests().is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn playlist_picker_hides_read_only_rows_and_keeps_its_anchor_while_filtering() {
+        let (ctx, mut app) = accessible_app("playlist-picker-anchor");
+        app.apply(
+            Action::OpenPlaylistPicker {
+                items: vec![PlayableItem::Track(track(0))],
+                anchor: egui::Rect::from_pos(egui::pos2(1150.0, 200.0)),
+            },
+            &ctx,
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!tree.nodes.iter().any(|(_, node)| {
+            node.role() == egui::accesskit::Role::CheckBox
+                && matches!(node.label(), Some("Discover Weekly" | "Release Radar"))
+        }));
+        let id = egui::Id::new("playlist-membership-picker");
+        let before = egui::AreaState::load(&ctx, id).unwrap().rect();
+        assert!(before.right() <= 1150.0 && before.top() >= 200.0);
+        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("night".into())]);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(egui::pos2(20.0, 20.0))],
+        );
+        assert_eq!(
+            egui::AreaState::load(&ctx, id).unwrap().rect().min,
+            before.min
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn playlist_picker_names_a_new_playlist_after_the_first_selected_song_without_prompting() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("playlist-picker-new-name");
+        let items = vec![PlayableItem::Track(track(1)), PlayableItem::Track(track(0))];
+        for items in [items[..1].to_vec(), items] {
+            app.open_playlist_picker(items.clone());
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let new = accessible_node(&tree, "New playlist", Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(new, AccessibleAction::Click, None)],
+            );
+            assert_eq!(
+                app.playlist_picker.as_ref().unwrap().new_name.as_deref(),
+                Some(track(1).name.as_str())
+            );
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            assert!(
+                !tree
+                    .nodes
+                    .iter()
+                    .any(|(_, node)| node.label() == Some("Playlist name")
+                        && node.role() == Role::TextInput)
+            );
+            app.actions.clear();
+            app.commit_playlist_picker();
+            assert!(
+                matches!(app.actions.as_slice(), [Action::CreatePlaylist { name, public: false, add_uris }] if name == items[0].name() && add_uris == &items.iter().map(|item| item.uri().to_string()).collect::<Vec<_>>())
+            );
+            app.actions.clear();
+        }
         app.backend.shutdown();
     }
 
@@ -4692,7 +4764,7 @@ mod tests {
             |ui| crate::ui::widgets::picked_menu(ui, &mut app, &songs, &[], None),
         );
         output.textures_delta.clear();
-        assert!(app.actions.iter().any(|action| matches!(action, crate::model::Action::OpenPlaylistPicker(items) if items == &songs)));
+        assert!(app.actions.iter().any(|action| matches!(action, crate::model::Action::OpenPlaylistPicker { items, anchor } if items == &songs && anchor.is_finite())));
         app.actions.clear();
         app.open_playlist_picker(songs.clone());
         app.playlist_picker.as_mut().unwrap().query = "night".into();

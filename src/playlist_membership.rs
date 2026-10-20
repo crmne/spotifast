@@ -36,6 +36,10 @@ pub struct Draft {
     /// Preserve what was shown when a row was changed, even during a refresh.
     pub originals: BTreeMap<String, Vec<bool>>,
     pub new_name: Option<String>,
+    /// The invoking control in viewport coordinates, captured once on opening.
+    pub anchor: Option<egui::Rect>,
+    /// Freeze the measured position so filtering never chases the pointer or reanchors.
+    pub position: Option<egui::Pos2>,
     pub highlighted: Option<String>,
     pub focus_search: bool,
     pub liked_error: bool,

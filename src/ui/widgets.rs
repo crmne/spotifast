@@ -746,13 +746,19 @@ pub fn picked_menu(
 }
 
 fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
-    if menu_item(
+    let (response, clicked) = menu_item_response(
         ui,
         &app.palette,
         Some(Icon::ListPlus),
         &gettext(app.locale, "Add to playlist"),
-    ) {
-        app.actions.push(Action::OpenPlaylistPicker(items.to_vec()));
+        true,
+        false,
+    );
+    if clicked {
+        app.actions.push(super::playlist_picker::open_action(
+            &response,
+            items.to_vec(),
+        ));
     }
 }
 

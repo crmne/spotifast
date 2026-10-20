@@ -11,6 +11,46 @@ use crate::theme::{self, Icon};
 
 pub const GREEN: Color32 = Color32::from_rgb(30, 215, 96);
 
+/// Capture the opening click, including transformed layers and keyboard activation.
+pub fn open_action(
+    response: &egui::Response,
+    items: Vec<crate::api::models::PlayableItem>,
+) -> Action {
+    let mut anchor = response
+        .interact_pointer_pos()
+        .map(Rect::from_pos)
+        .unwrap_or(response.interact_rect);
+    if let Some(transform) = response.ctx.layer_transform_to_global(response.layer_id) {
+        anchor = transform * anchor;
+    }
+    Action::OpenPlaylistPicker { items, anchor }
+}
+
+fn popup_position(anchor: Rect, size: egui::Vec2, bounds: Rect) -> egui::Pos2 {
+    let x = if anchor.left() + size.x <= bounds.right() {
+        anchor.left()
+    } else {
+        anchor.right() - size.x
+    };
+    let below = bounds.bottom() - anchor.bottom() - 6.0;
+    let above = anchor.top() - bounds.top() - 6.0;
+    let y = if size.y <= below || below >= above {
+        anchor.bottom() + 6.0
+    } else {
+        anchor.top() - size.y - 6.0
+    };
+    clamp_position(egui::pos2(x, y), size, bounds)
+}
+
+fn clamp_position(pos: egui::Pos2, size: egui::Vec2, bounds: Rect) -> egui::Pos2 {
+    egui::pos2(
+        pos.x
+            .clamp(bounds.left(), (bounds.right() - size.x).max(bounds.left())),
+        pos.y
+            .clamp(bounds.top(), (bounds.bottom() - size.y).max(bounds.top())),
+    )
+}
+
 /// Spotify's membership mark: a black tick inside a solid green disc.
 pub fn paint_mark(ui: &Ui, rect: Rect, checked: bool, partial: bool, color: Color32) {
     let center = rect.center();
@@ -56,7 +96,7 @@ pub fn song_button(
     theme::focus_ring(ui, &response);
     if response.clicked() {
         app.actions.push(if checked {
-            Action::OpenPlaylistPicker(vec![item.clone()])
+            open_action(&response, vec![item.clone()])
         } else {
             Action::SetSavedMany {
                 uris: vec![item.uri().into()],
@@ -74,7 +114,6 @@ struct Row {
     folder: Option<String>,
     count: Option<u32>,
     pinned: Option<usize>,
-    editable: bool,
     membership: Option<Vec<bool>>,
     error: bool,
 }
@@ -101,6 +140,7 @@ fn rows(app: &App, draft: &Draft) -> Vec<Row> {
         .get()
         .into_iter()
         .flatten()
+        .filter(|playlist| app.can_edit_playlist(playlist))
         .map(|playlist| Row {
             id: playlist.id.clone(),
             name: playlist.name.clone(),
@@ -113,7 +153,6 @@ fn rows(app: &App, draft: &Draft) -> Vec<Row> {
                 .pinned_contexts
                 .iter()
                 .position(|uri| uri == &playlist.uri),
-            editable: app.can_edit_playlist(playlist),
             membership: draft
                 .originals
                 .get(&playlist.id)
@@ -151,7 +190,6 @@ fn rows(app: &App, draft: &Draft) -> Vec<Row> {
                 folder: None,
                 count: app.library.liked.total,
                 pinned: None,
-                editable: true,
                 membership: draft
                     .originals
                     .get(LIKED)
@@ -173,13 +211,38 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut cancel = false;
     let mut commit = false;
     let mut retry = false;
+    let id = egui::Id::new("playlist-membership-picker");
+    let bounds = ctx.content_rect().shrink(8.0);
+    // Native commands without an in-window trigger open next to the player.
+    let anchor = draft.anchor.unwrap_or_else(|| {
+        Rect::from_pos(egui::pos2(bounds.left() + 300.0, bounds.bottom() - 60.0))
+    });
+    let measuring = draft.position.is_none();
+    let position = draft.position.map_or(bounds.min, |position| {
+        clamp_position(
+            position,
+            egui::AreaState::load(ctx, id)
+                .and_then(|state| state.size)
+                .unwrap_or_default(),
+            bounds,
+        )
+    });
     let response = egui::Modal::new(egui::Id::new("playlist-membership-picker"))
+        .area(
+            egui::Area::new(id)
+                .kind(egui::UiKind::Modal)
+                .order(egui::Order::Foreground)
+                .sense(Sense::hover())
+                .fixed_pos(position)
+                .constrain_to(bounds)
+                .sizing_pass(measuring),
+        )
         .frame(
             Frame::new()
                 .fill(palette.overlay)
                 .stroke(Stroke::new(1.0, palette.outline))
-                .corner_radius(CornerRadius::same(12))
-                .inner_margin(Margin::same(16))
+                .corner_radius(CornerRadius::same(10))
+                .inner_margin(Margin::same(12))
                 .shadow(egui::epaint::Shadow {
                     offset: [0, 8],
                     blur: 32,
@@ -187,18 +250,17 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     color: palette.shadow,
                 }),
         )
-        .backdrop_color(Color32::from_black_alpha(if palette.dark {
-            110
-        } else {
-            45
-        }))
+        .backdrop_color(Color32::TRANSPARENT)
         .show(ctx, |ui| {
-            ui.set_width(376.0f32.min((ctx.content_rect().width() - 64.0).max(220.0)));
-            ui.spacing_mut().item_spacing.y = 8.0;
+            ui.set_width(352.0f32.min((bounds.width() - 26.0).max(220.0)));
+            // Area remembers its previous size. Do not let a previous small window
+            // or an empty search constrain this frame's scroll-area measurement.
+            ui.set_max_height((bounds.height() - 26.0).max(0.0));
+            ui.spacing_mut().item_spacing.y = 6.0;
             theme::text(
                 ui,
                 gettext(locale, "Add to playlist"),
-                theme::bold(20.0),
+                theme::bold(18.0),
                 palette.text,
             );
             let subtitle = if draft.items.len() == 1 {
@@ -238,7 +300,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let rows = rows(app, &draft);
             let navigable: Vec<_> = rows
                 .iter()
-                .filter(|row| row.editable && row.membership.is_some())
+                .filter(|row| row.membership.is_some())
                 .map(|row| row.id.clone())
                 .collect();
             if draft.query != previous_query {
@@ -257,44 +319,31 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 };
                 draft.highlighted = Some(navigable[next].clone());
             }
-            if let Some(name) = draft.new_name.as_mut() {
-                let mut remove_new = false;
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(name)
-                            .id(ui.make_persistent_id("new-playlist-name"))
-                            .hint_text(gettext(locale, "Playlist name"))
-                            .desired_width(ui.available_width() - 35.0),
-                    );
-                    if theme::icon_button(
-                        ui,
-                        Icon::X,
-                        16.0,
-                        palette.secondary,
-                        palette.text,
-                        &gettext(locale, "Cancel"),
-                    )
-                    .clicked()
-                    {
-                        remove_new = true;
-                    }
-                });
-                if remove_new {
-                    draft.new_name = None;
-                }
-            } else if theme::soft_button(
+            if theme::soft_button(
                 ui,
                 &palette,
-                Some(Icon::Plus),
+                Some(if draft.new_name.is_some() {
+                    Icon::Check
+                } else {
+                    Icon::Plus
+                }),
                 &gettext(locale, "New playlist"),
-                false,
+                draft.new_name.is_some(),
+            )
+            .on_hover_text(
+                draft
+                    .items
+                    .first()
+                    .map(|item| item.name())
+                    .unwrap_or_default(),
             )
             .clicked()
             {
-                draft.new_name = Some(String::new());
-                ui.memory_mut(|memory| {
-                    memory.request_focus(ui.make_persistent_id("new-playlist-name"))
-                });
+                draft.new_name = if draft.new_name.is_some() {
+                    None
+                } else {
+                    draft.items.first().map(|item| item.name().to_string())
+                };
             }
             super::widgets::menu_separator(ui, &palette);
             let retry_height = if rows.iter().any(|row| row.error) {
@@ -302,8 +351,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             } else {
                 0.0
             };
-            let max_height =
-                (ctx.content_rect().height() - 300.0 - retry_height).clamp(80.0, 390.0);
+            let room = (bounds.bottom() - anchor.bottom()).max(anchor.top() - bounds.top());
+            let max_height = (room - 220.0 - retry_height)
+                .min(bounds.height() - 240.0 - retry_height)
+                .clamp(80.0, 360.0);
+            // Reserve a gutter even while the floating scrollbar is dormant.
+            ui.spacing_mut().scroll.floating_allocated_width = 12.0;
             let mut previous_group = None;
             crate::autoscroll::show(
                 ui,
@@ -347,10 +400,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         let checked = selected.unwrap_or(count == Some(draft.items.len()));
                         let partial = selected.is_none()
                             && count.is_some_and(|count| count > 0 && count < draft.items.len());
-                        let enabled = row.editable && row.membership.is_some();
+                        let enabled = row.membership.is_some();
                         ui.push_id(&row.id, |ui| {
                             let (rect, response) = ui.allocate_exact_size(
-                                vec2(ui.available_width(), 56.0),
+                                vec2(ui.available_width(), 52.0),
                                 if enabled {
                                     Sense::click()
                                 } else {
@@ -380,7 +433,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                 ui.painter().rect_filled(rect, 6.0, palette.surface_hover);
                             }
                             let cover =
-                                Rect::from_min_size(rect.min + vec2(7.0, 6.0), vec2(44.0, 44.0));
+                                Rect::from_min_size(rect.min + vec2(6.0, 6.0), vec2(40.0, 40.0));
                             if row.id == LIKED {
                                 ui.painter().rect_filled(
                                     cover,
@@ -404,7 +457,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                 vec2(20.0, 20.0),
                             );
                             let text_rect = Rect::from_min_max(
-                                rect.min + vec2(63.0, 6.0),
+                                rect.min + vec2(57.0, 5.0),
                                 egui::pos2(mark.left() - 10.0, rect.bottom() - 5.0),
                             );
                             let mut text_ui = ui.new_child(
@@ -480,9 +533,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                     draft.choices.insert(row.id.clone(), intended);
                                 }
                             }
-                            let hint = if !row.editable {
-                                gettext(locale, "This playlist is read-only")
-                            } else if row.error {
+                            let hint = if row.error {
                                 gettext(locale, "Couldn't check this playlist. Try again.")
                             } else if row.membership.is_none() {
                                 gettext(locale, "Checking playlist…")
@@ -512,22 +563,34 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 retry = true;
             }
             super::widgets::menu_separator(ui, &palette);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let changed = !draft.choices.is_empty()
-                    || draft
-                        .new_name
-                        .as_ref()
-                        .is_some_and(|name| !name.trim().is_empty());
-                ui.add_enabled_ui(changed, |ui| {
-                    if theme::pill_button(ui, &palette, &gettext(locale, "Done"), true).clicked() {
-                        commit = true;
+            ui.allocate_ui_with_layout(
+                vec2(ui.available_width(), 32.0),
+                Layout::right_to_left(Align::Center),
+                |ui| {
+                    let changed = !draft.choices.is_empty()
+                        || draft
+                            .new_name
+                            .as_ref()
+                            .is_some_and(|name| !name.trim().is_empty());
+                    ui.add_enabled_ui(changed, |ui| {
+                        if theme::pill_button(ui, &palette, &gettext(locale, "Done"), true)
+                            .clicked()
+                        {
+                            commit = true;
+                        }
+                    });
+                    if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked()
+                    {
+                        cancel = true;
                     }
-                });
-                if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked() {
-                    cancel = true;
-                }
-            });
+                },
+            );
         });
+    draft.position = Some(if measuring {
+        popup_position(anchor, response.response.rect.size(), bounds)
+    } else {
+        response.response.rect.min
+    });
     if response.should_close() || cancel {
         app.actions.push(Action::CancelPlaylistPicker);
     } else {
@@ -538,5 +601,31 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         if retry {
             app.actions.push(Action::RetryPlaylistMembership);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popup_placement_flips_at_edges_and_clamps_after_resize() {
+        let bounds = Rect::from_min_size(egui::pos2(8.0, 8.0), vec2(744.0, 504.0));
+        let size = vec2(378.0, 380.0);
+        for (point, expected) in [
+            (egui::pos2(20.0, 20.0), egui::pos2(20.0, 26.0)),
+            (egui::pos2(740.0, 20.0), egui::pos2(362.0, 26.0)),
+            (egui::pos2(20.0, 500.0), egui::pos2(20.0, 114.0)),
+            (egui::pos2(740.0, 500.0), egui::pos2(362.0, 114.0)),
+        ] {
+            assert_eq!(
+                popup_position(Rect::from_pos(point), size, bounds),
+                expected
+            );
+        }
+        assert_eq!(
+            clamp_position(egui::pos2(900.0, 700.0), size, bounds),
+            egui::pos2(374.0, 132.0)
+        );
     }
 }
