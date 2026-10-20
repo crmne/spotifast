@@ -18,6 +18,10 @@ pub(super) const WINAMP_SHORTCUT: &str = platform_shortcut("Ctrl+M", "Cmd+Shift+
 pub(super) const MILKDROP_SHORTCUT: &str = platform_shortcut("Ctrl+Shift+K", "Cmd+Shift+K");
 
 pub fn handle(app: &mut App, ctx: &egui::Context) {
+    // The membership editor owns keyboard input until its changes are applied or discarded.
+    if app.playlist_picker.is_some() {
+        return;
+    }
     let typing = ctx.memory(|memory| memory.focused().is_some());
     // A focused song row still takes Ctrl+arrow to change songs; a text
     // field uses those keys to move its caret.

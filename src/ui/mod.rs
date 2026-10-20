@@ -14,6 +14,7 @@ pub mod login;
 mod lyrics;
 pub mod new_releases;
 pub mod player_bar;
+pub(crate) mod playlist_picker;
 mod prerelease;
 pub mod queue;
 pub mod radio;
@@ -86,6 +87,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
     devices::popup(app, ctx);
     dialogs::show(app, ctx);
+    playlist_picker::show(app, ctx);
     update::show(app, ctx);
     widgets::drag_ghost(ctx, &app.palette, app.locale);
     toasts(app, ctx, theme::PLAYER_BAR_HEIGHT + 16.0);

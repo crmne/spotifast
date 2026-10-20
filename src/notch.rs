@@ -19,7 +19,7 @@ impl NotchCommand {
             Self::Next => crate::model::Action::Next,
             Self::Previous => crate::model::Action::Previous,
             Self::ShowWindow => crate::model::Action::ShowWindow,
-            Self::ToggleSaved(uri) => crate::model::Action::ToggleSaved(uri.clone()),
+            Self::ToggleSaved(uri) => crate::model::Action::ManagePlayingMembership(uri.clone()),
             Self::Seek(pos) => crate::model::Action::Seek(*pos),
             Self::ToggleShuffle => crate::model::Action::ToggleShuffle,
             Self::CycleRepeat => crate::model::Action::CycleRepeat,
@@ -330,7 +330,7 @@ mod tests {
         ));
         assert!(matches!(
             NotchCommand::ToggleSaved("spotify:track:abc".into()).action(),
-            Action::ToggleSaved(uri) if uri == "spotify:track:abc"
+            Action::ManagePlayingMembership(uri) if uri == "spotify:track:abc"
         ));
         assert!(matches!(
             NotchCommand::Seek(12345).action(),

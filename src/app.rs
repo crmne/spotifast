@@ -686,6 +686,8 @@ pub struct App {
     pub play_counts: HashMap<String, u64>,
     /// Albums and artists whose play counts were asked for, by URI.
     pub play_count_reads: HashMap<String, PlayCountRead>,
+    pub playlist_membership: crate::playlist_membership::Index,
+    pub playlist_picker: Option<crate::playlist_membership::Draft>,
     /// User ids resolved to avatar picture urls, asked for alongside the
     /// names; `None` while unknown or when Spotify gives no picture.
     pub user_images: HashMap<String, Option<String>>,
@@ -1238,6 +1240,8 @@ impl App {
             user_names: HashMap::new(),
             play_counts: HashMap::new(),
             play_count_reads: HashMap::new(),
+            playlist_membership: Default::default(),
+            playlist_picker: None,
             user_names_revision: 0,
             user_images: HashMap::new(),
             recent_contexts: session.recent_contexts.clone(),
@@ -2994,6 +2998,8 @@ impl App {
             new_release_tracks_generation: self.home.new_release_tracks_generation,
             ..HomeData::default()
         };
+        self.playlist_membership.clear();
+        self.playlist_picker = None;
         self.playlist_pages.clear();
         self.album_pages.clear();
         self.hidden_songs.clear();
@@ -6511,6 +6517,13 @@ impl App {
             _ => {}
         }
         match response {
+            ApiResponse::PlaylistMembership {
+                id,
+                generation,
+                result,
+            } => {
+                self.playlist_membership.receive(&id, generation, result);
+            }
             ApiResponse::Me(result) => match result {
                 Ok(user) => {
                     // Spotify only takes playback commands from Premium
@@ -7464,6 +7477,7 @@ impl App {
                             page.optimistic_snapshot = None;
                             page.snapshot_rechecks = 0;
                         }
+                        self.playlist_membership.failed_write(&id);
                         self.load_playlist_items_at(&id, 0);
                         if let Some(page) = self.playlist_pages.get(&id) {
                             self.backend.api(ApiRequest::Playlist {
@@ -7723,6 +7737,15 @@ impl App {
             ApiResponse::Contains { uris, result } => {
                 for uri in &uris {
                     self.saved_pending.remove(uri);
+                }
+                if result.is_err()
+                    && let Some(draft) = &mut self.playlist_picker
+                    && draft
+                        .items
+                        .iter()
+                        .any(|item| uris.iter().any(|uri| uri == item.uri()))
+                {
+                    draft.liked_error = true;
                 }
                 if let Ok(flags) = result {
                     for (uri, flag) in uris.into_iter().zip(flags) {
@@ -10162,6 +10185,11 @@ impl App {
             }
         }
 
+        self.playlist_membership.change(
+            &playlist_id,
+            items.iter().map(|item| item.uri().to_string()),
+            true,
+        );
         self.prepare_playlist_mutation(&playlist_id);
         let added = items.len().try_into().unwrap_or(u32::MAX);
         let added_by = self.user_id().map(|id| UserRef {
@@ -10816,6 +10844,10 @@ impl App {
                 uris,
                 positions,
             } => {
+                if positions.is_empty() {
+                    self.playlist_membership
+                        .change(&playlist_id, uris.clone(), false);
+                }
                 if let Some(rows) = self.repeated_rows_to_remove(&playlist_id, &uris, &positions) {
                     self.remove_playlist_rows(playlist_id, rows);
                     return;
@@ -10941,6 +10973,42 @@ impl App {
                         previous_urls,
                         cover: selected,
                     });
+                }
+            }
+            Action::ManagePlayingMembership(uri) => {
+                if let Some(item) = self.now_playing_item().filter(|item| item.uri() == uri) {
+                    if self.in_any_playlist(&uri) {
+                        self.open_playlist_picker(vec![item]);
+                        self.actions.push(Action::ShowWindow);
+                    } else {
+                        self.actions.push(Action::SetSavedMany {
+                            uris: vec![uri],
+                            saved: true,
+                        });
+                    }
+                }
+            }
+            Action::OpenPlaylistPicker { items, anchor } => {
+                self.open_playlist_picker(items);
+                if let Some(draft) = &mut self.playlist_picker {
+                    draft.anchor = Some(anchor);
+                }
+            }
+            Action::EditPlaylistPicker(draft) => self.playlist_picker = Some(draft),
+            Action::CancelPlaylistPicker => self.playlist_picker = None,
+            Action::CommitPlaylistPicker => self.commit_playlist_picker(),
+            Action::RetryPlaylistMembership => {
+                self.playlist_membership.retry();
+                let uris = self.playlist_picker.as_mut().map(|draft| {
+                    draft.liked_error = false;
+                    draft
+                        .items
+                        .iter()
+                        .map(|item| item.uri().to_string())
+                        .collect()
+                });
+                if let Some(uris) = uris {
+                    self.request_contains(uris);
                 }
             }
             Action::ShowDialog(mut dialog) => {
@@ -12080,6 +12148,7 @@ impl App {
         #[cfg(feature = "milkdrop")]
         self.sync_milkdrop(ctx);
         self.apply_actions(ctx);
+        self.sync_playlist_membership();
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
         self.remember_geometry(ctx);
@@ -12343,7 +12412,7 @@ impl App {
                 .map(|a| a.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            let saved = self.is_saved(&now.uri).unwrap_or(false);
+            let saved = self.in_any_playlist(&now.uri);
             let tint = self.now_playing_tint().unwrap_or(self.palette.accent);
             let accent = Some([tint.r(), tint.g(), tint.b()]);
             crate::notch::NotchTrackInfo {

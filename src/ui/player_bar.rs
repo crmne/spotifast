@@ -16,8 +16,6 @@ const TINT_STRENGTH: f32 = 0.12;
 /// How long the bar takes to cross over to a new song's tint.
 const TINT_FADE_SECONDS: f32 = 0.45;
 const TINT_SESSION_ID: &str = "player-bar-tint-session";
-/// The Add to playlist menu a liked song's heart opens.
-const LIKED_POPUP_ID: &str = "player-bar-liked-playlists";
 /// How strongly the visualizer shows through behind the controls: the
 /// spectrum's bars fade from their foot to their top, with a glow around
 /// them, a brighter cap above, and a pulse along the foot with the bass.
@@ -500,9 +498,9 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             app.actions.push(Action::SettingsChanged);
         }
     }
-    let heart_width = if now.is_episode { 0.0 } else { 42.0 };
+    let membership_width = if now.is_episode { 0.0 } else { 42.0 };
     let text_left = cover_rect.right() + 12.0;
-    let text_width = (region.right() - text_left - heart_width).max(40.0);
+    let text_width = (region.right() - text_left - membership_width).max(40.0);
     let displayed_text_width: f32 = {
         let title =
             ui.painter()
@@ -592,85 +590,15 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         }
     }
 
-    if !now.is_episode {
-        let saved = app.is_saved(&now.uri).unwrap_or(false);
-        // A liked heart stays green under the pointer, like shuffle.
-        let (icon, color, hover, tooltip) = if saved {
-            (
-                Icon::HeartFilled,
-                palette.accent,
-                palette.accent_hover,
-                gettext(app.locale, "Add to playlist"),
-            )
-        } else {
-            (
-                Icon::Heart,
-                palette.secondary,
-                palette.text,
-                gettext(app.locale, "Save to Liked Songs"),
-            )
-        };
-        // Sit the heart just past the actual text, not at the region's far
-        // edge, so it stays visually attached to the title.
-        let heart_x = (text_left + displayed_text_width + 21.0).min(region.right() - 21.0);
-        let heart_rect = Rect::from_center_size(pos2(heart_x, cy), Vec2::splat(30.0));
-        let mut heart_ui = ui.new_child(
+    if let Some(item) = song.as_ref().filter(|_| !now.is_episode) {
+        let mark_x = (text_left + displayed_text_width + 21.0).min(region.right() - 21.0);
+        let mark_rect = Rect::from_center_size(pos2(mark_x, cy), Vec2::splat(30.0));
+        let mut mark_ui = ui.new_child(
             UiBuilder::new()
-                .max_rect(heart_rect)
+                .max_rect(mark_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        let response = theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip);
-        let popup_id = egui::Id::new(LIKED_POPUP_ID);
-        // A liked song's heart opens Add to playlist, as Spotify's does,
-        // with Remove from Liked Songs below the playlists (#792). The first
-        // click on a song not yet liked still likes it at once.
-        match song.as_ref().filter(|_| saved) {
-            None => {
-                egui::Popup::close_id(ui.ctx(), popup_id);
-                if response.clicked() {
-                    app.actions.push(Action::ToggleSaved(now.uri.clone()));
-                }
-            }
-            Some(item) => {
-                let query_id = popup_id.with("query");
-                let shown = egui::Popup::menu(&response)
-                    .id(popup_id)
-                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                    .frame(super::widgets::menu_frame(&palette))
-                    .show(|ui| {
-                        let stored = ui.data(|data| data.get_temp::<String>(query_id));
-                        let fresh = stored.is_none();
-                        let mut query = stored.unwrap_or_default();
-                        let before = app.actions.len();
-                        let field = super::widgets::playlist_picker(
-                            ui,
-                            app,
-                            std::slice::from_ref(item),
-                            &mut query,
-                        );
-                        if fresh {
-                            field.request_focus();
-                        }
-                        ui.data_mut(|data| data.insert_temp(query_id, query));
-                        super::widgets::menu_separator(ui, &palette);
-                        if super::widgets::menu_item(
-                            ui,
-                            &palette,
-                            Some(Icon::HeartFilled),
-                            &gettext(app.locale, "Remove from Liked Songs"),
-                        ) {
-                            app.actions.push(Action::ToggleSaved(now.uri.clone()));
-                        }
-                        // A playlist, New playlist, or Remove closes it.
-                        if app.actions.len() > before {
-                            ui.close();
-                        }
-                    });
-                if shown.is_none() {
-                    ui.data_mut(|data| data.remove::<String>(query_id));
-                }
-            }
-        }
+        super::playlist_picker::song_button(&mut mark_ui, app, item, true);
     }
 }
 

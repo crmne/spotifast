@@ -196,6 +196,12 @@ pub enum ApiRequest {
         offset: u32,
         generation: u64,
     },
+    /// Only URIs, paged in the background for the playlist picker.
+    PlaylistMembership {
+        id: String,
+        offset: u32,
+        generation: u64,
+    },
     CreatePlaylist {
         name: String,
         public: bool,
@@ -378,6 +384,7 @@ impl ApiRequest {
                 | Self::HiddenSongs { .. }
                 | Self::MyPlaylists { .. }
                 | Self::PlaylistSample { .. }
+                | Self::PlaylistMembership { .. }
                 | Self::Contains { .. }
         )
     }
@@ -459,6 +466,11 @@ pub enum ApiResponse {
         id: String,
         generation: u64,
         result: ApiResult<Page<PlaylistItem>>,
+    },
+    PlaylistMembership {
+        id: String,
+        generation: u64,
+        result: ApiResult<Page<String>>,
     },
     PlaylistCreated(ApiResult<Playlist>),
     PlaylistCoverUploaded {
@@ -4743,6 +4755,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         ApiRequest::Playlist { id, .. } => Operation::PlaylistMetadata(api.playlist_access(id)),
         ApiRequest::PlaylistItems { id, .. }
         | ApiRequest::PlaylistSample { id, .. }
+        | ApiRequest::PlaylistMembership { id, .. }
         | ApiRequest::CheckPlaylistDuplicates {
             playlist_id: id, ..
         } => Operation::PlaylistItems(api.playlist_access(id)),
@@ -5319,6 +5332,15 @@ async fn handle(
             id,
             generation,
         },
+        ApiRequest::PlaylistMembership {
+            id,
+            offset,
+            generation,
+        } => ApiResponse::PlaylistMembership {
+            result: routed!(playlist_membership(&id, offset, 100)),
+            id,
+            generation,
+        },
         ApiRequest::CreatePlaylist {
             name,
             public,
@@ -5816,6 +5838,9 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
             SessionRead::Sample { id, offset } => SessionAnswer::Rows(settle(
                 session_reads::sample(session, id, offset, PLAYLIST_PAGE_SIZE).await,
             )?),
+            SessionRead::Membership { id, offset } => SessionAnswer::Membership(settle(
+                session_reads::membership(session, id, offset, 500).await,
+            )?),
             SessionRead::ArtistTop { id } => SessionAnswer::ArtistTop(settle(
                 session_reads::artist_top_tracks(session, id).await,
             )?),
@@ -5837,6 +5862,10 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
 /// where the session serves the operation.
 #[derive(Debug, PartialEq)]
 enum SessionRead<'a> {
+    Membership {
+        id: &'a str,
+        offset: u32,
+    },
     ArtistTop {
         id: &'a str,
     },
@@ -5857,6 +5886,10 @@ enum SessionRead<'a> {
 
 fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
     Some(match request {
+        ApiRequest::PlaylistMembership { id, offset, .. } => SessionRead::Membership {
+            id,
+            offset: *offset,
+        },
         ApiRequest::ArtistTopTracks { id } => SessionRead::ArtistTop { id },
         ApiRequest::Playlist { id, .. } => SessionRead::Header { id },
         ApiRequest::PlaylistItems { id, offset, .. } => SessionRead::Rows {
@@ -5875,6 +5908,7 @@ fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
 /// What the session read: a playlist's header, a page of its rows, or the
 /// whole playlist library.
 enum SessionAnswer {
+    Membership(ApiResult<Page<String>>),
     ArtistTop(ApiResult<Vec<Track>>),
     Header(Box<ApiResult<Playlist>>),
     Rows(ApiResult<Page<PlaylistItem>>),
@@ -5885,6 +5919,14 @@ enum SessionAnswer {
 /// offset, and generation so the app matches it to the page that asked.
 fn session_response(request: &ApiRequest, answer: SessionAnswer) -> Option<ApiResponse> {
     Some(match (request, answer) {
+        (
+            ApiRequest::PlaylistMembership { id, generation, .. },
+            SessionAnswer::Membership(result),
+        ) => ApiResponse::PlaylistMembership {
+            id: id.clone(),
+            generation: *generation,
+            result,
+        },
         (ApiRequest::ArtistTopTracks { id }, SessionAnswer::ArtistTop(result)) => {
             ApiResponse::ArtistTopTracks {
                 id: id.clone(),
@@ -9014,6 +9056,22 @@ mod session_tests {
             session_response(&items, rows()),
             Some(ApiResponse::PlaylistItems { id, offset: 150, generation: 7, result: Ok(_) }) if id == "pl1"
         ));
+        let membership = ApiRequest::PlaylistMembership {
+            id: "pl1".into(),
+            offset: 500,
+            generation: 12,
+        };
+        assert!(membership.background());
+        assert_eq!(
+            session_read(&membership),
+            Some(SessionRead::Membership {
+                id: "pl1",
+                offset: 500
+            })
+        );
+        assert!(
+            matches!(session_response(&membership, SessionAnswer::Membership(Ok(Page::whole(vec!["spotify:track:a".into()])))), Some(ApiResponse::PlaylistMembership { id, generation: 12, result: Ok(page) }) if id == "pl1" && page.items == ["spotify:track:a"])
+        );
         let sample = ApiRequest::PlaylistSample {
             id: "pl1".into(),
             offset: 150,

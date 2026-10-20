@@ -636,6 +636,26 @@ pub async fn sample(
     rows_page(session, id, offset, limit, false).await
 }
 
+/// Playlist membership needs the row URIs, without resolving any metadata.
+pub async fn membership(
+    session: &Session,
+    id: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<Page<String>, Failure> {
+    let list = window(session, id, offset, limit).await?;
+    let rows = rows(&list, offset, limit);
+    let total = total(&list);
+    complete(rows.len(), offset, limit, total)?;
+    Ok(Page {
+        items: rows.iter().map(|row| row.id.to_uri()).collect(),
+        total,
+        offset,
+        limit,
+        next: (offset.saturating_add(rows.len() as u32) < total).then(String::new),
+    })
+}
+
 async fn rows_page(
     session: &Session,
     id: &str,

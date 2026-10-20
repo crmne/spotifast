@@ -231,6 +231,18 @@ fn inter_font(size: f64, bold: bool) -> Retained<NSFont> {
     }
 }
 
+fn load_membership_check(mtm: MainThreadMarker) -> Retained<NSImage> {
+    let image = load_svg_icon(
+        mtm,
+        include_bytes!("../assets/icons/check-circle-filled.svg"),
+        18.0,
+    );
+    unsafe {
+        let () = objc2::msg_send![&*image, setTemplate: false];
+    }
+    image
+}
+
 fn load_svg_icon(mtm: MainThreadMarker, svg_bytes: &[u8], size: f64) -> Retained<NSImage> {
     let ns_data = NSData::with_bytes(svg_bytes);
     let img = NSImage::initWithData(mtm.alloc(), &ns_data).expect("Embedded Lucide SVG must parse");
@@ -242,8 +254,8 @@ fn load_svg_icon(mtm: MainThreadMarker, svg_bytes: &[u8], size: f64) -> Retained
 }
 
 struct NotchIcons {
-    heart: Retained<NSImage>,
-    heart_filled: Retained<NSImage>,
+    membership_plus: Retained<NSImage>,
+    membership_checked: Retained<NSImage>,
     skip_back: Retained<NSImage>,
     skip_forward: Retained<NSImage>,
     play_filled: Retained<NSImage>,
@@ -257,12 +269,12 @@ struct NotchIcons {
 impl NotchIcons {
     fn new(mtm: MainThreadMarker) -> Self {
         Self {
-            heart: load_svg_icon(mtm, include_bytes!("../assets/icons/heart.svg"), 18.0),
-            heart_filled: load_svg_icon(
+            membership_plus: load_svg_icon(
                 mtm,
-                include_bytes!("../assets/icons/heart-filled.svg"),
+                include_bytes!("../assets/icons/circle-plus.svg"),
                 18.0,
             ),
+            membership_checked: load_membership_check(mtm),
             skip_back: load_svg_icon(mtm, include_bytes!("../assets/icons/skip-back.svg"), 18.0),
             skip_forward: load_svg_icon(
                 mtm,
@@ -341,13 +353,13 @@ fn update_play_button_ui(button: &NSButton, icons: &NotchIcons, playing: bool) {
 
 fn update_like_button_ui(button: &NSButton, icons: &NotchIcons, saved: bool) {
     let (img, tint, label) = if saved {
-        (
-            &icons.heart_filled,
-            green_accent(),
-            "Remove from Liked Songs",
-        )
+        (&icons.membership_checked, green_accent(), "Add to playlist")
     } else {
-        (&icons.heart, inactive_button_tint(), "Save to Liked Songs")
+        (
+            &icons.membership_plus,
+            inactive_button_tint(),
+            "Save to Liked Songs",
+        )
     };
     setup_svg_button(button, img, label);
     set_button_tint(button, &tint);
@@ -451,7 +463,7 @@ define_class!(
                 && let Some(track) = ctrl.track.as_mut()
                 && can_toggle_saved(track.is_episode)
             {
-                track.saved = !track.saved;
+                track.saved = true;
                 let is_saved = track.saved;
                 let uri = track.uri.clone();
                 update_like_button_ui(&ctrl.like_button, &ctrl.icons, is_saved);
@@ -1713,8 +1725,8 @@ mod tests {
 
         let mtm = unsafe { objc2_foundation::MainThreadMarker::new_unchecked() };
         let icons = NotchIcons::new(mtm);
-        assert!(icons.heart.isTemplate());
-        assert!(icons.heart_filled.isTemplate());
+        assert!(icons.membership_plus.isTemplate());
+        assert!(!icons.membership_checked.isTemplate());
         assert!(icons.skip_back.isTemplate());
         assert!(icons.skip_forward.isTemplate());
         assert!(icons.play_filled.isTemplate());

@@ -523,26 +523,6 @@ pub fn menu_submenu<R>(
     submenu(ui, palette, icon, label, None, add_contents)
 }
 
-/// A submenu that holds a field to type in. A click inside it focuses the
-/// field or scrolls its list instead of closing the menu; its entries still
-/// close the menu when chosen.
-fn menu_submenu_with_field<R>(
-    ui: &mut Ui,
-    palette: &Palette,
-    icon: Option<Icon>,
-    label: &str,
-    add_contents: impl FnOnce(&mut Ui) -> R,
-) -> Option<egui::InnerResponse<R>> {
-    submenu(
-        ui,
-        palette,
-        icon,
-        label,
-        Some(egui::PopupCloseBehavior::CloseOnClickOutside),
-        add_contents,
-    )
-}
-
 fn submenu<R>(
     ui: &mut Ui,
     palette: &Palette,
@@ -733,11 +713,11 @@ pub fn picked_menu(
     let all_saved = uris.iter().all(|uri| app.is_saved(uri).unwrap_or(false));
     let (icon, text) = if all_saved {
         (
-            Icon::HeartFilled,
+            Icon::CircleCheck,
             gettext(locale, "Remove from Liked Songs"),
         )
     } else {
-        (Icon::Heart, gettext(locale, "Save to Liked Songs"))
+        (Icon::CirclePlus, gettext(locale, "Save to Liked Songs"))
     };
     if menu_item(ui, &palette, Some(icon), &text) {
         app.actions.push(Action::SetSavedMany {
@@ -766,175 +746,20 @@ pub fn picked_menu(
 }
 
 fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
-    let query_id = ui.make_persistent_id("add-to-playlist-query");
-    let palette = app.palette;
-    let opened = menu_submenu_with_field(
+    let (response, clicked) = menu_item_response(
         ui,
-        &palette,
+        &app.palette,
         Some(Icon::ListPlus),
         &gettext(app.locale, "Add to playlist"),
-        |ui| {
-            let frame = ui.ctx().cumulative_frame_nr();
-            let previous = ui
-                .data(|data| data.get_temp::<(u64, String)>(query_id))
-                .filter(|(last_frame, _)| frame.saturating_sub(*last_frame) <= 1);
-            let fresh = previous.is_none();
-            let mut query = previous.map(|(_, query)| query).unwrap_or_default();
-            let field = playlist_picker(ui, app, items, &mut query);
-            if fresh {
-                field.request_focus();
-            }
-            ui.data_mut(|data| data.insert_temp(query_id, (frame, query)));
-        },
+        true,
+        false,
     );
-    if opened.is_none() {
-        ui.data_mut(|data| data.remove::<(u64, String)>(query_id));
+    if clicked {
+        app.actions.push(super::playlist_picker::open_action(
+            &response,
+            items.to_vec(),
+        ));
     }
-}
-
-/// Shared by single-item and selection menus. Filtering is local and keeps
-/// the existing playlist edit permissions and library order.
-pub(crate) fn playlist_picker(
-    ui: &mut Ui,
-    app: &mut App,
-    items: &[PlayableItem],
-    query: &mut String,
-) -> egui::Response {
-    let palette = app.palette;
-    let locale = app.locale;
-    ui.set_min_width(220.0);
-    ui.set_max_width(300.0);
-    let width = ui.available_width();
-    let field_id = ui.make_persistent_id("playlist-filter");
-    let highlight_id = ui.make_persistent_id("playlist-highlight");
-    let playlists = app.editable_playlists();
-    let matching = |query: &str| {
-        let needle = query.trim().to_lowercase();
-        playlists
-            .iter()
-            .filter(move |(_, name)| name.to_lowercase().contains(&needle))
-            .count()
-    };
-    // The keyboard's choice among the matches, for the filter it was made
-    // under. Typing chooses the first match; Up and Down move the choice
-    // and Enter adds to it. The keys are taken before the field sees them.
-    // Like the filter itself, the choice lasts while the menu is drawn.
-    let frame = ui.ctx().cumulative_frame_nr();
-    let (mut highlighted, chosen_for) = ui
-        .data(|data| data.get_temp::<(u64, Option<usize>, String)>(highlight_id))
-        .filter(|(last_frame, _, _)| frame.saturating_sub(*last_frame) <= 1)
-        .map(|(_, highlighted, query)| (highlighted, query))
-        .unwrap_or_default();
-    let mut moved = false;
-    let mut enter = false;
-    if ui.memory(|memory| memory.has_focus(field_id)) {
-        let count = matching(query);
-        let (down, up, pressed) = ui.input_mut(|input| {
-            (
-                input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
-                input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
-                highlighted.is_some_and(|index| index < count)
-                    && input.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
-            )
-        });
-        enter = pressed;
-        if count > 0 && down + up > 0 {
-            moved = true;
-            let last = count - 1;
-            let mut index = highlighted.map(|index| index.min(last));
-            for _ in 0..down {
-                index = Some(index.map_or(0, |index| (index + 1).min(last)));
-            }
-            for _ in 0..up {
-                index = Some(index.map_or(last, |index| index.saturating_sub(1)));
-            }
-            highlighted = index;
-        }
-    }
-    let field = search_field(
-        ui,
-        &palette,
-        locale,
-        field_id,
-        query,
-        &gettext(locale, "Filter playlists"),
-        width,
-    );
-    if *query != chosen_for {
-        highlighted = (!query.trim().is_empty()).then_some(0);
-    }
-    ui.add_space(4.0);
-    if menu_item(
-        ui,
-        &palette,
-        Some(Icon::Plus),
-        &gettext(locale, "New playlist"),
-    ) {
-        app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
-            name: String::new(),
-            public: false,
-            add_uris: items.iter().map(|item| item.uri().to_string()).collect(),
-        }));
-    }
-    menu_separator(ui, &palette);
-    let needle = query.trim().to_lowercase();
-    let matches: Vec<_> = playlists
-        .iter()
-        .filter(|(_, name)| name.to_lowercase().contains(&needle))
-        .collect();
-    highlighted = highlighted.filter(|index| *index < matches.len());
-    ui.data_mut(|data| data.insert_temp(highlight_id, (frame, highlighted, query.clone())));
-    if enter && let Some((id, name)) = highlighted.and_then(|index| matches.get(index)) {
-        app.actions.push(Action::AddToPlaylist {
-            playlist_id: id.clone(),
-            playlist_name: name.clone(),
-            items: items.to_vec(),
-        });
-        ui.close();
-    }
-    if matches.is_empty() {
-        theme::subtle(
-            ui,
-            &palette,
-            &if needle.is_empty() {
-                gettext(locale, "No editable playlists")
-            } else {
-                gettext(locale, "No matching playlists")
-            },
-        );
-    }
-    // The popup lays out within last frame's size, so a list a filter has
-    // shrunk would stay that short once the filter is cleared. Asking for
-    // the full height lets it grow back; it still shrinks to fit its rows.
-    let list_height = 320.0;
-    crate::autoscroll::show(
-        ui,
-        egui::ScrollArea::vertical()
-            .id_salt("filtered-playlists")
-            .max_height(list_height)
-            .min_scrolled_height(list_height),
-        egui::Vec2b::new(false, true),
-        |ui| {
-            for (index, (id, name)) in matches.into_iter().enumerate() {
-                ui.push_id(id, |ui| {
-                    let chosen = highlighted == Some(index);
-                    let (row, clicked) =
-                        menu_item_response(ui, &palette, Some(Icon::ListMusic), name, true, chosen);
-                    if chosen && moved {
-                        row.scroll_to_me(None);
-                    }
-                    if clicked {
-                        app.actions.push(Action::AddToPlaylist {
-                            playlist_id: id.clone(),
-                            playlist_name: name.clone(),
-                            items: items.to_vec(),
-                        });
-                    }
-                });
-            }
-        },
-    );
-    field
 }
 
 pub fn item_menu(
@@ -1004,11 +829,11 @@ fn item_menu_at(
         let saved = app.is_saved(&uri).unwrap_or(false);
         let (icon, text) = if saved {
             (
-                Icon::HeartFilled,
+                Icon::CircleCheck,
                 gettext(locale, "Remove from Liked Songs"),
             )
         } else {
-            (Icon::Heart, gettext(locale, "Save to Liked Songs"))
+            (Icon::CirclePlus, gettext(locale, "Save to Liked Songs"))
         };
         if menu_item(ui, &palette, Some(icon), &text) {
             app.actions.push(Action::ToggleSaved(uri.clone()));
@@ -1388,7 +1213,7 @@ struct Columns {
     added_by: f32,
     added: f32,
     plays: f32,
-    heart: f32,
+    membership: f32,
     duration: f32,
     more: f32,
 }
@@ -1432,7 +1257,7 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
         } else {
             0.0
         },
-        heart: if row.compact { 0.0 } else { 36.0 },
+        membership: if row.compact { 0.0 } else { 36.0 },
         duration: if row.compact { 44.0 } else { 56.0 },
         more: if row.compact { 0.0 } else { 36.0 },
     }
@@ -1678,7 +1503,7 @@ fn track_row_contents(
         }
         x += cols.cover;
     }
-    let right_fixed = cols.heart + cols.duration + cols.more + 8.0;
+    let right_fixed = cols.membership + cols.duration + cols.more + 8.0;
     let text_right =
         rect.right() - right_fixed - cols.plays - cols.added - cols.added_by - cols.album;
     let title_rect = Rect::from_min_max(
@@ -1962,39 +1787,18 @@ fn track_row_contents(
         x += cols.plays;
     }
 
-    // Heart.
-    if cols.heart > 0.0 {
-        let saved = app.is_saved(row.item.uri());
-        let heart_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.heart, row_height));
+    // Membership lives immediately before duration, with a stable hit target.
+    if cols.membership > 0.0 {
+        let mark_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.membership, row_height));
         if row.item.is_track() {
             let mut child = ui.new_child(
                 UiBuilder::new()
-                    .max_rect(heart_rect)
+                    .max_rect(mark_rect)
                     .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
             );
-            if !hovered
-                && saved != Some(true)
-                && !child.memory(|memory| memory.has_focus(child.next_auto_id()))
-            {
-                child.set_opacity(0.0);
-            }
-            // A liked heart stays green under the pointer.
-            let (icon, color, hover) = if saved == Some(true) {
-                (Icon::HeartFilled, palette.accent, palette.accent_hover)
-            } else {
-                (Icon::Heart, palette.secondary, palette.text)
-            };
-            let tooltip = if saved == Some(true) {
-                gettext(app.locale, "Remove from Liked Songs")
-            } else {
-                gettext(app.locale, "Save to Liked Songs")
-            };
-            if theme::icon_button(&mut child, icon, 16.0, color, hover, &tooltip).clicked() {
-                app.actions
-                    .push(Action::ToggleSaved(row.item.uri().to_string()));
-            }
+            super::playlist_picker::song_button(&mut child, app, row.item, hovered);
         }
-        x += cols.heart;
+        x += cols.membership;
     }
 
     // Duration.

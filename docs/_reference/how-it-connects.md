@@ -4,6 +4,24 @@ description: Independent Spotify grants, what is stored, and how API traffic is 
 nav_order: 1
 ---
 
+## Playlist membership checks
+
+In development: the song-row and player checkmarks also reflect membership
+in playlists in the signed-in account's Library. Spotifast reads their song
+URIs in the background, at most two playlist pages at a time, using the
+existing playlist-item routing, transport budgets, and rate-limit handling.
+A playback-session page reads up to 500 URIs without fetching track metadata.
+The Web API fallback reads up to 100 rows and requests only their URI and
+type. Fully loaded playlist pages are reused without another request.
+
+The membership index stays in memory for the account and is cleared on
+sign-out. A changed playlist snapshot is read again, and late reads cannot
+undo local edits. An incomplete or failed read never proves that a song is
+absent. Failed reads wait for **Try again** in the picker. No new endpoint,
+credential, setting, or disk cache is introduced. The picker sends no edits
+until **Done**; additions send only missing URIs, removals use the existing
+playlist removal route, and Liked Songs uses the existing library route.
+
 ## Independent grants, once each
 
 Spotifast uses separate credentials for Web API access, a personal app, and
