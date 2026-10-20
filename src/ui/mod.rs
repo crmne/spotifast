@@ -65,10 +65,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
         );
     }
-    player_bar::show(app, ui);
-    if app.fullscreen.is_some() {
+    if app.in_fullscreen(crate::app::FullScreenView::Player) {
+        // The bar itself has grown to fill the screen.
+        player_bar::fullscreen(app, ui);
+    } else if app.fullscreen.is_some() {
+        player_bar::show(app, ui);
         lyrics::fullscreen(app, ui);
     } else {
+        player_bar::show(app, ui);
         if app.settings.sidebar_visible {
             sidebar::show(app, ui);
         }

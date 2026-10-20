@@ -497,7 +497,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
 
 /// The playing song's cover filling the top of `column`, with its title and
 /// artists beneath, aligned to its left edge or centred.
-fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
+pub(super) fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
     let Some(now) = app.now_playing() else {
         return;
     };

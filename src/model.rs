@@ -1247,6 +1247,8 @@ pub enum Action {
     /// Show or hide what friends are listening to, in the right panel.
     ToggleFriendsPanel,
     SetLyricsFullscreen(bool),
+    /// Grow the player bar to fill the screen, or return from it.
+    SetPlayerFullscreen(bool),
     LyricsLineShown(Option<usize>),
     FollowLyrics,
     PauseLyricsFollow,

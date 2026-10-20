@@ -349,8 +349,8 @@ main fields are:
 | `system_theme_cache` | absent | Last accepted Omarchy palette for Follow system; retained across restarts |
 | `theme_pair` | absent | The themes Follow system uses in light and dark mode: `{"light": {"filename": "Catppuccin Latte.json", "palette": {...}}, "dark": {...}}`. Each `palette` is the last accepted copy of that file's colours. A missing side, or the whole field, is Spotifast's own Light or Dark; it is written only once you choose one |
 | `accent_from_art` | `true` | Tint pages with album art, and colour the player bar visualizer with the cover's colours |
-| `player_bar_vis` | `off` | Since 0.11.0: what moves behind the player bar while a song plays on this computer: `off`, `spectrum` or `waveform` |
-| `player_bar_vis_click` | `true` | Allow clicks on empty player bar space to cycle visualizer modes |
+| `player_bar_vis` | `off` | Since 0.11.0: what moves behind the player bar, and behind the cover in the full-screen player, while a song plays on this computer: `off`, `spectrum` or `waveform` |
+| `player_bar_vis_click` | `true` | Allow clicks on empty player bar space, and on the full-screen player's, to cycle visualizer modes |
 | `visualizer_fps` | `60` | Frame rate of the player bar and mini player visualizers; `0` is uncapped. Half that out of focus, at most 30 while the system saves energy, none while the window is hidden. MilkDrop uses `milkdrop_fps` |
 | `library_sort` | `{}` | Per-section Library order overrides, since 0.8.0: `library`, `recently_played`, `name`, `recently_added`, `local`, or `spotify`, where supported |
 | `library_by_you` | `false` | Show only playlists owned by the signed-in account, alongside Liked Songs; applies only to the Playlists shelf |
@@ -454,6 +454,10 @@ explicit `--demo-data` directory, its `config/settings.json` and
 sound on this computer with that player bar visualizer on.
 `lyrics-fullscreen-view` and `lyrics-fullscreen-instrumental` draw full-screen
 lyrics, with words or without, at the window's own size.
+`player-fullscreen` grows the player bar to fill the screen, and
+`player-fullscreen-view` draws that view at the window's own size. Give
+either with `player-bar-spectrum` or `player-bar-waveform` to see the
+visualizer behind the cover.
 `eq-user-presets` saves a sample equalizer preset and puts it in use.
 `start-in-tray` shows **Start with your computer** set to **In the tray**;
 demo mode never reads or changes the real login entry.

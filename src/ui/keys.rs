@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use egui::{Key, Modifiers};
 
-use crate::app::App;
+use crate::app::{App, FullScreenView};
 use crate::i18n::{Locale, gettext, pgettext};
 use crate::model::{Action, Dialog, Page};
 
@@ -129,7 +129,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(
                 Modifiers::NONE,
                 Key::F,
-                Action::SetLyricsFullscreen(app.fullscreen.is_none()),
+                Action::SetLyricsFullscreen(!app.in_fullscreen(FullScreenView::Lyrics)),
             );
         }
     });
@@ -180,6 +180,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             app.actions.push(Action::CloseDialog);
         } else if app.show_devices {
             app.show_devices = false;
+        } else if app.in_fullscreen(FullScreenView::Player) {
+            app.actions.push(Action::SetPlayerFullscreen(false));
         } else if app.fullscreen.is_some() {
             app.actions.push(Action::SetLyricsFullscreen(false));
         }
@@ -218,7 +220,7 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
         (keys("Q"), gettext(locale, "Show the queue")),
         (keys("L"), gettext(locale, "Show the lyrics")),
         (keys("F"), gettext(locale, "Full screen lyrics")),
-        (keys("Esc"), gettext(locale, "Lyrics: leave full screen")),
+        (keys("Esc"), gettext(locale, "Leave full screen")),
         (
             keys("Shift+↑  /  Shift+↓"),
             gettext(locale, "Song list: extend or shrink the selection"),
@@ -668,6 +670,22 @@ mod tests {
             press(&mut app, Key::F, Modifiers::NONE),
             format!("{:?}", [Action::SetLyricsFullscreen(false)]),
             "F leaves lyrics full screen"
+        );
+        assert_eq!(
+            press(&mut app, Key::Escape, Modifiers::NONE),
+            format!("{:?}", [Action::SetLyricsFullscreen(false)]),
+            "Esc leaves lyrics full screen"
+        );
+        app.fullscreen_view = FullScreenView::Player;
+        assert_eq!(
+            press(&mut app, Key::F, Modifiers::NONE),
+            format!("{:?}", [Action::SetLyricsFullscreen(true)]),
+            "F turns the player's full screen to the lyrics"
+        );
+        assert_eq!(
+            press(&mut app, Key::Escape, Modifiers::NONE),
+            format!("{:?}", [Action::SetPlayerFullscreen(false)]),
+            "Esc leaves the player's full screen"
         );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
