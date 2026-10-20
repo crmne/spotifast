@@ -4956,6 +4956,20 @@ impl App {
         if !home.podcasts_answered && home.podcasts.is_empty() {
             home.podcasts = cached.podcasts;
         }
+        if matches!(self.page(), Page::TopSongs) {
+            let idx = self.home.top_period.index();
+            self.home.top_songs = self.home.top_songs_by_period[idx].clone();
+            self.home.top_songs_loading = self.home.top_songs_by_period_loading[idx];
+            self.home.top_songs_complete = self.home.top_songs_by_period_complete[idx];
+            self.home.top_songs_generation += 1;
+            self.table_rows.remove(&Page::TopSongs);
+            if self.network_reachable
+                && !self.home.top_songs_by_period_complete[idx]
+                && !self.home.top_songs_by_period_loading[idx]
+            {
+                self.load_top_songs(false);
+            }
+        }
     }
 
     /// Counts one answer of the Home refresh, and saves the shelves when
@@ -5214,7 +5228,11 @@ impl App {
         });
         self.backend.api(ApiRequest::TopArtists { generation });
         let period = self.home.top_period;
-        self.home.top_tracks_generations[period.index()] = generation;
+        let idx = period.index();
+        self.home.top_tracks_generations[idx] = generation;
+        if self.home.top_tracks_by_period[idx].get().is_none() {
+            self.home.top_tracks_by_period[idx] = Loadable::Loading;
+        }
         self.backend.api(ApiRequest::TopTracks {
             period,
             offset: 0,
@@ -15776,6 +15794,79 @@ mod tests {
             user_app.home.top_tracks.get(),
             Some(&vec![song("spotify:track:long-cached")]),
             "shelf should populate from the selected period's cached tracks"
+        );
+    }
+
+    #[test]
+    fn restore_home_while_top_songs_page_open_syncs_and_requests_full_list() {
+        let mut app = connected_listener();
+        // User opens TopSongs page (starts on default ShortTerm).
+        app.open(Page::TopSongs);
+        assert_eq!(app.home.top_period, TopPeriod::ShortTerm);
+        app.backend.take_top_tracks_requests();
+
+        // Account cache restore later adopts LongTerm which is not yet loaded.
+        let snapshot = HomeSnapshot {
+            top_period: TopPeriod::LongTerm,
+            top_tracks_long: Some(vec![song("spotify:track:long-preview")]),
+            ..Default::default()
+        };
+        app.restore_home(snapshot);
+        assert_eq!(app.home.top_period, TopPeriod::LongTerm);
+        assert!(app.home.top_songs_loading);
+
+        let requests = app.backend.take_top_tracks_requests();
+        assert!(
+            requests
+                .iter()
+                .any(|(p, offset, full, _)| *p == TopPeriod::LongTerm && *offset == 0 && *full),
+            "restored period must issue full-list request when TopSongs page is active"
+        );
+    }
+
+    #[test]
+    fn switching_periods_away_and_back_during_home_refresh_reuses_inflight_request() {
+        let mut app = connected_listener();
+        app.load_home(false);
+        let generation = app.home.generation;
+        let initial_awaiting = app.home.awaiting;
+        assert_eq!(app.home.top_period, TopPeriod::ShortTerm);
+        assert!(app.home.top_tracks_by_period[0].is_loading());
+        app.backend.take_top_tracks_requests();
+
+        // Switch to MediumTerm, then switch back to ShortTerm while Home refresh is pending.
+        app.set_top_period(TopPeriod::MediumTerm);
+        app.set_top_period(TopPeriod::ShortTerm);
+
+        // Switching back to ShortTerm must reuse the in-flight request rather than issuing a duplicate.
+        let requests = app.backend.take_top_tracks_requests();
+        let short_requests = requests
+            .iter()
+            .filter(|(p, _, full, _)| *p == TopPeriod::ShortTerm && !*full)
+            .count();
+        assert_eq!(short_requests, 0, "no duplicate request for ShortTerm");
+
+        // The original Home response for ShortTerm arrives.
+        app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::ShortTerm,
+            offset: 0,
+            full: false,
+            generation,
+            result: Ok(crate::api::models::Page {
+                items: vec![song("spotify:track:short-top-1")],
+                ..Default::default()
+            }),
+        });
+
+        // home.awaiting must be decremented and Recommendations requested.
+        assert_eq!(app.home.awaiting, initial_awaiting - 1);
+        assert!(
+            app.home.recommendations.is_loading(),
+            "recommendations must be requested upon home top tracks response"
+        );
+        assert_eq!(
+            app.home.top_tracks.get(),
+            Some(&vec![song("spotify:track:short-top-1")])
         );
     }
 
