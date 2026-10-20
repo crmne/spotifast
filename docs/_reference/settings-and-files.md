@@ -506,6 +506,9 @@ personalized read as Made for you, so `made_for_you` hides it too. Other Home
 sections keep their normal order and contents. This changes what is displayed; hidden shelves still
 refresh in the background.
 
+**Recommended for you** is seeded with your top songs. Until Spotify has top
+songs for your account, which takes some listening, Home leaves the shelf out.
+
 ## Custom themes
 
 Since 0.11.0, Spotifast puts eight palettes in the `themes` folder beside
