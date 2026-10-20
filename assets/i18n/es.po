@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-20 10:32+0200\n"
+"POT-Creation-Date: 2026-10-20 20:40+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Spanish\n"
@@ -34,7 +34,7 @@ msgid "Playlist"
 msgstr "Playlist"
 
 #: src/ui/sidebar.rs:312 src/ui/friends.rs:286 src/app.rs:3262 src/app.rs:21333
-#: src/ui/collection.rs:2329 src/ui/home.rs:93 src/ui/keys.rs:264
+#: src/ui/collection.rs:2329 src/ui/home.rs:93 src/ui/keys.rs:322
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "Canciones favoritas"
@@ -74,12 +74,12 @@ msgstr "Carpeta"
 msgid "Playlist • {owner}"
 msgstr "Playlist • {owner}"
 
-#: src/ui/sidebar.rs:968 src/i18n.rs:269 src/i18n.rs:272 src/ui/keys.rs:260
+#: src/ui/sidebar.rs:968 src/i18n.rs:269 src/i18n.rs:272 src/ui/keys.rs:318
 #: src/ui/topbar.rs:255
 msgid "Home"
 msgstr "Inicio"
 
-#: src/ui/sidebar.rs:979 src/app.rs:7819 src/ui/keys.rs:251
+#: src/ui/sidebar.rs:979 src/app.rs:7819 src/ui/keys.rs:301
 msgid "Search"
 msgstr "Buscar"
 
@@ -318,7 +318,7 @@ msgid "Recent"
 msgstr "Recientes"
 
 #: src/ui/queue.rs:92 src/ui/queue.rs:241 src/ui/lyrics.rs:78
-#: src/ui/friends.rs:65 src/ui/mod.rs:479
+#: src/ui/friends.rs:65 src/ui/mod.rs:482
 msgid "Close"
 msgstr "Cerrar"
 
@@ -373,7 +373,7 @@ msgstr "Las canciones reproducidas aparecen aquí."
 msgid "Load more"
 msgstr "Cargar más"
 
-#: src/ui/lyrics.rs:90 src/ui/keys.rs:220
+#: src/ui/lyrics.rs:90 src/ui/keys.rs:270
 msgid "Full screen lyrics"
 msgstr "Letra a pantalla completa"
 
@@ -469,7 +469,7 @@ msgstr "Reproducir a continuación"
 msgid "Add to queue"
 msgstr "Añadir a la cola"
 
-#: src/ui/widgets.rs:756 src/ui/widgets.rs:1072 src/ui/keys.rs:226
+#: src/ui/widgets.rs:756 src/ui/widgets.rs:1072 src/ui/keys.rs:276
 msgid "Remove from this playlist"
 msgstr "Quitar de esta playlist"
 
@@ -1219,7 +1219,7 @@ msgstr[1] "{count} canciones en {folder}"
 msgid "Looking for songs in {folder}…"
 msgstr "Buscando canciones en {folder}…"
 
-#: src/ui/settings.rs:366 src/ui/keys.rs:296 src/ui/topbar.rs:471
+#: src/ui/settings.rs:366 src/ui/keys.rs:354 src/ui/topbar.rs:471
 #: src/ui/topbar.rs:531
 msgid "Settings"
 msgstr "Ajustes"
@@ -2067,7 +2067,7 @@ msgstr "Buscar actualizaciones"
 msgid "Checking…"
 msgstr "Buscando…"
 
-#: src/ui/settings.rs:2216 src/ui/dialogs.rs:159 src/ui/keys.rs:306
+#: src/ui/settings.rs:2216 src/ui/dialogs.rs:159 src/ui/keys.rs:364
 #: src/ui/topbar.rs:479
 msgid "Keyboard shortcuts"
 msgstr "Atajos de teclado"
@@ -2684,149 +2684,157 @@ msgstr "Ver más canciones"
 msgid "Recommended for you"
 msgstr "Recomendado para ti"
 
-#: src/ui/keys.rs:196
+#: src/ui/keys.rs:246
 msgctxt "key"
 msgid "Space"
 msgstr "Espacio"
 
-#: src/ui/keys.rs:197
+#: src/ui/keys.rs:247
 msgid "Play or pause"
 msgstr "Reproducir o pausar"
 
-#: src/ui/keys.rs:201
+#: src/ui/keys.rs:251
 msgid "Previous or next"
 msgstr "Anterior o siguiente"
 
-#: src/ui/keys.rs:205
+#: src/ui/keys.rs:255
 msgid "Seek 10 seconds"
 msgstr "Avanzar o retroceder 10 segundos"
 
-#: src/ui/keys.rs:209
+#: src/ui/keys.rs:259
 msgid "Volume up or down"
 msgstr "Subir o bajar el volumen"
 
-#: src/ui/keys.rs:211
+#: src/ui/keys.rs:261
 msgid "Mute or unmute"
 msgstr "Silenciar o activar el sonido"
 
-#: src/ui/keys.rs:214
+#: src/ui/keys.rs:264
 msgid "Like or unlike the playing song"
 msgstr "Añadir o quitar la canción actual de Canciones favoritas"
 
-#: src/ui/keys.rs:216
+#: src/ui/keys.rs:266
 msgid "Toggle shuffle"
 msgstr "Activar o desactivar el modo aleatorio"
 
-#: src/ui/keys.rs:217
+#: src/ui/keys.rs:267
 msgid "Cycle repeat"
 msgstr "Cambiar el modo de repetición"
 
-#: src/ui/keys.rs:218
+#: src/ui/keys.rs:268
 msgid "Show the queue"
 msgstr "Mostrar la cola"
 
-#: src/ui/keys.rs:219
+#: src/ui/keys.rs:269
 msgid "Show the lyrics"
 msgstr "Mostrar la letra"
 
-#: src/ui/keys.rs:221
+#: src/ui/keys.rs:271
 msgid "Lyrics: leave full screen"
 msgstr "Letra: salir de pantalla completa"
 
-#: src/ui/keys.rs:224
+#: src/ui/keys.rs:274
 msgid "Song list: extend or shrink the selection"
 msgstr "Lista de canciones: ampliar o reducir la selección"
 
-#: src/ui/keys.rs:229
+#: src/ui/keys.rs:279
 msgid "Song list: select all"
 msgstr "Lista de canciones: seleccionar todo"
 
-#: src/ui/keys.rs:233
+#: src/ui/keys.rs:283
 msgid "Song list: copy the selected songs' links"
 msgstr "Lista de canciones: copiar los enlaces de las canciones seleccionadas"
 
-#: src/ui/keys.rs:237
+#: src/ui/keys.rs:287
 msgid "Playlist: cut the selected songs"
 msgstr "Playlist: cortar las canciones seleccionadas"
 
-#: src/ui/keys.rs:241
+#: src/ui/keys.rs:291
 msgid "Playlist: add the pasted song links"
 msgstr "Playlist: añadir los enlaces de canciones pegados"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:246
+#: src/ui/keys.rs:296
 msgid "Cmd+F  or  /"
 msgstr "Cmd+F  o  /"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:249
+#: src/ui/keys.rs:299
 msgid "Ctrl+F  or  /"
 msgstr "Ctrl+F  o  /"
 
-#: src/ui/keys.rs:255
+#: src/ui/keys.rs:305
 msgid "Show or hide the sidebar"
 msgstr "Mostrar u ocultar la barra lateral"
 
-#: src/ui/keys.rs:257
+#: src/ui/keys.rs:307
 msgid "Back or forward"
 msgstr "Atrás o adelante"
 
-#: src/ui/keys.rs:268
+#: src/ui/keys.rs:310
+msgid "Scroll the page"
+msgstr "Desplazar la página"
+
+#: src/ui/keys.rs:314
+msgid "Top or bottom of the page"
+msgstr "Inicio o final de la página"
+
+#: src/ui/keys.rs:326
 msgid "Go to the playing artist"
 msgstr "Ir al artista que suena"
 
-#: src/ui/keys.rs:272
+#: src/ui/keys.rs:330
 msgid "Go to the playing album"
 msgstr "Ir al álbum que suena"
 
-#: src/ui/keys.rs:274
+#: src/ui/keys.rs:332
 msgid "Winamp mini player"
 msgstr "Minirreproductor Winamp"
 
-#: src/ui/keys.rs:277
+#: src/ui/keys.rs:335
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop, bajo el minirreproductor"
 
 #. Translators: Keep the key name F. Translate "or" and "double-click".
-#: src/ui/keys.rs:281
+#: src/ui/keys.rs:339
 msgid "F  or  double-click"
 msgstr "F  o  doble clic"
 
-#: src/ui/keys.rs:282
+#: src/ui/keys.rs:340
 msgid "MilkDrop: fill the screen"
 msgstr "MilkDrop: pantalla completa"
 
-#: src/ui/keys.rs:284
+#: src/ui/keys.rs:342
 msgid "MilkDrop: next preset"
 msgstr "MilkDrop: siguiente preset"
 
-#: src/ui/keys.rs:287
+#: src/ui/keys.rs:345
 msgid "MilkDrop: previous preset"
 msgstr "MilkDrop: preset anterior"
 
-#: src/ui/keys.rs:289
+#: src/ui/keys.rs:347
 msgid "MilkDrop: keep this preset"
 msgstr "MilkDrop: mantener este preset"
 
-#: src/ui/keys.rs:292
+#: src/ui/keys.rs:350
 msgid "MilkDrop: leave full screen, or close"
 msgstr "MilkDrop: salir de pantalla completa o cerrar"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:301
+#: src/ui/keys.rs:359
 msgid "Cmd+/ or ?"
 msgstr "Cmd+/ o ?"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:304
+#: src/ui/keys.rs:362
 msgid "Ctrl+/ or ?"
 msgstr "Ctrl+/ o ?"
 
-#: src/ui/keys.rs:310
+#: src/ui/keys.rs:368
 msgid "Close the window"
 msgstr "Cerrar la ventana"
 
-#: src/ui/keys.rs:312 src/ui/winamp/mod.rs:755
+#: src/ui/keys.rs:370 src/ui/winamp/mod.rs:755
 msgid "Quit"
 msgstr "Salir"
 
@@ -2915,15 +2923,15 @@ msgstr "Ajustes del proxy"
 msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr "Spotifast {version} • sin relación con Spotify"
 
-#: src/ui/mod.rs:476
+#: src/ui/mod.rs:479
 msgid "Minimize"
 msgstr "Minimizar"
 
-#: src/ui/mod.rs:477
+#: src/ui/mod.rs:480
 msgid "Maximize"
 msgstr "Maximizar"
 
-#: src/ui/mod.rs:478
+#: src/ui/mod.rs:481
 msgid "Restore"
 msgstr "Restaurar"
 

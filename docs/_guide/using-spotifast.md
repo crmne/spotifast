@@ -296,6 +296,8 @@ Winamp skins do not yet have equivalent accessibility coverage.
 | `Ctrl+F` or `/` | Search |
 | `Ctrl+B` | Show or hide the sidebar |
 | `Alt+←` / `Alt+→` | Back or forward |
+| `Page Up` / `Page Down` | Scroll the main page one page |
+| `Home` / `End` | Top or bottom of the main page |
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
 | `Ctrl+A` | Select every song in a playlist, album or Liked Songs |

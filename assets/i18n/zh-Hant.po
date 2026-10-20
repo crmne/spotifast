@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-20 10:32+0200\n"
+"POT-Creation-Date: 2026-10-20 20:40+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -34,7 +34,7 @@ msgid "Playlist"
 msgstr "播放清單"
 
 #: src/ui/sidebar.rs:312 src/ui/friends.rs:286 src/app.rs:3262 src/app.rs:21333
-#: src/ui/collection.rs:2329 src/ui/home.rs:93 src/ui/keys.rs:264
+#: src/ui/collection.rs:2329 src/ui/home.rs:93 src/ui/keys.rs:322
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "已按讚的歌曲"
@@ -74,12 +74,12 @@ msgstr "資料夾"
 msgid "Playlist • {owner}"
 msgstr "播放清單 • {owner}"
 
-#: src/ui/sidebar.rs:968 src/i18n.rs:269 src/i18n.rs:272 src/ui/keys.rs:260
+#: src/ui/sidebar.rs:968 src/i18n.rs:269 src/i18n.rs:272 src/ui/keys.rs:318
 #: src/ui/topbar.rs:255
 msgid "Home"
 msgstr "首頁"
 
-#: src/ui/sidebar.rs:979 src/app.rs:7819 src/ui/keys.rs:251
+#: src/ui/sidebar.rs:979 src/app.rs:7819 src/ui/keys.rs:301
 msgid "Search"
 msgstr "搜尋"
 
@@ -314,7 +314,7 @@ msgid "Recent"
 msgstr "最近播放"
 
 #: src/ui/queue.rs:92 src/ui/queue.rs:241 src/ui/lyrics.rs:78
-#: src/ui/friends.rs:65 src/ui/mod.rs:479
+#: src/ui/friends.rs:65 src/ui/mod.rs:482
 msgid "Close"
 msgstr "關閉"
 
@@ -369,7 +369,7 @@ msgstr "播放過的歌曲會顯示在這裡。"
 msgid "Load more"
 msgstr "載入更多"
 
-#: src/ui/lyrics.rs:90 src/ui/keys.rs:220
+#: src/ui/lyrics.rs:90 src/ui/keys.rs:270
 msgid "Full screen lyrics"
 msgstr "全螢幕歌詞"
 
@@ -463,7 +463,7 @@ msgstr "接著播放"
 msgid "Add to queue"
 msgstr "加入待播清單"
 
-#: src/ui/widgets.rs:756 src/ui/widgets.rs:1072 src/ui/keys.rs:226
+#: src/ui/widgets.rs:756 src/ui/widgets.rs:1072 src/ui/keys.rs:276
 msgid "Remove from this playlist"
 msgstr "從這個播放清單中移除"
 
@@ -1185,7 +1185,7 @@ msgstr[0] "{folder} 中有 {count} 首歌曲"
 msgid "Looking for songs in {folder}…"
 msgstr "正在 {folder} 中尋找歌曲…"
 
-#: src/ui/settings.rs:366 src/ui/keys.rs:296 src/ui/topbar.rs:471
+#: src/ui/settings.rs:366 src/ui/keys.rs:354 src/ui/topbar.rs:471
 #: src/ui/topbar.rs:531
 msgid "Settings"
 msgstr "設定"
@@ -1988,7 +1988,7 @@ msgstr "檢查更新"
 msgid "Checking…"
 msgstr "正在檢查…"
 
-#: src/ui/settings.rs:2216 src/ui/dialogs.rs:159 src/ui/keys.rs:306
+#: src/ui/settings.rs:2216 src/ui/dialogs.rs:159 src/ui/keys.rs:364
 #: src/ui/topbar.rs:479
 msgid "Keyboard shortcuts"
 msgstr "鍵盤快捷鍵"
@@ -2582,149 +2582,157 @@ msgstr "顯示更多熱門歌曲"
 msgid "Recommended for you"
 msgstr "為你推薦"
 
-#: src/ui/keys.rs:196
+#: src/ui/keys.rs:246
 msgctxt "key"
 msgid "Space"
 msgstr "空白鍵"
 
-#: src/ui/keys.rs:197
+#: src/ui/keys.rs:247
 msgid "Play or pause"
 msgstr "播放或暫停"
 
-#: src/ui/keys.rs:201
+#: src/ui/keys.rs:251
 msgid "Previous or next"
 msgstr "上一首或下一首"
 
-#: src/ui/keys.rs:205
+#: src/ui/keys.rs:255
 msgid "Seek 10 seconds"
 msgstr "快轉或倒轉 10 秒"
 
-#: src/ui/keys.rs:209
+#: src/ui/keys.rs:259
 msgid "Volume up or down"
 msgstr "調高或調低音量"
 
-#: src/ui/keys.rs:211
+#: src/ui/keys.rs:261
 msgid "Mute or unmute"
 msgstr "靜音或取消靜音"
 
-#: src/ui/keys.rs:214
+#: src/ui/keys.rs:264
 msgid "Like or unlike the playing song"
 msgstr "對正在播放的歌曲按讚或取消按讚"
 
-#: src/ui/keys.rs:216
+#: src/ui/keys.rs:266
 msgid "Toggle shuffle"
 msgstr "切換隨機播放"
 
-#: src/ui/keys.rs:217
+#: src/ui/keys.rs:267
 msgid "Cycle repeat"
 msgstr "切換重複播放模式"
 
-#: src/ui/keys.rs:218
+#: src/ui/keys.rs:268
 msgid "Show the queue"
 msgstr "顯示待播清單"
 
-#: src/ui/keys.rs:219
+#: src/ui/keys.rs:269
 msgid "Show the lyrics"
 msgstr "顯示歌詞"
 
-#: src/ui/keys.rs:221
+#: src/ui/keys.rs:271
 msgid "Lyrics: leave full screen"
 msgstr "歌詞：退出全螢幕"
 
-#: src/ui/keys.rs:224
+#: src/ui/keys.rs:274
 msgid "Song list: extend or shrink the selection"
 msgstr "歌曲清單：擴大或縮小選取範圍"
 
-#: src/ui/keys.rs:229
+#: src/ui/keys.rs:279
 msgid "Song list: select all"
 msgstr "歌曲清單：全選"
 
-#: src/ui/keys.rs:233
+#: src/ui/keys.rs:283
 msgid "Song list: copy the selected songs' links"
 msgstr "歌曲清單：複製所選歌曲的連結"
 
-#: src/ui/keys.rs:237
+#: src/ui/keys.rs:287
 msgid "Playlist: cut the selected songs"
 msgstr "播放清單：剪下所選歌曲"
 
-#: src/ui/keys.rs:241
+#: src/ui/keys.rs:291
 msgid "Playlist: add the pasted song links"
 msgstr "播放清單：加入貼上的歌曲連結"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:246
+#: src/ui/keys.rs:296
 msgid "Cmd+F  or  /"
 msgstr "Cmd+F  或  /"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:249
+#: src/ui/keys.rs:299
 msgid "Ctrl+F  or  /"
 msgstr "Ctrl+F  或  /"
 
-#: src/ui/keys.rs:255
+#: src/ui/keys.rs:305
 msgid "Show or hide the sidebar"
 msgstr "顯示或隱藏側邊欄"
 
-#: src/ui/keys.rs:257
+#: src/ui/keys.rs:307
 msgid "Back or forward"
 msgstr "上一頁或下一頁"
 
-#: src/ui/keys.rs:268
+#: src/ui/keys.rs:310
+msgid "Scroll the page"
+msgstr "捲動頁面"
+
+#: src/ui/keys.rs:314
+msgid "Top or bottom of the page"
+msgstr "頁面頂部或底部"
+
+#: src/ui/keys.rs:326
 msgid "Go to the playing artist"
 msgstr "前往正在播放的藝人"
 
-#: src/ui/keys.rs:272
+#: src/ui/keys.rs:330
 msgid "Go to the playing album"
 msgstr "前往正在播放的專輯"
 
-#: src/ui/keys.rs:274
+#: src/ui/keys.rs:332
 msgid "Winamp mini player"
 msgstr "Winamp 迷你播放器"
 
-#: src/ui/keys.rs:277
+#: src/ui/keys.rs:335
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop，位於迷你播放器下方"
 
 #. Translators: Keep the key name F. Translate "or" and "double-click".
-#: src/ui/keys.rs:281
+#: src/ui/keys.rs:339
 msgid "F  or  double-click"
 msgstr "F  或  按兩下"
 
-#: src/ui/keys.rs:282
+#: src/ui/keys.rs:340
 msgid "MilkDrop: fill the screen"
 msgstr "MilkDrop：全螢幕"
 
-#: src/ui/keys.rs:284
+#: src/ui/keys.rs:342
 msgid "MilkDrop: next preset"
 msgstr "MilkDrop：下一個預設集"
 
-#: src/ui/keys.rs:287
+#: src/ui/keys.rs:345
 msgid "MilkDrop: previous preset"
 msgstr "MilkDrop：上一個預設集"
 
-#: src/ui/keys.rs:289
+#: src/ui/keys.rs:347
 msgid "MilkDrop: keep this preset"
 msgstr "MilkDrop：保留這個預設集"
 
-#: src/ui/keys.rs:292
+#: src/ui/keys.rs:350
 msgid "MilkDrop: leave full screen, or close"
 msgstr "MilkDrop：退出全螢幕或關閉"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:301
+#: src/ui/keys.rs:359
 msgid "Cmd+/ or ?"
 msgstr "Cmd+/ 或 ?"
 
 #. Translators: Keep the key names. Only the word "or" is translated.
-#: src/ui/keys.rs:304
+#: src/ui/keys.rs:362
 msgid "Ctrl+/ or ?"
 msgstr "Ctrl+/ 或 ?"
 
-#: src/ui/keys.rs:310
+#: src/ui/keys.rs:368
 msgid "Close the window"
 msgstr "關閉視窗"
 
-#: src/ui/keys.rs:312 src/ui/winamp/mod.rs:755
+#: src/ui/keys.rs:370 src/ui/winamp/mod.rs:755
 msgid "Quit"
 msgstr "結束"
 
@@ -2810,15 +2818,15 @@ msgstr "Proxy 設定"
 msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr "Spotifast {version} • 與 Spotify 無關"
 
-#: src/ui/mod.rs:476
+#: src/ui/mod.rs:479
 msgid "Minimize"
 msgstr "最小化"
 
-#: src/ui/mod.rs:477
+#: src/ui/mod.rs:480
 msgid "Maximize"
 msgstr "最大化"
 
-#: src/ui/mod.rs:478
+#: src/ui/mod.rs:481
 msgid "Restore"
 msgstr "還原"
 
