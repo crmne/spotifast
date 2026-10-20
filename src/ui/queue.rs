@@ -599,10 +599,10 @@ fn queue_is_empty(app: &App) -> bool {
 
 fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    // Snapshot to avoid borrow issues while drawing. The rows are both
+    // Share the rows to avoid borrow issues while drawing. The rows are both
     // histories as one: what was played here, which Spotify is never told
     // about, and what Spotify knows of every other device.
-    let items = app.recents_view.clone();
+    let items = Arc::clone(&app.recents_view);
     let loading = app.recents.loading;
     let error = app.recents.error.clone();
     let complete = app.recents.complete;

@@ -166,7 +166,8 @@ and earlier need one more manual download.
 Unpack, put `spotifast` on your PATH, and copy the desktop entry and icon
 from the bundled `packaging/` directory if you want it in your launcher and
 handling `spotify:` links.
-The binary needs ALSA, PulseAudio or PipeWire, and Wayland or X11.
+The binary needs the ALSA and PipeWire libraries, and Wayland or X11. It plays
+through PipeWire, a PulseAudio server, or ALSA, whichever is running.
 
 Or build from source: see the [build instructions](/getting-started/#build-from-source).
 

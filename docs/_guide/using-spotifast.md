@@ -628,14 +628,23 @@ snap the window, and drag a window edge or corner to resize it.
 played on this computer goes: the system's default output, or a sound card,
 headset, HDMI output, or virtual device such as VoiceMeeter. Click it to list
 this computer's outputs, then pick one; local playback restarts on it at the
-same place in the song. **System default** follows the system again. The
-choice is saved as `audio_device` in `settings.json`. While a saved output is
-unplugged, music plays through the system default, and the output stays
-listed so you can see and change the choice.
+same place in the song. **System default** follows the system again, and moves
+with it when the default output changes. The choice is saved as `audio_device`
+in `settings.json`, by the device's own id, so it survives renames and
+reordering. While a saved output is unplugged, music plays through the system
+default, and the output stays listed so you can see and change the choice.
 
-On Linux, Spotifast plays through PulseAudio (or PipeWire's PulseAudio
-service) by default, and the desktop's sound settings choose its output, so
-the picker shows **Audio output** only when `audio_backend` is `rodio`.
+On Linux, Spotifast plays through PipeWire when it is running, otherwise
+through a PulseAudio server, and otherwise straight to ALSA. The picker lists
+that sound system's outputs. Spotifast 0.13.3 and earlier saved an output by
+its name: a name an output still has is kept, and saved by its id the next
+time music plays there. One that no output has any more, such as ALSA's
+**PipeWire Sound Server**, plays through the system default until you choose
+again.
+
+Volume mixers show the stream as **Spotifast**, with its icon, playing
+**Spotify playback**, on PipeWire and PulseAudio. The mixer remembers its
+volume for Spotifast alone.
 
 ## Listening activity
 
@@ -680,6 +689,10 @@ Since 0.10.0, **Go to song radio** in a song's menu opens a page
 of songs Spotify picks to go with it, without starting playback. Playlist,
 album, and artist menus have **Go to playlist radio**, **Go to album radio**,
 and **Go to artist radio**.
+
+A song radio starts its list with the song it is based on, once, followed by
+the rest of Spotify's mix in its order. Shuffle still decides what plays
+first. If Spotify will not provide the seed song, the radio leaves it out.
 
 Spotify mixes a radio afresh each time it is asked, so the page keeps the
 songs it shows: **Play**, **Shuffle**, and a double-clicked row play those

@@ -252,8 +252,11 @@ pub struct Settings {
     pub normalisation: bool,
     pub autoplay: bool,
     pub gapless: bool,
-    /// librespot backend name; `None` picks the platform default.
-    pub audio_backend: Option<String>,
+    /// The output local playback uses: the id of a device
+    /// `fastframe_audio::output_devices` lists, or `None` for the system
+    /// default. Files from 0.13.3 and earlier may hold a device's name instead; see
+    /// `crate::sink::Saved`. The `audio_backend` they may also hold is
+    /// ignored: fastframe-audio is the only output.
     pub audio_device: Option<String>,
     /// Windows output buffer in milliseconds. Smaller values may click under
     /// load; larger values delay playback controls.
@@ -465,7 +468,6 @@ impl Default for Settings {
             normalisation: false,
             autoplay: true,
             gapless: true,
-            audio_backend: None,
             audio_device: None,
             local_files_folder: None,
             audio_buffer_ms: default_buffer_ms(),
@@ -674,24 +676,6 @@ impl Settings {
         if let Err(error) = fastframe_file::write(path, text) {
             log::warn!("unable to save settings to {}: {error}", path.display());
         }
-    }
-
-    /// Whether local playback plays through Spotifast's own output, whose
-    /// device `audio_device` names, rather than a librespot backend such as
-    /// PulseAudio, where the desktop's sound settings choose the output.
-    pub fn uses_own_output(&self) -> bool {
-        self.platform_backend()
-            .is_none_or(|backend| backend == crate::sink::NAME)
-    }
-
-    pub fn platform_backend(&self) -> Option<String> {
-        self.audio_backend.clone().or_else(|| {
-            if cfg!(target_os = "linux") {
-                Some("pulseaudio".to_string())
-            } else {
-                None
-            }
-        })
     }
 
     pub fn remember_search(&mut self, query: &str) {
@@ -1019,6 +1003,31 @@ mod tests {
         assert!(settings.system_theme_cache.is_none());
         assert_eq!(settings.theme, ThemeChoice::Dark);
         assert_eq!(settings.volume, 37);
+    }
+
+    /// Files from before fastframe-audio was the only output name a
+    /// librespot backend. It is read and ignored, the rest of the file still
+    /// loads, and the key is not written back, which older builds read as
+    /// their own default.
+    #[test]
+    fn an_old_audio_backend_is_read_and_ignored() {
+        for backend in ["pulseaudio", "rodio", "alsa", "no-such-backend"] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({
+                "audio_backend": backend,
+                "audio_device": "PipeWire Sound Server",
+                "volume": 37,
+            }))
+            .unwrap();
+            assert_eq!(settings.volume, 37);
+            assert_eq!(
+                settings.audio_device.as_deref(),
+                Some("PipeWire Sound Server")
+            );
+            let saved: serde_json::Value =
+                serde_json::from_str(&settings.encode().unwrap()).unwrap();
+            assert!(saved.get("audio_backend").is_none());
+            assert_eq!(saved["audio_device"], "PipeWire Sound Server");
+        }
     }
 
     #[test]

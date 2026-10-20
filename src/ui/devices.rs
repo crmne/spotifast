@@ -1,6 +1,7 @@
 //! The Spotify Connect device picker.
 
 use egui::{Align, CornerRadius, Layout, Rect, Sense, pos2, vec2};
+use fastframe_audio::DeviceInfo;
 
 use crate::api::models::Device;
 use crate::app::App;
@@ -229,9 +230,20 @@ fn receiver_row(app: &mut App, ui: &mut egui::Ui, receiver: &crate::zeroconf::Re
     }
 }
 
-/// Where this computer plays: the system's default output or a device by
-/// name, written to `audio_device` (#963). Choosing one restarts local
-/// playback on it. Listed only when asked, so the popup opens at once.
+/// The name to show for the saved output: the listed device whose id it
+/// is, or whose name an older build saved; otherwise what was saved.
+fn saved_output_name<'a>(saved: &'a str, devices: &'a [DeviceInfo]) -> &'a str {
+    devices
+        .iter()
+        .find(|device| device.id.as_str() == saved)
+        .or_else(|| devices.iter().find(|device| device.name == saved))
+        .map_or(saved, |device| device.name.as_str())
+}
+
+/// Where this computer plays: the system's default output or a device,
+/// shown by name and saved by its id in `audio_device` (#963). Choosing one
+/// restarts local playback on it. Listed only when asked, so the popup
+/// opens at once; a saved device lists them once, for its name.
 fn output_picker(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
@@ -241,6 +253,13 @@ fn output_picker(app: &mut App, ui: &mut egui::Ui) {
     let system_default = gettext(locale, "System default").into_owned();
     let label = gettext(locale, "Audio output");
     let current = app.settings.audio_device.clone();
+    if current.is_some() && matches!(app.output_devices, crate::model::Loadable::NotLoaded) {
+        app.actions.push(Action::ListOutputDevices);
+    }
+    let listed = app.output_devices.get().map_or(&[][..], Vec::as_slice);
+    let current_name = current
+        .as_deref()
+        .map(|saved| saved_output_name(saved, listed).to_string());
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.as_ref()));
@@ -268,7 +287,7 @@ fn output_picker(app: &mut App, ui: &mut egui::Ui) {
         rect.left() + 48.0,
         rect.right() - 36.0,
         rect.center().y + 9.0,
-        current.as_deref().unwrap_or(&system_default),
+        current_name.as_deref().unwrap_or(&system_default),
         theme::regular(12.0),
         palette.secondary,
     );
@@ -296,13 +315,28 @@ fn output_picker(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     match &app.output_devices {
-        crate::model::Loadable::Loaded(names) => {
-            let mut choices: Vec<Option<String>> = vec![None];
-            choices.extend(names.iter().cloned().map(Some));
+        crate::model::Loadable::Loaded(devices) => {
+            // The saved device's row: by its id, or by the name an older
+            // build saved.
+            let chosen = current.as_deref().and_then(|saved| {
+                devices
+                    .iter()
+                    .position(|device| device.id.as_str() == saved)
+                    .or_else(|| devices.iter().position(|device| device.name == saved))
+            });
+            let mut choices: Vec<(Option<String>, String, bool)> =
+                vec![(None, system_default.clone(), current.is_none())];
+            choices.extend(devices.iter().enumerate().map(|(index, device)| {
+                (
+                    Some(device.id.as_str().to_string()),
+                    device.name.clone(),
+                    chosen == Some(index),
+                )
+            }));
             // A saved device that is unplugged stays listed, so the choice
             // shows and can be changed.
-            if current.as_ref().is_some_and(|name| !names.contains(name)) {
-                choices.push(current.clone());
+            if let Some(saved) = current.as_ref().filter(|_| chosen.is_none()) {
+                choices.push((Some(saved.clone()), saved.clone(), true));
             }
             // As tall as its rows, up to six; the popup grows upwards from
             // the button, so the list asks for its height rather than taking
@@ -313,9 +347,7 @@ fn output_picker(app: &mut App, ui: &mut egui::Ui) {
                 .max_height(height)
                 .min_scrolled_height(height)
                 .show(ui, |ui| {
-                    for choice in choices {
-                        let selected = choice == current;
-                        let name = choice.clone().unwrap_or_else(|| system_default.clone());
+                    for (choice, name, selected) in choices {
                         if super::widgets::menu_item(
                             ui,
                             &palette,
@@ -561,7 +593,7 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                         }
                     },
                 );
-                if app.local_ready && app.settings.uses_own_output() {
+                if app.local_ready {
                     output_picker(app, ui);
                 }
             });

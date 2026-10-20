@@ -489,12 +489,16 @@ pub fn populate(app: &mut App) {
         .absorb(0, page((0..15).map(|index| episode(index, 0)).collect()));
     app.show_pages.insert("sh0".into(), show_page);
 
-    // Radio pages, for a song and for a playlist.
-    for (seed, first) in [("spotify:track:trk0", 1), ("spotify:playlist:pl1", 8)] {
+    // Radio pages, for a song and for a playlist. A song radio starts with
+    // the song it is based on; a playlist radio has no song seed.
+    for (seed, songs) in [
+        ("spotify:track:trk0", tracks[..30].to_vec()),
+        ("spotify:playlist:pl1", tracks[8..38].to_vec()),
+    ] {
         app.radio_pages.insert(
             seed.into(),
             RadioPage {
-                songs: Loadable::Loaded(tracks.iter().skip(first).take(30).cloned().collect()),
+                songs: Loadable::Loaded(songs),
                 ..RadioPage::default()
             },
         );
@@ -774,6 +778,30 @@ fn cast_devices(app: &mut App, connecting: bool) {
 }
 
 #[cfg(any(test, feature = "demo"))]
+/// Audio outputs as fastframe-audio lists them on Windows: WASAPI endpoint
+/// ids, shown by name.
+fn demo_outputs() -> Vec<fastframe_audio::DeviceInfo> {
+    [
+        ("Speakers (Realtek High Definition Audio)", "4d1c"),
+        ("VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)", "8a07"),
+        (
+            "VoiceMeeter Aux Input (VB-Audio VoiceMeeter AUX VAIO)",
+            "8a08",
+        ),
+        ("LG TV (NVIDIA High Definition Audio)", "c3e2"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (name, guid))| fastframe_audio::DeviceInfo {
+        id: fastframe_audio::DeviceId::new(format!(
+            "{{0.0.0.00000000}}.{{{guid}5f3e-9b1a-4c2d-8e7f-00000000000{index}}}"
+        )),
+        name: name.into(),
+        is_default: index == 0,
+    })
+    .collect()
+}
+
 fn sonos_devices(app: &mut App, active: bool) {
     app.show_devices = true;
     app.receivers = vec![crate::zeroconf::Receiver {
@@ -1147,7 +1175,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.show_queue_panel = true;
                 app.queue_tab = QueueTab::Recents;
                 app.recents.items.clear();
-                app.recents_view.clear();
+                app.recents_view = std::sync::Arc::from([]);
                 app.recents.complete = true;
                 app.recents.loaded_once = true;
                 app.recents.loading = surface == "recents-loading";
@@ -1196,21 +1224,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.home.made_for_you = Loadable::Loading;
                 app.home.top_mixes = Loadable::NotLoaded;
             }
-            // The device picker's audio outputs, as Spotifast's own output
-            // lists them: Linux's default PulseAudio backend has none.
+            // The device picker's audio outputs, as fastframe-audio lists
+            // them on Windows.
             "audio-outputs" => {
                 app.show_devices = true;
-                app.settings.audio_backend = Some(crate::sink::NAME.into());
-                app.output_devices = Loadable::Loaded(
-                    [
-                        "Speakers (Realtek High Definition Audio)",
-                        "VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)",
-                        "VoiceMeeter Aux Input (VB-Audio VoiceMeeter AUX VAIO)",
-                        "LG TV (NVIDIA High Definition Audio)",
-                    ]
-                    .map(String::from)
-                    .to_vec(),
-                );
+                app.output_devices = Loadable::Loaded(demo_outputs());
             }
             "sonos-idle" => sonos_devices(app, false),
             "sonos-active" => sonos_devices(app, true),
@@ -2438,7 +2456,7 @@ mod tests {
             }
             app.queue_tab = QueueTab::Recents;
             app.recents.items.clear();
-            app.recents_view.clear();
+            app.recents_view = std::sync::Arc::from([]);
             app.recents.loaded_once = true;
             app.recents.complete = true;
             for (loading, error, sources) in [
@@ -3576,16 +3594,10 @@ mod tests {
             let text = settings_text(&ctx, &mut app, query);
             assert!(text.iter().any(|text| text == row), "{query}: {text:?}");
         }
-        for query in ["Rodio", "ALSA"] {
+        // fastframe-audio is the only output: Settings has no backend row.
+        for query in ["Rodio", "ALSA", "PulseAudio"] {
             let text = settings_text(&ctx, &mut app, query);
-            assert_eq!(
-                text.iter().any(|text| text == "Audio output"),
-                cfg!(target_os = "linux")
-            );
-            assert_eq!(
-                text.iter().any(|text| text == "Playback on this computer"),
-                cfg!(target_os = "linux")
-            );
+            assert!(!text.iter().any(|text| text == "Audio output"), "{query}");
         }
         app.local_playback =
             crate::backend::LocalPlayback::Failed("Test connection failure".into());
@@ -4848,6 +4860,67 @@ mod tests {
         events: Vec<egui::Event>,
     ) -> Vec<(String, egui::Rect)> {
         view_frame(ctx, app, events, crate::ui::search::show)
+    }
+
+    /// Beside an artist line shorter than the title, the player bar's empty
+    /// space is the visualizer's control (#979), and the words keep their
+    /// links.
+    #[test]
+    fn a_click_beside_the_playing_artist_changes_the_visualizer() {
+        use crate::player::{LocalState, LocalTrack, Playback};
+
+        let (ctx, mut app) = accessible_app("player-bar-beside-artist");
+        app.settings.player_bar_vis_click = true;
+        app.local = LocalState {
+            playback: Playback::Playing,
+            track: Some(LocalTrack {
+                uri: "spotify:track:long".into(),
+                title: "A song with a rather long title".into(),
+                artists: vec![ArtistRef {
+                    id: Some("short".into()),
+                    name: "Abba".into(),
+                    uri: Some("spotify:artist:short".into()),
+                }],
+                duration_ms: 200_000,
+                ..LocalTrack::default()
+            }),
+            ..LocalState::default()
+        };
+        let view = crate::ui::player_bar::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let text = view_frame(&ctx, &mut app, vec![], view);
+        let rect = |label: &str| text.iter().find(|(text, _)| text == label).unwrap().1;
+        let title = rect("A song with a rather long title");
+        let artist = rect("Abba");
+        assert!(title.right() > artist.right() + 40.0);
+
+        app.actions.clear();
+        let beside = egui::pos2((artist.right() + title.right()) / 2.0, artist.center().y);
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(beside, egui::PointerButton::Primary),
+            view,
+        );
+        assert!(
+            matches!(app.actions.as_slice(), [Action::CyclePlayerBarVis]),
+            "{:?}",
+            app.actions
+        );
+
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(artist.center(), egui::PointerButton::Primary),
+            view,
+        );
+        assert!(
+            matches!(app.actions.as_slice(), [Action::Open(Page::Artist(id))] if id == "short"),
+            "{:?}",
+            app.actions
+        );
+        app.backend.shutdown();
     }
 
     #[test]
@@ -10720,21 +10793,16 @@ mod tests {
         }
         app.backend.shutdown();
     }
-    /// The device popup lists this computer's audio outputs on request and
-    /// writes the chosen one to `audio_device`; System default clears it.
-    /// Linux's PulseAudio backend chooses its output in the desktop's sound
-    /// settings, so there is no list then (#963).
+    /// The device popup lists this computer's audio outputs on request,
+    /// by name, and writes the chosen one's id to `audio_device`; System
+    /// default clears it (#963).
     #[test]
     fn the_device_popup_chooses_this_computers_audio_output() {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("audio-outputs");
         app.show_devices = true;
-        app.settings.audio_backend = Some(crate::sink::NAME.into());
         app.settings.audio_device = None;
-        app.output_devices = Loadable::Loaded(vec![
-            "Speakers (Realtek High Definition Audio)".into(),
-            "VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)".into(),
-        ]);
+        app.output_devices = Loadable::Loaded(demo_outputs()[..2].to_vec());
         let click = |ctx: &egui::Context, app: &mut App, label: &str| {
             let tree = accessible_frame(ctx, app, vec![]);
             let node = accessible_node(&tree, label, Role::Button);
@@ -10764,14 +10832,67 @@ mod tests {
         );
         click(&ctx, &mut app, voicemeeter);
         accessible_frame(&ctx, &mut app, vec![]);
-        assert_eq!(app.settings.audio_device.as_deref(), Some(voicemeeter));
+        let voicemeeter_id = demo_outputs()[1].id.as_str().to_string();
+        assert_eq!(app.settings.audio_device, Some(voicemeeter_id.clone()));
+        assert!(listed(&ctx, &mut app, voicemeeter), "shown by its name");
+        assert!(!listed(&ctx, &mut app, &voicemeeter_id));
         click(&ctx, &mut app, "System default");
         accessible_frame(&ctx, &mut app, vec![]);
         assert_eq!(app.settings.audio_device, None);
+        app.backend.shutdown();
+    }
 
-        app.settings.audio_backend = Some("pulseaudio".into());
-        assert!(!app.settings.uses_own_output());
-        assert!(!listed(&ctx, &mut app, "Audio output"));
+    /// A name an older build saved shows as that device, chosen, and gives
+    /// way to its id once playback opened on it; a name no output has, such
+    /// as an ALSA one from before PipeWire's host, stays listed as saved.
+    #[test]
+    fn an_old_saved_output_name_shows_and_becomes_its_id() {
+        let (ctx, mut app) = accessible_app("audio-outputs");
+        app.show_devices = true;
+        app.output_devices = Loadable::Loaded(demo_outputs());
+        let speakers = demo_outputs()[0].clone();
+        app.settings.audio_device = Some(speakers.name.clone());
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let node = accessible_node(&tree, "Audio output", egui::accesskit::Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(
+                node,
+                egui::accesskit::Action::Click,
+                None,
+            )],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let rows = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.label() == Some(speakers.name.as_str()))
+            .count();
+        assert_eq!(
+            rows, 1,
+            "the saved name is the listed device, not a row of its own"
+        );
+
+        // Another choice made meanwhile is kept.
+        app.settings.audio_device = Some("other".into());
+        app.on_audio_device_found(&speakers.name, speakers.id.as_str().into());
+        assert_eq!(app.settings.audio_device.as_deref(), Some("other"));
+        app.settings.audio_device = Some(speakers.name.clone());
+        app.on_audio_device_found(&speakers.name, speakers.id.as_str().into());
+        assert_eq!(
+            app.settings.audio_device.as_deref(),
+            Some(speakers.id.as_str())
+        );
+
+        app.settings.audio_device = Some("PipeWire Sound Server".into());
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("PipeWire Sound Server"))
+        );
         app.backend.shutdown();
     }
 

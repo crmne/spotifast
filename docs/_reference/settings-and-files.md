@@ -338,8 +338,7 @@ main fields are:
 | `normalisation` | `false` | Volume normalisation |
 | `autoplay` | `true` | Keep playing similar music at the end |
 | `gapless` | `true` | Gapless playback |
-| `audio_backend` | platform | `pulseaudio` or `rodio` on Linux. `rodio` is Spotifast's own output, through ALSA; librespot's separate rodio backend is no longer built in, and a backend this build lacks plays through Spotifast's own output |
-| `audio_device` | `null` | The output local playback uses, by the name **Audio output** in the device picker lists; `null` is the system default. A device that is not there plays through the default. With the `pulseaudio` backend it names a PulseAudio sink instead, and the picker does not list outputs |
+| `audio_device` | `null` | The output local playback uses, by the id of a device **Audio output** in the device picker lists: PipeWire's or PulseAudio's node name or an ALSA PCM on Linux, the WASAPI endpoint id on Windows, the CoreAudio UID on macOS. `null` is the system default. A device that is not there plays through the default. A name saved by 0.13.3 or earlier opens the output that still has it and is replaced by its id once music plays there; any other name plays through the default and is kept until another choice. The `audio_backend` older versions saved is ignored and no longer written |
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
 | `local_files_folder` | `null` | Folder, with its subfolders, that a playlist's local files play from |
 | `theme` | `system` | Follow the system appearance by default; explicit `dark` and `light` choices remain available |
@@ -509,6 +508,9 @@ preferences keep both shelves visible. **Your top mixes** comes from the same
 personalized read as Made for you, so `made_for_you` hides it too. Other Home
 sections keep their normal order and contents. This changes what is displayed; hidden shelves still
 refresh in the background.
+
+**Recommended for you** is seeded with your top songs. Until Spotify has top
+songs for your account, which takes some listening, Home leaves the shelf out.
 
 ## Custom themes
 

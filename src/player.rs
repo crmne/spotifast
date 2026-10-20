@@ -31,15 +31,15 @@ use librespot_metadata::{
     audio::{AudioItem, UniqueFields},
 };
 use librespot_playback::{
-    audio_backend::{self, Sink},
-    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
+    audio_backend::Sink,
+    config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
     mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
 use sha1::{Digest, Sha1};
 
 use crate::api::models::ArtistRef;
-use crate::sink::{AudioControl, ErrorHook, RodioSink};
+use crate::sink::{AudioControl, DeviceHook, ErrorHook, RodioSink};
 use crate::vis::{AudioTap, Tapped};
 
 #[derive(Clone, Debug)]
@@ -49,7 +49,7 @@ pub struct EngineConfig {
     pub normalisation: bool,
     pub autoplay: bool,
     pub gapless: bool,
-    pub backend: Option<String>,
+    /// The saved output, an id or an older build's name (`crate::sink::Saved`).
     pub audio_device: Option<String>,
     pub initial_volume: u16,
     pub volume_dir: PathBuf,
@@ -305,6 +305,12 @@ pub enum PlayerCommand {
 pub enum EngineEvent {
     State(LocalState),
     SessionEnded,
+    /// The output opened on the device an older build saved by `name`;
+    /// the setting holds its `id` from now on.
+    AudioDevice {
+        name: String,
+        id: String,
+    },
 }
 
 pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -819,25 +825,11 @@ fn command_interrupts_audio(state: &LocalState, command: &PlayerCommand) -> bool
         )
 }
 
-/// The librespot backend a saved setting names, when this build has it.
-///
-/// Spotifast's own output has always been saved as "rodio". librespot's
-/// rodio backend is no longer built in, so that name, an empty setting and
-/// any backend this build lacks all play through Spotifast's own output.
-fn librespot_backend(name: Option<&str>) -> Option<audio_backend::SinkBuilder> {
-    let name = name.filter(|name| *name != crate::sink::NAME)?;
-    let builder = audio_backend::find(Some(name.to_string()));
-    if builder.is_none() {
-        log::warn!("audio backend {name:?} is unavailable; using the default");
-    }
-    builder
-}
-
 /// Builds the audio sink and chooses where volume is applied.
 ///
 /// The default sink opens the device on playback and reports errors instead
 /// of panicking. It applies volume at output so changes affect queued audio.
-/// Other librespot backends remain available through Settings.
+/// It is the only sink: librespot's own backends are not built in.
 type SinkAndVolume = (
     Box<dyn FnOnce() -> Box<dyn Sink> + Send>,
     Box<dyn VolumeGetter + Send>,
@@ -855,6 +847,7 @@ fn sink_builder(
     let buffer_ms = config.buffer_ms;
     let tap = Arc::clone(&config.tap);
     let eq = Arc::clone(&config.eq);
+    let notify_device = Arc::clone(&notify);
     let report: ErrorHook = Arc::new(move |message: String| {
         let snapshot = {
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
@@ -863,40 +856,22 @@ fn sink_builder(
         };
         notify(EngineEvent::State(snapshot));
     });
-    if let Some(builder) = librespot_backend(config.backend.as_deref()) {
-        // Apply volume after the tap so visualizers are independent of
-        // volume, including at zero.
-        let applied = mixer.get_soft_volume();
-        let normalisation = Arc::clone(&normalisation);
-        return (
-            Box::new(move || {
-                let sink = builder(device, AudioFormat::S16);
-                Box::new(Tapped::new(
-                    sink,
-                    audio,
-                    tap,
-                    applied,
-                    true,
-                    eq,
-                    normalisation,
-                )) as Box<dyn Sink>
-            }),
-            Box::new(NoOpVolume),
-        );
-    }
+    let saved: DeviceHook = Arc::new(move |name, id| {
+        notify_device(EngineEvent::AudioDevice {
+            name,
+            id: id.as_str().to_string(),
+        });
+    });
     let volume = mixer.get_soft_volume();
     // The output applies volume to queued audio. The wrapper reads the same
     // value to calculate the pre-volume limiter ceiling.
     let ceiling = mixer.get_soft_volume();
     (
         Box::new(move || {
-            let sink = Box::new(RodioSink::new(
-                device,
-                report,
-                volume,
-                buffer_ms,
-                Arc::clone(&audio),
-            ));
+            let sink = Box::new(
+                RodioSink::new(device, report, volume, buffer_ms, Arc::clone(&audio))
+                    .on_device(saved),
+            );
             Box::new(Tapped::new(
                 sink,
                 audio,
@@ -1473,23 +1448,6 @@ mod tests {
     use super::*;
     use librespot_core::SpotifyUri;
 
-    /// Settings saved before librespot's rodio backend left the build name
-    /// "rodio", which has always meant Spotifast's own output; that and any
-    /// backend this build lacks still play, through that output.
-    #[test]
-    fn an_old_rodio_setting_plays_through_spotifasts_own_output() {
-        assert!(librespot_backend(Some("rodio")).is_none());
-        assert!(librespot_backend(None).is_none());
-        assert!(librespot_backend(Some("no-such-backend")).is_none());
-        assert!(
-            audio_backend::find(Some("rodio".into())).is_none(),
-            "librespot's rodio backend is not built in"
-        );
-        if cfg!(target_os = "linux") {
-            assert!(librespot_backend(Some("pulseaudio")).is_some());
-        }
-    }
-
     /// #268: a dropped session leaves the song playing or paused where it
     /// is, for the next session to pick up; a shutdown stops it.
     #[test]
@@ -1887,7 +1845,6 @@ mod tests {
             normalisation: false,
             autoplay: true,
             gapless: true,
-            backend: None,
             audio_device: None,
             initial_volume: 1,
             volume_dir: PathBuf::new(),

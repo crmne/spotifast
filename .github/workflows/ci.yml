@@ -67,7 +67,7 @@ jobs:
       - name: GUI build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libpulse-dev libxkbcommon-dev \
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev ruby
       # After the toolchain, so the cache key follows the pinned rustc. The
       # key carries no job name, so each job sets its own generation. Only
@@ -116,7 +116,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libpulse-dev libxkbcommon-dev \
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
       # libprojectM reads OpenGL through GLEW on Windows; projectm-sys builds
       # against vcpkg's static-CRT triplet, matching .cargo/config.toml.

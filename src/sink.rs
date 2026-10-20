@@ -8,14 +8,18 @@
 //!
 //! fastframe-audio owns the device stream: it pauses with playback, so a
 //! paused player costs no audio work (#636), follows the system's default
-//! output and reopens after a failure. rodio's mixer and queue fill it.
+//! output and reopens after a failure. rodio's mixer and queue fill it. It
+//! is the only output on every platform; on Linux it plays through cpal's
+//! default host, PipeWire, then PulseAudio, then ALSA.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use fastframe_audio::{Buffer, BufferSize, Maintained, OutputOptions, Reason, Render};
+use fastframe_audio::{
+    Buffer, BufferSize, DeviceId, DeviceInfo, Maintained, OutputOptions, Reason, Render,
+};
 use librespot_playback::audio_backend::{Sink, SinkError, SinkResult};
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
@@ -26,18 +30,20 @@ use rodio::Source;
 
 use crate::resample::Resampler;
 
-/// The backend name Settings uses for this sink.
-pub const NAME: &str = "rodio";
-
 /// Told about output failures, with a message fit for the interface.
 pub type ErrorHook = Arc<dyn Fn(String) + Send + Sync>;
+
+/// Told, with the saved name, the id of the device an older Spotifast saved
+/// by its name, once the output has opened on it, so the setting can hold
+/// the id from then on.
+pub type DeviceHook = Arc<dyn Fn(String, DeviceId) + Send + Sync>;
 
 /// Reported when the system has no audio output at all. The interface
 /// recognises it and shows it in the user's language.
 pub const NO_DEVICE: &str =
     "No audio output device was found. Connect or enable one, then press play again.";
 
-/// Opens the output: the device by name, else the default.
+/// Opens the output: the saved device, else the default.
 type Opener = fn(Option<&str>, u32, &AudioControl) -> Result<Output, OpenError>;
 
 /// Maximum queued rodio chunks before `write` blocks, about 200 ms of audio.
@@ -442,10 +448,12 @@ impl Source for TransitionSource {
 }
 
 pub struct RodioSink {
-    /// The output device name from Settings; `None` means the default.
+    /// The output device from Settings, an id or an older build's name
+    /// (see [`Saved`]); `None` means the default.
     device: Option<String>,
     output: Option<Output>,
     on_error: ErrorHook,
+    on_device: DeviceHook,
     /// Player volume, applied at output so changes affect queued audio.
     volume: Box<dyn VolumeGetter + Send>,
     applied_volume: f32,
@@ -478,6 +486,9 @@ struct Output {
     last_write: Option<Instant>,
     /// The gaps the device played, as last logged.
     underruns: Underruns,
+    /// The name this output was opened by and the id of the device it found
+    /// there, until they are handed to the setting.
+    saved_as: Option<(String, DeviceId)>,
 }
 
 /// Which of the device's underruns have been logged. "audio queue ran dry"
@@ -680,12 +691,19 @@ impl RodioSink {
             device,
             output: None,
             on_error,
+            on_device: Arc::new(|_, _| {}),
             volume,
             applied_volume: -1.0,
             buffer_ms,
             control,
             open: open_output,
         }
+    }
+
+    /// Tells `hook` the id of a device opened by an old saved name.
+    pub fn on_device(mut self, hook: DeviceHook) -> Self {
+        self.on_device = hook;
+        self
     }
 
     fn apply_volume(&mut self) {
@@ -711,11 +729,14 @@ impl RodioSink {
                 }
             }
             None => {
-                self.output = Some((self.open)(
-                    self.device.as_deref(),
-                    self.buffer_ms,
-                    &self.control,
-                )?);
+                let mut output =
+                    (self.open)(self.device.as_deref(), self.buffer_ms, &self.control)?;
+                if let Some((name, id)) = output.saved_as.take() {
+                    log::info!("the saved audio output {name:?} is now saved by its id");
+                    self.device = Some(id.as_str().to_string());
+                    (self.on_device)(name, id);
+                }
+                self.output = Some(output);
                 self.applied_volume = -1.0;
             }
         }
@@ -879,6 +900,78 @@ impl Sink for RodioSink {
     }
 }
 
+/// What a saved `audio_device` opens, among the outputs listed now.
+///
+/// Spotifast saves the id `fastframe_audio::output_devices` gives (on Linux
+/// PipeWire's or PulseAudio's node name, the WASAPI endpoint id on Windows,
+/// the CoreAudio UID on macOS). Up to 0.13.3 it saved a name from
+/// `output_device_names` instead, which on Linux was usually one of ALSA's
+/// (`PipeWire Sound Server`, `Default ALSA Output (currently PipeWire Media
+/// Server)`, a card's name), or a PulseAudio sink with that backend.
+///
+/// An id a listed device has opens that device. Otherwise a name one still
+/// has opens it by that name, and its id is saved once it has opened there.
+/// Anything else plays through the system default, as if nothing had been
+/// chosen: no error, and the setting stays as it is until another choice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Saved {
+    Default,
+    Id(DeviceId),
+    Named { name: String, id: DeviceId },
+}
+
+impl Saved {
+    pub(crate) fn among(saved: Option<&str>, devices: &[DeviceInfo]) -> Self {
+        let Some(saved) = saved.map(str::trim).filter(|saved| !saved.is_empty()) else {
+            return Self::Default;
+        };
+        if let Some(device) = devices.iter().find(|device| device.id.as_str() == saved) {
+            return Self::Id(device.id.clone());
+        }
+        match devices.iter().find(|device| device.name == saved) {
+            Some(device) => Self::Named {
+                name: device.name.clone(),
+                id: device.id.clone(),
+            },
+            None => Self::Default,
+        }
+    }
+
+    /// Reads the saved device against the outputs there are now. Listing
+    /// asks the sound system, so this runs where opening the device does,
+    /// never on the UI thread; nothing is listed for the default.
+    fn now(saved: Option<&str>) -> Self {
+        let Some(saved) = saved.map(str::trim).filter(|saved| !saved.is_empty()) else {
+            return Self::Default;
+        };
+        match fastframe_audio::output_devices() {
+            Ok(devices) => {
+                let resolved = Self::among(Some(saved), &devices);
+                if resolved == Self::Default {
+                    log::info!(
+                        "the saved audio output {saved:?} is not here; playing through the default"
+                    );
+                }
+                resolved
+            }
+            // The output falls back to the default itself, with a warning,
+            // when the id matches nothing.
+            Err(error) => {
+                log::warn!("couldn't list audio outputs: {error}");
+                Self::Id(DeviceId::new(saved))
+            }
+        }
+    }
+
+    fn device(&self) -> fastframe_audio::Device {
+        match self {
+            Self::Default => fastframe_audio::Device::Default,
+            Self::Id(id) => fastframe_audio::Device::Id(id.clone()),
+            Self::Named { name, .. } => fastframe_audio::Device::Named(name.clone()),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 enum OpenError {
     #[error("{NO_DEVICE}")]
@@ -896,16 +989,26 @@ impl From<fastframe_audio::OpenError> for OpenError {
     }
 }
 
+/// The stream's name in the system's volume mixer, under the app's.
+const MEDIA_NAME: &str = "Spotify playback";
+
+/// Names Spotifast, with the desktop entry's icon, in the system's volume
+/// mixer (PipeWire and PulseAudio) for every output opened afterwards. Call
+/// once at startup, before any output is listed or opened.
+pub fn name_in_mixers() {
+    let _ = fastframe_audio::set_app_info(fastframe_audio::AppInfo {
+        name: "Spotifast".to_owned(),
+        icon: Some("spotifast".to_owned()),
+    });
+}
+
 /// What the output asks of the device: Spotify's stereo 44.1 kHz first, so
-/// nothing is converted, then whatever the device takes. A named device
-/// that has gone falls back to the default. The fixed buffer addresses
-/// Windows shared-mode underruns (#88); CoreAudio, ALSA, PulseAudio and
-/// PipeWire keep their proven driver-selected periods.
-fn output_options(preferred: Option<&str>, buffer_ms: u32) -> OutputOptions {
-    let device = match preferred.map(str::trim).filter(|name| !name.is_empty()) {
-        Some(name) => fastframe_audio::Device::Named(name.to_string()),
-        None => fastframe_audio::Device::Default,
-    };
+/// nothing is converted, then whatever the device takes. A device that has
+/// gone falls back to the default. The fixed buffer addresses Windows
+/// shared-mode underruns (#88); CoreAudio, PipeWire and ALSA keep their
+/// driver-selected periods, and PulseAudio gets fastframe-audio's 20 ms
+/// instead of its own two seconds.
+fn output_options(device: fastframe_audio::Device, buffer_ms: u32) -> OutputOptions {
     let buffer_ms = buffer_ms.clamp(*BUFFER_MS_RANGE.start(), *BUFFER_MS_RANGE.end());
     OutputOptions {
         device,
@@ -915,6 +1018,10 @@ fn output_options(preferred: Option<&str>, buffer_ms: u32) -> OutputOptions {
             buffer_ms,
         )))),
         follow_default: true,
+        // Fixed while the stream is open, so not the song title. No role:
+        // the sound server would share a role's remembered volume with
+        // every other app playing music.
+        media_name: Some(MEDIA_NAME.to_owned()),
         ..OutputOptions::default()
     }
 }
@@ -933,8 +1040,19 @@ fn open_output(
         format: (0, 0),
         made: Arc::clone(&made),
     };
-    let device = fastframe_audio::Output::open(output_options(preferred, buffer_ms), render)?;
-    log::info!("audio output: {}", device.device_name());
+    let saved = Saved::now(preferred);
+    let device = fastframe_audio::Output::open(output_options(saved.device(), buffer_ms), render)?;
+    log::info!(
+        "audio output: {} through {}",
+        device.device_name(),
+        fastframe_audio::host()
+    );
+    // A device found by an old saved name, and not the default standing in
+    // for it, has its id saved from now on.
+    let saved_as = match saved {
+        Saved::Named { name, id } if *device.device_id() == id => Some((name, id)),
+        _ => None,
+    };
     // The open configured the renderer, which made the mixer.
     let (mixer, sample_rate) = made
         .lock()
@@ -955,6 +1073,7 @@ fn open_output(
         fed: false,
         last_write: None,
         underruns: Underruns::default(),
+        saved_as,
     };
     output.attach((mixer, sample_rate), control);
     Ok(output)
@@ -1071,31 +1190,115 @@ mod tests {
     /// range is the range whoever wrote the file thought of.
     #[test]
     fn the_buffer_follows_the_setting_within_its_range() {
-        let buffer = |ms| output_options(None, ms).buffer;
+        let buffer = |ms| output_options(fastframe_audio::Device::Default, ms).buffer;
         let fixed = |ms| Buffer::FixedOnWindows(BufferSize::Duration(Duration::from_millis(ms)));
         assert_eq!(buffer(100), fixed(100));
         assert_eq!(buffer(0), fixed(u64::from(*BUFFER_MS_RANGE.start())));
         assert_eq!(buffer(100_000), fixed(u64::from(*BUFFER_MS_RANGE.end())));
     }
 
-    /// Spotify's own format is asked for first, so nothing is converted, and
-    /// a blank device name means the system's default.
+    /// Spotify's own format is asked for first, so nothing is converted.
     #[test]
     fn the_output_asks_for_spotifys_format_on_the_chosen_device() {
-        let options = output_options(Some("USB DAC"), DEFAULT_BUFFER_MS);
-        assert_eq!(
-            options.device,
-            fastframe_audio::Device::Named("USB DAC".into())
-        );
+        let id = fastframe_audio::Device::Id(DeviceId::new("usb-dac"));
+        let options = output_options(id.clone(), DEFAULT_BUFFER_MS);
+        assert_eq!(options.device, id);
         assert_eq!(options.sample_rate, Some(SAMPLE_RATE));
         assert_eq!(options.channels, NUM_CHANNELS as u16);
         assert!(options.follow_default);
-        for blank in [None, Some(""), Some("  ")] {
-            assert_eq!(
-                output_options(blank, DEFAULT_BUFFER_MS).device,
-                fastframe_audio::Device::Default
-            );
+    }
+
+    fn listed(id: &str, name: &str, is_default: bool) -> DeviceInfo {
+        DeviceInfo {
+            id: DeviceId::new(id),
+            name: name.into(),
+            is_default,
         }
+    }
+
+    /// The outputs PipeWire lists on a desktop with a USB DAC beside the
+    /// built-in card.
+    fn pipewire_outputs() -> Vec<DeviceInfo> {
+        vec![
+            listed(
+                "alsa_output.pci-0000_00_1f.3.analog-stereo",
+                "Built-in Audio Analog Stereo",
+                true,
+            ),
+            listed(
+                "alsa_output.usb-Topping_DX3_Pro-00.analog-stereo",
+                "DX3 Pro Analog Stereo",
+                false,
+            ),
+        ]
+    }
+
+    /// A saved id opens that device by its id.
+    #[test]
+    fn a_saved_id_opens_its_device() {
+        let id = "alsa_output.usb-Topping_DX3_Pro-00.analog-stereo";
+        let saved = Saved::among(Some(id), &pipewire_outputs());
+        assert_eq!(saved, Saved::Id(DeviceId::new(id)));
+        assert_eq!(
+            saved.device(),
+            fastframe_audio::Device::Id(DeviceId::new(id))
+        );
+        // Windows and macOS save theirs the same way.
+        let wasapi = "{0.0.0.00000000}.{6a1b0c4e-2f8d-4b8e-9c55-1d2e3f4a5b6c}";
+        let outputs = [listed(wasapi, "Speakers (Realtek(R) Audio)", true)];
+        assert_eq!(
+            Saved::among(Some(wasapi), &outputs),
+            Saved::Id(DeviceId::new(wasapi))
+        );
+    }
+
+    /// A name an older build saved opens the device that still has it, and
+    /// says which id to save.
+    #[test]
+    fn a_saved_name_a_device_still_has_opens_it_by_that_name() {
+        let saved = Saved::among(Some("DX3 Pro Analog Stereo"), &pipewire_outputs());
+        assert_eq!(
+            saved,
+            Saved::Named {
+                name: "DX3 Pro Analog Stereo".into(),
+                id: DeviceId::new("alsa_output.usb-Topping_DX3_Pro-00.analog-stereo"),
+            }
+        );
+        assert_eq!(
+            saved.device(),
+            fastframe_audio::Device::Named("DX3 Pro Analog Stereo".into())
+        );
+        // A CoreAudio name that became a UID.
+        let outputs = [listed("BuiltInSpeakerDevice", "MacBook Pro Speakers", true)];
+        assert!(matches!(
+            Saved::among(Some("MacBook Pro Speakers"), &outputs),
+            Saved::Named { .. }
+        ));
+    }
+
+    /// The names the ALSA host listed on Linux, which PipeWire's outputs do
+    /// not have, play through the default, as do blank and unplugged ones.
+    #[test]
+    fn an_old_alsa_name_or_a_gone_device_plays_the_default() {
+        for saved in [
+            "PipeWire Sound Server",
+            "Default ALSA Output (currently PipeWire Media Server)",
+            "PulseAudio Sound Server",
+            "HDA Intel PCH, ALC892 Analog",
+            "Discard all samples (playback) or generate zero samples (capture)",
+            "alsa_output.usb-unplugged.analog-stereo",
+            "",
+            "  ",
+        ] {
+            let resolved = Saved::among(Some(saved), &pipewire_outputs());
+            assert_eq!(resolved, Saved::Default, "{saved:?}");
+            assert_eq!(resolved.device(), fastframe_audio::Device::Default);
+        }
+        assert_eq!(Saved::among(None, &pipewire_outputs()), Saved::Default);
+        assert_eq!(
+            Saved::among(Some("DX3 Pro Analog Stereo"), &[]),
+            Saved::Default
+        );
     }
 
     /// A stream reopened in the format the mixer already plays keeps it, so

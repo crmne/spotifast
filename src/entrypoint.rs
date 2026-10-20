@@ -298,34 +298,6 @@ fn desktop_entry() -> String {
     fastframe_now_playing::desktop_entry("spotifast")
 }
 
-#[cfg(target_os = "linux")]
-const PULSEAUDIO_PROPERTIES: [(&str, &str); 2] = [
-    ("PULSE_PROP_application.name", "Spotifast"),
-    ("PULSE_PROP_stream.description", "Spotify playback"),
-];
-
-#[cfg(target_os = "linux")]
-fn missing_pulseaudio_properties(
-    mut is_set: impl FnMut(&str) -> bool,
-) -> impl Iterator<Item = (&'static str, &'static str)> {
-    PULSEAUDIO_PROPERTIES
-        .into_iter()
-        .filter(move |(key, _)| !is_set(key))
-}
-
-/// Gives the librespot PulseAudio backend useful stream metadata.
-///
-/// That backend leaves both names empty unless its caller provides them. An
-/// unnamed stream cannot be identified reliably by mixers and audio processors.
-#[cfg(target_os = "linux")]
-fn configure_pulseaudio_properties() {
-    for (key, value) in missing_pulseaudio_properties(|key| std::env::var_os(key).is_some()) {
-        // SAFETY: run calls this at process startup, before it creates any
-        // threads. Keep explicit values supplied by the launcher or user.
-        unsafe { std::env::set_var(key, value) };
-    }
-}
-
 /// The `nowplaying` snapshot as one human-readable line.
 fn format_now_playing(snapshot: &str) -> String {
     let mut fields = snapshot.split('\t');
@@ -376,12 +348,12 @@ fn format_devices(snapshot: &str) -> String {
 }
 
 pub(crate) fn run() -> eframe::Result<()> {
-    #[cfg(target_os = "linux")]
-    configure_pulseaudio_properties();
     // First of all: `--apply-update <job>` makes this process the update
     // helper, which installs and exits; otherwise the receipt and error an
     // update relaunch carries are taken out of the arguments.
     let launch = fastframe_update::intercept(&spotifast::updates::CONFIG);
+    // Before any output is listed or opened.
+    spotifast::sink::name_in_mixers();
     // A MilkDrop child launch is a bare visualiser window, not the app: it has
     // its own event loop and OpenGL context, reads the sound from a shared
     // buffer, and never touches the app's state. Handle it before anything
@@ -1627,22 +1599,6 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn pulse_metadata_defaults_preserve_existing_properties() {
-        let defaults = missing_pulseaudio_properties(|_| false).collect::<Vec<_>>();
-        assert_eq!(defaults, PULSEAUDIO_PROPERTIES);
-
-        let defaults = missing_pulseaudio_properties(|key| key == "PULSE_PROP_application.name")
-            .collect::<Vec<_>>();
-        assert_eq!(
-            defaults,
-            [("PULSE_PROP_stream.description", "Spotify playback")]
-        );
-
-        assert_eq!(missing_pulseaudio_properties(|_| true).count(), 0);
-    }
 
     /// The login entry's `--start-hidden` starts in the tray, unless the
     /// launch has something to show.

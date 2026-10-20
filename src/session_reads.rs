@@ -855,27 +855,70 @@ fn library_row(item: &Item, meta: &MetaItem) -> Option<Playlist> {
     })
 }
 
-/// The songs of Spotify's radio `station`, in Spotify's order, with their
-/// details from one batched request. Spotify mixes a station afresh each
-/// time it is resolved, so the list returned here is the one to play.
+/// The songs of Spotify's radio `station`, with a song seed first and the
+/// rest in Spotify's order, their details from one batched request. Spotify
+/// mixes a station afresh each time it is resolved, so the list returned
+/// here is the one to play.
 pub async fn station(session: &Session, station: &str) -> anyhow::Result<Vec<Track>> {
     let context = session.spclient().get_context(station).await?;
-    let uris = station_songs(&context);
-    anyhow::ensure!(!uris.is_empty(), "Spotify has no songs for this radio");
-    let found = metadata(session, uris.iter())
+    let uris = station_uris(station, &context)?;
+    let tolerated: BTreeSet<String> = track_seed(station)
+        .map(|seed| seed.to_uri())
+        .into_iter()
+        .collect();
+    let found = metadata_tolerating(session, uris.iter(), &tolerated)
         .await
         .map_err(|failure| match failure {
             Failure::Definitive(error) => anyhow::anyhow!("{error}"),
             Failure::Retry(error) => error,
         })?;
-    Ok(uris
-        .iter()
+    Ok(resolved_station(&uris, &found))
+}
+
+/// The station's songs, with its song seed first, or an error when Spotify
+/// resolved no songs at all.
+fn station_uris(
+    station: &str,
+    context: &librespot_protocol::context::Context,
+) -> anyhow::Result<Vec<SpotifyUri>> {
+    let uris = station_songs(context);
+    anyhow::ensure!(!uris.is_empty(), "Spotify has no songs for this radio");
+    Ok(seed_first(station, uris))
+}
+
+/// A station seeded by a song starts with that song, exactly once, followed
+/// by its other songs in Spotify's order. Other kinds of station keep the
+/// order Spotify returned.
+pub(crate) fn seed_first(station: &str, uris: Vec<SpotifyUri>) -> Vec<SpotifyUri> {
+    let Some(seed) = track_seed(station) else {
+        return uris;
+    };
+    let seed_uri = seed.to_uri();
+    let mut ordered = Vec::with_capacity(uris.len() + 1);
+    ordered.push(seed);
+    ordered.extend(uris.into_iter().filter(|uri| uri.to_uri() != seed_uri));
+    ordered
+}
+
+/// The song a station is seeded by, when the seed is a song Spotify can name.
+fn track_seed(station: &str) -> Option<SpotifyUri> {
+    let seed = crate::util::station_seed(station)?;
+    match SpotifyUri::from_uri(&seed).ok()? {
+        seed @ SpotifyUri::Track { .. } => Some(seed),
+        _ => None,
+    }
+}
+
+/// The station's usable songs in resolved order. A song Spotify has no
+/// details for, such as a seed which is gone or withheld, is left out.
+fn resolved_station(uris: &[SpotifyUri], found: &HashMap<String, PlayableItem>) -> Vec<Track> {
+    uris.iter()
         .map(SpotifyUri::to_uri)
         .filter_map(|uri| match found.get(&uri) {
             Some(PlayableItem::Track(track)) => Some(track.clone()),
             _ => None,
         })
-        .collect())
+        .collect()
 }
 
 /// Each song of a resolved station once, named by URI or by raw id.
@@ -1500,12 +1543,23 @@ async fn metadata(
     session: &Session,
     uris: impl Iterator<Item = &SpotifyUri>,
 ) -> Result<HashMap<String, PlayableItem>, Failure> {
+    metadata_tolerating(session, uris, &BTreeSet::new()).await
+}
+
+/// As `metadata`, but a URI in `tolerated` may be left unanswered, refused,
+/// or carry unreadable details without failing the whole batch. A provider
+/// error over the batch still fails it.
+async fn metadata_tolerating(
+    session: &Session,
+    uris: impl Iterator<Item = &SpotifyUri>,
+    tolerated: &BTreeSet<String>,
+) -> Result<HashMap<String, PlayableItem>, Failure> {
     let (request, asked) = batch(uris);
     if asked.is_empty() {
         return Ok(HashMap::new());
     }
     let response = session.spclient().get_extended_metadata(request).await?;
-    answers(&asked, response)
+    answers_tolerating(&asked, tolerated, response)
 }
 
 /// Every song of `albums`, album by album in the order given and each in its
@@ -1621,15 +1675,17 @@ fn batch<'a>(
     (request, asked)
 }
 
-/// The details Spotify answered with for the URIs `asked`, by URI. Spotify marks each
-/// answer: a 404 is a song it no longer has, a 451 one it withholds for
-/// legal reasons, and the Web API shows both as a row without one. Any
-/// other refusal, a provider error over the whole batch, bytes that do not
-/// read as a song, or a URI left unanswered is a retry, since a page cached
-/// without those songs would stay wrong. Kinds the request never asked for
-/// are passed over.
-fn answers(
+/// The details Spotify answered with for the URIs `asked`, by URI. Spotify
+/// marks each answer: a 404 is a song it no longer has, a 451 one it
+/// withholds for legal reasons, and the Web API shows both as a row without
+/// one. Any other refusal, a provider error over the whole batch, bytes that
+/// do not read as a song, or a URI left unanswered is a retry, since a page
+/// cached without those songs would stay wrong. A URI in `tolerated` may be
+/// unanswered, refused, or unreadable without failing the page. Kinds the
+/// request never asked for are passed over.
+fn answers_tolerating(
     asked: &BTreeSet<String>,
+    tolerated: &BTreeSet<String>,
     response: BatchedExtensionResponse,
 ) -> Result<HashMap<String, PlayableItem>, Failure> {
     let retry = |reason: String| Failure::Retry(anyhow::anyhow!(reason));
@@ -1646,21 +1702,29 @@ fn answers(
             _ => continue,
         };
         for data in array.extension_data {
-            unanswered.remove(data.entity_uri.as_str());
+            let uri = data.entity_uri;
+            let optional = tolerated.contains(&uri);
+            unanswered.remove(uri.as_str());
             match data.header.status_code {
                 0 | 200 => {}
                 404 | 451 => continue,
-                code => return Err(retry(format!("{} answered {code}", data.entity_uri))),
+                _ if optional => continue,
+                code => return Err(retry(format!("{uri} answered {code}"))),
             }
-            let item = data
+            let Some(item) = data
                 .extension_data
                 .as_ref()
                 .and_then(|any| playable(kind, &any.value))
-                .ok_or_else(|| retry(format!("unreadable metadata for {}", data.entity_uri)))?;
-            playables.insert(data.entity_uri, item);
+            else {
+                if optional {
+                    continue;
+                }
+                return Err(retry(format!("unreadable metadata for {uri}")));
+            };
+            playables.insert(uri, item);
         }
     }
-    if let Some(uri) = unanswered.first() {
+    if let Some(uri) = unanswered.iter().find(|uri| !tolerated.contains(**uri)) {
         return Err(retry(format!("no metadata answer for {uri}")));
     }
     Ok(playables)
@@ -2598,6 +2662,13 @@ mod tests {
         response
     }
 
+    fn answers(
+        asked: &BTreeSet<String>,
+        response: BatchedExtensionResponse,
+    ) -> Result<HashMap<String, PlayableItem>, Failure> {
+        answers_tolerating(asked, &BTreeSet::new(), response)
+    }
+
     /// Spotify's answer is read by URI and kind, whether it marks the batch
     /// and each answer with 200 or leaves them unmarked; a kind this does
     /// not read is passed over.
@@ -2775,6 +2846,259 @@ mod tests {
                 "spotify:track:0000000000000000000000",
                 "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
             ]
+        );
+    }
+
+    const STATION_SEED_ID: &str = "3JA9Jsuxr4xgHXEawAdCp4";
+    const STATION_SEED: &str = "spotify:track:3JA9Jsuxr4xgHXEawAdCp4";
+    const STATION_OTHER: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
+    const STATION_THIRD: &str = "spotify:track:7GhIk7Il098yCjg4BQjzvb";
+
+    fn station_context(uris: &[&str]) -> librespot_protocol::context::Context {
+        use librespot_protocol::context::Context;
+        use librespot_protocol::context_page::ContextPage;
+        use librespot_protocol::context_track::ContextTrack;
+        Context {
+            pages: vec![ContextPage {
+                tracks: uris
+                    .iter()
+                    .map(|uri| ContextTrack {
+                        uri: Some((*uri).into()),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn normalized_station(station: &str, raw: &[&str]) -> Vec<String> {
+        station_uris(station, &station_context(raw))
+            .unwrap()
+            .iter()
+            .map(SpotifyUri::to_uri)
+            .collect()
+    }
+
+    #[test]
+    fn a_song_station_puts_its_seed_first_and_keeps_the_other_order() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        assert_eq!(
+            normalized_station(&station, &[STATION_OTHER, STATION_THIRD]),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+        assert_eq!(
+            normalized_station(&station, &[STATION_SEED, STATION_OTHER, STATION_THIRD]),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD],
+            "a seed already first stays there, exactly once"
+        );
+        assert_eq!(
+            normalized_station(
+                &station,
+                &[STATION_OTHER, STATION_SEED, STATION_THIRD, STATION_SEED]
+            ),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD],
+            "a seed later in the mix moves to the front, exactly once"
+        );
+    }
+
+    #[test]
+    fn a_song_station_still_lists_repeated_other_songs_once() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        assert_eq!(
+            normalized_station(
+                &station,
+                &[STATION_OTHER, STATION_SEED, STATION_OTHER, STATION_THIRD]
+            ),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+    }
+
+    #[test]
+    fn other_station_kinds_keep_spotifys_order() {
+        for station in [
+            "spotify:station:playlist:37i9dQZF1DXbIbVYph0Zr5",
+            "spotify:station:album:4uLU6hMCjMI75M1A2tKUQC",
+            "spotify:station:artist:4uLU6hMCjMI75M1A2tKUQC",
+        ] {
+            assert_eq!(
+                normalized_station(station, &[STATION_OTHER, STATION_THIRD]),
+                [STATION_OTHER, STATION_THIRD],
+                "{station}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_invalid_song_seed_adds_nothing_and_panics_not() {
+        let raw = [STATION_OTHER, STATION_THIRD];
+        for station in [
+            "spotify:station:track:xyz",
+            "spotify:station:track:",
+            "spotify:station:",
+            "spotify:station:show:4uLU6hMCjMI75M1A2tKUQC",
+            "not-a-station",
+        ] {
+            assert_eq!(normalized_station(station, &raw), raw, "{station}");
+        }
+    }
+
+    #[test]
+    fn an_empty_station_remains_an_error_even_for_a_song_seed() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        let error = station_uris(&station, &station_context(&[])).unwrap_err();
+        assert_eq!(error.to_string(), "Spotify has no songs for this radio");
+    }
+
+    #[test]
+    fn a_seed_without_metadata_leaves_the_usable_station_songs() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        let uris = station_uris(
+            &station,
+            &station_context(&[STATION_OTHER, STATION_SEED, STATION_THIRD]),
+        )
+        .unwrap();
+        let mut found = HashMap::from([
+            (
+                STATION_OTHER.to_string(),
+                PlayableItem::Track(Track {
+                    uri: STATION_OTHER.into(),
+                    name: "Other".into(),
+                    ..Default::default()
+                }),
+            ),
+            (
+                STATION_THIRD.to_string(),
+                PlayableItem::Track(Track {
+                    uri: STATION_THIRD.into(),
+                    name: "Third".into(),
+                    ..Default::default()
+                }),
+            ),
+        ]);
+        assert_eq!(
+            resolved_station(&uris, &found)
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect::<Vec<_>>(),
+            [STATION_OTHER, STATION_THIRD],
+            "an unavailable seed is left out, not fabricated"
+        );
+
+        found.insert(
+            STATION_SEED.to_string(),
+            PlayableItem::Track(Track {
+                uri: STATION_SEED.into(),
+                name: "Seed".into(),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(
+            resolved_station(&uris, &found)
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect::<Vec<_>>(),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+    }
+
+    /// The seed joins the station's one metadata batch, but an answer Spotify
+    /// cannot use for it leaves the rest of the mix usable rather than
+    /// failing the page.
+    #[test]
+    fn an_unusable_seed_does_not_fail_the_rest_of_the_station() {
+        let asked = asked(&[STATION_SEED, STATION_OTHER, STATION_THIRD]);
+        let tolerated = BTreeSet::from([STATION_SEED.to_string()]);
+        let other = || {
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_OTHER,
+                200,
+                Some(track_bytes()),
+            )
+        };
+        let third = || {
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_THIRD,
+                200,
+                Some(track_bytes()),
+            )
+        };
+        for seed_answer in [
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_SEED,
+                200,
+                Some(b"not a track".to_vec()),
+            ),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 404, None),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 451, None),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 500, None),
+        ] {
+            let found = answers_tolerating(
+                &asked,
+                &tolerated,
+                response([seed_answer, other(), third()]),
+            )
+            .expect("the usable station songs remain");
+            assert_eq!(
+                found.keys().cloned().collect::<BTreeSet<_>>(),
+                BTreeSet::from([STATION_OTHER.to_string(), STATION_THIRD.to_string()]),
+                "the seed is left out, not fabricated"
+            );
+        }
+
+        // An unanswered seed is tolerated the same way.
+        let found = answers_tolerating(&asked, &tolerated, response([other(), third()])).unwrap();
+        assert_eq!(found.len(), 2);
+    }
+
+    /// Only the seed is tolerated. Another song's refusal, unreadable
+    /// details, or missing answer still fails the station, as does a
+    /// provider error over the whole batch.
+    #[test]
+    fn unusable_other_station_songs_and_batch_failures_still_fail() {
+        let asked = asked(&[STATION_SEED, STATION_OTHER]);
+        let tolerated = BTreeSet::from([STATION_SEED.to_string()]);
+        let seed_answer = answer(ExtensionKind::TRACK_V4, STATION_SEED, 404, None);
+        for other_answer in [
+            answer(ExtensionKind::TRACK_V4, STATION_OTHER, 500, None),
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_OTHER,
+                200,
+                Some(b"not a track".to_vec()),
+            ),
+        ] {
+            assert!(
+                answers_tolerating(
+                    &asked,
+                    &tolerated,
+                    response([seed_answer.clone(), other_answer]),
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            answers_tolerating(&asked, &tolerated, response([seed_answer])).is_err(),
+            "an unanswered other song"
+        );
+
+        let mut failed_batch = answer(
+            ExtensionKind::TRACK_V4,
+            STATION_OTHER,
+            200,
+            Some(track_bytes()),
+        );
+        failed_batch
+            .header
+            .mut_or_insert_default()
+            .provider_error_status = 500;
+        assert!(
+            answers_tolerating(&asked, &tolerated, response([failed_batch])).is_err(),
+            "a provider error over the batch"
         );
     }
 

@@ -213,6 +213,13 @@ mod x11 {
 /// its top bar fit beside the narrowest sidebar from here.
 pub const MAIN_MIN_SIZE: [f32; 2] = [760.0, 520.0];
 
+/// A remembered main window size to open at, or `None` for the default. Under
+/// the minimum is not a size anyone chose, since the window cannot be dragged
+/// that small, and opening at it leaves a window too small to find (#704).
+pub fn usable_size(size: Option<[f32; 2]>) -> Option<[f32; 2]> {
+    size.filter(|size| size[0] >= MAIN_MIN_SIZE[0] && size[1] >= MAIN_MIN_SIZE[1])
+}
+
 static FIXED_SIZE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether the main window keeps one size it was given, as demo shots ask,
@@ -354,5 +361,19 @@ mod tests {
         connection.destroy_window(window).unwrap();
         connection.flush().unwrap();
         assert_eq!(states, vec![above, skip]);
+    }
+
+    /// A remembered size under the minimum is not one anyone chose, since the
+    /// window cannot be dragged that small. It is not restored, so the window
+    /// opens at its default size instead.
+    #[test]
+    fn a_remembered_size_below_the_minimum_is_not_restored() {
+        assert_eq!(usable_size(Some([64.0, 64.0])), None);
+        assert_eq!(usable_size(Some([MAIN_MIN_SIZE[0] - 1.0, 800.0])), None);
+        assert_eq!(usable_size(Some([1240.0, MAIN_MIN_SIZE[1] - 1.0])), None);
+        assert_eq!(usable_size(None), None);
+        for size in [MAIN_MIN_SIZE, [1240.0, 800.0], [1920.0, 1129.0]] {
+            assert_eq!(usable_size(Some(size)), Some(size));
+        }
     }
 }

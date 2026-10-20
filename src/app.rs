@@ -457,7 +457,7 @@ pub struct App {
     activating_play: bool,
     pub devices_loading: bool,
     /// This computer's audio outputs, listed when the device picker asks.
-    pub output_devices: Loadable<Vec<String>>,
+    pub output_devices: Loadable<Vec<fastframe_audio::DeviceInfo>>,
     devices_fetched_at: Option<Instant>,
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
@@ -493,8 +493,9 @@ pub struct App {
     pub recents: crate::model::CursorList<crate::api::models::PlayHistory>,
     /// The Recent tab's rows: what was played here and what
     /// Spotify knows of the other devices, as one list. Rebuilt when
-    /// either side changes rather than every frame.
-    pub recents_view: Vec<crate::api::models::PlayHistory>,
+    /// either side changes rather than every frame, and shared so that
+    /// drawing it never copies the list.
+    pub recents_view: std::sync::Arc<[crate::api::models::PlayHistory]>,
     pub recents_generation: u64,
     pub queue_tab: QueueTab,
     pub search: SearchState,
@@ -1132,7 +1133,7 @@ impl App {
             files: fastframe_file::Writer::new(),
             listening: None,
             recents: crate::model::CursorList::default(),
-            recents_view: Vec::new(),
+            recents_view: std::sync::Arc::from([]),
             recents_generation: 0,
             queue_tab: session
                 .queue_tab
@@ -1209,7 +1210,7 @@ impl App {
             seek_preview: None,
             volume_preview: None,
             window_geometry: fastframe_shell::window::Geometry {
-                size: session.window_size,
+                size: crate::window::usable_size(session.window_size),
                 position: session.window_pos,
                 maximized: session.window_maximized,
             },
@@ -1455,6 +1456,16 @@ impl App {
         } else {
             #[cfg(test)]
             self.autostart_sent.push(request);
+        }
+    }
+
+    /// Local playback opened on the device an older build saved by `name`:
+    /// the setting holds its id from now on, unless another output was
+    /// chosen meanwhile. Nothing restarts; the device is already playing.
+    pub(crate) fn on_audio_device_found(&mut self, name: &str, id: String) {
+        if self.settings.audio_device.as_deref() == Some(name) {
+            self.settings.audio_device = Some(id);
+            self.mark_settings_dirty();
         }
     }
 
@@ -2460,9 +2471,10 @@ impl App {
                 }
                 Event::Receivers(receivers) => self.receivers = receivers,
                 Event::Autostart { request, result } => self.on_autostart(request, result),
+                Event::AudioDeviceFound { name, id } => self.on_audio_device_found(&name, id),
                 Event::OutputDevices(result) => {
                     self.output_devices = match result {
-                        Ok(names) => Loadable::Loaded(names),
+                        Ok(devices) => Loadable::Loaded(devices),
                         Err(error) => {
                             log::warn!("couldn't list audio outputs: {error}");
                             Loadable::Failed(error)
@@ -6830,7 +6842,14 @@ impl App {
                         .filter_map(|track| track.id.clone())
                         .take(5)
                         .collect();
-                    if !seeds.is_empty() {
+                    if seeds.is_empty() {
+                        // Nothing to seed recommendations with: an empty
+                        // shelf is hidden, where one never asked for would
+                        // show its loading rows for good.
+                        if self.home.recommendations.get().is_none() {
+                            self.home.recommendations = Loadable::Loaded(Vec::new());
+                        }
+                    } else {
                         if self.home.recommendations.get().is_none() {
                             self.home.recommendations = Loadable::Loading;
                         }
@@ -8553,7 +8572,7 @@ impl App {
 
     /// Merges local and Spotify history for the Recent tab.
     fn rebuild_recents(&mut self) {
-        self.recents_view = crate::history::merged(self.plays.plays(), &self.recents.items);
+        self.recents_view = crate::history::merged(self.plays.plays(), &self.recents.items).into();
     }
 
     /// Adds a page of play history to the Recents tab.
@@ -12868,7 +12887,6 @@ pub fn engine_config(
         normalisation: settings.normalisation,
         autoplay: settings.autoplay,
         gapless: settings.gapless,
-        backend: settings.platform_backend(),
         buffer_ms: settings.audio_buffer_ms,
         audio_device: settings
             .audio_device
@@ -15074,6 +15092,46 @@ mod tests {
         }
     }
 
+    /// Recommendations are seeded with the listener's top songs. An account
+    /// Spotify has no top songs for yet has nothing to seed them with, so
+    /// the shelf is left empty, and hidden, instead of loading forever.
+    #[test]
+    fn recommendations_without_top_songs_leave_an_empty_shelf() {
+        let mut app = listener_app();
+        app.load_home(false);
+        let generation = app.home.generation;
+        app.handle_api(ApiResponse::TopTracks {
+            offset: 0,
+            full: false,
+            generation,
+            result: Ok(crate::api::models::Page::default()),
+        });
+        assert_eq!(app.home.recommendations.get(), Some(&Vec::new()));
+
+        app.handle_api(ApiResponse::TopTracks {
+            offset: 0,
+            full: false,
+            generation,
+            result: Ok(crate::api::models::Page {
+                items: vec![song("spotify:track:top")],
+                ..Default::default()
+            }),
+        });
+        assert_eq!(
+            app.home.recommendations.get(),
+            Some(&Vec::new()),
+            "the empty shelf stays until the recommendations arrive"
+        );
+        app.handle_api(ApiResponse::Recommendations {
+            generation,
+            result: Ok(vec![song("spotify:track:recommended")]),
+        });
+        assert_eq!(
+            app.home.recommendations.get(),
+            Some(&vec![song("spotify:track:recommended")])
+        );
+    }
+
     /// The last Home shows the moment the account is verified. Each shelf
     /// Spotify answers for replaces its cached one and is saved; one it
     /// turns away keeps it.
@@ -15831,6 +15889,48 @@ mod tests {
         );
         assert_eq!(app.winamp.geometry.position, Some([300.0, 200.0]));
         assert_eq!(app.window_geometry, main);
+    }
+
+    /// #704: a window size saved below the minimum is not restored, so the
+    /// window opens at its default size. The position is kept.
+    #[test]
+    fn a_saved_window_below_its_minimum_opens_at_the_default_size() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-undersized-window-test-{}",
+            std::process::id()
+        ));
+        let dirs = || AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        std::fs::create_dir_all(&dirs().state).unwrap();
+        for (saved, expected) in [
+            (Some([64.0, 64.0]), None),
+            (Some([1240.0, 800.0]), Some([1240.0, 800.0])),
+        ] {
+            SessionState {
+                window_size: saved,
+                window_pos: Some([100.0, 150.0]),
+                ..SessionState::default()
+            }
+            .save(&dirs().session_file());
+            let mut app = App::new(
+                &Waker::default(),
+                dirs(),
+                Settings::default(),
+                AppOptions {
+                    media_controls: false,
+                    restore_sign_in: false,
+                    tray: false,
+                    autostart: false,
+                },
+            );
+            assert_eq!(app.window_geometry.size, expected, "{saved:?}");
+            assert_eq!(app.window_geometry.position, Some([100.0, 150.0]));
+            app.backend.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A window left maximized or full screen comes back that way, instead of
@@ -21465,6 +21565,23 @@ mod tests {
         }
     }
 
+    /// Songs in the order the station resolver hands them to the page after
+    /// its seed-first normalization, through the production helper.
+    fn normalized_radio_songs(station: &str, raw: &[&str]) -> Vec<Track> {
+        crate::session_reads::seed_first(
+            station,
+            raw.iter()
+                .map(|uri| librespot_core::SpotifyUri::from_uri(uri).unwrap())
+                .collect(),
+        )
+        .iter()
+        .map(|uri| {
+            let uri = uri.to_uri();
+            radio_song(crate::util::uri_id(&uri).expect("a song URI"), "Artist")
+        })
+        .collect()
+    }
+
     fn draw_radio(
         ctx: &egui::Context,
         app: &mut App,
@@ -21571,6 +21688,144 @@ mod tests {
             );
             app.backend.shutdown();
         }
+    }
+
+    const RADIO_SEED_ID: &str = "3JA9Jsuxr4xgHXEawAdCp4";
+    const RADIO_OTHER: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
+    const RADIO_THIRD: &str = "spotify:track:7GhIk7Il098yCjg4BQjzvb";
+
+    /// Opens a song radio with the resolver's normalized songs, in a fresh
+    /// app whose song cache starts empty.
+    fn normalized_song_radio(ctx: &egui::Context) -> (App, String, Vec<String>) {
+        let seed = format!("spotify:track:{RADIO_SEED_ID}");
+        let station = format!("spotify:station:track:{RADIO_SEED_ID}");
+        let expected = vec![seed.clone(), RADIO_OTHER.into(), RADIO_THIRD.into()];
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "test".into(),
+        };
+        app.backend.set_offline(true);
+        app.shuffle_wanted = false;
+        app.apply(Action::Open(Page::Radio(seed.clone())), ctx);
+        let generation = app.radio_pages[seed.as_str()].generation;
+        let songs = normalized_radio_songs(&station, &[RADIO_OTHER, seed.as_str(), RADIO_THIRD]);
+        assert_eq!(
+            songs
+                .iter()
+                .map(|song| song.uri.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        app.receive_radio(&seed, generation, Ok(songs));
+        (app, seed, expected)
+    }
+
+    /// The normalized resolver list reaches the table and the header Play
+    /// button in the same order, with a seed that was not already cached.
+    #[test]
+    fn a_normalized_song_radio_starts_its_table_and_play_with_the_seed() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install(&ctx);
+        let (mut app, seed, expected) = normalized_song_radio(&ctx);
+        assert!(
+            app.track_cache.contains_key(RADIO_SEED_ID),
+            "the seed came from the resolved list"
+        );
+        draw_radio(&ctx, &mut app, &seed, Vec::new());
+        let displayed: Vec<String> = app.table_rows[&Page::Radio(seed.clone())]
+            .items
+            .iter()
+            .map(|(item, _, _)| item.uri().to_string())
+            .collect();
+        assert_eq!(displayed, expected);
+
+        click_labelled(&ctx, &mut app, &seed, "Play");
+        assert_eq!(
+            app.queued_play.as_ref().expect("a play request").uris,
+            expected,
+            "the header Play uses the displayed order"
+        );
+        app.backend.shutdown();
+    }
+
+    /// Refresh asks the same resolver again, so the new mix still starts
+    /// with the seed and follows its new order.
+    #[test]
+    fn a_refreshed_song_radio_still_starts_with_its_seed() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install(&ctx);
+        let (mut app, seed, _) = normalized_song_radio(&ctx);
+        app.apply(Action::Reload(Page::Radio(seed.clone())), &ctx);
+        let generation = app.radio_pages[seed.as_str()].generation;
+        let station = format!("spotify:station:track:{RADIO_SEED_ID}");
+        let songs = normalized_radio_songs(&station, &[RADIO_THIRD, RADIO_OTHER, seed.as_str()]);
+        app.receive_radio(&seed, generation, Ok(songs));
+        draw_radio(&ctx, &mut app, &seed, Vec::new());
+        let displayed: Vec<String> = app.table_rows[&Page::Radio(seed.clone())]
+            .items
+            .iter()
+            .map(|(item, _, _)| item.uri().to_string())
+            .collect();
+        assert_eq!(displayed, [seed, RADIO_THIRD.into(), RADIO_OTHER.into()]);
+        app.backend.shutdown();
+    }
+
+    /// A later row plays from its place in the normalized list, and Save as
+    /// playlist exports that same list.
+    #[test]
+    fn a_normalized_song_radio_plays_and_saves_the_seed_first_list() {
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, TreeId};
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install(&ctx);
+        let (mut app, seed, expected) = normalized_song_radio(&ctx);
+
+        let tree = draw_radio(&ctx, &mut app, &seed, Vec::new());
+        let other_id = crate::util::uri_id(RADIO_OTHER).expect("a song id");
+        let label = format!("Play Song {other_id}, Artist");
+        let target = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some(label.as_str()))
+            .expect("the second song's row")
+            .0;
+        draw_radio(
+            &ctx,
+            &mut app,
+            &seed,
+            vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                target_tree: TreeId::ROOT,
+                target_node: target,
+                action: AccessibleAction::Click,
+                data: None,
+            })],
+        );
+        let request = app.queued_play.as_ref().expect("a row play request");
+        assert_eq!(request.uris, expected);
+        assert_eq!(request.offset_position, Some(1), "the second row");
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some("spotify:station:track:3JA9Jsuxr4xgHXEawAdCp4"),
+            "the queue still names the radio"
+        );
+
+        let (mut app, seed, expected) = normalized_song_radio(&ctx);
+        click_labelled(&ctx, &mut app, &seed, "Save as playlist");
+        match &app.dialog {
+            Some(Dialog::CreatePlaylist {
+                name,
+                public: false,
+                add_uris,
+            }) => {
+                assert_eq!(name, "Song 3JA9Jsuxr4xgHXEawAdCp4 Radio");
+                assert_eq!(add_uris, &expected);
+            }
+            other => panic!("no playlist dialog naming the shown songs: {other:?}"),
+        }
+        app.backend.shutdown();
     }
 
     /// An answer for an earlier request does not replace the page, a

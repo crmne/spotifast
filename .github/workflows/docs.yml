@@ -24,9 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/configure-pages@v6
-        id: pages
-
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '4.0'
@@ -43,13 +40,9 @@ jobs:
           # Analytics is only included in production builds, so a local
           # `jekyll serve` does not report visits.
           JEKYLL_ENV: production
-          PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
-          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
-        run: |
-          # Keep canonical URLs and Jekyll redirects on the live hostname
-          # until GitHub Pages has been switched to the new custom domain.
-          ruby -ryaml -e 'File.write(ARGV.fetch(0), {"url" => ENV.fetch("PAGES_ORIGIN"), "baseurl" => ENV.fetch("PAGES_BASE_PATH")}.to_yaml)' "$RUNNER_TEMP/pages.yml"
-          bundle exec jekyll build --config "_config.yml,$RUNNER_TEMP/pages.yml" --destination ./_site
+        # The site's URL comes from _config.yml (https). GitHub Pages reports
+        # an http origin, because Cloudflare, not Pages, enforces HTTPS.
+        run: bundle exec jekyll build --destination ./_site
 
       - uses: actions/upload-pages-artifact@v5
         with:

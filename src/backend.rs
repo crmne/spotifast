@@ -968,8 +968,14 @@ pub enum Event {
     Playback(LocalPlayback),
     /// Receivers seen on the local network that Spotify has not listed.
     Receivers(Vec<crate::zeroconf::Receiver>),
-    /// This computer's audio outputs, by name, for the device picker.
-    OutputDevices(Result<Vec<String>, String>),
+    /// This computer's audio outputs, for the device picker.
+    OutputDevices(Result<Vec<fastframe_audio::DeviceInfo>, String>),
+    /// Local playback opened on the device an older build saved by `name`,
+    /// whose `id` the setting holds from now on.
+    AudioDeviceFound {
+        name: String,
+        id: String,
+    },
     /// Cast advertisements ready before the final browse/probe reconciliation.
     ReceiversProgress(crate::zeroconf::ReceiverUpdates),
     /// The login registration after `request`: what the system has now, or
@@ -2091,9 +2097,9 @@ impl Worker {
                     // Listing asks the sound system about every device,
                     // which can take a moment; nothing is opened.
                     tokio::task::spawn_blocking(move || {
-                        let names = fastframe_audio::output_device_names()
-                            .map_err(|error| error.to_string());
-                        let _ = events.send(Event::OutputDevices(names));
+                        let devices =
+                            fastframe_audio::output_devices().map_err(|error| error.to_string());
+                        let _ = events.send(Event::OutputDevices(devices));
                         waker.wake();
                     });
                 }
@@ -3296,6 +3302,10 @@ impl Worker {
                 }
                 EngineEvent::SessionEnded => {
                     let _ = commands.send(Command::Reconnect);
+                }
+                EngineEvent::AudioDevice { name, id } => {
+                    let _ = events.send(Event::AudioDeviceFound { name, id });
+                    waker.wake();
                 }
             }
         })
