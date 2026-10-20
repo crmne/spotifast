@@ -129,7 +129,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(
                 Modifiers::NONE,
                 Key::F,
-                Action::SetLyricsFullscreen(app.lyrics_fullscreen.is_none()),
+                Action::SetLyricsFullscreen(app.fullscreen.is_none()),
             );
         }
     });
@@ -180,7 +180,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             app.actions.push(Action::CloseDialog);
         } else if app.show_devices {
             app.show_devices = false;
-        } else if app.lyrics_fullscreen.is_some() {
+        } else if app.fullscreen.is_some() {
             app.actions.push(Action::SetLyricsFullscreen(false));
         }
     }
@@ -663,7 +663,7 @@ mod tests {
             format!("{:?}", [Action::SetLyricsFullscreen(true)]),
             "F enters lyrics full screen"
         );
-        app.lyrics_fullscreen = Some(false);
+        app.fullscreen = Some(false);
         assert_eq!(
             press(&mut app, Key::F, Modifiers::NONE),
             format!("{:?}", [Action::SetLyricsFullscreen(false)]),

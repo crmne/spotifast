@@ -66,7 +66,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         );
     }
     player_bar::show(app, ui);
-    if app.lyrics_fullscreen.is_some() {
+    if app.fullscreen.is_some() {
         lyrics::fullscreen(app, ui);
     } else {
         if app.settings.sidebar_visible {
