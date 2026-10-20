@@ -4907,8 +4907,18 @@ impl App {
         {
             home.top_tracks_by_period[2] = Loadable::Loaded(tracks);
         }
-        if home.top_tracks.get().is_none() {
-            home.top_period = cached.top_period;
+        if !home.top_period_selected && home.top_tracks.get().is_none() {
+            let idx = cached.top_period.index();
+            if let Some(tracks) = home.top_tracks_by_period[idx].get().cloned() {
+                home.top_period = cached.top_period;
+                home.top_tracks = Loadable::Loaded(tracks);
+            } else if let Some(tracks) = home.top_tracks_by_period[home.top_period.index()]
+                .get()
+                .cloned()
+            {
+                home.top_tracks = Loadable::Loaded(tracks);
+            }
+        } else if home.top_tracks.get().is_none() {
             let idx = home.top_period.index();
             if let Some(tracks) = home.top_tracks_by_period[idx].get().cloned() {
                 home.top_tracks = Loadable::Loaded(tracks);
@@ -5172,7 +5182,15 @@ impl App {
         }
         self.home.requested = true;
         self.home.loaded_at = Some(Instant::now());
-        self.home.generation += 1;
+        // Stay ahead of generations already issued for any period.
+        let issued = self
+            .home
+            .top_tracks_generations
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0);
+        self.home.generation = self.home.generation.max(issued) + 1;
         // Recently played, top artists and top tracks. The shelf adds its
         // own pending answer; podcasts follow saved shows without a wait.
         self.home.awaiting = 3;
@@ -5390,6 +5408,7 @@ impl App {
     }
 
     pub fn set_top_period(&mut self, period: TopPeriod) {
+        self.home.top_period_selected = true;
         if self.home.top_period == period {
             return;
         }
@@ -5408,8 +5427,15 @@ impl App {
                 if self.network_reachable {
                     self.home.top_tracks_by_period[idx] = Loadable::Loading;
                     self.home.top_tracks = Loadable::Loading;
-                    self.home.top_tracks_generations[idx] =
-                        self.home.top_tracks_generations[idx].max(self.home.generation) + 1;
+                    let current_max = self
+                        .home
+                        .top_tracks_generations
+                        .iter()
+                        .copied()
+                        .max()
+                        .unwrap_or(0)
+                        .max(self.home.generation);
+                    self.home.top_tracks_generations[idx] = current_max + 1;
                     let generation = self.home.top_tracks_generations[idx];
                     self.backend.api(ApiRequest::TopTracks {
                         period,
@@ -5427,8 +5453,15 @@ impl App {
                 } else if self.network_reachable {
                     self.home.top_tracks_by_period[idx] = Loadable::Loading;
                     self.home.top_tracks = Loadable::Loading;
-                    self.home.top_tracks_generations[idx] =
-                        self.home.top_tracks_generations[idx].max(self.home.generation) + 1;
+                    let current_max = self
+                        .home
+                        .top_tracks_generations
+                        .iter()
+                        .copied()
+                        .max()
+                        .unwrap_or(0)
+                        .max(self.home.generation);
+                    self.home.top_tracks_generations[idx] = current_max + 1;
                     let generation = self.home.top_tracks_generations[idx];
                     self.backend.api(ApiRequest::TopTracks {
                         period,
@@ -15643,6 +15676,107 @@ mod tests {
             Some(&vec![song("spotify:track:existing")])
         );
         assert!(app.home.refresh_failed);
+    }
+
+    #[test]
+    fn home_refresh_generation_stays_strictly_ahead_of_period_switch_generations() {
+        let mut app = listener_app();
+        app.load_home(false);
+        let base_gen = app.home.generation;
+
+        // Switch period to MediumTerm, which advances its per-period generation.
+        app.set_top_period(TopPeriod::MediumTerm);
+        let gen_med = app.home.top_tracks_generations[TopPeriod::MediumTerm.index()];
+        assert!(gen_med > base_gen);
+
+        // Next full Home refresh stays ahead of all per-period generations.
+        app.load_home(true);
+        let home_gen = app.home.generation;
+        assert!(
+            home_gen > gen_med,
+            "home generation must exceed all previously issued per-period generations"
+        );
+        assert_eq!(
+            app.home.top_tracks_generations[TopPeriod::MediumTerm.index()],
+            home_gen
+        );
+
+        // A stale in-flight response from the earlier period switch has generation = gen_med.
+        // Since home_gen > gen_med, the stale response is rejected by the generation check.
+        app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::MediumTerm,
+            offset: 0,
+            full: false,
+            generation: gen_med,
+            result: Ok(crate::api::models::Page {
+                items: vec![song("spotify:track:stale-med")],
+                ..Default::default()
+            }),
+        });
+        assert_ne!(
+            app.home.top_tracks_by_period[TopPeriod::MediumTerm.index()].get(),
+            Some(&vec![song("spotify:track:stale-med")]),
+            "stale generation from earlier period switch must be dropped"
+        );
+
+        // The current Home refresh response arrives and is accepted.
+        app.handle_api(ApiResponse::TopTracks {
+            period: TopPeriod::MediumTerm,
+            offset: 0,
+            full: false,
+            generation: home_gen,
+            result: Ok(crate::api::models::Page {
+                items: vec![song("spotify:track:fresh-home")],
+                ..Default::default()
+            }),
+        });
+        assert_eq!(
+            app.home.top_tracks.get(),
+            Some(&vec![song("spotify:track:fresh-home")])
+        );
+    }
+
+    #[test]
+    fn cache_restoration_respects_user_period_choice_and_guards_empty_slots() {
+        let mut app = listener_app();
+
+        // 1. Snapshot has top_period = MediumTerm, but medium tracks slot is empty.
+        // It must not leave the shelf empty when short term has cached tracks.
+        let snapshot = HomeSnapshot {
+            top_period: TopPeriod::MediumTerm,
+            top_tracks: Some(vec![song("spotify:track:short-cached")]),
+            top_tracks_medium: None,
+            ..Default::default()
+        };
+        app.restore_home(snapshot);
+        assert_eq!(app.home.top_period, TopPeriod::ShortTerm);
+        assert_eq!(
+            app.home.top_tracks.get(),
+            Some(&vec![song("spotify:track:short-cached")])
+        );
+
+        // 2. User explicitly selects LongTerm before cache read finishes.
+        let mut user_app = listener_app();
+        user_app.set_top_period(TopPeriod::LongTerm);
+        assert!(user_app.home.top_period_selected);
+
+        let snapshot = HomeSnapshot {
+            top_period: TopPeriod::ShortTerm,
+            top_tracks: Some(vec![song("spotify:track:short-cached")]),
+            top_tracks_long: Some(vec![song("spotify:track:long-cached")]),
+            ..Default::default()
+        };
+        user_app.restore_home(snapshot);
+        assert_eq!(
+            user_app.home.top_period,
+            TopPeriod::LongTerm,
+            "user selection must not be overwritten by cached.top_period"
+        );
+        assert_eq!(
+            user_app.home.top_tracks.get(),
+            Some(&vec![song("spotify:track:long-cached")]),
+            "shelf should populate from the selected period's cached tracks"
+        );
     }
 
     fn connected_listener() -> App {

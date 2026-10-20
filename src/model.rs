@@ -677,6 +677,9 @@ pub struct HomeData {
     pub top_artists: Loadable<Vec<Artist>>,
     /// Active period selected for top songs.
     pub top_period: TopPeriod,
+    /// Whether the user has chosen a period during this session, preventing
+    /// late cache restoration from overriding their selection.
+    pub top_period_selected: bool,
     /// The 20-track preview shown on Home for the active period.
     pub top_tracks: Loadable<Vec<Track>>,
     /// Cached 20-track previews for each period.
