@@ -299,6 +299,8 @@ pub struct Settings {
     pub player_bar_vis: PlayerBarVis,
     /// Allow clicks on the player bar background to cycle visualizer modes.
     pub player_bar_vis_click: bool,
+    /// Show the Listening activity button in the player bar.
+    pub show_listening_activity_button: bool,
     /// How many frames a second the player bar's visualizer and the mini
     /// player's analyser draw; 0 is uncapped. MilkDrop has its own.
     pub visualizer_fps: u32,
@@ -483,6 +485,7 @@ impl Default for Settings {
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
             player_bar_vis_click: true,
+            show_listening_activity_button: true,
             visualizer_fps: crate::milkdrop::DEFAULT_FPS,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_visible: true,
@@ -1096,6 +1099,30 @@ mod tests {
         let text = serde_json::to_string(&settings).unwrap();
         let restored: Settings = serde_json::from_str(&text).unwrap();
         assert_eq!(restored.queue_width, 300.0);
+    }
+
+    #[test]
+    fn listening_activity_button_defaults_to_visible_and_survives_restart() {
+        assert!(Settings::default().show_listening_activity_button);
+        let older: Settings = serde_json::from_str(r#"{"volume":12345}"#).unwrap();
+        assert!(older.show_listening_activity_button);
+        assert_eq!(older.volume, 12345);
+
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-listening-activity-settings-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("settings.json");
+        for visible in [false, true] {
+            let settings = Settings {
+                show_listening_activity_button: visible,
+                ..older.clone()
+            };
+            settings.save(&path);
+            assert_eq!(Settings::load(&path), settings);
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// Older files keep the Dock icon; hiding it survives a save (#837).

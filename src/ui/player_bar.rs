@@ -1052,7 +1052,8 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     // The Listening activity button is the first to go in a narrow window,
     // so it never crowds the transport.
     let left = ui.min_rect().left() - ui.spacing().item_spacing.x - (18.0 + theme::ICON_BUTTON_PAD);
-    if left - transport_right >= TRANSPORT_GAP
+    if app.settings.show_listening_activity_button
+        && left - transport_right >= TRANSPORT_GAP
         && theme::icon_button(
             ui,
             Icon::Users,
