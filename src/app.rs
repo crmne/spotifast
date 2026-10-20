@@ -10421,6 +10421,13 @@ impl App {
     /// Apply one queued UI action after drawing, updating optimistic local state
     /// and scheduling any backend work or preference persistence it requires.
     pub(crate) fn apply(&mut self, action: Action, ctx: &egui::Context) {
+        // The player's full screen shows neither the queue nor the lyrics, so
+        // Q and L leave it to show theirs, whatever it was before.
+        let panel_from_player = self.in_fullscreen(FullScreenView::Player)
+            && matches!(
+                &action,
+                Action::ToggleQueuePanel | Action::ToggleLyricsPanel
+            );
         if matches!(
             &action,
             Action::Open(_)
@@ -10433,12 +10440,18 @@ impl App {
                 | Action::SignOut
                 | Action::ToggleWinampWindow
                 | Action::ToggleFriendsPanel
-        ) || (matches!(&action, Action::ToggleQueuePanel)
-            && self.in_fullscreen(FullScreenView::Player))
+        ) || panel_from_player
         {
             // ToggleQueuePanel leaves only the player's full screen: lyrics
             // fullscreen flips its queue column instead of leaving the view.
             self.leave_fullscreen(ctx);
+        }
+        if panel_from_player {
+            // Closed here, the toggle below opens it.
+            match &action {
+                Action::ToggleQueuePanel => self.show_queue_panel = false,
+                _ => self.show_lyrics_panel = false,
+            }
         }
         // Pausing or skipping while a play-search is in flight is a newer
         // choice; seeking and volume leave the search to play its match.
@@ -14063,7 +14076,8 @@ mod tests {
     }
 
     /// The player's full screen has no queue column, so Q leaves it for the
-    /// window's queue panel, as the lyrics panel and other pages do.
+    /// window's queue panel, as the lyrics panel and other pages do. Q and L
+    /// show their panel even when it was open before the full screen hid it.
     #[test]
     fn queue_toggle_leaves_the_players_full_screen() {
         for action in [
@@ -14071,12 +14085,28 @@ mod tests {
             Action::ToggleLyricsPanel,
             Action::Open(Page::Home),
         ] {
-            let mut app = headless_app();
-            let ctx = egui::Context::default();
-            app.apply(Action::SetPlayerFullscreen(true), &ctx);
-            assert!(app.in_fullscreen(FullScreenView::Player));
-            app.apply(action.clone(), &ctx);
-            assert_eq!(app.fullscreen, None, "{action:?} leaves full screen");
+            for open_before in [false, true] {
+                let mut app = headless_app();
+                let ctx = egui::Context::default();
+                match action {
+                    Action::ToggleQueuePanel => app.show_queue_panel = open_before,
+                    Action::ToggleLyricsPanel => app.show_lyrics_panel = open_before,
+                    _ => {}
+                }
+                app.apply(Action::SetPlayerFullscreen(true), &ctx);
+                assert!(app.in_fullscreen(FullScreenView::Player));
+                app.apply(action.clone(), &ctx);
+                assert_eq!(app.fullscreen, None, "{action:?} leaves full screen");
+                match action {
+                    Action::ToggleQueuePanel => {
+                        assert!(app.show_queue_panel, "Q shows the queue ({open_before})");
+                    }
+                    Action::ToggleLyricsPanel => {
+                        assert!(app.show_lyrics_panel, "L shows the lyrics ({open_before})");
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
