@@ -336,20 +336,25 @@ struct Stirred {
 
 /// Whether the full screen's controls show: from its opening and from any
 /// stir, the pointer coming over the window, moving, pressing or scrolling
-/// there, or a key, until [`CONTROLS_LINGER_SECONDS`] pass without another,
-/// and not from the moment the pointer leaves the window. `holding` keeps
-/// them, for a menu they opened.
+/// there, a key, or a screen reader acting, until [`CONTROLS_LINGER_SECONDS`]
+/// pass without another, and not from the moment the pointer leaves the
+/// window. `holding` keeps them, for a menu they opened, and so does a
+/// control with keyboard focus: hidden, it would leave the screen reader's
+/// tree and lose the focus. A click leaves no focus on them.
 fn controls_shown(ctx: &egui::Context, holding: bool) -> bool {
     let (time, pointer, pressed) = ctx.input(|input| {
         let pressed = input.pointer.any_down()
             || input.events.iter().any(|event| {
                 matches!(
                     event,
-                    egui::Event::Key { pressed: true, .. } | egui::Event::MouseWheel { .. }
+                    egui::Event::Key { pressed: true, .. }
+                        | egui::Event::MouseWheel { .. }
+                        | egui::Event::AccessKitActionRequest(_)
                 )
             });
         (input.time, input.pointer.latest_pos(), pressed)
     });
+    let holding = holding || ctx.memory(|memory| memory.focused().is_some());
     let pass = ctx.cumulative_pass_nr();
     let id = egui::Id::new(CONTROLS_STIRRED_ID);
     let at = ctx.data_mut(|data| {

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-19 22:13-0400\n"
+"POT-Creation-Date: 2026-10-19 22:16-0400\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Spanish\n"
@@ -163,7 +163,7 @@ msgstr "Sin coincidencias."
 msgid "Sort by recently played"
 msgstr "Ordenar por reproducido recientemente"
 
-#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:1057 src/ui/widgets.rs:1206
+#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:1062 src/ui/widgets.rs:1206
 #: src/ui/artist.rs:395 src/ui/collection.rs:295 src/ui/new_releases.rs:117
 #: src/ui/prerelease.rs:309 src/ui/search.rs:408 src/ui/show.rs:389
 msgid "Play"
@@ -225,12 +225,12 @@ msgstr "{name}, carpeta, expandida"
 msgid "Click to change the visualizer"
 msgstr "Haz clic para cambiar el visualizador"
 
-#: src/ui/player_bar.rs:251 src/ui/player_bar.rs:711 src/ui/lyrics.rs:131
+#: src/ui/player_bar.rs:251 src/ui/player_bar.rs:716 src/ui/lyrics.rs:131
 #: src/ui/lyrics.rs:677
 msgid "Nothing playing"
 msgstr "No se está reproduciendo nada"
 
-#: src/ui/player_bar.rs:258 src/ui/player_bar.rs:717 src/app.rs:9264
+#: src/ui/player_bar.rs:258 src/ui/player_bar.rs:722 src/app.rs:9264
 msgid "Pick a song, album, or playlist"
 msgstr "Elige una canción, un álbum o una playlist"
 
@@ -238,87 +238,87 @@ msgstr "Elige una canción, un álbum o una playlist"
 msgid "Leave full screen (Esc)"
 msgstr "Salir de pantalla completa (Esc)"
 
-#: src/ui/player_bar.rs:851 src/ui/widgets.rs:775
+#: src/ui/player_bar.rs:856 src/ui/widgets.rs:775
 msgid "Add to playlist"
 msgstr "Añadir a una playlist"
 
-#: src/ui/player_bar.rs:858 src/ui/widgets.rs:740 src/ui/widgets.rs:1011
+#: src/ui/player_bar.rs:863 src/ui/widgets.rs:740 src/ui/widgets.rs:1011
 #: src/ui/widgets.rs:1990
 msgid "Save to Liked Songs"
 msgstr "Guardar en Canciones favoritas"
 
-#: src/ui/player_bar.rs:919 src/ui/widgets.rs:737 src/ui/widgets.rs:1008
+#: src/ui/player_bar.rs:924 src/ui/widgets.rs:737 src/ui/widgets.rs:1008
 #: src/ui/widgets.rs:1988
 msgid "Remove from Liked Songs"
 msgstr "Quitar de Canciones favoritas"
 
-#: src/ui/player_bar.rs:1001 src/ui/player_bar.rs:1008 src/ui/collection.rs:349
+#: src/ui/player_bar.rs:1006 src/ui/player_bar.rs:1013 src/ui/collection.rs:349
 #: src/ui/new_releases.rs:146
 msgid "Shuffle"
 msgstr "Aleatorio"
 
-#: src/ui/player_bar.rs:1022
+#: src/ui/player_bar.rs:1027
 msgid "Previous"
 msgstr "Anterior"
 
-#: src/ui/player_bar.rs:1055 src/ui/friends.rs:190 src/ui/collection.rs:293
+#: src/ui/player_bar.rs:1060 src/ui/friends.rs:190 src/ui/collection.rs:293
 msgid "Pause"
 msgstr "Pausar"
 
-#: src/ui/player_bar.rs:1073
+#: src/ui/player_bar.rs:1078
 msgid "Next"
 msgstr "Siguiente"
 
-#: src/ui/player_bar.rs:1081
+#: src/ui/player_bar.rs:1086
 msgid "Repeat"
 msgstr "Repetir"
 
-#: src/ui/player_bar.rs:1085
+#: src/ui/player_bar.rs:1090
 msgid "Repeat one"
 msgstr "Repetir una canción"
 
-#: src/ui/player_bar.rs:1090
+#: src/ui/player_bar.rs:1095
 msgid "Repeat off"
 msgstr "Desactivar repetición"
 
-#: src/ui/player_bar.rs:1151
+#: src/ui/player_bar.rs:1156
 msgid "Playback position (%)"
 msgstr "Posición de reproducción (%)"
 
-#: src/ui/player_bar.rs:1194
+#: src/ui/player_bar.rs:1199
 msgid "Volume (%)"
 msgstr "Volumen (%)"
 
-#: src/ui/player_bar.rs:1227
+#: src/ui/player_bar.rs:1232
 msgid "Unmute"
 msgstr "Activar sonido"
 
-#: src/ui/player_bar.rs:1229
+#: src/ui/player_bar.rs:1234
 msgid "Mute"
 msgstr "Silenciar"
 
-#: src/ui/player_bar.rs:1245
+#: src/ui/player_bar.rs:1250
 msgid "This device's volume can't be changed from Spotifast"
 msgstr "El volumen de este dispositivo no se puede cambiar desde Spotifast"
 
-#: src/ui/player_bar.rs:1274 src/ui/devices.rs:369
+#: src/ui/player_bar.rs:1279 src/ui/devices.rs:369
 msgid "Connect to a device"
 msgstr "Conectar a un dispositivo"
 
-#: src/ui/player_bar.rs:1314
+#: src/ui/player_bar.rs:1319
 msgid "Full screen"
 msgstr "Pantalla completa"
 
-#: src/ui/player_bar.rs:1337 src/ui/queue.rs:23 src/ui/queue.rs:79
+#: src/ui/player_bar.rs:1342 src/ui/queue.rs:23 src/ui/queue.rs:79
 #: src/ui/queue.rs:228
 msgid "Queue"
 msgstr "Cola"
 
-#: src/ui/player_bar.rs:1363 src/ui/lyrics.rs:67 src/ui/lyrics.rs:600
+#: src/ui/player_bar.rs:1368 src/ui/lyrics.rs:67 src/ui/lyrics.rs:600
 msgid "Lyrics"
 msgstr "Letra"
 
-#: src/ui/player_bar.rs:1385 src/ui/friends.rs:53
+#: src/ui/player_bar.rs:1390 src/ui/friends.rs:53
 msgid "Listening activity"
 msgstr "Actividad de escucha"
 

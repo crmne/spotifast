@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-19 22:13-0400\n"
+"POT-Creation-Date: 2026-10-19 22:16-0400\n"
 "PO-Revision-Date: 2026-10-02 20:30+0300\n"
 "Last-Translator: Barış Berke Çetin <brsberkectn@gmail.com>\n"
 "Language-Team: Turkish\n"
@@ -163,7 +163,7 @@ msgstr "Eşleşme bulunamadı."
 msgid "Sort by recently played"
 msgstr "Son çalınanlara göre sırala"
 
-#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:1057 src/ui/widgets.rs:1206
+#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:1062 src/ui/widgets.rs:1206
 #: src/ui/artist.rs:395 src/ui/collection.rs:295 src/ui/new_releases.rs:117
 #: src/ui/prerelease.rs:309 src/ui/search.rs:408 src/ui/show.rs:389
 msgid "Play"
@@ -225,12 +225,12 @@ msgstr "{name}, klasör, genişletilmiş"
 msgid "Click to change the visualizer"
 msgstr "Görselleştiriciyi değiştirmek için tıklayın"
 
-#: src/ui/player_bar.rs:251 src/ui/player_bar.rs:711 src/ui/lyrics.rs:131
+#: src/ui/player_bar.rs:251 src/ui/player_bar.rs:716 src/ui/lyrics.rs:131
 #: src/ui/lyrics.rs:677
 msgid "Nothing playing"
 msgstr "Hiçbir şey çalmıyor"
 
-#: src/ui/player_bar.rs:258 src/ui/player_bar.rs:717 src/app.rs:9264
+#: src/ui/player_bar.rs:258 src/ui/player_bar.rs:722 src/app.rs:9264
 msgid "Pick a song, album, or playlist"
 msgstr "Bir şarkı, albüm veya çalma listesi seçin"
 
@@ -238,87 +238,87 @@ msgstr "Bir şarkı, albüm veya çalma listesi seçin"
 msgid "Leave full screen (Esc)"
 msgstr "Tam ekrandan çık (Esc)"
 
-#: src/ui/player_bar.rs:851 src/ui/widgets.rs:775
+#: src/ui/player_bar.rs:856 src/ui/widgets.rs:775
 msgid "Add to playlist"
 msgstr "Çalma listesine ekle"
 
-#: src/ui/player_bar.rs:858 src/ui/widgets.rs:740 src/ui/widgets.rs:1011
+#: src/ui/player_bar.rs:863 src/ui/widgets.rs:740 src/ui/widgets.rs:1011
 #: src/ui/widgets.rs:1990
 msgid "Save to Liked Songs"
 msgstr "Beğenilenler'e kaydet"
 
-#: src/ui/player_bar.rs:919 src/ui/widgets.rs:737 src/ui/widgets.rs:1008
+#: src/ui/player_bar.rs:924 src/ui/widgets.rs:737 src/ui/widgets.rs:1008
 #: src/ui/widgets.rs:1988
 msgid "Remove from Liked Songs"
 msgstr "Beğenilenler'den kaldır"
 
-#: src/ui/player_bar.rs:1001 src/ui/player_bar.rs:1008 src/ui/collection.rs:349
+#: src/ui/player_bar.rs:1006 src/ui/player_bar.rs:1013 src/ui/collection.rs:349
 #: src/ui/new_releases.rs:146
 msgid "Shuffle"
 msgstr "Karışık çal"
 
-#: src/ui/player_bar.rs:1022
+#: src/ui/player_bar.rs:1027
 msgid "Previous"
 msgstr "Önceki"
 
-#: src/ui/player_bar.rs:1055 src/ui/friends.rs:190 src/ui/collection.rs:293
+#: src/ui/player_bar.rs:1060 src/ui/friends.rs:190 src/ui/collection.rs:293
 msgid "Pause"
 msgstr "Duraklat"
 
-#: src/ui/player_bar.rs:1073
+#: src/ui/player_bar.rs:1078
 msgid "Next"
 msgstr "Sonraki"
 
-#: src/ui/player_bar.rs:1081
+#: src/ui/player_bar.rs:1086
 msgid "Repeat"
 msgstr "Tekrarla"
 
-#: src/ui/player_bar.rs:1085
+#: src/ui/player_bar.rs:1090
 msgid "Repeat one"
 msgstr "Tek şarkıyı tekrarla"
 
-#: src/ui/player_bar.rs:1090
+#: src/ui/player_bar.rs:1095
 msgid "Repeat off"
 msgstr "Tekrarlamayı kapat"
 
-#: src/ui/player_bar.rs:1151
+#: src/ui/player_bar.rs:1156
 msgid "Playback position (%)"
 msgstr "Çalma konumu (%)"
 
-#: src/ui/player_bar.rs:1194
+#: src/ui/player_bar.rs:1199
 msgid "Volume (%)"
 msgstr "Ses düzeyi (%)"
 
-#: src/ui/player_bar.rs:1227
+#: src/ui/player_bar.rs:1232
 msgid "Unmute"
 msgstr "Sesi aç"
 
-#: src/ui/player_bar.rs:1229
+#: src/ui/player_bar.rs:1234
 msgid "Mute"
 msgstr "Sesi kapat"
 
-#: src/ui/player_bar.rs:1245
+#: src/ui/player_bar.rs:1250
 msgid "This device's volume can't be changed from Spotifast"
 msgstr "Bu cihazın ses düzeyi Spotifast üzerinden değiştirilemez"
 
-#: src/ui/player_bar.rs:1274 src/ui/devices.rs:369
+#: src/ui/player_bar.rs:1279 src/ui/devices.rs:369
 msgid "Connect to a device"
 msgstr "Bir cihaza bağlan"
 
-#: src/ui/player_bar.rs:1314
+#: src/ui/player_bar.rs:1319
 msgid "Full screen"
 msgstr "Tam ekran"
 
-#: src/ui/player_bar.rs:1337 src/ui/queue.rs:23 src/ui/queue.rs:79
+#: src/ui/player_bar.rs:1342 src/ui/queue.rs:23 src/ui/queue.rs:79
 #: src/ui/queue.rs:228
 msgid "Queue"
 msgstr "Sıra"
 
-#: src/ui/player_bar.rs:1363 src/ui/lyrics.rs:67 src/ui/lyrics.rs:600
+#: src/ui/player_bar.rs:1368 src/ui/lyrics.rs:67 src/ui/lyrics.rs:600
 msgid "Lyrics"
 msgstr "Şarkı Sözleri"
 
-#: src/ui/player_bar.rs:1385 src/ui/friends.rs:53
+#: src/ui/player_bar.rs:1390 src/ui/friends.rs:53
 msgid "Listening activity"
 msgstr "Dinleme etkinliği"
 

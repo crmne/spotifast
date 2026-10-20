@@ -5471,6 +5471,21 @@ mod tests {
         frame(&mut app, 6.2, vec![egui::Event::PointerGone]);
         let (shown, _) = frame(&mut app, 6.6, vec![]);
         assert!(!shown, "they go with the pointer");
+
+        // A control with keyboard focus keeps them in reach, and in the
+        // screen reader's tree, however long nothing else stirs.
+        let tab = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(&mut app, 7.0, vec![tab]);
+        frame(&mut app, 7.1, vec![]);
+        assert!(ctx.memory(|memory| memory.focused().is_some()));
+        let (shown, _) = frame(&mut app, 12.0, vec![]);
+        assert!(shown, "a focused control keeps them");
         app.backend.shutdown();
     }
 
