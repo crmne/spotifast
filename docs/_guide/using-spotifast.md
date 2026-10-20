@@ -69,6 +69,39 @@ Point at a horizontal shelf, such as Made for you or Recently played on
 Home, and hold `Shift` while turning the mouse wheel. The shelf moves while
 the surrounding page stays put. Release `Shift` to scroll the page normally.
 
+## Save songs and choose playlists
+
+In development: song rows and the player use a circle instead of a heart.
+Hover a song that is not saved to reveal **+** beside its duration. Clicking
+it saves the song to **Liked Songs** immediately. A solid green circle with
+a black check stays visible when the song belongs to Liked Songs or any
+playlist in your Library.
+
+Click a green check, or right-click a song or selection and choose **Add to
+playlist**, to open the same playlist picker. Liked Songs appears first,
+followed by playlists already containing the selection, then other playlists.
+Your existing local pins come first within each group, in their pin order.
+Each row has its cover and song count; playlists inside folders also show
+the folder path. Search matches playlist names and folder paths.
+
+Toggle circles to stage additions and removals, then choose **Done** to
+apply them together. **Cancel**, Esc, and clicking outside discard every
+staged change, including a new playlist name. **New playlist** stages a
+private playlist containing the selected songs; it is created only on Done.
+For a multi-song selection, a minus in a green circle means some songs are
+present. Select it to add only the missing songs. Cycle through all, none,
+and the original partial selection without adding duplicate copies.
+Unchecking a playlist removes every copy of the selected songs from that
+playlist. Playlists you cannot edit remain visible with their membership,
+but their circles cannot be changed. Remove them from your Library using
+the playlist's own menu instead.
+
+Playlist checks run in the background. An unchecked circle is shown only
+when membership is known; a spinner means it is still being checked. A
+failed check offers **Try again** and never counts as an empty playlist.
+Applying changes updates the visible checks immediately; Spotify catches
+up behind them. A rejected change shows an error and reloads that playlist.
+
 ## Podcasts on Home
 
 Since 0.10.0, Home has a **Your podcasts** shelf below Recently

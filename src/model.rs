@@ -1157,6 +1157,12 @@ pub enum Action {
         from: u32,
         to: u32,
     },
+    ManagePlayingMembership(String),
+    OpenPlaylistPicker(Vec<PlayableItem>),
+    EditPlaylistPicker(crate::playlist_membership::Draft),
+    CancelPlaylistPicker,
+    CommitPlaylistPicker,
+    RetryPlaylistMembership,
     ShowDialog(Dialog),
     CloseDialog,
     CreatePlaylist {

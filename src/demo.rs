@@ -944,6 +944,27 @@ fn demo_friends() -> Vec<crate::session_reads::FriendActivity> {
     ]
 }
 
+fn seed_playlist_membership(app: &mut App) {
+    if let Some(playlists) = app.library.playlists.get() {
+        for playlist in playlists {
+            let uris = app
+                .playlist_pages
+                .get(&playlist.id)
+                .map(|page| {
+                    page.items
+                        .items
+                        .iter()
+                        .filter_map(crate::api::models::PlaylistItem::playable)
+                        .map(|item| item.uri().to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            app.playlist_membership
+                .observe(&playlist.id, playlist.snapshot_id.clone(), uris);
+        }
+    }
+}
+
 /// Applies `--demo-page` and `--demo-show`.
 /// Makes the displayed song this computer's playback, with that song's own
 /// metadata, so the player bar draws the same as without it.
@@ -1345,6 +1366,58 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     }
                 }
             }
+            "playlist-picker"
+            | "playlist-picker-multi"
+            | "playlist-picker-loading"
+            | "playlist-picker-error"
+            | "playlist-picker-empty" => {
+                seed_playlist_membership(app);
+                let mut items = app.now_playing_item().into_iter().collect::<Vec<_>>();
+                if surface == "playlist-picker-multi" {
+                    items.push(PlayableItem::Track(track(1)));
+                }
+                app.open_playlist_picker(items);
+                if surface == "playlist-picker-empty" {
+                    app.playlist_picker.as_mut().unwrap().query = "No matching playlist".into();
+                }
+                app.settings
+                    .pinned_contexts
+                    .push("spotify:playlist:pl4".into());
+                app.rootlist = vec![
+                    crate::player::RootlistEntry::FolderStart {
+                        id: "listening".into(),
+                        name: "Everyday listening".into(),
+                    },
+                    crate::player::RootlistEntry::Playlist("spotify:playlist:pl1".into()),
+                    crate::player::RootlistEntry::FolderEnd,
+                ];
+                if surface == "playlist-picker-loading" || surface == "playlist-picker-error" {
+                    app.playlist_membership.clear();
+                    if surface == "playlist-picker-error"
+                        && let Some(playlists) = app.library.playlists.get()
+                    {
+                        let unread: Vec<_> = playlists
+                            .iter()
+                            .filter(|playlist| !app.playlist_pages.contains_key(&playlist.id))
+                            .cloned()
+                            .collect();
+                        for request in app.playlist_membership.requests(&unread) {
+                            if let crate::backend::ApiRequest::PlaylistMembership {
+                                id,
+                                generation,
+                                ..
+                            } = request
+                            {
+                                app.playlist_membership.receive(
+                                    &id,
+                                    generation,
+                                    Err(crate::api::ApiError::NotSignedIn),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             "light" => {
                 app.settings.theme = crate::settings::ThemeChoice::Light;
                 app.actions.push(Action::SettingsChanged);
@@ -1678,6 +1751,7 @@ mod tests {
         );
         app.attach(&ctx);
         populate(&mut app);
+        seed_playlist_membership(&mut app);
         // These frames never advance the clock or take pictures.
         app.reveal_theme_changes = false;
         (ctx, app)
@@ -2159,36 +2233,41 @@ mod tests {
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 accessible_node(&tree, &gettext(locale, next), Role::Button);
             }
-            // A liked song's heart opens Add to playlist, whose Remove from
-            // Liked Songs unlikes it; the heart then likes it at once (#792).
-            let click = |ctx: &egui::Context, app: &mut App, label: &'static str| {
-                let tree = accessible_frame(ctx, app, vec![]);
-                let button = accessible_node(&tree, &gettext(locale, label), Role::Button);
-                accessible_frame(
-                    ctx,
-                    app,
-                    vec![accessible_action(button, AccessibleAction::Click, None)],
-                );
-                // A menu's first frame only measures it.
-                accessible_frame(ctx, app, vec![]);
-            };
             let now = app.now_playing().unwrap().uri;
             assert_eq!(app.is_saved(&now), Some(true));
-            click(&ctx, &mut app, "Add to playlist");
+            let item = app.now_playing_item().unwrap();
+            app.open_playlist_picker(vec![item]);
+            accessible_frame(&ctx, &mut app, vec![]);
             let tree = accessible_frame(&ctx, &mut app, vec![]);
-            accessible_node(&tree, &gettext(locale, "Filter playlists"), Role::TextInput);
-            assert_eq!(app.is_saved(&now), Some(true), "opening it keeps the like");
-            click(&ctx, &mut app, "Remove from Liked Songs");
-            assert_eq!(app.is_saved(&now), Some(false));
-            click(&ctx, &mut app, "Save to Liked Songs");
-            assert_eq!(app.is_saved(&now), Some(true));
+            accessible_node(&tree, &gettext(locale, "Find a playlist"), Role::TextInput);
             let tree = accessible_frame(&ctx, &mut app, vec![]);
-            assert!(
-                !tree.nodes.iter().any(|(_, node)| {
-                    node.label() == Some(gettext(locale, "Filter playlists").as_ref())
-                }),
-                "liking a song does not open the menu"
+            let liked = accessible_node(&tree, &gettext(locale, "Liked Songs"), Role::CheckBox);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(liked, AccessibleAction::Click, None)],
             );
+            assert_eq!(
+                app.is_saved(&now),
+                Some(true),
+                "a staged removal keeps the like until Done"
+            );
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let done = accessible_node(&tree, &gettext(locale, "Done"), Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(done, AccessibleAction::Click, None)],
+            );
+            assert_eq!(app.is_saved(&now), Some(false));
+            app.apply(
+                crate::model::Action::SetSavedMany {
+                    uris: vec![now.clone()],
+                    saved: true,
+                },
+                &ctx,
+            );
+            assert_eq!(app.is_saved(&now), Some(true));
 
             app.remote = None;
             assert!(app.now_playing().is_none());
@@ -4372,228 +4451,144 @@ mod tests {
     }
 
     #[test]
-    fn playlist_filter_preserves_edit_permissions_and_keyboard_selection() {
-        use egui::accesskit::Role;
-        for count in [1, 2] {
-            let (ctx, mut app) = accessible_app(&format!("playlist-filter-{count}"));
-            app.backend.set_offline(true);
-            let owner = app.user_id().unwrap().to_string();
-            let make = |id: &str, name: &str, owned: bool, collaborative| Playlist {
-                id: id.into(),
-                uri: format!("spotify:playlist:{id}"),
-                name: name.into(),
-                owner: crate::api::models::Owner {
-                    id: Some(if owned {
-                        owner.clone()
-                    } else {
-                        "another-user".into()
-                    }),
-                    ..Default::default()
-                },
-                collaborative,
-                ..Default::default()
+    fn playlist_picker_keeps_its_footer_inside_the_smallest_window() {
+        for light in [false, true] {
+            let (ctx, mut app) = accessible_app("membership-fit");
+            app.palette = if light {
+                crate::theme::Palette::light()
+            } else {
+                crate::theme::Palette::dark()
             };
-            app.library.playlists = Loadable::Loaded(vec![
-                make("readonly", "Night locked", false, false),
-                make("owned", "Night drive", true, false),
-                make("shared", "Night together", false, true),
-                make("day", "Daylight", true, false),
-            ]);
-            let items: Vec<_> = (0..count).map(|i| PlayableItem::Track(track(i))).collect();
-            let mut query = String::new();
-            let draw = |app: &mut App, query: &mut String, focus: bool, events| {
-                let mut output = ctx.run_ui(
-                    egui::RawInput {
-                        screen_rect: Some(egui::Rect::from_min_size(
-                            egui::Pos2::ZERO,
-                            egui::vec2(760.0, 620.0),
-                        )),
-                        events,
-                        ..Default::default()
-                    },
-                    |ui| {
-                        let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
-                        if focus {
-                            field.request_focus();
-                        }
-                    },
-                );
-                output.textures_delta.clear();
-                output
-            };
-            draw(&mut app, &mut query, true, vec![]);
-            let output = draw(
-                &mut app,
-                &mut query,
-                false,
-                vec![egui::Event::Text("  NiGhT  ".into())],
-            );
-            assert_eq!(query, "  NiGhT  ");
-            let tree = output.platform_output.accesskit_update.unwrap();
-            for name in ["Night locked", "Daylight"] {
-                assert!(
-                    !tree
-                        .nodes
-                        .iter()
-                        .any(|(_, node)| node.label() == Some(name)),
-                    "{name} must not be offered"
-                );
-            }
-            let owned = accessible_node(&tree, "Night drive", Role::Button);
-            accessible_node(&tree, "Night together", Role::Button);
-            let mut reached = false;
-            for _ in 0..6 {
-                let output = draw(
-                    &mut app,
-                    &mut query,
-                    false,
-                    vec![keyboard(egui::Key::Tab, egui::Modifiers::NONE)],
-                );
-                if output.platform_output.accesskit_update.unwrap().focus == owned {
-                    reached = true;
-                    break;
+            app.open_playlist_picker(vec![PlayableItem::Track(track(0))]);
+            app.playlist_picker.as_mut().unwrap().new_name = Some("A new playlist".into());
+            app.playlist_picker.as_mut().unwrap().liked_error = true;
+            for size in [egui::vec2(760.0, 520.0), egui::vec2(1280.0, 800.0)] {
+                for _ in 0..3 {
+                    view_frame_sized(&ctx, &mut app, vec![], |app, ui| app.frame_ui(ui), size);
                 }
+                let rect = egui::AreaState::load(&ctx, egui::Id::new("playlist-membership-picker"))
+                    .expect("the picker is open")
+                    .rect();
+                assert!(
+                    rect.top() >= 0.0
+                        && rect.bottom() <= size.y
+                        && rect.left() >= 0.0
+                        && rect.right() <= size.x,
+                    "light={light}, size={size:?}: {rect:?}"
+                );
             }
-            assert!(
-                reached,
-                "Tab must reach the filtered playlist from the search field"
-            );
-            app.actions.clear();
-            draw(
-                &mut app,
-                &mut query,
-                false,
-                vec![keyboard(egui::Key::Enter, egui::Modifiers::NONE)],
-            );
-            assert!(
-                matches!(app.actions.as_slice(), [crate::model::Action::AddToPlaylist { playlist_id, items: selected, .. }] if playlist_id == "owned" && selected == &items)
-            );
-            query = "no such playlist".into();
-            let output = draw(&mut app, &mut query, false, vec![]);
-            let tree = output.platform_output.accesskit_update.unwrap();
-            accessible_node(&tree, "New playlist", Role::Button);
-            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.job.text == "No matching playlists")));
             app.backend.shutdown();
         }
     }
 
-    /// Typing in the playlist filter chooses the first match, so Enter adds
-    /// to it at once; Up and Down move the choice first.
     #[test]
-    fn typing_in_the_playlist_filter_chooses_the_first_match() {
-        let (ctx, mut app) = accessible_app("playlist-filter-choice");
-        app.backend.set_offline(true);
-        let owner = app.user_id().unwrap().to_string();
-        let make = |id: &str, name: &str| Playlist {
-            id: id.into(),
-            uri: format!("spotify:playlist:{id}"),
-            name: name.into(),
-            owner: crate::api::models::Owner {
-                id: Some(owner.clone()),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        app.library.playlists = Loadable::Loaded(vec![
-            make("drive", "Night drive"),
-            make("day", "Daylight"),
-            make("walk", "Night walk"),
-            make("owls", "Night owls"),
-        ]);
-        let items = vec![PlayableItem::Track(track(0))];
-        let draw = |app: &mut App, query: &mut String, focus: bool, events| {
-            let mut output = ctx.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(760.0, 620.0),
-                    )),
-                    events,
-                    ..Default::default()
-                },
-                |ui| {
-                    let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
-                    if focus {
-                        field.request_focus();
-                    }
-                },
-            );
-            output.textures_delta.clear();
-        };
-        let added = |app: &App| match app.actions.as_slice() {
-            [crate::model::Action::AddToPlaylist { playlist_id, .. }] => Some(playlist_id.clone()),
-            [] => None,
-            other => panic!("expected one addition, got {other:?}"),
-        };
-        let key = |key| vec![keyboard(key, egui::Modifiers::NONE)];
-
-        // #given the filter has focus
-        let mut query = String::new();
-        draw(&mut app, &mut query, true, vec![]);
-
-        // #when a filter is typed and Enter pressed
-        draw(
+    fn playlist_filter_preserves_edit_permissions_and_keyboard_selection() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("playlist-picker-keyboard");
+        app.open_playlist_picker(vec![PlayableItem::Track(track(0))]);
+        accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![egui::Event::Text("night".into())]);
+        accessible_node(&tree, "Find a playlist", Role::TextInput);
+        accessible_node(&tree, "Late night focus", Role::CheckBox);
+        assert!(!tree.nodes.iter().any(
+            |(_, node)| node.label() == Some("Sunday morning") && node.role() == Role::CheckBox
+        ));
+        accessible_frame(
+            &ctx,
             &mut app,
-            &mut query,
-            false,
-            vec![egui::Event::Text("night".into())],
+            vec![keyboard(egui::Key::Enter, egui::Modifiers::NONE)],
         );
-        draw(&mut app, &mut query, false, key(egui::Key::Enter));
-
-        // #then the first match is added
-        assert_eq!(added(&app).as_deref(), Some("drive"));
-
-        // #when Down moves the choice twice and Up once, past both ends
-        app.actions.clear();
-        let mut query = String::new();
-        draw(&mut app, &mut query, true, vec![]);
-        draw(
+        assert_eq!(
+            app.playlist_picker.as_ref().unwrap().choices.get("pl1"),
+            Some(&false)
+        );
+        assert!(
+            app.backend.take_playlist_add_requests().is_empty(),
+            "Enter stages a choice without sending it"
+        );
+        accessible_frame(
+            &ctx,
             &mut app,
-            &mut query,
-            false,
-            vec![egui::Event::Text("night".into())],
+            vec![keyboard(egui::Key::Enter, egui::Modifiers::NONE)],
         );
-        draw(&mut app, &mut query, false, key(egui::Key::ArrowUp));
-        for _ in 0..3 {
-            draw(&mut app, &mut query, false, key(egui::Key::ArrowDown));
+        assert!(
+            app.playlist_picker.as_ref().unwrap().choices.is_empty(),
+            "a second Enter restores the original state"
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::ArrowDown, egui::Modifiers::NONE)],
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+        assert_eq!(
+            app.playlist_picker.as_ref().unwrap().choices.get("pl5"),
+            Some(&true)
+        );
+        assert_eq!(app.playlist_picker.as_ref().unwrap().query, "night");
+
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+        );
+        assert!(app.playlist_picker.is_none());
+        assert!(app.backend.take_playlist_add_requests().is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn staged_partial_membership_adds_only_missing_songs_and_cancel_writes_nothing() {
+        let (ctx, mut app) = accessible_app("playlist-picker-partial");
+        let items = vec![
+            PlayableItem::Track(track(0)),
+            PlayableItem::Track(track(1)),
+            PlayableItem::Track(track(0)),
+        ];
+        let before = track(0).uri;
+        let missing = track(1).uri;
+        let snapshot = app
+            .library
+            .playlists
+            .get()
+            .unwrap()
+            .iter()
+            .find(|playlist| playlist.id == "pl1")
+            .unwrap()
+            .snapshot_id
+            .clone();
+        app.playlist_membership
+            .observe("pl1", snapshot, [before.clone()].into());
+        app.open_playlist_picker(items.clone());
+        assert_eq!(app.playlist_picker.as_ref().unwrap().items.len(), 2);
+        app.playlist_picker
+            .as_mut()
+            .unwrap()
+            .choices
+            .insert("pl1".into(), true);
+        app.apply(crate::model::Action::CancelPlaylistPicker, &ctx);
+        assert!(app.backend.take_playlist_add_requests().is_empty());
+        app.open_playlist_picker(items);
+        app.playlist_picker
+            .as_mut()
+            .unwrap()
+            .choices
+            .insert("pl1".into(), true);
+        app.apply(crate::model::Action::CommitPlaylistPicker, &ctx);
+        // The app applies actions emitted by the commit after drawing.
+        for action in std::mem::take(&mut app.actions) {
+            app.apply(action, &ctx);
         }
-        draw(&mut app, &mut query, false, key(egui::Key::ArrowUp));
-        assert_eq!(query, "night", "the arrows do not edit the filter");
-        draw(&mut app, &mut query, false, key(egui::Key::Enter));
-
-        // #then the choice it reached is added
-        assert_eq!(added(&app).as_deref(), Some("walk"));
-
-        // #when the filter changes after a choice was moved
-        app.actions.clear();
-        let mut query = String::new();
-        draw(&mut app, &mut query, true, vec![]);
-        draw(
-            &mut app,
-            &mut query,
-            false,
-            vec![egui::Event::Text("night".into())],
+        let requests = app.backend.take_playlist_add_requests();
+        assert!(
+            matches!(requests.as_slice(), [crate::backend::ApiRequest::AddToPlaylist { uris, .. }] if uris == &[missing])
         );
-        draw(&mut app, &mut query, false, key(egui::Key::ArrowDown));
-        draw(
-            &mut app,
-            &mut query,
-            false,
-            vec![egui::Event::Text(" o".into())],
-        );
-        draw(&mut app, &mut query, false, key(egui::Key::Enter));
-
-        // #then the choice starts again at the first match
-        assert_eq!(added(&app).as_deref(), Some("owls"));
-
-        // #when Enter is pressed with nothing typed
-        app.actions.clear();
-        let mut query = String::new();
-        draw(&mut app, &mut query, true, vec![]);
-        draw(&mut app, &mut query, false, key(egui::Key::Enter));
-
-        // #then nothing is chosen for the listener
-        assert_eq!(added(&app), None);
+        assert_eq!(app.playlist_membership.contains("pl1", &before), Some(true));
         app.backend.shutdown();
     }
 
@@ -4680,147 +4675,52 @@ mod tests {
     }
 
     #[test]
-    fn playlist_submenu_keeps_typing_and_resets_after_the_parent_closes() {
-        use egui::accesskit::{Action, Role};
-        let (ctx, mut app) = accessible_app("playlist-submenu");
-        app.backend.set_offline(true);
+    fn context_menu_opens_the_same_picker_and_a_new_visit_clears_the_filter() {
+        let (ctx, mut app) = accessible_app("playlist-picker-context");
         let songs = vec![PlayableItem::Track(track(0))];
-        let draw = |app: &mut App, show_parent: bool, events| {
-            let mut output = ctx.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(760.0, 620.0),
-                    )),
-                    events,
-                    ..Default::default()
-                },
-                |ui| {
-                    if show_parent {
-                        crate::ui::widgets::picked_menu(ui, app, &songs, &[], None);
-                    }
-                },
-            );
-            output.textures_delta.clear();
-            output
-        };
-        let tree = draw(&mut app, true, vec![])
-            .platform_output
-            .accesskit_update
-            .unwrap();
-        let add = accessible_node(&tree, "Add to playlist", Role::Button);
-        let open = || vec![accessible_action(add, Action::Click, None)];
-        draw(&mut app, true, open());
-        draw(&mut app, true, vec![]);
-        let tree = draw(&mut app, true, vec![egui::Event::Text("night".into())])
-            .platform_output
-            .accesskit_update
-            .unwrap();
-        assert!(egui::Popup::is_any_open(&ctx));
-        assert!(
-            tree.nodes
-                .iter()
-                .any(|(_, node)| node.value() == Some("night"))
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            crate::ui::widgets::picked_menu(ui, &mut app, &songs, &[], None)
+        });
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let add = accessible_node(&tree, "Add to playlist", egui::accesskit::Role::Button);
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events: vec![accessible_action(add, egui::accesskit::Action::Click, None)],
+                ..Default::default()
+            },
+            |ui| crate::ui::widgets::picked_menu(ui, &mut app, &songs, &[], None),
         );
-        accessible_node(&tree, "Late night focus", Role::Button);
-        assert!(
-            !tree
-                .nodes
-                .iter()
-                .any(|(_, node)| node.label() == Some("Sunday morning"))
-        );
-        draw(
-            &mut app,
-            true,
-            vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
-        );
-        assert!(!egui::Popup::is_any_open(&ctx));
-        // A closed outer context menu no longer draws its submenu at all.
-        draw(&mut app, false, vec![]);
-        draw(&mut app, true, vec![]);
-        draw(&mut app, true, open());
-        let tree = draw(&mut app, true, vec![])
-            .platform_output
-            .accesskit_update
-            .unwrap();
-        accessible_node(&tree, "Sunday morning", Role::Button);
-        assert!(
-            !tree
-                .nodes
-                .iter()
-                .any(|(_, node)| node.value() == Some("night"))
-        );
+        output.textures_delta.clear();
+        assert!(app.actions.iter().any(|action| matches!(action, crate::model::Action::OpenPlaylistPicker(items) if items == &songs)));
+        app.actions.clear();
+        app.open_playlist_picker(songs.clone());
+        app.playlist_picker.as_mut().unwrap().query = "night".into();
+        app.apply(crate::model::Action::CancelPlaylistPicker, &ctx);
+        app.open_playlist_picker(songs);
+        assert!(app.playlist_picker.as_ref().unwrap().query.is_empty());
         app.backend.shutdown();
     }
 
     #[test]
-    fn playlist_submenu_stays_open_for_a_click_in_its_filter_and_grows_back_when_cleared() {
-        use egui::accesskit::{Action, Role};
-        let (ctx, mut app) = accessible_app("playlist-submenu-click");
-        app.backend.set_offline(true);
-        let songs = vec![PlayableItem::Track(track(0))];
-        let draw = |app: &mut App, events| {
-            let mut output = ctx.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(760.0, 620.0),
-                    )),
-                    events,
-                    ..Default::default()
-                },
-                |ui| crate::ui::widgets::picked_menu(ui, app, &songs, &[], None),
-            );
-            output.textures_delta.clear();
-            output.platform_output.accesskit_update.unwrap()
-        };
-        let tree = draw(&mut app, vec![]);
-        let add = accessible_node(&tree, "Add to playlist", Role::Button);
-        draw(&mut app, vec![accessible_action(add, Action::Click, None)]);
-        draw(&mut app, vec![]);
-        let tree = draw(&mut app, vec![]);
-        let field = tree
-            .nodes
-            .iter()
-            .find(|(_, node)| node.label() == Some("Filter playlists"))
-            .and_then(|(_, node)| node.bounds())
-            .expect("the playlist filter");
-        let center = egui::pos2(
-            ((field.x0 + field.x1) / 2.0) as f32,
-            ((field.y0 + field.y1) / 2.0) as f32,
-        );
-        let height = || {
-            let layer = ctx.layer_id_at(center).expect("the submenu's layer");
-            ctx.memory(|memory| memory.area_rect(layer.id))
-                .expect("the submenu's area")
-                .height()
-        };
-        let full = height();
-
-        // #when the filter field is clicked
-        draw(
+    fn clicking_away_discards_membership_and_new_playlist_changes() {
+        let (ctx, mut app) = accessible_app("playlist-picker-dismiss");
+        app.open_playlist_picker(vec![PlayableItem::Track(track(0))]);
+        app.playlist_picker
+            .as_mut()
+            .unwrap()
+            .choices
+            .insert("pl1".into(), true);
+        app.playlist_picker.as_mut().unwrap().new_name = Some("Unsaved playlist".into());
+        accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(
+            &ctx,
             &mut app,
-            pointer_click(center, egui::PointerButton::Primary),
+            pointer_click(egui::pos2(5.0, 5.0), egui::PointerButton::Primary),
         );
-        let tree = draw(&mut app, vec![]);
-
-        // #then the submenu stays open with every playlist
-        assert!(egui::Popup::is_any_open(&ctx));
-        accessible_node(&tree, "Sunday morning", Role::Button);
-
-        // #when a filter narrows the list and is then cleared
-        draw(&mut app, vec![egui::Event::Text("night".into())]);
-        draw(&mut app, vec![]);
-        assert!(height() < full, "the filter shrinks the submenu");
-        draw(
-            &mut app,
-            vec![keyboard(egui::Key::Backspace, egui::Modifiers::NONE); 5],
-        );
-        draw(&mut app, vec![]);
-        draw(&mut app, vec![]);
-
-        // #then the submenu grows back to its full height
-        assert_eq!(height(), full);
+        assert!(app.playlist_picker.is_none());
+        assert!(app.backend.take_playlist_add_requests().is_empty());
         app.backend.shutdown();
     }
 
@@ -10738,7 +10638,7 @@ mod tests {
         type Pick = fn(&egui::accesskit::Rect) -> bool;
         let targets: [(&str, &str, Pick); 3] = [
             ("album header", "Remove from Your Library", |_| true),
-            ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
+            ("song row", "Add to playlist", |b| b.y1 < 700.0),
             ("player bar", "Add to playlist", |b| b.y0 > 700.0),
         ];
         for theme in ["dark", "light"] {
@@ -10796,11 +10696,20 @@ mod tests {
                         {
                             Some(rect.fill)
                         }
+                        egui::Shape::Circle(circle)
+                            if circle.center.distance(centre) <= circle.radius =>
+                        {
+                            Some(circle.fill)
+                        }
                         _ => None,
                     })
                     .collect();
                 assert!(
-                    tints.contains(&app.palette.accent_hover),
+                    tints.contains(&if place == "album header" {
+                        app.palette.accent_hover
+                    } else {
+                        crate::ui::playlist_picker::GREEN
+                    }),
                     "a hovered {place} button in {theme} must still look saved: {tints:?}"
                 );
                 assert!(!tints.contains(&app.palette.text), "{place} in {theme}");

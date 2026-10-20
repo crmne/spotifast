@@ -892,6 +892,44 @@ impl ApiClient {
         .map(Into::into)
     }
 
+    /// Read only the URIs used by the playlist membership index.
+    pub async fn playlist_membership(
+        &self,
+        id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Page<String>> {
+        let page: Page<PlaylistItem> = self
+            .get::<PositionedPage<PlaylistItem>>(
+                &format!("/playlists/{id}/items"),
+                &[
+                    ("limit", limit.to_string()),
+                    ("offset", offset.to_string()),
+                    ("additional_types", "track,episode".into()),
+                    (
+                        "fields",
+                        "items(item(uri,type),track(uri,type)),total,limit,offset,next".into(),
+                    ),
+                ],
+            )
+            .await?
+            .into();
+        Ok(Page {
+            items: page
+                .items
+                .iter()
+                .map(|item| {
+                    item.playable()
+                        .map_or_else(String::new, |item| item.uri().to_string())
+                })
+                .collect(),
+            total: page.total,
+            limit: page.limit,
+            offset: page.offset,
+            next: page.next,
+        })
+    }
+
     /// Requested songs already present in a playlist.
     ///
     /// Spotify has no membership endpoint for playlists, so walk its pages

@@ -2368,7 +2368,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         play_uri: collection_uri.clone(),
         view: liked_view,
         saved: None,
-        saved_icons: (Icon::Heart, Icon::HeartFilled),
+        saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
         saved_tooltips: Default::default(),
         owned_playlist: None,
         reload: None,

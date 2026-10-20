@@ -2182,7 +2182,7 @@ pub fn liked_cover(ui: &egui::Ui, rect: Rect, radius: f32) {
         .paint_at(ui, rect);
     let size = rect.width() * 0.45;
     let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(size));
-    Icon::HeartFilled
+    Icon::Check
         .image(egui::Color32::WHITE, size)
         .paint_at(ui, icon_rect);
 }
