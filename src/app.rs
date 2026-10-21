@@ -12712,12 +12712,14 @@ impl App {
                 queue_tab: Some(self.queue_tab.encode().to_string()),
                 winamp_pos: self.winamp.geometry.position,
                 milkdrop_pos: self.milkdrop_pos,
-                lyrics_fullscreen_from: self.fullscreen.map(|fullscreen| {
-                    crate::settings::WindowMode {
+                // A close while the window still leaves full screen keeps the
+                // mode it returns to, as a close inside the view does.
+                lyrics_fullscreen_from: self.fullscreen.or(self.fullscreen_restoring).map(
+                    |fullscreen| crate::settings::WindowMode {
                         fullscreen,
                         maximized: self.fullscreen_restore_maximized,
-                    }
-                }),
+                    },
+                ),
             };
             if let Some(text) = session.encode() {
                 self.files.write(
@@ -16168,8 +16170,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
     }
 
-    /// The session remembers fullscreen lyrics and the mode they left, and a
-    /// session file from before the field existed still loads.
+    /// The session remembers fullscreen lyrics and the mode they left, also
+    /// while the window is still leaving full screen, and a session file
+    /// from before the field existed still loads.
     #[test]
     fn the_session_remembers_the_mode_fullscreen_lyrics_left() {
         let mut app = test_app("lyrics-fullscreen-session");
@@ -16186,7 +16189,20 @@ mod tests {
             })
         );
 
+        // Closed after Esc, before the system finished leaving full screen.
         app.fullscreen = None;
+        app.fullscreen_restoring = Some(false);
+        app.save_session();
+        app.flush_files();
+        assert_eq!(
+            SessionState::load(&app.dirs.session_file()).lyrics_fullscreen_from,
+            Some(crate::settings::WindowMode {
+                fullscreen: false,
+                maximized: true,
+            })
+        );
+
+        app.fullscreen_restoring = None;
         app.save_session();
         app.flush_files();
         let text = std::fs::read_to_string(app.dirs.session_file()).unwrap();
