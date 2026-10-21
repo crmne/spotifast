@@ -2488,6 +2488,7 @@ pub fn table_header(
         ui.id().with("table-header-duration"),
         Sense::click(),
     );
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
             egui::WidgetType::Button,
@@ -3615,6 +3616,58 @@ mod playing_cover_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn duration_sort_heading_shows_a_hand_only_when_enabled() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let palette = crate::theme::Palette::dark();
+        let mut pointer = None;
+        for enabled in [true, false] {
+            for frame in 0..2 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(800.0, 200.0),
+                        )),
+                        events: pointer.map(egui::Event::PointerMoved).into_iter().collect(),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ui.add_enabled_ui(enabled, |ui| {
+                            super::table_header(
+                                ui,
+                                &palette,
+                                crate::i18n::Locale::English,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                None,
+                            );
+                            let response = ctx
+                                .read_response(ui.id().with("table-header-duration"))
+                                .expect("duration heading");
+                            pointer = Some(response.rect.center());
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                if frame == 1 {
+                    assert_eq!(
+                        output.platform_output.cursor_icon,
+                        if enabled {
+                            egui::CursorIcon::PointingHand
+                        } else {
+                            egui::CursorIcon::Default
+                        }
+                    );
+                }
+            }
+        }
+    }
+
     use super::*;
     use crate::app::{App, AppOptions};
     use crate::model::{Action, Page};
