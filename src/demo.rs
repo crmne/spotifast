@@ -1158,6 +1158,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 };
                 app.user = None;
             }
+            "rate-limited" => {
+                app.auth = AuthStatus::RateLimited;
+                app.user = None;
+            }
+            // The same wait with the personal app's approval open.
+            "rate-limited-personal" => {
+                app.auth = AuthStatus::RateLimited;
+                app.user = None;
+                app.settings.web_client_id = Some("demo-personal-app".into());
+                app.personal_approval = true;
+            }
             "recents" => {
                 app.show_queue_panel = true;
                 app.queue_tab = QueueTab::Recents;
@@ -6591,6 +6602,7 @@ mod tests {
                 url: "https://accounts.spotify.com/authorize".into(),
             },
             AuthStatus::Connecting,
+            AuthStatus::RateLimited,
         ];
         for size in [
             egui::vec2(

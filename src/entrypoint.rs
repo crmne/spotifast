@@ -53,7 +53,8 @@ struct Cli {
     /// `devices`, `sonos-idle`, `sonos-active`, `cast-idle`, `cast-connecting`, `phone-playing`,
     /// `shortcuts`, `create`, `light`, `system-light`, `system-dark`, `focus`, `update`, `personal-app`,
     /// `windows-taskbar`, `start-in-tray`, `german`, `lyrics`, `lyrics-fullscreen`, `collection-loading`,
-    /// `shuffle-selected`, `shuffle-started`, `undated-mix`, `signed-out`, `connecting`, `library-list`,
+    /// `shuffle-selected`, `shuffle-started`, `undated-mix`, `signed-out`, `connecting`, `rate-limited`,
+    /// `rate-limited-personal`, `library-list`,
     /// `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
     /// or `library-grid-wide`.
     #[cfg(feature = "demo")]
