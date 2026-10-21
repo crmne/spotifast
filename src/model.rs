@@ -179,16 +179,34 @@ impl Page {
     }
 
     /// Opens whatever a Spotify URI points at.
+    ///
+    /// Only `spotify:<kind>:<id>` pages and the
+    /// `spotify:user:<id>:collection` form of Liked Songs are opened. A URI
+    /// with an empty id or further segments is malformed and opens nothing.
     pub fn from_uri(uri: &str) -> Option<Self> {
         let mut parts = uri.split(':');
-        let _ = parts.next()?;
+        if parts.next()? != "spotify" {
+            return None;
+        }
         let kind = parts.next()?;
-        let id = parts.next()?.to_string();
+        // Liked Songs: spotify:user:<id>:collection
+        if kind == "user" {
+            let user = parts.next()?;
+            let tail = parts.next()?;
+            if user.is_empty() || tail != "collection" || parts.next().is_some() {
+                return None;
+            }
+            return Some(Page::LikedSongs);
+        }
+        let id = parts.next().filter(|id| !id.is_empty())?;
+        if parts.next().is_some() {
+            return None;
+        }
         Some(match kind {
-            "playlist" => Page::Playlist(id),
-            "album" => Page::Album(id),
-            "artist" => Page::Artist(id),
-            "show" => Page::Show(id),
+            "playlist" => Page::Playlist(id.to_string()),
+            "album" => Page::Album(id.to_string()),
+            "artist" => Page::Artist(id.to_string()),
+            "show" => Page::Show(id.to_string()),
             _ => return None,
         })
     }
@@ -1484,5 +1502,63 @@ mod finite_scroll_tests {
         assert_eq!(list.window_at(150, 50), None);
         list.fail("offline".into());
         assert_eq!(list.window_at(150, 50), None);
+    }
+}
+
+#[cfg(test)]
+mod page_tests {
+    use super::*;
+
+    #[test]
+    fn from_uri_opens_context_pages() {
+        assert_eq!(
+            Page::from_uri("spotify:playlist:abc123"),
+            Some(Page::Playlist("abc123".into()))
+        );
+        assert_eq!(
+            Page::from_uri("spotify:album:def456"),
+            Some(Page::Album("def456".into()))
+        );
+        assert_eq!(
+            Page::from_uri("spotify:artist:ghi789"),
+            Some(Page::Artist("ghi789".into()))
+        );
+        assert_eq!(
+            Page::from_uri("spotify:show:jkl012"),
+            Some(Page::Show("jkl012".into()))
+        );
+    }
+
+    #[test]
+    fn from_uri_opens_liked_songs_collection() {
+        assert_eq!(
+            Page::from_uri("spotify:user:me:collection"),
+            Some(Page::LikedSongs)
+        );
+        assert_eq!(
+            Page::from_uri("spotify:user:demo:collection"),
+            Some(Page::LikedSongs)
+        );
+    }
+
+    #[test]
+    fn from_uri_rejects_malformed_context_uris() {
+        assert_eq!(Page::from_uri("spotify:album:"), None);
+        assert_eq!(Page::from_uri("spotify:playlist:"), None);
+        assert_eq!(Page::from_uri("spotify:album:original:other"), None);
+        assert_eq!(Page::from_uri("spotify:user::collection"), None);
+        assert_eq!(Page::from_uri("spotify:user:me:collection:extra"), None);
+        assert_eq!(Page::from_uri("spotify:user:me"), None);
+        assert_eq!(Page::from_uri("spotify:user:me:liked"), None);
+    }
+
+    #[test]
+    fn from_uri_ignores_unsupported_uris() {
+        assert_eq!(Page::from_uri("spotify:track:track123"), None);
+        assert_eq!(Page::from_uri("spotify:station:seed"), None);
+        assert_eq!(Page::from_uri("spotify:user:missing:tail"), None);
+        assert_eq!(Page::from_uri("not-spotify:album:abc123"), None);
+        assert_eq!(Page::from_uri("album:abc123"), None);
+        assert_eq!(Page::from_uri(""), None);
     }
 }

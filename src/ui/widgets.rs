@@ -941,6 +941,17 @@ pub(crate) fn playlist_picker(
     field
 }
 
+/// The context behind "Go to playing context": what the player is playing
+/// from, or the row's context when playback has no context of its own.
+/// Used only for songs; podcast episode menus use a different code path.
+fn menu_context_uri<'a>(playing: Option<&'a str>, row: Option<&'a RowContext>) -> Option<&'a str> {
+    playing.filter(|uri| !uri.is_empty()).or(match row {
+        Some(RowContext::Context { uri, .. }) => Some(uri.as_str()),
+        Some(RowContext::View { context_uri, .. }) => Some(context_uri.as_str()),
+        _ => None,
+    })
+}
+
 pub fn item_menu(
     ui: &mut Ui,
     app: &mut App,
@@ -1163,6 +1174,26 @@ fn item_menu_at(
             {
                 app.actions
                     .push(Action::Open(Page::Album(album.id.clone())));
+            }
+
+            // Only show this for the currently playing song, since "Go to
+            // playing context" means navigating to where it plays from.
+            // Prefer the actual playing context, and fall back to the row's
+            // context when the player has none, such as a song playing from
+            // the queue on a filtered view.
+            if app.current_track_uri().is_some_and(|uri| uri == item.uri()) {
+                let playing_context = app.playing_context_uri();
+                if let Some(uri) = menu_context_uri(playing_context.as_deref(), context)
+                    && let Some(page) = Page::from_uri(uri)
+                    && menu_item(
+                        ui,
+                        &palette,
+                        Some(Icon::ListMusic),
+                        &gettext(locale, "Go to playing context"),
+                    )
+                {
+                    app.actions.push(Action::Open(page));
+                }
             }
         }
         PlayableItem::Episode(episode) => {
@@ -3606,6 +3637,46 @@ mod tests {
     use crate::model::{Action, Page};
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn menu_context_uri_prefers_playback_over_the_row() {
+        let row = RowContext::Context {
+            uri: "spotify:album:row".into(),
+            editable_playlist: None,
+        };
+        assert_eq!(
+            menu_context_uri(Some("spotify:playlist:playing"), Some(&row)),
+            Some("spotify:playlist:playing")
+        );
+        assert_eq!(
+            menu_context_uri(Some(""), Some(&row)),
+            Some("spotify:album:row")
+        );
+        assert_eq!(
+            menu_context_uri(None, Some(&row)),
+            Some("spotify:album:row")
+        );
+    }
+
+    #[test]
+    fn menu_context_uri_falls_back_to_a_view_context() {
+        let row = RowContext::View {
+            uris: std::sync::Arc::from(["spotify:track:row".to_string()]),
+            context_uri: "spotify:playlist:view".into(),
+            editable_playlist: None,
+        };
+        assert_eq!(
+            menu_context_uri(None, Some(&row)),
+            Some("spotify:playlist:view")
+        );
+        assert_eq!(
+            menu_context_uri(Some(""), Some(&row)),
+            Some("spotify:playlist:view")
+        );
+        let loose = RowContext::Uris(std::sync::Arc::from(["spotify:track:row".to_string()]));
+        assert_eq!(menu_context_uri(None, Some(&loose)), None);
+        assert_eq!(menu_context_uri(None, Some(&RowContext::Queue)), None);
+    }
 
     #[test]
     fn editing_a_proxy_endpoint_clears_its_password_but_password_entry_is_preserved() {

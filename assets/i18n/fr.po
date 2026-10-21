@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-21 11:41+0200\n"
+"POT-Creation-Date: 2026-10-21 15:38+0300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: French\n"
@@ -111,21 +111,21 @@ msgstr "Rechercher dans la bibliothèque"
 msgid "Library"
 msgstr "Bibliothèque"
 
-#: src/ui/sidebar.rs:1095 src/app.rs:7811 src/model.rs:722 src/ui/search.rs:668
+#: src/ui/sidebar.rs:1095 src/app.rs:7811 src/model.rs:740 src/ui/search.rs:668
 msgid "Playlists"
 msgstr "Playlists"
 
-#: src/ui/sidebar.rs:1096 src/model.rs:721 src/model.rs:846
+#: src/ui/sidebar.rs:1096 src/model.rs:739 src/model.rs:864
 #: src/ui/library.rs:17 src/ui/search.rs:595
 msgid "Albums"
 msgstr "Albums"
 
-#: src/ui/sidebar.rs:1097 src/model.rs:720 src/ui/library.rs:22
+#: src/ui/sidebar.rs:1097 src/model.rs:738 src/ui/library.rs:22
 #: src/ui/search.rs:527
 msgid "Artists"
 msgstr "Artistes"
 
-#: src/ui/sidebar.rs:1098 src/model.rs:723 src/ui/library.rs:27
+#: src/ui/sidebar.rs:1098 src/model.rs:741 src/ui/library.rs:27
 #: src/ui/search.rs:719
 msgid "Podcasts"
 msgstr "Podcasts"
@@ -163,7 +163,7 @@ msgstr "Aucun résultat."
 msgid "Sort by recently played"
 msgstr "Trier par écoute récente"
 
-#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:793 src/ui/widgets.rs:1213
+#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:793 src/ui/widgets.rs:1244
 #: src/ui/artist.rs:395 src/ui/collection.rs:295 src/ui/new_releases.rs:117
 #: src/ui/prerelease.rs:309 src/ui/search.rs:408 src/ui/show.rs:389
 msgid "Play"
@@ -237,13 +237,13 @@ msgstr "Choisissez un titre, un album ou une playlist"
 msgid "Add to playlist"
 msgstr "Ajouter à une playlist"
 
-#: src/ui/player_bar.rs:610 src/ui/widgets.rs:744 src/ui/widgets.rs:1018
-#: src/ui/widgets.rs:1997
+#: src/ui/player_bar.rs:610 src/ui/widgets.rs:744 src/ui/widgets.rs:1029
+#: src/ui/widgets.rs:2028
 msgid "Save to Liked Songs"
 msgstr "Ajouter aux Titres likés"
 
-#: src/ui/player_bar.rs:660 src/ui/widgets.rs:741 src/ui/widgets.rs:1015
-#: src/ui/widgets.rs:1995
+#: src/ui/player_bar.rs:660 src/ui/widgets.rs:741 src/ui/widgets.rs:1026
+#: src/ui/widgets.rs:2026
 msgid "Remove from Liked Songs"
 msgstr "Retirer des Titres likés"
 
@@ -356,7 +356,7 @@ msgstr "À suivre"
 msgid "Next up"
 msgstr "Ensuite"
 
-#: src/ui/queue.rs:625 src/ui/queue.rs:658 src/ui/widgets.rs:2925
+#: src/ui/queue.rs:625 src/ui/queue.rs:658 src/ui/widgets.rs:2956
 #: src/ui/collection.rs:1241 src/ui/prerelease.rs:242
 msgid "Retry"
 msgstr "Réessayer"
@@ -435,8 +435,8 @@ msgstr "Instrumental"
 msgid "No timed lyrics for this track."
 msgstr "Aucune parole synchronisée pour ce titre."
 
-#: src/ui/lyrics.rs:462 src/ui/widgets.rs:2823 src/ui/widgets.rs:2863
-#: src/ui/widgets.rs:2891 src/app.rs:12838 src/ui/collection.rs:892
+#: src/ui/lyrics.rs:462 src/ui/widgets.rs:2854 src/ui/widgets.rs:2894
+#: src/ui/widgets.rs:2922 src/app.rs:12838 src/ui/collection.rs:892
 msgid "Loading…"
 msgstr "Chargement…"
 
@@ -462,15 +462,15 @@ msgstr "Lire {song}"
 msgid "Listening now"
 msgstr "En train d'écouter"
 
-#: src/ui/widgets.rs:715 src/ui/widgets.rs:976
+#: src/ui/widgets.rs:715 src/ui/widgets.rs:987
 msgid "Play next"
 msgstr "Lire ensuite"
 
-#: src/ui/widgets.rs:726 src/ui/widgets.rs:987 src/ui/widgets.rs:1235
+#: src/ui/widgets.rs:726 src/ui/widgets.rs:998 src/ui/widgets.rs:1266
 msgid "Add to queue"
 msgstr "Ajouter à la file d’attente"
 
-#: src/ui/widgets.rs:760 src/ui/widgets.rs:1079 src/ui/keys.rs:226
+#: src/ui/widgets.rs:760 src/ui/widgets.rs:1090 src/ui/keys.rs:226
 msgid "Remove from this playlist"
 msgstr "Retirer de cette playlist"
 
@@ -490,110 +490,114 @@ msgstr "Aucune playlist modifiable"
 msgid "No matching playlists"
 msgstr "Aucune playlist correspondante"
 
-#: src/ui/widgets.rs:1003
+#: src/ui/widgets.rs:1014
 msgid "Remove from queue"
 msgstr "Retirer de la file d’attente"
 
-#: src/ui/widgets.rs:1028
+#: src/ui/widgets.rs:1039
 msgid "Save episode"
 msgstr "Enregistrer l’épisode"
 
-#: src/ui/widgets.rs:1053
+#: src/ui/widgets.rs:1064
 msgid "Move up"
 msgstr "Monter"
 
-#: src/ui/widgets.rs:1066
+#: src/ui/widgets.rs:1077
 msgid "Move down"
 msgstr "Descendre"
 
-#: src/ui/widgets.rs:1100
+#: src/ui/widgets.rs:1111
 msgid "Show in this playlist"
 msgstr "Afficher dans cette playlist"
 
-#: src/ui/widgets.rs:1102
+#: src/ui/widgets.rs:1113
 msgid "Hide in this playlist"
 msgstr "Masquer dans cette playlist"
 
-#: src/ui/widgets.rs:1119
+#: src/ui/widgets.rs:1130
 msgid "Go to song radio"
 msgstr "Accéder à la radio du titre"
 
-#: src/ui/widgets.rs:1136 src/ui/widgets.rs:1143
+#: src/ui/widgets.rs:1147 src/ui/widgets.rs:1154
 msgid "Go to artist"
 msgstr "Accéder à l’artiste"
 
-#: src/ui/widgets.rs:1161
+#: src/ui/widgets.rs:1172
 msgid "Go to album"
 msgstr "Accéder à l’album"
 
-#: src/ui/widgets.rs:1174
+#: src/ui/widgets.rs:1192
+msgid "Go to playing context"
+msgstr "Aller à la source"
+
+#: src/ui/widgets.rs:1205
 msgid "Go to podcast"
 msgstr "Accéder au podcast"
 
-#: src/ui/widgets.rs:1186 src/ui/widgets.rs:1298 src/ui/prerelease.rs:226
+#: src/ui/widgets.rs:1217 src/ui/widgets.rs:1329 src/ui/prerelease.rs:226
 msgid "Copy link"
 msgstr "Copier le lien"
 
-#: src/ui/widgets.rs:1194 src/ui/widgets.rs:1306 src/ui/prerelease.rs:230
+#: src/ui/widgets.rs:1225 src/ui/widgets.rs:1337 src/ui/prerelease.rs:230
 msgid "Open in Spotify"
 msgstr "Ouvrir dans Spotify"
 
-#: src/ui/widgets.rs:1225
+#: src/ui/widgets.rs:1256
 msgid "Shuffle play"
 msgstr "Lecture aléatoire"
 
-#: src/ui/widgets.rs:1245
+#: src/ui/widgets.rs:1276
 msgctxt "artist"
 msgid "Unfollow"
 msgstr "Se désabonner"
 
-#: src/ui/widgets.rs:1246 src/ui/artist.rs:411
+#: src/ui/widgets.rs:1277 src/ui/artist.rs:411
 msgctxt "artist"
 msgid "Follow"
 msgstr "S’abonner"
 
-#: src/ui/widgets.rs:1247 src/ui/collection.rs:2168 src/ui/collection.rs:2191
+#: src/ui/widgets.rs:1278 src/ui/collection.rs:2168 src/ui/collection.rs:2191
 #: src/ui/show.rs:241
 msgid "Remove from Your Library"
 msgstr "Retirer de votre bibliothèque"
 
-#: src/ui/widgets.rs:1248 src/ui/collection.rs:2167
+#: src/ui/widgets.rs:1279 src/ui/collection.rs:2167
 msgid "Add to Your Library"
 msgstr "Ajouter à votre bibliothèque"
 
-#: src/ui/widgets.rs:1258 src/ui/dialogs.rs:464
+#: src/ui/widgets.rs:1289 src/ui/dialogs.rs:464
 msgid "Edit details"
 msgstr "Modifier les détails"
 
-#: src/ui/widgets.rs:1272 src/ui/dialogs.rs:100
+#: src/ui/widgets.rs:1303 src/ui/dialogs.rs:100
 msgid "Delete"
 msgstr "Supprimer"
 
-#: src/ui/widgets.rs:1283
+#: src/ui/widgets.rs:1314
 msgid "Go to playlist radio"
 msgstr "Accéder à la radio de la playlist"
 
-#: src/ui/widgets.rs:1284
+#: src/ui/widgets.rs:1315
 msgid "Go to album radio"
 msgstr "Accéder à la radio de l’album"
 
-#: src/ui/widgets.rs:1285
+#: src/ui/widgets.rs:1316
 msgid "Go to artist radio"
 msgstr "Accéder à la radio de l’artiste"
 
 #. Translators: {title} is a song or episode name, {subtitle} its artists or podcast.
-#: src/ui/widgets.rs:1507
+#: src/ui/widgets.rs:1538
 #, rust-format
 msgid "Play {title}, {subtitle}"
 msgstr "Lire {title}, {subtitle}"
 
-#: src/ui/widgets.rs:2042 src/ui/artist.rs:425 src/ui/collection.rs:398
+#: src/ui/widgets.rs:2073 src/ui/artist.rs:425 src/ui/collection.rs:398
 #: src/ui/show.rs:259 src/ui/show.rs:467
 msgid "More"
 msgstr "Plus"
 
 #. Translators: The label beside the pointer while songs are dragged. {name} is the first song's name and {count} how many more songs are dragged with it.
-#: src/ui/widgets.rs:2194
+#: src/ui/widgets.rs:2225
 #, rust-format
 msgid "{name} + {count} more"
 msgid_plural "{name} + {count} more"
@@ -601,95 +605,95 @@ msgstr[0] "{name} + {count} autre"
 msgstr[1] "{name} + {count} autres"
 
 #. Translators: {column} is a column heading of a song list, such as Title.
-#: src/ui/widgets.rs:2312
+#: src/ui/widgets.rs:2343
 #, rust-format
 msgid "Sort by {column}"
 msgstr "Trier par {column}"
 
-#: src/ui/widgets.rs:2362
+#: src/ui/widgets.rs:2393
 msgid "Sort by playlist order"
 msgstr "Trier dans l’ordre de la playlist"
 
-#: src/ui/widgets.rs:2397
+#: src/ui/widgets.rs:2428
 msgid "Original order, reversed"
 msgstr "Ordre d’origine, inversé"
 
-#: src/ui/widgets.rs:2410
+#: src/ui/widgets.rs:2441
 msgctxt "column heading"
 msgid "TITLE"
 msgstr "TITRE"
 
-#: src/ui/widgets.rs:2439
+#: src/ui/widgets.rs:2470
 msgctxt "column heading"
 msgid "ALBUM"
 msgstr "ALBUM"
 
-#: src/ui/widgets.rs:2448
+#: src/ui/widgets.rs:2479
 msgctxt "column heading"
 msgid "ADDED BY"
 msgstr "AJOUTÉ PAR"
 
-#: src/ui/widgets.rs:2457
+#: src/ui/widgets.rs:2488
 msgctxt "column heading"
 msgid "DATE ADDED"
 msgstr "DATE D’AJOUT"
 
-#: src/ui/widgets.rs:2467
+#: src/ui/widgets.rs:2498
 msgctxt "column heading"
 msgid "PLAYS"
 msgstr "ÉCOUTES"
 
-#: src/ui/widgets.rs:2489 src/ui/widgets.rs:2519
+#: src/ui/widgets.rs:2520 src/ui/widgets.rs:2550
 msgid "Sort by duration"
 msgstr "Trier par durée"
 
-#: src/ui/widgets.rs:2902 src/app.rs:13030 src/app.rs:13044
+#: src/ui/widgets.rs:2933 src/app.rs:13030 src/app.rs:13044
 msgid "Network connection error. Check your connection."
 msgstr "Erreur de connexion réseau. Vérifiez votre connexion."
 
-#: src/ui/widgets.rs:3160
+#: src/ui/widgets.rs:3191
 msgid "Cut"
 msgstr "Couper"
 
-#: src/ui/widgets.rs:3165
+#: src/ui/widgets.rs:3196
 msgid "Copy"
 msgstr "Copier"
 
-#: src/ui/widgets.rs:3170
+#: src/ui/widgets.rs:3201
 msgid "Paste"
 msgstr "Coller"
 
-#: src/ui/widgets.rs:3187
+#: src/ui/widgets.rs:3218
 msgid "Select all"
 msgstr "Tout sélectionner"
 
-#: src/ui/widgets.rs:3294
+#: src/ui/widgets.rs:3325
 msgid "Clear"
 msgstr "Effacer"
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
-#: src/ui/widgets.rs:3339
+#: src/ui/widgets.rs:3370
 #, rust-format
 msgid "Built with love by {name}"
 msgstr "Fait avec amour par {name}"
 
-#: src/ui/widgets.rs:3484
+#: src/ui/widgets.rs:3515
 msgid "Host"
 msgstr "Hôte"
 
-#: src/ui/widgets.rs:3501
+#: src/ui/widgets.rs:3532
 msgid "Port"
 msgstr "Port"
 
-#: src/ui/widgets.rs:3519
+#: src/ui/widgets.rs:3550
 msgid "Username"
 msgstr "Nom d’utilisateur"
 
-#: src/ui/widgets.rs:3530
+#: src/ui/widgets.rs:3561
 msgid "Password"
 msgstr "Mot de passe"
 
-#: src/ui/widgets.rs:3548
+#: src/ui/widgets.rs:3579
 msgid ""
 "Proxy login applies to Web requests. Local playback uses this proxy only "
 "without a login."
@@ -697,7 +701,7 @@ msgstr ""
 "L’identifiant du proxy s’applique aux requêtes Web. La lecture locale "
 "n’utilise ce proxy que sans identifiant."
 
-#: src/ui/widgets.rs:3552
+#: src/ui/widgets.rs:3583
 msgid ""
 "Spotify hostnames are resolved by the proxy. Local playback connects "
 "directly."
@@ -2147,7 +2151,7 @@ msgstr "Single"
 msgid "Compilation"
 msgstr "Compilation"
 
-#: src/api/models.rs:298 src/model.rs:848
+#: src/api/models.rs:298 src/model.rs:866
 msgid "Appears On"
 msgstr "Apparaît sur"
 
@@ -2161,20 +2165,20 @@ msgstr "Illimité"
 msgid "{rate} fps, your screen"
 msgstr "{rate} fps, votre écran"
 
-#: src/model.rs:718 src/model.rs:845
+#: src/model.rs:736 src/model.rs:863
 msgctxt "filter"
 msgid "All"
 msgstr "Tout"
 
-#: src/model.rs:719 src/ui/search.rs:443
+#: src/model.rs:737 src/ui/search.rs:443
 msgid "Songs"
 msgstr "Titres"
 
-#: src/model.rs:724 src/ui/library.rs:32 src/ui/search.rs:286
+#: src/model.rs:742 src/ui/library.rs:32 src/ui/search.rs:286
 msgid "Episodes"
 msgstr "Épisodes"
 
-#: src/model.rs:847
+#: src/model.rs:865
 msgid "Singles & EPs"
 msgstr "Singles et EP"
 
