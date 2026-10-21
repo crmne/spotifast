@@ -5,6 +5,13 @@ description: Play music, arrange playlists, find lyrics, and make Spotifast your
 nav_order: 3
 ---
 
+## Mouse feedback
+
+Theme and language dropdowns, sortable column headings, playback device choices,
+and timed lyric lines show a hand cursor when their action is available.
+Equalizer and mini-player sliders show a hand on hover and a grabbing cursor
+while dragged. Text fields and resize handles keep their own cursors.
+
 ## Middle-click autoscroll
 
 On Windows, since 0.8.0, and on Linux once turned on, middle-click anywhere

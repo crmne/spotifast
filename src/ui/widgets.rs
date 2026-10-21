@@ -454,6 +454,11 @@ fn menu_item_response(
             Sense::hover()
         },
     );
+    let response = if enabled {
+        response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    } else {
+        response
+    };
     if ui.is_rect_visible(rect) {
         if (response.hovered() || highlighted) && enabled {
             ui.painter()
@@ -624,6 +629,7 @@ fn submenu<R>(
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     theme::focus_ring(ui, &response);
     let mut config = egui::menu::MenuConfig::find(ui);
     if let Some(close_behavior) = close_behavior {
@@ -1509,11 +1515,16 @@ fn track_row_contents(
     if !ui.is_rect_visible(rect) && !response.has_focus() && !response.clicked() {
         return (response, None);
     }
+    let drag_started = response.drag_started_by(egui::PointerButton::Primary);
+    let dragging = response.dragged() || drag_started;
+    let response = if !unavailable && !dragging {
+        response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    } else {
+        response
+    };
+
     // Start a sidebar drag only after egui's drag threshold.
-    if ui.is_enabled()
-        && row.item.is_track()
-        && response.drag_started_by(egui::PointerButton::Primary)
-    {
+    if ui.is_enabled() && row.item.is_track() && drag_started {
         let items = dragged_items(row.item, row.picked, row.picked_songs);
         let source_playlist = match row.context {
             RowContext::Context {
@@ -2295,6 +2306,7 @@ pub fn table_header(
         let head =
             Rect::from_min_size(top_left, size + vec2(arrow_room, 0.0)).expand2(vec2(4.0, 8.0));
         let response = ui.interact(head, ui.id().with(("table-header", text)), Sense::click());
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,
@@ -2348,6 +2360,7 @@ pub fn table_header(
         let natural = sort.is_none();
         let active = sort.filter(|sort| sort.column == SortColumn::Index);
         let response = ui.interact(number, ui.id().with("table-header-number"), Sense::click());
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,
@@ -2728,6 +2741,7 @@ pub fn card(
         }
     }
     crate::autoscroll::row(ui, &response);
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     theme::focus_ring(ui, &response);
     CardResponse {
         clicked: response.clicked() && !play,
@@ -3099,6 +3113,12 @@ pub fn thin_slider(
                 .circle_filled(pos2(filled.right(), bar.center().y), 6.0, palette.text);
         }
     }
+    let cursor = if response.dragged() {
+        egui::CursorIcon::Grabbing
+    } else {
+        egui::CursorIcon::PointingHand
+    };
+    response.on_hover_cursor(cursor);
     event
 }
 
@@ -3318,6 +3338,7 @@ pub fn switch(ui: &mut Ui, palette: &Palette, label: &str, on: &mut bool) -> egu
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, label)
     });
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     theme::focus_ring(ui, &response);
     response
 }

@@ -586,6 +586,7 @@ pub fn icon_button(
         paint_icon(ui, icon, rect, size * scale, tint);
     }
     focus_ring(ui, &response);
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if tooltip.is_empty() {
         response
     } else {
@@ -664,6 +665,7 @@ pub fn circle_button(
         icon.image(icon_color, icon_size).paint_at(ui, icon_rect);
     }
     focus_ring(ui, &response);
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if tooltip.is_empty() {
         response
     } else {
@@ -741,7 +743,7 @@ pub fn pill_button(ui: &mut egui::Ui, palette: &Palette, label: &str, primary: b
         ui.painter().galley(pos, galley, color);
     }
     focus_ring(ui, &response);
-    response
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A muted button with an icon and label, for row and header actions.
@@ -803,6 +805,7 @@ fn soft_button_inner(
             response.id.with("dismiss"),
             Sense::click(),
         );
+        let dismiss = dismiss.on_hover_cursor(egui::CursorIcon::PointingHand);
         dismiss.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,
@@ -843,6 +846,7 @@ fn soft_button_inner(
     if let Some(dismiss) = dismiss {
         focus_ring(ui, &dismiss);
     }
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     (response, dismissed)
 }
 
@@ -1114,14 +1118,12 @@ mod tests {
         }
     }
 
-    /// Native desktop apps keep the arrow over buttons and switch to the
-    /// hand only over links (#508).
     #[test]
-    fn only_links_show_the_hand_cursor() {
+    fn enabled_buttons_and_links_show_the_hand_cursor() {
         let ctx = egui::Context::default();
         install(&ctx);
         let palette = Palette::dark();
-        let draw = |ctx: &egui::Context, pointer: Option<egui::Pos2>| {
+        let draw = |ctx: &egui::Context, pointer: Option<egui::Pos2>, enabled| {
             let mut rects = (egui::Rect::NOTHING, egui::Rect::NOTHING);
             let input = egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
@@ -1134,18 +1136,27 @@ mod tests {
                 ..Default::default()
             };
             let mut output = ctx.run_ui(input, |ui| {
-                rects.0 = pill_button(ui, &palette, "Play", true).rect;
-                rects.1 = link(ui, "Bonobo", regular(14.0), palette.text).rect;
+                ui.add_enabled_ui(enabled, |ui| {
+                    rects.0 = pill_button(ui, &palette, "Play", true).rect;
+                    rects.1 = link(ui, "Bonobo", regular(14.0), palette.text).rect;
+                });
             });
             output.textures_delta.clear();
             (rects, output.platform_output.cursor_icon)
         };
-        draw(&ctx, None);
-        let ((button, link_rect), _) = draw(&ctx, None);
-        let (_, over_button) = draw(&ctx, Some(button.center()));
-        assert_eq!(over_button, egui::CursorIcon::Default);
-        let (_, over_link) = draw(&ctx, Some(link_rect.center()));
-        assert_eq!(over_link, egui::CursorIcon::PointingHand);
+        for enabled in [true, false] {
+            draw(&ctx, None, enabled);
+            let ((button, link_rect), _) = draw(&ctx, None, enabled);
+            let expected = if enabled {
+                egui::CursorIcon::PointingHand
+            } else {
+                egui::CursorIcon::Default
+            };
+            for rect in [button, link_rect] {
+                let (_, cursor) = draw(&ctx, Some(rect.center()), enabled);
+                assert_eq!(cursor, expected, "enabled: {enabled}");
+            }
+        }
     }
 
     #[test]

@@ -151,7 +151,7 @@ fn badge(
             palette.accent,
         );
     }
-    response
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn nav_button(
@@ -186,7 +186,9 @@ fn nav_button(
         theme::paint_icon(ui, icon, rect, 20.0, color);
     }
     if enabled {
-        response.on_hover_text(tooltip)
+        response
+            .on_hover_text(tooltip)
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
     } else {
         response
     }
@@ -439,7 +441,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         }
                     }
                 }
-                let response = response.on_hover_text(&name);
+                let response = response
+                    .on_hover_text(&name)
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
                 egui::Popup::menu(&response)
                     .frame(super::widgets::menu_frame(&palette))
                     .align(egui::RectAlign::BOTTOM_END)

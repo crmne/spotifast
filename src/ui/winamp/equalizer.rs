@@ -268,6 +268,12 @@ fn decibels(fraction: f32) -> f32 {
 /// value while it is held.
 fn slider(view: &mut View, area: Area, id: &str, value: f32) -> Option<f32> {
     let response = view.interact(area, id, Sense::click_and_drag());
+    let cursor = if response.dragged() {
+        egui::CursorIcon::Grabbing
+    } else {
+        egui::CursorIcon::PointingHand
+    };
+    let response = response.on_hover_and_drag_cursor(cursor);
     let frame = (value * (sprites::EQ_SLIDER_FRAMES - 1) as f32).round() as u32;
     view.sprite(sprites::eq_slider_frame(frame), area);
     let held = response.dragged() || response.is_pointer_button_down_on();
