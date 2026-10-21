@@ -269,6 +269,34 @@ impl View<'_> {
         let memory = Id::new(("winamp-slider", id));
         let dragging = self.ui.data(|data| data.get_temp::<f32>(memory));
         let travel = (area.width - thumb) as f32;
+        // egui hands a press near a widget to the closest one, so a click
+        // just past the end of the volume bar lands on the balance slider
+        // beside it, clamped to its far left (#804). A slider only moves
+        // for a press on its own track.
+        let rect = self.rect(area);
+        let grabbed = Id::new(("winamp-slider-grabbed", id));
+        if response.drag_started() {
+            let on_track = self
+                .ui
+                .input(|input| input.pointer.press_origin())
+                .is_some_and(|origin| rect.contains(origin));
+            self.ui.data_mut(|data| data.insert_temp(grabbed, on_track));
+        }
+        let on_track = if response.clicked() && !response.dragged() {
+            response
+                .interact_pointer_pos()
+                .is_some_and(|pos| rect.contains(pos))
+        } else {
+            self.ui
+                .data(|data| data.get_temp::<bool>(grabbed))
+                .unwrap_or(false)
+        };
+        if response.drag_stopped() {
+            self.ui.data_mut(|data| data.remove::<bool>(grabbed));
+        }
+        if !on_track {
+            return (response, SliderEvent::None);
+        }
         let pointer = response.interact_pointer_pos().map(|pos| {
             ((self.skin_x(pos) - area.x as f32 - thumb as f32 / 2.0) / travel).clamp(0.0, 1.0)
         });

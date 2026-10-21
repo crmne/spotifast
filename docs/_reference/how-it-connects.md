@@ -38,12 +38,28 @@ local playback:
    Spotify-owned playlists named Discover Weekly, Release Radar, Daily Mix,
    and daylist. The shelf keeps its **Made for you** heading, although search
    cannot recover the account's Home ordering or every personalized card.
+   The same read also asks for the account's **Your top mixes** section, at
+   the same time, with the same tokens, cache and cooldown; a `Retry-After`
+   from either section pauses both. Search cannot find personal mixes, so
+   that shelf has no fallback and keeps any cards it already shows.
    When playback becomes ready after Home, the personalized read is retried
    while existing cards stay visible. Shared rate limits can still prevent
    this fallback from loading. This
    private response can change without notice. Radio pages come only from
    this session: the Web API has no stations. Opening one resolves the
    station and reads its songs' details in one batched request.
+   Play counts on album pages and an artist's popular songs come from the
+   same Pathfinder queries Spotify's own album and artist pages make, with the
+   session's token and an already verified Web API grant. Each album or artist
+   is read once per run, and a read that fails leaves the column out.
+
+   The **Listening activity** panel also needs this session. While the panel
+   is open, and only then, the session reads Spotify's private
+   `listening-activity/v1/feed` every 15 seconds through librespot's
+   spclient, then reads the songs' details in one batched request. Friends' names, avatars and playlist names
+   are read once per run and kept in memory. Nothing from the panel is written
+   to disk or logged. If the feed fails, the session's older
+   `presence-view/v1/buddylist` stands in.
 
 Local playback authorization stays separate from both Web API grants. Its
 browser approval requests only the streaming permission and always shows the
@@ -147,18 +163,34 @@ contexts and queue in memory. The replacement session restores them after
 Connect registration instead of loading only the interrupted song. Unresolved
 context pages continue through the new session. The snapshot contains no login
 credentials, is never written to disk, and cannot be restored by another
-account. Reconnecting can still briefly interrupt audio, and the replacement
-engine starts at the volume being heard. This recovery applies to unexpected
-disconnects; changing audio settings still restarts the engine with its
-current-track pickup.
+account. The replacement engine starts at the volume being heard. This
+recovery applies to unexpected disconnects; changing audio settings still
+restarts the engine with its current-track pickup.
+
+A song playing or paused when the session drops stays as it is while the
+replacement session connects: the player keeps playing the audio it has
+already fetched, and the new session takes that same player over and picks
+the song up where it has got to, without loading it again.
+Pausing or playing during the reconnect works on that song. A song that runs
+out of fetched audio, or the next song, which needs a new audio key, waits
+for the new session. The song plays on through failed reconnection attempts
+that are retried; choosing something else, changing audio settings, signing
+out, or a reconnection that gives up stops it.
 
 ## What the client stores
 
 - Since 0.8.0, shared and personal Web API grants
   and the reusable playback credential use the platform credential store:
   Secret Service on Linux, Keychain on macOS, and Credential Manager on
-  Windows. Librespot retains its reusable credential in memory; Spotifast
-  owns persistence. Flatpak can talk to `org.freedesktop.secrets` for this.
+  Windows, where a copy encrypted for the Windows account with the Data
+  Protection API also stays in the data folder for when Credential Manager
+  refuses or loses a grant. Since 0.13.4, a portable Windows copy keeps
+  that data folder next to its executable, and the first time it makes
+  one from the installed copy's state it saves those grants again under
+  entries of its own, never moving or deleting the installed copy's
+  ([portable copies](/settings-and-files/#portable-copies)). Librespot retains its reusable credential in
+  memory; Spotifast owns persistence. Flatpak can talk to
+  `org.freedesktop.secrets` for this.
   Version 0.7.1 still uses the older unencrypted files.
   See [migration, sign-out, and storage protection](/settings-and-files/).
 - Downloaded audio and artwork, in the cache directory, within the budget
@@ -179,8 +211,9 @@ current-track pickup.
   while the saved rows remain visible. Manual refresh starts immediately.
   Like and Unlike are kept over lagging reads until Spotify confirms them.
 - Spotifast has no telemetry, analytics, or hosted service. When the lyrics
-  panel is open and Spotify has no lyrics, it sends the track's artist, title,
-  album, and length to [lrclib.net](https://lrclib.net). It also checks
+  panel is open and neither Spotify nor a local file has lyrics, it sends
+  the track's artist, title, album, and length to
+  [lrclib.net](https://lrclib.net). It also checks
   api.github.com once a day for updates. You can turn off automatic checks in
   Settings, or request one there at any time. On macOS, **Check for Updates**
   is also in the application menu. On a connection the system reports as
@@ -257,9 +290,22 @@ instead of caching rows without songs. A song Spotify no longer has, or
 withholds for legal reasons, is an empty row, as the Web API shows it.
 
 The playlist list and fallback Made for you searches go through the shared app even
-when a personal app is set up. While the shared app waits out Spotify's
-limits, the sidebar and Home show what they last showed for the account,
-from the cache described in [Settings & Files](/settings-and-files/).
+when a personal app is set up, because a personal app's list leaves out
+Spotify's own playlists. While the shared app waits out Spotify's limits, the
+sidebar and Home show what they last showed for the account, from the cache
+described in [Settings & Files](/settings-and-files/).
+
+While local playback is signed in and the shared app is still
+verifying sign-in or waiting out a rate limit, the playlist list is read from
+the playback session's rootlist instead: every saved and followed playlist,
+Spotify's own among them, in one request per 500 playlists. The rootlist names
+each owner by ID only, so their display names are read from their profiles
+over the same session, four at a time, for at most five seconds; a name that
+does not arrive in time shows as the ID. A playlist without a cover of its
+own keeps the mosaic the earlier list showed for it. A list still waiting on
+the shared app when local playback connects is read again this way. If the
+session cannot read the list, the request waits for the shared app as
+before. None of these reads use Web API quota.
 
 Spotify can also explicitly refuse the key needed to decrypt a track. When
 that happens, Spotifast stops local playback and leaves the rest of the queue
@@ -286,6 +332,43 @@ If metadata still reports an older revision after three immediate rechecks,
 or the request fails, the page keeps the edits and offers a retry. Refreshing
 again retries confirmation without losing the local changes. This uses the
 existing playlist requests and adds no periodic polling.
+
+## New releases on Home
+
+Home's **New releases** shelf is read when Home refreshes, and again when
+local playback becomes ready. With local playback set up, Spotifast sends
+Spotify's own new-releases feed query (`queryWhatsNewFeed`) to Pathfinder
+with the session's Login5 bearer and client token, asking for the first 50
+albums, EPs and singles. Spotifast never sends the feed's mutation that marks
+items as seen, so the bell in Spotify's apps is left as it was. The query
+uses no Web API quota.
+
+When local playback is not set up, or the feed cannot be read, the Web API
+stands in: the followed artists, 50 to a page, and for each of the first 50
+of them its ten newest albums and singles, through the normal personal/shared
+app routing, merged and sorted by release date. That answer costs a request
+for each artist, so it is kept in memory for an hour. A rate limit, exhausted
+quota or expired sign-in stops the remaining artists for that refresh; the
+shelf keeps what it showed before.
+
+The **New releases** page lists the songs of the releases on the shelf. Over
+the playback session they come from two batched metadata reads, one for the
+releases' track lists and one for the songs; without it, from the Web API's
+album tracks, one request per release.
+
+## Songs hidden in a playlist
+
+Spotify's own playlists, Discover Weekly and the other mixes made for you,
+offer **Hide in this playlist** in a song's menu, as Spotify's apps do. The
+hidden songs live in the account's `playcontextbans` collection set on
+Spotify's client API, which librespot reads and writes for Spotifast. When
+local playback connects, Spotifast reads that set once, 500 items to a
+page. Hiding or showing a song greys its row out or brings it back at once,
+and sends one write for that song and playlist; if Spotify turns it away,
+the row goes back and an error is shown. While a playlist has hidden songs,
+playing it plays the songs on screen without them, as a filtered playlist
+does, so Shuffle and Repeat follow the shown songs. Hiding needs local
+playback; without it the menu entry is not offered.
 
 ## Podcasts on Home
 
@@ -404,6 +487,34 @@ Cast speakers, displays and speaker groups announce `_googlecast._tcp`, not
 Spotifast lists them under their Cast name (the `fn` record) without probing
 them, because probing one would start Spotify on it.
 
+The picker shows the first resolved Cast announcement immediately while its
+three-second browse continues, batching subsequent changes at most every 100 ms.
+It retains at most 128 Cast services and one pending UI update, ignores unchanged
+advertisements, and bounds provisional rows during receiver churn.
+Cast rows do not wait for the subsequent
+Connect receiver probes. Reopening or refreshing the picker during that work
+shares the scan. Existing rows remain available during refresh; the completed
+scan removes departed devices and reconciles Connect/Cast duplicates as before.
+If Connect probe setup fails, current Cast results still complete the scan and
+remove stale rows.
+No receiver address is saved to disk or assumed reachable on the next launch.
+
+The active output stays first. Other outputs are ordered by how often they
+occur among the last 32 explicit picker selections, most recent first when
+counts match, then by name. This combines signed-in devices and receivers
+waiting on the network. Only preference keys and their account ID are saved in
+`session.json`; another account does not use that ranking, and sign-out clears
+it. Choosing an output records the selection, including an attempt that fails;
+background discovery and polling never increase its count. There is no new
+setting or network request for ranking.
+
+Signed-in outputs use their Spotify device IDs. A waiting Cast receiver uses a
+separate hash of its transfer ID, address and port, so another endpoint with the
+same advertised name does not inherit that ranking. No raw address is stored;
+an address or port change resets this preference. Waiting and signed-in Cast
+rows have separate histories. This is an ordering hint, not authenticated
+device identity; authentication still happens only on selection.
+
 Starting Spotify on a Cast device needs local playback enabled, because the
 playback session obtains the token. When a Cast device is selected, Spotifast
 follows the steps of Spotify's own apps:
@@ -465,9 +576,17 @@ approval; the browser opens only when there is none or Spotify rejects it.
 
 On macOS, local playback and track loading declare a user-initiated activity
 so App Nap does not throttle them when another application covers Spotifast.
-Pausing, stopping, an output error, or disconnecting releases the activity;
-remote playback does not hold it. The activity permits idle system sleep
+Pausing, stopping, or an output error releases the activity; a song playing
+on through a dropped session keeps it, and remote playback does not hold it. The activity permits idle system sleep
 and does not keep the display awake.
+
+Local playback and track loading also keep the computer from
+sleeping when idle, released at the same moments (#962): on macOS an
+activity with idle system sleep disabled (`pmset -g assertions`), on Windows
+a system power request (`powercfg /requests`), and on Linux the desktop
+portal's Inhibit request for suspend, or a systemd-logind `idle` inhibitor
+when there is no portal (`systemd-inhibit --list`). None of them keeps the
+display on, and a sleep you ask for still happens.
 
 Since 0.9.0, selecting this computer in the device picker asks
 librespot to transfer playback from the active Connect device. Spotify supplies
@@ -476,11 +595,22 @@ This uses the existing playback session's Connect transfer request and needs
 no additional authorization. An old or unavailable Web API playback snapshot
 does not cause the previous local song to restart or replace the remote queue.
 
-When the PulseAudio backend is selected on Linux, its PulseAudio or PipeWire
-stream is named **Spotifast**, with **Spotify playback** as its description, so
-system mixers and audio processors can identify and route it. Explicit
-`PULSE_PROP_application.name` and `PULSE_PROP_stream.description` environment
-values take precedence.
+The engine prepares the next two songs of the queue while one plays, so Next
+starts the following song without waiting for it to load. For each, it reads
+the song's metadata, asks for its audio key, and fetches the first 128 KB of
+its file from Spotify's CDN, about three seconds of audio at 320 kbit/s, and
+keeps them in memory. A song already in the audio cache is not fetched again.
+Nothing is wasted when the song then plays: its load uses all three.
+Skipping further than two songs ahead loads the song as before. These
+requests go through the playback session and use no Web API quota.
+
+Local playback has one output on every platform, fastframe-audio: CoreAudio on
+macOS, WASAPI on Windows, and on Linux PipeWire when it is running, otherwise a
+PulseAudio server, otherwise ALSA directly. It talks only to the local sound
+system. On PipeWire and PulseAudio the stream is named **Spotifast** in system
+mixers (`application.name`, with the `spotifast` icon), with **Spotify
+playback** as its media name and no media role, so its volume is remembered
+for Spotifast rather than shared with other music players.
 The same session checks releases that the Web API calls `single`, so confirmed
 EPs can carry their precise label. Spotifast deduplicates these checks while
 the app session is active. If the engine reconnects, an interrupted check may
@@ -571,3 +701,16 @@ credentials. Failed confirmation leaves state unknown and offers a fresh read;
 it never automatically repeats a mutation. Requests have a 20-second deadline.
 Sign-out cancels work, stale session/page generations are ignored, and a new
 link or history navigation cannot be overwritten by an older response.
+
+## Removing one copy of a repeated song
+
+Removing a song from a playlist uses the Web API's `DELETE
+/playlists/{id}/items`, which removes every copy of the song. When the
+playlist holds the removed song more than once, Spotifast instead reads the
+playlist's rows and revision over the session (`/playlist/v2/playlist/{id}`)
+and sends one `/playlist/v2/playlist/{id}/changes` request through librespot
+that removes the picked rows by index, based on that revision, with the
+session's own authorization. Spotify refuses the change if the playlist
+changed since. The request is sent once, never retried, and has a 20-second
+deadline. A row that is no longer
+in the playlist removes nothing; the playlist reloads and shows the error.

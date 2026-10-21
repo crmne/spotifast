@@ -323,6 +323,13 @@ impl ApiGateway {
         matches!(self.state(ApiSource::Personal), SessionState::Ready { .. })
     }
 
+    /// Whether the shared app can answer now, rather than after its sign-in
+    /// verification or a rate limit.
+    pub async fn shared_available(&self) -> bool {
+        matches!(self.state(ApiSource::Shared), SessionState::Ready { .. })
+            && !self.shared.client().cooling_down().await
+    }
+
     /// Reuse configured HTTP transport only after verifying the account.
     /// Pathfinder itself receives the playback session's Login5 credentials.
     pub(crate) fn prerelease_http_client(&self) -> Option<Arc<ApiClient>> {
@@ -528,6 +535,30 @@ mod tests {
         ] {
             assert!(!session_serves(operation, personal), "{operation:?}");
         }
+    }
+
+    /// The shared app can answer only once its sign-in is verified and
+    /// while no rate limit holds it; until then the playlist library is
+    /// read over the playback session instead (#698, #816).
+    #[tokio::test]
+    async fn the_shared_app_is_available_only_verified_and_not_cooling_down() {
+        let gateway = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        assert!(!gateway.shared_available().await, "not signed in");
+        gateway.begin_verification(
+            ApiSource::Shared,
+            provider("available-shared", ApiSource::Shared),
+        );
+        assert!(!gateway.shared_available().await, "still verifying");
+        gateway
+            .install(ApiSource::Shared, AccountId::new("same"))
+            .unwrap();
+        assert!(gateway.shared_available().await);
+        gateway
+            .shared
+            .client()
+            .extend_cooldown(std::time::Duration::from_secs(60))
+            .await;
+        assert!(!gateway.shared_available().await, "rate limited");
     }
 
     /// Popular tracks use local playback even when a personal Web API app is ready.

@@ -5,7 +5,7 @@
 /// catalog listed here must stay complete, and every catalog must keep the
 /// placeholders of whatever it does translate.
 const COMPLETE: &[&str] = &[
-    "de-DE", "es", "fr", "it", "ja", "nl", "pl", "pt-BR", "pt-PT", "ru", "sv", "tr", "uk",
+    "de-DE", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt-BR", "pt-PT", "ru", "sv", "tr", "uk",
     "zh-Hans", "zh-Hant",
 ];
 

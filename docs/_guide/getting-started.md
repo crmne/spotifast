@@ -36,11 +36,22 @@ You can rename it in Settings.
 - **Closing the window does not stop the music.** Spotifast keeps playing
   from the system tray; reopen it from the tray icon and quit from the tray
   menu or Ctrl+Q. On macOS you can also reopen it from the Dock. Settings can
-  turn this off. On Linux, including Flatpak, a desktop with a working system
+  turn this off, and on macOS can keep Spotifast out of the Dock, in the menu
+  bar only. On Linux, including Flatpak, a desktop with a working system
   tray is required for this behavior.
+- **The tray icon can match your panel.** On Linux and Windows, **Settings >
+  Playback on this computer > Tray icon** shows it in colour, white or black.
+  The macOS menu bar already draws it black or white to match itself.
+- **Spotifast can start with your computer.** Under **Settings > Playback on
+  this computer**, **Start with your computer** opens it when you log in,
+  **With the window** or quietly **In the tray**.
 - **Play and Pause fade.** With the default audio settings, music played on
   this computer fades in or out to avoid a hard cut.
 - **Play buttons show progress.** The button spins until Spotify responds.
+- **Pages keep their shape while they load.** Until Spotify answers, grey
+  rows and cards in the shape of the songs, albums and playlists to come
+  stand in for them. A list that is loading more at its end still shows
+  **Loading…**.
 - **Artist names are links.** Click a credited artist in the player bar to
   open their page, even while the rest of the song's details are loading.
 - **Common actions have shortcuts.** Space plays and pauses, Ctrl+F or `/`
@@ -54,6 +65,10 @@ You can rename it in Settings.
   the up and down arrows choose another. You can add one song or a selection.
   If the playlist already contains the song, Spotifast asks before adding
   another copy.
+- **The heart likes, then adds to a playlist.** In the player bar, the heart
+  saves the playing song to Liked Songs. Once it is liked, the heart opens
+  **Add to playlist** instead, as in Spotify, with **Remove from Liked Songs**
+  below the playlists.
 - **Spotify links open in Spotifast.** A `spotify:` link shared from another
   app opens its page, starting Spotifast if it is not running. Links to
   `open.spotify.com` go through the browser first, which hands them over the
@@ -63,6 +78,11 @@ You can rename it in Settings.
 
 Open **Settings → Appearance → Theme** and choose **Light**, **Dark**, or
 **Follow system**. Follow system matches your desktop's appearance.
+
+With Follow system, **Light mode theme** and **Dark mode theme** below it
+pick the theme for each: for example Catppuccin Latte while your computer is
+light and Catppuccin while it is dark. Spotifast switches between them as
+your computer does, without interrupting the music.
 
 On Omarchy, Spotifast matches your desktop theme from the first time you open
 it; the AUR package also installs the theme hook. Choose **Follow system** or **Omarchy**, then change your
@@ -133,23 +153,23 @@ cargo install --git https://github.com/crmne/spotifast --locked
 MilkDrop uses libprojectM, which is built from source. This needs CMake, a C++
 compiler, and libclang. To build without MilkDrop or those tools, add
 `--no-default-features`. On Linux, you also need the development packages for
-ALSA, PulseAudio or PipeWire, and the windowing libraries. On Arch:
+ALSA and PipeWire, and the windowing libraries. On Arch:
 
 ```bash
-sudo pacman -S --needed alsa-lib libpulse libxkbcommon wayland cmake clang
+sudo pacman -S --needed alsa-lib pipewire libxkbcommon wayland cmake clang
 ```
 
 On Debian or Ubuntu:
 
 ```bash
-sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev \
+sudo apt install libasound2-dev libpipewire-0.3-dev libxkbcommon-dev libwayland-dev \
   cmake clang libclang-dev
 ```
 
 On Fedora:
 
 ```bash
-sudo dnf install alsa-lib-devel pulseaudio-libs-devel libxkbcommon-devel \
+sudo dnf install alsa-lib-devel pipewire-devel libxkbcommon-devel \
   wayland-devel cmake clang clang-devel
 ```
 

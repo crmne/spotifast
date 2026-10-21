@@ -38,9 +38,10 @@ requests and pauses a session when Spotify sends a `Retry-After` response.
 Spotify also limits apps created since November 2024. These apps cannot access
 Spotify-owned playlists, related artists, recommendations, or audio features.
 This is why a personal app cannot handle every request. Complete playlist
-library views stay on the shared app. Playlists other people own, and every
-playlist when there is no personal app, are read over the librespot session
-while local playback is signed in. See [How It Connects](/how-it-connects/).
+library views stay on the shared app, or come from the librespot session's
+rootlist while the shared app cannot answer. Playlists other people own, and
+every playlist when there is no personal app, are read over the librespot
+session while local playback is signed in. See [How It Connects](/how-it-connects/).
 
 ## librespot session
 
@@ -69,6 +70,13 @@ clients. Spotifast uses its session for:
   cover, description, or songs. Spotifast reads each one's header over the
   session once per sign-in to fill its row. Without local playback those
   rows stay blank.
+- **Removing one copy of a repeated song.** The Web API removes a song from
+  a playlist by URI, every copy at once, and ignores positions. When a list
+  holds a song more than once and one copy is removed, Spotifast reads the
+  list over the session and removes that row by index through the playlist
+  service Spotify's own clients edit, so the other copies keep their place
+  and dates. Without local playback it refuses that removal instead of taking
+  every copy.
 - **Lyrics** when Spotify has them.
 - **Artist popular tracks.** The account's market-specific ranking and batched
   track details, with the shared Web API as fallback when the session cannot
@@ -88,14 +96,49 @@ clients. Spotifast uses its session for:
   If it fails, the shared Web API can supply approximate playlist-name search
   results in the same **Made for you** shelf. Spotify may change the private Home
   response without a Web API version change.
+- **Your top mixes** through the same personalized Home read, from Spotify's
+  top mixes section. Search cannot find these personal mixes, so there is no
+  fallback: without local playback the shelf stays hidden.
+- **New releases** from Spotify's own new-releases feed, the private
+  Pathfinder query (`queryWhatsNewFeed`) behind the bell in Spotify's apps.
+  It is only read; the request that marks its items as seen is never sent.
+  When it fails, the Web API's followed artists and their latest albums and
+  singles stand in, for up to 50 artists. The songs on the New releases page
+  come from two batched metadata reads over the session.
+- **Hide in this playlist** for songs in Spotify's own playlists, such as
+  Discover Weekly and the other mixes made for you, through the session's
+  collection service: the account's `playcontextbans` set, one item per
+  hidden song and playlist, as Spotify's apps keep it. It is read once per
+  playback session and written only when you hide or show a song. Hidden
+  songs are greyed out and left out of what plays from that playlist.
 - **Radio and autoplay** through Spotify's context resolver: stations seeded
   by a song, playlist, album, or artist. Each resolution is a fresh mix of 50
   songs, so a radio page plays the songs it shows rather than asking again.
 - **Audiobook detection** for saved shows, which the Web API lists as podcasts.
+- **Play counts** on album pages and an artist's popular songs, from the
+  Pathfinder queries Spotify's own pages make. The Web API has none. When
+  the read fails, the lists leave the counts out.
+- **Listening activity**: what the people the account follows are playing,
+  from the private feed behind Spotify's own panel. The Web API has no such
+  request. Spotify may change this response without notice; when the feed
+  does not answer, the older buddy list stands in, which reports a song only
+  after it ends.
 - **Google Cast speakers and groups.** librespot has no Cast sender, so
   Spotifast starts Spotify's receiver on the device itself. The session then
   obtains a token for that receiver, as Spotify's own apps do. See
   [how it connects](/how-it-connects/#google-cast-devices).
+
+### Private requests
+
+Where no public API covers a feature, Spotifast may read the private
+endpoints Spotify's own apps use, through the librespot session. These
+requests only read; the one exception is pre-save on upcoming album pages,
+which writes only when the user presses the button. Requests to Spotify's
+client API go into librespot first: a pull request upstream, carried in
+Spotifast's librespot fork until a librespot release includes it. Pathfinder
+queries, which librespot does not make, stay in Spotifast. Spotify can change
+any of these without notice, so a feature that uses one falls back to the Web
+API where it has an answer, and otherwise leaves out what it could not read.
 
 ## librespot playback
 
@@ -103,7 +146,8 @@ librespot provides:
 
 - Spotify catalogue playback at up to 320 kbps.
 - Gapless playback, normalisation, a local audio cache, and a crossfade
-  that Spotifast mixes in its own audio path.
+  that Spotifast mixes in its own audio path. Spotifast's fork also
+  prepares the start of the next two songs, so a skip plays at once.
 - Spotify Connect, so another Spotify client can transfer playback to this
   computer.
 - Shuffle, repeat, seek, and volume.
@@ -111,6 +155,25 @@ librespot provides:
   playback session. Sonos receivers are discovered on the local network;
   the Web API alone cannot start or control them.
 - Songs and podcast episodes.
+- Local files that a playlist lists, played from the local files folder chosen
+  in Settings and its subfolders. Spotify keeps only a local file's artist,
+  album, title and length, so the player matches each `spotify:local:` entry
+  to the MP3, MP4, M4P or FLAC file whose tags and length give the same.
+  Files at any sample rate from 8 to 384 kHz play, mono and surround
+  included: librespot resamples them to 44.1 kHz stereo
+  ([librespot#1840](https://github.com/librespot-org/librespot/pull/1840)).
+  The player reads the folder when local playback starts, so songs added
+  later play after the next restart. See
+  [issue #3](https://github.com/crmne/spotifast/issues/3). Spotify's queue
+  refuses a `spotify:local:` entry, so such a song is queued on this
+  computer's own player, and only while it plays
+  ([issue #1002](https://github.com/crmne/spotifast/issues/1002)). Spotify
+  has no cover or lyrics for a local file either, so Spotifast reads them
+  from the file: the picture in its tags (an MP3's ID3 `APIC` frame or a
+  FLAC `PICTURE` block), and the words in a `.lrc` file of the same name
+  beside it or in its tags (ID3 `USLT` or a `LYRICS` comment), before
+  asking LRCLIB
+  ([issue #1001](https://github.com/crmne/spotifast/issues/1001)).
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 
@@ -138,9 +201,16 @@ The Web API and librespot do not provide these features:
 - **Lossless audio.** librespot does not receive lossless streams. Spotifast
   will reconsider this if librespot gains lawful support, but it will not
   bypass Spotify's DRM.
-- **Local files.** librespot only streams Spotify's catalogue. It cannot fetch
-  audio for a `spotify:local:` entry. Playing files from disk would require a
-  separate player. See [issue #3](https://github.com/crmne/spotifast/issues/3).
+- **Soloist as the player.** Spotify's Soloist plays lossless and works with
+  Spotify Connect, but Spotify ships it only for Linux and does not allow apps
+  to bundle it. Each listener would need their own developer key and pairing,
+  builds stop working after 90 days, and it has no API for the library,
+  playlists or search, and no way to feed the equalizer and visualisers.
+  Spotifast will reconsider it if Spotify offers a supported desktop path.
+  See [issue #965](https://github.com/crmne/spotifast/issues/965).
+- **Local files from Spotify's Local Files playlist.** librespot cannot play
+  that playlist; add the songs to another playlist first. Local files on other
+  computers or phones are not shared either: Spotify keeps only their names.
 - **Audiobooks.** librespot does not play them. Spotify lists some
   audiobooks among saved shows; since 0.10.0, Spotifast asks the
   librespot session which ones and leaves them out of the Podcasts shelf.
@@ -153,9 +223,6 @@ The Web API and librespot do not provide these features:
 - **Free-account playback.** Replacing Spotify audio with another source is
   also out of scope. See the
   [contribution guide](https://github.com/crmne/spotifast/blob/main/CONTRIBUTING.md).
-- **Friend activity, private-session status, and similar social features.**
-  Spotify has no public API for them.
+- **Private-session status and similar social features.** Spotify has no
+  public API for them.
 - **Canvas videos and video podcasts.** librespot does not provide them.
-- **Play counts.** Spotify shows them only through a private endpoint its own
-  apps use. The Web API has no play counts, and librespot does not provide
-  them. See [issue #543](https://github.com/crmne/spotifast/issues/543).

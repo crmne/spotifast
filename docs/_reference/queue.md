@@ -37,9 +37,15 @@ never becomes the beginning. This keeps the full Spotify playlist context;
 the app does not replace it with a shortened list of loaded songs. A request
 waiting for local playback to reconnect keeps the song chosen at the click.
 
-Sorted and filtered views omit unavailable songs and local files from their
-playback requests. The displayed rows keep their positions, and selecting a
-repeated song starts that occurrence. A filtered playlist or Liked Songs view
+Sorted and filtered views omit unavailable songs, and local files the local
+files folder does not hold, from their playback requests. The displayed rows keep their positions, and selecting a
+repeated song starts that occurrence. In a playlist's original order, a song
+that appears more than once among the loaded rows starts at the chosen copy's
+playlist position, provided the rows load from the beginning and no missing
+or local entry comes before it; otherwise it starts by name, which plays the
+first copy. A song started from a row marks only that row as playing and
+loading; other copies in the same list look like ordinary rows until another
+song plays. A filtered playlist or Liked Songs view
 plays its matching songs in displayed order, including duplicates. An empty or entirely
 unplayable view disables Play instead of starting the unfiltered context.
 
@@ -71,6 +77,20 @@ not consume a queue row or restore an older queue saved on this computer.
    the songs you queued earlier and before the playlist's songs. Queue
    the same song twice and it plays twice. A double-click only counts
    once.
+
+   **Play next** puts a song, or a selection of songs in displayed order,
+   at the front of **Playing next**, before the songs already queued. It
+   leaves the current song playing and keeps repeated songs as separate
+   entries. Right-click a song or selection to find it beside **Add to queue**.
+   It is enabled only while this computer is the active player, including
+   when paused. Spotify does not let Spotifast insert at the front of another
+   device's queue.
+
+   A local file from a playlist queues like any other song, but only while
+   this computer is the active player and the local files folder holds it:
+   Spotify's queue refuses local files, so this computer's player queues
+   them itself. Otherwise **Add to queue** and **Play next** are disabled
+   for it, and a selection queues its other songs.
 
    Since 0.9.0, an album's **Add to queue** adds its playable songs
    in album order, including repeated songs. This also works for singles and

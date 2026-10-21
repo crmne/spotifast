@@ -16,6 +16,8 @@ const TINT_STRENGTH: f32 = 0.12;
 /// How long the bar takes to cross over to a new song's tint.
 const TINT_FADE_SECONDS: f32 = 0.45;
 const TINT_SESSION_ID: &str = "player-bar-tint-session";
+/// The Add to playlist menu a liked song's heart opens.
+const LIKED_POPUP_ID: &str = "player-bar-liked-playlists";
 /// How strongly the visualizer shows through behind the controls: the
 /// spectrum's bars fade from their foot to their top, with a glow around
 /// them, a brighter cap above, and a pulse along the foot with the bass.
@@ -113,7 +115,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .max_rect(right_band)
                     .layout(Layout::right_to_left(Align::Center)),
             );
-            extras(app, &mut right_ui, now.as_ref());
+            let transport_right = center.center().x + transport_width() / 2.0;
+            extras(app, &mut right_ui, now.as_ref(), transport_right);
         });
 }
 
@@ -127,7 +130,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
     let mode = app.settings.player_bar_vis;
     let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
     let dark = ui.visuals().dark_mode;
-    let (low, high) = vis_colours(app.now_playing_tint().unwrap_or(app.palette.accent), dark);
+    let colours = vis_colours(app.now_playing_palette(), app.palette.accent, dark);
     // Over a light bar the same colour paints more strongly, or white
     // would wash it out.
     let strength = if dark { 1.0 } else { LIGHT_STRENGTH };
@@ -147,7 +150,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
                 .player_bar_analyser
                 .step(&samples, std::time::Instant::now());
             let peaks = app.player_bar_analyser.peaks();
-            spectrum(&painter, rect, &levels, &peaks, (low, high), strength);
+            spectrum(&painter, rect, &levels, &peaks, &colours, strength);
             sounding || !app.player_bar_analyser.settled()
         }
         PlayerBarVis::Waveform => {
@@ -161,7 +164,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
                 &painter,
                 rect,
                 &vis::scope_line(&samples, count),
-                (low, high),
+                &colours,
                 strength,
             );
             true
@@ -169,21 +172,51 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
     }
 }
 
-/// The visualizer's two colours: the cover's own for the bass, and the same
-/// turned a sixth of the way round the colour wheel for the treble. Both
-/// are made vivid, then kept to a band of brightness, so the words the bars
-/// pass behind always stand out: no lighter than [`DARK_CEILING`] under the
-/// dark theme's white text, no darker than [`LIGHT_FLOOR`] under the light
-/// theme's dark text.
-fn vis_colours(base: Color32, dark: bool) -> (Color32, Color32) {
-    let mut low = egui::ecolor::Hsva::from(base);
-    low.s = low.s.max(0.55);
-    low.v = 1.0;
-    low.a = 1.0;
+/// The visualizer's colours, swept across from the bass to the treble. With
+/// colour from album art they are the cover's own: its hues in the cover's
+/// order, then its grey, drawn as a plain grey even when it is a near-black
+/// with a cast, so the bass and its pulse carry a hue whenever the cover has
+/// one. Otherwise they are the theme's accent for the bass, and the same
+/// turned a sixth of the way round the colour wheel for the treble. Each hue
+/// is made vivid, then all are kept to a band of
+/// brightness, so the words the bars pass behind always stand out: no lighter
+/// than [`DARK_CEILING`] under the dark theme's white text, no darker than
+/// [`LIGHT_FLOOR`] under the light theme's dark text.
+fn vis_colours(art: Option<&[[u8; 3]]>, accent: Color32, dark: bool) -> Vec<Color32> {
+    use crate::images::has_hue;
+    use egui::ecolor::Hsva;
+    let keep = |mut colour: Hsva, vivid: bool| {
+        colour.s = if vivid { colour.s.max(0.55) } else { 0.0 };
+        colour.v = 1.0;
+        colour.a = 1.0;
+        within_brightness(Color32::from(colour), dark)
+    };
+    if let Some(art) = art.filter(|art| !art.is_empty()) {
+        let colours = |vivid: bool| {
+            art.iter()
+                .filter(move |&&rgb| has_hue(rgb) == vivid)
+                .map(move |&rgb| keep(Hsva::from_srgb(rgb), vivid))
+        };
+        return colours(true).chain(colours(false)).collect();
+    }
+    let low = Hsva::from(accent);
     let mut high = low;
     high.h = (high.h + 1.0 / 6.0).fract();
-    let keep = |colour: egui::ecolor::Hsva| within_brightness(Color32::from(colour), dark);
-    (keep(low), keep(high))
+    vec![keep(low, true), keep(high, true)]
+}
+
+/// The colour `at` the given fraction of the way along `colours`, from the
+/// first at 0 to the last at 1.
+fn swept(colours: &[Color32], at: f32) -> Color32 {
+    let Some(last) = colours.len().checked_sub(1) else {
+        return Color32::TRANSPARENT;
+    };
+    if last == 0 {
+        return colours[0];
+    }
+    let place = at.clamp(0.0, 1.0) * last as f32;
+    let index = (place as usize).min(last - 1);
+    colours[index].lerp_to_gamma(colours[index + 1], place - index as f32)
 }
 
 /// The most luminance a visualizer colour has under the dark theme, and the
@@ -231,15 +264,16 @@ fn shaded(mesh: &mut egui::Mesh, rect: Rect, top: Color32, bottom: Color32) {
     mesh.add_triangle(base, base + 2, base + 3);
 }
 
-/// Bars rising from the foot of the player bar, swept from the bass colour
-/// to the treble colour, with a soft glow, a peak cap hanging above each,
-/// and the whole foot of the bar breathing with the bass.
+/// Bars rising from the foot of the player bar, swept across the
+/// visualizer's colours from the bass to the treble, with a soft glow, a
+/// peak cap hanging above each, and the whole foot of the bar breathing with
+/// the bass.
 fn spectrum(
     painter: &egui::Painter,
     rect: Rect,
     levels: &[f32],
     peaks: &[f32],
-    (low, high): (Color32, Color32),
+    colours: &[Color32],
     strength: f32,
 ) {
     let bands = levels.len() as f32;
@@ -256,12 +290,12 @@ fn spectrum(
         &mut mesh,
         pulse,
         Color32::TRANSPARENT,
-        low.gamma_multiply(PULSE_ALPHA * strength * bass * bass),
+        swept(colours, 0.0).gamma_multiply(PULSE_ALPHA * strength * bass * bass),
     );
 
     for (index, (level, peak)) in levels.iter().zip(peaks).enumerate() {
         let left = rect.left() + index as f32 * (width + SPECTRUM_GAP);
-        let colour = low.lerp_to_gamma(high, index as f32 / (bands - 1.0));
+        let colour = swept(colours, index as f32 / (bands - 1.0));
         let height = level * reach;
         if height >= 1.0 {
             let bar = Rect::from_min_max(
@@ -297,14 +331,14 @@ fn spectrum(
     painter.add(egui::Shape::mesh(mesh));
 }
 
-/// The wave as a neon line in layers of glow, swept from the bass colour to
-/// the treble colour, over a faint shading down to the midline and a dim
-/// mirrored echo.
+/// The wave as a neon line in layers of glow, swept across the visualizer's
+/// colours from the bass to the treble, over a faint shading down to the
+/// midline and a dim mirrored echo.
 fn waveform(
     painter: &egui::Painter,
     rect: Rect,
     trace: &[f32],
-    (low, high): (Color32, Color32),
+    colours: &[Color32],
     strength: f32,
 ) {
     if trace.len() < 2 {
@@ -315,7 +349,7 @@ fn waveform(
     let midline = rect.center().y;
     let point =
         |index: usize, value: f32| pos2(rect.left() + index as f32 * step, midline - value * reach);
-    let colour_at = |index: usize| low.lerp_to_gamma(high, index as f32 / (trace.len() - 1) as f32);
+    let colour_at = |index: usize| swept(colours, index as f32 / (trace.len() - 1) as f32);
 
     // The shading between the wave and the midline.
     let mut mesh = egui::Mesh::default();
@@ -469,16 +503,28 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     let heart_width = if now.is_episode { 0.0 } else { 42.0 };
     let text_left = cover_rect.right() + 12.0;
     let text_width = (region.right() - text_left - heart_width).max(40.0);
-    let text_rect = Rect::from_min_size(pos2(text_left, cy - 18.0), vec2(text_width, 36.0));
-    let info_response = ui.interact(text_rect, egui::Id::new("now-playing-info"), drag_sense);
+    let displayed_text_width: f32 = {
+        let title =
+            ui.painter()
+                .layout_no_wrap(now.title.clone(), theme::medium(14.0), palette.text);
+        let subtitle = ui.painter().layout_no_wrap(
+            now.subtitle.clone(),
+            theme::regular(12.0),
+            palette.secondary,
+        );
+        title.size().x.max(subtitle.size().x).min(text_width)
+    };
+    let info_rect = Rect::from_min_size(pos2(text_left, cy - 18.0), vec2(text_width, 36.0));
+
     let mut text_ui = ui.new_child(
         UiBuilder::new()
-            .max_rect(text_rect)
+            .max_rect(info_rect)
             .layout(Layout::top_down(Align::Min)),
     );
-    text_ui.set_clip_rect(text_rect.intersect(ui.clip_rect()));
+    text_ui.set_clip_rect(info_rect.intersect(ui.clip_rect()));
     text_ui.spacing_mut().item_spacing.y = 2.0;
-    let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text);
+    let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text)
+        .interact(drag_sense);
     if title_response.clicked() {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
@@ -486,32 +532,48 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             app.actions.push(Action::Open(Page::Show(id.clone())));
         }
     }
+    let mut responses = vec![cover_response, title_response];
     text_ui.horizontal_top(|ui| {
         if now.artists.is_empty() {
-            if theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary).clicked()
+            let response = theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary)
+                .interact(drag_sense);
+            if response.clicked()
                 && let Some(id) = &now.show_id
             {
                 app.actions.push(Action::Open(Page::Show(id.clone())));
             }
+            responses.push(response);
         } else {
-            super::widgets::artist_links(
-                ui,
-                app,
-                &now.artists,
-                theme::regular(12.0),
-                palette.secondary,
-            );
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for (index, artist) in now.artists.iter().enumerate() {
+                if index > 0 {
+                    theme::text(ui, ", ", theme::regular(12.0), palette.secondary);
+                }
+                let response = if artist.id.is_some() {
+                    theme::link(ui, &artist.name, theme::regular(12.0), palette.secondary)
+                } else {
+                    theme::text(ui, &artist.name, theme::regular(12.0), palette.secondary)
+                }
+                .interact(drag_sense);
+                if response.clicked()
+                    && let Some(id) = &artist.id
+                {
+                    app.actions.push(Action::Open(Page::Artist(id.clone())));
+                }
+                responses.push(response);
+            }
         }
     });
-    if (cover_response.drag_started_by(egui::PointerButton::Primary)
-        || info_response.drag_started_by(egui::PointerButton::Primary))
+    if responses
+        .iter()
+        .any(|response| response.drag_started_by(egui::PointerButton::Primary))
         && let Some(item) = &song
     {
         egui::DragAndDrop::set_payload(
             ui.ctx(),
             DragTrack {
                 title: item.name().to_string(),
-                image: item.image(64).map(str::to_string),
+                image: app.item_image(item, 64),
                 items: vec![item.clone()],
                 from: None,
                 source_playlist: None,
@@ -520,13 +582,13 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     }
 
     // The playing thing answers the same right-click menu as a table row,
-    // from the cover, the empty space around the words, or the words.
-    if let Some(item) = song {
+    // from the cover or the words.
+    if let Some(item) = &song {
         let context = app.editable_context_playlist();
-        for response in [&cover_response, &info_response, &title_response] {
+        for response in &responses {
             egui::Popup::context_menu(response)
                 .frame(super::widgets::menu_frame(&palette))
-                .show(|ui| super::widgets::item_menu(ui, app, &item, context.as_ref(), None));
+                .show(|ui| super::widgets::item_menu(ui, app, item, context.as_ref(), None));
         }
     }
 
@@ -538,7 +600,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 Icon::HeartFilled,
                 palette.accent,
                 palette.accent_hover,
-                gettext(app.locale, "Remove from Liked Songs"),
+                gettext(app.locale, "Add to playlist"),
             )
         } else {
             (
@@ -550,28 +612,76 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         };
         // Sit the heart just past the actual text, not at the region's far
         // edge, so it stays visually attached to the title.
-        let natural = {
-            let title =
-                ui.painter()
-                    .layout_no_wrap(now.title.clone(), theme::medium(14.0), palette.text);
-            let subtitle = ui.painter().layout_no_wrap(
-                now.subtitle.clone(),
-                theme::regular(12.0),
-                palette.secondary,
-            );
-            title.size().x.max(subtitle.size().x).min(text_width)
-        };
-        let heart_x = (text_left + natural + 21.0).min(region.right() - 21.0);
+        let heart_x = (text_left + displayed_text_width + 21.0).min(region.right() - 21.0);
         let heart_rect = Rect::from_center_size(pos2(heart_x, cy), Vec2::splat(30.0));
         let mut heart_ui = ui.new_child(
             UiBuilder::new()
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        if theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip).clicked() {
-            app.actions.push(Action::ToggleSaved(now.uri.clone()));
+        let response = theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip);
+        let popup_id = egui::Id::new(LIKED_POPUP_ID);
+        // A liked song's heart opens Add to playlist, as Spotify's does,
+        // with Remove from Liked Songs below the playlists (#792). The first
+        // click on a song not yet liked still likes it at once.
+        match song.as_ref().filter(|_| saved) {
+            None => {
+                egui::Popup::close_id(ui.ctx(), popup_id);
+                if response.clicked() {
+                    app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                }
+            }
+            Some(item) => {
+                let query_id = popup_id.with("query");
+                let shown = egui::Popup::menu(&response)
+                    .id(popup_id)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .frame(super::widgets::menu_frame(&palette))
+                    .show(|ui| {
+                        let stored = ui.data(|data| data.get_temp::<String>(query_id));
+                        let fresh = stored.is_none();
+                        let mut query = stored.unwrap_or_default();
+                        let before = app.actions.len();
+                        let field = super::widgets::playlist_picker(
+                            ui,
+                            app,
+                            std::slice::from_ref(item),
+                            &mut query,
+                        );
+                        if fresh {
+                            field.request_focus();
+                        }
+                        ui.data_mut(|data| data.insert_temp(query_id, query));
+                        super::widgets::menu_separator(ui, &palette);
+                        if super::widgets::menu_item(
+                            ui,
+                            &palette,
+                            Some(Icon::HeartFilled),
+                            &gettext(app.locale, "Remove from Liked Songs"),
+                        ) {
+                            app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                        }
+                        // A playlist, New playlist, or Remove closes it.
+                        if app.actions.len() > before {
+                            ui.close();
+                        }
+                    });
+                if shown.is_none() {
+                    ui.data_mut(|data| data.remove::<String>(query_id));
+                }
+            }
         }
     }
+}
+
+/// The transport's button widths: icon buttons occupy icon size + 12; the
+/// disc is 36.
+const TRANSPORT_WIDTHS: [f32; 5] = [29.0, 30.0, 36.0, 30.0, 29.0];
+const TRANSPORT_GAP: f32 = 10.0;
+
+/// The transport's buttons from Shuffle to Repeat, centred in the bar.
+fn transport_width() -> f32 {
+    TRANSPORT_WIDTHS.iter().sum::<f32>() + TRANSPORT_GAP * 4.0
 }
 
 fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region: Rect) {
@@ -597,14 +707,11 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         palette.dim
     };
 
-    // Button widths: icon buttons occupy icon size + 12; the disc is 36.
-    let widths = [29.0, 30.0, 36.0, 30.0, 29.0];
-    let gap = 10.0;
-    let total: f32 = widths.iter().sum::<f32>() + gap * 4.0;
-    let mut x = region.center().x - total / 2.0;
+    let widths = TRANSPORT_WIDTHS;
+    let mut x = region.center().x - transport_width() / 2.0;
     let mut slot = |width: f32| {
         let rect = Rect::from_center_size(pos2(x + width / 2.0, cy), vec2(width, 36.0));
-        x += width + gap;
+        x += width + TRANSPORT_GAP;
         rect
     };
     let centered = |ui: &mut egui::Ui, rect: Rect| {
@@ -801,7 +908,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     );
 }
 
-fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
+fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_right: f32) {
     let palette = app.palette;
     ui.spacing_mut().item_spacing.x = 6.0;
     let volume = now
@@ -942,6 +1049,26 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     {
         app.actions.push(Action::ToggleLyricsPanel);
     }
+    // The Listening activity button is the first to go in a narrow window,
+    // so it never crowds the transport.
+    let left = ui.min_rect().left() - ui.spacing().item_spacing.x - (18.0 + theme::ICON_BUTTON_PAD);
+    if left - transport_right >= TRANSPORT_GAP
+        && theme::icon_button(
+            ui,
+            Icon::Users,
+            18.0,
+            if app.show_friends_panel {
+                palette.accent
+            } else {
+                palette.secondary
+            },
+            palette.text,
+            &gettext(app.locale, "Listening activity"),
+        )
+        .clicked()
+    {
+        app.actions.push(Action::ToggleFriendsPanel);
+    }
 }
 
 #[cfg(test)]
@@ -1054,8 +1181,9 @@ mod player_bar_tint_tests {
         assert_eq!(frame(&ctx, 0.22, panel, None), panel);
     }
 
-    /// However light or dark the cover, the visualizer's colours stay in the
-    /// band the theme's text reads against, and keep their hue.
+    /// However light or dark the cover or the theme's accent, the
+    /// visualizer's colours stay in the band the theme's text reads against,
+    /// and keep their hue.
     #[test]
     fn visualizer_colours_stay_behind_the_words() {
         let luminance = |colour: Color32| {
@@ -1069,23 +1197,59 @@ mod player_bar_tint_tests {
             Color32::BLACK,
             Color32::from_rgb(30, 215, 96),
         ] {
-            let (low, high) = vis_colours(base, true);
-            for colour in [low, high] {
-                assert!(
-                    luminance(colour) <= DARK_CEILING + 0.01,
-                    "{base:?} on dark: {colour:?}"
-                );
-            }
-            let (low, high) = vis_colours(base, false);
-            for colour in [low, high] {
-                assert!(
-                    (LIGHT_FLOOR - 0.01..=LIGHT_CEILING + 0.01).contains(&luminance(colour)),
-                    "{base:?} on light: {colour:?}"
-                );
+            let art = [[base.r(), base.g(), base.b()]];
+            for (art, accent) in [(Some(&art[..]), Color32::RED), (None, base)] {
+                for colour in vis_colours(art, accent, true) {
+                    assert!(
+                        luminance(colour) <= DARK_CEILING + 0.01,
+                        "{base:?} on dark: {colour:?}"
+                    );
+                }
+                for colour in vis_colours(art, accent, false) {
+                    assert!(
+                        (LIGHT_FLOOR - 0.01..=LIGHT_CEILING + 0.01).contains(&luminance(colour)),
+                        "{base:?} on light: {colour:?}"
+                    );
+                }
             }
         }
         // A yellow cover stays yellow, only deeper.
-        let (low, _) = vis_colours(Color32::from_rgb(255, 240, 80), true);
+        let low = vis_colours(Some(&[[255, 240, 80]]), Color32::RED, true)[0];
         assert!(low.r() > low.b() && low.g() > low.b(), "{low:?}");
+    }
+
+    /// With colour from album art the bars take the cover's own colours,
+    /// its accent at the bass and its last colour at the treble, and a grey
+    /// cover's bars stay grey. Without, they turn the theme's accent.
+    #[test]
+    fn visualizer_sweeps_across_the_covers_colours() {
+        let art = [[200, 40, 40], [40, 200, 60], [40, 40, 200]];
+        let colours = vis_colours(Some(&art), Color32::WHITE, true);
+        assert_eq!(colours.len(), 3);
+        let [red, green, blue] = [colours[0], colours[1], colours[2]];
+        assert!(red.r() > red.g() && red.r() > red.b(), "{red:?}");
+        assert!(green.g() > green.r() && green.g() > green.b(), "{green:?}");
+        assert!(blue.b() > blue.r() && blue.b() > blue.g(), "{blue:?}");
+        assert_eq!(swept(&colours, 0.0), red);
+        assert_eq!(swept(&colours, 0.5), green);
+        assert_eq!(swept(&colours, 1.0), blue);
+        assert_eq!(swept(&colours[..1], 0.7), red);
+
+        let spread = |c: Color32| c.r().max(c.g()).max(c.b()) - c.r().min(c.g()).min(c.b());
+        for cover in [[150, 140, 140], [40, 20, 8]] {
+            let grey = vis_colours(Some(&[cover]), Color32::RED, true)[0];
+            assert!(spread(grey) < 4, "{cover:?} stays grey: {grey:?}");
+        }
+        // A grey accent gives the bass to the cover's hue.
+        let colours = vis_colours(
+            Some(&[[150, 140, 140], [200, 40, 40]]),
+            Color32::WHITE,
+            true,
+        );
+        assert!(colours[0].r() > colours[0].g() * 2, "{colours:?}");
+        assert!(spread(colours[1]) < 24, "{colours:?}");
+
+        let accent = Color32::from_rgb(30, 215, 96);
+        assert_eq!(vis_colours(None, accent, true).len(), 2);
     }
 }

@@ -62,13 +62,16 @@ its folder and its Start menu entry. Windows then lists one Spotifast under
 installed apps.
 {% endif %}
 To run Spotifast without an installer, download a ZIP file, extract it, and
-open `spotifast.exe`.
+open `spotifast.exe`. Since 0.13.4, it keeps its settings, state and caches
+in a `spotifast-data` folder next to it, so the folder carries everything
+(see [portable copies](/settings-and-files/#portable-copies)).
 
 - [Windows ZIP (most PCs)]({{ base }}/spotifast-v{{ v }}-x86_64-pc-windows-msvc.zip)
 - [Windows ZIP (ARM PCs)]({{ base }}/spotifast-v{{ v }}-aarch64-pc-windows-msvc.zip)
 
 Either way, SmartScreen may warn about an unknown publisher on first run;
-choose **More info**, then **Run anyway**.
+choose **More info**, then **Run anyway**. The Windows files are not signed
+with a publisher certificate, so Windows has no publisher name to show.
 
 Spotifast needs OpenGL 2.0 or newer, which every current Windows graphics
 driver provides. In a virtual machine or remote session that only has the
@@ -81,6 +84,24 @@ in Windows.
 
 Uninstalling while Spotifast runs removes nothing until it is closed. The
 installer offers to close it for you; closing it that way ends it at once.
+
+### Check a Windows download
+
+To check a file against the [published checksums]({{ base }}/checksums.txt),
+print its SHA-256 hash in PowerShell and compare it with that file's line,
+ignoring letter case:
+
+```powershell
+Get-FileHash "$HOME\Downloads\spotifast-v{{ v }}-*-pc-windows-msvc*"
+```
+
+If Windows Security flags a download, open **Windows Security → Virus &
+threat protection → Protection history** and note the threat name. Include it,
+and the file's hash, when you
+[report the problem](https://github.com/crmne/spotifast/issues/new?template=bug.yml).
+To ask Microsoft to review the file, send it through
+[Submit a file for malware analysis](https://www.microsoft.com/en-us/wdsi/filesubmission)
+as incorrectly detected.
 
 ## Linux
 
@@ -128,8 +149,14 @@ chmod +x ~/Downloads/spotifast-{{ v }}-x86_64.AppImage
 
 The AppImage bundles no libraries: like the DEB and RPM, it needs glibc 2.39
 or newer and your desktop's own libraries. Running it needs FUSE; without
-FUSE, start it with `--appimage-extract-and-run`. It does not update itself:
-download the new file when Spotifast says a release is out.
+FUSE, start it with `--appimage-extract-and-run`.
+
+From the release after 0.13.3, the AppImage updates itself like the portable
+downloads, as long as it sits in a folder of your own, such as
+`~/Applications`: Spotifast replaces the file in place and restarts it. It
+also carries update information, so AppImageUpdate, AppImageLauncher, AM and
+Gear Lever can update it too, downloading only what changed. Copies of 0.13.3
+and earlier need one more manual download.
 
 ### Other distributions
 
@@ -139,7 +166,8 @@ download the new file when Spotifast says a release is out.
 Unpack, put `spotifast` on your PATH, and copy the desktop entry and icon
 from the bundled `packaging/` directory if you want it in your launcher and
 handling `spotify:` links.
-The binary needs ALSA, PulseAudio or PipeWire, and Wayland or X11.
+The binary needs the ALSA and PipeWire libraries, and Wayland or X11. It plays
+through PipeWire, a PulseAudio server, or ALSA, whichever is running.
 
 Or build from source: see the [build instructions](/getting-started/#build-from-source).
 

@@ -42,6 +42,18 @@ pub struct Page<T> {
 }
 
 impl<T> Page<T> {
+    /// A whole collection as one page, with nothing after it.
+    pub fn whole(items: Vec<T>) -> Self {
+        let count = u32::try_from(items.len()).unwrap_or(u32::MAX);
+        Self {
+            items,
+            total: count,
+            limit: count,
+            offset: 0,
+            next: None,
+        }
+    }
+
     pub fn next_offset(&self) -> Option<u32> {
         let consumed = self.limit.max(self.items.len() as u32);
         (self.next.is_some() && consumed > 0).then_some(self.offset + consumed)

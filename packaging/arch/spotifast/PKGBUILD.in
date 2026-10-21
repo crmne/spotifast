@@ -7,7 +7,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/crmne/spotifast"
 license=('MIT')
 install="${pkgname}.install"
-depends=('dbus' 'alsa-lib' 'libpulse' 'libglvnd' 'libxkbcommon' 'wayland' 'libx11')
+depends=('dbus' 'alsa-lib' 'libpipewire' 'libglvnd' 'libxkbcommon' 'wayland' 'libx11')
 makedepends=('cargo' 'cmake' 'clang')
 optdepends=('libxkbcommon-x11: keyboard handling in X11 sessions'
             'pipewire-pulse: PipeWire as the PulseAudio server')

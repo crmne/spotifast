@@ -27,6 +27,10 @@ build="${version%%-*}"
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" \
     -e "s/__EXECUTABLE__/$executable/g" -e "s/__IDENTIFIER__/$identifier/g" "$here/Info.plist" \
     > "$app/Contents/Info.plist"
+# Starting in the tray at login: a login item cannot pass --start-hidden, so
+# SMAppService registers this agent from the bundle instead (#122).
+mkdir -p "$app/Contents/Library/LaunchAgents"
+cp "$here/autostart.plist" "$app/Contents/Library/LaunchAgents/$identifier.autostart.plist"
 
 iconset="$(mktemp -d)/spotifast.iconset"
 mkdir -p "$iconset"

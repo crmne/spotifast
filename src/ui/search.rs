@@ -42,7 +42,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         Loadable::Loaded(results) => results.clone(),
         Loadable::Loading | Loadable::NotLoaded => {
             if !pending {
-                widgets::loading_row(ui, &palette, app.locale);
+                widgets::skeleton_rows(ui, &palette, app.locale, 6);
             }
             return;
         }
@@ -442,13 +442,6 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
     }
     theme::section_title(ui, &palette, &gettext(app.locale, "Songs"));
     ui.add_space(4.0);
-    let uris: Arc<[String]> = page
-        .items
-        .iter()
-        .map(|track| track.uri.clone())
-        .collect::<Vec<_>>()
-        .into();
-    let context = RowContext::Uris(Arc::clone(&uris));
     let items: Vec<PlayableItem> = page
         .items
         .iter()
@@ -456,6 +449,10 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
         .map(PlayableItem::Track)
         .collect();
     for (index, item) in items.iter().take(limit).enumerate() {
+        // A search result plays on its own, and Spotify continues with what
+        // follows it (autoplay), as the Spotify apps do; the other results are
+        // not a queue. A one-song list loads as that song's own context.
+        let context = RowContext::Uris(Arc::from([item.uri().to_string()]));
         widgets::track_row(
             ui,
             app,
@@ -469,11 +466,14 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
                 added_at: None,
                 added_by: None,
                 show_added_by: false,
+                show_plays: false,
                 compact: limit != usize::MAX,
                 thin: false,
                 shift: 0.0,
                 picked: false,
                 picked_songs: &[],
+                picked_positions: &[],
+                position: None,
             },
         );
     }

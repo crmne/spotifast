@@ -173,7 +173,8 @@ fn the_command_forwards_links_to_the_existing_instance_on_a_private_bus() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let Outcome::Only(guard) = spotifast::single_instance::acquire(&Default::default(), None)
+    let Outcome::Only(guard) =
+        spotifast::single_instance::acquire(&Default::default(), None, false)
     else {
         panic!("the private bus must start without another instance");
     };

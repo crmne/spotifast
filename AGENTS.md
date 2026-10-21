@@ -40,7 +40,7 @@ These instructions add implementation constraints for coding agents.
   fork or source (see Pull requests below):
   `.github/scripts/check-dependency-sources.py` fails CI on one.
 - egui and winit come from forks shared with ZapFast, RekordFlash and TonePush
-  (crmne/egui apps-0.36, crmne/winit apps-0.30); move all their crates to a
+  (crmne/egui apps-0.36.2, crmne/winit apps-0.30); move all their crates to a
   new revision together. On Wayland, eframe from that fork paces frames by
   the compositor's frame callbacks instead of a vsync swap, so a hidden window
   cannot freeze the app (#266). Do not add a vsync decision of our own.

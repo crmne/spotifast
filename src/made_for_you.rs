@@ -1,9 +1,11 @@
-//! Spotify's personalized Home shelf, read with the existing playback session.
+//! Spotify's personalized Home shelves, Made for you and Your top mixes, read
+//! with the existing playback session.
 //!
 //! The private Pathfinder contract follows Psst's homeSection integration
 //! (jpochyla/psst#745). It can change independently of the public Web API.
 //! This reader never retries a refusal through a different grant. The backend
-//! may separately try a shared-search fallback.
+//! may separately try a shared-search fallback for Made for you; Your top
+//! mixes has none.
 
 use std::collections::HashSet;
 use std::future::Future;
@@ -18,7 +20,8 @@ use crate::api::models::{Image, Owner, Playlist};
 use crate::http::Http;
 
 const ENDPOINT: &str = "https://api-partner.spotify.com/pathfinder/v2/query";
-const SECTION: &str = "spotify:section:0JQ5DAUnp4wcj0bCb3wh3S";
+const MADE_FOR_YOU: &str = "spotify:section:0JQ5DAUnp4wcj0bCb3wh3S";
+const TOP_MIXES: &str = "spotify:section:0JQ5DAnM3wGh0gz1MXnu89";
 const QUERY_HASH: &str = "eb3fba2d388cf4fc4d696b1757a58584e9538a3b515ea742e9cc9465807340be";
 // Spotify DJ is a special context that librespot cannot play as a playlist.
 pub(crate) const UNSUPPORTED_DJ_URI: &str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq";
@@ -27,26 +30,32 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const PAGE_SIZE: usize = 20;
 const MAX_PAGES: usize = 10;
 
-/// One account's in-memory shelf and service cooldown. Holding the lock
+/// One account's in-memory shelves and service cooldown. Holding the lock
 /// across a read also combines concurrent refreshes into one cached result.
 pub struct MadeForYou {
     state: Mutex<State>,
     http: Http,
 }
 
+/// The account's personalized Home shelves from one read.
+#[derive(Clone, Debug)]
+pub struct Shelves {
+    pub made_for_you: Vec<Playlist>,
+    pub top_mixes: Result<Vec<Playlist>, ApiError>,
+}
+
 #[derive(Default)]
 struct State {
     account: String,
-    cached: Option<(Instant, Vec<Playlist>)>,
+    cached: Option<(Instant, Shelves)>,
     cooldown: Option<(Instant, Duration)>,
 }
 
 impl State {
-    /// Returns a fresh shelf only for the same account and a nonforced read.
-    fn cached(&self, account: &str, force: bool) -> Option<Vec<Playlist>> {
-        self.cached.as_ref().and_then(|(at, playlists)| {
-            (self.account == account && !force && at.elapsed() < CACHE_AGE)
-                .then(|| playlists.clone())
+    /// Returns fresh shelves only for the same account and a nonforced read.
+    fn cached(&self, account: &str, force: bool) -> Option<Shelves> {
+        self.cached.as_ref().and_then(|(at, shelves)| {
+            (self.account == account && !force && at.elapsed() < CACHE_AGE).then(|| shelves.clone())
         })
     }
 
@@ -55,6 +64,43 @@ impl State {
         self.cooldown
             .is_some_and(|(at, duration)| at.elapsed() < duration)
     }
+}
+
+#[derive(Debug)]
+enum SectionError {
+    RateLimited(Duration),
+    Failed(ApiError),
+}
+
+impl From<ApiError> for SectionError {
+    fn from(error: ApiError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl SectionError {
+    fn wait(&self) -> Option<Duration> {
+        match self {
+            Self::RateLimited(wait) => Some(*wait),
+            Self::Failed(_) => None,
+        }
+    }
+
+    fn into_api(self) -> ApiError {
+        match self {
+            Self::RateLimited(_) => ApiError::RateLimited,
+            Self::Failed(error) => error,
+        }
+    }
+}
+
+struct Request<'a> {
+    client: &'a reqwest::Client,
+    token: &'a str,
+    client_token: &'a str,
+    country: &'a str,
+    timezone: &'a str,
+    context_token: &'a str,
 }
 
 impl MadeForYou {
@@ -66,13 +112,13 @@ impl MadeForYou {
         }
     }
 
-    /// Returns the account's cached shelf or coalesces one bounded refresh.
+    /// Returns the account's cached shelves or coalesces one bounded refresh.
     pub async fn load<F, Fut>(
         &self,
         session: &Session,
         force: bool,
         context_token: F,
-    ) -> Result<Vec<Playlist>, ApiError>
+    ) -> Result<Shelves, ApiError>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<String, ApiError>>,
@@ -101,13 +147,13 @@ impl MadeForYou {
             })?
     }
 
-    /// Resolves both tokens and reads every Home page under the caller's lock.
+    /// Resolves both tokens and reads both sections under the caller's lock.
     async fn fetch<F, Fut>(
         &self,
         session: &Session,
         context_token: F,
         state: &mut State,
-    ) -> Result<Vec<Playlist>, ApiError>
+    ) -> Result<Shelves, ApiError>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<String, ApiError>>,
@@ -125,65 +171,105 @@ impl MadeForYou {
             .await
             .map_err(|_| session_error())?;
         let timezone = jiff::tz::TimeZone::system();
-        let timezone = timezone.iana_name().unwrap_or("UTC");
-        let mut playlists = Vec::new();
-        let mut seen = HashSet::new();
-        for page in 0..MAX_PAGES {
-            let offset = page * PAGE_SIZE;
-            let response = client
-                .post(ENDPOINT)
-                .bearer_auth(&token.access_token)
-                .header("client-token", &client_token)
-                .json(&query(&session.country(), timezone, &context_token, offset))
-                .send()
-                .await
-                .map_err(|error| ApiError::Network(error.without_url().to_string()))?;
-            let status = response.status();
-            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                let wait =
-                    librespot_core::http_client::HttpClient::get_retry_after(response.headers())
-                        .unwrap_or(Duration::from_secs(30));
-                state.cooldown = Some((Instant::now(), wait));
-                log::warn!(
-                    "Spotify rate limit source=session-home wait={}s",
-                    wait.as_secs()
-                );
-                return Err(ApiError::RateLimited);
-            }
-            if !status.is_success() {
-                return Err(ApiError::Status {
-                    status: status.as_u16(),
-                    message: "Spotify couldn't load Made for you through the playback session. Try again later.".into(),
-                });
-            }
-            let body = response
-                .json::<serde_json::Value>()
-                .await
-                .map_err(|_| response_error())?;
-            let page = parse_page(body)?;
-            let more = page.more(offset);
-            let page_has_playlists = !page.playlists.is_empty();
-            let added = page.playlists.into_iter().fold(0, |count, playlist| {
-                if seen.insert(playlist.id.clone()) {
-                    playlists.push(playlist);
-                    count + 1
-                } else {
-                    count
-                }
-            });
-            if !more {
-                state.cached = Some((Instant::now(), playlists.clone()));
-                log::debug!("Spotify route operation=MadeForYou source=session");
-                return Ok(playlists);
-            }
-            // A repeated or malformed page must not silently replace a
-            // complete shelf with a prefix, or spin forever.
-            if added == 0 && page_has_playlists {
-                return Err(response_error());
-            }
+        let country = session.country();
+        let request = Request {
+            client: &client,
+            token: &token.access_token,
+            client_token: &client_token,
+            country: &country,
+            timezone: timezone.iana_name().unwrap_or("UTC"),
+            context_token: &context_token,
+        };
+        let (made_for_you, top_mixes) = tokio::join!(
+            read_section(&request, MADE_FOR_YOU),
+            read_section(&request, TOP_MIXES)
+        );
+        if let Some(wait) = longest_wait([&made_for_you, &top_mixes]) {
+            state.cooldown = Some((Instant::now(), wait));
+            log::warn!(
+                "Spotify rate limit source=session-home wait={}s",
+                wait.as_secs()
+            );
         }
-        Err(response_error())
+        let shelves = Shelves {
+            made_for_you: made_for_you.map_err(SectionError::into_api)?,
+            top_mixes: top_mixes.map_err(SectionError::into_api),
+        };
+        state.cached = Some((Instant::now(), shelves.clone()));
+        log::debug!("Spotify route operation=MadeForYou source=session");
+        Ok(shelves)
     }
+}
+
+/// The longest wait Spotify asked of either section. Both come from one
+/// service, so it pauses both.
+fn longest_wait(results: [&Result<Vec<Playlist>, SectionError>; 2]) -> Option<Duration> {
+    results
+        .into_iter()
+        .filter_map(|result| result.as_ref().err().and_then(SectionError::wait))
+        .max()
+}
+
+/// Reads every page of one Home section, in Spotify's order.
+async fn read_section(request: &Request<'_>, section: &str) -> Result<Vec<Playlist>, SectionError> {
+    let mut playlists = Vec::new();
+    let mut seen = HashSet::new();
+    for page in 0..MAX_PAGES {
+        let offset = page * PAGE_SIZE;
+        let response = request
+            .client
+            .post(ENDPOINT)
+            .bearer_auth(request.token)
+            .header("client-token", request.client_token)
+            .json(&query(
+                section,
+                request.country,
+                request.timezone,
+                request.context_token,
+                offset,
+            ))
+            .send()
+            .await
+            .map_err(|error| ApiError::Network(error.without_url().to_string()))?;
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(SectionError::RateLimited(
+                librespot_core::http_client::HttpClient::get_retry_after(response.headers())
+                    .unwrap_or(Duration::from_secs(30)),
+            ));
+        }
+        if !status.is_success() {
+            return Err(ApiError::Status {
+                status: status.as_u16(),
+                message: "Spotify couldn't load Made for you through the playback session. Try again later.".into(),
+            }
+            .into());
+        }
+        let body = response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|_| response_error())?;
+        let page = parse_page(body)?;
+        let more = page.more(offset);
+        let page_has_playlists = !page.playlists.is_empty();
+        let added = page.playlists.into_iter().fold(0, |count, playlist| {
+            if seen.insert(playlist.id.clone()) {
+                playlists.push(playlist);
+                count + 1
+            } else {
+                count
+            }
+        });
+        if !more {
+            return Ok(playlists);
+        }
+        // A repeated or malformed page must not silently replace a
+        // complete shelf with a prefix, or spin forever.
+        if added == 0 && page_has_playlists {
+            return Err(response_error().into());
+        }
+    }
+    Err(response_error().into())
 }
 
 /// Hides playback authentication details from the user-facing failure.
@@ -197,11 +283,17 @@ fn response_error() -> ApiError {
 }
 
 /// Builds one page of Spotify's persisted Home section query.
-fn query(country: &str, timezone: &str, context_token: &str, offset: usize) -> serde_json::Value {
+fn query(
+    section: &str,
+    country: &str,
+    timezone: &str,
+    context_token: &str,
+    offset: usize,
+) -> serde_json::Value {
     serde_json::json!({
         "operationName": "homeSection",
         "variables": {
-            "uri": SECTION,
+            "uri": section,
             "country": country,
             "timeZone": timezone,
             "sp_t": context_token,
@@ -430,7 +522,13 @@ mod tests {
     fn cache_is_scoped_to_account_and_manual_refresh_respects_cooldown() {
         let state = State {
             account: "alice".into(),
-            cached: Some((Instant::now(), vec![])),
+            cached: Some((
+                Instant::now(),
+                Shelves {
+                    made_for_you: vec![],
+                    top_mixes: Ok(vec![]),
+                },
+            )),
             cooldown: Some((Instant::now(), Duration::from_secs(120))),
         };
         assert!(state.cached("alice", false).is_some());
@@ -442,9 +540,35 @@ mod tests {
     /// Sends the verified Web API context token in the Home query variables.
     #[test]
     fn query_uses_the_verified_grant_for_spotify_home_context() {
-        let query = query("CA", "America/Toronto", "personal-grant", 20);
+        let query = query(MADE_FOR_YOU, "CA", "America/Toronto", "personal-grant", 20);
         assert_eq!(query["variables"]["sectionItemsOffset"], 20);
-        assert_eq!(query["variables"]["uri"], SECTION);
+        assert_eq!(query["variables"]["uri"], MADE_FOR_YOU);
         assert_eq!(query["variables"]["sp_t"], "personal-grant");
+    }
+
+    /// Asks for Your top mixes with the same persisted query as Made for you.
+    #[test]
+    fn top_mixes_differ_from_made_for_you_only_by_section() {
+        let made_for_you = query(MADE_FOR_YOU, "NL", "Europe/Amsterdam", "grant", 0);
+        let mut top_mixes = query(TOP_MIXES, "NL", "Europe/Amsterdam", "grant", 0);
+        assert_eq!(top_mixes["variables"]["uri"], TOP_MIXES);
+        top_mixes["variables"]["uri"] = MADE_FOR_YOU.into();
+        assert_eq!(top_mixes, made_for_you);
+    }
+
+    /// A wait Spotify asks of either section pauses both, for the longer time.
+    #[test]
+    fn a_rate_limit_on_either_section_pauses_both() {
+        let read = Ok(vec![]);
+        let short = Err(SectionError::RateLimited(Duration::from_secs(5)));
+        let long = Err(SectionError::RateLimited(Duration::from_secs(40)));
+        let failed = Err(SectionError::Failed(response_error()));
+        assert_eq!(longest_wait([&read, &failed]), None);
+        assert_eq!(longest_wait([&read, &short]), Some(Duration::from_secs(5)));
+        assert_eq!(longest_wait([&long, &short]), Some(Duration::from_secs(40)));
+        assert!(matches!(
+            SectionError::RateLimited(Duration::ZERO).into_api(),
+            ApiError::RateLimited
+        ));
     }
 }

@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
         .filter("warn")
         .init()?;
 
-    let dirs = spotifast::paths::AppDirs::discover();
+    let dirs = spotifast::paths::AppDirs::discover().dirs;
     let cache = Cache::new::<&std::path::Path>(None, None, None, None)?.with_memory_credentials();
 
     let runtime = tokio::runtime::Builder::new_current_thread()

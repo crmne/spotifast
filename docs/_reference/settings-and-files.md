@@ -33,6 +33,19 @@ Spotifast follows each platform's conventions. On Linux:
 | Last run's log | `~/.local/state/spotifast/spotifast.log` | Always |
 | Crash log | `~/.local/state/spotifast/panic.log` | Always |
 
+Starting with your computer (Settings > Playback on this computer) is kept
+where each system keeps it, not in `settings.json`:
+
+| Platform | Where |
+| --- | --- |
+| Linux | `~/.config/autostart/spotifast.desktop` (`$XDG_CONFIG_HOME/autostart`), which runs `spotifast`, with `--start-hidden` for the tray |
+| Flatpak | Registered through the background portal; Spotifast keeps a copy of what it asked for in `~/.var/app/rocks.spotifast.Spotifast/config/autostart/spotifast.desktop` |
+| macOS 13 and later | Login Items: Spotifast itself to open with the window, or the `rocks.spotifast.Spotifast.autostart` agent inside the app, which opens it with `--start-hidden` |
+| Windows | The `Spotifast` value under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` |
+
+Deleting the entry turns it off. Uninstalling Spotifast does not remove the
+Linux or Windows entry; choose **Off** first.
+
 Clearing caches never signs you out. Sign-out from Settings covers the shared
 and personal Web API grants and the independent playback credential. It also
 removes the cached library of every account: playlist pages, the playlist
@@ -62,6 +75,14 @@ restart. Since 0.13.2, if Credential Manager refuses that, or keeps the grant
 only until you sign out of Windows, Spotifast saves it again with Local
 persistence, which also survives a restart. Failures are logged with their
 Windows error code, never with the grant.
+
+Since 0.13.4, Spotifast on Windows also keeps a copy of each grant in
+`credential-storage\` in the data folder, encrypted with the Windows Data
+Protection API so that only your Windows account can read it. Every save
+writes both, and sign-out deletes both. The copy is read only when Credential
+Manager refuses the grant or no longer has it, as on machines where the
+entries disappear during a restart. Grants saved by earlier versions gain
+their copy the next time Spotifast starts.
 
 On upgrade, each legacy grant is written to the protected store and read back
 before its old file is removed. Valid grants migrate without signing in again.
@@ -157,6 +178,16 @@ restart even if Spotify's next read still reports the old state. This cache
 contains metadata, not offline audio, and can be deleted without signing out.
 Signing out deletes it.
 
+Device-picker choices are kept in `session.json` as the last 32 selected
+preference keys and their Spotify account ID. Signed-in outputs use device IDs;
+waiting Cast receivers use an opaque hash of their transfer ID, address and port
+so same-named endpoints do not share preferences. This separate Cast preference
+resets when its endpoint changes and is not proof of authenticity.
+The keys order available outputs by frequency and recency. This history stores
+no raw network address, adds no
+background request, and is cleared on sign-out. Older session files without
+it remain readable.
+
 The last good playlist folder tree is kept in `session.json`, scoped to the
 account that supplied it. This keeps folders visible when local playback is
 temporarily unavailable. Live session data is still required for edit grants.
@@ -174,8 +205,8 @@ Playlists created or deleted in the meantime stay that way. The list is
 saved again only when Spotify has confirmed every change in it. This cache
 contains metadata only and can be deleted at any time.
 
-Home's Recently played, Your top artists, Top tracks, Made for you and Your
-podcasts shelves are stored the same way under `home/`. They are shown when
+Home's Recently played, Your top artists, Top tracks, Made for you, Your top
+mixes, New releases and Your podcasts shelves are stored the same way under `home/`. They are shown when
 the account is verified and replaced shelf by shelf as Spotify answers. A
 shelf Spotify turns away keeps what it showed, and Home is read again once
 the network is back. Each shelf is saved as soon as its new answer arrives;
@@ -237,11 +268,58 @@ On macOS, settings, state, and the logs are in
 `%LOCALAPPDATA%\paolino\spotifast\data`, and the caches in
 `%LOCALAPPDATA%\paolino\spotifast\cache`.
 
+### Portable copies
+
+Since 0.13.4, Spotifast started from the Windows ZIP keeps its files in a
+`spotifast-data` folder next to `spotifast.exe`, instead of the folders
+above. It knows it is the ZIP copy by the `spotifast-portable.txt` file beside
+it.
+
+| What | Where |
+| --- | --- |
+| Settings, skins, MilkDrop presets, themes | `spotifast-data\config\` |
+| State, history, logs, credential markers and the encrypted grant copies | `spotifast-data\state\` |
+| Caches | `spotifast-data\cache\` |
+
+The first time it starts without that folder, it copies (never moves) your
+settings and state from the folders above, so a ZIP copy you ran before keeps
+your preferences and sign-in. Caches are not copied; Spotifast fills them
+again. The installed Spotifast keeps its own files, and from then on the two
+never share settings, history or caches. The copy is made in
+`spotifast-data.partial` and renamed when complete, so a copy interrupted by
+a crash or power cut is made again at the next start.
+
+If Spotifast cannot write next to its executable, for example in
+`Program Files` or on read-only media, it uses the folders above and says why
+in the log. Updates replace only `spotifast.exe`, so `spotifast-data` stays as
+it is through updates and their rollback. To start a portable copy afresh,
+quit it and delete `spotifast-data`; the next start copies from the folders
+above again.
+
+Spotify sign-ins themselves are saved in Windows Credential Manager, which
+belongs to your Windows account, not to a folder, with an encrypted copy in
+`state\credential-storage\` that only your Windows account can read. A
+portable folder made from your installed copy's state starts signed in: at
+its first start it saves the installed copy's sign-ins again under entries of
+its own, and from then on the two are separate, so signing out of one leaves
+the other signed in. The folder records which entries are its own in
+`state\credential-profile`, so it keeps its sign-in when you move it to
+another folder or drive. On another computer or another Windows account,
+neither Credential Manager nor the encrypted copy can give the sign-in back,
+so sign in again there.
+
+The Linux `.tar.gz` also carries a `spotifast-portable.txt`, but only so the
+updater may replace the executable. Spotifast from it keeps the folders above:
+set `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` to move them.
+
 The running copy keeps its single-instance files in a private directory:
 `$XDG_RUNTIME_DIR/spotifast` on Linux (inside Flatpak, the app's own runtime
 directory), a `spotifast` folder in your private temporary directory
 (`$TMPDIR`) on macOS, and an `instance` folder in the state directory on
-Windows. `instance.lock` marks the running copy; the system releases it when
+Windows. A portable copy has its own, `instance\scope-portable-<id>` in the
+installed state directory, with one `<id>` per portable folder, so it runs
+beside the installed copy and other portable copies instead of handing your
+launches to them. `instance.lock` marks the running copy; the system releases it when
 Spotifast quits or crashes. `instance.sock` (Linux and macOS) is the socket
 a second launch and the `spotifast` command reach it through, which only your
 user can open. On Windows, `instance.key` holds the loopback port and a
@@ -262,14 +340,16 @@ main fields are:
 | `gapless` | `true` | Gapless playback |
 | `crossfade` | `false` | Song-to-song crossfade switch. Off changes nothing. A file saved before the switch is on when `crossfade_secs` is above zero |
 | `crossfade_secs` | `0` | Crossfade length in seconds, from the Settings slider, 0 to 12. A larger saved value is treated as 12. The slider keeps its place while the switch is off, and that length is used again when the switch is turned on. Only that overlap is held, and only while the switch is on |
-| `audio_backend` | platform | `pulseaudio` or `rodio` on Linux. `rodio` is Spotifast's own output, through ALSA; librespot's separate rodio backend is no longer built in, and a backend this build lacks plays through Spotifast's own output |
+| `audio_device` | `null` | The output local playback uses, by the id of a device **Audio output** in the device picker lists: PipeWire's or PulseAudio's node name or an ALSA PCM on Linux, the WASAPI endpoint id on Windows, the CoreAudio UID on macOS. `null` is the system default. A device that is not there plays through the default. A name saved by 0.13.3 or earlier opens the output that still has it and is replaced by its id once music plays there; any other name plays through the default and is kept until another choice. The `audio_backend` older versions saved is ignored and no longer written |
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
+| `local_files_folder` | `null` | Folder, with its subfolders, that a playlist's local files play from |
 | `theme` | `system` | Follow the system appearance by default; explicit `dark` and `light` choices remain available |
 | `language` | `system` | Since 0.10.0: the interface language. `system` follows the operating system's preferred languages and falls back to English; a tag such as `es`, `de-DE`, `pt-BR` or `zh-Hant` selects that language. An unknown tag follows the system |
 | `custom_theme` | `null` | Selected JSON filename from the `themes` folder |
 | `custom_theme_cache` | absent | Last accepted custom palette; preserves appearance if its file is missing or invalid |
 | `system_theme_cache` | absent | Last accepted Omarchy palette for Follow system; retained across restarts |
-| `accent_from_art` | `true` | Tint pages with album art |
+| `theme_pair` | absent | The themes Follow system uses in light and dark mode: `{"light": {"filename": "Catppuccin Latte.json", "palette": {...}}, "dark": {...}}`. Each `palette` is the last accepted copy of that file's colours. A missing side, or the whole field, is Spotifast's own Light or Dark; it is written only once you choose one |
+| `accent_from_art` | `true` | Tint pages with album art, and colour the player bar visualizer with the cover's colours |
 | `player_bar_vis` | `off` | Since 0.11.0: what moves behind the player bar while a song plays on this computer: `off`, `spectrum` or `waveform` |
 | `player_bar_vis_click` | `true` | Allow clicks on empty player bar space to cycle visualizer modes |
 | `visualizer_fps` | `60` | Frame rate of the player bar and mini player visualizers; `0` is uncapped. Half that out of focus, at most 30 while the system saves energy, none while the window is hidden. MilkDrop uses `milkdrop_fps` |
@@ -296,6 +376,7 @@ main fields are:
 | `eq_on` | `false` | The equalizer shapes local playback |
 | `eq_preamp_db` | `0` | The preamp, in decibels, -12 to 12 |
 | `eq_bands_db` | ten zeros | The bands from 60 Hz to 16 kHz, in decibels, -12 to 12 |
+| `eq_user_presets` | `[]` | Equalizer presets you saved, each with a `name`, its `preamp_db` and its ten `bands_db`, listed after the built-in presets |
 | `balance` | `0` | Left to right, -1 to 1, for local playback |
 | `mono` | `false` | Play both channels the same |
 | `playlist_shaded` | `false` | The playlist window is rolled up to its title bar |
@@ -307,7 +388,9 @@ main fields are:
 | `milkdrop_fullscreen` | `false` | The MilkDrop window fills the screen |
 | `milkdrop_size` | `640, 480` | The MilkDrop window's size in points |
 | `keep_playing_in_background` | `true` | Close to tray |
+| `tray_icon` | `colour` | Linux and Windows: the tray icon in `colour`, or in `white` or `black` to match the panel or taskbar. macOS ignores it: the menu bar draws its icon black or white to match itself |
 | `mac_notch_widget` | `false` | Show interactive Now Playing widget when hovering over the MacBook notch (macOS only) |
+| `mac_show_in_dock` | `true` | macOS only: show Spotifast in the Dock and Cmd+Tab. `false` keeps it in the menu bar only; the menu-bar icon always stays |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | Optional personal Spotify app id used alongside shared coverage |
 | `personal_app_nudge_at` | none | Legacy daily-reminder timestamp, retained for older releases |
@@ -325,8 +408,14 @@ spotifast [OPTIONS] [LINK]
   LINK                  A Spotify link to open: spotify:track:…, or an
                         open.spotify.com address
   --device-name <NAME>  Spotify Connect name for this session
+  --start-hidden        Start in the tray, without a window
   -v, --verbose         More logs from librespot and the API client
 ```
+
+`--start-hidden` is what **Start with your computer > In the tray** runs at
+login. Without the tray, or with **Keep music playing when the window closes**
+off, the window opens anyway. A link, or a restart after an update, opens the
+window too. When Spotifast is already running, it stays as it is.
 
 A link goes to the running Spotifast when there is one, which then opens
 the page and brings its window forward; otherwise the app starts on it. The
@@ -344,27 +433,36 @@ settings.
 
 `--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
-`queue`, `playing-next`, `devices`, `shortcuts`, `premium`, `create`, `duplicate`, `light`,
+`queue`, `playing-next`, `devices`, `home-loading`, `audio-outputs`, `shortcuts`, `premium`, `create`, `duplicate`, `light`, `system-light`, `system-dark`,
 `focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`,
 `collection-loading`, `shuffle-selected`, `shuffle-started`, `library-list`,
 `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
-`library-grid-wide`, `rtl`, `player-bar-spectrum`, `player-bar-waveform`,
+`library-grid-wide`, `eq-user-presets`, `start-in-tray`, `rtl`, `player-bar-spectrum`, `player-bar-waveform`,
 `lyrics-fullscreen-view`, `lyrics-fullscreen-instrumental`, `signed-out`, and `connecting`. The Library variants show the list or cover grid with
 a normal, narrow, or wide sidebar and collapsed artwork for matching captures.
 `shuffle-selected` and `shuffle-started` capture the selected-mode and
 playback-started outcomes of a collection Shuffle click. `update` shows a sample
 update badge for checking its layout. `personal-app` shows the personal Spotify
-app introduction.
+app introduction. `audio-outputs` opens the device picker with sample audio
+outputs to choose from, as Spotifast's own output lists them.
 `signed-out` and `connecting` show the sign-in card before and while the
 session connects.
+`system-light` and `system-dark` choose Follow system on a desktop that is
+light or dark (on Linux), to show the light and dark mode themes; with an
+explicit `--demo-data` directory, its `config/settings.json` and
+`config/themes` supply them.
 `player-bar-spectrum` and `player-bar-waveform` play a fixed, music-like
 sound on this computer with that player bar visualizer on.
 `lyrics-fullscreen-view` and `lyrics-fullscreen-instrumental` draw full-screen
 lyrics, with words or without, at the window's own size.
+`eq-user-presets` saves a sample equalizer preset and puts it in use.
+`start-in-tray` shows **Start with your computer** set to **In the tray**;
+demo mode never reads or changes the real login entry.
 `rtl` gives the first songs of `playlist:pl1` invented Hebrew and Arabic
 titles, some mixed with English, numbers, and brackets.
 `collection-loading` keeps known collection metadata and placeholder artwork
 visible while replacing the page content, with unfinished controls disabled.
+`home-loading` shows Home while its shelves are still loading.
 `--demo-language <TAG>` shows the interface in one of the bundled languages,
 such as `es` or `ja`, in place of the saved setting and the system's language.
 
@@ -379,6 +477,7 @@ cargo run --release --features demo -- \
 The image uses the current window size. `--demo-size WIDTHxHEIGHT` sets that
 size in logical pixels for a shot (for example `760x800` or `1240x800`).
 `--demo-shot-delay <MS>` sets how long to wait for cover art before taking it.
+`--demo-click X,Y` clicks there before the shot, to show an open menu.
 `--demo-drag X,Y:X,Y` shows a drag in progress: the pointer presses at the
 first point, in logical pixels, and is still held down at the second when the
 shot is taken.
@@ -403,9 +502,13 @@ restart it. Add this field to hide both:
 ```
 
 Set either `visible` value to `true` to show that shelf again. Omitted
-preferences keep both shelves visible. Other Home sections keep their normal
-order and contents. This changes what is displayed; hidden shelves still
+preferences keep both shelves visible. **Your top mixes** comes from the same
+personalized read as Made for you, so `made_for_you` hides it too. Other Home
+sections keep their normal order and contents. This changes what is displayed; hidden shelves still
 refresh in the background.
+
+**Recommended for you** is seeded with your top songs. Until Spotify has top
+songs for your account, which takes some listening, Home leaves the shelf out.
 
 ## Custom themes
 
@@ -430,6 +533,18 @@ Light and custom choices are preserved when updating. The picker starts with
 **Follow system**, **Light**, and **Dark**, then a separator. **Omarchy** comes
 next when the integration is available, followed by the other local palettes.
 Themes change colors and keep the app's existing fonts.
+
+While **Follow system** is selected, two more pickers appear below the Theme
+row: **Light mode theme** and **Dark mode theme**. Each starts with
+Spotifast's own **Light** or **Dark**, then lists the palettes whose `base`
+matches: only light palettes for light mode and only dark ones for dark
+mode, because the base also decides whether the standard controls are drawn
+light or dark, and they follow the system. Spotifast then shows one or the
+other as your system switches between light and dark, while it stays open
+and without interrupting playback. Your choices are kept when you pick a
+single theme and come back when you choose Follow system again. On an
+Omarchy desktop, Follow system uses the Omarchy palette instead, which
+already follows your desktop theme, so the two pickers are not shown.
 **How to make a theme**, beside the picker, opens this section. The
 **Open themes folder** icon button beside the picker creates the folder if
 needed and opens it in your file
@@ -482,10 +597,12 @@ when a folder exceeds these limits.
 Invalid files are skipped with a warning in the log. Spotifast remembers the
 last accepted custom palette in `settings.json`. If the selected file is
 removed or becomes invalid, that appearance stays in place, including after
-a restart, and the Theme row explains the problem. Other preferences are
+a restart, and the Theme row explains the problem. The same holds for the
+light and dark mode themes: a file that disappears, or whose `base` changes
+to the other one, keeps its last accepted colours, and its row explains. Other preferences are
 preserved. A custom selection without any usable cached colors uses the
 built-in choice. Choosing Dark, Light or Follow system clears the custom
-selection and its cache. Editing or deleting the optional cache does not
+selection and its cache, but keeps the light and dark mode themes. Editing or deleting the optional cache does not
 reset unrelated settings.
 
 A custom palette's `base` controls both its inherited colors and the light or

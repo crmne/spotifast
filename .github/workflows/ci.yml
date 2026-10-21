@@ -67,7 +67,7 @@ jobs:
       - name: GUI build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev ruby
       # After the toolchain, so the cache key follows the pinned rustc. The
       # key carries no job name, so each job sets its own generation. Only
@@ -116,7 +116,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
       # libprojectM reads OpenGL through GLEW on Windows; projectm-sys builds
       # against vcpkg's static-CRT triplet, matching .cargo/config.toml.
@@ -189,7 +189,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "$env:RUNNER_TEMP\wix" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
           $env:PATH = "$env:RUNNER_TEMP\wix;$env:PATH"
-          gem install native-packages --version 0.9.0 --no-document
+          gem install native-packages --version 0.10.0 --no-document
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
           $target, $id = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64-pc-windows-msvc', 'windows-arm64' } else { 'x86_64-pc-windows-msvc', 'windows-amd64' }

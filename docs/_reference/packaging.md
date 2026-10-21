@@ -6,9 +6,16 @@ nav_order: 20
 
 Spotifast keeps release asset definitions, nFPM configuration and native AUR and
 Homebrew templates in `native-packages.yaml` and `packaging/`. Common automation comes from the pinned
-[native-packages](https://github.com/crmne/native-packages) gem, installed with `gem install native-packages --version 0.9.0`.
+[native-packages](https://github.com/crmne/native-packages) gem, installed with `gem install native-packages --version 0.10.0`.
 
 Stable releases build the existing Linux, macOS and Windows artifacts first.
+The Linux build jobs also build the AppImages (`appimage-amd64`,
+`appimage-arm64`) from the archives they just made, each with a `.zsync`
+file beside it, so the signed `checksums.txt` lists both and the app's
+updater can replace an AppImage with a signed one. Each AppImage carries the
+update information `gh-releases-zsync|crmne|spotifast|latest|spotifast-*-ARCH.AppImage.zsync`
+for AppImageUpdate and the updaters built on it; `packaging/release-names.py`
+reads it back and checks each `.zsync` file before anything is signed.
 The shared packaging workflow then verifies their published checksums and attaches
 Linux DEB/RPM packages and a recipe archive. AUR and Homebrew publication require
 their configured repository variables and secrets. PRs build packages from a

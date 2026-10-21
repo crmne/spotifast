@@ -42,11 +42,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             } else {
                 500.0
             };
-            let card_height = card_height.min((rect.height() - 64.0).max(0.0));
-            let card = Rect::from_center_size(
-                rect.center() - Vec2::new(0.0, 20.0),
-                Vec2::new(card_width, card_height),
-            );
+            let room = (rect.height() - 64.0).max(0.0);
+            // The card keeps its place, and grows down to fit what it holds
+            // when that is taller, such as while waiting for the browser
+            // (#782). It only scrolls when the window is too short for it.
+            let content_id = egui::Id::new("login-card-content");
+            let content = ui.ctx().data(|data| data.get_temp::<f32>(content_id));
+            let card = card_rect(rect, card_width, card_height.min(room), content, room);
             let mut card_ui = ui.new_child(egui::UiBuilder::new().max_rect(card).layout(Layout::top_down(Align::Center)));
             Frame::new()
                 .fill(palette.panel)
@@ -60,7 +62,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                     color: palette.shadow,
                 })
                 .show(&mut card_ui, |ui| {
-                    egui::ScrollArea::vertical()
+                    let scroll = egui::ScrollArea::vertical()
                         .id_salt("login-card-scroll")
                         .max_height((card.height() - 72.0).max(0.0))
                         .auto_shrink([false, true])
@@ -180,6 +182,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                     }
                     ui.data_mut(|data| data.insert_temp(proxy_id, proxy_open));
                         });
+                    let measured = scroll.content_size.y;
+                    if content != Some(measured) {
+                        ui.ctx().data_mut(|data| data.insert_temp(content_id, measured));
+                        ui.ctx().request_repaint();
+                    }
                 });
             ui.painter().text(
                 pos2(rect.center().x, rect.bottom() - 24.0),
@@ -191,6 +198,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                 palette.dim,
             );
         });
+}
+
+/// The card: `base` tall around the window's centre, as it has always been,
+/// and extended downwards when the `content` it measured last frame needs
+/// more, up to the `room` the window has.
+fn card_rect(rect: Rect, width: f32, base: f32, content: Option<f32>, room: f32) -> Rect {
+    // The Frame's inner margin and its one-point stroke, above and below.
+    const MARGINS: f32 = 74.0;
+    let height = content
+        .map_or(base, |content| content + MARGINS)
+        .max(base)
+        .min(room);
+    // Past the room it would have, slide up rather than over the version line.
+    let top = (rect.center().y - 20.0 - base / 2.0).min(rect.bottom() - 52.0 - height);
+    Rect::from_min_size(
+        pos2(rect.center().x - width / 2.0, top),
+        Vec2::new(width, height),
+    )
 }
 
 fn proxy_fields(ui: &mut egui::Ui, app: &mut App) {
@@ -315,6 +340,7 @@ mod tests {
                 media_controls: false,
                 restore_sign_in: false,
                 tray: false,
+                autostart: false,
             },
         );
         app.auth = AuthStatus::SignedOut;

@@ -30,15 +30,16 @@ Linux desktop assets beside its binaries and packages the signed macOS
 desktop hooks.
 
 ```sh
-gem install native-packages --version 0.9.0
+gem install native-packages --version 0.10.0
 native-packages validate
 native-packages doctor --target linux-amd64 --target linux-arm64
 native-packages build --release v1.2.3 --target linux-amd64 --target linux-arm64
+native-packages build --release v1.2.3 --target appimage-amd64 --target appimage-arm64 --defer-recipes
 ```
 
 Replace `v1.2.3` with an existing stable application release. Local use also
 requires nFPM 2.47.0, `bsdtar`, `readelf` and, for the AppImage,
-`mksquashfs` (squashfs-tools); AUR generation needs `makepkg`
+`mksquashfs` (squashfs-tools) and `zsyncmake` (zsync); AUR generation needs `makepkg`
 or Docker. CI installs its tooling. To package local release archives, put
 the selected target inputs and recipe assets under `dist/`, then run
 `native-packages build --version 1.2.3 --target linux-amd64 --target linux-arm64`.
@@ -102,7 +103,7 @@ Homebrew automation needs `PUBLISH_HOMEBREW=true` and
 The macOS and Windows targets and the Flatpak build step remain responsible
 for their native artifacts. Additional nFPM formats require suitable platform
 inputs and dependencies; adding a format does not port the application.
-See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.9.0)
+See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.10.0)
 for commands and supported formats.
 
 The manual **Flatpak from release** workflow can rebuild a missing Flatpak from
@@ -143,7 +144,7 @@ secrets, which the job exposes as environment variables:
 A complete set enables notarization automatically. An incomplete set fails;
 no values retain local builds without Developer ID signing. Application inputs
 and the user's normal keychains remain unchanged. See the shared
-[Apple setup and phase contract](https://github.com/crmne/native-packages/blob/v0.9.0/docs/apple-notarization.md).
+[Apple setup and phase contract](https://github.com/crmne/native-packages/blob/v0.10.0/docs/apple-notarization.md).
 
 After preparing `dist/macos-input` on a Mac, test packaging without publishing:
 
@@ -217,6 +218,53 @@ staging folders in an uninstall and an update, and takeovers of a setup
 program install. CI runs it on x64 and arm64.
 `python packaging\windows\test-uninstall.py ISCC.exe` covers the setup
 program's uninstaller.
+
+## Portable archives
+
+The release workflow puts `packaging/spotifast-portable.txt` (contents
+`spotifast-portable-v1`) next to the executable in the Windows `.zip` and the
+Linux `.tar.gz`. The updater reads it to decide that the copy may replace its
+own executable. On Windows it also makes the copy keep its settings, state and
+caches in `spotifast-data\` beside the executable (fastframe-dirs, #703), made
+the first time from a copy of the per-user settings and state. Never put a
+`spotifast-installer.txt` beside it: the installer marker wins, and the copy
+would update through the package and use the per-user folders. Linux copies
+keep the XDG folders. Keep the marker's name and contents as they are: older
+releases recognise exactly that file.
+
+## AppImages
+
+The release's Linux build jobs build the AppImages, not the packaging
+workflow: `native-packages build --target appimage-amd64` (or
+`appimage-arm64`) packs the archive the job just made, and the files go into
+the release with the binaries. `checksums.txt` therefore lists each AppImage
+and its `.zsync` file, and `checksums.txt.sig` covers them; the app's updater
+(fastframe-update with `appimage: true`) replaces an AppImage only with one
+the signature covers. AppImages built by the packaging workflow would land in
+the unsigned `packaging-checksums.txt` instead.
+
+Each AppImage carries update information in its `.upd_info` section,
+`gh-releases-zsync|crmne|spotifast|latest|spotifast-*-x86_64.AppImage.zsync`
+(`aarch64` for ARM), so AppImageUpdate, AppImageLauncher, AM and Gear Lever
+find the newest stable release's `.zsync` file and download only the blocks
+that changed. The checks fail loudly instead of shipping a wrong string:
+
+- native-packages refuses a pattern that does not match the target's own
+  `.zsync` file name or a repository other than `release.repository`, reads
+  the string back from the built AppImage, and checks the `.zsync` file's
+  name, length and SHA-1 against it.
+- `packaging/release-names.py` refuses a stable release without an AppImage
+  and `.zsync` file for each Linux archive, an AppImage whose embedded string
+  is not the expected one, and a `.zsync` file that does not describe its
+  AppImage.
+- The packaging workflow's AppImage jobs build one from the pinned release
+  the same way, run it, read the string back through the runtime's
+  `--appimage-updateinformation`, and on release runs check the published
+  AppImage, its `.zsync` file and their lines in `checksums.txt`.
+
+To check a built AppImage by hand: `python3 packaging/check-appimage.py
+spotifast-1.2.3-x86_64.AppImage x86_64`. Building AppImages locally needs
+`zsyncmake` (the zsync package) as well as `mksquashfs`.
 
 `packaging/release-names.py DIST TAG` checks the release's `spotifast-`
 downloads and writes their checksums. Run `python3 packaging/test-release-names.py`

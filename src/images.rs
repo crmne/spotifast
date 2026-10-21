@@ -1,5 +1,6 @@
 //! Album art: fetched once, kept on disk, and drawn from a copy scaled to
-//! the pixels each cover covers.
+//! the pixels each cover covers. A local file's cover is read from the file
+//! itself (see [`crate::local_tags`]).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -78,7 +79,7 @@ const SCALED: &str = "#spotifast-px=";
 fn parse_scaled(uri: &str) -> Option<(&str, u32)> {
     let (url, pixels) = uri.rsplit_once(SCALED)?;
     let pixels = pixels.parse().ok().filter(|pixels| *pixels > 0)?;
-    is_http(url).then_some((url, pixels))
+    is_art(url).then_some((url, pixels))
 }
 
 /// Lets go of the decoded copy of `url` that egui's image loaders keep in
@@ -95,10 +96,13 @@ pub fn forget_decoded(ctx: &egui::Context, url: &str) {
     }
 }
 
-/// What this loader answers for. egui offers it every URI, and artwork that
-/// is not fetched over the network belongs to another loader.
-fn is_http(uri: &str) -> bool {
-    uri.starts_with("https://") || uri.starts_with("http://")
+/// What this loader answers for: artwork fetched over the network, and the
+/// cover embedded in a local file. egui offers it every URI, and any other
+/// belongs to another loader.
+fn is_art(uri: &str) -> bool {
+    uri.starts_with("https://")
+        || uri.starts_with("http://")
+        || uri.starts_with(crate::local_tags::ART_SCHEME)
 }
 
 enum Entry {
@@ -129,6 +133,8 @@ struct Inner {
     http: Http,
     runtime: tokio::runtime::Handle,
     cache_dir: PathBuf,
+    /// Local files found to hold no cover, so they are not read again.
+    coverless: Mutex<HashSet<String>>,
 }
 
 #[derive(Clone)]
@@ -146,6 +152,7 @@ impl ArtLoader {
                 http: http.into(),
                 runtime,
                 cache_dir,
+                coverless: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -158,6 +165,16 @@ impl ArtLoader {
     /// Bytes for `url`, from memory, disk, or the network.
     pub async fn fetch(&self, url: &str) -> Result<Arc<[u8]>, String> {
         self.inner.fetch(url).await
+    }
+
+    /// Whether `url` names a local file already read and found to hold no
+    /// cover, so the placeholder shows without asking again.
+    pub fn is_coverless(&self, url: &str) -> bool {
+        self.inner
+            .coverless
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(url)
     }
 
     /// Whether artwork has finished loading from disk or the network.
@@ -264,7 +281,7 @@ impl ArtLoader {
     /// Artwork already held, already on its way, or addressed by a scheme
     /// this loader does not answer for is left alone.
     pub fn prefetch(&self, ctx: &egui::Context, url: &str) -> bool {
-        if !is_http(url) {
+        if !is_art(url) {
             return false;
         }
         let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
@@ -439,6 +456,9 @@ impl Inner {
             return Ok(Arc::clone(bytes));
         }
         let path = self.cache_path(url);
+        if let Some(file) = crate::local_tags::art_path(url) {
+            return self.read_local(url, file, path).await;
+        }
         let cached = tokio::task::spawn_blocking({
             let path = path.clone();
             move || std::fs::read(path).ok()
@@ -490,6 +510,38 @@ impl Inner {
         Ok(bytes)
     }
 
+    /// The cover embedded in the local file `file`, read afresh each time
+    /// so a changed cover shows, and copied to the disk cache at `cache`
+    /// for the desktop media controls, which want a picture file.
+    async fn read_local(
+        &self,
+        url: &str,
+        file: PathBuf,
+        cache: PathBuf,
+    ) -> Result<Arc<[u8]>, String> {
+        let picture = tokio::task::spawn_blocking(move || crate::local_tags::picture(&file))
+            .await
+            .ok()
+            .flatten()
+            .filter(|bytes| !bytes.is_empty() && bytes.len() <= MAX_ART_BYTES);
+        let Some(picture) = picture else {
+            self.coverless
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(url.to_string());
+            return Err("the local file holds no cover".to_string());
+        };
+        let bytes: Arc<[u8]> = Arc::from(picture);
+        let payload = Arc::clone(&bytes);
+        self.runtime.spawn_blocking(move || {
+            let temporary = cache.with_extension("part");
+            if std::fs::write(&temporary, &payload).is_ok() {
+                let _ = std::fs::rename(&temporary, &cache);
+            }
+        });
+        Ok(bytes)
+    }
+
     fn start(self: &Arc<Self>, ctx: &egui::Context, url: String) {
         let loader = Arc::clone(self);
         let ctx = ctx.clone();
@@ -535,7 +587,7 @@ impl BytesLoader for ArtLoader {
     }
 
     fn load(&self, ctx: &egui::Context, uri: &str) -> BytesLoadResult {
-        if !is_http(uri) {
+        if !is_art(uri) {
             return Err(LoadError::NotSupported);
         }
         let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
@@ -611,10 +663,84 @@ impl BytesLoader for ArtLoader {
     }
 }
 
-/// A colour that represents an album cover, suitable for tinting a dark or
-/// light surface: the most common saturated hue, with its lightness pulled
-/// into a range that still reads as a background.
-pub fn accent_color(bytes: &[u8]) -> Option<[u8; 3]> {
+/// The most colours [`art_palette`] reads from one cover.
+const PALETTE_COLOURS: usize = 4;
+/// The share of a cover a colour must hold, by the weight that favours vivid
+/// mid-tones, to join its palette, so a few stray pixels colour nothing.
+const PALETTE_SHARE: f32 = 0.06;
+/// How far round the colour wheel two palette colours must be apart, as a
+/// fraction of a turn.
+const PALETTE_HUE_GAP: f32 = 1.0 / 12.0;
+
+/// The colours that represent an album cover, at most four,
+/// for the player bar's visualizer to sweep across. The first is the cover's
+/// accent, suitable for tinting a dark or light surface: the most common
+/// saturated hue, with its lightness pulled into a range that still reads as
+/// a background. The rest are the cover's other hues, the most common first,
+/// each far enough round the colour wheel from the ones before to tell apart;
+/// its greys count as one colour. Empty when the bytes are not an image.
+pub fn art_palette(bytes: &[u8]) -> Vec<[u8; 3]> {
+    let Some(buckets) = art_buckets(bytes) else {
+        return Vec::new();
+    };
+    let total = buckets.iter().map(|(weight, _)| weight).sum::<u64>() as f32;
+    // Each bucket joins the first group whose colour it cannot be told from,
+    // so a hue spread over many nearby buckets is weighed as one.
+    let mut groups: Vec<(u64, [u8; 3])> = Vec::new();
+    for (weight, colour) in buckets {
+        match groups
+            .iter_mut()
+            .find(|(_, group)| !distinct_colours(*group, colour))
+        {
+            Some(group) => group.0 += weight,
+            None => groups.push((weight, colour)),
+        }
+    }
+    // The accent leads whatever its group weighs: it is the colour the
+    // interface is tinted with, and the visualizer's bass when it is a hue.
+    groups[1..].sort_by_key(|(weight, _)| std::cmp::Reverse(*weight));
+    let accent = groups[0].1;
+    std::iter::once(accent)
+        .chain(
+            groups[1..]
+                .iter()
+                .filter(|(weight, _)| *weight as f32 >= total * PALETTE_SHARE)
+                .map(|(_, colour)| *colour),
+        )
+        .take(PALETTE_COLOURS)
+        .collect()
+}
+
+/// Whether `rgb` shows a hue rather than a grey: saturated enough, and light
+/// enough that its hue shows.
+pub fn has_hue([r, g, b]: [u8; 3]) -> bool {
+    let (max, min) = (r.max(g).max(b) as f32, r.min(g).min(b) as f32);
+    max >= 48.0 && (max - min) / max >= 0.2
+}
+
+/// Whether a palette can tell two colours apart: two hues far enough round
+/// the colour wheel, or a hue and a grey. Two greys are one colour, as the
+/// visualizer would draw them.
+fn distinct_colours(a: [u8; 3], b: [u8; 3]) -> bool {
+    match (has_hue(a), has_hue(b)) {
+        (true, true) => {
+            let turn = (hue(a) - hue(b)).abs();
+            turn.min(1.0 - turn) >= PALETTE_HUE_GAP
+        }
+        (false, false) => false,
+        _ => true,
+    }
+}
+
+/// `rgb`'s place on the colour wheel, as a fraction of a turn from red.
+fn hue(rgb: [u8; 3]) -> f32 {
+    egui::ecolor::Hsva::from_srgb(rgb).h
+}
+
+/// A cover's colours, heaviest first: its pixels in buckets of nearby
+/// colours, each weighed toward vivid mid-tones so black borders and white
+/// text lose, with the bucket's average colour.
+fn art_buckets(bytes: &[u8]) -> Option<Vec<(u64, [u8; 3])>> {
     let decoded = image::load_from_memory(bytes).ok()?;
     let small = decoded.thumbnail(48, 48).to_rgb8();
     let mut buckets: HashMap<(u8, u8, u8), (u64, [u64; 3])> = HashMap::new();
@@ -633,15 +759,17 @@ pub fn accent_color(bytes: &[u8]) -> Option<[u8; 3]> {
         bucket.1[1] += g as u64 * weight;
         bucket.1[2] += b as u64 * weight;
     }
-    let (_, (weight, sum)) = buckets.into_iter().max_by_key(|(_, (weight, _))| *weight)?;
-    if weight == 0 {
-        return None;
-    }
-    Some([
-        (sum[0] / weight) as u8,
-        (sum[1] / weight) as u8,
-        (sum[2] / weight) as u8,
-    ])
+    let mut buckets: Vec<_> = buckets
+        .into_iter()
+        .filter(|(_, (weight, _))| *weight > 0)
+        .collect();
+    // The key settles ties, so a cover always gives the same colours.
+    buckets.sort_by(|(a_key, (a, _)), (b_key, (b, _))| b.cmp(a).then(a_key.cmp(b_key)));
+    let buckets: Vec<_> = buckets
+        .into_iter()
+        .map(|(_, (weight, sum))| (weight, sum.map(|channel| (channel / weight) as u8)))
+        .collect();
+    (!buckets.is_empty()).then_some(buckets)
 }
 
 /// Blur applied to the full-window lyrics backdrop.
@@ -693,7 +821,7 @@ impl LyricsBackdrop {
         }
         let uri = uri?;
         let due = self.retry_at.is_none_or(|at| Instant::now() >= at);
-        if !self.requested && due && is_http(uri) {
+        if !self.requested && due && is_art(uri) {
             self.requested = true;
             self.retry_at = None;
             let (tx, rx) = std::sync::mpsc::channel();
@@ -835,7 +963,7 @@ impl SoftenedCovers {
         {
             return None;
         }
-        if !is_http(uri) {
+        if !is_art(uri) {
             self.failed.insert(uri.to_string());
             return None;
         }
@@ -1686,6 +1814,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A local file's cover is read from the file, and kept as a file for
+    /// the media controls. A file without one is remembered, so its rows
+    /// keep the placeholder instead of reading it again (#1001).
+    #[test]
+    fn a_local_file_cover_is_read_from_the_file() {
+        use crate::local_tags::tests::{apic, mp3_with};
+        let dir = std::env::temp_dir().join(format!("spotifast-local-art-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.join("cache"));
+        let song = dir.join("song.mp3");
+        std::fs::write(&song, mp3_with(&[apic(3, b"the cover")])).unwrap();
+        let url = crate::local_tags::art_url(&song);
+        assert!(is_art(&url));
+        let bytes = runtime.block_on(loader.fetch(&url)).unwrap();
+        assert_eq!(&bytes[..], b"the cover");
+        runtime.block_on(wait_for_artwork_file(
+            &loader.inner.cache_path(&url),
+            b"the cover",
+        ));
+        assert!(!loader.is_coverless(&url));
+
+        let bare = dir.join("bare.mp3");
+        std::fs::write(&bare, mp3_with(&[])).unwrap();
+        let bare_url = crate::local_tags::art_url(&bare);
+        assert!(runtime.block_on(loader.fetch(&bare_url)).is_err());
+        assert!(loader.is_coverless(&bare_url));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn prefetching_starts_one_download_and_not_another() {
         let dir = std::env::temp_dir().join(format!("spotifast-prefetch-{}", std::process::id()));
@@ -1725,7 +1884,7 @@ mod tests {
     }
 
     #[test]
-    fn accent_color_finds_dominant_hue() {
+    fn the_accent_is_the_dominant_hue() {
         let mut image = image::RgbImage::new(16, 16);
         for (x, _, pixel) in image.enumerate_pixels_mut() {
             *pixel = if x < 12 {
@@ -1741,11 +1900,77 @@ mod tests {
                 image::ImageFormat::Png,
             )
             .unwrap();
-        let color = accent_color(&bytes).unwrap();
+        let color = art_palette(&bytes)[0];
         assert!(
             color[2] > color[0],
             "expected the blue field, got {color:?}"
         );
+    }
+
+    fn cover_png(image: &image::RgbImage) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    }
+
+    /// The visualizer sweeps across a cover's own colours: the accent first,
+    /// then each other hue it shows enough of, while a few stray pixels and a
+    /// white border colour nothing.
+    #[test]
+    fn the_palette_holds_each_hue_the_cover_shows() {
+        let (blue, red, stray) = ([20, 120, 200], [200, 40, 40], [40, 200, 60]);
+        let image = image::RgbImage::from_fn(48, 48, |x, y| {
+            image::Rgb(match (x, y) {
+                (0..4, _) => [255, 255, 255],
+                (47, 47) => stray,
+                (4..32, _) => blue,
+                _ => red,
+            })
+        });
+        let palette = art_palette(&cover_png(&image));
+        assert_eq!(palette.len(), 2, "{palette:?}");
+        assert_eq!(hue(palette[0]), hue(blue), "{palette:?}");
+        assert_eq!(hue(palette[1]), hue(red), "{palette:?}");
+    }
+
+    /// Shades of one hue are one colour, and so are a cover's greys: the
+    /// visualizer would draw each the same.
+    #[test]
+    fn the_palette_counts_shades_of_one_hue_once() {
+        let image = image::RgbImage::from_fn(48, 48, |x, _| {
+            image::Rgb(match x {
+                0..16 => [20, 120, 200],
+                16..32 => [60, 150, 220],
+                32..40 => [90, 90, 90],
+                _ => [200, 200, 200],
+            })
+        });
+        let palette = art_palette(&cover_png(&image));
+        assert_eq!(palette.len(), 2, "{palette:?}");
+        assert!(has_hue(palette[0]), "{palette:?}");
+        assert!(!has_hue(palette[1]), "{palette:?}");
+    }
+
+    /// A cover with many hues gives the visualizer at most four.
+    #[test]
+    fn the_palette_holds_at_most_four_colours() {
+        let hues = [
+            [220, 40, 40],
+            [220, 160, 40],
+            [120, 220, 40],
+            [40, 220, 200],
+            [40, 80, 220],
+            [180, 40, 220],
+        ];
+        let image = image::RgbImage::from_fn(48, 48, |x, _| image::Rgb(hues[x as usize / 8]));
+        let palette = art_palette(&cover_png(&image));
+        assert_eq!(palette.len(), PALETTE_COLOURS, "{palette:?}");
+        assert!(art_palette(b"not an image").is_empty());
     }
 
     /// #813: Spotify's CDN sometimes serves a cover's bytes as WebP: the
@@ -1762,7 +1987,9 @@ mod tests {
                 image::ImageFormat::WebP,
             )
             .expect("the image crate encodes WebP");
-        let color = accent_color(&bytes).expect("a WebP cover tints the page");
+        let color = *art_palette(&bytes)
+            .first()
+            .expect("a WebP cover tints the page");
         assert!(
             color[2] > color[0],
             "expected the blue field, got {color:?}"

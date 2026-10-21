@@ -30,6 +30,7 @@ not contact an online translation service.
 | Russian | `ru` | Complete |
 | Italian | `it` | Complete |
 | Japanese | `ja` | Complete |
+| Korean | `ko` | Complete |
 | Chinese (Simplified) | `zh-Hans` | Complete |
 | Chinese (Traditional) | `zh-Hant` | Complete |
 | Turkish | `tr` | Complete |

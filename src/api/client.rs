@@ -490,6 +490,11 @@ impl ApiClient {
         response.json().await.map_err(ApiError::from)
     }
 
+    /// Whether requests are waiting out a `Retry-After` from Spotify.
+    pub async fn cooling_down(&self) -> bool {
+        *self.cooldown_until.lock().await > Instant::now()
+    }
+
     async fn wait_for_cooldown(&self) {
         loop {
             let until = *self.cooldown_until.lock().await;
@@ -500,7 +505,7 @@ impl ApiClient {
         }
     }
 
-    async fn extend_cooldown(&self, wait: Duration) {
+    pub(super) async fn extend_cooldown(&self, wait: Duration) {
         let mut until = self.cooldown_until.lock().await;
         *until = (*until).max(Instant::now() + wait);
     }

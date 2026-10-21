@@ -47,6 +47,18 @@ pub enum ThemeChoice {
     System,
 }
 
+/// How the tray icon is drawn on Linux and Windows: in colour, or white or
+/// black to match the panel. The macOS menu bar always gets the template
+/// image, which it draws black or white to match itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrayIcon {
+    #[default]
+    Colour,
+    White,
+    Black,
+}
+
 /// Whether a Home shelf is drawn. Hidden shelves still refresh normally.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -216,6 +228,16 @@ impl ProxyPreferences {
     }
 }
 
+/// An equalizer preset saved by name: the preamp and the ten bands, so a
+/// headphone correction curve keeps the headroom it needs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UserEqPreset {
+    pub name: String,
+    #[serde(default)]
+    pub preamp_db: f32,
+    pub bands_db: [f32; 10],
+}
+
 fn proxy_mode_is_system(mode: &ProxyMode) -> bool {
     *mode == ProxyMode::System
 }
@@ -241,8 +263,11 @@ pub struct Settings {
     /// used again when it is turned back on.
     #[serde(default)]
     pub crossfade_secs: u32,
-    /// librespot backend name; `None` picks the platform default.
-    pub audio_backend: Option<String>,
+    /// The output local playback uses: the id of a device
+    /// `fastframe_audio::output_devices` lists, or `None` for the system
+    /// default. Files from 0.13.3 and earlier may hold a device's name instead; see
+    /// `crate::sink::Saved`. The `audio_backend` they may also hold is
+    /// ignored: fastframe-audio is the only output.
     pub audio_device: Option<String>,
     /// Windows output buffer in milliseconds. Smaller values may click under
     /// load; larger values delay playback controls.
@@ -251,6 +276,9 @@ pub struct Settings {
     pub audio_buffer_ms: u32,
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
+    /// The folder, searched with its subfolders, that a playlist's
+    /// `spotify:local:` songs play from; `None` plays none.
+    pub local_files_folder: Option<String>,
     pub theme: ThemeChoice,
     /// The interface language; older files without it follow the system.
     pub language: LanguageChoice,
@@ -270,6 +298,11 @@ pub struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     pub system_theme_cache: Option<crate::theme::CustomTheme>,
+    /// The palettes Follow system shows in light and in dark mode, each with
+    /// its last accepted colours; empty slots are Spotifast's own Light and
+    /// Dark, as before this setting existed.
+    #[serde(skip_serializing_if = "fastframe_theme::Pair::is_default")]
+    pub theme_pair: crate::theme::ThemePair,
     pub home: HomeSettings,
     /// Tint the interface with the colour of the playing album's art.
     pub accent_from_art: bool,
@@ -313,8 +346,13 @@ pub struct Settings {
     pub playback_authorized: bool,
     /// Closing the window hides to the tray and keeps the music playing.
     pub keep_playing_in_background: bool,
+    /// Linux and Windows: the tray icon in colour, white or black (#128).
+    pub tray_icon: TrayIcon,
     /// Show the interactive Now Playing widget when hovering over the MacBook notch.
     pub mac_notch_widget: bool,
+    /// macOS: keep Spotifast in the Dock and Cmd-Tab. Off makes it a
+    /// menu-bar app, whose menu-bar icon is the way back (#837).
+    pub mac_show_in_dock: bool,
     /// Ask GitHub once a day whether a newer release exists.
     pub check_for_updates: bool,
     pub download_updates_automatically: bool,
@@ -363,6 +401,8 @@ pub struct Settings {
     pub eq_preamp_db: f32,
     /// The ten bands, in decibels, 60 Hz to 16 kHz.
     pub eq_bands_db: [f32; 10],
+    /// Equalizer presets saved here, listed after the built-in ones (#702).
+    pub eq_user_presets: Vec<UserEqPreset>,
     /// The balance, -1 all left to 1 all right.
     pub balance: f32,
     /// Play both channels the same.
@@ -441,8 +481,8 @@ impl Default for Settings {
             gapless: true,
             crossfade: false,
             crossfade_secs: 0,
-            audio_backend: None,
             audio_device: None,
+            local_files_folder: None,
             audio_buffer_ms: default_buffer_ms(),
             audio_cache: true,
             audio_cache_mb: 1024,
@@ -451,6 +491,7 @@ impl Default for Settings {
             custom_theme: None,
             custom_theme_cache: None,
             system_theme_cache: None,
+            theme_pair: crate::theme::ThemePair::default(),
             home: HomeSettings::default(),
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
@@ -473,7 +514,9 @@ impl Default for Settings {
             personal_app_intro_seen: false,
             playback_authorized: false,
             keep_playing_in_background: true,
+            tray_icon: TrayIcon::Colour,
             mac_notch_widget: false,
+            mac_show_in_dock: true,
             check_for_updates: true,
             download_updates_automatically: false,
             pinned_contexts: Vec::new(),
@@ -496,6 +539,7 @@ impl Default for Settings {
             eq_on: false,
             eq_preamp_db: 0.0,
             eq_bands_db: [0.0; 10],
+            eq_user_presets: Vec::new(),
             balance: 0.0,
             mono: false,
             playlist_shaded: false,
@@ -524,7 +568,17 @@ fn default_buffer_ms() -> u32 {
 }
 
 impl Settings {
-    pub(crate) fn cached_palette(&self) -> Option<crate::theme::Palette> {
+    /// The local files folder, when one is set.
+    pub fn local_files_folder(&self) -> Option<std::path::PathBuf> {
+        self.local_files_folder
+            .as_deref()
+            .filter(|folder| !folder.trim().is_empty())
+            .map(std::path::PathBuf::from)
+    }
+
+    /// The one palette shown whatever the system's appearance: a chosen
+    /// palette file, or Omarchy's while Follow system follows it.
+    pub(crate) fn fixed_palette(&self) -> Option<crate::theme::Palette> {
         let theme = if self.custom_theme.is_some() {
             self.custom_theme_cache.as_ref()
         } else if self.theme == ThemeChoice::System {
@@ -533,6 +587,18 @@ impl Settings {
             None
         };
         theme.map(|theme| theme.palette)
+    }
+
+    /// The palette to show while the system is `dark` or light: the fixed
+    /// one, else Follow system's choice for that appearance. `None` leaves
+    /// Spotifast's own Light or Dark.
+    pub(crate) fn cached_palette(&self, dark: bool) -> Option<crate::theme::Palette> {
+        if let Some(palette) = self.fixed_palette() {
+            return Some(palette);
+        }
+        let base = fastframe_theme::Base::from_dark(dark);
+        (self.theme == ThemeChoice::System && self.theme_pair.slot(base).is_some())
+            .then(|| self.theme_pair.palette(base))
     }
 
     pub(crate) fn proxy_password_record(
@@ -624,16 +690,6 @@ impl Settings {
         if let Err(error) = fastframe_file::write(path, text) {
             log::warn!("unable to save settings to {}: {error}", path.display());
         }
-    }
-
-    pub fn platform_backend(&self) -> Option<String> {
-        self.audio_backend.clone().or_else(|| {
-            if cfg!(target_os = "linux") {
-                Some("pulseaudio".to_string())
-            } else {
-                None
-            }
-        })
     }
 
     pub fn remember_search(&mut self, query: &str) {
@@ -971,6 +1027,31 @@ mod tests {
         assert_eq!(settings.volume, 37);
     }
 
+    /// Files from before fastframe-audio was the only output name a
+    /// librespot backend. It is read and ignored, the rest of the file still
+    /// loads, and the key is not written back, which older builds read as
+    /// their own default.
+    #[test]
+    fn an_old_audio_backend_is_read_and_ignored() {
+        for backend in ["pulseaudio", "rodio", "alsa", "no-such-backend"] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({
+                "audio_backend": backend,
+                "audio_device": "PipeWire Sound Server",
+                "volume": 37,
+            }))
+            .unwrap();
+            assert_eq!(settings.volume, 37);
+            assert_eq!(
+                settings.audio_device.as_deref(),
+                Some("PipeWire Sound Server")
+            );
+            let saved: serde_json::Value =
+                serde_json::from_str(&settings.encode().unwrap()).unwrap();
+            assert!(saved.get("audio_backend").is_none());
+            assert_eq!(saved["audio_device"], "PipeWire Sound Server");
+        }
+    }
+
     #[test]
     fn language_follows_the_system_unless_a_known_locale_was_chosen() {
         use super::LanguageChoice;
@@ -1029,6 +1110,29 @@ mod tests {
     }
 
     #[test]
+    fn queue_width_round_trips_through_saved_settings() {
+        let settings = Settings {
+            queue_width: 300.0,
+            ..Default::default()
+        };
+        let text = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&text).unwrap();
+        assert_eq!(restored.queue_width, 300.0);
+    }
+
+    /// Older files keep the Dock icon; hiding it survives a save (#837).
+    #[test]
+    fn the_dock_icon_stays_unless_hidden_and_round_trips() {
+        let empty: Settings = serde_json::from_str("{}").unwrap();
+        assert!(empty.mac_show_in_dock);
+        let hidden: Settings = serde_json::from_str(r#"{"mac_show_in_dock": false}"#).unwrap();
+        assert!(!hidden.mac_show_in_dock);
+        let encoded = serde_json::to_string(&hidden).unwrap();
+        let decoded: Settings = serde_json::from_str(&encoded).unwrap();
+        assert!(!decoded.mac_show_in_dock);
+    }
+
+    #[test]
     fn mac_notch_widget_defaults_to_false_when_absent_and_round_trips_true() {
         let empty: Settings = serde_json::from_str("{}").unwrap();
         assert!(!empty.mac_notch_widget);
@@ -1062,6 +1166,72 @@ mod tests {
         assert_eq!(recovered.custom_theme.as_deref(), Some("gruvbox.json"));
         assert_eq!(recovered.audio_cache_mb, 777);
         assert!(recovered.custom_theme_cache.is_none());
+    }
+
+    /// Settings from before the light and dark pair keep their look, and
+    /// write no pair until one is chosen (#619).
+    #[test]
+    fn follow_system_pairs_load_old_settings_unchanged_and_round_trip() {
+        use super::ThemeChoice;
+        use crate::theme::{CustomTheme, Palette};
+        use fastframe_theme::Base;
+        let mut nord = Palette::dark();
+        nord.accent = egui::Color32::from_rgb(0x88, 0xc0, 0xd0);
+        let cache = serde_json::to_value(CustomTheme {
+            filename: "Nord.json".into(),
+            palette: nord,
+        })
+        .unwrap();
+        // One custom palette, with Follow system underneath: still Nord in
+        // light and dark mode alike.
+        let single: Settings = serde_json::from_value(serde_json::json!({
+            "theme": "system", "custom_theme": "Nord.json", "custom_theme_cache": cache,
+        }))
+        .unwrap();
+        assert!(single.theme_pair.is_default());
+        assert_eq!(single.cached_palette(false), Some(nord));
+        assert_eq!(single.cached_palette(true), Some(nord));
+        // Plain Follow system: Spotifast's own Light and Dark.
+        let follow: Settings = serde_json::from_str(r#"{"theme":"system"}"#).unwrap();
+        assert_eq!(follow.cached_palette(false), None);
+        assert_eq!(follow.cached_palette(true), None);
+        let encoded = serde_json::to_value(&follow).unwrap();
+        assert!(encoded.get("theme_pair").is_none(), "no pair, no field");
+
+        let mut latte = Palette::light();
+        latte.window = egui::Color32::from_rgb(0xef, 0xf1, 0xf5);
+        let mut paired = follow.clone();
+        assert!(paired.theme_pair.set(
+            Base::Light,
+            Some(&CustomTheme {
+                filename: "Catppuccin Latte.json".into(),
+                palette: latte,
+            })
+        ));
+        assert_eq!(paired.cached_palette(false), Some(latte));
+        assert_eq!(paired.cached_palette(true), None, "dark stays Spotifast's");
+        let encoded = serde_json::to_string(&paired).unwrap();
+        let decoded: Settings = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, paired);
+
+        // A pair waits behind a fixed choice and comes back with Follow system.
+        let mut fixed = paired.clone();
+        fixed.theme = ThemeChoice::Dark;
+        assert_eq!(fixed.cached_palette(false), None);
+        fixed.theme = ThemeChoice::System;
+        assert_eq!(fixed.cached_palette(false), Some(latte));
+
+        // A damaged cache keeps the choice and the other settings.
+        let mut damaged = serde_json::to_value(&paired).unwrap();
+        damaged["theme_pair"]["light"]["palette"] = "broken".into();
+        damaged["audio_cache_mb"] = 777.into();
+        let recovered: Settings = serde_json::from_value(damaged).unwrap();
+        assert_eq!(
+            recovered.theme_pair.filename(Base::Light),
+            Some("Catppuccin Latte.json")
+        );
+        assert_eq!(recovered.cached_palette(false), Some(Palette::light()));
+        assert_eq!(recovered.audio_cache_mb, 777);
     }
 
     #[test]
@@ -1156,6 +1326,23 @@ mod tests {
             [super::LIKED_SONGS_KEY, "spotify:playlist:one"]
         );
         assert_eq!(settings.sidebar_order, ["spotify:playlist:two"]);
+    }
+
+    /// Saved equalizer presets read back as written; files from before them
+    /// have none, and a preset without a preamp keeps it at zero (#702).
+    #[test]
+    fn saved_equalizer_presets_round_trip_and_default_to_none() {
+        let settings: Settings = serde_json::from_str(r#"{"zoom": 1.2}"#).unwrap();
+        assert!(settings.eq_user_presets.is_empty());
+        let settings: Settings = serde_json::from_str(
+            r#"{"eq_user_presets":[{"name":"AirPods","preamp_db":-3.0,"bands_db":[1.2,0,-1.9,-2,0,1.6,1.6,2.6,0,-4.4]},{"name":"Old","bands_db":[0,0,0,0,0,0,0,0,0,1]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.eq_user_presets[0].preamp_db, -3.0);
+        assert_eq!(settings.eq_user_presets[1].preamp_db, 0.0);
+        let again: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(again.eq_user_presets, settings.eq_user_presets);
     }
 
     #[test]
@@ -1284,6 +1471,29 @@ mod tests {
             milkdrop_only.visualizer_fps, 60,
             "MilkDrop's rate is its own"
         );
+    }
+
+    /// Older files keep today's colour icon, and the choice round-trips as
+    /// a lowercase word (#128).
+    #[test]
+    fn the_tray_icon_stays_in_colour_unless_chosen_and_round_trips() {
+        use super::TrayIcon;
+        let settings: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.tray_icon, TrayIcon::Colour);
+        for (choice, word) in [
+            (TrayIcon::Colour, "colour"),
+            (TrayIcon::White, "white"),
+            (TrayIcon::Black, "black"),
+        ] {
+            let json = serde_json::to_value(Settings {
+                tray_icon: choice,
+                ..Settings::default()
+            })
+            .unwrap();
+            assert_eq!(json["tray_icon"], word);
+            let restored: Settings = serde_json::from_value(json).unwrap();
+            assert_eq!(restored.tray_icon, choice);
+        }
     }
 
     #[test]
@@ -1624,6 +1834,8 @@ pub struct CachedRootlist {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SessionState {
+    /// Recent explicit output choices, scoped to the verified Spotify account.
+    pub device_history: crate::device_history::DeviceHistory,
     pub last_page: Option<String>,
     /// Context URIs most recently played, newest first.
     pub recent_contexts: Vec<String>,
@@ -1646,6 +1858,9 @@ pub struct SessionState {
     pub rootlist: Option<CachedRootlist>,
     /// Shuffle mode saved across contexts and restarts.
     pub shuffle_on: bool,
+    /// Local repeat mode ("off", "context" or "track") saved across
+    /// restarts. Sessions saved before it existed read as off.
+    pub repeat: String,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
     /// Last window inner size, to restore on next launch. Logical pixels
@@ -1730,6 +1945,25 @@ mod session_tests {
         let state: SessionState = serde_json::from_str(r#"{"last_page":"home"}"#).unwrap();
         assert_eq!(state.last_page.as_deref(), Some("home"));
         assert_eq!(state.rootlist, None);
+        assert_eq!(
+            crate::player::RepeatMode::from_api(&state.repeat),
+            crate::player::RepeatMode::Off,
+            "no saved repeat mode is off"
+        );
+    }
+
+    #[test]
+    fn the_repeat_mode_round_trips() {
+        let state = SessionState {
+            repeat: crate::player::RepeatMode::Track.api_name().into(),
+            ..SessionState::default()
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        let read = serde_json::from_str::<SessionState>(&json).unwrap();
+        assert_eq!(
+            crate::player::RepeatMode::from_api(&read.repeat),
+            crate::player::RepeatMode::Track
+        );
     }
 
     #[test]

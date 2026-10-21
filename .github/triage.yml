@@ -67,6 +67,11 @@ instructions: |
   binary, or source code. Ask for the flagged artifact's SHA-256 when missing.
   Never recommend restoring quarantine, disabling protection, or exclusions;
   paid signing neither guarantees a remedy nor is necessarily the only remedy.
+  A Windows "unknown publisher", "Windows protected your PC", or "couldn't
+  confirm the creator" prompt, or a macOS Gatekeeper prompt, is the operating
+  system's warning for an unsigned or newly downloaded app, not an antivirus
+  detection. Select docs/_guide/download.md (https://spotifast.rocks/download/),
+  which explains More info, then Run anyway, and do not ask for a SHA-256.
 
   For user bug reports, ask one direct question only when its answer is necessary
   to investigate and has not already been supplied or requested. Do not select

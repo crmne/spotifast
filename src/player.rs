@@ -31,15 +31,15 @@ use librespot_metadata::{
     audio::{AudioItem, UniqueFields},
 };
 use librespot_playback::{
-    audio_backend::{self, Sink},
-    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
+    audio_backend::Sink,
+    config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
     mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
 use sha1::{Digest, Sha1};
 
 use crate::api::models::ArtistRef;
-use crate::sink::{AudioControl, ErrorHook, RodioSink};
+use crate::sink::{AudioControl, DeviceHook, ErrorHook, RodioSink};
 use crate::vis::{AudioTap, Tapped};
 
 #[derive(Clone, Debug)]
@@ -51,7 +51,7 @@ pub struct EngineConfig {
     pub gapless: bool,
     /// Overlap between songs. Zero leaves the handover untouched.
     pub crossfade: std::time::Duration,
-    pub backend: Option<String>,
+    /// The saved output, an id or an older build's name (`crate::sink::Saved`).
     pub audio_device: Option<String>,
     pub initial_volume: u16,
     pub volume_dir: PathBuf,
@@ -64,6 +64,8 @@ pub struct EngineConfig {
     pub eq: crate::eq::SharedEq,
     /// Proxy used by the Web API client. Librespot only uses the HTTP form.
     pub proxy: crate::settings::ProxyConfig,
+    /// The folder a playlist's `spotify:local:` songs play from.
+    pub local_files: Option<PathBuf>,
 }
 
 impl EngineConfig {
@@ -285,7 +287,7 @@ pub enum PlayerCommand {
     Previous,
     /// Remove manually queued tracks and keep context tracks.
     ClearQueue,
-    /// Queue a track or episode after the ones already queued.
+    /// Queue a track, episode or local file after the ones already queued.
     AddToQueue(String),
     Seek(u32),
     /// The volume to keep: applied at once and told to Spotify Connect.
@@ -305,9 +307,74 @@ pub enum PlayerCommand {
 pub enum EngineEvent {
     State(LocalState),
     SessionEnded,
+    /// The output opened on the device an older build saved by `name`;
+    /// the setting holds its `id` from now on.
+    AudioDevice {
+        name: String,
+        id: String,
+    },
 }
 
 pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
+
+/// The parts of an engine that outlive its session (#268). librespot's
+/// player keeps playing what it has already fetched when the session drops;
+/// handed to the next engine, the song carries on through the reconnect
+/// instead of stopping until the new session has loaded it again.
+#[derive(Clone)]
+pub struct KeptPlayer {
+    player: Arc<Player>,
+    mixer: Arc<dyn Mixer>,
+    state: Arc<Mutex<LocalState>>,
+    audio: Arc<AudioControl>,
+}
+
+impl KeptPlayer {
+    /// Stops the song, when nothing is going to pick it up.
+    pub fn stop(&self) {
+        self.player.stop();
+    }
+
+    /// Pauses the song or plays it again, while there is no session to ask.
+    /// False when it has no song left to pause or play.
+    pub fn toggle(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        if state.track.is_none() {
+            return false;
+        }
+        // Shown at once, and a second toggle before the player answers
+        // undoes the first instead of repeating it.
+        match state.playback {
+            Playback::Playing => {
+                state.position_ms = state.position_now();
+                state.position_at = None;
+                state.playback = Playback::Paused;
+                self.player.pause();
+            }
+            Playback::Paused => {
+                state.position_at = Some(Instant::now());
+                state.playback = Playback::Playing;
+                self.player.play();
+            }
+            Playback::Stopped | Playback::Loading => return false,
+        }
+        true
+    }
+
+    /// Whether the player still has a song, playing or paused.
+    pub fn has_song(&self) -> bool {
+        self.now().is_some()
+    }
+
+    /// Where the song is now and whether it plays, or `None` once the
+    /// player has nothing left.
+    fn now(&self) -> Option<Interrupted> {
+        self.state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .interrupted()
+    }
+}
 
 pub struct Engine {
     player: Arc<Player>,
@@ -319,7 +386,12 @@ pub struct Engine {
     /// What was playing when the session ended on its own.
     interrupted: Arc<Mutex<Option<Interrupted>>>,
     shutting_down: Arc<std::sync::atomic::AtomicBool>,
+    /// The session is being ended while its player plays on.
+    closing: Arc<std::sync::atomic::AtomicBool>,
     audio: Arc<AudioControl>,
+    /// The player came from a dropped session and still plays what that
+    /// session left it, until something is loaded through this one.
+    carrying: std::sync::atomic::AtomicBool,
 }
 
 impl Engine {
@@ -327,20 +399,113 @@ impl Engine {
         self.session.cache().and_then(|cache| cache.credentials())
     }
     /// Connects to Spotify and announces this device on Spotify Connect.
+    /// A player `kept` from an engine whose session dropped plays on, and
+    /// this engine takes it over, instead of starting a player of its own.
     pub async fn connect(
         config: &EngineConfig,
         proxy: Option<reqwest::Url>,
         credentials: Credentials,
         cache: Cache,
         notify: Notify,
+        kept: Option<KeptPlayer>,
     ) -> Result<Self> {
-        let device_id = config.device_id();
         let session_config = SessionConfig {
-            device_id: device_id.clone(),
+            device_id: config.device_id(),
             autoplay: Some(config.autoplay),
             proxy,
             ..SessionConfig::default()
         };
+        let session = Session::new(session_config, Some(cache));
+        let carrying = kept.is_some();
+        let (player, mixer, state, audio) = match kept {
+            Some(kept) => (kept.player, kept.mixer, kept.state, kept.audio),
+            None => Self::start_player(config, &session, &notify)?,
+        };
+
+        let connect_config = ConnectConfig {
+            name: config.device_name.clone(),
+            device_type: DeviceType::Computer,
+            initial_volume: config.initial_volume,
+            disable_volume: false,
+            volume_steps: 64,
+            ..ConnectConfig::default()
+        };
+        let (spirc, spirc_task) = Spirc::new(
+            connect_config,
+            session.clone(),
+            credentials,
+            Arc::clone(&player),
+            Arc::clone(&mixer),
+        )
+        .await
+        .context("unable to connect to Spotify")?;
+        if carrying {
+            // Before Spirc's task runs, so everything it loads comes through
+            // the new session. The song already playing keeps fetching the
+            // rest of its file as it did.
+            player.set_session(session.clone());
+        }
+
+        {
+            let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
+            current.connected = true;
+            current.username = session.username();
+            notify(EngineEvent::State(current.clone()));
+        }
+
+        let shutting_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let closing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let interrupted: Arc<Mutex<Option<Interrupted>>> = Arc::default();
+        let ended_flag = Arc::clone(&shutting_down);
+        let ended_closing = Arc::clone(&closing);
+        let ended_notify = Arc::clone(&notify);
+        let ended_state = Arc::clone(&state);
+        let ended_interrupted = Arc::clone(&interrupted);
+        tokio::spawn(async move {
+            spirc_task.await;
+            let shut_down = ended_flag.load(std::sync::atomic::Ordering::SeqCst);
+            {
+                let mut current = ended_state.lock().unwrap_or_else(|p| p.into_inner());
+                // Kept before the state is marked stopped, so a reconnect
+                // knows what to pick up.
+                *ended_interrupted.lock().unwrap_or_else(|p| p.into_inner()) =
+                    current.interrupted();
+                session_ended(&mut current, shut_down);
+                ended_notify(EngineEvent::State(current.clone()));
+            }
+            if !shut_down && !ended_closing.load(std::sync::atomic::Ordering::SeqCst) {
+                ended_notify(EngineEvent::SessionEnded);
+            }
+        });
+
+        let device_id = config.device_id();
+        Ok(Self {
+            player,
+            spirc: Arc::new(spirc),
+            session,
+            mixer,
+            device_id,
+            state,
+            interrupted,
+            shutting_down,
+            closing,
+            audio,
+            carrying: std::sync::atomic::AtomicBool::new(carrying),
+        })
+    }
+
+    /// A new player, with the mixer, output and state it plays through.
+    #[allow(clippy::type_complexity)]
+    fn start_player(
+        config: &EngineConfig,
+        session: &Session,
+        notify: &Notify,
+    ) -> Result<(
+        Arc<Player>,
+        Arc<dyn Mixer>,
+        Arc<Mutex<LocalState>>,
+        Arc<AudioControl>,
+    )> {
         let normalisation_factor = Arc::new(std::sync::atomic::AtomicU64::new(1.0f64.to_bits()));
         let player_config = PlayerConfig {
             bitrate: config.bitrate(),
@@ -352,6 +517,9 @@ impl Engine {
             // the tap can undo it for the visualisers: they show the music,
             // not the loudness housekeeping.
             normalisation_report: Some(Arc::clone(&normalisation_factor)),
+            // librespot reads this folder's tags on its own player thread
+            // when the engine starts, never on the UI thread.
+            local_file_directories: config.local_files.iter().cloned().collect(),
             ..PlayerConfig::default()
         };
 
@@ -371,12 +539,11 @@ impl Engine {
             volume: config.initial_volume,
             ..LocalState::default()
         }));
-        let session = Session::new(session_config, Some(cache));
         let audio = AudioControl::with_crossfade(config.buffer_ms, config.crossfade);
         let (sink_builder, volume) = sink_builder(
             config,
             Arc::clone(&state),
-            Arc::clone(&notify),
+            Arc::clone(notify),
             &mixer,
             Arc::clone(&normalisation_factor),
             Arc::clone(&audio),
@@ -386,70 +553,33 @@ impl Engine {
         tokio::spawn(run_events(
             events,
             Arc::clone(&state),
-            Arc::clone(&notify),
+            Arc::clone(notify),
             Arc::clone(&audio),
         ));
+        Ok((player, mixer, state, audio))
+    }
 
-        let connect_config = ConnectConfig {
-            name: config.device_name.clone(),
-            device_type: DeviceType::Computer,
-            initial_volume: config.initial_volume,
-            disable_volume: false,
-            volume_steps: 64,
-            ..ConnectConfig::default()
-        };
-        let (spirc, spirc_task) = Spirc::new(
-            connect_config,
-            session.clone(),
-            credentials,
-            Arc::clone(&player),
-            Arc::clone(&mixer),
-        )
-        .await
-        .context("unable to connect to Spotify")?;
-
-        {
-            let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
-            current.connected = true;
-            current.username = session.username();
-            notify(EngineEvent::State(current.clone()));
+    /// The player and what it plays through, for the engine that replaces
+    /// this one after its session dropped. Nothing stops it: the song plays
+    /// on until the next engine takes it over or [`KeptPlayer::stop`].
+    pub fn keep_player(&self) -> KeptPlayer {
+        KeptPlayer {
+            player: Arc::clone(&self.player),
+            mixer: Arc::clone(&self.mixer),
+            state: Arc::clone(&self.state),
+            audio: Arc::clone(&self.audio),
         }
+    }
 
-        let shutting_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let interrupted: Arc<Mutex<Option<Interrupted>>> = Arc::default();
-        let ended_flag = Arc::clone(&shutting_down);
-        let ended_notify = Arc::clone(&notify);
-        let ended_state = Arc::clone(&state);
-        let ended_interrupted = Arc::clone(&interrupted);
-        tokio::spawn(async move {
-            spirc_task.await;
-            {
-                let mut current = ended_state.lock().unwrap_or_else(|p| p.into_inner());
-                // Kept before the state is marked stopped, so a reconnect
-                // knows what to pick up.
-                *ended_interrupted.lock().unwrap_or_else(|p| p.into_inner()) =
-                    current.interrupted();
-                current.connected = false;
-                current.playback = Playback::Stopped;
-                current.position_at = None;
-                ended_notify(EngineEvent::State(current.clone()));
-            }
-            if !ended_flag.load(std::sync::atomic::Ordering::SeqCst) {
-                ended_notify(EngineEvent::SessionEnded);
-            }
-        });
+    /// Whether the player still plays only what a dropped session left it:
+    /// nothing has been loaded or picked up through this engine yet.
+    pub fn carrying(&self) -> bool {
+        self.carrying.load(std::sync::atomic::Ordering::SeqCst)
+    }
 
-        Ok(Self {
-            player,
-            spirc: Arc::new(spirc),
-            session,
-            mixer,
-            device_id,
-            state,
-            interrupted,
-            shutting_down,
-            audio,
-        })
+    fn stop_carrying(&self) {
+        self.carrying
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Playback state to resume after replacing this engine.
@@ -520,32 +650,11 @@ impl Engine {
     /// Account playlist tree in Spotify order, including folder markers,
     /// and which of its playlists the account may add songs to.
     pub async fn rootlist(&self) -> Result<Rootlist> {
-        use protobuf::Message as _;
         let mut uris = Vec::new();
         let mut editable = std::collections::BTreeSet::new();
-        let mut from = 0usize;
-        loop {
-            let bytes = self
-                .session
-                .spclient()
-                .get_rootlist(from, Some(500))
-                .await
-                .map_err(|error| anyhow!("rootlist: {error}"))?;
-            let content =
-                librespot_protocol::playlist4_external::SelectedListContent::parse_from_bytes(
-                    &bytes,
-                )?;
-            let Some(contents) = content.contents.into_option() else {
-                break;
-            };
-            let count = contents.items.len();
-            let truncated = contents.truncated();
+        for contents in crate::session_reads::rootlist(&self.session).await? {
             editable.extend(editable_uris(&contents));
             uris.extend(contents.items.into_iter().filter_map(|item| item.uri));
-            if !truncated || count == 0 {
-                break;
-            }
-            from += count;
         }
         Ok(Rootlist {
             entries: parse_rootlist(&uris),
@@ -565,6 +674,14 @@ impl Engine {
         self.player.stop();
     }
 
+    /// Ends the session but leaves the player playing, for an engine that
+    /// is not kept while the song it carries is (#268).
+    pub fn close_session(&self) {
+        self.closing
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = self.spirc.shutdown();
+    }
+
     pub fn resume_point(&self) -> Option<PlaybackResume> {
         if let Some(snapshot) = self.spirc.disconnected_playback() {
             return Some(PlaybackResume::Session(snapshot));
@@ -580,15 +697,24 @@ impl Engine {
     }
 
     pub fn resume(&self, resume: PlaybackResume) -> Result<()> {
-        match resume {
+        // A carried song is picked up where it has got to, playing or
+        // paused as it is now, not where the session dropped: the player
+        // already has it, so the restore only lines its decoder up.
+        let now = self.carrying().then(|| self.keep_player().now()).flatten();
+        self.stop_carrying();
+        match resume_from(resume, now.as_ref()) {
             PlaybackResume::Session(snapshot) => {
                 self.spirc.restore_playback(snapshot).map_err(Into::into)
             }
-            PlaybackResume::Track(spec) => self.command(PlayerCommand::Load(spec)),
+            PlaybackResume::Track(spec) => self.send_command(PlayerCommand::Load(spec)),
         }
     }
 
     pub fn command(&self, command: PlayerCommand) -> Result<()> {
+        if matches!(command, PlayerCommand::Load(_) | PlayerCommand::Transfer) {
+            // Something else chosen replaces the song a dropped session left.
+            self.stop_carrying();
+        }
         let interrupts_audio = command_interrupts_audio(
             &self.state.lock().unwrap_or_else(|p| p.into_inner()),
             &command,
@@ -661,6 +787,38 @@ impl Engine {
     }
 }
 
+/// What to pick up: `resume` as it was when the session dropped, or where a
+/// song the player carried through the reconnect is `now`.
+fn resume_from(resume: PlaybackResume, now: Option<&Interrupted>) -> PlaybackResume {
+    let Some(now) = now else {
+        return resume;
+    };
+    match resume {
+        PlaybackResume::Session(snapshot) => {
+            PlaybackResume::Session(Arc::new(snapshot.at_position(now.position_ms, now.playing)))
+        }
+        PlaybackResume::Track(mut spec) => {
+            if spec.uris.first() == Some(&now.uri) {
+                spec.position_ms = now.position_ms;
+                spec.play = now.playing;
+            }
+            PlaybackResume::Track(spec)
+        }
+    }
+}
+
+/// The session is gone. librespot's player does not stop with it, so a
+/// song playing or paused stays as it is until the next session takes it
+/// over or the player is stopped (#268); a shutdown asked for stops it.
+fn session_ended(state: &mut LocalState, shut_down: bool) {
+    state.connected = false;
+    if shut_down || !matches!(state.playback, Playback::Playing | Playback::Paused) {
+        state.playback = Playback::Stopped;
+        state.loading = false;
+        state.position_at = None;
+    }
+}
+
 fn command_interrupts_audio(state: &LocalState, command: &PlayerCommand) -> bool {
     state.playback == Playback::Playing
         && matches!(
@@ -669,25 +827,11 @@ fn command_interrupts_audio(state: &LocalState, command: &PlayerCommand) -> bool
         )
 }
 
-/// The librespot backend a saved setting names, when this build has it.
-///
-/// Spotifast's own output has always been saved as "rodio". librespot's
-/// rodio backend is no longer built in, so that name, an empty setting and
-/// any backend this build lacks all play through Spotifast's own output.
-fn librespot_backend(name: Option<&str>) -> Option<audio_backend::SinkBuilder> {
-    let name = name.filter(|name| *name != crate::sink::NAME)?;
-    let builder = audio_backend::find(Some(name.to_string()));
-    if builder.is_none() {
-        log::warn!("audio backend {name:?} is unavailable; using the default");
-    }
-    builder
-}
-
 /// Builds the audio sink and chooses where volume is applied.
 ///
 /// The default sink opens the device on playback and reports errors instead
 /// of panicking. It applies volume at output so changes affect queued audio.
-/// Other librespot backends remain available through Settings.
+/// It is the only sink: librespot's own backends are not built in.
 type SinkAndVolume = (
     Box<dyn FnOnce() -> Box<dyn Sink> + Send>,
     Box<dyn VolumeGetter + Send>,
@@ -705,6 +849,7 @@ fn sink_builder(
     let buffer_ms = config.buffer_ms;
     let tap = Arc::clone(&config.tap);
     let eq = Arc::clone(&config.eq);
+    let notify_device = Arc::clone(&notify);
     let report: ErrorHook = Arc::new(move |message: String| {
         let snapshot = {
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
@@ -713,40 +858,22 @@ fn sink_builder(
         };
         notify(EngineEvent::State(snapshot));
     });
-    if let Some(builder) = librespot_backend(config.backend.as_deref()) {
-        // Apply volume after the tap so visualizers are independent of
-        // volume, including at zero.
-        let applied = mixer.get_soft_volume();
-        let normalisation = Arc::clone(&normalisation);
-        return (
-            Box::new(move || {
-                let sink = builder(device, AudioFormat::S16);
-                Box::new(Tapped::new(
-                    sink,
-                    audio,
-                    tap,
-                    applied,
-                    true,
-                    eq,
-                    normalisation,
-                )) as Box<dyn Sink>
-            }),
-            Box::new(NoOpVolume),
-        );
-    }
+    let saved: DeviceHook = Arc::new(move |name, id| {
+        notify_device(EngineEvent::AudioDevice {
+            name,
+            id: id.as_str().to_string(),
+        });
+    });
     let volume = mixer.get_soft_volume();
     // The output applies volume to queued audio. The wrapper reads the same
     // value to calculate the pre-volume limiter ceiling.
     let ceiling = mixer.get_soft_volume();
     (
         Box::new(move || {
-            let sink = Box::new(RodioSink::new(
-                device,
-                report,
-                volume,
-                buffer_ms,
-                Arc::clone(&audio),
-            ));
+            let sink = Box::new(
+                RodioSink::new(device, report, volume, buffer_ms, Arc::clone(&audio))
+                    .on_device(saved),
+            );
             Box::new(Tapped::new(
                 sink,
                 audio,
@@ -1323,21 +1450,87 @@ mod tests {
     use super::*;
     use librespot_core::SpotifyUri;
 
-    /// Settings saved before librespot's rodio backend left the build name
-    /// "rodio", which has always meant Spotifast's own output; that and any
-    /// backend this build lacks still play, through that output.
+    /// #268: a dropped session leaves the song playing or paused where it
+    /// is, for the next session to pick up; a shutdown stops it.
     #[test]
-    fn an_old_rodio_setting_plays_through_spotifasts_own_output() {
-        assert!(librespot_backend(Some("rodio")).is_none());
-        assert!(librespot_backend(None).is_none());
-        assert!(librespot_backend(Some("no-such-backend")).is_none());
-        assert!(
-            audio_backend::find(Some("rodio".into())).is_none(),
-            "librespot's rodio backend is not built in"
-        );
-        if cfg!(target_os = "linux") {
-            assert!(librespot_backend(Some("pulseaudio")).is_some());
+    fn a_dropped_session_keeps_the_song_and_a_shutdown_stops_it() {
+        let playing = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(LocalTrack {
+                uri: "spotify:track:left".into(),
+                ..LocalTrack::default()
+            }),
+            position_ms: 61_000,
+            position_at: Some(Instant::now()),
+            ..LocalState::default()
+        };
+        for playback in [Playback::Playing, Playback::Paused] {
+            let mut dropped = LocalState {
+                playback,
+                ..playing.clone()
+            };
+            session_ended(&mut dropped, false);
+            assert!(!dropped.connected);
+            assert_eq!(dropped.playback, playback);
+            assert!(dropped.interrupted().is_some());
         }
+
+        let mut shut = playing.clone();
+        session_ended(&mut shut, true);
+        assert_eq!(shut.playback, Playback::Stopped);
+        assert_eq!(shut.position_at, None);
+
+        let mut loading = LocalState {
+            playback: Playback::Loading,
+            loading: true,
+            ..playing
+        };
+        session_ended(&mut loading, false);
+        assert_eq!(loading.playback, Playback::Stopped);
+        assert!(!loading.loading);
+    }
+
+    /// #268: the pickup of a song the player carried through the reconnect
+    /// starts where the song has got to, as it plays now; another song's
+    /// pickup is left as it was.
+    #[test]
+    fn a_carried_song_is_picked_up_where_it_has_got_to() {
+        let spec = LoadSpec {
+            uris: vec!["spotify:track:left".into()],
+            position_ms: 42_000,
+            play: true,
+            ..LoadSpec::default()
+        };
+        let now = Interrupted {
+            uri: "spotify:track:left".into(),
+            position_ms: 47_500,
+            playing: false,
+        };
+        let PlaybackResume::Track(picked) =
+            resume_from(PlaybackResume::Track(spec.clone()), Some(&now))
+        else {
+            panic!("a track pickup stays one");
+        };
+        assert_eq!((picked.position_ms, picked.play), (47_500, false));
+
+        let elsewhere = Interrupted {
+            uri: "spotify:track:other".into(),
+            ..now
+        };
+        let PlaybackResume::Track(kept) =
+            resume_from(PlaybackResume::Track(spec.clone()), Some(&elsewhere))
+        else {
+            panic!("a track pickup stays one");
+        };
+        assert_eq!(kept, spec);
+
+        let PlaybackResume::Track(untouched) =
+            resume_from(PlaybackResume::Track(spec.clone()), None)
+        else {
+            panic!("a track pickup stays one");
+        };
+        assert_eq!(untouched, spec);
     }
 
     fn uri() -> SpotifyUri {
@@ -1655,13 +1848,13 @@ mod tests {
             autoplay: true,
             gapless: true,
             crossfade: std::time::Duration::ZERO,
-            backend: None,
             audio_device: None,
             initial_volume: 1,
             volume_dir: PathBuf::new(),
             audio_cache_dir: None,
             audio_cache_limit: None,
             proxy: crate::settings::ProxyConfig::Off,
+            local_files: None,
         };
         let id = config.device_id();
         assert_eq!(id.len(), 40);

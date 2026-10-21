@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "spotify:track:4uLU6hMCjMI75M1A2tKUQC".into());
     let id = track.rsplit(':').next().unwrap_or_default().to_string();
 
-    let dirs = spotifast::paths::AppDirs::discover();
+    let dirs = spotifast::paths::AppDirs::discover().dirs;
     let cache = Cache::new::<&std::path::Path>(None, None, None, None)?.with_memory_credentials();
 
     let runtime = tokio::runtime::Builder::new_current_thread()

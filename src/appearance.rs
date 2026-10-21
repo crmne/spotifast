@@ -50,8 +50,8 @@ impl SystemAppearance {
         Self { scheme, animations }
     }
 
-    /// A desktop that always prefers `dark`, for tests elsewhere.
-    #[cfg(test)]
+    /// A desktop that always prefers `dark`, for tests and demo shots.
+    #[cfg(any(test, feature = "demo"))]
     pub fn fixed(dark: bool) -> Self {
         let scheme = Arc::new(AtomicU8::new(if dark { DARK } else { LIGHT }));
         Self {

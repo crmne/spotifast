@@ -341,8 +341,16 @@ fn spline(points: &[f32], t: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
 
-/// Winamp's presets, in a menu sized to the skin.
+/// Winamp's presets, in a menu sized to the skin. It scrolls when the
+/// presets, the saved ones too, run past the bottom of the window.
 fn presets_menu(app: &mut App, ui: &mut egui::Ui) {
+    let room = (ui.ctx().content_rect().bottom() - ui.min_rect().top() - 12.0).max(80.0);
+    egui::ScrollArea::vertical()
+        .max_height(room)
+        .show(ui, |ui| preset_items(app, ui));
+}
+
+fn preset_items(app: &mut App, ui: &mut egui::Ui) {
     let current = app.settings.eq_bands_db;
     for (index, preset) in eq::PRESETS.iter().enumerate() {
         if index == eq::WINAMP_PRESET_COUNT {
@@ -351,6 +359,17 @@ fn presets_menu(app: &mut App, ui: &mut egui::Ui) {
         let chosen = preset.bands_db == current;
         if ui.selectable_label(chosen, preset.name).clicked() {
             app.actions.push(Action::ApplyEqPreset(index));
+        }
+    }
+    // The presets saved in Settings, with their preamp (#702).
+    let saved = app.settings.eq_user_presets.clone();
+    if !saved.is_empty() {
+        ui.separator();
+    }
+    for preset in saved {
+        let chosen = preset.bands_db == current && preset.preamp_db == app.settings.eq_preamp_db;
+        if ui.selectable_label(chosen, &preset.name).clicked() {
+            app.actions.push(Action::ApplyUserEqPreset(preset.name));
         }
     }
 }

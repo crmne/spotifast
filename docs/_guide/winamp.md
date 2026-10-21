@@ -84,3 +84,10 @@ Notices from the main window scroll through the mini player's text display.
 **EQ** opens the ten-band equalizer. It affects playback on this computer, not
 other Spotify Connect devices. The preamp ranges from -12 to 12 dB. **AUTO**
 resets all bands. The same controls and presets are in Settings.
+
+To keep your own curve, such as a headphone correction, type a name under the
+presets in **Settings → Equalizer** and choose **Save preset**. It stores the
+preamp and the ten bands, and appears after the built-in presets in Settings
+and in the mini player's **PRESETS** menu. Saving under a name you already
+used replaces that preset. While a saved preset is in use, **Delete** beside
+**Save preset** removes it; the sound stays as it is.

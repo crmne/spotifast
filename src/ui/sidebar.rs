@@ -440,7 +440,32 @@ fn first_ranks<'a>(
 fn order_entries(app: &App, shelf: Filter, sort: LibrarySort, entries: &mut [Entry]) {
     match sort {
         LibrarySort::Name => {
-            entries.sort_by_cached_key(|entry| (entry.name.to_lowercase(), entry.uri.clone()))
+            // Each row sorts under the folders that hold it: its key is the
+            // path of names down to it, so a folder's rows follow the folder
+            // in name order and the folders sort among their siblings.
+            let mut folders: Vec<(String, String)> = Vec::new();
+            let paths: Vec<Vec<(String, String)>> = entries
+                .iter()
+                .map(|entry| {
+                    folders.truncate(entry.depth as usize);
+                    let key = (
+                        entry.name.to_lowercase(),
+                        match &entry.folder {
+                            Some((id, _, _)) => id.clone(),
+                            None => entry.uri.clone(),
+                        },
+                    );
+                    let mut path = folders.clone();
+                    path.push(key.clone());
+                    if entry.folder.is_some() {
+                        folders.push(key);
+                    }
+                    path
+                })
+                .collect();
+            let mut order: Vec<usize> = (0..entries.len()).collect();
+            order.sort_by(|a, b| paths[*a].cmp(&paths[*b]));
+            permute(entries, &order);
         }
         LibrarySort::RecentlyPlayed => {
             let ranks = first_ranks(app.recent_contexts.iter().map(String::as_str));
@@ -499,6 +524,21 @@ fn order_entries(app: &App, shelf: Filter, sort: LibrarySort, entries: &mut [Ent
     }
 }
 
+/// Puts `entries[order[i]]` at position `i`.
+fn permute<T>(entries: &mut [T], order: &[usize]) {
+    let mut place: Vec<usize> = vec![0; order.len()];
+    for (to, &from) in order.iter().enumerate() {
+        place[from] = to;
+    }
+    for start in 0..entries.len() {
+        while place[start] != start {
+            let to = place[start];
+            entries.swap(start, to);
+            place.swap(start, to);
+        }
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let expanded_art = has_expanded_art(app);
@@ -508,7 +548,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let top = 12
         + theme::titlebar_inset(ui.ctx()) as i8
         + super::linux_left_controls_inset(ui.ctx()) as i8;
-    let beside = if app.show_queue_panel || app.show_lyrics_panel {
+    let beside = if app.show_queue_panel || app.show_lyrics_panel || app.show_friends_panel {
         theme::SIDE_PANEL_MIN_WIDTH
     } else {
         0.0
@@ -681,7 +721,17 @@ fn playlist_rows(app: &App, sort: LibrarySort, needle: &str, entries: &mut Vec<E
         entries.push(liked);
     }
     let user_id = app.user_id().filter(|id| !id.is_empty());
-    if sort == LibrarySort::Spotify && needle.is_empty() && !app.settings.library_by_you {
+    // Name keeps playlists inside their folders, as Spotify does, and sorts
+    // each folder on its own (#651).
+    let folders = match sort {
+        LibrarySort::Spotify => true,
+        LibrarySort::Name => app
+            .rootlist
+            .iter()
+            .any(|row| matches!(row, crate::player::RootlistEntry::FolderStart { .. })),
+        _ => false,
+    };
+    if folders && needle.is_empty() && !app.settings.library_by_you {
         folder_rows(app, user_id.unwrap_or(""), entries);
     } else if let Some(playlists) = app.library.playlists.get() {
         for (index, playlist) in playlists.iter().enumerate() {
@@ -2162,6 +2212,7 @@ mod ordering_tests {
                 media_controls: false,
                 restore_sign_in: false,
                 tray: false,
+                autostart: false,
             },
         );
         crate::demo::populate(&mut app);
@@ -2646,6 +2697,82 @@ mod ordering_tests {
             ]
         );
         app.backend.shutdown();
+    }
+
+    /// Name keeps playlists in their folders, as Spotify does: each folder's
+    /// rows follow it in name order, folders sort among their siblings by
+    /// name, and a pin still comes out of its folder to the top (#651).
+    #[test]
+    fn name_order_sorts_within_each_folder() {
+        use crate::player::RootlistEntry::{FolderEnd, FolderStart, Playlist};
+        let mut app = app("name-folders");
+        app.settings.liked_songs_pinned = false;
+        app.settings.pinned_contexts.clear();
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Name);
+        app.rootlist = vec![
+            FolderStart {
+                id: "outer".into(),
+                name: "Outer".into(),
+            },
+            Playlist(uri("a")),
+            FolderStart {
+                id: "inner".into(),
+                name: "Inner".into(),
+            },
+            Playlist(uri("c")),
+            Playlist(uri("b")),
+            FolderEnd,
+            FolderEnd,
+            Playlist(uri("d")),
+        ];
+        let rows = |app: &App| {
+            projected(app, "")
+                .iter()
+                .map(|row| (row.name.clone(), row.depth))
+                .collect::<Vec<_>>()
+        };
+        let expected = |rows: &[(&str, u8)]| {
+            rows.iter()
+                .map(|(name, depth)| (name.to_string(), *depth))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            rows(&app),
+            expected(&[
+                ("Beta", 0),
+                ("Liked Songs", 0),
+                ("Outer", 0),
+                ("Inner", 1),
+                ("Alpha", 2),
+                ("alpha", 2),
+                ("Zebra", 1),
+            ])
+        );
+        app.settings.pinned_contexts = vec![uri("b")];
+        assert_eq!(
+            rows(&app),
+            expected(&[
+                ("Alpha", 0),
+                ("Beta", 0),
+                ("Liked Songs", 0),
+                ("Outer", 0),
+                ("Inner", 1),
+                ("alpha", 2),
+                ("Zebra", 1),
+            ])
+        );
+        // A search still lists matching playlists flat.
+        assert!(projected(&app, "a").iter().all(|row| row.depth == 0));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn permute_places_each_entry_at_its_rank() {
+        let mut items = ['a', 'b', 'c', 'd', 'e'];
+        permute(&mut items, &[3, 0, 4, 1, 2]);
+        assert_eq!(items, ['d', 'a', 'e', 'b', 'c']);
     }
 
     #[test]

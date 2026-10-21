@@ -7,6 +7,10 @@ on:
         description: Preview without writing comments, labels, or closures
         type: boolean
         default: false
+      quiet:
+        description: Write only to the project board, without comments, labels, or closures
+        type: boolean
+        default: true
       limit:
         description: Maximum number of open reports to assess (1-100)
         required: false
@@ -55,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
-      fail-fast: true
+      fail-fast: false
       max-parallel: 1
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
@@ -64,17 +68,23 @@ jobs:
         uses: crmne/copilot-triage@v0
         with:
           copilot-token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          fallback-api-key: ${{ secrets.OPENROUTER_API_KEY }}
           github-token: ${{ github.token }}
           kind: ${{ matrix.kind }}
           number: ${{ matrix.number }}
+          project-token: ${{ secrets.TRIAGE_PROJECT_TOKEN }}
           dry-run: ${{ inputs.dry_run }}
+          quiet: ${{ inputs.quiet }}
           debounce-seconds: 0
       - if: steps.first_attempt.outcome == 'failure'
         uses: crmne/copilot-triage@v0
         with:
           copilot-token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          fallback-api-key: ${{ secrets.OPENROUTER_API_KEY }}
           github-token: ${{ github.token }}
           kind: ${{ matrix.kind }}
           number: ${{ matrix.number }}
+          project-token: ${{ secrets.TRIAGE_PROJECT_TOKEN }}
           dry-run: ${{ inputs.dry_run }}
+          quiet: ${{ inputs.quiet }}
           debounce-seconds: 0

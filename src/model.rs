@@ -110,6 +110,8 @@ fn episode_retained_bytes(episode: &Episode) -> usize {
 pub enum Page {
     Home,
     TopSongs,
+    /// The songs of the latest releases from followed artists.
+    NewReleases,
     Search,
     LikedSongs,
     Albums,
@@ -132,6 +134,7 @@ impl Page {
         match self {
             Page::Home => "home".into(),
             Page::TopSongs => "top-songs".into(),
+            Page::NewReleases => "new-releases".into(),
             Page::Search => "search".into(),
             Page::LikedSongs => "liked".into(),
             Page::Albums => "albums".into(),
@@ -152,6 +155,7 @@ impl Page {
         Some(match text {
             "home" => Page::Home,
             "top-songs" => Page::TopSongs,
+            "new-releases" => Page::NewReleases,
             "search" => Page::Search,
             "liked" => Page::LikedSongs,
             "albums" => Page::Albums,
@@ -623,6 +627,17 @@ pub struct HomeData {
     pub made_for_you_loading: bool,
     /// Whether playback was ready when the current shelf request began.
     pub made_for_you_session_requested: bool,
+    pub top_mixes: Loadable<Vec<Playlist>>,
+    /// The latest releases from followed artists, newest first.
+    pub new_releases: Loadable<Vec<Album>>,
+    pub new_releases_generation: u64,
+    /// One outstanding New releases answer counts toward the Home refresh.
+    pub new_releases_loading: bool,
+    /// The songs of `new_releases`, for the New releases page, and the
+    /// releases they were read for.
+    pub new_release_tracks: Loadable<Vec<Track>>,
+    pub new_release_tracks_for: Vec<String>,
+    pub new_release_tracks_generation: u64,
     /// Saved podcasts with their newest episodes, in library order, for the
     /// podcast shelf. A refresh replaces them only once it answers.
     pub podcasts: Vec<(Show, Vec<Episode>)>,
@@ -666,6 +681,8 @@ pub struct HomeSnapshot {
     /// The ordered shelf and its origin, retained across restarts.
     pub made_for_you: Option<Vec<Playlist>>,
     pub made_for_you_personalized: bool,
+    pub top_mixes: Option<Vec<Playlist>>,
+    pub new_releases: Option<Vec<Album>>,
     /// Legacy search shelves, read for compatibility with older cache files.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub discover: std::collections::BTreeMap<String, Vec<Playlist>>,
@@ -950,6 +967,14 @@ pub struct DragEntry {
 
 #[derive(Clone, Debug)]
 pub enum Dialog {
+    /// A page's header cover, enlarged. Clicking anywhere or Esc closes it.
+    CoverArt {
+        /// The largest artwork Spotify has.
+        url: String,
+        /// The header's own artwork, already loaded, shown until `url` is.
+        shown: Option<String>,
+        title: String,
+    },
     CreatePlaylist {
         name: String,
         public: bool,
@@ -1072,6 +1097,10 @@ pub enum Action {
     QueueMany {
         songs: Vec<(String, String)>,
     },
+    /// Put songs first in the manual queue, in order, only on this computer.
+    PlayNext {
+        items: Vec<PlayableItem>,
+    },
     /// Move a row within the manually queued "Playing next" section, from a
     /// drag dropped back on the queue. Only applied while the local player
     /// is the active target; see [`crate::app::App::queue_locally_reorderable`].
@@ -1118,6 +1147,10 @@ pub enum Action {
     RemoveFromPlaylist {
         playlist_id: String,
         uris: Vec<String>,
+        /// The picked rows' server positions, one for each of `uris`, when
+        /// the view knows them; empty otherwise. With them, a song the list
+        /// holds more than once loses only the picked copies.
+        positions: Vec<u32>,
     },
     MoveInPlaylist {
         playlist_id: String,
@@ -1144,12 +1177,24 @@ pub enum Action {
     /// Send the account to a receiver found on the local network.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
+    /// List this computer's audio outputs for the device picker.
+    ListOutputDevices,
+    /// Start Spotifast when the person logs in, this way, or not at all.
+    SetStartWithComputer(Option<fastframe_autostart::Start>),
+    /// Play through this output, by name; `None` is the system default.
+    SetAudioDevice(Option<String>),
     /// Empty Next up of its queued songs, keeping the context's own.
     ClearQueue,
     /// Save the current and upcoming queue as a playlist.
     SaveQueueAsPlaylist,
     /// Save a radio page's songs to a new playlist, by the seed's URI.
     SaveRadio(String),
+    /// Hide a song in one of Spotify's playlists, or show it again (#779).
+    SetHiddenInPlaylist {
+        playlist_uri: String,
+        track_uri: String,
+        hidden: bool,
+    },
     RefreshQueue,
     CopyLink(String),
     /// Copy picked songs' links, one per line, and remember the songs so a
@@ -1199,6 +1244,8 @@ pub enum Action {
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,
+    /// Show or hide what friends are listening to, in the right panel.
+    ToggleFriendsPanel,
     SetLyricsFullscreen(bool),
     LyricsLineShown(Option<usize>),
     FollowLyrics,
@@ -1216,6 +1263,9 @@ pub enum Action {
     SetLanguage(crate::settings::LanguageChoice),
     OpenThemesFolder,
     SetCustomTheme(String),
+    /// Follow system shows this palette file (or Spotifast's own with
+    /// `None`) while the system is in this appearance.
+    SetPairTheme(fastframe_theme::Base, Option<String>),
     ReloadThemes,
     SetLibraryByYou(bool),
     SetLibrarySort {
@@ -1253,6 +1303,11 @@ pub enum Action {
     /// Windows: draw Spotifast's own title bar instead of the standard one.
     SetCustomTitlebar(bool),
     OpenSkinsFolder,
+    /// Pick the folder a playlist's local files play from.
+    ChooseLocalFilesFolder,
+    /// Stop playing local files.
+    ForgetLocalFilesFolder,
+    OpenLocalFilesFolder,
     /// Pick a different skin each time the mini player opens.
     SetRandomSkin(bool),
     /// Cycle bars, scope, and off.
@@ -1273,6 +1328,13 @@ pub enum Action {
     SetEqPreamp(f32),
     /// One of Winamp's presets, by its place in the list.
     ApplyEqPreset(usize),
+    /// A preset saved here, by name: its preamp and bands.
+    ApplyUserEqPreset(String),
+    /// Save the preamp and bands as a preset of this name, replacing one
+    /// already saved under it.
+    SaveEqPreset(String),
+    /// Forget a saved preset, by name.
+    DeleteEqPreset(String),
     /// The balance, -1 all left to 1 all right.
     SetBalance(f32),
     ToggleMono,

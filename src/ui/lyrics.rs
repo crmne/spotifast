@@ -361,30 +361,81 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
     // stays in the middle, so a song that turns out to have none never
     // moves at all.
     let words = matches!(&app.lyrics, Loadable::Loaded(Some(lyrics)) if !lyrics.instrumental);
-    if words {
-        // The cover and the lyrics are one group, centred in the window.
-        let gap = 64.0;
-        let side = (below.width() * 0.38)
-            .min(below.height() - 90.0)
-            .clamp(200.0, 520.0);
-        let lyrics_width = (below.width() - side - gap).min(LYRICS_BESIDE_WIDTH);
-        let left = below.center().x - (side + gap + lyrics_width) / 2.0;
-        let column = Rect::from_min_size(
-            pos2(left, below.center().y - (side + 90.0) / 2.0),
-            vec2(side, side + 90.0),
-        );
-        big_cover(app, ui, column, Align::Min);
-        let lyrics = Rect::from_min_max(
-            pos2(column.right() + gap, below.top()),
-            pos2(column.right() + gap + lyrics_width, below.bottom()),
-        );
-        let mut content = ui.new_child(UiBuilder::new().max_rect(lyrics));
-        fullscreen_contents(app, &mut content);
+    // The queue docks right while its flag is on, in both arrangements.
+    // Without it the room below is untouched, preserving the stock layout.
+    let gap = 64.0;
+    let queue_width = if app.show_queue_panel {
+        // Shared with the side panel's persisted width; the column's drag
+        // strip below writes the same field.
+        app.settings.queue_width.clamp(
+            super::queue::FULLSCREEN_COLUMN_MIN,
+            super::queue::FULLSCREEN_COLUMN_MAX,
+        )
     } else {
-        let side = (below.height() - 140.0)
-            .min(below.width() * 0.5)
-            .clamp(200.0, 560.0);
-        let column = Rect::from_center_size(below.center(), vec2(side, side + 90.0));
+        0.0
+    };
+    let queue_gap = if app.show_queue_panel { gap } else { 0.0 };
+    let lyrics_end = below.right() - queue_width - queue_gap;
+    if app.show_queue_panel {
+        let queue_rect = Rect::from_min_max(
+            pos2(below.right() - queue_width, below.top()),
+            pos2(below.right(), below.bottom()),
+        );
+        let mut queue_ui = ui.new_child(UiBuilder::new().max_rect(queue_rect));
+        super::queue::fullscreen_column(app, &mut queue_ui);
+    }
+    if words {
+        if app.show_queue_panel {
+            // The cover docks left; the lyrics take the middle that remains.
+            let room = lyrics_end - below.left();
+            let side = (room * 0.42).min(below.height() - 90.0).clamp(160.0, 520.0);
+            let column = Rect::from_min_size(
+                pos2(below.left(), below.center().y - (side + 90.0) / 2.0),
+                vec2(side, side + 90.0),
+            );
+            big_cover(app, ui, column, Align::Min);
+            let lyrics_avail = lyrics_end - column.right() - gap;
+            let lyrics_width = lyrics_avail.clamp(80.0, LYRICS_BESIDE_WIDTH);
+            // Centre the block between the cover and the queue when there is
+            // room to spare; it hugs the cover on narrow windows.
+            let lyrics_x = column.right() + gap + (lyrics_avail - lyrics_width).max(0.0) / 2.0;
+            let lyrics = Rect::from_min_max(
+                pos2(lyrics_x, below.top()),
+                pos2(lyrics_x + lyrics_width, below.bottom()),
+            );
+            let mut content = ui.new_child(UiBuilder::new().max_rect(lyrics));
+            fullscreen_contents(app, &mut content);
+        } else {
+            // The cover and the lyrics are one group, centred in the window.
+            let side = (below.width() * 0.38)
+                .min(below.height() - 90.0)
+                .clamp(200.0, 520.0);
+            let lyrics_width = (below.width() - side - gap).min(LYRICS_BESIDE_WIDTH);
+            let left = below.center().x - (side + gap + lyrics_width) / 2.0;
+            let column = Rect::from_min_size(
+                pos2(left, below.center().y - (side + 90.0) / 2.0),
+                vec2(side, side + 90.0),
+            );
+            big_cover(app, ui, column, Align::Min);
+            let lyrics = Rect::from_min_max(
+                pos2(column.right() + gap, below.top()),
+                pos2(column.right() + gap + lyrics_width, below.bottom()),
+            );
+            let mut content = ui.new_child(UiBuilder::new().max_rect(lyrics));
+            fullscreen_contents(app, &mut content);
+        }
+    } else {
+        let span = Rect::from_min_max(
+            pos2(below.left(), below.top()),
+            pos2(lyrics_end, below.bottom()),
+        );
+        // Without the queue the span is the whole room, matching the stock
+        // centred cover exactly.
+        let min_side = if app.show_queue_panel { 160.0 } else { 200.0 };
+        let side = (span.height() - 140.0)
+            .min(span.width() * 0.5)
+            .clamp(min_side, 560.0);
+        let column = Rect::from_center_size(span.center(), vec2(side, side + 90.0));
         big_cover(app, ui, column, Align::Center);
         // Why there are no words, quietly, under the song, or that they
         // are still being fetched.

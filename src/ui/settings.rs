@@ -61,6 +61,75 @@ impl<'a> RowText<'a> {
 
 /// The guide to writing a palette file for the themes folder.
 const THEMES_GUIDE_URL: &str = "https://spotifast.rocks/settings-and-files/#custom-themes";
+/// Saving the equalizer as a named preset, and deleting the saved preset
+/// that is in use (#702).
+fn eq_preset_controls(app: &mut App, ui: &mut egui::Ui, current: Option<&str>) {
+    let palette = app.palette;
+    let locale = app.locale;
+    let name_id = ui.make_persistent_id("eq-preset-name");
+    let mut name = ui.data(|data| data.get_temp::<String>(name_id).unwrap_or_default());
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(8.0);
+        let field = Frame::new()
+            .fill(palette.surface)
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                widgets::text_edit(
+                    ui,
+                    locale,
+                    egui::TextEdit::singleline(&mut name)
+                        .hint_text(gettext(locale, "Preset name"))
+                        .font(theme::regular(14.0))
+                        .frame(egui::Frame::NONE)
+                        .desired_width(160.0),
+                )
+            })
+            .inner;
+        let entered = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+        let ready = !name.trim().is_empty();
+        let saved = ui
+            .add_enabled_ui(ready, |ui| {
+                theme::soft_button(
+                    ui,
+                    &palette,
+                    Some(Icon::Plus),
+                    &gettext(locale, "Save preset"),
+                    false,
+                )
+            })
+            .inner
+            .clicked();
+        if ready && (saved || entered) {
+            app.actions
+                .push(Action::SaveEqPreset(name.trim().to_string()));
+            name.clear();
+        }
+        if let Some(current) = current
+            && theme::soft_button(
+                ui,
+                &palette,
+                Some(Icon::Trash),
+                // Translators: {name} is the name of an equalizer preset the user saved.
+                &gettext(locale, "Delete “{name}”").replace("{name}", current),
+                false,
+            )
+            .clicked()
+        {
+            app.actions
+                .push(Action::DeleteEqPreset(current.to_string()));
+        }
+    });
+    ui.data_mut(|data| data.insert_temp(name_id, name));
+}
+
+/// The GitHub release page of the running version, opened by About's
+/// Release notes button. Every release is tagged `v` and its version.
+const RELEASE_NOTES_URL: &str = concat!(
+    env!("CARGO_PKG_REPOSITORY"),
+    "/releases/tag/v",
+    env!("CARGO_PKG_VERSION")
+);
 
 fn section_matches(needle: &str, title: &str, rows: &[RowText<'_>]) -> bool {
     let needle = needle.trim().to_lowercase();
@@ -259,6 +328,33 @@ fn section(
             add_contents(ui);
         });
     ui.add_space(8.0);
+}
+
+/// What the local files row says: the folder and how many songs it holds,
+/// or what a folder is for.
+fn local_files_detail(app: &App) -> String {
+    let locale = app.locale;
+    let Some(folder) = app.settings.local_files_folder() else {
+        return gettext(
+            locale,
+            "Play the local files your playlists list from a folder on this computer.",
+        )
+        .into_owned();
+    };
+    let folder = folder.display().to_string();
+    match &app.local_files {
+        Some((_, uris)) => ngettext(
+            locale,
+            // Translators: {count} is a number of songs, {folder} a folder on this computer.
+            "{count} song in {folder}",
+            "{count} songs in {folder}",
+            uris.len() as u32,
+        )
+        .replace("{count}", &uris.len().to_string())
+        .replace("{folder}", &folder),
+        // Translators: {folder} is a folder on this computer.
+        None => gettext(locale, "Looking for songs in {folder}…").replace("{folder}", &folder),
+    }
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -523,6 +619,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let apply_playback = gettext(locale, "Apply and restart playback");
     let apply_playback_note = gettext(locale, "Restart local playback to apply these settings.");
     let download_updates = gettext(locale, "Download updates automatically");
+    let show_in_dock = gettext(locale, "Show in Dock");
+    let start_with_computer = gettext(locale, "Start with your computer");
+    let start_choice = app.start_with_computer();
+    let start_detail = start_with_computer_detail(
+        locale,
+        app.autostart,
+        start_choice,
+        app.settings.keep_playing_in_background,
+    );
+    let start_available = app
+        .autostart
+        .is_some_and(|state| state != fastframe_autostart::State::Unsupported);
     let playback_rows = [
         RowText::new(
             // Translators: {status} is a playback state such as Ready or Not set up.
@@ -568,14 +676,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             gettext(locale, "Checks GitHub once a day. No personal data is sent."),
         ),
         RowText::new(
-            gettext(locale, "Audio output"),
-            gettext(
-                locale,
-                "PulseAudio also covers PipeWire. Rodio talks to ALSA directly.",
-            ),
-        )
-        .when(cfg!(target_os = "linux")),
-        RowText::new(
             gettext(locale, "Output buffer"),
             gettext(
                 locale,
@@ -604,6 +704,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
         )
         .when(cfg!(target_os = "macos")),
+        RowText::new(gettext(locale, "Local files"), local_files_detail(app)),
+        RowText::new(
+            show_in_dock.clone(),
+            gettext(
+                locale,
+                "When off, Spotifast lives in the menu bar and leaves Cmd+Tab. Open it from its menu-bar icon.",
+            ),
+        )
+        .when(cfg!(target_os = "macos")),
+        // The macOS menu bar already draws its icon black or white to match.
+        RowText::new(
+            gettext(locale, "Tray icon"),
+            gettext(locale, "White or black can match your panel or taskbar."),
+        )
+        .when(!cfg!(target_os = "macos")),
+        RowText::new(start_with_computer.clone(), start_detail).when(start_available),
         RowText::new(
             crossfade.clone(),
             gettext(
@@ -735,7 +851,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     playback_dirty = true;
                 }
             });
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[15], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[18], |ui| {
                 // The control area lays out right-to-left: the switch is the
                 // rightmost item, and the slider sits to its left.
                 ui.horizontal(|ui| {
@@ -785,8 +901,88 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     changed = true;
                 }
             });
+            // Applied by the app's next pass (App::sync_dock_icon).
             #[cfg(target_os = "macos")]
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[14], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[15], |ui| {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    &show_in_dock,
+                    &mut app.settings.mac_show_in_dock,
+                )
+                .changed()
+                {
+                    changed = true;
+                }
+            });
+            {
+                use crate::settings::TrayIcon;
+                let choices = [
+                    (TrayIcon::Colour, pgettext(locale, "tray icon", "Colour")),
+                    (TrayIcon::White, pgettext(locale, "tray icon", "White")),
+                    (TrayIcon::Black, pgettext(locale, "tray icon", "Black")),
+                ];
+                let choice_gap = 6.0;
+                let choices_width = choices
+                    .iter()
+                    .map(|(_, label)| theme::soft_button_width(ui, label))
+                    .sum::<f32>()
+                    + choice_gap * (choices.len() - 1) as f32;
+                filtered_row_sized(
+                    ui,
+                    &palette,
+                    &needle,
+                    &playback,
+                    &playback_rows[16],
+                    choices_width,
+                    |ui| {
+                        let mut choose = |ui: &mut egui::Ui, icon: TrayIcon, label: &str| {
+                            if theme::soft_button(
+                                ui,
+                                &palette,
+                                None,
+                                label,
+                                app.settings.tray_icon == icon,
+                            )
+                            .clicked()
+                                && app.settings.tray_icon != icon
+                            {
+                                app.settings.tray_icon = icon;
+                                changed = true;
+                            }
+                        };
+                        if ui.available_width() >= choices_width {
+                            // Laid right to left, so the last choice goes first.
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = choice_gap;
+                                for (icon, label) in choices.iter().rev() {
+                                    choose(ui, *icon, label);
+                                }
+                            });
+                        } else {
+                            ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                                ui.spacing_mut().item_spacing.y = choice_gap;
+                                for (icon, label) in &choices {
+                                    choose(ui, *icon, label);
+                                }
+                            });
+                        }
+                    },
+                );
+            }
+            if start_available {
+                start_with_computer_row(
+                    app,
+                    ui,
+                    &palette,
+                    &needle,
+                    &playback,
+                    &playback_rows[17],
+                    start_choice,
+                );
+            }
+            #[cfg(target_os = "macos")]
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[13], |ui| {
                 if widgets::switch(
                     ui,
                     &palette,
@@ -810,7 +1006,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     changed = true;
                 }
             });
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[13], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[12], |ui| {
                 if widgets::switch(
                     ui,
                     &palette,
@@ -822,34 +1018,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     changed = true;
                 }
             });
-            if cfg!(target_os = "linux") {
-                filtered_row(ui, &palette, &needle, &playback, &playback_rows[8], |ui| {
-                    let current = app
-                        .settings
-                        .platform_backend()
-                        .unwrap_or_else(|| "rodio".into());
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        for backend in ["rodio", "pulseaudio"] {
-                            let label = if backend == "pulseaudio" {
-                                "PulseAudio / PipeWire"
-                            } else {
-                                "ALSA (rodio)"
-                            };
-                            if theme::soft_button(ui, &palette, None, label, current == backend)
-                                .clicked()
-                                && current != backend
-                            {
-                                app.settings.audio_backend = Some(backend.to_string());
-                                changed = true;
-                                playback_dirty = true;
-                            }
-                        }
-                    });
-                });
-            }
             #[cfg(windows)]
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[9], |ui| {
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[8], |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let current = app.settings.audio_buffer_ms;
@@ -865,7 +1035,53 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     }
                 });
             });
-            filtered_row(ui, &palette, &needle, &playback, &playback_rows[10], |ui| {
+            let choose_folder = gettext(locale, "Choose folder");
+            let remove_folder = gettext(locale, "Remove");
+            let has_folder = app.settings.local_files_folder().is_some();
+            // Pill buttons are a little wider than soft ones; the open
+            // button carries an icon. Narrow windows put them under the text.
+            let pill_width = |label: &str| theme::soft_button_width(ui, label) + 16.0;
+            let folder_controls_width = pill_width(&choose_folder)
+                + if has_folder {
+                    pill_width(&remove_folder)
+                        + theme::soft_button_width(ui, &open_folder)
+                        + 22.0
+                        + 12.0
+                } else {
+                    0.0
+                };
+            filtered_row_sized(
+                ui,
+                &palette,
+                &needle,
+                &playback,
+                &playback_rows[14],
+                folder_controls_width,
+                |ui| {
+                    // The control area lays out right-to-left: add the rightmost item first.
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    if has_folder {
+                        if theme::pill_button(ui, &palette, &remove_folder, false).clicked() {
+                            app.actions.push(Action::ForgetLocalFilesFolder);
+                        }
+                        if theme::soft_button(
+                            ui,
+                            &palette,
+                            Some(Icon::ExternalLink),
+                            &open_folder,
+                            false,
+                        )
+                        .clicked()
+                        {
+                            app.actions.push(Action::OpenLocalFilesFolder);
+                        }
+                    }
+                    if theme::pill_button(ui, &palette, &choose_folder, false).clicked() {
+                        app.actions.push(Action::ChooseLocalFilesFolder);
+                    }
+                },
+            );
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[9], |ui| {
                 // The control area lays out right-to-left: add the rightmost item first.
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
@@ -898,8 +1114,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
             ui.add_space(4.0);
             if playback_dirty
+                || playback_rows[10].matches(&needle, &playback)
                 || playback_rows[11].matches(&needle, &playback)
-                || playback_rows[12].matches(&needle, &playback)
             {
                 ui.horizontal(|ui| {
                     if playback_dirty {
@@ -928,6 +1144,31 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let show_custom_titlebar = cfg!(target_os = "linux") || app.windows_controls_visible();
     let player_bar_vis = gettext(locale, "Player bar visualizer");
     let player_bar_vis_click = gettext(locale, "Click player bar to change visualizer");
+    // Follow system's own light and dark palettes. Omarchy's palette already
+    // follows the desktop, so they are offered only without it.
+    let show_pair = app.settings.custom_theme.is_none()
+        && app.settings.theme == ThemeChoice::System
+        && !app.custom_themes.follows_omarchy();
+    let pair_row = |base: fastframe_theme::Base| {
+        let (title, usage) = match base {
+            fastframe_theme::Base::Light => (
+                gettext(locale, "Light mode theme"),
+                gettext(
+                    locale,
+                    "Used while your computer is in light mode. Only light themes are listed.",
+                ),
+            ),
+            fastframe_theme::Base::Dark => (
+                gettext(locale, "Dark mode theme"),
+                gettext(
+                    locale,
+                    "Used while your computer is in dark mode. Only dark themes are listed.",
+                ),
+            ),
+        };
+        let detail = theme::pair_detail(&app.custom_themes, locale, &app.settings.theme_pair, base);
+        RowText::new(title, if detail.is_empty() { usage } else { detail }).when(show_pair)
+    };
     let appearance_rows = [
         RowText::new(theme_title.clone(), {
             let detail = theme::catalog_detail(
@@ -1016,6 +1257,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 "How often the player bar and mini player visualizers draw. Lower rates use fewer resources. MilkDrop has its own.",
             ),
         ),
+        pair_row(fastframe_theme::Base::Light),
+        pair_row(fastframe_theme::Base::Dark),
     ];
     if section_matches(&needle, &appearance, &appearance_rows) {
         any_visible = true;
@@ -1118,6 +1361,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     });
                 },
             );
+            for (row, base) in [
+                (&appearance_rows[11], fastframe_theme::Base::Light),
+                (&appearance_rows[12], fastframe_theme::Base::Dark),
+            ] {
+                filtered_row(ui, &palette, &needle, &appearance, row, |ui| {
+                    pair_picker(app, ui, base, &row.title);
+                });
+            }
             filtered_row(
                 ui,
                 &palette,
@@ -1840,6 +2091,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             crate::eq::PRESETS
                 .iter()
                 .map(|preset| preset.name)
+                .chain(
+                    app.settings
+                        .eq_user_presets
+                        .iter()
+                        .map(|preset| preset.name.as_str()),
+                )
+                .chain([
+                    // Translators: a search keyword for saving equalizer presets.
+                    gettext(locale, "Save preset").as_ref(),
+                ])
                 .collect::<Vec<_>>()
                 .join(" "),
         ),
@@ -1860,20 +2121,42 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     }
                 },
             );
+            // The built-in presets, then the ones saved here (#702), which
+            // carry their preamp too and are the current one when both match.
+            let built_in = crate::eq::PRESETS.len();
+            let user_presets = app.settings.eq_user_presets.clone();
             let names: Vec<(usize, &str)> = crate::eq::PRESETS
                 .iter()
+                .map(|preset| preset.name)
+                .chain(user_presets.iter().map(|preset| preset.name.as_str()))
                 .enumerate()
-                .map(|(index, preset)| (index, preset.name))
                 .collect();
-            let current = crate::eq::PRESETS
-                .iter()
-                .position(|preset| preset.bands_db == app.settings.eq_bands_db)
+            let current_user = user_presets.iter().position(|preset| {
+                preset.bands_db == app.settings.eq_bands_db
+                    && preset.preamp_db == app.settings.eq_preamp_db
+            });
+            let current = current_user
+                .map(|index| built_in + index)
+                .or_else(|| {
+                    crate::eq::PRESETS
+                        .iter()
+                        .position(|preset| preset.bands_db == app.settings.eq_bands_db)
+                })
                 .unwrap_or(usize::MAX);
             let eq_extra_visible = equalizer_rows[1].matches(&needle, &equalizer);
             if eq_extra_visible {
                 if let Some(picked) = widgets::chips(ui, &palette, &names, current) {
-                    app.actions.push(Action::ApplyEqPreset(picked));
+                    app.actions.push(match picked.checked_sub(built_in) {
+                        Some(user) => Action::ApplyUserEqPreset(user_presets[user].name.clone()),
+                        None => Action::ApplyEqPreset(picked),
+                    });
                 }
+                ui.add_space(8.0);
+                eq_preset_controls(
+                    app,
+                    ui,
+                    current_user.map(|index| user_presets[index].name.as_str()),
+                );
                 ui.add_space(10.0);
                 eq_curve(ui, &palette, &crate::app::eq_settings(&app.settings));
                 ui.add_space(10.0);
@@ -1977,6 +2260,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let check_for_updates = gettext(locale, "Check for updates");
     let checking = gettext(locale, "Checking…");
     let keyboard_shortcuts = gettext(locale, "Keyboard shortcuts");
+    let release_notes = gettext(locale, "Release notes");
     let source_code = gettext(locale, "Source code");
     let about_rows = [
         RowText::new(
@@ -1984,7 +2268,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             built_with.clone(),
         ),
         RowText::new(
-            format!("{check_for_updates} {checking}"),
+            format!("{check_for_updates} {checking} {release_notes}"),
             format!("{keyboard_shortcuts} {source_code}"),
         ),
     ];
@@ -2010,8 +2294,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 });
             });
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(8.0);
                 let check_label = if app.update_checking {
                     &checking
                 } else {
@@ -2022,6 +2306,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     && !app.update_checking
                 {
                     app.actions.push(Action::CheckForUpdates);
+                }
+                if theme::soft_button(
+                    ui,
+                    &palette,
+                    Some(Icon::ExternalLink),
+                    &release_notes,
+                    false,
+                )
+                .clicked()
+                {
+                    app.actions
+                        .push(Action::OpenUrl(RELEASE_NOTES_URL.to_owned()));
                 }
                 if theme::soft_button(ui, &palette, Some(Icon::Info), &keyboard_shortcuts, false)
                     .clicked()
@@ -2061,9 +2357,149 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// The choices for starting with the computer, left to right when side by
+/// side and top to bottom in a column.
+fn start_with_computer_choices(
+    locale: crate::i18n::Locale,
+) -> [(
+    Option<fastframe_autostart::Start>,
+    std::borrow::Cow<'static, str>,
+); 3] {
+    use fastframe_autostart::Start;
+    [
+        (None, pgettext(locale, "start with your computer", "Off")),
+        (Some(Start::Window), gettext(locale, "With the window")),
+        (Some(Start::Hidden), gettext(locale, "In the tray")),
+    ]
+}
+
+/// What the row says under its title: how to finish a registration the
+/// system holds for approval, why a start in the tray opens the window
+/// while nothing keeps Spotifast there, or what the choices do.
+fn start_with_computer_detail(
+    locale: crate::i18n::Locale,
+    state: Option<fastframe_autostart::State>,
+    choice: Option<fastframe_autostart::Start>,
+    keeps_running: bool,
+) -> std::borrow::Cow<'static, str> {
+    use fastframe_autostart::{Start, State};
+    if matches!(state, Some(State::NeedsApproval(_))) && choice.is_some() {
+        gettext(
+            locale,
+            "Allow Spotifast in System Settings, General, Login Items.",
+        )
+    } else if choice == Some(Start::Hidden) && !keeps_running {
+        gettext(
+            locale,
+            "Starting in the tray needs Keep music playing when the window closes. Until then, the window opens.",
+        )
+    } else {
+        gettext(
+            locale,
+            "Open Spotifast when you log in, with its window or in the tray.",
+        )
+    }
+}
+
+fn start_with_computer_row(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    needle: &str,
+    section: &str,
+    row: &RowText<'_>,
+    current: Option<fastframe_autostart::Start>,
+) {
+    let choices = start_with_computer_choices(app.locale);
+    let gap = 6.0;
+    let width = choices
+        .iter()
+        .map(|(_, label)| theme::soft_button_width(ui, label))
+        .sum::<f32>()
+        + gap * (choices.len() - 1) as f32;
+    filtered_row_sized(ui, palette, needle, section, row, width, |ui| {
+        let mut choose =
+            |ui: &mut egui::Ui, start: Option<fastframe_autostart::Start>, label: &str| {
+                if theme::soft_button(ui, palette, None, label, current == start).clicked()
+                    && current != start
+                {
+                    app.actions.push(Action::SetStartWithComputer(start));
+                }
+            };
+        if ui.available_width() >= width {
+            // Laid right to left, so the last choice goes first.
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                for (start, label) in choices.iter().rev() {
+                    choose(ui, *start, label);
+                }
+            });
+        } else {
+            ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                ui.spacing_mut().item_spacing.y = gap;
+                for (start, label) in &choices {
+                    choose(ui, *start, label);
+                }
+            });
+        }
+    });
+}
+
 /// A band's frequency the short way: 60, 170, 1K, 16K.
 /// The interface language: System first, then each language by its own name,
 /// so a reader can find theirs whatever language the app is showing.
+/// Follow system's palette for light or dark mode: Spotifast's own, or a
+/// palette file of that base.
+fn pair_picker(app: &mut App, ui: &mut egui::Ui, base: fastframe_theme::Base, name: &str) {
+    let locale = app.locale;
+    let own = match base {
+        fastframe_theme::Base::Light => ThemeChoice::Light,
+        fastframe_theme::Base::Dark => ThemeChoice::Dark,
+    }
+    .label(locale);
+    let current = app.settings.theme_pair.filename(base).map(str::to_owned);
+    let selected = current.as_deref().map_or_else(
+        || own.clone(),
+        |filename| fastframe_theme::display_name(filename).to_owned().into(),
+    );
+    let salt = match base {
+        fastframe_theme::Base::Light => "appearance_light_theme",
+        fastframe_theme::Base::Dark => "appearance_dark_theme",
+    };
+    let response = egui::ComboBox::from_id_salt(salt)
+        .selected_text(selected.as_ref())
+        .width(200.0_f32.min(ui.available_width()))
+        .show_ui(ui, |ui| {
+            if ui
+                .selectable_label(current.is_none(), own.as_ref())
+                .clicked()
+                && current.is_some()
+            {
+                app.actions.push(Action::SetPairTheme(base, None));
+            }
+            let mut themes = app.custom_themes.pair_themes(base).peekable();
+            if themes.peek().is_some() {
+                ui.separator();
+            }
+            for theme in themes {
+                let chosen = current.as_deref() == Some(theme.filename.as_str());
+                if ui
+                    .selectable_label(chosen, fastframe_theme::display_name(&theme.filename))
+                    .clicked()
+                    && !chosen
+                {
+                    app.actions
+                        .push(Action::SetPairTheme(base, Some(theme.filename.clone())));
+                }
+            }
+        });
+    response.response.widget_info(|| {
+        let mut info = egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), name);
+        info.current_text_value = Some(selected.to_string());
+        info
+    });
+}
+
 fn language_picker(app: &mut App, ui: &mut egui::Ui) {
     let locale = app.locale;
     let system = pgettext(locale, "language", "System");
@@ -2217,7 +2653,130 @@ fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettin
 
 #[cfg(test)]
 mod tests {
-    use super::{RowText, row_matches, section_matches};
+    use super::{RELEASE_NOTES_URL, RowText, row_matches, section_matches};
+
+    /// Save preset saves the typed name, and the saved preset in use offers
+    /// its Delete (#702).
+    #[test]
+    fn equalizer_preset_controls_save_and_delete_by_name() {
+        use crate::model::Action;
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, TreeId};
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-eq-presets-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let mut app = crate::app::App::new(
+            &crate::backend::Waker::default(),
+            crate::paths::AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            crate::settings::Settings::default(),
+            crate::app::AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install(&ctx);
+        let frame = |app: &mut crate::app::App, current: Option<&str>, events| {
+            app.actions.clear();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 400.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| super::eq_preset_controls(app, ui, current),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        let click = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            let (id, node) = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("missing {label}"));
+            assert!(!node.is_disabled(), "{label} is enabled");
+            vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                target_tree: TreeId::ROOT,
+                target_node: *id,
+                action: AccessibleAction::Click,
+                data: None,
+            })]
+        };
+        let tree = frame(&mut app, None, vec![]);
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Save preset") && node.is_disabled()),
+            "nothing to save without a name"
+        );
+        assert!(
+            !tree.nodes.iter().any(|(_, node)| node
+                .label()
+                .is_some_and(|label| label.starts_with("Delete"))),
+            "a built-in preset cannot be deleted"
+        );
+        // Type into the field: focus it first, then send the text.
+        let field = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.role() == egui::accesskit::Role::TextInput)
+            .map(|(id, _)| *id)
+            .expect("the name field");
+        frame(
+            &mut app,
+            None,
+            vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                target_tree: TreeId::ROOT,
+                target_node: field,
+                action: AccessibleAction::Focus,
+                data: None,
+            })],
+        );
+        frame(&mut app, None, vec![egui::Event::Text("AirPods".into())]);
+        let tree = frame(&mut app, None, vec![]);
+        frame(&mut app, None, click(&tree, "Save preset"));
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::SaveEqPreset(name) if name == "AirPods")),
+            "{:?}",
+            app.actions
+        );
+        let tree = frame(&mut app, Some("AirPods"), vec![]);
+        frame(&mut app, Some("AirPods"), click(&tree, "Delete “AirPods”"));
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::DeleteEqPreset(name) if name == "AirPods"))
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn release_notes_open_the_running_version_release_page() {
+        assert_eq!(
+            RELEASE_NOTES_URL,
+            format!(
+                "https://github.com/crmne/spotifast/releases/tag/v{}",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+    }
 
     #[test]
     fn empty_filter_matches_everything() {

@@ -21,6 +21,10 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
     // Releases publish an Ed25519 signature for checksums.txt. Require it
     // before downloading an update, using the release workflow's public key.
     publisher_key: Some(include_str!("../assets/update-public-key.hex")),
+    // Releases build their AppImages before publishing, so the signed
+    // checksums.txt lists them (#737): an AppImage replaces itself with the
+    // next one.
+    appimage: true,
     ..UpdateConfig::new(
         "crmne/spotifast",
         "Spotifast",
@@ -52,5 +56,13 @@ mod tests {
             "updates must require a publisher signature"
         );
         CONFIG.validate().unwrap();
+    }
+
+    /// An AppImage may replace itself only because the release workflow
+    /// builds the AppImages into the signed checksums.txt;
+    /// packaging/test-release-names.py checks that side.
+    #[test]
+    fn appimages_update_themselves() {
+        const { assert!(CONFIG.appimage) };
     }
 }

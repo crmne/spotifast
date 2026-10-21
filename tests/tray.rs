@@ -28,7 +28,6 @@ fn config() -> fastframe_tray::Config {
         icon: spotifast::util::app_icon_rgba,
         template_icon: None,
         themed_icon: true,
-        menu_on_click: false,
         menu: vec![fastframe_tray::MenuItem::action(
             "show",
             "Show or hide Spotifast",

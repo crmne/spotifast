@@ -19,6 +19,7 @@ use librespot_protocol::extended_metadata::{
     BatchedEntityRequest, BatchedExtensionResponse, EntityRequest, ExtensionQuery,
 };
 use librespot_protocol::extension_kind::ExtensionKind;
+use librespot_protocol::playlist4_external::{Item, ListItems, MetaItem, SelectedListContent};
 use protobuf::{EnumOrUnknown, Message as _};
 
 use crate::api::ApiError;
@@ -167,7 +168,7 @@ pub async fn prerelease(
         let query = serde_json::json!({
             "operationName":"getAlbum",
             "variables":{"uri":page.album.uri,"locale":"","offset":offset,"limit":50},
-            "extensions":{"persistedQuery":{"version":1,"sha256Hash":"b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"}}
+            "extensions":{"persistedQuery":{"version":1,"sha256Hash":GET_ALBUM_HASH}}
         });
         let body = web
             .partner_request(&login.access_token, &client_token, &query)
@@ -198,6 +199,88 @@ pub async fn prerelease(
     Ok(page)
 }
 
+/// The collection set where Spotify's apps keep the songs hidden in a
+/// playlist ("Hide in this playlist"), one item per song and playlist.
+const HIDDEN_SONGS: &str = "playcontextbans";
+
+/// Every song the account hid in a playlist, as (playlist URI, song URI).
+pub async fn hidden_songs(session: &Session) -> anyhow::Result<Vec<(String, String)>> {
+    let mut hidden = Vec::new();
+    let mut token = String::new();
+    // Spotify pages the set; a page that repeats its token would loop.
+    for _ in 0..20 {
+        let page = session
+            .spclient()
+            .get_collection_page(HIDDEN_SONGS, &token, 500)
+            .await?;
+        hidden.extend(hidden_pairs(&page.items));
+        if page.next_page_token.is_empty() || page.next_page_token == token {
+            return Ok(hidden);
+        }
+        token = page.next_page_token;
+    }
+    anyhow::bail!("Spotify kept paging the hidden songs")
+}
+
+fn hidden_pairs(
+    items: &[librespot_protocol::collection2v2::CollectionItem],
+) -> impl Iterator<Item = (String, String)> + '_ {
+    items
+        .iter()
+        .filter(|item| !item.is_removed)
+        .filter_map(|item| {
+            let context = item.context_uri.as_deref()?;
+            (!context.is_empty() && !item.uri.is_empty())
+                .then(|| (context.to_owned(), item.uri.clone()))
+        })
+}
+
+/// Hides a song in a playlist, or shows it again, as Spotify's apps do: one
+/// item of the hidden-songs set, written only when the user asks.
+pub async fn set_hidden(
+    session: &Session,
+    playlist_uri: &str,
+    track_uri: &str,
+    hidden: bool,
+    now: i64,
+) -> anyhow::Result<()> {
+    session
+        .spclient()
+        .write_collection(
+            HIDDEN_SONGS,
+            vec![hidden_item(playlist_uri, track_uri, hidden, now)],
+        )
+        .await?;
+    Ok(())
+}
+
+fn hidden_item(
+    playlist_uri: &str,
+    track_uri: &str,
+    hidden: bool,
+    now: i64,
+) -> librespot_protocol::collection2v2::CollectionItem {
+    use librespot_protocol::collection2v2::{
+        CollectionItem, ItemData, ItemProvider, PlayContextBansItemData, item_data,
+    };
+    CollectionItem {
+        uri: track_uri.to_owned(),
+        added_at: if hidden { now } else { 0 },
+        is_removed: !hidden,
+        context_uri: Some(playlist_uri.to_owned()),
+        item_data: protobuf::MessageField::some(ItemData {
+            data: Some(item_data::Data::PlayContextBansItemData(
+                PlayContextBansItemData {
+                    item_provider: ItemProvider::PROVIDER_CONTEXT.into(),
+                    ..Default::default()
+                },
+            )),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 fn collection_headers() -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     let value =
@@ -205,6 +288,106 @@ fn collection_headers() -> reqwest::header::HeaderMap {
     headers.insert(reqwest::header::CONTENT_TYPE, value.clone());
     headers.insert(reqwest::header::ACCEPT, value);
     headers
+}
+
+/// Spotify's persisted Pathfinder query for an album page.
+const GET_ALBUM_HASH: &str = "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10";
+/// Spotify's persisted Pathfinder query for an artist page's overview.
+const ARTIST_OVERVIEW_HASH: &str =
+    "4bc52527bb77a5f8bbb9afe491e9aa725698d29ab73bff58d49169ee29800167";
+/// Songs per album page, as Spotify's own album view asks for them.
+const PLAY_COUNT_PAGE: usize = 50;
+/// No album runs longer; a page that never ends stops here.
+const MAX_PLAY_COUNT_ROWS: usize = 1000;
+
+/// Spotify's play count for each song of an album, or of an artist's
+/// popular songs, by track URI. Only the Pathfinder queries Spotify's own
+/// apps make carry them: the Web API has none. A song Spotify gives no
+/// count is left out, and the caller shows nothing for it.
+pub async fn play_counts(
+    session: &Session,
+    web: &crate::api::ApiClient,
+    uri: &str,
+) -> anyhow::Result<HashMap<String, u64>> {
+    let login = session.login5().auth_token().await?;
+    let client_token = session.spclient().client_token().await?;
+    let mut counts = HashMap::new();
+    match crate::util::uri_kind(uri) {
+        Some("album") => {
+            let mut offset = 0;
+            loop {
+                let query = serde_json::json!({
+                    "operationName": "getAlbum",
+                    "variables": {
+                        "uri": uri, "locale": "", "offset": offset, "limit": PLAY_COUNT_PAGE
+                    },
+                    "extensions": {
+                        "persistedQuery": {"version": 1, "sha256Hash": GET_ALBUM_HASH}
+                    }
+                });
+                let body = web
+                    .partner_request(&login.access_token, &client_token, &query)
+                    .await?;
+                let page = body
+                    .pointer("/data/albumUnion/tracksV2")
+                    .ok_or_else(|| anyhow::anyhow!("Spotify answered without the album's songs"))?;
+                let rows = play_counts_from(page, &mut counts);
+                let total = page
+                    .get("totalCount")
+                    .and_then(|total| total.as_u64())
+                    .unwrap_or(0);
+                offset += rows;
+                if rows == 0 || offset as u64 >= total || offset >= MAX_PLAY_COUNT_ROWS {
+                    break;
+                }
+            }
+        }
+        Some("artist") => {
+            let query = serde_json::json!({
+                "operationName": "queryArtistOverview",
+                "variables": {"uri": uri, "locale": "", "includePrerelease": false},
+                "extensions": {
+                    "persistedQuery": {"version": 1, "sha256Hash": ARTIST_OVERVIEW_HASH}
+                }
+            });
+            let body = web
+                .partner_request(&login.access_token, &client_token, &query)
+                .await?;
+            let top = body
+                .pointer("/data/artistUnion/discography/topTracks")
+                .ok_or_else(|| anyhow::anyhow!("Spotify answered without the popular songs"))?;
+            play_counts_from(top, &mut counts);
+        }
+        _ => anyhow::bail!("Spotify counts plays only for album and artist songs"),
+    }
+    Ok(counts)
+}
+
+/// Adds the counts of a Pathfinder list of `{track: {uri, playcount}}`
+/// rows, and says how many rows it held. Spotify sends each count as a
+/// string of digits.
+fn play_counts_from(list: &serde_json::Value, counts: &mut HashMap<String, u64>) -> usize {
+    let rows = list
+        .get("items")
+        .and_then(|items| items.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for row in rows {
+        let Some(track) = row.get("track") else {
+            continue;
+        };
+        let uri = track.get("uri").and_then(|uri| uri.as_str());
+        let count = track.get("playcount").and_then(|count| match count {
+            serde_json::Value::String(text) => text.parse::<u64>().ok(),
+            other => other.as_u64(),
+        });
+        if let (Some(uri), Some(count)) = (uri, count)
+            && uri.starts_with("spotify:track:")
+        {
+            counts.insert(uri.to_string(), count);
+        }
+    }
+    rows.len()
 }
 
 /// Whether this account has already pre-saved the album resolved from the countdown page.
@@ -274,6 +457,147 @@ async fn write_collection(
         response.status().as_u16()
     );
     Ok(())
+}
+
+/// One playlist row picked for removal: its song, its position among the
+/// rows the app holds, and how many copies of the song sit before it there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemovedRow {
+    pub uri: String,
+    pub position: u32,
+    pub copy: u32,
+}
+
+/// Removes exactly the picked rows, so the other copies of a song a list
+/// holds more than once stay, with their dates (#937). The Web API removes
+/// by URI, every copy at once, and ignores positions; the playlist service
+/// Spotify's own clients edit removes by index. The indices come from the
+/// list as it stands now, and the change is based on that revision, so a
+/// list edited meanwhile refuses it rather than losing another row. Returns
+/// the new snapshot when Spotify reports it.
+pub async fn remove_playlist_rows(
+    session: &Session,
+    id: &str,
+    rows: &[RemovedRow],
+) -> anyhow::Result<Option<String>> {
+    const CHANGED: &str = "The playlist changed meanwhile. Check it and try again.";
+    let (revision, uris) = playlist_uris(session, id).await?;
+    let indices = removal_indices(&uris, rows).ok_or_else(|| anyhow::anyhow!(CHANGED))?;
+    let changes = removal_changes(
+        &revision,
+        &session.username(),
+        jiff::Timestamp::now().as_millisecond(),
+        &indices,
+    );
+    // librespot sends a change once: it is not idempotent.
+    let bytes = session
+        .spclient()
+        .post_playlist_changes(&SpotifyId::from_base62(id)?, &changes)
+        .await
+        .map_err(|error| match error.kind {
+            ErrorKind::Aborted => anyhow::anyhow!(CHANGED),
+            _ => anyhow::anyhow!("Spotify did not remove the song: {error}"),
+        })?;
+    Ok(SelectedListContent::parse_from_bytes(&bytes)
+        .ok()
+        .map(|answer| answer.revision().to_vec())
+        .filter(|revision| !revision.is_empty())
+        .map(|revision| snapshot(&revision)))
+}
+
+/// The list's revision and every row's URI, read page by page from the
+/// same revision.
+async fn playlist_uris(session: &Session, id: &str) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
+    const PAGE: u32 = 1000;
+    let failed = |failure: Failure| match failure {
+        Failure::Definitive(error) => anyhow::anyhow!("{error}"),
+        Failure::Retry(error) => error,
+    };
+    let mut revision = None;
+    let mut uris = Vec::new();
+    loop {
+        let from = uris.len() as u32;
+        let list = window(session, id, from, PAGE).await.map_err(failed)?;
+        match &revision {
+            None => revision = Some(list.revision.clone()),
+            Some(first) => anyhow::ensure!(
+                *first == list.revision,
+                "The playlist changed meanwhile. Check it and try again."
+            ),
+        }
+        let page = rows(&list, from, PAGE);
+        uris.extend(page.iter().map(|row| row.id.to_uri()));
+        if page.is_empty() || uris.len() as u32 >= total(&list) {
+            break;
+        }
+    }
+    Ok((revision.unwrap_or_default(), uris))
+}
+
+/// Where each picked row sits in `uris`, the list as Spotify holds it: at
+/// its own position when that row holds its song, as when every row before
+/// it is one both sources count, or else the same copy of the song counted
+/// from the start. `None` when a row is not there any more, so nothing is
+/// removed on a guess. Highest index first, so each removal leaves the
+/// indices of the next ones in place.
+fn removal_indices(uris: &[String], rows: &[RemovedRow]) -> Option<Vec<(u32, String)>> {
+    let mut indices = rows
+        .iter()
+        .map(|row| {
+            let at = row.position as usize;
+            let index = if uris.get(at) == Some(&row.uri) {
+                at
+            } else {
+                uris.iter()
+                    .enumerate()
+                    .filter(|(_, uri)| **uri == row.uri)
+                    .nth(row.copy as usize)?
+                    .0
+            };
+            Some((u32::try_from(index).ok()?, row.uri.clone()))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    indices.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+    indices.dedup_by_key(|(index, _)| *index);
+    Some(indices)
+}
+
+/// One change that removes each `(index, uri)` row on its own, highest
+/// index first. Naming the row's song lets Spotify refuse a row that does
+/// not hold it; `items_as_key` stays unset, since it would remove every
+/// copy of the song instead of the row.
+fn removal_changes(
+    revision: &[u8],
+    user: &str,
+    timestamp_ms: i64,
+    indices: &[(u32, String)],
+) -> librespot_protocol::playlist4_external::ListChanges {
+    use librespot_protocol::playlist4_external::{ChangeInfo, Delta, ListChanges, Op, Rem, op};
+    let ops = indices
+        .iter()
+        .map(|(index, uri)| {
+            let mut item = Item::new();
+            item.set_uri(uri.clone());
+            let mut rem = Rem::new();
+            rem.set_from_index(*index as i32);
+            rem.set_length(1);
+            rem.items.push(item);
+            let mut op = Op::new();
+            op.set_kind(op::Kind::REM);
+            op.rem = protobuf::MessageField::some(rem);
+            op
+        })
+        .collect();
+    let mut info = ChangeInfo::new();
+    info.set_user(user.to_string());
+    info.set_timestamp(timestamp_ms);
+    let mut delta = Delta::new();
+    delta.ops = ops;
+    delta.info = protobuf::MessageField::some(info);
+    let mut changes = ListChanges::new();
+    changes.set_base_revision(revision.to_vec());
+    changes.deltas.push(delta);
+    changes
 }
 
 /// A playlist's header: name, owner, cover, and snapshot.
@@ -363,27 +687,238 @@ fn page(items: Vec<PlaylistItem>, total: u32, offset: u32, limit: u32) -> Page<P
     }
 }
 
-/// The songs of Spotify's radio `station`, in Spotify's order, with their
-/// details from one batched request. Spotify mixes a station afresh each
-/// time it is resolved, so the list returned here is the one to play.
+/// The account's rootlist, page by page in Spotify's order: one request per
+/// 500 rows, each row decorated with its playlist's name, cover, owner,
+/// length, and what the account may do to it.
+pub async fn rootlist(session: &Session) -> anyhow::Result<Vec<ListItems>> {
+    let mut pages = Vec::new();
+    let mut from = 0usize;
+    loop {
+        let bytes = session
+            .spclient()
+            .get_rootlist(from, Some(ROOTLIST_PAGE))
+            .await
+            .map_err(|error| anyhow::anyhow!("rootlist: {error}"))?;
+        let Some((contents, more)) =
+            rootlist_answer_page(SelectedListContent::parse_from_bytes(&bytes)?, from)?
+        else {
+            break;
+        };
+        let count = contents.items.len();
+        pages.push(contents);
+        if !more {
+            break;
+        }
+        from += count;
+    }
+    Ok(pages)
+}
+
+const ROOTLIST_PAGE: usize = 500;
+
+/// One rootlist answer read at `from`: its page, and whether rows follow
+/// it; `None` when the list ends before `from`. An answer that leaves rows
+/// out while saying some remain, either with no page where the list's
+/// length says rows are or with an empty page marked as cut short, is an
+/// error, so the read is retried rather than taken as the whole list.
+fn rootlist_answer_page(
+    response: SelectedListContent,
+    from: usize,
+) -> anyhow::Result<Option<(ListItems, bool)>> {
+    let length = response
+        .has_length()
+        .then(|| usize::try_from(response.length()).unwrap_or_default());
+    let Some(contents) = response.contents.into_option() else {
+        if let Some(length) = length.filter(|length| *length > from) {
+            anyhow::bail!("rootlist answered no rows at {from} of {length}");
+        }
+        return Ok(None);
+    };
+    let truncated = contents.truncated();
+    if truncated && contents.items.is_empty() {
+        anyhow::bail!("rootlist answered an empty page at {from} marked as cut short");
+    }
+    Ok(Some((contents, truncated)))
+}
+
+/// The account's playlist library, as the Web API's list of the account's
+/// playlists gives it: every playlist it saved or follows, Spotify's own
+/// among them, in the order Spotify keeps them, read from the rootlist
+/// without the shared app's quota (#698, #816). The rootlist names each
+/// owner by id only, so their display names come from their profiles, as
+/// for a playlist header read here; a name that does not arrive in time
+/// leaves the id showing, as the header read does.
+pub async fn library(session: &Session) -> Result<Vec<Playlist>, Failure> {
+    let pages = rootlist(session).await.map_err(Failure::Retry)?;
+    let mut playlists = library_rows(&pages)?;
+    let names = owner_names(session, &playlists).await;
+    for playlist in &mut playlists {
+        if let Some(name) = playlist.owner.id.as_ref().and_then(|id| names.get(id)) {
+            playlist.owner.display_name = Some(name.clone());
+        }
+    }
+    Ok(playlists)
+}
+
+/// How long the library waits for its owners' names before showing ids.
+const OWNER_NAMES_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// Profile reads in flight at once, and owners asked about at most.
+const OWNER_NAMES_AT_ONCE: usize = 4;
+const OWNER_NAMES_MAX: usize = 100;
+
+/// The display names of the owners of `playlists`, Spotify's own aside,
+/// read from their profiles a few at a time within [`OWNER_NAMES_WAIT`].
+async fn owner_names(session: &Session, playlists: &[Playlist]) -> HashMap<String, String> {
+    let owners: BTreeSet<String> = playlists
+        .iter()
+        .filter_map(|playlist| playlist.owner.id.clone())
+        .filter(|owner| owner != "spotify")
+        .take(OWNER_NAMES_MAX)
+        .collect();
+    let mut names = HashMap::new();
+    let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(OWNER_NAMES_AT_ONCE));
+    let mut reads = tokio::task::JoinSet::new();
+    for owner in owners {
+        let session = session.clone();
+        let slots = slots.clone();
+        reads.spawn(async move {
+            let _slot = slots.acquire_owned().await.ok()?;
+            let name = user_profile(&session, &owner).await?.name?;
+            Some((owner, name))
+        });
+    }
+    let _ = tokio::time::timeout(OWNER_NAMES_WAIT, async {
+        while let Some(read) = reads.join_next().await {
+            if let Ok(Some((owner, name))) = read {
+                names.insert(owner, name);
+            }
+        }
+    })
+    .await;
+    names
+}
+
+/// The playlists among the rootlist's rows. A page whose rows came without
+/// the details Spotify decorates them with would list nameless playlists,
+/// so it is a retry, for the Web API to answer instead.
+fn library_rows(pages: &[ListItems]) -> Result<Vec<Playlist>, Failure> {
+    let mut playlists = Vec::new();
+    for page in pages {
+        if page.meta_items.len() != page.items.len() {
+            return Err(Failure::Retry(anyhow::anyhow!(
+                "rootlist page answered {} rows with {} details",
+                page.items.len(),
+                page.meta_items.len()
+            )));
+        }
+        for (item, meta) in page.items.iter().zip(&page.meta_items) {
+            if let Some(playlist) = library_row(item, meta) {
+                playlists.push(playlist);
+            }
+        }
+    }
+    Ok(playlists)
+}
+
+/// One playlist row of the rootlist; `None` for a folder marker, and for a
+/// playlist Spotify says is gone or hidden from this account, which the
+/// Web API leaves out of the list too.
+fn library_row(item: &Item, meta: &MetaItem) -> Option<Playlist> {
+    let id = item.uri().strip_prefix("spotify:playlist:")?;
+    if !matches!(meta.status_code(), 0 | 200) {
+        return None;
+    }
+    let attributes = PlaylistAttributes::try_from(&*meta.attributes).ok()?;
+    let owner = non_empty(meta.owner_username());
+    Some(Playlist {
+        id: id.to_string(),
+        uri: item.uri().to_string(),
+        description: non_empty(&attributes.description),
+        images: playlist_images(&attributes),
+        owner: Owner {
+            uri: owner.as_ref().map(|owner| format!("spotify:user:{owner}")),
+            id: owner,
+            display_name: None,
+        },
+        public: item
+            .attributes
+            .as_ref()
+            .filter(|attributes| attributes.has_public())
+            .map(|attributes| attributes.public()),
+        collaborative: attributes.is_collaborative,
+        snapshot_id: meta.has_revision().then(|| snapshot(meta.revision())),
+        items_count: meta.has_length().then(|| TrackCount {
+            total: u32::try_from(meta.length()).unwrap_or_default(),
+        }),
+        name: attributes.name,
+        ..Default::default()
+    })
+}
+
+/// The songs of Spotify's radio `station`, with a song seed first and the
+/// rest in Spotify's order, their details from one batched request. Spotify
+/// mixes a station afresh each time it is resolved, so the list returned
+/// here is the one to play.
 pub async fn station(session: &Session, station: &str) -> anyhow::Result<Vec<Track>> {
     let context = session.spclient().get_context(station).await?;
-    let uris = station_songs(&context);
-    anyhow::ensure!(!uris.is_empty(), "Spotify has no songs for this radio");
-    let found = metadata(session, uris.iter())
+    let uris = station_uris(station, &context)?;
+    let tolerated: BTreeSet<String> = track_seed(station)
+        .map(|seed| seed.to_uri())
+        .into_iter()
+        .collect();
+    let found = metadata_tolerating(session, uris.iter(), &tolerated)
         .await
         .map_err(|failure| match failure {
             Failure::Definitive(error) => anyhow::anyhow!("{error}"),
             Failure::Retry(error) => error,
         })?;
-    Ok(uris
-        .iter()
+    Ok(resolved_station(&uris, &found))
+}
+
+/// The station's songs, with its song seed first, or an error when Spotify
+/// resolved no songs at all.
+fn station_uris(
+    station: &str,
+    context: &librespot_protocol::context::Context,
+) -> anyhow::Result<Vec<SpotifyUri>> {
+    let uris = station_songs(context);
+    anyhow::ensure!(!uris.is_empty(), "Spotify has no songs for this radio");
+    Ok(seed_first(station, uris))
+}
+
+/// A station seeded by a song starts with that song, exactly once, followed
+/// by its other songs in Spotify's order. Other kinds of station keep the
+/// order Spotify returned.
+pub(crate) fn seed_first(station: &str, uris: Vec<SpotifyUri>) -> Vec<SpotifyUri> {
+    let Some(seed) = track_seed(station) else {
+        return uris;
+    };
+    let seed_uri = seed.to_uri();
+    let mut ordered = Vec::with_capacity(uris.len() + 1);
+    ordered.push(seed);
+    ordered.extend(uris.into_iter().filter(|uri| uri.to_uri() != seed_uri));
+    ordered
+}
+
+/// The song a station is seeded by, when the seed is a song Spotify can name.
+fn track_seed(station: &str) -> Option<SpotifyUri> {
+    let seed = crate::util::station_seed(station)?;
+    match SpotifyUri::from_uri(&seed).ok()? {
+        seed @ SpotifyUri::Track { .. } => Some(seed),
+        _ => None,
+    }
+}
+
+/// The station's usable songs in resolved order. A song Spotify has no
+/// details for, such as a seed which is gone or withheld, is left out.
+fn resolved_station(uris: &[SpotifyUri], found: &HashMap<String, PlayableItem>) -> Vec<Track> {
+    uris.iter()
         .map(SpotifyUri::to_uri)
         .filter_map(|uri| match found.get(&uri) {
             Some(PlayableItem::Track(track)) => Some(track.clone()),
             _ => None,
         })
-        .collect())
+        .collect()
 }
 
 /// Each song of a resolved station once, named by URI or by raw id.
@@ -490,6 +1025,348 @@ fn profile_from_json(json: &serde_json::Value) -> UserProfile {
         name: text("name"),
         image_url: text("image_url"),
     }
+}
+
+/// What one friend is listening to, or last played, with names to show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FriendActivity {
+    pub user_uri: String,
+    pub user_name: String,
+    pub image_url: Option<String>,
+    /// Milliseconds since the epoch.
+    pub timestamp_ms: i64,
+    /// Whether the friend is playing the song right now. Only the live feed
+    /// says so; the older buddy list never does.
+    pub playing: bool,
+    pub track_uri: String,
+    pub track_name: String,
+    pub artist_uri: Option<String>,
+    pub artist_name: String,
+    pub album_uri: Option<String>,
+    pub cover_url: Option<String>,
+    pub context_uri: Option<String>,
+    pub context_name: Option<String>,
+}
+
+/// How many entries to ask the live feed for.
+const LISTENING_ACTIVITY_LIMIT: u32 = 100;
+
+/// Names that rarely change, kept between polls so each refresh asks only
+/// for the songs. Only answers are kept: a read that failed is asked again
+/// on the next refresh.
+#[derive(Default)]
+pub struct FriendNames {
+    profiles: HashMap<String, UserProfile>,
+    playlists: HashMap<String, String>,
+}
+
+/// How many name reads run at once on a first load.
+const NAME_READS: usize = 6;
+
+/// A person's or a playlist's name, read for the panel; `None` when the
+/// read failed.
+enum NameRead {
+    Profile(String, Option<UserProfile>),
+    Playlist(String, Option<String>),
+}
+
+/// The user id at the end of `spotify:user:…`.
+fn user_id(uri: &str) -> String {
+    uri.rsplit(':').next().unwrap_or_default().to_string()
+}
+
+/// The playlist id a context names, if it is a playlist.
+fn playlist_id(uri: &str) -> Option<String> {
+    uri.contains(":playlist:")
+        .then(|| uri.rsplit(':').next().unwrap_or_default().to_string())
+}
+
+/// Reads the names the cache lacks, a few at a time, without holding it.
+async fn read_names(session: &Session, users: Vec<String>, lists: Vec<String>) -> Vec<NameRead> {
+    let limit = std::sync::Arc::new(tokio::sync::Semaphore::new(NAME_READS));
+    let mut reads = tokio::task::JoinSet::new();
+    for id in users {
+        let (session, limit) = (session.clone(), limit.clone());
+        reads.spawn(async move {
+            let _turn = limit.acquire_owned().await;
+            let profile = user_profile(&session, &id).await;
+            NameRead::Profile(id, profile)
+        });
+    }
+    for id in lists {
+        let (session, limit) = (session.clone(), limit.clone());
+        reads.spawn(async move {
+            let _turn = limit.acquire_owned().await;
+            let name = playlist(&session, &id).await.ok().map(|list| list.name);
+            NameRead::Playlist(id, name)
+        });
+    }
+    let mut done = Vec::new();
+    while let Some(read) = reads.join_next().await {
+        if let Ok(read) = read {
+            done.push(read);
+        }
+    }
+    done
+}
+
+/// One friend's latest entry in the live feed, before the song and the
+/// person have names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LiveActivity {
+    user_uri: String,
+    track_uri: String,
+    context_uri: Option<String>,
+    playing: bool,
+    timestamp_ms: i64,
+}
+
+/// What friends are listening to, newest first, as Spotify's own Listening
+/// Activity shows it, read with the session's own token. There is no Web
+/// API for it. When the live feed does not answer, the older buddy list
+/// stands in.
+pub async fn friend_activity(
+    session: &Session,
+    names: &tokio::sync::Mutex<FriendNames>,
+) -> anyhow::Result<Vec<FriendActivity>> {
+    let live = match live_activity(session).await {
+        Ok(live) => live,
+        Err(error) => {
+            log::warn!("listening activity feed unavailable, using the buddy list: {error:#}");
+            return buddy_list(session).await;
+        }
+    };
+    let uris: Vec<SpotifyUri> = live
+        .iter()
+        .filter_map(|entry| SpotifyUri::from_uri(&entry.track_uri).ok())
+        .collect();
+    let tracks = metadata(session, uris.iter())
+        .await
+        .map_err(|failure| match failure {
+            Failure::Definitive(error) => anyhow::anyhow!("{error:?}"),
+            Failure::Retry(error) => error,
+        })?;
+    let (users, lists) = {
+        let names = names.lock().await;
+        let users: BTreeSet<String> = live
+            .iter()
+            .map(|entry| user_id(&entry.user_uri))
+            .filter(|id| !names.profiles.contains_key(id))
+            .collect();
+        let lists: BTreeSet<String> = live
+            .iter()
+            .filter_map(|entry| entry.context_uri.as_deref().and_then(playlist_id))
+            .filter(|id| !names.playlists.contains_key(id))
+            .collect();
+        (users.into_iter().collect(), lists.into_iter().collect())
+    };
+    let read = read_names(session, users, lists).await;
+    let mut names = names.lock().await;
+    for read in read {
+        match read {
+            NameRead::Profile(id, Some(profile)) => {
+                names.profiles.insert(id, profile);
+            }
+            NameRead::Playlist(id, Some(name)) => {
+                names.playlists.insert(id, name);
+            }
+            NameRead::Profile(_, None) | NameRead::Playlist(_, None) => {}
+        }
+    }
+    let mut friends = Vec::with_capacity(live.len());
+    for entry in live {
+        let Some(PlayableItem::Track(track)) = tracks.get(&entry.track_uri) else {
+            continue;
+        };
+        let user_id = user_id(&entry.user_uri);
+        let profile = names.profiles.get(&user_id);
+        let user_name = profile
+            .and_then(|profile| profile.name.clone())
+            .unwrap_or_else(|| user_id.clone());
+        let image_url = profile.and_then(|profile| profile.image_url.clone());
+        let album = track.album.as_ref().filter(|album| !album.uri.is_empty());
+        let artist = track.artists.first();
+        // Without a context Spotify names the song's album, as its own
+        // panel does.
+        let context_uri = entry
+            .context_uri
+            .or_else(|| album.map(|album| album.uri.clone()));
+        let context_name = match context_uri.as_deref() {
+            Some(uri) if uri.contains(":playlist:") => {
+                playlist_id(uri).and_then(|id| names.playlists.get(&id).cloned())
+            }
+            // A song played on its own names itself as where it plays from.
+            Some(uri) if uri == entry.track_uri => Some(track.name.clone()),
+            Some(uri) => album
+                .filter(|album| album.uri == uri)
+                .map(|album| album.name.clone())
+                .or_else(|| {
+                    track
+                        .artists
+                        .iter()
+                        .find(|artist| artist.uri.as_deref() == Some(uri))
+                        .map(|artist| artist.name.clone())
+                }),
+            None => None,
+        };
+        friends.push(FriendActivity {
+            user_uri: entry.user_uri,
+            user_name,
+            image_url,
+            timestamp_ms: entry.timestamp_ms,
+            playing: entry.playing,
+            track_uri: entry.track_uri,
+            track_name: track.name.clone(),
+            artist_uri: artist
+                .and_then(|artist| artist.uri.clone())
+                .filter(|uri| !uri.is_empty()),
+            artist_name: artist.map(|artist| artist.name.clone()).unwrap_or_default(),
+            album_uri: album
+                .map(|album| album.uri.clone())
+                .filter(|uri| !uri.is_empty()),
+            cover_url: album
+                .and_then(|album| crate::api::models::pick_image(&album.images, 128))
+                .map(str::to_string),
+            context_uri,
+            context_name,
+        });
+    }
+    Ok(friends)
+}
+
+/// The feed behind Spotify's Listening Activity panel. It lists the same
+/// people the desktop app shows, with the song playing now, where the older
+/// buddy list reports a song only once it has finished.
+async fn live_activity(session: &Session) -> anyhow::Result<Vec<LiveActivity>> {
+    let bytes = session
+        .spclient()
+        .get_listening_activity(LISTENING_ACTIVITY_LIMIT)
+        .await?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    live_from_json(&json)
+}
+
+/// Reads the live feed: each friend's latest song, newest first. Entries
+/// that are not a person playing a song are passed over; an answer without
+/// its list fails, rather than pass for nobody listening.
+fn live_from_json(json: &serde_json::Value) -> anyhow::Result<Vec<LiveActivity>> {
+    let entities = json
+        .get("entities")
+        .and_then(|entities| entities.as_array())
+        .ok_or_else(|| anyhow::anyhow!("listening activity answered without entities"))?;
+    let mut latest: HashMap<String, LiveActivity> = HashMap::new();
+    for item in entities {
+        let Some(entity) = item.get("userEntity").or_else(|| item.get("followEntity")) else {
+            continue;
+        };
+        let Some(user_uri) = entity
+            .get("uri")
+            .and_then(|uri| uri.as_str())
+            .filter(|uri| uri.starts_with("spotify:user:"))
+        else {
+            continue;
+        };
+        let Some(activity) = entity.get("activity") else {
+            continue;
+        };
+        let Some(track_uri) = activity
+            .get("entityUri")
+            .and_then(|uri| uri.as_str())
+            .filter(|uri| uri.starts_with("spotify:track:"))
+        else {
+            continue;
+        };
+        let Some(timestamp_ms) = activity
+            .get("timestamp")
+            .and_then(|time| time.as_str())
+            .and_then(|time| time.parse::<jiff::Timestamp>().ok())
+            .map(|time| time.as_millisecond())
+        else {
+            continue;
+        };
+        let context_uri = activity
+            .get("contextUri")
+            .and_then(|uri| uri.as_str())
+            .map(live_context)
+            .filter(|uri| !uri.is_empty());
+        let entry = LiveActivity {
+            user_uri: user_uri.to_string(),
+            track_uri: track_uri.to_string(),
+            context_uri,
+            playing: activity
+                .get("isPlaying")
+                .and_then(|playing| playing.as_bool())
+                .unwrap_or(false),
+            timestamp_ms,
+        };
+        if latest
+            .get(user_uri)
+            .is_none_or(|known| known.timestamp_ms < timestamp_ms)
+        {
+            latest.insert(user_uri.to_string(), entry);
+        }
+    }
+    let mut live: Vec<LiveActivity> = latest.into_values().collect();
+    live.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp_ms));
+    Ok(live)
+}
+
+/// The live feed names play from an artist's Popular songs as a list of its
+/// own; that is the artist.
+fn live_context(uri: &str) -> String {
+    uri.strip_prefix("spotify:list:popular-release-segments-main-roles:artist_")
+        .map(|id| format!("spotify:artist:{id}"))
+        .unwrap_or_else(|| uri.to_string())
+}
+
+/// The older buddy list Spotify's desktop app read before the live feed.
+async fn buddy_list(session: &Session) -> anyhow::Result<Vec<FriendActivity>> {
+    let bytes = session.spclient().get_buddylist().await?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    Ok(friends_from_json(&json))
+}
+
+/// Reads the buddy list answer, most recent first, skipping friends whose
+/// entry lacks a user or a track.
+fn friends_from_json(json: &serde_json::Value) -> Vec<FriendActivity> {
+    let text = |value: &serde_json::Value, key: &str| {
+        value
+            .get(key)
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let mut friends: Vec<FriendActivity> = json
+        .get("friends")
+        .and_then(|friends| friends.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|friend| {
+            let user = friend.get("user")?;
+            let track = friend.get("track")?;
+            let context = track.get("context");
+            let artist = track.get("artist");
+            Some(FriendActivity {
+                user_uri: text(user, "uri")?,
+                user_name: text(user, "name").or_else(|| text(user, "uri"))?,
+                image_url: text(user, "imageUrl"),
+                timestamp_ms: friend.get("timestamp")?.as_i64()?,
+                playing: false,
+                track_uri: text(track, "uri")?,
+                track_name: text(track, "name")?,
+                artist_uri: artist.and_then(|artist| text(artist, "uri")),
+                artist_name: artist
+                    .and_then(|artist| text(artist, "name"))
+                    .unwrap_or_default(),
+                album_uri: track.get("album").and_then(|album| text(album, "uri")),
+                cover_url: text(track, "imageUrl"),
+                context_uri: context.and_then(|context| text(context, "uri")),
+                context_name: context.and_then(|context| text(context, "name")),
+            })
+        })
+        .collect();
+    friends.sort_by_key(|friend| std::cmp::Reverse(friend.timestamp_ms));
+    friends
 }
 
 /// The list's header and the `length` rows from `from`; none for the header
@@ -666,12 +1543,106 @@ async fn metadata(
     session: &Session,
     uris: impl Iterator<Item = &SpotifyUri>,
 ) -> Result<HashMap<String, PlayableItem>, Failure> {
+    metadata_tolerating(session, uris, &BTreeSet::new()).await
+}
+
+/// As `metadata`, but a URI in `tolerated` may be left unanswered, refused,
+/// or carry unreadable details without failing the whole batch. A provider
+/// error over the batch still fails it.
+async fn metadata_tolerating(
+    session: &Session,
+    uris: impl Iterator<Item = &SpotifyUri>,
+    tolerated: &BTreeSet<String>,
+) -> Result<HashMap<String, PlayableItem>, Failure> {
     let (request, asked) = batch(uris);
     if asked.is_empty() {
         return Ok(HashMap::new());
     }
     let response = session.spclient().get_extended_metadata(request).await?;
-    answers(&asked, response)
+    answers_tolerating(&asked, tolerated, response)
+}
+
+/// Every song of `albums`, album by album in the order given and each in its
+/// own order, with the album as the list knows it. Two metadata batches: one
+/// for the albums' track lists, one for the songs.
+pub async fn album_tracks(session: &Session, albums: &[Album]) -> Result<Vec<Track>, Failure> {
+    let mut request = BatchedEntityRequest::new();
+    for album in albums {
+        request.entity_request.push(EntityRequest {
+            entity_uri: album.uri.clone(),
+            query: vec![ExtensionQuery {
+                extension_kind: EnumOrUnknown::new(ExtensionKind::ALBUM_V4),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+    }
+    if request.entity_request.is_empty() {
+        return Ok(Vec::new());
+    }
+    let response = session.spclient().get_extended_metadata(request).await?;
+    let lists = album_track_lists(&response)?;
+    let uris: Vec<SpotifyUri> = albums
+        .iter()
+        .flat_map(|album| lists.get(&album.uri).into_iter().flatten())
+        .cloned()
+        .collect();
+    let found = metadata(session, uris.iter()).await?;
+    let mut tracks = Vec::new();
+    for album in albums {
+        for uri in lists.get(&album.uri).into_iter().flatten() {
+            if let Some(PlayableItem::Track(track)) = found.get(&uri.to_uri()) {
+                let mut track = track.clone();
+                track.album = Some(Album {
+                    tracks: None,
+                    ..album.clone()
+                });
+                tracks.push(track);
+            }
+        }
+    }
+    Ok(tracks)
+}
+
+/// Each album's songs, by album URI, from an `ALBUM_V4` metadata answer.
+/// An album Spotify no longer has is left out; any other refusal is a retry.
+fn album_track_lists(
+    response: &BatchedExtensionResponse,
+) -> Result<HashMap<String, Vec<SpotifyUri>>, Failure> {
+    let retry = |reason: String| Failure::Retry(anyhow::anyhow!(reason));
+    let mut lists = HashMap::new();
+    for array in &response.extended_metadata {
+        let provider = array.header.provider_error_status;
+        if !matches!(provider, 0 | 200) {
+            return Err(retry(format!("metadata provider answered {provider}")));
+        }
+        if array.extension_kind.enum_value() != Ok(ExtensionKind::ALBUM_V4) {
+            continue;
+        }
+        for data in &array.extension_data {
+            match data.header.status_code {
+                0 | 200 => {}
+                404 | 451 => continue,
+                code => return Err(retry(format!("{} answered {code}", data.entity_uri))),
+            }
+            let album = data
+                .extension_data
+                .as_ref()
+                .and_then(|any| {
+                    librespot_protocol::metadata::Album::parse_from_bytes(&any.value).ok()
+                })
+                .ok_or_else(|| retry(format!("unreadable metadata for {}", data.entity_uri)))?;
+            let songs = album
+                .disc
+                .iter()
+                .flat_map(|disc| &disc.track)
+                .filter_map(|track| SpotifyId::from_raw(track.gid()).ok())
+                .map(|id| SpotifyUri::Track { id })
+                .collect();
+            lists.insert(data.entity_uri.clone(), songs);
+        }
+    }
+    Ok(lists)
 }
 
 /// One request for the details of every track and episode among `uris`,
@@ -704,15 +1675,17 @@ fn batch<'a>(
     (request, asked)
 }
 
-/// The details Spotify answered with for the URIs `asked`, by URI. Spotify marks each
-/// answer: a 404 is a song it no longer has, a 451 one it withholds for
-/// legal reasons, and the Web API shows both as a row without one. Any
-/// other refusal, a provider error over the whole batch, bytes that do not
-/// read as a song, or a URI left unanswered is a retry, since a page cached
-/// without those songs would stay wrong. Kinds the request never asked for
-/// are passed over.
-fn answers(
+/// The details Spotify answered with for the URIs `asked`, by URI. Spotify
+/// marks each answer: a 404 is a song it no longer has, a 451 one it
+/// withholds for legal reasons, and the Web API shows both as a row without
+/// one. Any other refusal, a provider error over the whole batch, bytes that
+/// do not read as a song, or a URI left unanswered is a retry, since a page
+/// cached without those songs would stay wrong. A URI in `tolerated` may be
+/// unanswered, refused, or unreadable without failing the page. Kinds the
+/// request never asked for are passed over.
+fn answers_tolerating(
     asked: &BTreeSet<String>,
+    tolerated: &BTreeSet<String>,
     response: BatchedExtensionResponse,
 ) -> Result<HashMap<String, PlayableItem>, Failure> {
     let retry = |reason: String| Failure::Retry(anyhow::anyhow!(reason));
@@ -729,21 +1702,29 @@ fn answers(
             _ => continue,
         };
         for data in array.extension_data {
-            unanswered.remove(data.entity_uri.as_str());
+            let uri = data.entity_uri;
+            let optional = tolerated.contains(&uri);
+            unanswered.remove(uri.as_str());
             match data.header.status_code {
                 0 | 200 => {}
                 404 | 451 => continue,
-                code => return Err(retry(format!("{} answered {code}", data.entity_uri))),
+                _ if optional => continue,
+                code => return Err(retry(format!("{uri} answered {code}"))),
             }
-            let item = data
+            let Some(item) = data
                 .extension_data
                 .as_ref()
                 .and_then(|any| playable(kind, &any.value))
-                .ok_or_else(|| retry(format!("unreadable metadata for {}", data.entity_uri)))?;
-            playables.insert(data.entity_uri, item);
+            else {
+                if optional {
+                    continue;
+                }
+                return Err(retry(format!("unreadable metadata for {uri}")));
+            };
+            playables.insert(uri, item);
         }
     }
-    if let Some(uri) = unanswered.first() {
+    if let Some(uri) = unanswered.iter().find(|uri| !tolerated.contains(**uri)) {
         return Err(retry(format!("no metadata answer for {uri}")));
     }
     Ok(playables)
@@ -854,6 +1835,34 @@ fn iso8601(timestamp_ms: i64) -> Option<String> {
 #[cfg(test)]
 mod tests {
 
+    /// Pathfinder's counts arrive as strings of digits; rows without a
+    /// track URI or a count are left out, and every row counts toward the
+    /// page's length.
+    #[test]
+    fn play_counts_read_pathfinder_rows() {
+        let list = serde_json::json!({"items": [
+            {"track": {"uri": "spotify:track:a", "playcount": "10808862"}},
+            {"track": {"uri": "spotify:track:b", "playcount": 7}},
+            {"track": {"uri": "spotify:track:c"}},
+            {"track": {"uri": "spotify:episode:d", "playcount": "3"}},
+            {"track": {"playcount": "5"}},
+            {"uid": "no track"},
+        ]});
+        let mut counts = HashMap::new();
+        assert_eq!(super::play_counts_from(&list, &mut counts), 6);
+        assert_eq!(
+            counts,
+            HashMap::from([
+                ("spotify:track:a".to_string(), 10_808_862),
+                ("spotify:track:b".to_string(), 7),
+            ])
+        );
+        assert_eq!(
+            super::play_counts_from(&serde_json::json!({}), &mut counts),
+            0
+        );
+    }
+
     /// A lost reply is uncertain, including when the server accepted the write.
     /// HTTP errors and redirect responses must never resend the mutation either.
     #[tokio::test]
@@ -903,12 +1912,89 @@ mod tests {
         }
     }
     use librespot_metadata::Metadata as _;
-    use librespot_protocol::playlist4_external::{Item, SelectedListContent};
 
     use super::*;
 
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const EPISODE: &str = "spotify:episode:7GhIk7Il098yCjg4BQjzvb";
+
+    fn removed(uri: &str, position: u32, copy: u32) -> RemovedRow {
+        RemovedRow {
+            uri: uri.into(),
+            position,
+            copy,
+        }
+    }
+
+    /// The picked copy is the row removed, never the first copy (#937).
+    #[test]
+    fn removal_finds_the_picked_copy_of_a_repeated_song() {
+        let list: Vec<String> = ["a", "b", "a", "c", "a"].map(String::from).to_vec();
+        assert_eq!(
+            removal_indices(&list, &[removed("a", 2, 1)]),
+            Some(vec![(2, "a".into())])
+        );
+        // Spotify's list holds a row the app's did not count before it, so
+        // the copy is found by its place among the song's copies instead.
+        assert_eq!(
+            removal_indices(&list, &[removed("a", 3, 2)]),
+            Some(vec![(4, "a".into())])
+        );
+        // Several rows come back highest first, each once.
+        assert_eq!(
+            removal_indices(
+                &list,
+                &[removed("a", 0, 0), removed("c", 3, 0), removed("a", 4, 2)]
+            ),
+            Some(vec![(4, "a".into()), (3, "c".into()), (0, "a".into())])
+        );
+        // A copy no longer there removes nothing.
+        assert_eq!(removal_indices(&list, &[removed("a", 9, 3)]), None);
+        assert_eq!(
+            removal_indices(&list, &[removed("b", 1, 0), removed("d", 5, 0)]),
+            None
+        );
+    }
+
+    #[test]
+    fn removal_changes_remove_rows_by_index_against_the_revision() {
+        let changes = removal_changes(
+            b"revision",
+            "dummy-user",
+            1_700_000_000_000,
+            &[(4, "a".into()), (0, "a".into())],
+        );
+        let decoded = librespot_protocol::playlist4_external::ListChanges::parse_from_bytes(
+            &changes.write_to_bytes().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(decoded.base_revision(), b"revision");
+        let [delta] = decoded.deltas.as_slice() else {
+            panic!("one change");
+        };
+        assert_eq!(delta.info.user(), "dummy-user");
+        assert_eq!(delta.info.timestamp(), 1_700_000_000_000);
+        let removals: Vec<(i32, i32, Vec<&str>, bool)> = delta
+            .ops
+            .iter()
+            .map(|op| {
+                assert_eq!(
+                    op.kind(),
+                    librespot_protocol::playlist4_external::op::Kind::REM
+                );
+                (
+                    op.rem.from_index(),
+                    op.rem.length(),
+                    op.rem.items.iter().map(|item| item.uri()).collect(),
+                    op.rem.has_items_as_key(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            removals,
+            vec![(4, 1, vec!["a"], false), (0, 1, vec!["a"], false)]
+        );
+    }
 
     /// Another market's ranking must not replace the account's own or worldwide list.
     #[test]
@@ -1576,6 +2662,13 @@ mod tests {
         response
     }
 
+    fn answers(
+        asked: &BTreeSet<String>,
+        response: BatchedExtensionResponse,
+    ) -> Result<HashMap<String, PlayableItem>, Failure> {
+        answers_tolerating(asked, &BTreeSet::new(), response)
+    }
+
     /// Spotify's answer is read by URI and kind, whether it marks the batch
     /// and each answer with 200 or leaves them unmarked; a kind this does
     /// not read is passed over.
@@ -1754,5 +2847,508 @@ mod tests {
                 "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
             ]
         );
+    }
+
+    const STATION_SEED_ID: &str = "3JA9Jsuxr4xgHXEawAdCp4";
+    const STATION_SEED: &str = "spotify:track:3JA9Jsuxr4xgHXEawAdCp4";
+    const STATION_OTHER: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
+    const STATION_THIRD: &str = "spotify:track:7GhIk7Il098yCjg4BQjzvb";
+
+    fn station_context(uris: &[&str]) -> librespot_protocol::context::Context {
+        use librespot_protocol::context::Context;
+        use librespot_protocol::context_page::ContextPage;
+        use librespot_protocol::context_track::ContextTrack;
+        Context {
+            pages: vec![ContextPage {
+                tracks: uris
+                    .iter()
+                    .map(|uri| ContextTrack {
+                        uri: Some((*uri).into()),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn normalized_station(station: &str, raw: &[&str]) -> Vec<String> {
+        station_uris(station, &station_context(raw))
+            .unwrap()
+            .iter()
+            .map(SpotifyUri::to_uri)
+            .collect()
+    }
+
+    #[test]
+    fn a_song_station_puts_its_seed_first_and_keeps_the_other_order() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        assert_eq!(
+            normalized_station(&station, &[STATION_OTHER, STATION_THIRD]),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+        assert_eq!(
+            normalized_station(&station, &[STATION_SEED, STATION_OTHER, STATION_THIRD]),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD],
+            "a seed already first stays there, exactly once"
+        );
+        assert_eq!(
+            normalized_station(
+                &station,
+                &[STATION_OTHER, STATION_SEED, STATION_THIRD, STATION_SEED]
+            ),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD],
+            "a seed later in the mix moves to the front, exactly once"
+        );
+    }
+
+    #[test]
+    fn a_song_station_still_lists_repeated_other_songs_once() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        assert_eq!(
+            normalized_station(
+                &station,
+                &[STATION_OTHER, STATION_SEED, STATION_OTHER, STATION_THIRD]
+            ),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+    }
+
+    #[test]
+    fn other_station_kinds_keep_spotifys_order() {
+        for station in [
+            "spotify:station:playlist:37i9dQZF1DXbIbVYph0Zr5",
+            "spotify:station:album:4uLU6hMCjMI75M1A2tKUQC",
+            "spotify:station:artist:4uLU6hMCjMI75M1A2tKUQC",
+        ] {
+            assert_eq!(
+                normalized_station(station, &[STATION_OTHER, STATION_THIRD]),
+                [STATION_OTHER, STATION_THIRD],
+                "{station}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_invalid_song_seed_adds_nothing_and_panics_not() {
+        let raw = [STATION_OTHER, STATION_THIRD];
+        for station in [
+            "spotify:station:track:xyz",
+            "spotify:station:track:",
+            "spotify:station:",
+            "spotify:station:show:4uLU6hMCjMI75M1A2tKUQC",
+            "not-a-station",
+        ] {
+            assert_eq!(normalized_station(station, &raw), raw, "{station}");
+        }
+    }
+
+    #[test]
+    fn an_empty_station_remains_an_error_even_for_a_song_seed() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        let error = station_uris(&station, &station_context(&[])).unwrap_err();
+        assert_eq!(error.to_string(), "Spotify has no songs for this radio");
+    }
+
+    #[test]
+    fn a_seed_without_metadata_leaves_the_usable_station_songs() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        let uris = station_uris(
+            &station,
+            &station_context(&[STATION_OTHER, STATION_SEED, STATION_THIRD]),
+        )
+        .unwrap();
+        let mut found = HashMap::from([
+            (
+                STATION_OTHER.to_string(),
+                PlayableItem::Track(Track {
+                    uri: STATION_OTHER.into(),
+                    name: "Other".into(),
+                    ..Default::default()
+                }),
+            ),
+            (
+                STATION_THIRD.to_string(),
+                PlayableItem::Track(Track {
+                    uri: STATION_THIRD.into(),
+                    name: "Third".into(),
+                    ..Default::default()
+                }),
+            ),
+        ]);
+        assert_eq!(
+            resolved_station(&uris, &found)
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect::<Vec<_>>(),
+            [STATION_OTHER, STATION_THIRD],
+            "an unavailable seed is left out, not fabricated"
+        );
+
+        found.insert(
+            STATION_SEED.to_string(),
+            PlayableItem::Track(Track {
+                uri: STATION_SEED.into(),
+                name: "Seed".into(),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(
+            resolved_station(&uris, &found)
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect::<Vec<_>>(),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+    }
+
+    /// The seed joins the station's one metadata batch, but an answer Spotify
+    /// cannot use for it leaves the rest of the mix usable rather than
+    /// failing the page.
+    #[test]
+    fn an_unusable_seed_does_not_fail_the_rest_of_the_station() {
+        let asked = asked(&[STATION_SEED, STATION_OTHER, STATION_THIRD]);
+        let tolerated = BTreeSet::from([STATION_SEED.to_string()]);
+        let other = || {
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_OTHER,
+                200,
+                Some(track_bytes()),
+            )
+        };
+        let third = || {
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_THIRD,
+                200,
+                Some(track_bytes()),
+            )
+        };
+        for seed_answer in [
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_SEED,
+                200,
+                Some(b"not a track".to_vec()),
+            ),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 404, None),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 451, None),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 500, None),
+        ] {
+            let found = answers_tolerating(
+                &asked,
+                &tolerated,
+                response([seed_answer, other(), third()]),
+            )
+            .expect("the usable station songs remain");
+            assert_eq!(
+                found.keys().cloned().collect::<BTreeSet<_>>(),
+                BTreeSet::from([STATION_OTHER.to_string(), STATION_THIRD.to_string()]),
+                "the seed is left out, not fabricated"
+            );
+        }
+
+        // An unanswered seed is tolerated the same way.
+        let found = answers_tolerating(&asked, &tolerated, response([other(), third()])).unwrap();
+        assert_eq!(found.len(), 2);
+    }
+
+    /// Only the seed is tolerated. Another song's refusal, unreadable
+    /// details, or missing answer still fails the station, as does a
+    /// provider error over the whole batch.
+    #[test]
+    fn unusable_other_station_songs_and_batch_failures_still_fail() {
+        let asked = asked(&[STATION_SEED, STATION_OTHER]);
+        let tolerated = BTreeSet::from([STATION_SEED.to_string()]);
+        let seed_answer = answer(ExtensionKind::TRACK_V4, STATION_SEED, 404, None);
+        for other_answer in [
+            answer(ExtensionKind::TRACK_V4, STATION_OTHER, 500, None),
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_OTHER,
+                200,
+                Some(b"not a track".to_vec()),
+            ),
+        ] {
+            assert!(
+                answers_tolerating(
+                    &asked,
+                    &tolerated,
+                    response([seed_answer.clone(), other_answer]),
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            answers_tolerating(&asked, &tolerated, response([seed_answer])).is_err(),
+            "an unanswered other song"
+        );
+
+        let mut failed_batch = answer(
+            ExtensionKind::TRACK_V4,
+            STATION_OTHER,
+            200,
+            Some(track_bytes()),
+        );
+        failed_batch
+            .header
+            .mut_or_insert_default()
+            .provider_error_status = 500;
+        assert!(
+            answers_tolerating(&asked, &tolerated, response([failed_batch])).is_err(),
+            "a provider error over the batch"
+        );
+    }
+
+    /// A rootlist row and the details Spotify decorates it with.
+    fn listed(uri: &str, decorate: impl FnOnce(&mut MetaItem)) -> (Item, MetaItem) {
+        let mut item = Item::new();
+        item.set_uri(uri.into());
+        let mut meta = MetaItem::new();
+        decorate(&mut meta);
+        (item, meta)
+    }
+
+    fn rootlist_page(rows: Vec<(Item, MetaItem)>) -> ListItems {
+        let mut page = ListItems::new();
+        for (item, meta) in rows {
+            page.items.push(item);
+            page.meta_items.push(meta);
+        }
+        page
+    }
+
+    fn rootlist_answer(length: Option<i32>, contents: Option<ListItems>) -> SelectedListContent {
+        let mut response = SelectedListContent::new();
+        if let Some(length) = length {
+            response.set_length(length);
+        }
+        if let Some(contents) = contents {
+            response.contents = protobuf::MessageField::some(contents);
+        }
+        response
+    }
+
+    fn rootlist_contents(rows: usize, truncated: bool) -> ListItems {
+        let mut contents = ListItems::new();
+        contents.set_truncated(truncated);
+        contents.items = (0..rows).map(|_| Item::new()).collect();
+        contents
+    }
+
+    /// An answer that leaves rows out while saying some remain is retried,
+    /// not taken as the whole list; one with no rows left ends the read,
+    /// and so does a present empty page, the empty library's answer.
+    #[test]
+    fn a_rootlist_answer_missing_rows_it_owes_is_an_error() {
+        let page =
+            |length, contents, from| rootlist_answer_page(rootlist_answer(length, contents), from);
+
+        assert!(
+            page(Some(700), None, 500).is_err(),
+            "no page with rows left"
+        );
+        assert!(page(Some(500), None, 500).unwrap().is_none(), "none left");
+        assert!(page(None, None, 0).unwrap().is_none(), "no length at all");
+        assert!(
+            page(Some(700), Some(rootlist_contents(0, true)), 500).is_err(),
+            "an empty page cut short"
+        );
+
+        let (empty, more) = page(Some(0), Some(rootlist_contents(0, false)), 0)
+            .unwrap()
+            .unwrap();
+        assert!(empty.items.is_empty());
+        assert!(!more);
+
+        let (first, more) = page(Some(700), Some(rootlist_contents(500, true)), 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.items.len(), 500);
+        assert!(more);
+        let (last, more) = page(Some(700), Some(rootlist_contents(200, false)), 500)
+            .unwrap()
+            .unwrap();
+        assert_eq!(last.items.len(), 200);
+        assert!(!more);
+    }
+
+    /// The rootlist's playlists become the library's rows in Spotify's
+    /// order, Spotify's own among them, with the name, cover, owner, song
+    /// count, snapshot, and public flag the Web API's list would carry.
+    /// Folder markers, and playlists Spotify says are gone, are not rows.
+    #[test]
+    fn the_rootlist_becomes_the_playlist_library() {
+        let mine = listed("spotify:playlist:mine", |meta| {
+            meta.set_owner_username("me".into());
+            meta.set_length(12);
+            meta.set_revision(vec![1, 2, 3]);
+            let attributes = meta.attributes.mut_or_insert_default();
+            attributes.set_name("Road trip".into());
+            attributes.set_description("Loud".into());
+            let mut picture = librespot_protocol::playlist4_external::PictureSize::new();
+            picture.set_target_name("default".into());
+            picture.set_url("spotify:image:ab67".into());
+            attributes.picture_size.push(picture);
+        });
+        let (mut item, meta) = listed("spotify:playlist:daily", |meta| {
+            meta.set_owner_username("spotify".into());
+            meta.set_status_code(200);
+            meta.attributes
+                .mut_or_insert_default()
+                .set_name("Daily Mix 1".into());
+        });
+        item.attributes.mut_or_insert_default().set_public(false);
+        let gone = listed("spotify:playlist:gone", |meta| {
+            meta.set_status_code(404);
+            meta.attributes
+                .mut_or_insert_default()
+                .set_name("Gone".into());
+        });
+        let pages = [
+            rootlist_page(vec![
+                listed("spotify:start-group:f1:Mixes", |_| {}),
+                (item, meta),
+                listed("spotify:end-group:f1", |_| {}),
+            ]),
+            rootlist_page(vec![gone, mine]),
+        ];
+        let Ok(rows) = library_rows(&pages) else {
+            panic!("expected the library");
+        };
+        let ids: Vec<_> = rows.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, ["daily", "mine"]);
+
+        let daily = &rows[0];
+        assert_eq!(daily.name, "Daily Mix 1");
+        assert_eq!(daily.uri, "spotify:playlist:daily");
+        assert_eq!(daily.owner.id.as_deref(), Some("spotify"));
+        assert_eq!(daily.owner_name(), "Spotify");
+        assert_eq!(daily.public, Some(false));
+        assert_eq!(daily.items_count, None, "no length given");
+
+        let mine = &rows[1];
+        assert_eq!(mine.name, "Road trip");
+        assert_eq!(mine.description.as_deref(), Some("Loud"));
+        assert_eq!(mine.owner.uri.as_deref(), Some("spotify:user:me"));
+        assert_eq!(mine.track_total(), 12);
+        assert_eq!(mine.public, None, "unknown, not private");
+        assert_eq!(mine.snapshot_id.as_deref(), Some("AQID"));
+        assert_eq!(mine.images.len(), 1);
+        assert_eq!(mine.images[0].url, "https://i.scdn.co/image/ab67");
+        assert_eq!(mine.images[0].width, Some(300));
+    }
+
+    /// A page whose rows came without their details would list nameless
+    /// playlists, so the Web API is asked instead.
+    #[test]
+    fn an_undecorated_rootlist_page_is_left_to_the_web_api() {
+        let mut page = rootlist_page(vec![listed("spotify:playlist:a", |_| {})]);
+        let mut bare = Item::new();
+        bare.set_uri("spotify:playlist:b".into());
+        page.items.push(bare);
+        assert!(matches!(library_rows(&[page]), Err(Failure::Retry(_))));
+        assert!(matches!(library_rows(&[]), Ok(rows) if rows.is_empty()));
+    }
+
+    /// #779: a hidden song is the song and its playlist; one shown again
+    /// is the same item marked removed.
+    #[test]
+    fn hiding_writes_the_song_and_its_playlist() {
+        use librespot_protocol::collection2v2::{ItemProvider, item_data};
+        let hide = hidden_item(
+            "spotify:playlist:dw",
+            "spotify:track:t",
+            true,
+            1_792_000_000,
+        );
+        assert_eq!(hide.uri, "spotify:track:t");
+        assert_eq!(hide.context_uri.as_deref(), Some("spotify:playlist:dw"));
+        assert!(!hide.is_removed);
+        assert_eq!(hide.added_at, 1_792_000_000);
+        assert!(matches!(
+            &hide.item_data.data,
+            Some(item_data::Data::PlayContextBansItemData(data))
+                if data.item_provider.enum_value() == Ok(ItemProvider::PROVIDER_CONTEXT)
+        ));
+        let show = hidden_item("spotify:playlist:dw", "spotify:track:t", false, 1);
+        assert!(show.is_removed);
+
+        let removed = librespot_protocol::collection2v2::CollectionItem {
+            is_removed: true,
+            ..hide.clone()
+        };
+        let no_playlist = librespot_protocol::collection2v2::CollectionItem {
+            context_uri: None,
+            ..hide.clone()
+        };
+        let pairs: Vec<_> = hidden_pairs(&[hide, removed, no_playlist]).collect();
+        assert_eq!(
+            pairs,
+            [(
+                "spotify:playlist:dw".to_string(),
+                "spotify:track:t".to_string()
+            )]
+        );
+    }
+
+    /// The live feed keeps each friend's latest song, newest first, says
+    /// who is playing now, and reads an artist's Popular list as the artist.
+    #[test]
+    fn the_live_feed_reads_each_friends_latest_song() {
+        let json = serde_json::json!({"entities": [
+            {"followEntity": {"uri": "spotify:user:a", "activity": {
+                "entityUri": "spotify:track:1", "isPlaying": false,
+                "contextUri": "spotify:playlist:p", "timestamp": "2026-10-14T17:00:00Z"}}},
+            {"userEntity": {"uri": "spotify:user:b", "activity": {
+                "entityUri": "spotify:track:2", "isPlaying": true,
+                "contextUri": "spotify:list:popular-release-segments-main-roles:artist_X",
+                "timestamp": "2026-10-14T17:30:00Z"}}},
+            {"followEntity": {"uri": "spotify:user:a", "activity": {
+                "entityUri": "spotify:track:3", "contextUri": "spotify:track:3",
+                "timestamp": "2026-10-14T17:10:00Z"}}},
+            {"followEntity": {"uri": "spotify:user:c", "activity": {
+                "entityUri": "spotify:episode:4", "timestamp": "2026-10-14T17:20:00Z"}}},
+            {"followEntity": {"uri": "spotify:artist:d"}},
+        ]});
+        let live = live_from_json(&json).unwrap();
+        assert_eq!(live.len(), 2);
+        assert_eq!(live[0].user_uri, "spotify:user:b");
+        assert!(live[0].playing);
+        assert_eq!(live[0].context_uri.as_deref(), Some("spotify:artist:X"));
+        assert_eq!(live[1].track_uri, "spotify:track:3");
+        assert!(!live[1].playing);
+        assert_eq!(live[1].context_uri.as_deref(), Some("spotify:track:3"));
+        assert!(live_from_json(&serde_json::json!({})).is_err());
+    }
+
+    /// The buddy list reads newest first, and an entry without a user or a
+    /// track is skipped rather than shown blank.
+    #[test]
+    fn friend_activity_reads_newest_first_and_skips_incomplete_entries() {
+        let json = serde_json::json!({"friends": [
+            {"timestamp": 1000, "user": {"uri": "spotify:user:a", "name": "Ann"},
+             "track": {"uri": "spotify:track:1", "name": "Old", "imageUrl": "http://i.scdn.co/image/x",
+                       "artist": {"uri": "spotify:artist:1", "name": "Band"},
+                       "album": {"uri": "spotify:album:1", "name": "Record"},
+                       "context": {"uri": "spotify:playlist:p", "name": "Mix", "index": 0}}},
+            {"timestamp": 2000, "user": {"uri": "spotify:user:b", "name": ""},
+             "track": {"uri": "spotify:track:2", "name": "New"}},
+            {"timestamp": 3000, "user": {"uri": "spotify:user:c", "name": "Cy"}},
+        ]});
+        let friends = friends_from_json(&json);
+        assert_eq!(friends.len(), 2);
+        assert_eq!(friends[0].track_name, "New");
+        assert_eq!(friends[0].user_name, "spotify:user:b");
+        assert_eq!(friends[0].context_uri, None);
+        assert_eq!(friends[1].user_name, "Ann");
+        assert_eq!(friends[1].artist_name, "Band");
+        assert_eq!(friends[1].artist_uri.as_deref(), Some("spotify:artist:1"));
+        assert_eq!(friends[1].album_uri.as_deref(), Some("spotify:album:1"));
+        assert_eq!(friends[0].album_uri, None);
+        assert_eq!(friends[1].context_name.as_deref(), Some("Mix"));
+        assert!(friends_from_json(&serde_json::json!({})).is_empty());
     }
 }

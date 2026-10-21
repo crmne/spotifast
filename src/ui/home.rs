@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use egui::{CornerRadius, Rect, Sense, Vec2, pos2, vec2};
 
-use crate::api::models::{Episode, PlayableItem, Playlist, Show, pick_image};
+use crate::api::models::{Album, Episode, PlayableItem, Playlist, Show, pick_image};
 use crate::app::App;
 use crate::i18n::gettext;
 use crate::model::{Action, Loadable, Page, RowContext};
@@ -48,7 +48,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
     if app.settings.home.made_for_you.visible {
         made_for_you(app, ui);
+        top_mixes(app, ui);
     }
+    new_releases(app, ui);
     recently_played(app, ui);
     podcasts(app, ui);
     top_artists(app, ui);
@@ -65,38 +67,123 @@ struct Tile {
     uri: Option<String>,
     liked: bool,
     owned_playlist: Option<Playlist>,
+    /// A song played on its own, which the tile plays and whose menu it
+    /// offers, rather than a playlist, album or artist.
+    song: Option<crate::api::models::Track>,
 }
 
 /// The height of a quick-access tile, and so the side of its cover.
 const TILE_HEIGHT: f32 = 60.0;
+/// How many quick-access tiles Home shows, as Spotify does.
+const TILES: usize = 8;
 
-/// Liked Songs and the first playlists, as Home's quick-access tiles.
+/// What was played most recently, as Spotify's Home shows it: the playlists,
+/// albums, artists and podcasts songs were played from, Liked Songs, and
+/// songs played on their own, newest first (#942). Until Spotify's play
+/// history arrives, or when it holds fewer, Liked Songs and the first
+/// playlists in the Library fill the rest.
 fn quick_access_tiles(app: &App) -> Vec<Tile> {
     let tile_art = app.art_px(TILE_HEIGHT);
-    let mut tiles: Vec<Tile> = vec![Tile {
+    let collection = app
+        .user
+        .as_ref()
+        .map(|user| format!("spotify:user:{}:collection", user.id));
+    let liked_tile = || Tile {
         image: None,
         name: gettext(app.locale, "Liked Songs").into_owned(),
         page: Page::LikedSongs,
-        uri: app
-            .user
-            .as_ref()
-            .map(|user| format!("spotify:user:{}:collection", user.id)),
+        uri: collection.clone(),
         liked: true,
         owned_playlist: None,
-    }];
-    if let Some(playlists) = app.library.playlists.get() {
-        for playlist in playlists.iter().take(7) {
-            tiles.push(Tile {
-                image: pick_image(&playlist.images, tile_art).map(str::to_string),
-                name: playlist.name.clone(),
-                page: Page::Playlist(playlist.id.clone()),
-                uri: Some(playlist.uri.clone()),
-                liked: false,
-                owned_playlist: app
-                    .user_id()
-                    .is_some_and(|id| playlist.owned_by(id))
-                    .then(|| playlist.clone()),
-            });
+        song: None,
+    };
+    let playlist_tile = |playlist: &Playlist| Tile {
+        image: pick_image(&playlist.images, tile_art).map(str::to_string),
+        name: playlist.name.clone(),
+        page: Page::Playlist(playlist.id.clone()),
+        uri: Some(playlist.uri.clone()),
+        liked: false,
+        owned_playlist: app
+            .user_id()
+            .is_some_and(|id| playlist.owned_by(id))
+            .then(|| playlist.clone()),
+        song: None,
+    };
+    let mut tiles: Vec<Tile> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for play in app.home.recently_played.get().into_iter().flatten() {
+        if tiles.len() == TILES {
+            break;
+        }
+        let track = &play.track;
+        let context = play.context.as_ref().map(|context| context.uri.as_str());
+        let tile = match context.map(|uri| (uri, uri.rsplit(':').next().unwrap_or(""))) {
+            Some((uri, _)) if uri.ends_with(":collection") => Some(liked_tile()),
+            Some((uri, id)) if uri.starts_with("spotify:playlist:") => {
+                app.known_playlist(id).map(playlist_tile)
+            }
+            Some((uri, id)) if uri.starts_with("spotify:album:") => app
+                .known_album(id)
+                .or(track.album.as_ref().filter(|album| album.id == id))
+                .map(|album| Tile {
+                    image: pick_image(&album.images, tile_art).map(str::to_string),
+                    name: album.name.clone(),
+                    page: Page::Album(album.id.clone()),
+                    uri: Some(uri.to_string()),
+                    liked: false,
+                    owned_playlist: None,
+                    song: None,
+                }),
+            Some((uri, id)) if uri.starts_with("spotify:artist:") => {
+                app.known_artist(id).map(|artist| Tile {
+                    image: pick_image(&artist.images, tile_art).map(str::to_string),
+                    name: artist.name.clone(),
+                    page: Page::Artist(artist.id.clone()),
+                    uri: Some(uri.to_string()),
+                    liked: false,
+                    owned_playlist: None,
+                    song: None,
+                })
+            }
+            Some((uri, id)) if uri.starts_with("spotify:show:") => {
+                app.known_show(id).map(|show| Tile {
+                    image: pick_image(&show.images, tile_art).map(str::to_string),
+                    name: show.name.clone(),
+                    page: Page::Show(show.id.clone()),
+                    uri: Some(uri.to_string()),
+                    liked: false,
+                    owned_playlist: None,
+                    song: None,
+                })
+            }
+            // A song played on its own, or from somewhere Home cannot name.
+            _ => track
+                .album
+                .as_ref()
+                .filter(|album| !album.id.is_empty())
+                .map(|album| Tile {
+                    image: track.image(tile_art).map(str::to_string),
+                    name: track.name.clone(),
+                    page: Page::Album(album.id.clone()),
+                    uri: Some(track.uri.clone()),
+                    liked: false,
+                    owned_playlist: None,
+                    song: Some(track.clone()),
+                }),
+        };
+        if let Some(tile) = tile
+            && seen.insert(tile.page.clone())
+        {
+            tiles.push(tile);
+        }
+    }
+    let library = app.library.playlists.get().into_iter().flatten();
+    for tile in std::iter::once(liked_tile()).chain(library.map(playlist_tile)) {
+        if tiles.len() == TILES {
+            break;
+        }
+        if seen.insert(tile.page.clone()) {
+            tiles.push(tile);
         }
     }
     tiles
@@ -121,6 +208,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                     uri,
                     liked,
                     owned_playlist,
+                    song,
                 }) = tiles.get(row * columns + column)
                 else {
                     break;
@@ -192,6 +280,11 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         {
                             if context_here {
                                 app.actions.push(Action::TogglePlay);
+                            } else if song.is_some() {
+                                app.actions.push(Action::PlayUris {
+                                    uris: vec![uri.clone()],
+                                    index: 0,
+                                });
                             } else {
                                 app.actions.push(Action::PlayContext {
                                     uri: uri.clone(),
@@ -209,14 +302,21 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                     egui::Popup::context_menu(&response)
                         .id(ui.make_persistent_id(("quick-access-menu", uri)))
                         .frame(widgets::menu_frame(&palette))
-                        .show(|ui| {
-                            widgets::context_menu_items(
+                        .show(|ui| match song {
+                            Some(track) => widgets::item_menu(
+                                ui,
+                                app,
+                                &PlayableItem::Track(track.clone()),
+                                None,
+                                None,
+                            ),
+                            None => widgets::context_menu_items(
                                 ui,
                                 app,
                                 uri,
                                 name,
                                 owned_playlist.as_ref(),
-                            );
+                            ),
                         });
                 }
             }
@@ -242,65 +342,167 @@ fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
         &gettext(app.locale, "Made for you"),
         |ui| {
             if playlists.is_empty() && loading {
-                widgets::loading_row(ui, &palette, app.locale);
+                widgets::skeleton_cards(ui, &palette, app.locale, 7, false);
             } else if playlists.is_empty()
                 && let Some(message) = &failure
             {
                 widgets::error_row(ui, app, message, Some(Page::Home));
             }
-            for playlist in &playlists {
-                let subtitle = playlist
-                    .description
-                    .as_deref()
-                    .map(crate::util::strip_html)
-                    .filter(|d| !d.is_empty())
-                    .unwrap_or_else(|| {
-                        // Translators: {owner} is the name of the playlist's owner.
-                        gettext(app.locale, "By {owner}").replace("{owner}", playlist.owner_name())
-                    });
-                let context_here =
-                    app.playing_context_uri().as_deref() == Some(playlist.uri.as_str());
-                let playing_here = context_here && app.believed_playing();
-                let card_art = app.art_px(widgets::CARD_ART);
-                let card = widgets::card(
-                    ui,
-                    app,
-                    pick_image(&playlist.images, card_art),
-                    &playlist.name,
-                    &subtitle,
-                    widgets::CardCover::square(playing_here),
-                );
-                if card.play {
-                    if context_here {
-                        app.actions.push(Action::TogglePlay);
-                    } else {
-                        app.actions.push(Action::PlayContext {
-                            uri: playlist.uri.clone(),
-                            offset_uri: None,
-                            offset_index: None,
-                        });
-                    }
-                }
-                if card.clicked {
-                    app.actions
-                        .push(Action::Open(Page::Playlist(playlist.id.clone())));
-                }
-                egui::Popup::context_menu(&card.response)
-                    .id(ui.make_persistent_id(("home-made_for_you-menu", &playlist.uri)))
-                    .frame(widgets::menu_frame(&palette))
-                    .show(|ui| {
-                        let owned = app.user_id().is_some_and(|id| playlist.owned_by(id));
-                        widgets::context_menu_items(
-                            ui,
-                            app,
-                            &playlist.uri,
-                            &playlist.name,
-                            owned.then_some(playlist),
-                        );
-                    });
+            playlist_cards(app, ui, "home-made_for_you-menu", &playlists);
+        },
+    );
+}
+
+fn top_mixes(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let Some(playlists) = app
+        .home
+        .top_mixes
+        .get()
+        .filter(|playlists| !playlists.is_empty())
+        .cloned()
+    else {
+        return;
+    };
+    widgets::shelf(
+        ui,
+        &palette,
+        "top-mixes",
+        &gettext(app.locale, "Your top mixes"),
+        |ui| playlist_cards(app, ui, "home-top_mixes-menu", &playlists),
+    );
+}
+
+/// The latest releases from followed artists. A card opens its release;
+/// the title opens the page that plays all their songs, newest first.
+fn new_releases(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let (albums, loading, failure) = match &app.home.new_releases {
+        Loadable::Loaded(albums) => (albums.clone(), false, None),
+        Loadable::Loading | Loadable::NotLoaded => (Vec::new(), true, None),
+        Loadable::Failed(error) => (Vec::new(), false, Some(error.clone())),
+    };
+    if albums.is_empty() && !loading && failure.is_none() {
+        return;
+    }
+    let open = widgets::linked_shelf(
+        ui,
+        &palette,
+        "new-releases",
+        &gettext(app.locale, "New releases"),
+        |ui| {
+            if albums.is_empty() && loading {
+                widgets::loading_row(ui, &palette, app.locale);
+            } else if albums.is_empty()
+                && let Some(message) = &failure
+            {
+                widgets::error_row(ui, app, message, Some(Page::Home));
+            }
+            for album in &albums {
+                release_card(app, ui, album);
             }
         },
     );
+    if open {
+        app.actions.push(Action::Open(Page::NewReleases));
+    }
+}
+
+fn release_card(app: &mut App, ui: &mut egui::Ui, album: &Album) {
+    let palette = app.palette;
+    let artists =
+        crate::api::models::join_names(album.artists.iter().map(|artist| artist.name.as_str()));
+    let subtitle = if artists.is_empty() {
+        album.kind_label(app.locale).into_owned()
+    } else {
+        format!("{} • {artists}", album.kind_label(app.locale))
+    };
+    let context_here = app.playing_context_uri().as_deref() == Some(album.uri.as_str());
+    let playing_here = context_here && app.believed_playing();
+    let card_art = app.art_px(widgets::CARD_ART);
+    let card = widgets::card(
+        ui,
+        app,
+        pick_image(&album.images, card_art),
+        &album.name,
+        &subtitle,
+        widgets::CardCover::square(playing_here),
+    );
+    if card.play {
+        if context_here {
+            app.actions.push(Action::TogglePlay);
+        } else {
+            app.actions.push(Action::PlayContext {
+                uri: album.uri.clone(),
+                offset_uri: None,
+                offset_index: None,
+            });
+        }
+    }
+    if card.clicked {
+        app.actions
+            .push(Action::Open(Page::Album(album.id.clone())));
+    }
+    egui::Popup::context_menu(&card.response)
+        .id(ui.make_persistent_id(("home-new-releases-menu", &album.uri)))
+        .frame(widgets::menu_frame(&palette))
+        .show(|ui| {
+            widgets::context_menu_items(ui, app, &album.uri, &album.name, None);
+        });
+}
+
+fn playlist_cards(app: &mut App, ui: &mut egui::Ui, menu: &str, playlists: &[Playlist]) {
+    let palette = app.palette;
+    for playlist in playlists {
+        let subtitle = playlist
+            .description
+            .as_deref()
+            .map(crate::util::strip_html)
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| {
+                // Translators: {owner} is the name of the playlist's owner.
+                gettext(app.locale, "By {owner}").replace("{owner}", playlist.owner_name())
+            });
+        let context_here = app.playing_context_uri().as_deref() == Some(playlist.uri.as_str());
+        let playing_here = context_here && app.believed_playing();
+        let card_art = app.art_px(widgets::CARD_ART);
+        let card = widgets::card(
+            ui,
+            app,
+            pick_image(&playlist.images, card_art),
+            &playlist.name,
+            &subtitle,
+            widgets::CardCover::square(playing_here),
+        );
+        if card.play {
+            if context_here {
+                app.actions.push(Action::TogglePlay);
+            } else {
+                app.actions.push(Action::PlayContext {
+                    uri: playlist.uri.clone(),
+                    offset_uri: None,
+                    offset_index: None,
+                });
+            }
+        }
+        if card.clicked {
+            app.actions
+                .push(Action::Open(Page::Playlist(playlist.id.clone())));
+        }
+        egui::Popup::context_menu(&card.response)
+            .id(ui.make_persistent_id((menu, &playlist.uri)))
+            .frame(widgets::menu_frame(&palette))
+            .show(|ui| {
+                let owned = app.user_id().is_some_and(|id| playlist.owned_by(id));
+                widgets::context_menu_items(
+                    ui,
+                    app,
+                    &playlist.uri,
+                    &playlist.name,
+                    owned.then_some(playlist),
+                );
+            });
+    }
 }
 
 fn recently_played(app: &mut App, ui: &mut egui::Ui) {
@@ -313,7 +515,7 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 "recent",
                 &gettext(app.locale, "Recently played"),
-                |ui| widgets::loading_row(ui, &palette, app.locale),
+                |ui| widgets::skeleton_cards(ui, &palette, app.locale, 7, false),
             );
             return;
         }
@@ -550,7 +752,7 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 "top-artists",
                 &gettext(app.locale, "Your top artists"),
-                |ui| widgets::loading_row(ui, &palette, app.locale),
+                |ui| widgets::skeleton_cards(ui, &palette, app.locale, 7, true),
             );
             return;
         }
@@ -635,7 +837,7 @@ fn track_list(
             } else {
                 theme::section_title(ui, &palette, title);
             }
-            widgets::loading_row(ui, &palette, app.locale);
+            widgets::skeleton_rows(ui, &palette, app.locale, 4);
             ui.add_space(12.0);
             return;
         }
@@ -678,11 +880,14 @@ fn track_list(
                 added_at: None,
                 added_by: None,
                 show_added_by: false,
+                show_plays: false,
                 compact: false,
                 thin: app.settings.tracklist_compact,
                 shift: 0.0,
                 picked: false,
                 picked_songs: &[],
+                picked_positions: &[],
+                position: None,
             },
         );
     }
@@ -771,9 +976,12 @@ mod tests {
                 media_controls: false,
                 restore_sign_in: false,
                 tray: false,
+                autostart: false,
             },
         );
         crate::demo::populate(&mut app);
+        // Only the Library's playlists, so the second tile is the first one.
+        app.home.recently_played = Loadable::Loaded(Vec::new());
         let first = app.library.playlists.get().unwrap()[0].images.clone();
         let width = |url: Option<&str>| {
             first
@@ -791,6 +999,71 @@ mod tests {
             width(quick_access_tiles(&app)[1].image.as_deref()),
             Some(300)
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Home's tiles follow what was played, newest first: the playlist,
+    /// album or Liked Songs a song came from, or the song itself, each once.
+    /// The Library's playlists fill what history leaves, and stand in until
+    /// it arrives (#942).
+    #[cfg(feature = "demo")]
+    #[test]
+    fn quick_access_tiles_follow_what_was_played() {
+        let root =
+            std::env::temp_dir().join(format!("spotifast-recent-tiles-{}", std::process::id()));
+        let mut app = App::new(
+            &crate::backend::Waker::default(),
+            crate::paths::AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            crate::settings::Settings::default(),
+            crate::app::AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        crate::demo::populate(&mut app);
+        let history = app.home.recently_played.get().unwrap().clone();
+        let tiles = quick_access_tiles(&app);
+        assert_eq!(tiles.len(), TILES);
+        assert_eq!(
+            tiles[0].page,
+            Page::Playlist("pl1".into()),
+            "played from it"
+        );
+        let song = &history[2].track;
+        assert_eq!(
+            tiles[1].uri.as_deref(),
+            Some(song.uri.as_str()),
+            "played on its own"
+        );
+        assert!(tiles[1].song.is_some());
+        let pages: Vec<_> = tiles.iter().map(|tile| tile.page.clone()).collect();
+        assert_eq!(
+            pages
+                .iter()
+                .filter(|page| **page == Page::LikedSongs)
+                .count(),
+            1
+        );
+        let unique: std::collections::HashSet<_> = pages.iter().collect();
+        assert_eq!(unique.len(), pages.len(), "each once");
+
+        app.home.recently_played = Loadable::Loading;
+        let tiles = quick_access_tiles(&app);
+        assert_eq!(
+            tiles[0].page,
+            Page::LikedSongs,
+            "the Library until history arrives"
+        );
+        let first = app.library.playlists.get().unwrap()[0].id.clone();
+        assert_eq!(tiles[1].page, Page::Playlist(first));
+        assert_eq!(tiles.len(), TILES);
+        app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }
 

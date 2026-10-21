@@ -46,7 +46,7 @@ fn stored_grant() -> anyhow::Result<Option<spotifast::credentials::Grant>> {
         .enable_all()
         .build()?;
     let loaded = runtime.block_on(async {
-        let store = spotifast::credentials::Store::new(spotifast::paths::AppDirs::discover());
+        let store = spotifast::credentials::Store::new(spotifast::paths::AppDirs::discover().dirs);
         store
             .lease(spotifast::credentials::Slot::Playback)
             .load()

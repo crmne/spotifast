@@ -139,6 +139,15 @@ impl fastframe_theme::Palette for Palette {
     }
 }
 
+impl fastframe_theme::PaletteBase for Palette {
+    fn palette_base(&self) -> fastframe_theme::Base {
+        fastframe_theme::Base::from_dark(self.dark)
+    }
+}
+
+/// The palettes Follow system shows in light and dark mode.
+pub type ThemePair = fastframe_theme::Pair<Palette>;
+
 /// Adds the desktop's palettes to a normal launch: the eight shared palettes,
 /// installed into the themes folder as files on the first launch, and
 /// Omarchy's on Linux, with the packaged template and hook installed for the
@@ -159,8 +168,22 @@ pub fn catalog_detail(
     locale: Locale,
     selected: Option<&str>,
 ) -> Cow<'static, str> {
+    status_detail(catalog.status(selected), locale)
+}
+
+/// The status line under a Follow system light or dark theme setting.
+pub fn pair_detail(
+    catalog: &Catalog,
+    locale: Locale,
+    pair: &ThemePair,
+    base: fastframe_theme::Base,
+) -> Cow<'static, str> {
+    status_detail(pair.status(base, catalog), locale)
+}
+
+fn status_detail(status: Option<fastframe_theme::Status>, locale: Locale) -> Cow<'static, str> {
     use fastframe_theme::{Problem, Status};
-    let Some(status) = catalog.status(selected) else {
+    let Some(status) = status else {
         return Cow::Borrowed("");
     };
     match status {
@@ -429,6 +452,8 @@ fastframe_icons::icons! {
         Disc => "disc-3",
         Ellipsis => lucide "ellipsis",
         Expand => "expand",
+        Eye => "eye",
+        EyeOff => "eye-off",
         ExternalLink => lucide "external-link",
         Gamepad => "gamepad-2",
         Globe => "globe",

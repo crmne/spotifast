@@ -41,7 +41,7 @@ jobs:
   packaging:
     permissions:
       contents: write
-    uses: crmne/native-packages/.github/workflows/package.yml@83bd46c245488c2b8f1b9d74569e16cf6a449e8f # v0.9.0
+    uses: crmne/native-packages/.github/workflows/package.yml@226fb48cb375c7cb309a3e642c7228a6e00e9ebf # v0.10.0
     with:
       targets: linux-amd64,linux-arm64
       # Packaging changes exercise real release binaries on both architectures.
@@ -76,43 +76,76 @@ jobs:
           brew uninstall --cask spotifast/validation/spotifast
           test ! -e "$app"
 
-  # The AppImage carries no libraries of its own, so the runner supplies
-  # ALSA as a desktop would. Runners have no FUSE: it unpacks itself to run.
+  # Releases build their AppImages before publishing (release.yml), not in
+  # the packaging job above, so this builds one from the release's archive
+  # as they do and checks it: it runs, the runtime reads back the update
+  # information, and the .zsync file describes it. On a release run it
+  # checks the published AppImage and .zsync file too. The AppImage
+  # carries no libraries of its own, so the runner supplies them as a
+  # desktop would. Runners have no FUSE: it unpacks itself to run.
   appimage:
     name: AppImage (${{ matrix.os }})
-    needs: packaging
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
-            target: linux-amd64
+            target: appimage-amd64
             arch: x86_64
           - os: ubuntu-24.04-arm
-            target: linux-arm64
+            target: appimage-arm64
             arch: aarch64
+    env:
+      TARGET: ${{ matrix.target }}
+      ARCH: ${{ matrix.arch }}
+      VERSION: ${{ inputs.version || 'v0.11.2' }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
         with:
-          name: native-packages
-          path: dist/native-packages
-      - name: Run the AppImage
-        env:
-          TARGET: ${{ matrix.target }}
-          ARCH: ${{ matrix.arch }}
+          # A release build reads its tag's commit time.
+          fetch-depth: 0
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0'
+      - name: Build the AppImage from the release archive
         run: |
           sudo apt-get update
           # The AppImage bundles no libraries, so it needs what the DEB depends on.
+          # libpulse0 is for releases up to 0.13.3, whose binary links it; a
+          # later one plays through fastframe-audio only and does not.
           sudo apt-get install -y --no-install-recommends \
+            libarchive-tools squashfs-tools zsync \
             libdbus-1-3 libgl1 libegl1 libxkbcommon0 libxkbcommon-x11-0 \
             libwayland-client0 libwayland-cursor0 libwayland-egl1 libx11-6 \
-            libx11-xcb1 libxcursor1 libxi6 libxrandr2 libasound2t64 libpulse0
-          set -- dist/native-packages/packages/"$TARGET"/appimage/spotifast-*-"$ARCH".AppImage
+            libx11-xcb1 libxcursor1 libxi6 libxrandr2 libasound2t64 libpipewire-0.3-0t64 \
+            libpulse0
+          gem install native-packages --version 0.10.0 --no-document
+          native-packages build --release "$VERSION" --target "$TARGET" --defer-recipes --output dist/appimage
+      - name: Run the AppImage and read its update information
+        run: |
+          set -- dist/appimage/packages/"$TARGET"/appimage/spotifast-*-"$ARCH".AppImage
           test "$#" -eq 1
-          chmod +x "$1"
           "$1" --appimage-extract-and-run --version | grep -Ex 'spotifast [0-9]+\.[0-9]+\.[0-9]+.*'
+          expected="gh-releases-zsync|crmne|spotifast|latest|spotifast-*-$ARCH.AppImage.zsync"
+          found=$("$1" --appimage-updateinformation)
+          test "$found" = "$expected" || { echo "Update information: $found" >&2; exit 1; }
+          python3 packaging/check-appimage.py "$1" "$ARCH"
+      - name: Published AppImage
+        if: inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" --dir published \
+            --pattern "spotifast-*-$ARCH.AppImage" --pattern "spotifast-*-$ARCH.AppImage.zsync" \
+            --pattern checksums.txt
+          name="spotifast-${VERSION#v}-$ARCH.AppImage"
+          python3 packaging/check-appimage.py "published/$name" "$ARCH"
+          # The signed manifest lists both, so the app's updater accepts the AppImage.
+          grep -E "  $name(\.zsync)?\$" published/checksums.txt > published/appimage-checksums.txt
+          test "$(wc -l < published/appimage-checksums.txt)" -eq 2
+          (cd published && sha256sum --check --strict appimage-checksums.txt)
 
   installation:
     name: Install (${{ matrix.os }}, ${{ matrix.image }})

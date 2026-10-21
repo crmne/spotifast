@@ -42,6 +42,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     let items: Vec<PlayableItem> =
                         tracks.iter().cloned().map(PlayableItem::Track).collect();
                     let limit = if page.show_all_top { items.len() } else { 5 };
+                    app.request_play_counts(&artist.uri);
+                    let show_plays = app.has_play_counts(&artist.uri);
                     let render_top = |ui: &mut egui::Ui, app: &mut App| {
                         for (index, item) in items.iter().take(limit).enumerate() {
                             widgets::track_row(
@@ -57,11 +59,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                     added_at: None,
                                     added_by: None,
                                     show_added_by: false,
+                                    show_plays,
                                     compact: false,
                                     thin: app.settings.tracklist_compact,
                                     shift: 0.0,
                                     picked: false,
                                     picked_songs: &[],
+                                    picked_positions: &[],
+                                    position: None,
                                 },
                             );
                         }
@@ -97,7 +102,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     theme::subtle(ui, &palette, &gettext(locale, "No popular songs to show."));
                 }
                 Loadable::Loading | Loadable::NotLoaded => {
-                    widgets::loading_row(ui, &palette, app.locale)
+                    widgets::skeleton_rows(ui, &palette, app.locale, 5)
                 }
                 Loadable::Failed(error) => {
                     let error = error.clone();
@@ -203,7 +208,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                         }
                     }
                 }
-                None => widgets::loading_row(ui, &palette, app.locale),
+                None => widgets::grid(ui, |ui| {
+                    widgets::skeleton_cards(ui, &palette, app.locale, 6, false)
+                }),
             }
             ui.add_space(20.0);
 
@@ -279,7 +286,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 if let Some(artist) = &preview {
                     ui.add_enabled_ui(false, |ui| artist_actions(app, ui, artist));
                 }
-                widgets::loading_row(ui, &palette, app.locale);
+                widgets::skeleton_rows(ui, &palette, app.locale, 5);
             }
         }
         Loadable::Failed(error) => {

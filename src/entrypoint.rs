@@ -25,6 +25,12 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
+    /// Start in the tray, without a window, as a start at login in the
+    /// tray does. Without the tray, or with "Keep music playing when the
+    /// window closes" off, the window opens anyway.
+    #[arg(long)]
+    start_hidden: bool,
+
     /// Start with sample data and no Spotify connection (for screenshots).
     #[cfg(feature = "demo")]
     #[arg(long)]
@@ -45,8 +51,8 @@ struct Cli {
 
     /// Extra demo surfaces: a comma-separated list of `queue`, `playing-next`,
     /// `devices`, `sonos-idle`, `sonos-active`, `cast-idle`, `cast-connecting`, `phone-playing`,
-    /// `shortcuts`, `create`, `light`, `focus`, `update`, `personal-app`,
-    /// `windows-taskbar`, `german`, `lyrics`, `lyrics-fullscreen`, `collection-loading`,
+    /// `shortcuts`, `create`, `light`, `system-light`, `system-dark`, `focus`, `update`, `personal-app`,
+    /// `windows-taskbar`, `start-in-tray`, `german`, `lyrics`, `lyrics-fullscreen`, `collection-loading`,
     /// `shuffle-selected`, `shuffle-started`, `undated-mix`, `signed-out`, `connecting`, `library-list`,
     /// `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
     /// or `library-grid-wide`.
@@ -83,6 +89,12 @@ struct Cli {
     #[cfg(feature = "demo")]
     #[arg(long, value_name = "X,Y:X,Y", value_parser = parse_demo_drag)]
     demo_drag: Option<[egui::Pos2; 2]>,
+
+    /// Click the primary button at `X,Y` in points before `--demo-shot`,
+    /// for a shot of an open menu.
+    #[cfg(feature = "demo")]
+    #[arg(long, value_name = "X,Y", value_parser = parse_demo_point, conflicts_with = "demo_drag")]
+    demo_click: Option<egui::Pos2>,
 }
 
 /// Remote control of the running instance, for Raycast scripts, launchers,
@@ -286,34 +298,6 @@ fn desktop_entry() -> String {
     fastframe_now_playing::desktop_entry("spotifast")
 }
 
-#[cfg(target_os = "linux")]
-const PULSEAUDIO_PROPERTIES: [(&str, &str); 2] = [
-    ("PULSE_PROP_application.name", "Spotifast"),
-    ("PULSE_PROP_stream.description", "Spotify playback"),
-];
-
-#[cfg(target_os = "linux")]
-fn missing_pulseaudio_properties(
-    mut is_set: impl FnMut(&str) -> bool,
-) -> impl Iterator<Item = (&'static str, &'static str)> {
-    PULSEAUDIO_PROPERTIES
-        .into_iter()
-        .filter(move |(key, _)| !is_set(key))
-}
-
-/// Gives the librespot PulseAudio backend useful stream metadata.
-///
-/// That backend leaves both names empty unless its caller provides them. An
-/// unnamed stream cannot be identified reliably by mixers and audio processors.
-#[cfg(target_os = "linux")]
-fn configure_pulseaudio_properties() {
-    for (key, value) in missing_pulseaudio_properties(|key| std::env::var_os(key).is_some()) {
-        // SAFETY: run calls this at process startup, before it creates any
-        // threads. Keep explicit values supplied by the launcher or user.
-        unsafe { std::env::set_var(key, value) };
-    }
-}
-
 /// The `nowplaying` snapshot as one human-readable line.
 fn format_now_playing(snapshot: &str) -> String {
     let mut fields = snapshot.split('\t');
@@ -364,12 +348,12 @@ fn format_devices(snapshot: &str) -> String {
 }
 
 pub(crate) fn run() -> eframe::Result<()> {
-    #[cfg(target_os = "linux")]
-    configure_pulseaudio_properties();
     // First of all: `--apply-update <job>` makes this process the update
     // helper, which installs and exits; otherwise the receipt and error an
     // update relaunch carries are taken out of the arguments.
     let launch = fastframe_update::intercept(&spotifast::updates::CONFIG);
+    // Before any output is listed or opened.
+    spotifast::sink::name_in_mixers();
     // A MilkDrop child launch is a bare visualiser window, not the app: it has
     // its own event loop and OpenGL context, reads the sound from a shared
     // buffer, and never touches the app's state. Handle it before anything
@@ -427,8 +411,13 @@ pub(crate) fn run() -> eframe::Result<()> {
     #[cfg(not(feature = "demo"))]
     let guarded = true;
     let instance = if guarded {
-        match single_instance::acquire(&waker, link.as_deref()) {
+        let hidden = cli.start_hidden && link.is_none();
+        match single_instance::acquire(&waker, link.as_deref(), hidden) {
             single_instance::Outcome::Only(guard) => Some(guard),
+            single_instance::Outcome::Surfaced if hidden => {
+                log::info!("Spotifast is already running");
+                return Ok(());
+            }
             single_instance::Outcome::Surfaced => {
                 log::info!("Spotifast is already running; asked it to show its window");
                 return Ok(());
@@ -444,17 +433,21 @@ pub(crate) fn run() -> eframe::Result<()> {
         // one line per script at startup, for reports of odd-looking text.
         "warn,spotifast=info,fastframe_fonts=info"
     };
-    let dirs = paths::AppDirs::discover();
     #[cfg(feature = "demo")]
-    let dirs = cli
-        .demo_data
-        .as_ref()
-        .map(|base| paths::AppDirs {
-            config: base.join("config"),
-            state: base.join("state"),
-            cache: base.join("cache"),
-        })
-        .unwrap_or(dirs);
+    let demo_dirs = cli.demo_data.as_ref().map(|base| paths::AppDirs {
+        config: base.join("config"),
+        state: base.join("state"),
+        cache: base.join("cache"),
+    });
+    #[cfg(not(feature = "demo"))]
+    let demo_dirs: Option<paths::AppDirs> = None;
+    // Now that this is the running copy: a portable copy's own folder, made
+    // the first time from the per-user one (#703), or the per-user one.
+    let folders = match demo_dirs {
+        Some(dirs) => paths::Found::given(dirs),
+        None => paths::AppDirs::discover(),
+    };
+    let dirs = folders.dirs.clone();
     let dirs_ready = dirs.ensure();
     // Launched from a desktop, stderr goes nowhere; keep the run's log where
     // a bug report can find it, and a line per panic in the panic log (with
@@ -470,8 +463,16 @@ pub(crate) fn run() -> eframe::Result<()> {
     {
         eprintln!("not logging: {error}");
     }
+    folders.log();
     if let Err(error) = dirs_ready {
         log::warn!("unable to create the application directories: {error}");
+    }
+    // A Cargo run has no app bundle to supply its Dock icon. Use the same
+    // artwork as the packaged app; Fastframe preserves a bundle's own icon.
+    #[cfg(target_os = "macos")]
+    if let Err(error) = fastframe_dock::set_icon(include_bytes!("../packaging/macos/icon-1024.png"))
+    {
+        log::warn!("unable to set the Dock icon: {error}");
     }
     let mut settings = settings::Settings::load(&dirs.settings_file());
     if let Some(name) = cli.device_name {
@@ -498,6 +499,8 @@ pub(crate) fn run() -> eframe::Result<()> {
     #[cfg(feature = "demo")]
     if demo {
         options.restore_sign_in = false;
+        // A demo never reads or changes the real login registration.
+        options.autostart = false;
     }
     #[cfg(feature = "demo")]
     if cli.demo_shot.is_some() {
@@ -505,10 +508,18 @@ pub(crate) fn run() -> eframe::Result<()> {
             media_controls: false,
             restore_sign_in: false,
             tray: false,
+            autostart: false,
         };
     }
     #[cfg(windows)]
     let desktop_surfaces = options.media_controls;
+    // Out of the Dock before AppKit finishes launching, so a packaged app
+    // that Settings keeps out of it starts in the menu bar only (#837).
+    // Each window applies the setting again.
+    #[cfg(target_os = "macos")]
+    if !app::shows_in_dock(settings.mac_show_in_dock, options.tray) {
+        fastframe_dock::set_dock_icon_visible(false);
+    }
     #[allow(unused_mut)]
     let mut app = app::App::new(&waker, dirs, settings, options);
     if guarded {
@@ -521,6 +532,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     if load_themes {
         app.load_custom_themes(&waker);
     }
+    let receipt_shown = launch.receipt.is_some();
     app.update_receipt = launch.receipt;
     if let Some(error) = launch.error {
         app.report_update_failure(error);
@@ -528,6 +540,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     if let Some(guard) = &instance {
         app.set_remote_control(guard);
     }
+    let link_given = link.is_some();
     if let Some(uri) = link {
         app.open_link(uri);
     }
@@ -565,14 +578,33 @@ pub(crate) fn run() -> eframe::Result<()> {
     #[cfg(feature = "demo")]
     let demo_drag = cli
         .demo_drag
-        .map(|[from, to]| DemoDrag { from, to, frame: 0 });
+        .map(|[from, to]| DemoDrag {
+            from,
+            to,
+            frame: 0,
+            click: false,
+        })
+        .or(cli.demo_click.map(|at| DemoDrag {
+            from: at,
+            to: at,
+            frame: 0,
+            click: true,
+        }));
     #[cfg(feature = "demo")]
     let demo_inner = cli.demo_size;
     #[cfg(feature = "demo")]
     spotifast::window::set_fixed_size(demo_inner.is_some());
     #[cfg(feature = "demo")]
     let demo_storage = app.dirs.cache.join("demo-window.ron");
-    let shell = fastframe_shell::Shell::new(app, &waker);
+    // A start at login in the tray. A link asked to be seen, so it opens
+    // the window; so does a restart after an update, which shows its
+    // receipt. Without a tray the app opens the window itself
+    // (`Resident::start_hidden`).
+    #[cfg(feature = "demo")]
+    let start_hidden = start_hidden(cli.start_hidden, link_given, demo, receipt_shown);
+    #[cfg(not(feature = "demo"))]
+    let start_hidden = start_hidden(cli.start_hidden, link_given, false, receipt_shown);
+    let shell = fastframe_shell::Shell::new(app, &waker).start_hidden(start_hidden);
     // The menu-bar item answers only while AppKit's loop runs. Elsewhere
     // nothing needs the main thread between headless ticks, so the shell
     // sleeps until the waker wakes it.
@@ -735,6 +767,13 @@ impl MiniWindow {
 
 /// The main window's remembered geometry. A demo run opens at its default
 /// size, wherever the window manager puts it.
+/// Whether the first window waits in the tray: asked for (a start at login
+/// in the tray), with no link to show, outside a demo, and not a restart
+/// after an update, which shows what it installed.
+fn start_hidden(requested: bool, link: bool, demo: bool, receipt: bool) -> bool {
+    requested && !link && !demo && !receipt
+}
+
 fn main_geometry(app: &app::App) -> Geometry {
     if app.offline {
         Geometry::default()
@@ -767,25 +806,27 @@ fn parse_demo_size(spec: &str) -> Result<[f32; 2], String> {
 }
 
 #[cfg(feature = "demo")]
+fn parse_demo_point(point: &str) -> Result<egui::Pos2, String> {
+    let (x, y) = point
+        .split_once(',')
+        .ok_or_else(|| format!("expected X,Y, got {point}"))?;
+    let x: f32 = x
+        .trim()
+        .parse()
+        .map_err(|_| format!("invalid x in {point}"))?;
+    let y: f32 = y
+        .trim()
+        .parse()
+        .map_err(|_| format!("invalid y in {point}"))?;
+    Ok(egui::pos2(x, y))
+}
+
+#[cfg(feature = "demo")]
 fn parse_demo_drag(spec: &str) -> Result<[egui::Pos2; 2], String> {
-    let point = |point: &str| -> Result<egui::Pos2, String> {
-        let (x, y) = point
-            .split_once(',')
-            .ok_or_else(|| format!("expected X,Y, got {point}"))?;
-        let x: f32 = x
-            .trim()
-            .parse()
-            .map_err(|_| format!("invalid x in {point}"))?;
-        let y: f32 = y
-            .trim()
-            .parse()
-            .map_err(|_| format!("invalid y in {point}"))?;
-        Ok(egui::pos2(x, y))
-    };
     let (from, to) = spec
         .split_once(':')
         .ok_or_else(|| format!("expected X,Y:X,Y, got {spec}"))?;
-    Ok([point(from)?, point(to)?])
+    Ok([parse_demo_point(from)?, parse_demo_point(to)?])
 }
 
 /// The window to open: the mini player when `mini` says so, else the main
@@ -1136,7 +1177,12 @@ mod native_window_tests {
         );
         assert!(parse_demo_drag("10,20").is_err());
         assert!(parse_demo_drag("10:20").is_err());
-        let mut drag = DemoDrag { from, to, frame: 0 };
+        let mut drag = DemoDrag {
+            from,
+            to,
+            frame: 0,
+            click: false,
+        };
         let frames: Vec<_> = (0..=DemoDrag::REST + DemoDrag::GLIDE + 5)
             .map(|_| drag.events())
             .collect();
@@ -1154,6 +1200,36 @@ mod native_window_tests {
         );
         assert_eq!(frames[0][0], egui::Event::PointerMoved(from));
         assert_eq!(frames.last().unwrap()[0], egui::Event::PointerMoved(to));
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn demo_click_presses_and_releases_once_where_it_points() {
+        let at = parse_demo_point("30, 40").unwrap();
+        assert_eq!(at, egui::pos2(30.0, 40.0));
+        assert!(parse_demo_point("30").is_err());
+        let mut click = DemoDrag {
+            from: at,
+            to: at,
+            frame: 0,
+            click: true,
+        };
+        let events: Vec<_> = (0..=DemoDrag::REST + DemoDrag::GLIDE + 5)
+            .flat_map(|_| click.events())
+            .collect();
+        let buttons: Vec<bool> = events
+            .iter()
+            .filter_map(|event| match event {
+                egui::Event::PointerButton { pressed, pos, .. } if *pos == at => Some(*pressed),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(buttons, [true, false], "one press, then its release");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, egui::Event::PointerMoved(pos) if *pos != at))
+        );
     }
 
     #[test]
@@ -1350,13 +1426,15 @@ impl Shell {
 
 /// A scripted pointer for `--demo-drag`: rest on `from`, press there, glide
 /// to `to` and hold, so the shot shows a drag in progress through the same
-/// code a real pointer runs.
+/// code a real pointer runs. For `--demo-click`, `from` and `to` are the
+/// same point and the press is released on the next frame.
 #[cfg(feature = "demo")]
 #[derive(Clone, Copy)]
 struct DemoDrag {
     from: egui::Pos2,
     to: egui::Pos2,
     frame: u32,
+    click: bool,
 }
 
 #[cfg(feature = "demo")]
@@ -1376,11 +1454,11 @@ impl DemoDrag {
             self.from.lerp(self.to, t)
         };
         let mut events = vec![egui::Event::PointerMoved(pos)];
-        if frame == Self::REST {
+        if frame == Self::REST || (self.click && frame == Self::REST + 1) {
             events.push(egui::Event::PointerButton {
                 pos,
                 button: egui::PointerButton::Primary,
-                pressed: true,
+                pressed: frame == Self::REST,
                 modifiers: egui::Modifiers::NONE,
             });
         }
@@ -1522,20 +1600,33 @@ fn app_icon() -> egui::IconData {
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "linux")]
+    /// The login entry's `--start-hidden` starts in the tray, unless the
+    /// launch has something to show.
     #[test]
-    fn pulse_metadata_defaults_preserve_existing_properties() {
-        let defaults = missing_pulseaudio_properties(|_| false).collect::<Vec<_>>();
-        assert_eq!(defaults, PULSEAUDIO_PROPERTIES);
-
-        let defaults = missing_pulseaudio_properties(|key| key == "PULSE_PROP_application.name")
-            .collect::<Vec<_>>();
-        assert_eq!(
-            defaults,
-            [("PULSE_PROP_stream.description", "Spotify playback")]
+    fn a_start_at_login_in_the_tray_waits_unless_there_is_something_to_show() {
+        let launch = Cli::try_parse_from(["spotifast", "--start-hidden"]).expect("it parses");
+        assert!(launch.start_hidden);
+        assert!(
+            !Cli::try_parse_from(["spotifast"])
+                .expect("it parses")
+                .start_hidden
         );
-
-        assert_eq!(missing_pulseaudio_properties(|_| true).count(), 0);
+        assert_eq!(
+            fastframe_autostart::START_HIDDEN,
+            "--start-hidden",
+            "the argument the login entry passes"
+        );
+        assert!(start_hidden(true, false, false, false));
+        assert!(!start_hidden(false, false, false, false));
+        assert!(!start_hidden(true, true, false, false), "a link is shown");
+        assert!(
+            !start_hidden(true, false, true, false),
+            "a demo shows itself"
+        );
+        assert!(
+            !start_hidden(true, false, false, true),
+            "an update receipt is shown"
+        );
     }
 
     /// A link on the command line is a link, and a control verb is still a

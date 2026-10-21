@@ -6,11 +6,13 @@ pub mod artist;
 pub mod collection;
 pub(crate) mod devices;
 mod dialogs;
+pub(crate) mod friends;
 pub mod home;
 mod keys;
 pub mod library;
 pub mod login;
 mod lyrics;
+pub mod new_releases;
 pub mod player_bar;
 mod prerelease;
 pub mod queue;
@@ -76,6 +78,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if app.show_lyrics_panel {
             lyrics::side_panel(app, ui);
         }
+        if app.show_friends_panel {
+            friends::side_panel(app, ui);
+        }
         central(app, ui);
         keep_room_for_panels(app, ctx);
     }
@@ -114,7 +119,7 @@ fn keep_room_for_panels(app: &App, ctx: &Context) {
     let width = main_min_width(
         topbar::least_width(ctx),
         app.settings.sidebar_visible,
-        app.show_queue_panel || app.show_lyrics_panel,
+        app.show_queue_panel || app.show_lyrics_panel || app.show_friends_panel,
     )
     .round();
     let id = Id::new("main-min-width");
@@ -155,11 +160,14 @@ pub(crate) fn yielding_panel(
     let (min, max) = range.into_inner();
     let max = max.min(room).max(min);
     let width = chosen.clamp(min, max);
-    // egui remembers the width the panel last drew at, a clamped one too.
-    // Hand it back the chosen width whenever there is room for more.
+    // egui remembers the width the panel last drew at. While nobody drags
+    // its handle, hand it back the chosen width, either way: a resize made
+    // elsewhere (the fullscreen queue column shares the queue width) shows
+    // here too, and the panel never writes a stale width back over it.
     let id = Id::new(id);
-    if let Some(mut state) = egui::containers::panel::PanelState::load(ctx, id)
-        && state.outer_rect.width() + 0.5 < width
+    if !ctx.is_being_dragged(id.with("__resize"))
+        && let Some(mut state) = egui::containers::panel::PanelState::load(ctx, id)
+        && (state.outer_rect.width() - width).abs() > 0.5
     {
         state.outer_rect.set_width(width);
         ctx.data_mut(|data| data.insert_persisted(id, state));
@@ -170,10 +178,15 @@ pub(crate) fn yielding_panel(
     }
 }
 
+/// Whether the person is dragging this panel's resize handle right now.
+pub(crate) fn panel_dragged(ctx: &Context, id: &str) -> bool {
+    ctx.is_being_dragged(Id::new(id).with("__resize"))
+}
+
 /// Whether a panel's new width is one the person chose: it moved while not
 /// held back by the page, or by their own drag.
 pub(crate) fn panel_width_chosen(ctx: &Context, id: &str, fit: &PanelFit) -> bool {
-    !fit.yielding || ctx.is_being_dragged(Id::new(id).with("__resize"))
+    !fit.yielding || panel_dragged(ctx, id)
 }
 
 /// Keeps the most recent loading preview of each metadata type available to
@@ -304,6 +317,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                             match page {
                                 Page::Home => home::show(app, ui),
                                 Page::TopSongs => collection::top_songs(app, ui),
+                                Page::NewReleases => new_releases::page(app, ui),
                                 Page::Search => search::show(app, ui),
                                 Page::LikedSongs => collection::liked(app, ui),
                                 Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {

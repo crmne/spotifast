@@ -53,7 +53,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
       # libprojectM reads OpenGL through GLEW on Windows; projectm-sys builds
       # against vcpkg's static-CRT triplet, matching .cargo/config.toml.
@@ -118,6 +118,31 @@ jobs:
             tar czf "$name.tar.gz" "$name"
           fi
 
+      # The AppImage, from the archive just built and before the release is
+      # published: checksums.txt lists it with its .zsync file and the
+      # signature covers both, so the app's updater replaces an AppImage
+      # only with a signed one (fastframe-update), and AppImageUpdate and
+      # the updaters built on it find the .zsync file through the update
+      # information inside it. Stable releases only, as before.
+      - uses: ruby/setup-ruby@v1
+        if: runner.os == 'Linux' && !contains(github.ref_name, '-')
+        with:
+          ruby-version: '4.0'
+      - name: AppImage
+        if: runner.os == 'Linux' && !contains(github.ref_name, '-')
+        run: |
+          sudo apt-get install -y --no-install-recommends libarchive-tools squashfs-tools zsync
+          gem install native-packages --version 0.10.0 --no-document
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-gnu) id=appimage-amd64 ;;
+            aarch64-unknown-linux-gnu) id=appimage-arm64 ;;
+            *) echo "No AppImage target for ${{ matrix.target }}" >&2; exit 1 ;;
+          esac
+          native-packages build --version "${GITHUB_REF_NAME#v}" --target "$id" --defer-recipes \
+            --output "$RUNNER_TEMP/appimage"
+          cp "$RUNNER_TEMP/appimage/packages/$id/appimage/"*.AppImage \
+            "$RUNNER_TEMP/appimage/packages/$id/appimage/"*.AppImage.zsync dist/
+
       # Inno Setup ships with the runner image. PowerShell, because bash on
       # Windows rewrites /D... arguments as paths.
       - name: Installer
@@ -147,7 +172,7 @@ jobs:
           dotnet tool install wix --version 5.0.2 --tool-path "$env:RUNNER_TEMP\wix"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:PATH = "$env:RUNNER_TEMP\wix;$env:PATH"
-          gem install native-packages --version 0.9.0 --no-document
+          gem install native-packages --version 0.10.0 --no-document
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $version = $env:GITHUB_REF_NAME.TrimStart("v")
           $payload = "dist\msi-input-${{ matrix.target }}"
@@ -167,6 +192,8 @@ jobs:
             dist/*.zip
             dist/*-setup.exe
             dist/*.msi
+            dist/*.AppImage
+            dist/*.AppImage.zsync
           if-no-files-found: error
 
   macos:
@@ -204,7 +231,7 @@ jobs:
         with:
           ruby-version: '4.0'
       - name: Install native packaging
-        run: gem install native-packages --version 0.9.0 --no-document
+        run: gem install native-packages --version 0.10.0 --no-document
 
       - name: App bundle
         run: |
@@ -295,7 +322,7 @@ jobs:
         env:
           SPOTIFAST_UPDATE_SIGNING_KEY: ${{ secrets.SPOTIFAST_UPDATE_SIGNING_KEY }}
         run: |
-          gem install native-packages --version 0.9.0 --no-document
+          gem install native-packages --version 0.10.0 --no-document
           native-packages sign-checksums dist/checksums.txt \
             --public-key assets/update-public-key.hex \
             --key-env SPOTIFAST_UPDATE_SIGNING_KEY

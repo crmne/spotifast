@@ -3,6 +3,7 @@ src/i18n.rs
 src/ui/player_bar.rs
 src/ui/queue.rs
 src/ui/lyrics.rs
+src/ui/friends.rs
 src/ui/widgets.rs
 src/app.rs
 src/ui/settings.rs
@@ -19,6 +20,7 @@ src/ui/dialogs.rs
 src/ui/home.rs
 src/ui/keys.rs
 src/ui/library.rs
+src/ui/new_releases.rs
 src/ui/login.rs
 src/ui/mod.rs
 src/ui/prerelease.rs
