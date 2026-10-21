@@ -1,4 +1,4 @@
-//! Lyrics for the playing track, from Spotify or LRCLIB.
+//! Lyrics for the playing track, from Spotify, a local file or LRCLIB.
 //!
 //! [LRCLIB](https://lrclib.net) provides plain and LRC-synced lyrics without an
 //! account or key. Spotifast tries Spotify's transcription first when the
@@ -545,6 +545,34 @@ fn loose_match(left: &str, right: &str) -> bool {
         return false;
     }
     a == b || a.contains(&b) || b.contains(&a)
+}
+
+/// Lyrics from text a file holds: timed when its lines carry LRC stamps,
+/// plain lines otherwise. `None` for text without words.
+pub fn from_text(text: &str) -> Option<Lyrics> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    let timed = parse_lrc(text);
+    if !timed.is_empty() {
+        return Some(Lyrics {
+            lines: timed,
+            synced: true,
+            instrumental: false,
+        });
+    }
+    Some(Lyrics {
+        lines: text
+            .trim()
+            .lines()
+            .map(|line| Line {
+                at_ms: None,
+                text: line.trim_end().to_string(),
+            })
+            .collect(),
+        synced: false,
+        instrumental: false,
+    })
 }
 
 // ---- LRC ------------------------------------------------------------------

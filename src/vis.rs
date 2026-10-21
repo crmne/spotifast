@@ -19,8 +19,9 @@ use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 /// Half a second of audio.
 const KEPT: usize = SAMPLE_RATE as usize / 2;
 /// How far behind the newest sample the visualiser looks, so that it shows
-/// what the speaker is playing rather than what the sink has queued.
-pub const LAG: usize = SAMPLE_RATE as usize * 3 / 20;
+/// what the speaker is playing rather than what the sink has queued: the
+/// sink keeps 180 to 200 ms queued, and the device holds a little more.
+pub const LAG: usize = SAMPLE_RATE as usize / 5;
 /// Samples that go into one spectrum.
 pub const FFT_SAMPLES: usize = 512;
 const SPECTRUM_BINS: usize = FFT_SAMPLES / 2;

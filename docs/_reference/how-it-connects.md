@@ -211,8 +211,9 @@ out, or a reconnection that gives up stops it.
   while the saved rows remain visible. Manual refresh starts immediately.
   Like and Unlike are kept over lagging reads until Spotify confirms them.
 - Spotifast has no telemetry, analytics, or hosted service. When the lyrics
-  panel is open and Spotify has no lyrics, it sends the track's artist, title,
-  album, and length to [lrclib.net](https://lrclib.net). It also checks
+  panel is open and neither Spotify nor a local file has lyrics, it sends
+  the track's artist, title, album, and length to
+  [lrclib.net](https://lrclib.net). It also checks
   api.github.com once a day for updates. You can turn off automatic checks in
   Settings, or request one there at any time. On macOS, **Check for Updates**
   is also in the application menu. On a connection the system reports as

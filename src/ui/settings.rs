@@ -337,7 +337,7 @@ fn local_files_detail(app: &App) -> String {
     let Some(folder) = app.settings.local_files_folder() else {
         return gettext(
             locale,
-            "Play the local files your playlists list from a folder on this computer. Only 44.1 kHz files play.",
+            "Play the local files your playlists list from a folder on this computer.",
         )
         .into_owned();
     };

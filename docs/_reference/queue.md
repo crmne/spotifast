@@ -86,6 +86,12 @@ not consume a queue row or restore an older queue saved on this computer.
    when paused. Spotify does not let Spotifast insert at the front of another
    device's queue.
 
+   A local file from a playlist queues like any other song, but only while
+   this computer is the active player and the local files folder holds it:
+   Spotify's queue refuses local files, so this computer's player queues
+   them itself. Otherwise **Add to queue** and **Play next** are disabled
+   for it, and a selection queues its other songs.
+
    Since 0.9.0, an album's **Add to queue** adds its playable songs
    in album order, including repeated songs. This also works for singles and
    EPs. A fully loaded album appears immediately. Otherwise, a loading notice

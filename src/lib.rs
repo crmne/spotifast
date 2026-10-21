@@ -23,6 +23,7 @@ pub mod images;
 pub mod liked;
 pub mod limiter;
 pub mod link;
+pub mod local_tags;
 pub mod lyrics;
 #[cfg(target_os = "macos")]
 pub mod mac_links;

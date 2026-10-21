@@ -1,7 +1,7 @@
 [package]
 name = "spotifast"
 default-run = "spotifast"
-version = "0.14.0"
+version = "0.14.1"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
@@ -138,6 +138,10 @@ librespot-metadata = { version = "0.8", default-features = false }
 librespot-protocol = { version = "0.8", default-features = false }
 # Parses the rootlist's playlist4 protobuf, the same crate librespot generates with.
 protobuf = "3"
+# Reads a local file's embedded cover and lyrics. The same decoder librespot
+# already plays local files with, with the formats it enables, so nothing
+# new is built.
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac"] }
 # Local playback's audio sink is this crate's own (src/sink.rs): librespot's
 # rodio backend unwraps the device open on the player thread, and a release
 # build aborts on panic, so it is left out. rodio supplies the mixer and the
@@ -335,13 +339,15 @@ hyper-proxy2 = { git = "https://github.com/crmne/hyper-proxy2", rev = "efca48113
 # reads (#1829), the local file lookup made public (#1830), playlist rows
 # changed by index (#1831), the start of upcoming tracks prefetched so a
 # skip plays at once (#1832), and collection set reads and writes for songs
-# hidden in a playlist (#1833).
+# hidden in a playlist (#1833), local files added to the queue (#1839),
+# and local files played at any sample rate (#1838) and in any channel
+# layout (#1840).
 # Every librespot crate comes from the fork so one copy exists. Drop each
 # patch once upstream merges it.
-librespot-audio = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08" }
-librespot-connect = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08" }
-librespot-core = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08" }
-librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08" }
-librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08" }
-librespot-playback = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08" }
-librespot-protocol = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08" }
+librespot-audio = { git = "https://github.com/crmne/librespot", rev = "8c68baffac5a3052cd0f24a6fbc1970131589790" }
+librespot-connect = { git = "https://github.com/crmne/librespot", rev = "8c68baffac5a3052cd0f24a6fbc1970131589790" }
+librespot-core = { git = "https://github.com/crmne/librespot", rev = "8c68baffac5a3052cd0f24a6fbc1970131589790" }
+librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "8c68baffac5a3052cd0f24a6fbc1970131589790" }
+librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "8c68baffac5a3052cd0f24a6fbc1970131589790" }
+librespot-playback = { git = "https://github.com/crmne/librespot", rev = "8c68baffac5a3052cd0f24a6fbc1970131589790" }
+librespot-protocol = { git = "https://github.com/crmne/librespot", rev = "8c68baffac5a3052cd0f24a6fbc1970131589790" }

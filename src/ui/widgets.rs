@@ -705,22 +705,26 @@ pub fn picked_menu(
     });
     ui.add_space(4.0);
     menu_separator(ui, &palette);
+    // Local files queue only on this computer's player (#1002); the
+    // others in the selection still go.
+    let queueable = songs.iter().any(|item| app.can_queue(item.uri()));
     if menu_item_enabled(
         ui,
         &palette,
         Some(Icon::SkipForward),
         &gettext(locale, "Play next"),
-        app.queue_locally_reorderable(),
+        app.queue_locally_reorderable() && queueable,
     ) {
         app.actions.push(Action::PlayNext {
             items: songs.to_vec(),
         });
     }
-    if menu_item(
+    if menu_item_enabled(
         ui,
         &palette,
         Some(Icon::ListEnd),
         &gettext(locale, "Add to queue"),
+        queueable,
     ) {
         app.actions.push(Action::QueueMany {
             songs: songs
@@ -963,22 +967,25 @@ fn item_menu_at(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
+    // A local file queues only on this computer's player (#1002).
+    let queueable = app.can_queue(&uri);
     if menu_item_enabled(
         ui,
         &palette,
         Some(Icon::SkipForward),
         &gettext(locale, "Play next"),
-        app.queue_locally_reorderable(),
+        app.queue_locally_reorderable() && queueable,
     ) {
         app.actions.push(Action::PlayNext {
             items: vec![item.clone()],
         });
     }
-    if menu_item(
+    if menu_item_enabled(
         ui,
         &palette,
         Some(Icon::ListEnd),
         &gettext(locale, "Add to queue"),
+        queueable,
     ) {
         app.actions.push(Action::AddToQueue {
             uri: uri.clone(),
@@ -1543,7 +1550,7 @@ fn track_row_contents(
             ui.ctx(),
             DragTrack {
                 title: preview.name().to_string(),
-                image: preview.image(64).map(str::to_string),
+                image: app.item_image(preview, 64),
                 items,
                 from,
                 source_playlist,
@@ -1635,7 +1642,7 @@ fn track_row_contents(
         paint_cover(
             ui,
             &palette,
-            row.item.image(app.art_px(size)),
+            app.item_image(row.item, app.art_px(size)).as_deref(),
             cover_rect,
             4.0,
             if row.item.is_track() {

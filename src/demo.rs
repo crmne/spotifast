@@ -1264,10 +1264,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "local-files" => {
                 demo_local_rows(app);
                 app.settings.local_files_folder = Some("/home/you/Music".into());
-                let mut uris: std::collections::HashSet<String> = (0..127)
-                    .map(|n| format!("spotify:local:Demo:Demo:Song+{n}:180"))
+                let mut uris: std::collections::HashMap<String, std::path::PathBuf> = (0..127)
+                    .map(|n| {
+                        (
+                            format!("spotify:local:Demo:Demo:Song+{n}:180"),
+                            format!("/home/you/Music/Song {n}.mp3").into(),
+                        )
+                    })
                     .collect();
-                uris.insert(crate::app::local_file_key(DEMO_LOCAL_FOUND));
+                uris.insert(
+                    crate::app::local_file_key(DEMO_LOCAL_FOUND),
+                    "/home/you/Music/Kitchen Demo.mp3".into(),
+                );
                 app.local_files = Some(("/home/you/Music".into(), std::sync::Arc::new(uris)));
             }
             "rtl" => {

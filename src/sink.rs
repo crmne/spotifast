@@ -46,8 +46,11 @@ pub const NO_DEVICE: &str =
 /// Opens the output: the saved device, else the default.
 type Opener = fn(Option<&str>, u32, &AudioControl) -> Result<Output, OpenError>;
 
-/// Maximum queued rodio chunks before `write` blocks, about 200 ms of audio.
-const QUEUE_LIMIT: usize = 12;
+/// How much sound `write` queues before it blocks. Measured in time, not in
+/// chunks: librespot's packets hold as little as 4 ms, so a dozen of them
+/// could be less than one PipeWire quantum (2048 frames, 43 ms), and every
+/// callback would drain the queue.
+const QUEUE_AHEAD: Duration = Duration::from_millis(200);
 
 /// How much of a full queue rodio plays before `write` is woken to top it
 /// up. librespot's packets hold 4 to 13 ms of sound, so polling every 10 ms
@@ -873,7 +876,7 @@ impl Sink for RodioSink {
         // decoded into memory at once. A full queue sleeps until rodio has
         // played `REFILL` of it, then is topped up in one go.
         let refill = u64::from(output.sample_rate) * REFILL.as_millis() as u64 / 1_000;
-        while output.sink.len() > QUEUE_LIMIT {
+        while queue_is_full(output.queued.frames(), output.sample_rate) {
             // Headphones that connect, a new default output, a device that
             // went away or a stream that stopped asking for sound: the
             // output moves to the one to use now and the music carries on.
@@ -890,7 +893,7 @@ impl Sink for RodioSink {
                     return Err(SinkError::OnWrite(message));
                 }
             }
-            if output.sink.len() <= QUEUE_LIMIT {
+            if !queue_is_full(output.queued.frames(), output.sample_rate) {
                 break;
             }
             output.queued.wait_for_room(refill);
@@ -898,6 +901,12 @@ impl Sink for RodioSink {
         self.apply_volume();
         Ok(())
     }
+}
+
+/// Whether `write` has queued `QUEUE_AHEAD` of sound at `sample_rate` and
+/// waits for rodio to play some before taking the next packet.
+fn queue_is_full(queued_frames: u64, sample_rate: u32) -> bool {
+    queued_frames > u64::from(sample_rate) * QUEUE_AHEAD.as_millis() as u64 / 1_000
 }
 
 /// What a saved `audio_device` opens, among the outputs listed now.
@@ -1730,6 +1739,19 @@ mod tests {
         let transport = Envelope::open(RATE, TRANSPORT_FADE);
         transport.fade_out_over(u64::from(nominal) * 10);
         falls_silent_after(&transport, nominal);
+    }
+
+    /// A dozen of librespot's shortest packets (4 ms each) are less than one
+    /// 43 ms PipeWire quantum, so a queue limited by count ran dry on every
+    /// callback; the limit is time.
+    #[test]
+    fn the_queue_holds_time_not_a_count_of_packets() {
+        let short_packet = 176; // 4 ms at 44.1 kHz
+        assert!(!queue_is_full(12 * short_packet, 44_100));
+        assert!(!queue_is_full(8_820, 44_100), "200 ms is the most it holds");
+        assert!(queue_is_full(8_821, 44_100));
+        assert!(!queue_is_full(9_600, 48_000));
+        assert!(queue_is_full(9_601, 48_000));
     }
 
     #[test]

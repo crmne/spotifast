@@ -285,7 +285,7 @@ pub enum PlayerCommand {
     Previous,
     /// Remove manually queued tracks and keep context tracks.
     ClearQueue,
-    /// Queue a track or episode after the ones already queued.
+    /// Queue a track, episode or local file after the ones already queued.
     AddToQueue(String),
     Seek(u32),
     /// The volume to keep: applied at once and told to Spotify Connect.

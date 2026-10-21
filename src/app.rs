@@ -656,7 +656,10 @@ pub struct App {
     played_row: Option<PlayedRow>,
     /// The songs found in the local files folder, as the `spotify:local:`
     /// URIs a playlist lists them by; `None` until the folder is read.
-    pub local_files: Option<(std::path::PathBuf, std::sync::Arc<HashSet<String>>)>,
+    pub local_files: Option<(
+        std::path::PathBuf,
+        std::sync::Arc<HashMap<String, std::path::PathBuf>>,
+    )>,
     /// Requested shuffle mode, applied to every context until changed.
     shuffle_wanted: bool,
     /// The repeat mode saved by the last run, which the first local load
@@ -1971,11 +1974,12 @@ impl App {
                     .and_then(|cached| cached.album.as_ref())
                     .map(|album| album.id.clone()),
                 show_id: None,
-                art_url: track.art_url.clone(),
+                art_url: track.art_url.clone().or_else(|| self.local_art(&track.uri)),
                 art_small: track
                     .art_small_url
                     .clone()
-                    .or_else(|| track.art_url.clone()),
+                    .or_else(|| track.art_url.clone())
+                    .or_else(|| self.local_art(&track.uri)),
                 duration_ms: track.duration_ms,
                 position_ms: match self.pending_local_position {
                     Some((position, at)) if at.elapsed() < OPTIMISTIC_HOLD => {
@@ -2076,8 +2080,8 @@ impl App {
             album_name,
             album_id,
             show_id,
-            art_url: item.image(640).map(str::to_string),
-            art_small: item.image(64).map(str::to_string),
+            art_url: self.item_image(item, 640),
+            art_small: self.item_image(item, 64),
             duration_ms: item.duration_ms(),
             position_ms: position,
             playing,
@@ -3519,6 +3523,12 @@ impl App {
             if now.local && self.resume_track.as_deref() == Some(now.uri.as_str()) {
                 for uri in queued {
                     self.manual_queue.push(uri.clone());
+                    // Spotify's queue refuses local files; the engine
+                    // queues them itself.
+                    if uri.starts_with(LOCAL_URI_PREFIX) {
+                        self.backend.player(PlayerCommand::AddToQueue(uri));
+                        continue;
+                    }
                     self.backend.api(ApiRequest::AddToQueue {
                         uri,
                         device_id: self.local_device_id.clone(),
@@ -3639,6 +3649,7 @@ impl App {
             return;
         }
         self.lyrics = Loadable::Loading;
+        let local_file = self.local_file(&now.uri).map(std::path::Path::to_path_buf);
         self.backend.send(Command::Lyrics(Box::new(LyricsRequest {
             uri: now.uri,
             query: crate::lyrics::Query {
@@ -3651,6 +3662,7 @@ impl App {
                 album: now.album_name,
                 duration_ms: now.duration_ms,
             },
+            local_file,
         })));
     }
 
@@ -4463,9 +4475,12 @@ impl App {
     /// artwork is fetched here -- the one request the controls add.
     ///
     /// MPRIS passes `art_url` to the desktop, which fetches whatever it
-    /// wants: Linux needs no file and downloads nothing extra.
+    /// wants: Linux needs no file and downloads nothing extra. A local
+    /// file's cover has no URL the desktop can fetch, so every platform
+    /// gets the copy the art loader keeps of it.
     fn media_art_file(&mut self, ctx: &egui::Context, url: &str) -> Option<PathBuf> {
-        if cfg!(target_os = "linux") {
+        let local = url.starts_with(crate::local_tags::ART_SCHEME);
+        if cfg!(target_os = "linux") && !local {
             return None;
         }
         if let Some((known, file)) = &self.media_art
@@ -4481,7 +4496,7 @@ impl App {
             // On a metered connection the controls go without the large
             // cover rather than download one for every song.
             None => {
-                if !self.metered() {
+                if local || !self.metered() {
                     self.backend.art().prefetch(ctx, url);
                 }
                 None
@@ -4539,7 +4554,10 @@ impl App {
                     album: now.album_name.clone(),
                     duration: Some(Duration::from_millis(u64::from(now.duration_ms))),
                     art_file,
-                    art_url: now.art_url.clone(),
+                    art_url: now
+                        .art_url
+                        .clone()
+                        .filter(|url| !url.starts_with(crate::local_tags::ART_SCHEME)),
                     url: Some(now.uri.clone()),
                     ..MediaTrack::default()
                 }),
@@ -9692,6 +9710,10 @@ impl App {
         // Each picked row is its own ask, so a song picked twice is queued
         // twice. Only an add from an earlier click can make one of them a
         // repeat, so decide that before adding any.
+        let songs: Vec<(String, String)> = songs
+            .into_iter()
+            .filter(|(uri, _)| self.can_queue(uri))
+            .collect();
         let repeats: Vec<bool> = songs
             .iter()
             .map(|(uri, _)| self.queued_moments_ago(uri))
@@ -9727,7 +9749,7 @@ impl App {
     fn resync_local_queue(&mut self) {
         self.backend.player(PlayerCommand::ClearQueue);
         for uri in self.manual_queue.clone() {
-            if uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:") {
+            if engine_queues(&uri) {
                 self.backend.player(PlayerCommand::AddToQueue(uri));
             }
         }
@@ -9746,16 +9768,18 @@ impl App {
     ///
     /// `announce` is false when a batch should produce one toast.
     fn queue_one(&mut self, uri: String, label: String, announce: bool) {
+        if !self.can_queue(&uri) {
+            return;
+        }
         let pending_start = self.pending_queue_adds.len();
         self.show_queued_song(&uri, &label);
         if announce {
             // Translators: {name} is a song, episode, album, or playlist name.
             self.toast(gettext(self.locale, "{name} added to queue").replace("{name}", &label));
         }
-        // Queue tracks and episodes directly on the active local engine.
-        // Other targets and item types use the Web API.
-        let track_like = uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:");
-        if track_like && self.local.is_active() && matches!(self.target(), Target::Local) {
+        // Queue tracks, episodes and local files directly on the active
+        // local engine. Other targets and item types use the Web API.
+        if engine_queues(&uri) && self.queue_locally_reorderable() {
             self.backend.player(PlayerCommand::AddToQueue(uri));
             self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
             return;
@@ -10018,6 +10042,45 @@ impl App {
         self.actions.push(Action::RestartEngine);
     }
 
+    /// Whether the song at `uri` can be queued. Spotify's queue refuses a
+    /// `spotify:local:` URI, so a local file queues only on this computer's
+    /// active player, which plays it from the local files folder, and only
+    /// when the folder holds it (#1002).
+    pub fn can_queue(&self, uri: &str) -> bool {
+        !uri.starts_with(LOCAL_URI_PREFIX)
+            || (self.queue_locally_reorderable()
+                && self
+                    .local_files
+                    .as_ref()
+                    .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(uri))))
+    }
+
+    /// The file in the local files folder that `uri` plays from.
+    pub fn local_file(&self, uri: &str) -> Option<&std::path::Path> {
+        if !uri.starts_with(LOCAL_URI_PREFIX) {
+            return None;
+        }
+        let (_, files) = self.local_files.as_ref()?;
+        files
+            .get(&local_file_key(uri))
+            .map(std::path::PathBuf::as_path)
+    }
+
+    /// The cover embedded in the local file `uri` plays from, unless it
+    /// was read and holds none (#1001).
+    pub fn local_art(&self, uri: &str) -> Option<String> {
+        let url = crate::local_tags::art_url(self.local_file(uri)?);
+        (!self.backend.art().is_coverless(&url)).then_some(url)
+    }
+
+    /// The cover for `item` drawn about `pixels` wide: Spotify's, or for a
+    /// local file the one in the file.
+    pub fn item_image(&self, item: &PlayableItem, pixels: u32) -> Option<String> {
+        item.image(pixels)
+            .map(str::to_string)
+            .or_else(|| self.local_art(item.uri()))
+    }
+
     /// Whether `item` can start playback here: a local file only when the
     /// local files folder holds it.
     pub fn row_playable(&self, item: &PlayableItem) -> bool {
@@ -10025,7 +10088,7 @@ impl App {
             || self
                 .local_files
                 .as_ref()
-                .is_some_and(|(_, uris)| uris.contains(&local_file_key(item.uri())))
+                .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(item.uri())))
     }
 
     /// The picked rows to remove one by one, when the removal includes a
@@ -10782,6 +10845,10 @@ impl App {
                     return;
                 }
                 let position = position.min(self.queued_rows_len());
+                let items: Vec<PlayableItem> = items
+                    .into_iter()
+                    .filter(|item| self.can_queue(item.uri()))
+                    .collect();
                 let repeats: Vec<bool> = items
                     .iter()
                     .map(|item| self.queued_moments_ago(item.uri()))
@@ -12861,10 +12928,20 @@ fn increase_playlist_total(playlist: &mut Playlist, added: u32) {
     }
 }
 
+const LOCAL_URI_PREFIX: &str = "spotify:local:";
+
+/// Whether the local engine's own queue takes `uri`: a track, an episode or
+/// a local file, which librespot plays from the local files folder.
+fn engine_queues(uri: &str) -> bool {
+    ["spotify:track:", "spotify:episode:", LOCAL_URI_PREFIX]
+        .iter()
+        .any(|prefix| uri.starts_with(prefix))
+}
+
 /// A `spotify:local:` URI as the player keys it, parsed and written back as
 /// librespot does; empty for any other URI.
 pub(crate) fn local_file_key(uri: &str) -> String {
-    if !uri.starts_with("spotify:local:") {
+    if !uri.starts_with(LOCAL_URI_PREFIX) {
         return String::new();
     }
     librespot_core::SpotifyUri::from_uri(uri)
@@ -16493,6 +16570,28 @@ mod tests {
         assert!(app.session_dirty);
     }
 
+    /// A saved queue that holds a local file restores it on the local
+    /// engine, since Spotify's queue refuses `spotify:local:` (#1002).
+    #[test]
+    fn a_saved_local_file_returns_to_the_engines_queue() {
+        let local = "spotify:local:Artist:Album:Song:180";
+        let mut app = headless_app();
+        app.resume_track = Some("spotify:track:abc".into());
+        app.resume_queue = vec!["spotify:track:q1".into(), local.into()];
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:abc".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.backend.take_player_commands();
+        app.on_now_playing_changed();
+        assert_eq!(app.manual_queue, ["spotify:track:q1", local]);
+        assert_eq!(app.backend.take_queued_tracks(), [local]);
+        let requests = app.backend.take_queue_requests();
+        assert_eq!(requests.len(), 1);
+        assert!(!format!("{requests:?}").contains("spotify:local:"));
+    }
+
     /// A selected list row loads without shuffle, then enables shuffle.
     #[test]
     fn a_chosen_row_in_a_list_never_loads_shuffled() {
@@ -18255,6 +18354,116 @@ mod tests {
         assert!(app.pending_queue_adds.is_empty());
         assert!(app.backend.take_player_commands().is_empty());
         assert!(app.backend.take_queue_requests().is_empty());
+        app.backend.shutdown();
+    }
+
+    /// Spotify's queue refuses a `spotify:local:` URI ("Invalid track
+    /// uri"), so a local file the folder holds queues on this computer's
+    /// own player, which plays it from the folder like a playlist row.
+    /// Anywhere else it is not queued at all, not shown and then failed
+    /// (#1002).
+    #[test]
+    fn local_files_queue_on_this_computers_player() {
+        const HELD: &str = "spotify:local:Leigh-Anne:My+Ego+Told+Me+To:Home:148";
+        const ALSO_HELD: &str = "spotify:local:Leigh-Anne:My+Ego+Told+Me+To:Away:201";
+        const MISSING: &str = "spotify:local:Someone:Else:Song:100";
+        let ctx = egui::Context::default();
+        let mut app = app_with_local_manual_queue();
+        app.backend.set_offline(true);
+        app.settings.local_files_folder = Some("/music".into());
+        app.local_files = Some((
+            "/music".into(),
+            Arc::new(HashMap::from([
+                (local_file_key(HELD), "/music/Home.mp3".into()),
+                (local_file_key(ALSO_HELD), "/music/Away.mp3".into()),
+            ])),
+        ));
+        assert!(app.can_queue(HELD));
+        assert!(!app.can_queue(MISSING));
+        assert!(app.can_queue("spotify:track:x"));
+        app.backend.take_player_commands();
+
+        app.apply(
+            Action::AddToQueue {
+                uri: HELD.into(),
+                label: "Home".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.manual_queue,
+            [
+                "spotify:track:a",
+                "spotify:track:b",
+                "spotify:track:c",
+                HELD
+            ]
+        );
+        assert_eq!(queue_uris(&app).1[3], HELD);
+        assert_eq!(app.backend.take_queued_tracks(), [HELD]);
+        assert!(app.backend.take_queue_requests().is_empty());
+
+        // Play next rewrites the engine's queue with the local file in it.
+        app.apply(
+            Action::PlayNext {
+                items: vec![local_track(ALSO_HELD)],
+            },
+            &ctx,
+        );
+        assert_eq!(app.manual_queue[0], ALSO_HELD);
+        assert_eq!(
+            app.backend.take_queued_tracks(),
+            [
+                ALSO_HELD,
+                "spotify:track:a",
+                "spotify:track:b",
+                "spotify:track:c",
+                HELD
+            ]
+        );
+
+        // A local file the folder does not hold would never play.
+        let before = app.manual_queue.clone();
+        app.apply(
+            Action::AddToQueue {
+                uri: MISSING.into(),
+                label: "Song".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(app.manual_queue, before);
+        assert!(app.backend.take_queued_tracks().is_empty());
+
+        // With another device playing, a selection queues its Spotify songs
+        // and leaves the local file out instead of failing on it.
+        app.local.playback = Playback::Stopped;
+        app.local_ready = false;
+        assert!(!app.can_queue(HELD));
+        app.apply(
+            Action::QueueMany {
+                songs: vec![
+                    ("spotify:track:x".into(), "X".into()),
+                    (HELD.into(), "Home".into()),
+                ],
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.manual_queue.last().map(String::as_str),
+            Some("spotify:track:x")
+        );
+        assert!(
+            !app.manual_queue[before.len()..]
+                .iter()
+                .any(|uri| uri == HELD)
+        );
+        let requests = app.backend.take_queue_requests();
+        assert!(
+            requests
+                .iter()
+                .all(|request| !format!("{request:?}").contains("spotify:local:"))
+        );
+        assert!(app.backend.take_queued_tracks().is_empty());
         app.backend.shutdown();
     }
 
@@ -26074,8 +26283,9 @@ mod tests {
         assert!(!app.row_playable(&held));
         let folder = std::path::PathBuf::from("/music");
         app.settings.local_files_folder = Some("/music".into());
-        let uris = Arc::new(HashSet::from([local_file_key(
-            "spotify:local:The+Artist:An+Album:A+Song:215",
+        let uris = Arc::new(HashMap::from([(
+            local_file_key("spotify:local:The+Artist:An+Album:A+Song:215"),
+            std::path::PathBuf::from("/music/A Song.mp3"),
         )]));
         // A scan of a folder since replaced is ignored.
         app.handle_backend_events(vec![Event::LocalFiles {
@@ -26093,6 +26303,38 @@ mod tests {
             uri: "spotify:track:abc".into(),
             ..Default::default()
         })));
+    }
+
+    /// A local file's cover comes from the file it plays from, on its row
+    /// and as the playing cover, and a file read and found to hold none
+    /// keeps the placeholder (#1001).
+    #[test]
+    fn a_local_file_shows_the_cover_in_its_file() {
+        let uri = "spotify:local:The+Artist:An+Album:A+Song:215";
+        let file = std::path::PathBuf::from("/music/A Song.mp3");
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        assert_eq!(app.item_image(&local_track(uri), 64), None);
+        app.settings.local_files_folder = Some("/music".into());
+        app.local_files = Some((
+            "/music".into(),
+            Arc::new(HashMap::from([(local_file_key(uri), file.clone())])),
+        ));
+        let url = crate::local_tags::art_url(&file);
+        assert_eq!(app.item_image(&local_track(uri), 64), Some(url.clone()));
+        assert_eq!(app.local_file(uri), Some(file.as_path()));
+        assert_eq!(app.local_file("spotify:track:abc"), None);
+        assert_eq!(app.local_art("spotify:local:Someone:Else:Song:100"), None);
+        app.local_ready = true;
+        app.local.playback = Playback::Playing;
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: uri.into(),
+            title: "A Song".into(),
+            ..Default::default()
+        });
+        let now = app.now_playing().unwrap();
+        assert_eq!(now.art_url.as_deref(), Some(url.as_str()));
+        assert_eq!(now.art_small.as_deref(), Some(url.as_str()));
     }
 
     /// Choosing or removing the folder saves it and restarts local playback,

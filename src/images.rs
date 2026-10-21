@@ -1,5 +1,6 @@
 //! Album art: fetched once, kept on disk, and drawn from a copy scaled to
-//! the pixels each cover covers.
+//! the pixels each cover covers. A local file's cover is read from the file
+//! itself (see [`crate::local_tags`]).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -78,7 +79,7 @@ const SCALED: &str = "#spotifast-px=";
 fn parse_scaled(uri: &str) -> Option<(&str, u32)> {
     let (url, pixels) = uri.rsplit_once(SCALED)?;
     let pixels = pixels.parse().ok().filter(|pixels| *pixels > 0)?;
-    is_http(url).then_some((url, pixels))
+    is_art(url).then_some((url, pixels))
 }
 
 /// Lets go of the decoded copy of `url` that egui's image loaders keep in
@@ -95,10 +96,13 @@ pub fn forget_decoded(ctx: &egui::Context, url: &str) {
     }
 }
 
-/// What this loader answers for. egui offers it every URI, and artwork that
-/// is not fetched over the network belongs to another loader.
-fn is_http(uri: &str) -> bool {
-    uri.starts_with("https://") || uri.starts_with("http://")
+/// What this loader answers for: artwork fetched over the network, and the
+/// cover embedded in a local file. egui offers it every URI, and any other
+/// belongs to another loader.
+fn is_art(uri: &str) -> bool {
+    uri.starts_with("https://")
+        || uri.starts_with("http://")
+        || uri.starts_with(crate::local_tags::ART_SCHEME)
 }
 
 enum Entry {
@@ -129,6 +133,8 @@ struct Inner {
     http: Http,
     runtime: tokio::runtime::Handle,
     cache_dir: PathBuf,
+    /// Local files found to hold no cover, so they are not read again.
+    coverless: Mutex<HashSet<String>>,
 }
 
 #[derive(Clone)]
@@ -146,6 +152,7 @@ impl ArtLoader {
                 http: http.into(),
                 runtime,
                 cache_dir,
+                coverless: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -158,6 +165,16 @@ impl ArtLoader {
     /// Bytes for `url`, from memory, disk, or the network.
     pub async fn fetch(&self, url: &str) -> Result<Arc<[u8]>, String> {
         self.inner.fetch(url).await
+    }
+
+    /// Whether `url` names a local file already read and found to hold no
+    /// cover, so the placeholder shows without asking again.
+    pub fn is_coverless(&self, url: &str) -> bool {
+        self.inner
+            .coverless
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(url)
     }
 
     /// Whether artwork has finished loading from disk or the network.
@@ -264,7 +281,7 @@ impl ArtLoader {
     /// Artwork already held, already on its way, or addressed by a scheme
     /// this loader does not answer for is left alone.
     pub fn prefetch(&self, ctx: &egui::Context, url: &str) -> bool {
-        if !is_http(url) {
+        if !is_art(url) {
             return false;
         }
         let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
@@ -439,6 +456,9 @@ impl Inner {
             return Ok(Arc::clone(bytes));
         }
         let path = self.cache_path(url);
+        if let Some(file) = crate::local_tags::art_path(url) {
+            return self.read_local(url, file, path).await;
+        }
         let cached = tokio::task::spawn_blocking({
             let path = path.clone();
             move || std::fs::read(path).ok()
@@ -490,6 +510,38 @@ impl Inner {
         Ok(bytes)
     }
 
+    /// The cover embedded in the local file `file`, read afresh each time
+    /// so a changed cover shows, and copied to the disk cache at `cache`
+    /// for the desktop media controls, which want a picture file.
+    async fn read_local(
+        &self,
+        url: &str,
+        file: PathBuf,
+        cache: PathBuf,
+    ) -> Result<Arc<[u8]>, String> {
+        let picture = tokio::task::spawn_blocking(move || crate::local_tags::picture(&file))
+            .await
+            .ok()
+            .flatten()
+            .filter(|bytes| !bytes.is_empty() && bytes.len() <= MAX_ART_BYTES);
+        let Some(picture) = picture else {
+            self.coverless
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(url.to_string());
+            return Err("the local file holds no cover".to_string());
+        };
+        let bytes: Arc<[u8]> = Arc::from(picture);
+        let payload = Arc::clone(&bytes);
+        self.runtime.spawn_blocking(move || {
+            let temporary = cache.with_extension("part");
+            if std::fs::write(&temporary, &payload).is_ok() {
+                let _ = std::fs::rename(&temporary, &cache);
+            }
+        });
+        Ok(bytes)
+    }
+
     fn start(self: &Arc<Self>, ctx: &egui::Context, url: String) {
         let loader = Arc::clone(self);
         let ctx = ctx.clone();
@@ -535,7 +587,7 @@ impl BytesLoader for ArtLoader {
     }
 
     fn load(&self, ctx: &egui::Context, uri: &str) -> BytesLoadResult {
-        if !is_http(uri) {
+        if !is_art(uri) {
             return Err(LoadError::NotSupported);
         }
         let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
@@ -769,7 +821,7 @@ impl LyricsBackdrop {
         }
         let uri = uri?;
         let due = self.retry_at.is_none_or(|at| Instant::now() >= at);
-        if !self.requested && due && is_http(uri) {
+        if !self.requested && due && is_art(uri) {
             self.requested = true;
             self.retry_at = None;
             let (tx, rx) = std::sync::mpsc::channel();
@@ -911,7 +963,7 @@ impl SoftenedCovers {
         {
             return None;
         }
-        if !is_http(uri) {
+        if !is_art(uri) {
             self.failed.insert(uri.to_string());
             return None;
         }
@@ -1759,6 +1811,37 @@ mod tests {
         std::fs::write(&path, b"\xff\xd8\xff jpeg-ish").expect("a file with bytes");
         assert_eq!(loader.cached_file(url), Some(path));
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A local file's cover is read from the file, and kept as a file for
+    /// the media controls. A file without one is remembered, so its rows
+    /// keep the placeholder instead of reading it again (#1001).
+    #[test]
+    fn a_local_file_cover_is_read_from_the_file() {
+        use crate::local_tags::tests::{apic, mp3_with};
+        let dir = std::env::temp_dir().join(format!("spotifast-local-art-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.join("cache"));
+        let song = dir.join("song.mp3");
+        std::fs::write(&song, mp3_with(&[apic(3, b"the cover")])).unwrap();
+        let url = crate::local_tags::art_url(&song);
+        assert!(is_art(&url));
+        let bytes = runtime.block_on(loader.fetch(&url)).unwrap();
+        assert_eq!(&bytes[..], b"the cover");
+        runtime.block_on(wait_for_artwork_file(
+            &loader.inner.cache_path(&url),
+            b"the cover",
+        ));
+        assert!(!loader.is_coverless(&url));
+
+        let bare = dir.join("bare.mp3");
+        std::fs::write(&bare, mp3_with(&[])).unwrap();
+        let bare_url = crate::local_tags::art_url(&bare);
+        assert!(runtime.block_on(loader.fetch(&bare_url)).is_err());
+        assert!(loader.is_coverless(&bare_url));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
