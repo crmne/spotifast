@@ -737,6 +737,25 @@ You can replace it with other text instead.
 If Spotify refuses permission, sign in again and approve image uploads. If you
 use a personal Spotify app, reconnect it in Settings as well.
 
+## Full-screen player
+
+The full-screen button at the right end of the player bar grows the bar to
+fill the screen. The playing song's cover sits in the middle, with its title
+and artists beneath. When the player bar visualizer is on, it spans the whole
+screen behind them. With **Colour from album art** on, the background takes
+the cover's colour. Clicking the empty space switches the visualizer, as it
+does in the player bar.
+
+The bar's controls stay along the bottom: shuffle, previous, play, next,
+repeat, the song's position, the volume and the device picker. They fade
+out, and the pointer with them, once the pointer rests for three seconds or
+leaves the window, and come back when it moves or a key is pressed. Choose
+the close button in the top-left corner or the button at the bottom right,
+or press **Esc**, to return to your previous window mode. Opening a page,
+the queue or the lyrics panel also leaves it, and **F** turns it into
+full-screen lyrics. In a narrow window the full-screen button gives way, so
+the bar's other controls keep their room.
+
 ## Lyrics
 
 Choose the microphone button in the player bar, or press **L**, to open lyrics.

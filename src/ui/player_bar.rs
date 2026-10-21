@@ -37,6 +37,28 @@ const WAVE_ECHO_ALPHA: f32 = 0.18;
 const LIGHT_STRENGTH: f32 = 1.5;
 /// The gap between spectrum bars.
 const SPECTRUM_GAP: f32 = 2.0;
+/// An icon button's width in the bar: its glyph and the padding around it.
+const BAR_BUTTON: f32 = 18.0 + theme::ICON_BUTTON_PAD;
+/// The room between the full-screen button and the volume slider.
+const FULLSCREEN_BUTTON_GAP: f32 = 4.0;
+/// Last frame's width of the bar's right-hand controls, without the
+/// full-screen and Listening activity buttons that give way to them.
+const EXTRAS_WIDTH_ID: &str = "player-bar-extras-width";
+/// How strongly the playing art's tint fills the player's full screen.
+const FULLSCREEN_TINT_STRENGTH: f32 = 0.3;
+/// How much more strongly the visualizer paints across the full screen,
+/// where no words sit over it.
+const FULLSCREEN_VIS_STRENGTH: f32 = 1.8;
+/// The full screen's margin around its controls.
+const FULLSCREEN_MARGIN: f32 = 24.0;
+/// How long the full screen's controls stay once nothing stirs, and how
+/// long they take to fade in or out.
+const CONTROLS_LINGER_SECONDS: f64 = 3.0;
+const CONTROLS_FADE_SECONDS: f32 = 0.3;
+const CONTROLS_STIRRED_ID: &str = "player-fullscreen-stirred";
+/// The darkest the shade under the full screen's controls gets, from 0 to
+/// 255.
+const CONTROLS_SHADE: f32 = 150.0;
 
 /// Forget this bar's animation session while the sign-in screen is shown.
 pub(crate) fn end_tint_session(ctx: &egui::Context) {
@@ -60,7 +82,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             let now = app.now_playing();
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
-            if visualizer(app, ui, behind, now.as_ref()) {
+            if visualizer(app, ui, behind, now.as_ref(), 1.0) {
                 theme::visualiser_frame(ui.ctx(), app.visualiser_fps());
             }
             // Its empty space is the visualizer's control, as Winamp's
@@ -106,7 +128,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // is sized to its content and centred on the bar's midline.
             now_playing_block(app, ui, left, now.as_ref());
 
-            transport(app, ui, now.as_ref(), center);
+            transport(app, ui, palette, now.as_ref(), center);
 
             let right_band =
                 Rect::from_min_size(pos2(rect.right() - side, cy - 15.0), vec2(side, 30.0));
@@ -120,11 +142,257 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
 }
 
+/// The player bar grown to fill the screen, as Spotify's full screen does:
+/// the visualizer across the whole window, the cover over it in the middle
+/// with the song beneath, and the bar's controls along the foot. The
+/// controls, and the close button in the corner, give way to the picture
+/// while nothing stirs or the pointer is away, and return when it moves.
+pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
+    let palette = theme::Palette::dark();
+    egui::CentralPanel::default()
+        .frame(Frame::new().fill(palette.window))
+        .show(ui, |ui| {
+            theme::apply_local(ui, &palette);
+            let rect = ui.max_rect();
+            let now = app.now_playing();
+            let fill = eased_tint(
+                ui.ctx(),
+                "player-fullscreen-tint",
+                palette.window,
+                app.now_playing_tint(),
+                FULLSCREEN_TINT_STRENGTH,
+            );
+            ui.painter().rect_filled(rect, 0.0, fill);
+            // Deeper towards the foot, under the controls.
+            super::widgets::paint_vertical_gradient(
+                ui,
+                rect,
+                Color32::TRANSPARENT,
+                Color32::from_black_alpha(120),
+            );
+            if visualizer(app, ui, rect, now.as_ref(), FULLSCREEN_VIS_STRENGTH) {
+                theme::visualiser_frame(ui.ctx(), app.visualiser_fps());
+            }
+            // As in the bar, the empty space changes the visualizer.
+            if app.settings.player_bar_vis_click
+                && ui
+                    .interact(
+                        rect,
+                        ui.id().with("player-fullscreen-visualizer"),
+                        Sense::click(),
+                    )
+                    .clicked()
+            {
+                app.actions.push(Action::CyclePlayerBarVis);
+            }
+            let bar = Rect::from_min_max(
+                pos2(
+                    rect.left() + FULLSCREEN_MARGIN,
+                    rect.bottom() - FULLSCREEN_MARGIN - theme::PLAYER_BAR_HEIGHT,
+                ),
+                pos2(
+                    rect.right() - FULLSCREEN_MARGIN,
+                    rect.bottom() - FULLSCREEN_MARGIN,
+                ),
+            );
+            // Below the close button, above the controls.
+            let room = Rect::from_min_max(
+                pos2(
+                    rect.left(),
+                    rect.top() + theme::titlebar_inset(ui.ctx()) + 2.0 * FULLSCREEN_MARGIN + 40.0,
+                ),
+                pos2(rect.right(), bar.top()),
+            );
+            let song = fullscreen_song(app, ui, room, &palette);
+            // The song is not empty space: a click there changes nothing.
+            ui.interact(song, ui.id().with("player-fullscreen-song"), Sense::click());
+
+            let shown = controls_shown(ui.ctx(), app.show_devices);
+            let opacity = ui.ctx().animate_bool_with_time(
+                egui::Id::new("player-fullscreen-controls"),
+                shown,
+                crate::motion::seconds(ui.ctx(), CONTROLS_FADE_SECONDS),
+            );
+            if opacity > 0.0 {
+                // A shade under the controls, so they read over the bars.
+                super::widgets::paint_vertical_gradient(
+                    ui,
+                    Rect::from_min_max(pos2(rect.left(), bar.top() - FULLSCREEN_MARGIN), rect.max),
+                    Color32::TRANSPARENT,
+                    Color32::from_black_alpha((CONTROLS_SHADE * opacity).round() as u8),
+                );
+                let mut controls = ui.new_child(UiBuilder::new().max_rect(rect));
+                controls.multiply_opacity(opacity);
+                fullscreen_controls(app, &mut controls, palette, bar, now.as_ref());
+            } else if ui.rect_contains_pointer(rect) {
+                // The pointer rests over the picture, so it goes too.
+                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+            }
+        });
+}
+
+/// The playing song's cover in the middle of `room`, over the visualizer,
+/// with its title and artists beneath, or a quiet note when nothing plays.
+/// Returns where it is drawn.
+fn fullscreen_song(app: &App, ui: &mut egui::Ui, room: Rect, palette: &theme::Palette) -> Rect {
+    let side = (room.height() - 140.0)
+        .min(room.width() * 0.5)
+        .clamp(160.0, 560.0);
+    let column = Rect::from_center_size(room.center(), vec2(side, side + 90.0));
+    if app.now_playing().is_some() {
+        super::lyrics::big_cover(app, ui, column, Align::Center);
+        return column;
+    }
+    let cover = Rect::from_min_size(column.min, Vec2::splat(side));
+    super::widgets::paint_cover(ui, palette, None, cover, 10.0, Icon::Music, None);
+    let title = ui.painter().text(
+        pos2(cover.center().x, cover.bottom() + 18.0),
+        egui::Align2::CENTER_TOP,
+        gettext(app.locale, "Nothing playing"),
+        theme::semibold(22.0),
+        palette.text,
+    );
+    ui.painter().text(
+        pos2(cover.center().x, title.bottom() + 4.0),
+        egui::Align2::CENTER_TOP,
+        gettext(app.locale, "Pick a song, album, or playlist"),
+        theme::regular(14.0),
+        palette.secondary,
+    );
+    column
+}
+
+/// The full screen's controls: the close button in the top-left corner,
+/// and the bar's transport, volume and devices along `bar` at the foot,
+/// with the button back to the window where the bar's full-screen button
+/// was.
+fn fullscreen_controls(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    palette: theme::Palette,
+    bar: Rect,
+    now: Option<&NowPlaying>,
+) {
+    let leave = gettext(app.locale, "Leave full screen (Esc)");
+    let close = Rect::from_min_size(
+        pos2(
+            ui.max_rect().left() + FULLSCREEN_MARGIN,
+            ui.max_rect().top() + theme::titlebar_inset(ui.ctx()) + FULLSCREEN_MARGIN,
+        ),
+        Vec2::splat(40.0),
+    );
+    let mut cell = ui.new_child(
+        UiBuilder::new()
+            .max_rect(close)
+            .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+    );
+    if theme::icon_button(&mut cell, Icon::X, 24.0, palette.text, palette.text, &leave).clicked() {
+        app.actions.push(Action::SetPlayerFullscreen(false));
+    }
+
+    let side = (bar.width() * 0.3).clamp(200.0, 420.0);
+    let center = Rect::from_min_max(
+        pos2(bar.left() + side, bar.top()),
+        pos2(bar.right() - side, bar.bottom()),
+    );
+    transport(app, ui, palette, now, center);
+    let right_band = Rect::from_min_size(
+        pos2(bar.right() - side, bar.center().y - 15.0),
+        vec2(side, 30.0),
+    );
+    let mut right = ui.new_child(
+        UiBuilder::new()
+            .max_rect(right_band)
+            .layout(Layout::right_to_left(Align::Center)),
+    );
+    right.spacing_mut().item_spacing.x = 6.0;
+    if theme::icon_button(
+        &mut right,
+        Icon::Minimize,
+        18.0,
+        palette.secondary,
+        palette.text,
+        &leave,
+    )
+    .clicked()
+    {
+        app.actions.push(Action::SetPlayerFullscreen(false));
+    }
+    right.add_space(FULLSCREEN_BUTTON_GAP);
+    volume(app, &mut right, palette, now);
+    right.add_space(4.0);
+    devices_button(app, &mut right, palette, now);
+}
+
+/// When something last stirred over the full screen, where the pointer
+/// was, and the pass that last asked, so a full screen opened again starts
+/// afresh.
+#[derive(Clone, Copy)]
+struct Stirred {
+    at: f64,
+    pointer: Option<egui::Pos2>,
+    pass: u64,
+}
+
+/// Whether the full screen's controls show: from its opening and from any
+/// stir, the pointer coming over the window, moving, pressing or scrolling
+/// there, a key, or a screen reader acting, until [`CONTROLS_LINGER_SECONDS`]
+/// pass without another, and not from the moment the pointer leaves the
+/// window. `holding` keeps them, for a menu they opened, and so does a
+/// control with keyboard focus: hidden, it would leave the screen reader's
+/// tree and lose the focus. A click leaves no focus on them.
+fn controls_shown(ctx: &egui::Context, holding: bool) -> bool {
+    let (time, pointer, pressed) = ctx.input(|input| {
+        let pressed = input.pointer.any_down()
+            || input.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::Key { pressed: true, .. }
+                        | egui::Event::MouseWheel { .. }
+                        | egui::Event::AccessKitActionRequest(_)
+                )
+            });
+        (input.time, input.pointer.latest_pos(), pressed)
+    });
+    let holding = holding || ctx.memory(|memory| memory.focused().is_some());
+    let pass = ctx.cumulative_pass_nr();
+    let id = egui::Id::new(CONTROLS_STIRRED_ID);
+    let at = ctx.data_mut(|data| {
+        let stirred = data.get_temp_mut_or_insert_with(id, || Stirred {
+            at: time,
+            pointer,
+            pass,
+        });
+        let opened = stirred.pass + 1 != pass;
+        let moved = pointer.is_some() && pointer != stirred.pointer;
+        if opened || moved || pressed || holding {
+            stirred.at = time;
+        } else if pointer.is_none() && stirred.pointer.is_some() {
+            stirred.at = f64::NEG_INFINITY;
+        }
+        stirred.pointer = pointer;
+        stirred.pass = pass;
+        stirred.at
+    });
+    let left = CONTROLS_LINGER_SECONDS - (time - at);
+    if left > 0.0 {
+        ctx.request_repaint_after_secs(left as f32);
+    }
+    left > 0.0
+}
+
 /// Draws the chosen spectrum or waveform of the song playing on this
 /// computer across `rect`, in colours drawn from the cover. It reads the
 /// same post-equalizer, pre-volume sound as the mini player's visualizer,
-/// so the volume never moves it. Returns whether it is still moving.
-fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>) -> bool {
+/// so the volume never moves it. `boost` strengthens it where no words sit
+/// over it. Returns whether it is still moving.
+fn visualizer(
+    app: &mut App,
+    ui: &egui::Ui,
+    rect: Rect,
+    now: Option<&NowPlaying>,
+    boost: f32,
+) -> bool {
     use crate::settings::PlayerBarVis;
     use crate::vis;
     let mode = app.settings.player_bar_vis;
@@ -133,7 +401,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
     let colours = vis_colours(app.now_playing_palette(), app.palette.accent, dark);
     // Over a light bar the same colour paints more strongly, or white
     // would wash it out.
-    let strength = if dark { 1.0 } else { LIGHT_STRENGTH };
+    let strength = if dark { 1.0 } else { LIGHT_STRENGTH } * boost;
     let painter = ui.painter().with_clip_rect(rect);
     match mode {
         PlayerBarVis::Off => false,
@@ -388,7 +656,20 @@ fn waveform(
 /// Ease the final fill's RGB. Untinted custom panels keep their alpha while
 /// the colour returns to the panel colour.
 fn eased_fill(ctx: &egui::Context, panel: Color32, tint: Option<Color32>) -> Color32 {
-    let target = tint.map_or(panel, |tint| super::blend(panel, tint, TINT_STRENGTH));
+    eased_tint(ctx, "player-bar-tint", panel, tint, TINT_STRENGTH)
+}
+
+/// `panel` carrying `strength` of the playing art's `tint`, crossing over
+/// to a new song's tint in [`TINT_FADE_SECONDS`]. `key` keeps each fill's
+/// fade apart.
+fn eased_tint(
+    ctx: &egui::Context,
+    key: &'static str,
+    panel: Color32,
+    tint: Option<Color32>,
+    strength: f32,
+) -> Color32 {
+    let target = tint.map_or(panel, |tint| super::blend(panel, tint, strength));
     // Color32 stores premultiplied RGB, so interpolate unmultiplied channels.
     let [r, g, b, _] = target.to_srgba_unmultiplied();
     // A new pass after sign-out gets new ids without clearing other animations.
@@ -398,7 +679,7 @@ fn eased_fill(ctx: &egui::Context, panel: Color32, tint: Option<Color32>) -> Col
     });
     let channel = |axis: &'static str, value: u8| {
         ctx.animate_value_with_time(
-            egui::Id::new(("player-bar-tint", session, axis)),
+            egui::Id::new((key, session, axis)),
             f32::from(value),
             crate::motion::seconds(ctx, TINT_FADE_SECONDS),
         )
@@ -684,8 +965,13 @@ fn transport_width() -> f32 {
     TRANSPORT_WIDTHS.iter().sum::<f32>() + TRANSPORT_GAP * 4.0
 }
 
-fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region: Rect) {
-    let palette = app.palette;
+fn transport(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    palette: theme::Palette,
+    now: Option<&NowPlaying>,
+    region: Rect,
+) {
     // Everything here is placed with explicit rects: egui's implicit rows
     // centre each widget in the row height known when it is added, which
     // left earlier icons riding high next to the play disc.
@@ -908,9 +1194,9 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     );
 }
 
-fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_right: f32) {
-    let palette = app.palette;
-    ui.spacing_mut().item_spacing.x = 6.0;
+/// The volume slider and the mute button beside it, as the playing device
+/// allows.
+fn volume(app: &mut App, ui: &mut egui::Ui, palette: theme::Palette, now: Option<&NowPlaying>) {
     let volume = now
         .map(|now| now.volume_percent)
         .unwrap_or_else(|| crate::app::volume_to_percent(app.local.volume));
@@ -981,7 +1267,16 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
             "This device's volume can't be changed from Spotifast",
         ));
     }
-    ui.add_space(4.0);
+}
+
+/// The button that opens the device picker, in the playing device's own
+/// icon while another device plays.
+fn devices_button(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    palette: theme::Palette,
+    now: Option<&NowPlaying>,
+) {
     let remote = now.is_some_and(|now| !now.local);
     // Playing elsewhere, the button shows that device's own icon.
     let icon = now
@@ -1006,6 +1301,50 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     if devices.clicked() {
         app.actions.push(Action::ToggleDevicesPopup);
     }
+}
+
+fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_right: f32) {
+    let palette = app.palette;
+    ui.spacing_mut().item_spacing.x = 6.0;
+    // The full-screen button keeps Spotify's place at the far right, and is
+    // the first to go in a narrow window: it shows only while the controls
+    // beside it, as wide as they were last frame and with Listening
+    // activity where that fits, still clear the transport.
+    let width_id = egui::Id::new(EXTRAS_WIDTH_ID);
+    let room = ui.max_rect().right() - transport_right - TRANSPORT_GAP;
+    let friends = ui.spacing().item_spacing.x + BAR_BUTTON;
+    let slot = BAR_BUTTON + ui.spacing().item_spacing.x + FULLSCREEN_BUTTON_GAP;
+    let mut right = ui.max_rect().right();
+    if ui
+        .ctx()
+        .data(|data| data.get_temp::<f32>(width_id))
+        .is_some_and(|width| {
+            let beside = if width + friends <= room {
+                width + friends
+            } else {
+                width
+            };
+            beside + slot <= room
+        })
+    {
+        if theme::icon_button(
+            ui,
+            Icon::Maximize,
+            18.0,
+            palette.secondary,
+            palette.text,
+            &gettext(app.locale, "Full screen"),
+        )
+        .clicked()
+        {
+            app.actions.push(Action::SetPlayerFullscreen(true));
+        }
+        ui.add_space(FULLSCREEN_BUTTON_GAP);
+        right -= slot;
+    }
+    volume(app, ui, palette, now);
+    ui.add_space(4.0);
+    devices_button(app, ui, palette, now);
     let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
     let queue_button = theme::icon_button(
         ui,
@@ -1049,8 +1388,10 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     {
         app.actions.push(Action::ToggleLyricsPanel);
     }
-    // The Listening activity button is the first to go in a narrow window,
-    // so it never crowds the transport.
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(width_id, right - ui.min_rect().left()));
+    // The Listening activity button goes next in a narrow window, so it
+    // never crowds the transport.
     let left = ui.min_rect().left() - ui.spacing().item_spacing.x - (18.0 + theme::ICON_BUTTON_PAD);
     if left - transport_right >= TRANSPORT_GAP
         && theme::icon_button(

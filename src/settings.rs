@@ -1840,9 +1840,10 @@ pub struct SessionState {
     pub winamp_pos: Option<[f32; 2]>,
     /// Last outer position of the MilkDrop window.
     pub milkdrop_pos: Option<[f32; 2]>,
-    /// The window mode fullscreen lyrics left, when the app closed while
-    /// showing them. eframe restores the window full screen, so the next
-    /// start returns it to this mode instead.
+    /// The window mode a full-screen view, the lyrics or the player, left
+    /// when the app closed while showing it. eframe restores the window
+    /// full screen, so the next start returns it to this mode instead. The
+    /// name is older than the player's full screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lyrics_fullscreen_from: Option<WindowMode>,
 }

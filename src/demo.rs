@@ -1508,7 +1508,16 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.lyrics = Loadable::Loaded(Some(lyrics));
                 app.lyrics_following = true;
                 app.show_lyrics_panel = true;
-                app.lyrics_fullscreen = Some(false);
+                app.fullscreen = Some(false);
+            }
+            // The player bar grown to the whole screen. Give it with
+            // `player-bar-spectrum` or `player-bar-waveform` to see the
+            // visualizer behind the cover. `player-fullscreen-view` draws
+            // it in the window as it is, for shots at a chosen size.
+            "player-fullscreen" => app.actions.push(Action::SetPlayerFullscreen(true)),
+            "player-fullscreen-view" => {
+                app.fullscreen = Some(false);
+                app.fullscreen_view = crate::app::FullScreenView::Player;
             }
             // Emoji in titles, artists, playlist names and lyrics: joined
             // sequences, skin tones, flags and keycaps. Give it after
@@ -2317,7 +2326,7 @@ mod tests {
                 &mut app,
                 vec![accessible_action(expand, AccessibleAction::Click, None)],
             );
-            assert!(app.lyrics_fullscreen.is_some());
+            assert!(app.fullscreen.is_some());
             app.lyrics_following = false;
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let follow =
@@ -2339,9 +2348,9 @@ mod tests {
                 &mut app,
                 vec![accessible_action(leave, AccessibleAction::Click, None)],
             );
-            assert!(app.lyrics_fullscreen.is_none());
+            assert!(app.fullscreen.is_none());
             for fullscreen in [false, true] {
-                app.lyrics_fullscreen = fullscreen.then_some(false);
+                app.fullscreen = fullscreen.then_some(false);
                 app.lyrics = Loadable::Failed("fixture failure".into());
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 let retry = accessible_node(&tree, &gettext(locale, "Try again"), Role::Button);
@@ -2353,7 +2362,7 @@ mod tests {
                 // Offline retries finish without contacting a lyrics provider.
                 assert!(matches!(app.lyrics, Loadable::Loaded(None)));
             }
-            app.lyrics_fullscreen = None;
+            app.fullscreen = None;
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let close = accessible_node(&tree, &gettext(locale, "Close"), Role::Button);
             accessible_frame(
@@ -2376,7 +2385,7 @@ mod tests {
             app.show_lyrics_panel = true;
             app.lyrics_uri = app.now_playing().map(|now| now.uri);
             for fullscreen in [false, true] {
-                app.lyrics_fullscreen = fullscreen.then_some(false);
+                app.fullscreen = fullscreen.then_some(false);
                 let view = |app: &mut App, ui: &mut egui::Ui| app.frame_ui(ui);
                 let mut instrumental = sample_lyrics();
                 instrumental.instrumental = true;
@@ -5348,6 +5357,219 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The bar's full-screen button keeps Spotify's place at the far right
+    /// while there is room for it, and is the first to go in a narrow
+    /// window, before Listening activity, so the controls never crowd the
+    /// transport. It grows the bar to the whole screen.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_full_screen_button_takes_the_far_right_while_there_is_room() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("player-bar-full-screen");
+        apply_flags(&mut app, None, Some("player-bar-spectrum"));
+        let frame = |app: &mut App, width: f32, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+                .platform_output
+                .accesskit_update
+                .expect("screen-reader tree")
+        };
+        let bounds = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            tree.nodes.iter().find_map(|(_, node)| {
+                node.label()
+                    .is_some_and(|name| name.starts_with(label))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+        };
+        let mut shown_at = None;
+        for width in (760..=1400).step_by(20) {
+            let width = width as f32;
+            frame(&mut app, width, vec![]);
+            let tree = frame(&mut app, width, vec![]);
+            let repeat = bounds(&tree, "Repeat").expect("the repeat button");
+            let volume = bounds(&tree, "Volume").expect("the volume slider");
+            let leftmost = ["Listening activity", "Lyrics"]
+                .iter()
+                .find_map(|label| bounds(&tree, label))
+                .expect("the lyrics button");
+            assert!(
+                leftmost.x0 - repeat.x1 >= 9.0,
+                "at {width} the controls crowd the transport: {leftmost:?} by {repeat:?}"
+            );
+            match bounds(&tree, "Full screen") {
+                Some(full_screen) => {
+                    assert!(full_screen.x0 > volume.x1, "at {width} it is the far right");
+                    assert!(
+                        bounds(&tree, "Listening activity").is_some(),
+                        "at {width} it goes before Listening activity"
+                    );
+                    shown_at.get_or_insert(width);
+                }
+                None => assert!(shown_at.is_none(), "at {width} it went away again"),
+            }
+        }
+        let shown_at = shown_at.expect("a normal window shows it");
+        assert!(shown_at > 760.0, "the narrowest window keeps its room");
+        assert!(shown_at <= 900.0, "it shows from {shown_at}");
+
+        let tree = frame(&mut app, 1280.0, vec![]);
+        let full_screen = accessible_node(&tree, "Full screen", Role::Button);
+        app.actions.clear();
+        frame(
+            &mut app,
+            1280.0,
+            vec![accessible_action(
+                full_screen,
+                AccessibleAction::Click,
+                None,
+            )],
+        );
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::SetPlayerFullscreen(true))),
+            "{:?}",
+            app.actions
+        );
+        app.backend.shutdown();
+    }
+
+    /// The player's full screen is the bar grown to the whole window: the
+    /// visualizer across all of it, and the cover over it in the middle
+    /// with the song beneath, in place of the bar.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_players_full_screen_puts_the_cover_over_the_visualizer() {
+        let (ctx, mut app) = accessible_app("player-full-screen");
+        apply_flags(
+            &mut app,
+            None,
+            Some("player-bar-spectrum,player-fullscreen-view"),
+        );
+        let mut shapes = Vec::new();
+        for frame in 0..10 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(f64::from(frame) / 30.0),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1600.0, 900.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            shapes = output.shapes;
+        }
+        let titles: Vec<_> = shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, shape)| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "Rosewood" => {
+                    Some((index, shape.shape.visual_bounding_rect()))
+                }
+                _ => None,
+            })
+            .collect();
+        let [(title_index, title)] = titles[..] else {
+            panic!("the title once, with no player bar: {titles:?}");
+        };
+        assert!((title.center().x - 800.0).abs() < 3.0, "centred: {title:?}");
+        let spectrum = shapes.iter().position(|shape| {
+            matches!(&shape.shape, egui::Shape::Mesh(mesh)
+                if mesh.texture_id == egui::TextureId::default()
+                    && mesh.calc_bounds().width() > 1500.0
+                    && mesh.calc_bounds().height() > 300.0)
+        });
+        let spectrum = spectrum.expect("the spectrum across the window");
+        assert!(spectrum < title_index, "the song is drawn over the bars");
+        app.backend.shutdown();
+    }
+
+    /// The full screen's controls show when it opens and whenever the
+    /// pointer stirs, rest out of sight, with the pointer too, once it has
+    /// been still for a few seconds, and go at once when it leaves.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_players_full_screen_controls_rest_with_the_pointer() {
+        let (ctx, mut app) = accessible_app("player-full-screen-controls");
+        apply_flags(&mut app, None, Some("player-fullscreen-view"));
+        let frame = |app: &mut App, time: f64, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1600.0, 900.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            let tree = output
+                .platform_output
+                .accesskit_update
+                .expect("screen-reader tree");
+            let shown = tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Leave full screen (Esc)")
+                    && node.role() == egui::accesskit::Role::Button
+            });
+            (shown, output.platform_output.cursor_icon)
+        };
+        let middle = egui::pos2(800.0, 300.0);
+        let (shown, _) = frame(&mut app, 0.0, vec![]);
+        assert!(shown, "they show as it opens");
+        let (shown, _) = frame(&mut app, 2.0, vec![egui::Event::PointerMoved(middle)]);
+        assert!(shown);
+        let (shown, _) = frame(&mut app, 4.5, vec![]);
+        assert!(shown, "a move keeps them a while longer");
+        frame(&mut app, 5.2, vec![]);
+        let (shown, cursor) = frame(&mut app, 5.6, vec![]);
+        assert!(!shown, "a still pointer lets them rest");
+        assert_eq!(cursor, egui::CursorIcon::None, "the pointer rests too");
+
+        let moved = egui::pos2(820.0, 310.0);
+        frame(&mut app, 6.0, vec![egui::Event::PointerMoved(moved)]);
+        let (shown, cursor) = frame(&mut app, 6.1, vec![]);
+        assert!(shown, "a move brings them back");
+        assert_ne!(cursor, egui::CursorIcon::None);
+
+        frame(&mut app, 6.2, vec![egui::Event::PointerGone]);
+        let (shown, _) = frame(&mut app, 6.6, vec![]);
+        assert!(!shown, "they go with the pointer");
+
+        // A control with keyboard focus keeps them in reach, and in the
+        // screen reader's tree, however long nothing else stirs.
+        let tab = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(&mut app, 7.0, vec![tab]);
+        frame(&mut app, 7.1, vec![]);
+        assert!(ctx.memory(|memory| memory.focused().is_some()));
+        let (shown, _) = frame(&mut app, 12.0, vec![]);
+        assert!(shown, "a focused control keeps them");
+        app.backend.shutdown();
+    }
+
     /// The empty space's tooltip belongs to the empty space: once shown, it
     /// closes when the pointer moves onto a control drawn over the bar.
     #[cfg(feature = "demo")]
@@ -7340,7 +7562,7 @@ mod tests {
         for fullscreen in [false, true] {
             let (ctx, mut app) = accessible_app(&format!("sung-line-{fullscreen}"));
             app.show_lyrics_panel = true;
-            app.lyrics_fullscreen = Some(fullscreen);
+            app.fullscreen = Some(fullscreen);
             app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
             app.lyrics_following = true;
             let remote = app.remote.as_mut().unwrap();
@@ -7504,7 +7726,7 @@ mod tests {
         app.attach(&ctx);
         populate(&mut app);
         app.show_lyrics_panel = true;
-        app.lyrics_fullscreen = Some(false);
+        app.fullscreen = Some(false);
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.lyrics_following = false;
         let mut sizes = Vec::new();
@@ -7620,9 +7842,9 @@ mod tests {
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.show_lyrics_panel = true;
         frame(&ctx, &mut app);
-        app.lyrics_fullscreen = Some(false);
+        app.fullscreen = Some(false);
         frame(&ctx, &mut app);
-        app.lyrics_fullscreen = None;
+        app.fullscreen = None;
         app.show_lyrics_panel = false;
         for dialog in [
             Dialog::Shortcuts,
@@ -7661,7 +7883,7 @@ mod tests {
             frame(&ctx, &mut app);
         }
         assert!(!app.palette.dark);
-        app.lyrics_fullscreen = Some(false);
+        app.fullscreen = Some(false);
         frame(&ctx, &mut app);
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
