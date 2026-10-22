@@ -206,6 +206,10 @@ Library sidebar to start playing it. A single click still opens the row's page.
 Pointing at a row's cover art also shows a play button, but only when the
 sidebar is not in compact mode.
 
+Drag the sidebar narrow enough and the library becomes a strip of covers.
+Names appear on hover after the usual tooltip delay. The hide control stays
+available, and the compact header controls stay centered over the covers.
+
 ## Playing a song from search
 
 A song picked from the search results plays on its own, and, with Autoplay on,
