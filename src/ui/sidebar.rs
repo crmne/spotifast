@@ -1258,9 +1258,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool
                 }
             }
         });
-    }
-    let sort = selected_sort(app, filter);
-    if !rail {
+        let sort = selected_sort(app, filter);
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             sort_menu(app, ui, filter, sort);
@@ -1304,8 +1302,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool
     }
     ui.add_space(6.0);
 
+    // Cover-only stays tag-free: always list Playlists there, and ignore a
+    // leftover library search so the strip cannot empty itself. The expanded
+    // shelf and query return when the sidebar is widened.
+    let list_filter = if rail { Filter::Playlists } else { filter };
+    let sort = selected_sort(app, list_filter);
+
     // Make sure the selected shelf is loading.
-    match filter {
+    match list_filter {
         Filter::Playlists => {}
         Filter::Albums => {
             if !app.library.albums.loading
@@ -1336,13 +1340,17 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool
         }
     }
 
-    let needle = app.library.filter.trim().to_lowercase();
+    let needle = if rail {
+        String::new()
+    } else {
+        app.library.filter.trim().to_lowercase()
+    };
     let mut entries: Vec<Entry> = Vec::new();
     let art = EntryArt::of(app);
     let mut loading = false;
     let mut error: Option<String> = None;
     let mut more_page: Option<Page> = None;
-    match filter {
+    match list_filter {
         Filter::Playlists => {
             playlist_rows(app, sort, &needle, &mut entries);
             match &app.library.playlists {
@@ -1457,8 +1465,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool
         }
     }
 
-    order_entries(app, filter, sort, &mut entries);
-    let custom_order = filter == Filter::Playlists && sort == LibrarySort::Local;
+    order_entries(app, list_filter, sort, &mut entries);
+    let custom_order = list_filter == Filter::Playlists && sort == LibrarySort::Local;
     let pins = app.settings.library_pins();
     let pinned_rows = entries
         .iter()
@@ -1864,7 +1872,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool
                 if ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
                     && let Some(drag) = egui::DragAndDrop::take_payload::<DragEntry>(ui.ctx())
                 {
-                    if filter == Filter::Playlists {
+                    if list_filter == Filter::Playlists {
                         drop_playlist_row(app, &entries, pinned_rows, slot, &drag.uri);
                     } else {
                         drop_row(app, &entries, pinned_rows, slot, &drag.uri);

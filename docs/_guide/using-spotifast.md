@@ -209,6 +209,8 @@ sidebar is not in compact mode.
 Drag the sidebar narrow enough and the library becomes a strip of covers.
 Names appear on hover after the usual tooltip delay. The hide control stays
 available, and the compact header controls stay centered over the covers.
+Cover-only always shows the Playlists shelf and ignores an open library
+search until you widen the sidebar again.
 
 ## Playing a song from search
 
