@@ -282,6 +282,7 @@ fn finish_entry_interaction(
     cover_took_click: bool,
     custom_order: bool,
     drop_allowed: bool,
+    grid_card: bool,
 ) {
     if response.hovered()
         && let Some(image) = &entry.image
@@ -329,7 +330,7 @@ fn finish_entry_interaction(
             app.actions.push(Action::Open(entry.page.clone()));
         }
     }
-    if !app.settings.sidebar_grid
+    if !grid_card
         && response.double_clicked()
         && entry.folder.is_none()
         && !cover_took_click
@@ -396,7 +397,6 @@ pub(crate) fn selected_sort(app: &App, shelf: Filter) -> LibrarySort {
 }
 
 /// Offer only the sort modes supported by this shelf and queue the selected change.
-#[allow(dead_code)]
 fn sort_menu(app: &mut App, ui: &mut egui::Ui, shelf: Filter, selected: LibrarySort) {
     let locale = app.locale;
     let labels = [
@@ -1121,7 +1121,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool
     ui.add_space(10.0);
 
     let filter_id = egui::Id::new("sidebar-filter");
-    let filter = ui
+    let mut filter = ui
         .data(|data| data.get_temp::<Filter>(filter_id))
         .unwrap_or_default();
     let show_search_id = egui::Id::new("sidebar-show-search");
@@ -1244,7 +1244,45 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool
     });
     ui.add_space(6.0);
 
+    if !rail {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            for (value, label) in [
+                (Filter::Playlists, gettext(locale, "Playlists")),
+                (Filter::Albums, gettext(locale, "Albums")),
+                (Filter::Artists, gettext(locale, "Artists")),
+                (Filter::Podcasts, gettext(locale, "Podcasts")),
+            ] {
+                if theme::soft_button(ui, &palette, None, &label, filter == value).clicked() {
+                    filter = value;
+                }
+            }
+        });
+    }
     let sort = selected_sort(app, filter);
+    if !rail {
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            sort_menu(app, ui, filter, sort);
+            if filter == Filter::Playlists {
+                // Translators: Library filter for playlists created by the signed-in user.
+                let label = gettext(locale, "By You");
+                let by_you = app.settings.library_by_you;
+                let response = theme::soft_button(ui, &palette, None, &label, by_you);
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        by_you,
+                        &*label,
+                    )
+                });
+                if response.clicked() {
+                    app.actions.push(Action::SetLibraryByYou(!by_you));
+                }
+            }
+        });
+    }
     ui.data_mut(|data| {
         data.insert_temp(filter_id, filter);
         data.insert_temp(show_search_id, show_search);
@@ -1811,6 +1849,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool
                     cover_took_click,
                     custom_order,
                     true,
+                    false,
                 );
             });
             if let Some(slot) = reorder_slot {
@@ -2103,6 +2142,7 @@ fn library_grid(
                         cover_took_click,
                         custom_order,
                         pointer.is_some(),
+                        true,
                     );
                 });
             }
