@@ -6,7 +6,7 @@ use egui::{Key, Modifiers};
 
 use crate::app::App;
 use crate::i18n::{Locale, gettext, pgettext};
-use crate::model::{Action, Dialog, Page};
+use crate::model::{Action, Dialog, FullscreenMode, Page};
 
 pub(super) const fn platform_shortcut<'a>(ctrl: &'a str, cmd: &'a str) -> &'a str {
     if cfg!(target_os = "macos") { cmd } else { ctrl }
@@ -124,7 +124,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::NONE, Key::S, Action::ToggleShuffle);
             key(Modifiers::NONE, Key::R, Action::CycleRepeat);
             key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
-            key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
+            if app.lyrics_fullscreen.is_some() {
+                let next = if app.fullscreen_mode == FullscreenMode::Lyrics {
+                    FullscreenMode::NowPlaying
+                } else {
+                    FullscreenMode::Lyrics
+                };
+                key(Modifiers::NONE, Key::L, Action::SetFullscreenMode(next));
+            } else {
+                key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
+            }
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
             key(
                 Modifiers::NONE,
@@ -181,7 +190,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         } else if app.show_devices {
             app.show_devices = false;
         } else if app.lyrics_fullscreen.is_some() {
-            app.actions.push(Action::SetLyricsFullscreen(false));
+            if app.show_queue_panel {
+                app.actions.push(Action::ToggleQueuePanel);
+            } else {
+                app.actions.push(Action::SetLyricsFullscreen(false));
+            }
         }
     }
 }
@@ -668,6 +681,34 @@ mod tests {
             press(&mut app, Key::F, Modifiers::NONE),
             format!("{:?}", [Action::SetLyricsFullscreen(false)]),
             "F leaves lyrics full screen"
+        );
+        app.lyrics_fullscreen = Some(false);
+        app.fullscreen_mode = FullscreenMode::NowPlaying;
+        assert_eq!(
+            press(&mut app, Key::L, Modifiers::NONE),
+            format!("{:?}", [Action::SetFullscreenMode(FullscreenMode::Lyrics)]),
+            "L switches to Lyrics mode in fullscreen"
+        );
+        app.fullscreen_mode = FullscreenMode::Lyrics;
+        assert_eq!(
+            press(&mut app, Key::L, Modifiers::NONE),
+            format!(
+                "{:?}",
+                [Action::SetFullscreenMode(FullscreenMode::NowPlaying)]
+            ),
+            "L switches to Now Playing mode in fullscreen"
+        );
+        app.show_queue_panel = true;
+        assert_eq!(
+            press(&mut app, Key::Escape, Modifiers::NONE),
+            format!("{:?}", [Action::ToggleQueuePanel]),
+            "Escape closes the queue column first in fullscreen"
+        );
+        app.show_queue_panel = false;
+        assert_eq!(
+            press(&mut app, Key::Escape, Modifiers::NONE),
+            format!("{:?}", [Action::SetLyricsFullscreen(false)]),
+            "Escape exits fullscreen when queue is closed"
         );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);

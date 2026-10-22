@@ -1489,6 +1489,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.show_lyrics_panel = true;
                 if surface == "lyrics-fullscreen" {
                     app.actions.push(Action::SetLyricsFullscreen(true));
+                    app.actions
+                        .push(Action::SetFullscreenMode(FullscreenMode::Lyrics));
                 }
             }
             // Full-screen lyrics drawn in the window as it is, for shots at
@@ -1501,6 +1503,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.lyrics_following = true;
                 app.show_lyrics_panel = true;
                 app.lyrics_fullscreen = Some(false);
+                app.fullscreen_mode = FullscreenMode::Lyrics;
             }
             // Emoji in titles, artists, playlist names and lyrics: joined
             // sequences, skin tones, flags and keycaps. Give it after
@@ -2310,6 +2313,7 @@ mod tests {
                 vec![accessible_action(expand, AccessibleAction::Click, None)],
             );
             assert!(app.lyrics_fullscreen.is_some());
+            app.fullscreen_mode = FullscreenMode::Lyrics;
             app.lyrics_following = false;
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let follow =
@@ -2334,6 +2338,9 @@ mod tests {
             assert!(app.lyrics_fullscreen.is_none());
             for fullscreen in [false, true] {
                 app.lyrics_fullscreen = fullscreen.then_some(false);
+                if fullscreen {
+                    app.fullscreen_mode = FullscreenMode::Lyrics;
+                }
                 app.lyrics = Loadable::Failed("fixture failure".into());
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 let retry = accessible_node(&tree, &gettext(locale, "Try again"), Role::Button);
@@ -2369,6 +2376,9 @@ mod tests {
             app.lyrics_uri = app.now_playing().map(|now| now.uri);
             for fullscreen in [false, true] {
                 app.lyrics_fullscreen = fullscreen.then_some(false);
+                if fullscreen {
+                    app.fullscreen_mode = FullscreenMode::Lyrics;
+                }
                 let view = |app: &mut App, ui: &mut egui::Ui| app.frame_ui(ui);
                 let mut instrumental = sample_lyrics();
                 instrumental.instrumental = true;
@@ -7333,6 +7343,7 @@ mod tests {
             let (ctx, mut app) = accessible_app(&format!("sung-line-{fullscreen}"));
             app.show_lyrics_panel = true;
             app.lyrics_fullscreen = Some(fullscreen);
+            app.fullscreen_mode = FullscreenMode::Lyrics;
             app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
             app.lyrics_following = true;
             let remote = app.remote.as_mut().unwrap();
@@ -7497,6 +7508,7 @@ mod tests {
         populate(&mut app);
         app.show_lyrics_panel = true;
         app.lyrics_fullscreen = Some(false);
+        app.fullscreen_mode = FullscreenMode::Lyrics;
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.lyrics_following = false;
         let mut sizes = Vec::new();
