@@ -334,9 +334,9 @@ fn is_media_player_skin<'a>(mut names: impl Iterator<Item = &'a str> + Clone) ->
 /// Whether a file inside a Windows Media Player skin is read: the
 /// definition and the pictures it can name.
 fn wanted_by_media_player(file_name: &str) -> bool {
-    file_name.rsplit_once('.').is_some_and(|(_, extension)| {
-        matches!(extension, "wms" | "bmp" | "png" | "gif" | "jpg" | "jpeg")
-    })
+    file_name
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| matches!(extension, "wms" | "bmp" | "png" | "jpg" | "jpeg"))
 }
 
 /// A definition as text: UTF-8, or UTF-16 with a byte order mark, which
