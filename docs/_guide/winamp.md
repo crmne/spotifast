@@ -35,6 +35,25 @@ Spotifast remembers the window position where your desktop allows it.
 Skins can have transparent areas and shapes other than rectangles. Modern
 Winamp 3 and 5 skin formats are not supported; choose classic Winamp 2 skins.
 
+## Windows Media Player skins
+
+The mini player also wears Windows Media Player skins. Drop a `.wmz` file (or
+an unpacked skin folder with a `.wms` file in it) on either window, exactly as
+with a Winamp skin, and pick it in Settings.
+
+Spotifast draws the skin's pictures, buttons, seek and volume sliders, and
+text showing the song, its artist, and the time. Where a skin has a
+visualisation window, the same bars or sound wave as the Winamp display play
+there (click it to change them). Buttons are recognised by their name or
+script (play, pause, stop, next, previous, mute, shuffle, repeat, minimize,
+close). Close takes you back to the big window.
+
+It does not run a skin's scripts, so panels a script opens (drawers for the
+equalizer or playlist), video, and layouts that stretch with the window do not
+work; skins that depend on them may look incomplete. A Windows Media Player
+skin is drawn at one pixel per screen pixel unless you choose a size from the
+right-click menu. Drag anywhere that is not a control to move the window.
+
 ## Main controls
 
 Most controls match Winamp. As in Winamp, Play on a song that is already
