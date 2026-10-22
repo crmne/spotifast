@@ -3,12 +3,14 @@
 //! A `.wsz` file contains bitmap sprite sheets and two small text files. This
 //! module decodes them to RGBA textures. [`sprites`] defines source coordinates;
 //! [`layout`] defines window positions. Missing files fall back to Spotifast's
-//! built-in classic skin. Modern `.wal` skins are unsupported.
+//! built-in classic skin. Modern `.wal` skins are unsupported. A Windows Media
+//! Player skin (`.wmz`) is read by [`wmp`] and carried on the same type.
 
 pub mod config;
 pub mod font;
 pub mod layout;
 pub mod sprites;
+pub mod wmp;
 pub mod zip;
 
 use std::collections::{HashMap, VecDeque};
@@ -32,6 +34,8 @@ pub enum SkinError {
     ModernSkin,
     #[error("no skin bitmaps were found inside")]
     Empty,
+    #[error("this Windows Media Player skin has no view to draw")]
+    NoView,
 }
 
 /// A decoded bitmap: RGBA, rows top to bottom.
@@ -89,6 +93,9 @@ pub struct Skin {
     pub vis_colors: VisColors,
     /// The windows' shapes, for skins that are not rectangles.
     pub regions: Regions,
+    /// Set when this is a Windows Media Player skin: the mini player then
+    /// draws it instead of the Winamp windows.
+    pub wmp: Option<wmp::Wmp>,
 }
 
 impl Skin {
@@ -107,20 +114,33 @@ impl Skin {
 
     /// Reads a `.wsz` archive. File names are matched without regard to
     /// case or folder, and when a name repeats the last copy wins, which
-    /// is what unpacking onto Winamp's file system produced.
+    /// is what unpacking onto Winamp's file system produced. A `.wmz`
+    /// (a zip with a `.wms` definition and no `main.bmp`) is a Windows
+    /// Media Player skin.
     pub fn from_archive(name: impl Into<String>, bytes: &[u8]) -> Result<Self, SkinError> {
         let name = name.into();
         let archive = zip::Archive::parse(bytes).map_err(|error| match error {
             zip::ZipError::NotAnArchive => SkinError::NotAnArchive,
             other => SkinError::Archive(other),
         })?;
+        let names: Vec<String> = archive
+            .entries()
+            .iter()
+            .filter(|entry| !entry.is_dir())
+            .map(|entry| entry.file_name())
+            .collect();
+        let media_player = is_media_player_skin(names.iter().map(String::as_str));
         let mut files = Files::new();
         for entry in archive.entries() {
             if entry.is_dir() {
                 continue;
             }
             let file_name = entry.file_name();
-            if !wanted(&file_name) {
+            if !(if media_player {
+                wanted_by_media_player(&file_name)
+            } else {
+                wanted(&file_name)
+            }) {
                 continue;
             }
             match archive.read(entry) {
@@ -130,14 +150,18 @@ impl Skin {
                 Err(error) => log::warn!("skin {name}: {error}"),
             }
         }
-        Self::from_files(name, files)
+        if media_player {
+            Self::from_media_player(name, files)
+        } else {
+            Self::from_files(name, files)
+        }
     }
 
     /// Reads an unpacked skin: a folder with the bitmaps in it.
     /// Nested folders are searched breadth first, without following links.
     /// The nearest copy wins; equal-depth paths are read in name order.
     pub fn from_dir(name: impl Into<String>, dir: &Path) -> Result<Self, SkinError> {
-        let mut files = Files::new();
+        let mut found: HashMap<String, std::path::PathBuf> = HashMap::new();
         let mut folders = VecDeque::from([(dir.to_path_buf(), 0)]);
         while let Some((folder, depth)) = folders.pop_front() {
             let mut entries = std::fs::read_dir(folder)?.collect::<Result<Vec<_>, _>>()?;
@@ -148,13 +172,55 @@ impl Skin {
                     folders.push_back((entry.path(), depth + 1));
                 } else if kind.is_file() {
                     let file_name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-                    if wanted(&file_name) && !files.contains_key(&file_name) {
-                        files.insert(file_name, std::fs::read(entry.path())?);
+                    if (wanted(&file_name) || wanted_by_media_player(&file_name))
+                        && !found.contains_key(&file_name)
+                    {
+                        found.insert(file_name, entry.path());
                     }
                 }
             }
         }
-        Self::from_files(name.into(), files)
+        let media_player = is_media_player_skin(found.keys().map(String::as_str));
+        let mut files = Files::new();
+        for (file_name, path) in found {
+            let wanted = if media_player {
+                wanted_by_media_player(&file_name)
+            } else {
+                wanted(&file_name)
+            };
+            if wanted {
+                files.insert(file_name, std::fs::read(path)?);
+            }
+        }
+        if media_player {
+            Self::from_media_player(name.into(), files)
+        } else {
+            Self::from_files(name.into(), files)
+        }
+    }
+
+    /// A Windows Media Player skin: the built-in Winamp sheets stand behind
+    /// it, unused, so that every `Skin` can answer for every sheet.
+    fn from_media_player(name: String, files: Files) -> Result<Self, SkinError> {
+        let mut definitions: Vec<&String> =
+            files.keys().filter(|file| file.ends_with(".wms")).collect();
+        definitions.sort();
+        let wmp = definitions
+            .into_iter()
+            .find_map(|file| {
+                let bytes = &files[file];
+                let text = decode_definition(bytes);
+                wmp::Wmp::parse(&text, &files)
+            })
+            .ok_or(SkinError::NoView)?;
+        Ok(Self {
+            name,
+            sheets: HashMap::new(),
+            playlist: PlaylistStyle::default(),
+            vis_colors: config::DEFAULT_VIS_COLORS,
+            regions: Regions::default(),
+            wmp: Some(wmp),
+        })
     }
 
     fn from_files(name: String, files: Files) -> Result<Self, SkinError> {
@@ -205,6 +271,7 @@ impl Skin {
             playlist,
             vis_colors,
             regions,
+            wmp: None,
         })
     }
 
@@ -254,6 +321,51 @@ impl Skin {
         let bitmap = self.sheet(sprite.sheet);
         let clipped = sprite.clipped_to(bitmap.width, bitmap.height)?;
         Some((bitmap, clipped))
+    }
+}
+
+/// Whether the files make a Windows Media Player skin: a `.wms` definition
+/// and no Winamp main window.
+fn is_media_player_skin<'a>(mut names: impl Iterator<Item = &'a str> + Clone) -> bool {
+    names.clone().any(|name| name.ends_with(".wms"))
+        && !names.any(|name| matches!(name, "main.bmp" | "main.png"))
+}
+
+/// Whether a file inside a Windows Media Player skin is read: the
+/// definition and the pictures it can name.
+fn wanted_by_media_player(file_name: &str) -> bool {
+    file_name.rsplit_once('.').is_some_and(|(_, extension)| {
+        matches!(extension, "wms" | "bmp" | "png" | "gif" | "jpg" | "jpeg")
+    })
+}
+
+/// A definition as text: UTF-8, or UTF-16 with a byte order mark, which
+/// Windows editors write.
+fn decode_definition(bytes: &[u8]) -> String {
+    let utf16 = |rest: &[u8], big: bool| {
+        let units: Vec<u16> = rest
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| {
+                if big {
+                    u16::from_be_bytes([pair[0], pair[1]])
+                } else {
+                    u16::from_le_bytes([pair[0], pair[1]])
+                }
+            })
+            .collect();
+        String::from_utf16_lossy(&units)
+    };
+    match bytes {
+        [0xff, 0xfe, rest @ ..] => utf16(rest, false),
+        [0xfe, 0xff, rest @ ..] => utf16(rest, true),
+        _ => match std::str::from_utf8(bytes) {
+            Ok(text) => text.strip_prefix('\u{feff}').unwrap_or(text).to_owned(),
+            // Older skins are Windows-1252; the symbols they use are the
+            // same as Latin-1 where it matters (copyright lines).
+            Err(_) => bytes.iter().map(|&byte| char::from(byte)).collect(),
+        },
     }
 }
 
@@ -542,6 +654,65 @@ mod tests {
     fn a_file_that_is_not_there_is_an_io_error() {
         let missing = Path::new("/nonexistent/skin.wsz");
         assert!(matches!(Skin::load(missing), Err(SkinError::Io(_))));
+    }
+
+    #[test]
+    fn a_windows_media_player_skin_is_told_from_a_winamp_one() {
+        let definition = br##"<THEME title="Chrome"><VIEW backgroundImage="Back.BMP" transparencyColor="#FF00FF">
+            <BUTTON id="play" left="2" top="3" image="play.png"/></VIEW></THEME>"##;
+        let archive = zip::write(&[
+            ("Chrome/chrome.wms", definition, true),
+            ("Chrome/back.bmp", &bmp(120, 60, [9, 9, 9]), false),
+            ("Chrome/play.png", &png(10, 10, [1, 2, 3]), false),
+            ("Chrome/readme.txt", b"enjoy", false),
+        ]);
+        let skin = Skin::from_archive("Chrome", &archive).unwrap();
+        let wmp = skin.wmp.as_ref().expect("a Windows Media Player skin");
+        assert_eq!((wmp.width, wmp.height), (120, 60));
+        assert_eq!(wmp.buttons.len(), 1);
+        // The Winamp sheets still answer, from the built-in skin.
+        assert_eq!(skin.sheet(Sheet::Main), Skin::builtin().sheet(Sheet::Main));
+        assert!(Skin::builtin().wmp.is_none());
+
+        // A definition with a view, but nothing Winamp-like, in UTF-16.
+        let mut utf16 = vec![0xff, 0xfe];
+        for unit in "<VIEW width=\"30\" height=\"20\"/>".encode_utf16() {
+            utf16.extend_from_slice(&unit.to_le_bytes());
+        }
+        let archive = zip::write(&[("skin.wms", &utf16, false)]);
+        let skin = Skin::from_archive("utf16", &archive).unwrap();
+        assert_eq!(skin.wmp.as_ref().map(|wmp| wmp.width), Some(30));
+
+        let none = zip::write(&[("skin.wms", b"no view here", false)]);
+        assert!(matches!(
+            Skin::from_archive("none", &none),
+            Err(SkinError::NoView)
+        ));
+        // A Winamp main window wins over a stray definition.
+        let both = zip::write(&[
+            ("main.bmp", &png(275, 116, [1, 1, 1]), false),
+            ("old.wms", definition, false),
+        ]);
+        assert!(Skin::from_archive("both", &both).unwrap().wmp.is_none());
+    }
+
+    #[test]
+    fn an_unpacked_windows_media_player_skin_is_listed_and_read() {
+        let dir = std::env::temp_dir().join(format!("spotifast-wmp-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("art")).unwrap();
+        std::fs::write(
+            dir.join("a.wms"),
+            br#"<VIEW backgroundImage="art\bg.png"/>"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("art/bg.png"), png(40, 30, [3, 3, 3])).unwrap();
+        let listed = crate::winamp::list_skins(dir.parent().unwrap())
+            .into_iter()
+            .any(|choice| choice.path == dir);
+        let skin = Skin::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(listed);
+        assert_eq!(skin.wmp.as_ref().map(|wmp| wmp.height), Some(30));
     }
 
     /// Loads every skin in `$SPOTIFAST_SKIN_SAMPLES`, when set, to check
