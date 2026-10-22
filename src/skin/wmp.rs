@@ -1238,6 +1238,17 @@ mod tests {
     }
 
     #[test]
+    fn a_gif_picture_is_read() {
+        let mut gif = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(3, 2, image::Rgb([9, 8, 7]))
+            .write_to(&mut gif, image::ImageFormat::Gif)
+            .unwrap();
+        let skin = files(&[("back.gif", gif.into_inner())]);
+        let wmp = Wmp::parse(r#"<VIEW backgroundImage="Back.GIF"/>"#, &skin).unwrap();
+        assert_eq!((wmp.width, wmp.height), (3, 2));
+    }
+
+    #[test]
     fn a_definition_without_a_view_is_not_a_skin() {
         assert!(Wmp::parse("<THEME/>", &HashMap::new()).is_none());
         assert!(Wmp::parse("just text", &HashMap::new()).is_none());
