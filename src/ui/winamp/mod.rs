@@ -30,6 +30,7 @@ use super::widgets::{SliderEvent, wheel_notches};
 mod equalizer;
 mod pixel_text;
 mod playlist;
+mod wmp;
 
 pub use pixel_text::PixelText;
 
@@ -92,8 +93,7 @@ fn unit(app: &App, ctx: &egui::Context) -> f32 {
 }
 
 /// Fits the window to the skin after the display scale is known.
-fn fit_window(ctx: &egui::Context, settings: &crate::settings::Settings, unit: f32) {
-    let wanted = window_size(settings, unit);
+fn fit_window(ctx: &egui::Context, wanted: Vec2) {
     // Not `inner_rect`: Wayland reports no window positions, so that is
     // `None` there; the screen rect is the window's size on every desktop.
     let current = ctx.viewport_rect().size();
@@ -324,8 +324,12 @@ impl View<'_> {
 /// The whole window, drawn into the root.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
+    if app.winamp.skin.wmp.is_some() {
+        wmp::show(app, ui);
+        return;
+    }
     let unit = unit(app, &ctx);
-    fit_window(&ctx, &app.settings, unit);
+    fit_window(&ctx, window_size(&app.settings, unit));
     let origin = ui.max_rect().min;
     let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
     super::keys::handle(app, &ctx);
