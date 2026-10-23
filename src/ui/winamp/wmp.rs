@@ -300,7 +300,7 @@ fn perform(app: &mut App, ctx: &egui::Context, control: Control, now: Option<&No
         Control::Shuffle => app.actions.push(Action::ToggleShuffle),
         Control::Repeat => app.actions.push(Action::CycleRepeat),
         Control::Close => app.actions.push(Action::ToggleWinampWindow),
-        Control::Minimize => ctx.send_viewport_cmd(ViewportCommand::Minimized(true)),
+        Control::Minimize => crate::window::minimize_window(ctx),
         _ => {}
     }
 }

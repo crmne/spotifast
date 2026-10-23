@@ -41,7 +41,9 @@ impl Control {
         let words = words
             .to_ascii_lowercase()
             .replace("player", "")
-            .replace("preview", "");
+            .replace("preview", "")
+            .replace("playlist", "")
+            .replace("display", "");
         let has = |needles: &[&str]| needles.iter().any(|needle| words.contains(needle));
         if has(&["playpause", "play_pause", "play/pause", "togglepause"])
             || (has(&["play"]) && has(&["pause"]))
@@ -85,7 +87,10 @@ pub struct Box2 {
 
 impl Box2 {
     pub fn contains(&self, x: i32, y: i32) -> bool {
-        x >= self.x && y >= self.y && x < self.x + self.width && y < self.y + self.height
+        x >= self.x
+            && y >= self.y
+            && x < self.x.saturating_add(self.width)
+            && y < self.y.saturating_add(self.height)
     }
 }
 
@@ -237,7 +242,10 @@ impl Wmp {
             let outer = *effects;
             if let Some(video) = parser.videos.iter().find(|video| {
                 outer.contains(video.x, video.y)
-                    && outer.contains(video.x + video.width - 1, video.y + video.height - 1)
+                    && outer.contains(
+                        video.x.saturating_add(video.width).saturating_sub(1),
+                        video.y.saturating_add(video.height).saturating_sub(1),
+                    )
             }) {
                 *effects = *video;
             }
@@ -288,37 +296,37 @@ impl Wmp {
         let (Some(left), Some(top), Some(right), Some(bottom)) = (
             boxes.iter().map(|b| b.x).min(),
             boxes.iter().map(|b| b.y).min(),
-            boxes.iter().map(|b| b.x + b.width).max(),
-            boxes.iter().map(|b| b.y + b.height).max(),
+            boxes.iter().map(|b| b.x.saturating_add(b.width)).max(),
+            boxes.iter().map(|b| b.y.saturating_add(b.height)).max(),
         ) else {
             return;
         };
         for picture in &mut self.pictures {
-            picture.x -= left;
-            picture.y -= top;
+            picture.x = picture.x.saturating_sub(left);
+            picture.y = picture.y.saturating_sub(top);
         }
         for button in &mut self.buttons {
-            button.area.x -= left;
-            button.area.y -= top;
+            button.area.x = button.area.x.saturating_sub(left);
+            button.area.y = button.area.y.saturating_sub(top);
             if let Some((origin, _, _)) = &mut button.mapped {
-                origin.x -= left;
-                origin.y -= top;
+                origin.x = origin.x.saturating_sub(left);
+                origin.y = origin.y.saturating_sub(top);
             }
         }
         for slider in &mut self.sliders {
-            slider.area.x -= left;
-            slider.area.y -= top;
+            slider.area.x = slider.area.x.saturating_sub(left);
+            slider.area.y = slider.area.y.saturating_sub(top);
         }
         for effects in &mut self.effects {
-            effects.x -= left;
-            effects.y -= top;
+            effects.x = effects.x.saturating_sub(left);
+            effects.y = effects.y.saturating_sub(top);
         }
         for text in &mut self.texts {
-            text.area.x -= left;
-            text.area.y -= top;
+            text.area.x = text.area.x.saturating_sub(left);
+            text.area.y = text.area.y.saturating_sub(top);
         }
-        self.width = (right - left) as u32;
-        self.height = (bottom - top) as u32;
+        self.width = right.saturating_sub(left) as u32;
+        self.height = bottom.saturating_sub(top) as u32;
     }
 
     pub fn image(&self, key: &Option<String>) -> Option<&Bitmap> {
@@ -398,9 +406,9 @@ impl Parser<'_> {
                 }
                 continue;
             }
-            let (dx, dy) = offsets
-                .iter()
-                .fold((0, 0), |(x, y), (ox, oy)| (x + ox, y + oy));
+            let (dx, dy) = offsets.iter().fold((0i32, 0i32), |(x, y), (ox, oy)| {
+                (x.saturating_add(*ox), y.saturating_add(*oy))
+            });
             match tag.name.as_str() {
                 "theme" => {
                     self.wmp.title = tag.attr("title").unwrap_or_default().to_owned();
@@ -416,8 +424,8 @@ impl Parser<'_> {
                     if let Some(key) = self.shaped_image(&tag, "backgroundimage") {
                         self.wmp.pictures.push(Picture {
                             key,
-                            x: dx + x,
-                            y: dy + y,
+                            x: dx.saturating_add(x),
+                            y: dy.saturating_add(y),
                             z: tag.number("zindex"),
                             tile: tag
                                 .attr("backgroundtiled")
@@ -438,16 +446,16 @@ impl Parser<'_> {
                     if let Some(key) = &up {
                         self.wmp.pictures.push(Picture {
                             key: key.clone(),
-                            x: dx + tag.number("left"),
-                            y: dy + tag.number("top"),
+                            x: dx.saturating_add(tag.number("left")),
+                            y: dy.saturating_add(tag.number("top")),
                             z: tag.number("zindex"),
                             tile: None,
                         });
                     }
                     self.group = Some(Group {
                         area: Box2 {
-                            x: dx + tag.number("left"),
-                            y: dy + tag.number("top"),
+                            x: dx.saturating_add(tag.number("left")),
+                            y: dy.saturating_add(tag.number("top")),
                             width: tag.number("width"),
                             height: tag.number("height"),
                         },
@@ -468,8 +476,8 @@ impl Parser<'_> {
                 name if name.ends_with("button") => self.button(&tag, (dx, dy)),
                 "effects" | "video" => {
                     let area = Box2 {
-                        x: dx + tag.number("left"),
-                        y: dy + tag.number("top"),
+                        x: dx.saturating_add(tag.number("left")),
+                        y: dy.saturating_add(tag.number("top")),
                         width: tag.number("width"),
                         height: tag.number("height"),
                     };
@@ -547,7 +555,7 @@ impl Parser<'_> {
                     })
                     .unwrap_or(0)
             });
-            *total += sign * value;
+            *total = total.saturating_add(sign.saturating_mul(value));
         };
         for character in expression.trim().trim_end_matches(';').chars() {
             match character {
@@ -658,8 +666,8 @@ impl Parser<'_> {
         };
         let origin = group.area;
         let area = Box2 {
-            x: origin.x + region.x,
-            y: origin.y + region.y,
+            x: origin.x.saturating_add(region.x),
+            y: origin.y.saturating_add(region.y),
             width: region.width,
             height: region.height,
         };
@@ -708,8 +716,8 @@ impl Parser<'_> {
             control: Self::control(tag),
             tooltip: tag.attr("uptooltip").unwrap_or_default().to_owned(),
             area: Box2 {
-                x: dx + tag.number("left"),
-                y: dy + tag.number("top"),
+                x: dx.saturating_add(tag.number("left")),
+                y: dy.saturating_add(tag.number("top")),
                 width,
                 height,
             },
@@ -742,8 +750,8 @@ impl Parser<'_> {
             .image(&background)
             .map_or((0, 0), |bitmap| (bitmap.width as i32, bitmap.height as i32));
         let area = Box2 {
-            x: dx + tag.number("left"),
-            y: dy + tag.number("top"),
+            x: dx.saturating_add(tag.number("left")),
+            y: dy.saturating_add(tag.number("top")),
             width: match tag.number("width") {
                 0 => track_width,
                 width => width,
@@ -807,8 +815,8 @@ impl Parser<'_> {
             field,
             literal,
             area: Box2 {
-                x: dx + tag.number("left"),
-                y: dy + tag.number("top"),
+                x: dx.saturating_add(tag.number("left")),
+                y: dy.saturating_add(tag.number("top")),
                 width: tag.number("width"),
                 // A text with no height is one line of its type.
                 height: match tag.number("height") {
@@ -1037,6 +1045,8 @@ mod tests {
             ("nextelement", Control::Next),
             ("prevelement", Control::Previous),
             ("Equalizer", Control::Inert),
+            ("PlaylistBtn", Control::Inert),
+            ("displayelement", Control::Inert),
             (
                 "jscript:player.URL=\'x_056k.asx\'; preview56_btn",
                 Control::Inert,
@@ -1044,6 +1054,31 @@ mod tests {
         ] {
             assert_eq!(Control::infer(words), control, "{words}");
         }
+    }
+
+    #[test]
+    fn crafted_coordinates_saturate_instead_of_overflowing() {
+        let skin = files(&[("bg.png", png(10, 10, |_, _| [9, 9, 9]))]);
+        let _ = Wmp::parse(
+            r##"<THEME title="T"><VIEW width="2147483647" height="2147483647">
+              <SUBVIEW left="2147483647" top="2147483647" width="2147483647" height="2147483647">
+                <SUBVIEW left="2147483647" top="2147483647">
+                  <BUTTON left="2147483647" top="2147483647" width="2147483647" height="2147483647" id="PlayBtn"/>
+                  <VIDEO left="2147483647" top="2147483647" width="2147483647" height="2147483647"/>
+                  <TEXT left="2147483647 + 2147483647" top="-2147483647 - 2147483647" width="5" height="5"/>
+                </SUBVIEW>
+              </SUBVIEW></VIEW></THEME>"##,
+            &skin,
+        );
+        assert!(
+            !Box2 {
+                x: i32::MAX,
+                y: i32::MAX,
+                width: i32::MAX,
+                height: i32::MAX
+            }
+            .contains(0, 0)
+        );
     }
 
     #[test]
