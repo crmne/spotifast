@@ -24,11 +24,92 @@ use protobuf::{EnumOrUnknown, Message as _};
 
 use crate::api::ApiError;
 use crate::api::models::{
-    Album, ArtistRef, Episode, Image, Owner, Page, PlayableItem, Playlist, PlaylistItem, Show,
-    Track, TrackCount, UserRef,
+    Album, Artist, ArtistRef, Episode, Image, Owner, Page, PlayableItem, Playlist, PlaylistItem,
+    Show, Track, TrackCount, UserRef,
 };
 
 const IMAGE_HOST: &str = "https://i.scdn.co/image/";
+
+/// Related artist cards from Spotify's session-backed Pathfinder request.
+pub async fn related_artists(
+    session: &Session,
+    web: &crate::api::ApiClient,
+    id: &str,
+) -> Result<Vec<Artist>, Failure> {
+    let login = session.login5().auth_token().await?;
+    let client_token = session.spclient().client_token().await?;
+    let query = serde_json::json!({
+        "operationName": "queryArtistRelated",
+        "variables": {"uri": format!("spotify:artist:{id}")},
+        "extensions": {"persistedQuery": {
+            "version": 1,
+            "sha256Hash": "3d031d6cb22a2aa7c8d203d49b49df731f58b1e2799cc38d9876d58771aa66f3"
+        }}
+    });
+    let body = web
+        .partner_request(&login.access_token, &client_token, &query)
+        .await
+        .map_err(|error| Failure::Retry(error.into()))?;
+    related_artist_headers(&body)
+}
+
+fn related_artist_headers(body: &serde_json::Value) -> Result<Vec<Artist>, Failure> {
+    let entries = body
+        .pointer("/data/artistUnion/relatedContent/relatedArtists/items")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            Failure::Retry(anyhow::anyhow!("Spotify related artists are unavailable"))
+        })?;
+    let mut found = Vec::new();
+    for data in entries {
+        let Some(uri) = data.get("uri").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Ok(SpotifyUri::Artist { id }) = SpotifyUri::from_uri(uri) else {
+            continue;
+        };
+        let id = id.to_base62();
+        let Some(name) = data
+            .pointer("/profile/name")
+            .and_then(serde_json::Value::as_str)
+            .filter(|name| !name.trim().is_empty())
+        else {
+            continue;
+        };
+        let images = data
+            .pointer("/visuals/avatarImage/sources")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|source| {
+                Some(Image {
+                    url: source.get("url")?.as_str()?.to_string(),
+                    width: source
+                        .get("width")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|size| u32::try_from(size).ok()),
+                    height: source
+                        .get("height")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|size| u32::try_from(size).ok()),
+                })
+            })
+            .collect();
+        found.push(Artist {
+            id,
+            uri: uri.to_string(),
+            name: name.to_string(),
+            images,
+            ..Default::default()
+        });
+    }
+    if !entries.is_empty() && found.is_empty() {
+        return Err(Failure::Retry(anyhow::anyhow!(
+            "Spotify related artist cards could not be decoded"
+        )));
+    }
+    Ok(found)
+}
 
 /// Popular tracks in the playback account's market, retaining Spotify's ranking.
 pub async fn artist_top_tracks(session: &Session, id: &str) -> Result<Vec<Track>, Failure> {
@@ -1914,6 +1995,51 @@ mod tests {
     use librespot_metadata::Metadata as _;
 
     use super::*;
+
+    #[test]
+    fn related_artist_cards_keep_order_identity_and_images() {
+        let body = serde_json::json!({"data":{"artistUnion":{"relatedContent":{"relatedArtists":{"items":[
+            {"uri":"spotify:artist:0000000000000000000002", "profile":{"name":"Second artist"},
+             "visuals":{"avatarImage":{"sources":[{"url":"https://example.invalid/avatar.jpg","width":640,"height":640}]}}},
+            {"uri":"spotify:track:0000000000000000000003", "profile":{"name":"Not an artist"}},
+            {"uri":"spotify:artist:0000000000000000000001", "profile":{"name":"First artist"}}
+        ]}}}}});
+        let artists = related_artist_headers(&body).unwrap();
+        assert_eq!(
+            artists
+                .iter()
+                .map(|artist| artist.id.as_str())
+                .collect::<Vec<_>>(),
+            ["0000000000000000000002", "0000000000000000000001"]
+        );
+        assert_eq!(artists[0].uri, "spotify:artist:0000000000000000000002");
+        assert_eq!(artists[0].name, "Second artist");
+        assert_eq!(
+            artists[0].images[0].url,
+            "https://example.invalid/avatar.jpg"
+        );
+        assert_eq!(artists[0].images[0].width, Some(640));
+        assert_eq!(artists[0].images[0].height, Some(640));
+        assert!(artists[1].images.is_empty());
+    }
+
+    #[test]
+    fn related_artists_keep_explicit_empty_but_retry_unknown_payloads() {
+        let empty = serde_json::json!({"data":{"artistUnion":{"relatedContent":{"relatedArtists":{"items":[]}}}}});
+        assert!(related_artist_headers(&empty).unwrap().is_empty());
+        for body in [
+            serde_json::json!({}),
+            serde_json::json!({"data":{"artistUnion":{"relatedContent":{"relatedArtists":{"items":[
+                {"uri":"spotify:artist:0000000000000000000001"},
+                {"uri":"spotify:artist:0000000000000000000002", "profile":{"name":" "}}
+            ]}}}}}),
+        ] {
+            assert!(matches!(
+                related_artist_headers(&body),
+                Err(Failure::Retry(_))
+            ));
+        }
+    }
 
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const EPISODE: &str = "spotify:episode:7GhIk7Il098yCjg4BQjzvb";

@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, watch};
 
 use crate::api::models::*;
 use crate::api::{
-    AccountId, ApiError, ApiGateway, ApiSource, NetActivity, Operation, PlayRequest, PlaylistId,
-    SessionState, TokenProvider, WebTokens,
+    AccountId, ApiClient, ApiError, ApiGateway, ApiSource, NetActivity, Operation, PlayRequest,
+    PlaylistId, SessionState, TokenProvider, WebTokens,
 };
 use crate::credentials::{
     Grant as StoredGrant, Lease as CredentialLease, Slot as CredentialSlot,
@@ -4774,9 +4774,8 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
             Operation::PlaylistMutation(api.playlist_access(playlist_id))
         }
         ApiRequest::ArtistTopTracks { .. } => Operation::ArtistTopTracks,
-        ApiRequest::Recommendations { .. } | ApiRequest::RelatedArtists { .. } => {
-            Operation::UnsupportedDevelopmentMode
-        }
+        ApiRequest::RelatedArtists { .. } => Operation::RelatedArtists,
+        ApiRequest::Recommendations { .. } => Operation::UnsupportedDevelopmentMode,
         ApiRequest::Artist { .. }
         | ApiRequest::ArtistAlbums { .. }
         | ApiRequest::Album { .. }
@@ -5220,7 +5219,8 @@ async fn handle(
             } else {
                 None
             };
-            over_session(engine, &request).await
+            let web = api.prerelease_http_client();
+            over_session(engine, web.as_deref(), &request).await
         };
         if let Some(response) = response {
             log::debug!("Spotify route operation={operation:?} source=session");
@@ -5818,9 +5818,13 @@ async fn library_over_session(api: &ApiGateway, operation: Operation) -> bool {
     operation == Operation::PlaylistLibrary && !api.shared_available().await
 }
 
-/// Answers a playlist or popular-track read over the streaming session. `None` when the
+/// Answers a supported read over the streaming session. `None` when the
 /// session could not, leaving the request to the Web API.
-async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiResponse> {
+async fn over_session(
+    engine: &Engine,
+    web: Option<&ApiClient>,
+    request: &ApiRequest,
+) -> Option<ApiResponse> {
     let session = engine.session();
     let read = async {
         Some(match session_read(request)? {
@@ -5836,6 +5840,9 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
             SessionRead::ArtistTop { id } => SessionAnswer::ArtistTop(settle(
                 session_reads::artist_top_tracks(session, id).await,
             )?),
+            SessionRead::RelatedArtists { id } => SessionAnswer::RelatedArtists(settle(
+                session_reads::related_artists(session, web?, id).await,
+            )?),
             SessionRead::Library => {
                 SessionAnswer::Library(settle(session_reads::library(session).await)?)
             }
@@ -5848,12 +5855,15 @@ async fn over_session(engine: &Engine, request: &ApiRequest) -> Option<ApiRespon
     session_response(request, answer?)
 }
 
-/// The read a request asks of the session: a playlist's header, a page of
-/// its rows, or a sample of who added them, which needs no song details.
+/// The read a request asks of the session: artist cards or popular tracks,
+/// a playlist's header, a page of rows, or a sample of who added them.
 /// Anything else, a duplicate check among them, is the Web API's even
 /// where the session serves the operation.
 #[derive(Debug, PartialEq)]
 enum SessionRead<'a> {
+    RelatedArtists {
+        id: &'a str,
+    },
     ArtistTop {
         id: &'a str,
     },
@@ -5874,6 +5884,7 @@ enum SessionRead<'a> {
 
 fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
     Some(match request {
+        ApiRequest::RelatedArtists { id } => SessionRead::RelatedArtists { id },
         ApiRequest::ArtistTopTracks { id } => SessionRead::ArtistTop { id },
         ApiRequest::Playlist { id, .. } => SessionRead::Header { id },
         ApiRequest::PlaylistItems { id, offset, .. } => SessionRead::Rows {
@@ -5889,9 +5900,10 @@ fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
     })
 }
 
-/// What the session read: a playlist's header, a page of its rows, or the
-/// whole playlist library.
+/// What the session read: artist cards or tracks, a playlist's header,
+/// a page of its rows, or the whole playlist library.
 enum SessionAnswer {
+    RelatedArtists(ApiResult<Vec<Artist>>),
     ArtistTop(ApiResult<Vec<Track>>),
     Header(Box<ApiResult<Playlist>>),
     Rows(ApiResult<Page<PlaylistItem>>),
@@ -5902,6 +5914,12 @@ enum SessionAnswer {
 /// offset, and generation so the app matches it to the page that asked.
 fn session_response(request: &ApiRequest, answer: SessionAnswer) -> Option<ApiResponse> {
     Some(match (request, answer) {
+        (ApiRequest::RelatedArtists { id }, SessionAnswer::RelatedArtists(result)) => {
+            ApiResponse::RelatedArtists {
+                id: id.clone(),
+                result,
+            }
+        }
         (ApiRequest::ArtistTopTracks { id }, SessionAnswer::ArtistTop(result)) => {
             ApiResponse::ArtistTopTracks {
                 id: id.clone(),
@@ -8877,6 +8895,39 @@ mod session_tests {
     }
 
     /// Popular-track responses retain artist identity and the existing fallback/error policy.
+    #[test]
+    fn related_artists_can_bypass_the_shared_web_api() {
+        let api = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        let request = ApiRequest::RelatedArtists {
+            id: "artist1".into(),
+        };
+        assert!(
+            api.session_serves(operation_for(&api, &request)),
+            "a playback session must serve related artists before Shared quota"
+        );
+        assert!(
+            session_read(&request).is_some(),
+            "the eligible request needs a real session read"
+        );
+        assert_eq!(operation_for(&api, &request), Operation::RelatedArtists);
+        assert_eq!(
+            session_read(&request),
+            Some(SessionRead::RelatedArtists { id: "artist1" })
+        );
+        assert!(matches!(
+            session_response(&request, SessionAnswer::RelatedArtists(Ok(Vec::new()))),
+            Some(ApiResponse::RelatedArtists { id, result: Ok(artists) })
+                if id == "artist1" && artists.is_empty()
+        ));
+        assert!(
+            settle(Err::<Vec<Artist>, Failure>(Failure::Retry(
+                anyhow::anyhow!("private read unavailable")
+            )))
+            .is_none(),
+            "a transient session error must retain Web API fallback"
+        );
+    }
+
     #[test]
     fn popular_tracks_keep_the_requested_artist_and_existing_failure_policy() {
         let api = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
