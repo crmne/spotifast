@@ -33,7 +33,7 @@ pub fn marquee_strip(text: &str) -> String {
 /// How long a listing of the skins folder is trusted.
 const CHOICES_FRESH: Duration = Duration::from_secs(5);
 /// File extensions a skin archive may carry.
-const ARCHIVE_EXTENSIONS: [&str; 2] = ["wsz", "zip"];
+const ARCHIVE_EXTENSIONS: [&str; 3] = ["wsz", "wmz", "zip"];
 
 /// A skin in the skins folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +74,8 @@ pub struct WinampState {
     /// The skin's sheets on the graphics card, made on demand and dropped
     /// with the window, since textures belong to a window's context.
     textures: HashMap<Sheet, egui::TextureHandle>,
+    /// A Windows Media Player skin's pictures, by their keys.
+    wmp_textures: HashMap<String, egui::TextureHandle>,
     loading: Option<mpsc::Receiver<Loaded>>,
     /// The skins folder's contents, as last listed.
     pub choices: Vec<SkinChoice>,
@@ -117,6 +119,7 @@ impl WinampState {
             skin: Skin::builtin(),
             worn: None,
             textures: HashMap::new(),
+            wmp_textures: HashMap::new(),
             loading: None,
             choices: Vec::new(),
             choices_listed: None,
@@ -161,11 +164,13 @@ impl WinampState {
         self.skin = skin;
         self.worn = name;
         self.textures.clear();
+        self.wmp_textures.clear();
     }
 
     /// The window is gone (or about to be), and with it the textures.
     pub fn forget_textures(&mut self) {
         self.textures.clear();
+        self.wmp_textures.clear();
         self.playlist_text.clear();
     }
 
@@ -190,6 +195,30 @@ impl WinampState {
         self.textures
             .iter()
             .map(|(sheet, handle)| (*sheet, handle.id()))
+            .collect()
+    }
+
+    /// The Windows Media Player skin's pictures as textures, made now if
+    /// they are not yet. Empty for a Winamp skin.
+    pub fn wmp_textures(&mut self, ctx: &egui::Context) -> HashMap<String, egui::TextureId> {
+        let Some(wmp) = self.skin.wmp.as_ref() else {
+            return HashMap::new();
+        };
+        for (key, bitmap) in &wmp.images {
+            if self.wmp_textures.contains_key(key) {
+                continue;
+            }
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [bitmap.width as usize, bitmap.height as usize],
+                &bitmap.rgba,
+            );
+            let handle =
+                ctx.load_texture(format!("wmp-{key}"), image, egui::TextureOptions::LINEAR);
+            self.wmp_textures.insert(key.clone(), handle);
+        }
+        self.wmp_textures
+            .iter()
+            .map(|(key, handle)| (key.clone(), handle.id()))
             .collect()
     }
 
@@ -362,7 +391,7 @@ fn has_main_bitmap(folder: &Path) -> bool {
                 folders.push_back((entry.path(), depth + 1));
             } else if kind.is_file() {
                 let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-                if name == "main.bmp" || name == "main.png" {
+                if name == "main.bmp" || name == "main.png" || name.ends_with(".wms") {
                     return true;
                 }
             }

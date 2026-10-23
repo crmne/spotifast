@@ -81,7 +81,7 @@ and [How it connects](https://spotifast.rocks/how-it-connects/) for the details.
 
 ## The Winamp mini player
 
-A classic look for your music, with Winamp 2 `.wsz` skins, an equalizer,
+A classic look for your music, with Winamp 2 `.wsz` and Windows Media Player `.wmz` skins, an equalizer,
 a playlist, and animated sound displays. Switch with **Ctrl+M**
 (**Cmd+Shift+M** on macOS), the shrink button, or Settings.
 
