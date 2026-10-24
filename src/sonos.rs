@@ -167,7 +167,7 @@ pub fn command_body(
             "repeating_track": repeat == "track",
         }),
         // Volume has its own endpoint, see `set_volume`.
-        RemoteAction::Volume => return None,
+        RemoteAction::Volume { .. } => return None,
     };
     Some(json!({ "command": command }))
 }
@@ -380,7 +380,7 @@ mod tests {
     fn play_without_a_request_resumes() {
         let body = command_body(RemoteAction::Play, None, 0, false, "").unwrap();
         assert_eq!(body["command"]["endpoint"], "resume");
-        assert!(command_body(RemoteAction::Volume, None, 0, false, "").is_none());
+        assert!(command_body(RemoteAction::Volume { request: 1 }, None, 0, false, "").is_none());
     }
 
     #[test]
