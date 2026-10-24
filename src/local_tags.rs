@@ -98,11 +98,16 @@ pub fn picture(path: &Path) -> Option<Vec<u8>> {
 /// beside it first, then the lyrics in its tags.
 pub fn lyrics(path: &Path) -> Option<crate::lyrics::Lyrics> {
     let sidecar = path.with_extension("lrc");
-    if let Some(found) = std::fs::read(&sidecar)
-        .ok()
-        .and_then(|bytes| crate::lyrics::from_text(&String::from_utf8_lossy(&bytes)))
-    {
-        return Some(found);
+    if let Ok(bytes) = std::fs::read(&sidecar) {
+        // A `.lrc` file saved on Windows often starts with a byte order
+        // mark, and U+FEFF is not whitespace, so `trim_start` leaves it on
+        // the first line: that line's stamp stops being a stamp and the
+        // line is lost.
+        let text = String::from_utf8_lossy(&bytes);
+        let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+        if let Some(found) = crate::lyrics::from_text(text) {
+            return Some(found);
+        }
     }
     embedded(path)
         .lyrics
@@ -259,6 +264,26 @@ pub(crate) mod tests {
         let bare = dir.join("bare.mp3");
         std::fs::write(&bare, mp3_with(&[])).unwrap();
         assert!(lyrics(&bare).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A `.lrc` file saved with a byte order mark keeps its first line,
+    /// whose stamp the mark used to hide.
+    #[test]
+    fn a_lyrics_file_saved_with_a_byte_order_mark_keeps_its_first_line() {
+        let dir = folder("bom");
+        let song = dir.join("song.mp3");
+        std::fs::write(&song, mp3_with(&[])).unwrap();
+        std::fs::write(
+            dir.join("song.lrc"),
+            b"\xef\xbb\xbf[00:01.00]First line\n[00:02.00]Second line\n",
+        )
+        .unwrap();
+        let found = lyrics(&song).unwrap();
+        assert!(found.synced);
+        assert_eq!(found.lines.len(), 2);
+        assert_eq!(found.lines[0].text, "First line");
+        assert_eq!(found.lines[0].at_ms, Some(1_000));
         let _ = std::fs::remove_dir_all(dir);
     }
 }
