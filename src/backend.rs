@@ -112,7 +112,10 @@ pub enum RemoteAction {
     Next,
     Previous,
     Seek,
-    Volume,
+    /// Echo the adjustment's serial so late replies cannot settle a newer one.
+    Volume {
+        request: u64,
+    },
     Shuffle,
     Repeat,
 }
@@ -5644,7 +5647,7 @@ async fn handle(
                 RemoteAction::Next => routed!(next(device)),
                 RemoteAction::Previous => routed!(previous(device)),
                 RemoteAction::Seek => routed!(seek(position_ms, device)),
-                RemoteAction::Volume => routed!(set_volume(percent, device)),
+                RemoteAction::Volume { .. } => routed!(set_volume(percent, device)),
                 RemoteAction::Shuffle => routed!(set_shuffle(flag, device)),
                 RemoteAction::Repeat => routed!(set_repeat(&repeat, device)),
             };
