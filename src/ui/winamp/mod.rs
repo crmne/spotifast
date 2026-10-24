@@ -237,7 +237,12 @@ impl View<'_> {
 
     fn interact(&mut self, area: Area, id: &str, sense: Sense) -> Response {
         let rect = self.rect(area);
-        self.ui.interact(rect, Id::new(("winamp", id)), sense)
+        let response = self.ui.interact(rect, Id::new(("winamp", id)), sense);
+        if sense.senses_click() && !sense.senses_drag() {
+            response.on_hover_cursor(egui::CursorIcon::PointingHand)
+        } else {
+            response
+        }
     }
 
     /// A button drawn pressed while the pointer holds it down.
@@ -294,6 +299,12 @@ impl View<'_> {
         if response.drag_stopped() {
             self.ui.data_mut(|data| data.remove::<bool>(grabbed));
         }
+        let cursor = if response.dragged() && on_track {
+            egui::CursorIcon::Grabbing
+        } else {
+            egui::CursorIcon::PointingHand
+        };
+        let response = response.on_hover_and_drag_cursor(cursor);
         if !on_track {
             return (response, SliderEvent::None);
         }
@@ -791,6 +802,7 @@ pub(super) fn menu<R>(
         style.spacing.interact_size = vec2(font * 2.0, font + 2.0);
         style.spacing.menu_margin = egui::Margin::same(margin as i8);
         let visuals = &mut style.visuals;
+        visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
         visuals.window_fill = background;
         visuals.panel_fill = background;
         visuals.window_stroke = egui::Stroke::new(1.0, text.gamma_multiply(0.5));
@@ -1558,6 +1570,47 @@ fn shuffle_repeat(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_enabled_click_controls_get_a_hand_cursor() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let skin = Skin::builtin();
+        let textures = HashMap::new();
+        for (sense, enabled, expected) in [
+            (Sense::click(), true, egui::CursorIcon::PointingHand),
+            (Sense::click(), false, egui::CursorIcon::Default),
+            (Sense::click_and_drag(), true, egui::CursorIcon::Default),
+            (Sense::drag(), true, egui::CursorIcon::Default),
+            (Sense::hover(), true, egui::CursorIcon::Default),
+        ] {
+            for frame in 0..2 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        events: vec![egui::Event::PointerMoved(pos2(30.0, 30.0))],
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ui.add_enabled_ui(enabled, |ui| {
+                            let mut view = View {
+                                ui,
+                                origin: Pos2::ZERO,
+                                unit: 1.0,
+                                skin: &skin,
+                                textures: &textures,
+                                mask: None,
+                            };
+                            view.interact(Area::new(10, 10, 80, 40), "cursor", sense);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                if frame == 1 {
+                    assert_eq!(output.platform_output.cursor_icon, expected);
+                }
+            }
+        }
+    }
 
     fn now(title: &str, subtitle: &str, duration_ms: u32) -> NowPlaying {
         NowPlaying {

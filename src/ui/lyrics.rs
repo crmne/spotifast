@@ -268,6 +268,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     )
                 };
                 crate::autoscroll::row(ui, &response);
+                let response = if lyrics.synced && line.at_ms.is_some() {
+                    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+                } else {
+                    response
+                };
                 let rect = response.rect;
                 if lyrics.synced
                     && response.clicked()
@@ -816,6 +821,11 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                         ui.add(egui::Label::new(galley).sense(sense))
                     })
                     .inner;
+                let response = if lyrics.synced && line.at_ms.is_some() {
+                    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+                } else {
+                    response
+                };
                 let rect = response.rect;
                 if lyrics.synced
                     && response.clicked()

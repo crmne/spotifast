@@ -371,16 +371,18 @@ fn sort_menu(app: &mut App, ui: &mut egui::Ui, shelf: Filter, selected: LibraryS
         .find(|(sort, _)| *sort == selected)
         .expect("sort label")
         .1;
-    let response = ui.add(
-        egui::Button::image_and_text(
-            Icon::ChevronDown.image(app.palette.text, 15.0),
-            egui::RichText::new(label.as_ref()).font(theme::medium(13.0)),
+    let response = ui
+        .add(
+            egui::Button::image_and_text(
+                Icon::ChevronDown.image(app.palette.text, 15.0),
+                egui::RichText::new(label.as_ref()).font(theme::medium(13.0)),
+            )
+            .wrap()
+            .fill(app.palette.surface)
+            .corner_radius(12)
+            .min_size(vec2(0.0, 28.0)),
         )
-        .wrap()
-        .fill(app.palette.surface)
-        .corner_radius(12)
-        .min_size(vec2(0.0, 28.0)),
-    );
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
     egui::Popup::menu(&response)
         .frame(super::widgets::menu_frame(&app.palette))
         .show(|ui| {
@@ -684,11 +686,13 @@ fn paint_expanded_art(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
     );
     let over_chevron = ui.rect_contains_pointer(chevron_rect);
     if art.hovered() || over_chevron {
-        let chevron = ui.interact(
-            chevron_rect,
-            egui::Id::new("sidebar-art-collapse"),
-            Sense::click(),
-        );
+        let chevron = ui
+            .interact(
+                chevron_rect,
+                egui::Id::new("sidebar-art-collapse"),
+                Sense::click(),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
         ui.painter().circle_filled(
             chevron_rect.center(),
             10.0,
@@ -931,11 +935,12 @@ fn nav_row(
 ) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
     if ui.is_rect_visible(rect) {
-        let color = if active || response.hovered() {
+        let color: egui::Color32 = if active || response.hovered() {
             palette.text
         } else {
             palette.secondary
         };
+
         let icon_rect =
             Rect::from_center_size(pos2(rect.left() + 22.0, rect.center().y), Vec2::splat(22.0));
         icon.image(color, 22.0).paint_at(ui, icon_rect);
@@ -951,7 +956,7 @@ fn nav_row(
         egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), active, label)
     });
     theme::focus_ring(ui, &response);
-    response
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// Draw Library navigation, shelf controls, search, and the visible rows.
@@ -1408,6 +1413,13 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     entry.folder.as_ref().map(|(id, _, _)| id),
                 ));
                 let response = ui.interact(rect, id, Sense::click_and_drag());
+                let dragging =
+                    response.dragged() || response.drag_started_by(egui::PointerButton::Primary);
+                let response = if !dragging {
+                    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+                } else {
+                    response
+                };
                 response.widget_info(|| {
                     egui::WidgetInfo::selected(
                         egui::WidgetType::Button,
@@ -1773,6 +1785,13 @@ fn library_grid(
                         vec2(layout.card_width, layout.card_height),
                         Sense::click_and_drag(),
                     );
+                    let dragging = response.dragged()
+                        || response.drag_started_by(egui::PointerButton::Primary);
+                    let response = if !dragging {
+                        response.on_hover_cursor(egui::CursorIcon::PointingHand)
+                    } else {
+                        response
+                    };
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(
                             egui::WidgetType::Button,
