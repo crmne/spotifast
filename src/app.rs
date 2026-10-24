@@ -577,6 +577,7 @@ pub struct App {
     pub lyrics_fullscreen_seen: bool,
     lyrics_fullscreen_restoring: Option<bool>,
     lyrics_restore_maximized: bool,
+    pub fullscreen_mode: FullscreenMode,
     pub lyrics_backdrop: crate::images::LyricsBackdrop,
     pub softened_covers: crate::images::SoftenedCovers,
     /// The track the lyrics below are for.
@@ -1195,6 +1196,7 @@ impl App {
             lyrics_fullscreen_seen: false,
             lyrics_fullscreen_restoring: None,
             lyrics_restore_maximized: false,
+            fullscreen_mode: FullscreenMode::NowPlaying,
             lyrics_backdrop: Default::default(),
             softened_covers: Default::default(),
             lyrics_uri: None,
@@ -10492,6 +10494,7 @@ impl App {
             self.lyrics_fullscreen_restoring = Some(was_fullscreen);
             self.lyrics_fullscreen_seen = false;
             self.lyrics_line_shown = None;
+            self.fullscreen_mode = FullscreenMode::NowPlaying;
         }
     }
 
@@ -11322,8 +11325,13 @@ impl App {
                 }
             }
             Action::ToggleLyricsPanel => {
+                let was_fullscreen = self.lyrics_fullscreen.is_some();
                 self.leave_lyrics_fullscreen(ctx);
-                self.show_lyrics_panel = !self.show_lyrics_panel;
+                if was_fullscreen {
+                    self.show_lyrics_panel = false;
+                } else {
+                    self.show_lyrics_panel = !self.show_lyrics_panel;
+                }
                 if self.show_lyrics_panel {
                     self.show_queue_panel = false;
                     self.show_friends_panel = false;
@@ -11341,6 +11349,9 @@ impl App {
             }
             Action::SetLyricsFullscreen(fullscreen) => {
                 if fullscreen && self.lyrics_fullscreen.is_none() {
+                    if self.fullscreen_mode != FullscreenMode::Lyrics {
+                        self.fullscreen_mode = FullscreenMode::NowPlaying;
+                    }
                     self.lyrics_fullscreen =
                         Some(self.lyrics_fullscreen_restoring.take().unwrap_or_else(|| {
                             ctx.input(|input| input.viewport().fullscreen.unwrap_or(false))
@@ -11361,8 +11372,8 @@ impl App {
                     // The queue flag is preserved: an open side panel becomes
                     // the fullscreen queue column instead of vanishing. The
                     // lyrics panel yields, so normal mode never shows both.
-                    if !self.show_queue_panel {
-                        self.show_lyrics_panel = true;
+                    if self.show_queue_panel {
+                        self.show_lyrics_panel = false;
                     }
                     self.show_friends_panel = false;
                     self.lyrics_following = true;
@@ -11371,6 +11382,12 @@ impl App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
                 } else if !fullscreen {
                     self.leave_lyrics_fullscreen(ctx);
+                }
+            }
+            Action::SetFullscreenMode(mode) => {
+                self.fullscreen_mode = mode;
+                if mode == FullscreenMode::Lyrics {
+                    self.request_lyrics();
                 }
             }
             Action::LyricsLineShown(line) => {
@@ -14242,13 +14259,13 @@ mod tests {
     }
 
     /// Entering fullscreen never leaves both side panels open: the
-    /// queue wins when it is already showing, otherwise lyrics opens.
+    /// queue wins when it is already showing, otherwise existing panel state is kept.
     #[test]
     fn entering_fullscreen_keeps_a_single_panel() {
         let mut app = headless_app();
         let ctx = egui::Context::default();
         app.show_queue_panel = true;
-        app.show_lyrics_panel = false;
+        app.show_lyrics_panel = true;
         app.apply(Action::SetLyricsFullscreen(true), &ctx);
         assert!(app.show_queue_panel);
         assert!(
@@ -14260,10 +14277,17 @@ mod tests {
         app.show_lyrics_panel = false;
         app.apply(Action::SetLyricsFullscreen(true), &ctx);
         assert!(
-            app.show_lyrics_panel,
-            "without a queue, entering still opens lyrics"
+            !app.show_lyrics_panel,
+            "without a queue or lyrics panel, entering does not open lyrics"
         );
         assert!(!app.show_queue_panel);
+        app.lyrics_fullscreen = None;
+        app.show_lyrics_panel = true;
+        app.apply(Action::SetLyricsFullscreen(true), &ctx);
+        assert!(
+            app.show_lyrics_panel,
+            "entering with lyrics panel open preserves lyrics panel"
+        );
     }
 
     /// Narrowing the fullscreen queue column survives leaving fullscreen:
@@ -14379,6 +14403,100 @@ mod tests {
             fullscreen_column_drag_width(FULLSCREEN_COLUMN_MIN, 10.0),
             FULLSCREEN_COLUMN_MIN
         );
+    }
+
+    #[test]
+    fn fullscreen_mode_defaults_to_now_playing_and_switches_to_lyrics() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        // 1. Player-bar Expand opens Now Playing with lyrics panel closed.
+        assert!(!app.show_lyrics_panel);
+        app.apply(Action::SetLyricsFullscreen(true), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::NowPlaying);
+        assert!(!app.show_lyrics_panel);
+
+        // 2. Shrink exits fullscreen without unexpectedly opening the lyrics panel.
+        app.apply(Action::SetLyricsFullscreen(false), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::NowPlaying);
+        assert!(app.lyrics_fullscreen.is_none());
+        assert!(!app.show_lyrics_panel);
+
+        // 3. Lyrics side-panel Expand opens fullscreen in Lyrics mode.
+        app.show_lyrics_panel = true;
+        app.apply(Action::SetLyricsFullscreen(true), &ctx);
+        app.apply(Action::SetFullscreenMode(FullscreenMode::Lyrics), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::Lyrics);
+        assert!(app.show_lyrics_panel);
+
+        // 4. Header controls switch modes without leaving fullscreen.
+        app.apply(Action::SetFullscreenMode(FullscreenMode::NowPlaying), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::NowPlaying);
+        assert!(app.lyrics_fullscreen.is_some());
+
+        app.apply(Action::SetFullscreenMode(FullscreenMode::Lyrics), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::Lyrics);
+        assert!(app.lyrics_fullscreen.is_some());
+
+        // Shrink exits fullscreen returning to the previous lyrics panel view.
+        app.apply(Action::SetLyricsFullscreen(false), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::NowPlaying);
+        assert!(app.lyrics_fullscreen.is_none());
+        assert!(app.show_lyrics_panel);
+
+        // Queueing SetFullscreenMode before SetLyricsFullscreen also preserves Lyrics mode.
+        app.apply(Action::SetFullscreenMode(FullscreenMode::Lyrics), &ctx);
+        app.apply(Action::SetLyricsFullscreen(true), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::Lyrics);
+
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn track_change_preserves_fullscreen_mode() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.on_now_playing_changed();
+        app.apply(Action::SetLyricsFullscreen(true), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::NowPlaying);
+
+        app.apply(Action::SetFullscreenMode(FullscreenMode::Lyrics), &ctx);
+        assert_eq!(app.fullscreen_mode, FullscreenMode::Lyrics);
+
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:b".into(),
+            ..Default::default()
+        });
+        app.on_now_playing_changed();
+        assert_eq!(
+            app.fullscreen_mode,
+            FullscreenMode::Lyrics,
+            "track change does not overwrite the chosen fullscreen mode"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn fullscreen_empty_states_distinguish_now_playing_from_lyrics() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        app.lyrics_fullscreen = Some(false);
+        assert!(app.now_playing().is_none());
+
+        app.fullscreen_mode = FullscreenMode::NowPlaying;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.frame_ui(ui));
+        output.textures_delta.clear();
+
+        app.fullscreen_mode = FullscreenMode::Lyrics;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.frame_ui(ui));
+        output.textures_delta.clear();
+
+        app.backend.shutdown();
     }
 
     #[test]
@@ -23055,6 +23173,7 @@ mod tests {
                 .get_mut(&egui::ViewportId::ROOT)
                 .unwrap()
                 .fullscreen = Some(was_fullscreen);
+            app.show_lyrics_panel = true;
             let mut output = ctx.run_ui(input, |ui| {
                 app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
                 assert!(app.show_lyrics_panel);

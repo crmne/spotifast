@@ -220,6 +220,14 @@ impl QueueTab {
     }
 }
 
+/// The mode shown in the central area of fullscreen: artwork-focused Now Playing or synchronized Lyrics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FullscreenMode {
+    #[default]
+    NowPlaying,
+    Lyrics,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Loadable<T> {
     #[default]
@@ -1255,6 +1263,7 @@ pub enum Action {
     /// Show or hide what friends are listening to, in the right panel.
     ToggleFriendsPanel,
     SetLyricsFullscreen(bool),
+    SetFullscreenMode(FullscreenMode),
     LyricsLineShown(Option<usize>),
     FollowLyrics,
     PauseLyricsFollow,

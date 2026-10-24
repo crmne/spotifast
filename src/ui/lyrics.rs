@@ -4,7 +4,7 @@ use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, pos2, 
 
 use crate::app::App;
 use crate::i18n::{gettext, pgettext};
-use crate::model::{Action, Loadable};
+use crate::model::{Action, FullscreenMode, Loadable};
 use crate::theme::{self, Icon};
 
 use super::widgets;
@@ -92,6 +92,8 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 .clicked()
                 {
                     app.actions.push(Action::SetLyricsFullscreen(true));
+                    app.actions
+                        .push(Action::SetFullscreenMode(FullscreenMode::Lyrics));
                 }
                 let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
                 if loaded
@@ -318,7 +320,11 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
             let rect = ui.max_rect();
             background(app, ui, rect);
             let top = theme::titlebar_inset(ui.ctx()) + 24.0;
-            if app.now_playing().is_some() && rect.width() >= COVER_BESIDE_MIN_WIDTH {
+            if app.now_playing().is_some()
+                && (rect.width() >= COVER_BESIDE_MIN_WIDTH
+                    || app.fullscreen_mode == FullscreenMode::NowPlaying
+                    || app.show_queue_panel)
+            {
                 with_cover(app, ui, rect, top);
                 return;
             }
@@ -357,10 +363,11 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
         pos2(outer.left(), header.min_rect().bottom() + 24.0),
         outer.max,
     );
-    // The cover moves aside only for words to read. While they load it
+    // The cover moves aside only for words to read in lyrics mode. While they load it
     // stays in the middle, so a song that turns out to have none never
     // moves at all.
     let words = matches!(&app.lyrics, Loadable::Loaded(Some(lyrics)) if !lyrics.instrumental);
+    let show_lyrics = app.fullscreen_mode == FullscreenMode::Lyrics && words;
     // The queue docks right while its flag is on, in both arrangements.
     // Without it the room below is untouched, preserving the stock layout.
     let gap = 64.0;
@@ -384,7 +391,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
         let mut queue_ui = ui.new_child(UiBuilder::new().max_rect(queue_rect));
         super::queue::fullscreen_column(app, &mut queue_ui);
     }
-    if words {
+    if show_lyrics {
         if app.show_queue_panel {
             // The cover docks left; the lyrics take the middle that remains.
             let room = lyrics_end - below.left();
@@ -438,60 +445,64 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
         let column = Rect::from_center_size(span.center(), vec2(side, side + 90.0));
         big_cover(app, ui, column, Align::Center);
         // Why there are no words, quietly, under the song, or that they
-        // are still being fetched.
-        let (heading, detail) = match &app.lyrics {
-            Loadable::Loaded(Some(_)) => (
-                gettext(app.locale, "Instrumental"),
-                gettext(app.locale, "No timed lyrics for this track."),
-            ),
-            Loadable::Loaded(None) => (
-                gettext(app.locale, "No lyrics"),
-                gettext(app.locale, "No lyrics found for this track."),
-            ),
-            Loadable::Failed(error) => (
-                gettext(
-                    app.locale,
-                    // Translators: Keep {error} unchanged. It is the original failure detail.
-                    "Couldn't fetch the lyrics: {error}",
-                )
-                .replace("{error}", error)
-                .into(),
-                Default::default(),
-            ),
-            Loadable::NotLoaded | Loadable::Loading => {
-                (gettext(app.locale, "Loading…"), Default::default())
-            }
-        };
-        let heading = ui.painter().text(
-            pos2(column.center().x, column.bottom() + 8.0),
-            egui::Align2::CENTER_TOP,
-            heading,
-            theme::semibold(13.0),
-            Color32::from_gray(200),
-        );
-        if matches!(app.lyrics, Loadable::Failed(_)) {
-            let retry = Rect::from_center_size(
-                pos2(column.center().x, heading.bottom() + 24.0),
-                vec2(column.width(), 32.0),
+        // are still being fetched, when lyrics mode is active.
+        if app.fullscreen_mode == FullscreenMode::Lyrics {
+            let (heading, detail) = match &app.lyrics {
+                Loadable::Loaded(Some(_)) => (
+                    gettext(app.locale, "Instrumental"),
+                    gettext(app.locale, "No timed lyrics for this track."),
+                ),
+                Loadable::Loaded(None) => (
+                    gettext(app.locale, "No lyrics"),
+                    gettext(app.locale, "No lyrics found for this track."),
+                ),
+                Loadable::Failed(error) => (
+                    gettext(
+                        app.locale,
+                        // Translators: Keep {error} unchanged. It is the original failure detail.
+                        "Couldn't fetch the lyrics: {error}",
+                    )
+                    .replace("{error}", error)
+                    .into(),
+                    Default::default(),
+                ),
+                Loadable::NotLoaded | Loadable::Loading => {
+                    (gettext(app.locale, "Loading…"), Default::default())
+                }
+            };
+            let heading = ui.painter().text(
+                pos2(column.center().x, column.bottom() + 8.0),
+                egui::Align2::CENTER_TOP,
+                heading,
+                theme::semibold(13.0),
+                Color32::from_gray(200),
             );
-            let mut retry_ui = ui.new_child(
-                UiBuilder::new()
-                    .max_rect(retry)
-                    .layout(Layout::top_down(Align::Center)),
-            );
-            let label = gettext(app.locale, "Try again");
-            if theme::pill_button(&mut retry_ui, &theme::Palette::dark(), &label, false).clicked() {
-                app.actions.push(Action::RetryLyrics);
+            if matches!(app.lyrics, Loadable::Failed(_)) {
+                let retry = Rect::from_center_size(
+                    pos2(column.center().x, heading.bottom() + 24.0),
+                    vec2(column.width(), 32.0),
+                );
+                let mut retry_ui = ui.new_child(
+                    UiBuilder::new()
+                        .max_rect(retry)
+                        .layout(Layout::top_down(Align::Center)),
+                );
+                let label = gettext(app.locale, "Try again");
+                if theme::pill_button(&mut retry_ui, &theme::Palette::dark(), &label, false)
+                    .clicked()
+                {
+                    app.actions.push(Action::RetryLyrics);
+                }
+                return;
             }
-            return;
+            ui.painter().text(
+                pos2(column.center().x, heading.bottom() + 4.0),
+                egui::Align2::CENTER_TOP,
+                detail,
+                theme::regular(13.0),
+                Color32::from_gray(170),
+            );
         }
-        ui.painter().text(
-            pos2(column.center().x, heading.bottom() + 4.0),
-            egui::Align2::CENTER_TOP,
-            detail,
-            theme::regular(13.0),
-            Color32::from_gray(170),
-        );
     }
 }
 
@@ -595,12 +606,11 @@ fn cover_uv(view: egui::Vec2, image: egui::Vec2) -> Rect {
 fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
     let palette = theme::Palette::dark();
     ui.horizontal(|ui| {
-        theme::text(
-            ui,
-            gettext(app.locale, "Lyrics"),
-            theme::bold(18.0),
-            palette.text,
-        );
+        let title = match app.fullscreen_mode {
+            FullscreenMode::NowPlaying => gettext(app.locale, "Now playing"),
+            FullscreenMode::Lyrics => gettext(app.locale, "Lyrics"),
+        };
+        theme::text(ui, title, theme::bold(18.0), palette.text);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if theme::icon_button(
                 ui,
@@ -614,18 +624,70 @@ fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
             {
                 app.actions.push(Action::SetLyricsFullscreen(false));
             }
-            let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
-            if loaded
-                && !app.lyrics_following
-                && theme::pill_button(
-                    ui,
-                    &palette,
-                    &pgettext(app.locale, "lyrics", "Follow"),
-                    false,
-                )
-                .clicked()
+            if theme::icon_button(
+                ui,
+                Icon::ListVideo,
+                18.0,
+                if app.show_queue_panel {
+                    palette.accent
+                } else {
+                    palette.secondary
+                },
+                palette.text,
+                &gettext(app.locale, "Queue"),
+            )
+            .clicked()
             {
-                app.actions.push(Action::FollowLyrics);
+                app.actions.push(Action::ToggleQueuePanel);
+            }
+            if theme::icon_button(
+                ui,
+                Icon::Mic,
+                18.0,
+                if app.fullscreen_mode == FullscreenMode::Lyrics {
+                    palette.accent
+                } else {
+                    palette.secondary
+                },
+                palette.text,
+                &gettext(app.locale, "Lyrics"),
+            )
+            .clicked()
+            {
+                app.actions
+                    .push(Action::SetFullscreenMode(FullscreenMode::Lyrics));
+            }
+            if theme::icon_button(
+                ui,
+                Icon::Music,
+                18.0,
+                if app.fullscreen_mode == FullscreenMode::NowPlaying {
+                    palette.accent
+                } else {
+                    palette.secondary
+                },
+                palette.text,
+                &gettext(app.locale, "Now playing"),
+            )
+            .clicked()
+            {
+                app.actions
+                    .push(Action::SetFullscreenMode(FullscreenMode::NowPlaying));
+            }
+            if app.fullscreen_mode == FullscreenMode::Lyrics {
+                let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
+                if loaded
+                    && !app.lyrics_following
+                    && theme::pill_button(
+                        ui,
+                        &palette,
+                        &pgettext(app.locale, "lyrics", "Follow"),
+                        false,
+                    )
+                    .clicked()
+                {
+                    app.actions.push(Action::FollowLyrics);
+                }
             }
         });
     });
@@ -670,13 +732,23 @@ fn track_heading(app: &App, ui: &mut egui::Ui) {
 fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
     let palette = theme::Palette::dark();
     let Some(now) = app.now_playing() else {
-        widgets::empty_state(
-            ui,
-            &palette,
-            Icon::Mic,
-            &gettext(app.locale, "Nothing playing"),
-            &gettext(app.locale, "Play a song to see its lyrics."),
-        );
+        if app.fullscreen_mode == FullscreenMode::NowPlaying {
+            widgets::empty_state(
+                ui,
+                &palette,
+                Icon::Music,
+                &gettext(app.locale, "Nothing playing"),
+                &gettext(app.locale, "Pick a song, album, or playlist"),
+            );
+        } else {
+            widgets::empty_state(
+                ui,
+                &palette,
+                Icon::Mic,
+                &gettext(app.locale, "Nothing playing"),
+                &gettext(app.locale, "Play a song to see its lyrics."),
+            );
+        }
         return;
     };
     let lyrics = match &app.lyrics {

@@ -4,7 +4,7 @@ use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, 
 
 use crate::app::{App, NowPlaying};
 use crate::i18n::gettext;
-use crate::model::{Action, DragTrack, Page};
+use crate::model::{Action, DragTrack, FullscreenMode, Page};
 use crate::player::RepeatMode;
 use crate::theme::{self, Icon};
 use crate::util;
@@ -911,6 +911,41 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_right: f32) {
     let palette = app.palette;
     ui.spacing_mut().item_spacing.x = 6.0;
+    let in_fullscreen = app.lyrics_fullscreen.is_some();
+    // Space needed for volume slider (64px), 4 required icon buttons (mute,
+    // devices, queue, lyrics), the fullscreen button, padding, and the transport gap.
+    let required_gap = 64.0
+        + (18.0 + theme::ICON_BUTTON_PAD) * 5.0
+        + 4.0
+        + ui.spacing().item_spacing.x * 5.0
+        + TRANSPORT_GAP;
+    let show_fullscreen = ui.max_rect().right() - transport_right >= required_gap;
+    if show_fullscreen
+        && theme::icon_button(
+            ui,
+            if in_fullscreen {
+                Icon::Shrink
+            } else {
+                Icon::Expand
+            },
+            18.0,
+            if in_fullscreen {
+                palette.accent
+            } else {
+                palette.secondary
+            },
+            palette.text,
+            &if in_fullscreen {
+                gettext(app.locale, "Leave full screen (Esc)")
+            } else {
+                gettext(app.locale, "Full screen")
+            },
+        )
+        .clicked()
+    {
+        app.actions
+            .push(Action::SetLyricsFullscreen(!in_fullscreen));
+    }
     let volume = now
         .map(|now| now.volume_percent)
         .unwrap_or_else(|| crate::app::volume_to_percent(app.local.volume));
@@ -929,7 +964,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
             egui::Id::new("volume-slider"),
             &gettext(app.locale, "Volume (%)"),
             shown as f32 / 100.0,
-            92.0,
+            64.0,
             Some(0.05),
         ) {
             SliderEvent::Dragging(value) => {
@@ -1033,11 +1068,16 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
                 .collect(),
         });
     }
+    let lyrics_active = if app.lyrics_fullscreen.is_some() {
+        app.fullscreen_mode == FullscreenMode::Lyrics
+    } else {
+        app.show_lyrics_panel
+    };
     if theme::icon_button(
         ui,
         Icon::Mic,
         18.0,
-        if app.show_lyrics_panel {
+        if lyrics_active {
             palette.accent
         } else {
             palette.secondary
@@ -1047,7 +1087,16 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     )
     .clicked()
     {
-        app.actions.push(Action::ToggleLyricsPanel);
+        if app.lyrics_fullscreen.is_some() {
+            let next_mode = if app.fullscreen_mode == FullscreenMode::Lyrics {
+                FullscreenMode::NowPlaying
+            } else {
+                FullscreenMode::Lyrics
+            };
+            app.actions.push(Action::SetFullscreenMode(next_mode));
+        } else {
+            app.actions.push(Action::ToggleLyricsPanel);
+        }
     }
     // The Listening activity button is the first to go in a narrow window,
     // so it never crowds the transport.
