@@ -11246,11 +11246,11 @@ impl App {
                     self.load_recents(false);
                 }
             }
-            Action::LoadMoreArtistAlbums(id) => {
+            Action::LoadMoreArtistAlbums { id, filter } => {
                 let Some(page) = self.artist_pages.get_mut(&id) else {
                     return;
                 };
-                let groups = page.filter.groups().to_string();
+                let groups = filter.groups().to_string();
                 let list = page.albums.entry(groups.clone()).or_default();
                 if let Some(offset) = list.next_offset.filter(|_| list.can_load_more()) {
                     list.loading = true;
