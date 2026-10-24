@@ -84,6 +84,7 @@ and [How it connects](https://spotifast.rocks/how-it-connects/) for the details.
 A classic look for your music, with Winamp 2 `.wsz` skins, an equalizer,
 a playlist, and animated sound displays. Switch with **Ctrl+M**
 (**Cmd+Shift+M** on macOS), the shrink button, or Settings.
+The spectrum analyser and oscilloscope also work in the collapsed title bar.
 
 <p align="center">
   <img src="docs/assets/images/winamp.png" alt="Spotifast's Winamp mini player with the built-in skin, equalizer, and playlist" width="320">

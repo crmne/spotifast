@@ -148,6 +148,7 @@ pub const EQ_SHADE_BALANCE: Area = Area::new(164, 4, 43, 7);
 pub const EQ_SHADE_THUMB: u32 = 3;
 
 /// Shade mode: the main window as one title bar.
+pub const SHADE_VISUALIZER: Area = Area::new(79, 5, 38, 5);
 pub const SHADE_TIME: Area = Area::new(127, 4, 30, 6);
 pub const SHADE_PREVIOUS: Area = Area::new(169, 2, 7, 10);
 pub const SHADE_PLAY: Area = Area::new(176, 2, 10, 10);

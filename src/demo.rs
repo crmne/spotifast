@@ -1412,12 +1412,22 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.actions.push(Action::Next);
             }
             // Use the built-in skin for deterministic screenshots.
-            "winamp" => {
+            "winamp" | "winamp-bars" | "winamp-scope" => {
                 app.settings.winamp_window = true;
                 app.settings.skin = None;
                 // Two screen pixels per skin pixel, whatever the display, so
                 // captures match the pages that show them.
                 app.settings.skin_scale = Some(2);
+                if surface != "winamp" {
+                    app.settings.vis = if surface == "winamp-bars" {
+                        crate::settings::VisMode::Bars
+                    } else {
+                        crate::settings::VisMode::Scope
+                    };
+                    play_here(app);
+                    app.local.playback = crate::player::Playback::Playing;
+                    app.winamp.tap.push(&demo_sound(), 1.0);
+                }
             }
             "playlist" => app.settings.playlist_open = true,
             "shade" => app.settings.winamp_shaded = true,
@@ -6607,6 +6617,143 @@ mod tests {
             app.frame_ui(ui);
         });
         output.textures_delta.clear();
+    }
+
+    /// The rolled-up player keeps the real analyser, its repaint cadence,
+    /// and its local-audio-only behaviour inside the skin's tiny display.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_collapsed_winamp_visualizer_draws_and_repaints_only_while_moving() {
+        use crate::settings::VisMode;
+        let (ctx, mut app) = accessible_app("winamp-shade-vis");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("winamp-bars,shade"));
+        let mut frame = 0;
+        let mut draw = |app: &mut App| {
+            frame += 1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(f64::from(frame) / 60.0),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(550.0, 28.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| crate::ui::winamp::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let display = egui::Rect::from_min_size(egui::pos2(158.0, 10.0), egui::vec2(76.0, 10.0));
+        let pixels = |output: &egui::FullOutput| {
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Rect(rect)
+                        if display.contains_rect(rect.rect) && rect.rect != display =>
+                    {
+                        Some(rect.rect)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let wants_frames = |output: &egui::FullOutput| {
+            output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                < std::time::Duration::from_millis(100)
+        };
+        draw(&mut app);
+        let bars = draw(&mut app);
+        assert!(!pixels(&bars).is_empty(), "local sound draws compact bars");
+        assert!(
+            wants_frames(&bars),
+            "shade mode must keep the animation cadence"
+        );
+        assert!(!app.winamp.analyser.settled());
+
+        // A loading/live item can have no seek duration. That early return
+        // must still report that the visualiser is moving.
+        app.local.track.as_mut().unwrap().duration_ms = 0;
+        assert!(wants_frames(&draw(&mut app)));
+
+        app.settings.vis = VisMode::Scope;
+        let wave = draw(&mut app);
+        assert_ne!(pixels(&wave), pixels(&bars));
+        assert!(wants_frames(&wave));
+        assert!(
+            pixels(&wave)
+                .iter()
+                .any(|rect| rect.top() != pixels(&wave)[0].top())
+        );
+
+        app.local.playback = crate::player::Playback::Paused;
+        draw(&mut app);
+        let paused = draw(&mut app);
+        let flat = pixels(&paused);
+        assert!(!flat.is_empty());
+        assert!(flat.iter().all(|rect| rect.top() == flat[0].top()));
+        assert!(
+            !wants_frames(&paused),
+            "a paused scope needs no animation frames"
+        );
+
+        app.settings.vis = VisMode::Off;
+        draw(&mut app);
+        let off = draw(&mut app);
+        assert!(pixels(&off).is_empty());
+        assert!(!wants_frames(&off));
+
+        // A remote device must not display the old samples left in the tap.
+        app.local = Default::default();
+        assert!(app.now_playing().is_some_and(|now| !now.local));
+        app.settings.vis = VisMode::Bars;
+        app.winamp.analyser.reset();
+        draw(&mut app);
+        let remote = draw(&mut app);
+        assert!(pixels(&remote).is_empty());
+        assert!(!wants_frames(&remote));
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn clicking_the_collapsed_visualizer_cycles_without_unshading_or_seeking() {
+        use crate::settings::VisMode;
+        let (ctx, mut app) = accessible_app("winamp-shade-vis-click");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("winamp-bars,shade"));
+        let draw = |app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        crate::ui::winamp::initial_size(&app.settings),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::winamp::show(app, ui),
+            );
+            output.textures_delta.clear();
+        };
+        // The hit target scales with the skin, and remains active when off.
+        for scale in 1..=4 {
+            app.settings.skin_scale = Some(scale);
+            for mode in [VisMode::Bars, VisMode::Scope, VisMode::Off] {
+                app.settings.vis = mode;
+                draw(&mut app, Vec::new());
+                draw(&mut app, Vec::new());
+                app.actions.clear();
+                let at = egui::pos2(98.0, 7.0) * f32::from(scale);
+                draw(&mut app, pointer_click(at, egui::PointerButton::Primary));
+                assert!(matches!(app.actions.as_slice(), [Action::CycleVisualiser]));
+                assert!(app.settings.winamp_shaded);
+                assert!(!app.winamp.time_remaining);
+            }
+        }
+        app.backend.shutdown();
     }
 
     /// A click just past the end of the mini player's volume bar is near

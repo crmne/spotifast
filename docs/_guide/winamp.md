@@ -50,8 +50,10 @@ Click the time to switch between elapsed and remaining time. The balance and
 MONO/STEREO controls affect playback on this computer. Quit from the
 right-click menu or with Ctrl+Q.
 
-The shade button, or a double-click on the title bar, rolls the player up. The
-playlist and equalizer have their own shade buttons.
+The shade button, or a double-click on the title bar, rolls the player up. Its
+tiny spectrum analyser or oscilloscope keeps moving in the collapsed bar;
+click the display to cycle through bars, waveform and off, just like the full
+player. The playlist and equalizer have their own shade buttons.
 
 Switching to the main window and back keeps the shade modes and restores the
 mini player's own position. It does not inherit the main window's fullscreen

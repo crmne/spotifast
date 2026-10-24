@@ -352,8 +352,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         mask,
     };
     let vis_moving = if shaded {
-        shade_bar(app, &mut view, &ctx, focused, now.as_ref());
-        false
+        shade_bar(app, &mut view, &ctx, focused, now.as_ref())
     } else {
         full_window(app, &mut view, &ctx, focused, now.as_ref(), time)
     };
@@ -422,7 +421,7 @@ fn full_window(
     clutter_bar(app, view, now);
     status(app, view, now);
     time_display(app, view, now, time);
-    let vis_moving = visualiser(app, view, now);
+    let vis_moving = visualiser(app, view, now, layout::VISUALIZER);
     marquee(app, view, now);
     rates(app, view, now);
     sliders(app, view, now);
@@ -444,14 +443,15 @@ fn full_window(
 }
 
 /// The main window rolled up: the bar with the time in the small font,
-/// a little transport, and a little seek bar, as Winamp's shade mode had.
+/// a little visualiser, transport and seek bar. Returns whether the
+/// visualiser is still moving, just as the full window does.
 fn shade_bar(
     app: &mut App,
     view: &mut View,
     ctx: &egui::Context,
     focused: bool,
     now: Option<&NowPlaying>,
-) {
+) -> bool {
     let bar = if focused {
         sprites::SHADE_BAR_ACTIVE
     } else {
@@ -556,6 +556,8 @@ fn shade_bar(
         view.text(&text, layout::SHADE_TIME);
     }
 
+    let vis_moving = visualiser(app, view, now, layout::SHADE_VISUALIZER);
+
     // The little transport: painted into the bar, so these only listen.
     let mini: [(&str, Area); 6] = [
         ("previous", layout::SHADE_PREVIOUS),
@@ -593,7 +595,7 @@ fn shade_bar(
     // The little seek bar.
     view.sprite(sprites::SHADE_POSITION_TRACK, layout::SHADE_POSITION);
     let Some(now) = now.filter(|now| now.duration_ms > 0 && !stopped(Some(now))) else {
-        return;
+        return vis_moving;
     };
     let (response, event) = view.slider(layout::SHADE_POSITION, "shade-position", 3);
     match event {
@@ -620,6 +622,7 @@ fn shade_bar(
         layout::SHADE_POSITION.x + (fraction * travel as f32).round() as u32,
         layout::SHADE_POSITION.y,
     );
+    vis_moving
 }
 
 fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool) {
@@ -946,12 +949,11 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     });
 }
 
-/// The display's left box: the spectrum analyser, the oscilloscope, or
-/// nothing, in the skin's own colours. A click, or V, goes to the next.
+/// The full or rolled-up display: the spectrum analyser, the oscilloscope,
+/// or nothing, in the skin's own colours. A click goes to the next.
 /// Only sound from this computer passes the tap; a device across the room
 /// leaves the bars flat. Returns whether anything is still moving.
-fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool {
-    let area = layout::VISUALIZER;
+fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>, area: Area) -> bool {
     if view.interact(area, "visualiser", Sense::click()).clicked() {
         app.actions.push(Action::CycleVisualiser);
     }
@@ -963,11 +965,15 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
     let color =
         |index: usize| Color32::from_rgb(palette[index][0], palette[index][1], palette[index][2]);
     view.fill(area.x, area.y, area.width, area.height, color(0));
-    for y in (0..area.height).step_by(2) {
-        for x in (0..area.width).step_by(2) {
-            view.fill(area.x + x, area.y + y, 1, 1, color(1));
+    let compact = area == layout::SHADE_VISUALIZER;
+    if !compact {
+        for y in (0..area.height).step_by(2) {
+            for x in (0..area.width).step_by(2) {
+                view.fill(area.x + x, area.y + y, 1, 1, color(1));
+            }
         }
     }
+    let row_at = |row: u8| u32::from(row) * area.height / u32::from(vis::ROWS);
     let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
     match mode {
         VisMode::Bars => {
@@ -977,20 +983,21 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
                 vec![0.0; vis::FFT_SAMPLES]
             };
             let bars = app.winamp.analyser.step(&samples, Instant::now());
+            let stride = area.width / vis::BARS as u32;
             for (index, bar) in bars.iter().enumerate() {
-                let x = area.x + 4 * index as u32;
-                for row in (vis::ROWS - bar.height)..vis::ROWS {
-                    view.fill(
-                        x,
-                        area.y + u32::from(row),
-                        3,
-                        1,
-                        color(2 + usize::from(row)),
-                    );
+                let x = area.x + stride * index as u32;
+                for row in row_at(vis::ROWS - bar.height)..area.height {
+                    let shade = if compact {
+                        // Sample the skin's gradient across the five rows.
+                        [4, 8, 11, 14, 17][row as usize]
+                    } else {
+                        2 + row as usize
+                    };
+                    view.fill(x, area.y + row, stride - 1, 1, color(shade));
                 }
                 if let Some(peak) = bar.peak {
-                    let row = vis::ROWS - peak;
-                    view.fill(x, area.y + u32::from(row), 3, 1, color(23));
+                    let row = row_at(vis::ROWS - peak);
+                    view.fill(x, area.y + row, stride - 1, 1, color(23));
                 }
             }
             sounding || !app.winamp.analyser.settled()
@@ -1002,16 +1009,19 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
                 vec![0.0; vis::SCOPE_SAMPLES]
             };
             let rows = vis::scope(&samples);
-            let mut last = rows[0];
-            for (x, &y) in rows.iter().enumerate() {
+            let columns = area.width.min(vis::COLUMNS as u32);
+            let mut last = row_at(rows[0]);
+            for x in 0..columns {
+                let source = rows[(x * vis::COLUMNS as u32 / columns) as usize];
+                let y = row_at(source);
                 let (mut top, mut bottom) = (y, last);
                 if bottom < top {
                     (top, bottom) = (bottom + 1, top);
                 }
                 last = y;
-                let shade = color(18 + vis::scope_shade(y));
+                let shade = color(18 + if compact { 0 } else { vis::scope_shade(source) });
                 for row in top..=bottom {
-                    view.fill(area.x + x as u32, area.y + u32::from(row), 1, 1, shade);
+                    view.fill(area.x + x, area.y + row, 1, 1, shade);
                 }
             }
             sounding
