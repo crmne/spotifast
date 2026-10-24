@@ -1463,9 +1463,9 @@ fn hidden_rows(
     playlist_uri: &str,
     items: &Arc<Vec<TableItem>>,
 ) -> Arc<Vec<TableItem>> {
-    type Marked = (usize, u64, Arc<Vec<TableItem>>);
+    type Marked = ((usize, usize), u64, Arc<Vec<TableItem>>);
     let key = egui::Id::new("hidden-rows").with(id);
-    let source = Arc::as_ptr(items) as usize;
+    let source = (Arc::as_ptr(items) as usize, items.len());
     let revision = app.hidden_songs_revision;
     if let Some((cached_source, cached_revision, rows)) = ui.data(|d| d.get_temp::<Marked>(key))
         && cached_source == source
@@ -2961,6 +2961,108 @@ mod tests {
         assert!(app.actions.iter().any(
             |action| matches!(action, Action::LoadMore(Page::Playlist(id)) if id == "filtered")
         ));
+    }
+
+    /// A playlist with a hidden song whose second page is appended in place,
+    /// as the `PlaylistItems` handler does when it extends the cached rows.
+    fn hidden_playlist_after_append(sort: Option<TableSort>) -> (App, egui::Context) {
+        let mut app = test_app();
+        let entry = |(item, _, _): TableItem| crate::api::models::PlaylistItem {
+            item: Some(item),
+            ..Default::default()
+        };
+        let songs: Vec<_> = make_large_tracks(100).into_iter().map(entry).collect();
+        app.hidden_songs.insert(
+            "spotify:playlist:grows".into(),
+            std::iter::once(songs[0].playable().unwrap().uri().to_string()).collect(),
+        );
+        if let Some(sort) = sort {
+            app.table_sorts.insert(Page::Playlist("grows".into()), sort);
+        }
+        app.playlist_pages.insert(
+            "grows".into(),
+            PlaylistPage {
+                playlist: Loadable::Loaded(Playlist {
+                    id: "grows".into(),
+                    name: "Grows".into(),
+                    uri: "spotify:playlist:grows".into(),
+                    tracks: Some(crate::api::models::TrackCount { total: 100 }),
+                    ..Default::default()
+                }),
+                items: PagedList {
+                    items: songs[..50].to_vec(),
+                    total: Some(100),
+                    next_offset: Some(50),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        render_grows(&mut app, &ctx);
+        render_grows(&mut app, &ctx);
+        let page = app.playlist_pages.get_mut("grows").unwrap();
+        page.items.absorb(
+            50,
+            crate::api::models::Page {
+                items: songs[50..].to_vec(),
+                total: 100,
+                limit: 50,
+                offset: 50,
+                next: None,
+            },
+        );
+        let revision = page.items.revision;
+        app.table_rows
+            .get_mut(&Page::Playlist("grows".into()))
+            .expect("rows cached by the first frames")
+            .playlist_append_revision = Some(revision);
+        (app, ctx)
+    }
+
+    fn render_grows(app: &mut App, ctx: &egui::Context) -> egui::accesskit::TreeUpdate {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 20_000.0))),
+                ..Default::default()
+            },
+            |ui| {
+                egui::ScrollArea::vertical()
+                    .animated(false)
+                    .show(ui, |ui| playlist(app, ui, "grows"));
+            },
+        );
+        output.textures_delta.clear();
+        output.platform_output.accesskit_update.unwrap()
+    }
+
+    #[test]
+    fn appended_rows_of_a_playlist_with_hidden_songs_do_not_panic() {
+        let (mut app, ctx) = hidden_playlist_after_append(None);
+        render_grows(&mut app, &ctx);
+        render_grows(&mut app, &ctx);
+    }
+
+    #[test]
+    fn a_sorted_playlist_with_hidden_songs_shows_appended_rows() {
+        let (mut app, ctx) = hidden_playlist_after_append(Some(TableSort {
+            column: SortColumn::Title,
+            ascending: true,
+        }));
+        render_grows(&mut app, &ctx);
+        let tree = render_grows(&mut app, &ctx);
+        let shown = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.label()
+                    .is_some_and(|label| label.starts_with("Play Nested metadata song"))
+            })
+            .count();
+        assert_eq!(shown, 100, "every loaded song has a row");
     }
 
     fn make_large_tracks(count: usize) -> Vec<TableItem> {
