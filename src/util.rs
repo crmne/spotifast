@@ -106,12 +106,25 @@ pub fn format_date(locale: Locale, iso: &str) -> String {
 /// Dates are shown relatively for their first 30 days, matching the playlist
 /// table's compact, time-aware presentation. `now` is an argument so callers
 /// can render against one instant and the boundary behaviour stays testable.
+/// The window within which timestamps are rendered as relative dates (30 days).
+pub const RELATIVE_DATE_LIMIT_SECONDS: i64 = 30 * 24 * 60 * 60;
+
+/// Returns true when `iso` is an ISO timestamp within the relative date window
+/// (the past 30 days up to `now`).
+pub fn is_relative_date(iso: &str, now: jiff::Timestamp) -> bool {
+    let Ok(added) = iso.parse::<jiff::Timestamp>() else {
+        return false;
+    };
+    let seconds = added.duration_until(now).as_secs_f64().floor() as i64;
+    (0..RELATIVE_DATE_LIMIT_SECONDS).contains(&seconds)
+}
+
 pub fn format_relative_date(locale: Locale, iso: &str, now: jiff::Timestamp) -> String {
     let Ok(added) = iso.parse::<jiff::Timestamp>() else {
         return format_date(locale, iso);
     };
     let seconds = added.duration_until(now).as_secs_f64().floor() as i64;
-    if !(0..30 * 24 * 60 * 60).contains(&seconds) {
+    if !(0..RELATIVE_DATE_LIMIT_SECONDS).contains(&seconds) {
         return format_date(locale, iso);
     }
 
@@ -472,6 +485,18 @@ mod tests {
             format_relative_date(Locale::English, "2026-08-01T12:00:00Z", now),
             "Aug 1, 2026"
         );
+        assert!(is_relative_date("2026-08-31T11:59:30Z", now));
+        assert!(is_relative_date("2026-08-31T11:00:00Z", now));
+        assert!(is_relative_date("2026-08-30T12:00:00Z", now));
+        assert!(is_relative_date("2026-08-17T12:00:00Z", now));
+        assert!(!is_relative_date("2026-08-01T12:00:00Z", now));
+        assert!(!is_relative_date("2026-09-01T12:00:00Z", now));
+        assert!(!is_relative_date("not-a-date", now));
+
+        // Relative date detection is independent of locale wording.
+        let pt = format_relative_date(Locale::PortugueseBrazil, "2026-08-31T11:59:30Z", now);
+        assert!(!pt.ends_with(" ago"));
+        assert!(is_relative_date("2026-08-31T11:59:30Z", now));
     }
 
     #[test]
