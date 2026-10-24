@@ -11,6 +11,55 @@ use crate::theme::{self, Icon, Palette};
 
 const DEFAULT_ROW_HEIGHT: f32 = 60.0;
 const COMPACT_ROW_HEIGHT: f32 = 32.0;
+const COVER_RAIL_THRESHOLD: f32 = 200.0;
+const COVER_RAIL_HYSTERESIS: f32 = 8.0;
+const COVER_RAIL_ART: f32 = 48.0;
+const COVER_RAIL_ROW_HEIGHT: f32 = 64.0;
+const COVER_RAIL_ROW_GAP: f32 = 6.0;
+
+fn cover_rail(ctx: &egui::Context, width: f32) -> bool {
+    let id = egui::Id::new("sidebar-cover-rail");
+    ctx.data_mut(|data| {
+        let threshold = match data.get_temp::<bool>(id) {
+            Some(true) => COVER_RAIL_THRESHOLD + COVER_RAIL_HYSTERESIS,
+            Some(false) => COVER_RAIL_THRESHOLD - COVER_RAIL_HYSTERESIS,
+            None => COVER_RAIL_THRESHOLD,
+        };
+        let rail = width <= threshold;
+        data.insert_temp(id, rail);
+        rail
+    })
+}
+
+#[cfg(test)]
+mod cover_rail_tests {
+    use super::cover_rail;
+
+    #[test]
+    fn initial_layout_follows_the_sidebar_width() {
+        assert!(cover_rail(&egui::Context::default(), 72.0));
+        assert!(cover_rail(&egui::Context::default(), 200.0));
+        assert!(!cover_rail(&egui::Context::default(), 240.0));
+    }
+
+    #[test]
+    fn holding_the_resize_boundary_keeps_the_current_layout() {
+        let ctx = egui::Context::default();
+        assert!(cover_rail(&ctx, 72.0));
+        for _ in 0..100 {
+            for width in [199.5, 200.0, 200.5, 207.0] {
+                assert!(cover_rail(&ctx, width));
+            }
+        }
+        assert!(!cover_rail(&ctx, 240.0));
+        for _ in 0..100 {
+            for width in [200.5, 200.0, 199.5, 193.0] {
+                assert!(!cover_rail(&ctx, width));
+            }
+        }
+        assert!(cover_rail(&ctx, 180.0));
+    }
+}
 
 struct Entry {
     image: Option<String>,
@@ -233,6 +282,7 @@ fn finish_entry_interaction(
     cover_took_click: bool,
     custom_order: bool,
     drop_allowed: bool,
+    grid_card: bool,
 ) {
     if response.hovered()
         && let Some(image) = &entry.image
@@ -280,7 +330,7 @@ fn finish_entry_interaction(
             app.actions.push(Action::Open(entry.page.clone()));
         }
     }
-    if !app.settings.sidebar_grid
+    if !grid_card
         && response.double_clicked()
         && entry.folder.is_none()
         && !cover_took_click
@@ -539,10 +589,45 @@ fn permute<T>(entries: &mut [T], order: &[usize]) {
     }
 }
 
+fn show_sidebar_panel<R>(
+    panel: egui::Panel,
+    ui: &mut egui::Ui,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    let stroke = ui.visuals().widgets.hovered.fg_stroke;
+    ui.visuals_mut().widgets.hovered.fg_stroke = egui::Stroke::NONE;
+    let response = panel.show(ui, |ui| {
+        ui.visuals_mut().widgets.hovered.fg_stroke = stroke;
+        add_contents(ui)
+    });
+    ui.visuals_mut().widgets.hovered.fg_stroke = stroke;
+    let resize_id = egui::Id::new("sidebar").with("__resize");
+    let hover_id = resize_id.with("hover-started");
+    if ui
+        .ctx()
+        .read_response(resize_id)
+        .is_some_and(|handle| handle.hovered() && !handle.dragged())
+    {
+        let now = ui.input(|input| input.time);
+        let started = ui
+            .ctx()
+            .data_mut(|data| *data.get_temp_mut_or_insert_with::<f64>(hover_id, || now));
+        let remaining = 0.2 - (now - started);
+        if remaining <= 0.0 {
+            let rect = response.response.rect;
+            ui.painter()
+                .vline(rect.right() - stroke.width * 0.5, rect.y_range(), stroke);
+        } else {
+            ui.ctx().request_repaint_after_secs(remaining as f32);
+        }
+    } else {
+        ui.ctx().data_mut(|data| data.remove_temp::<f64>(hover_id));
+    }
+    response
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let expanded_art = has_expanded_art(app);
-    let floating_art = app.settings.sidebar_grid && expanded_art;
     // The traffic lights float over the top-left of the sidebar now, so the
     // first nav row has to start below them.
     let top = 12
@@ -565,24 +650,31 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         .default_size(app.settings.sidebar_width)
         .size_range(fit.range.clone())
         .show_separator_line(false)
-        .frame(Frame::new().fill(palette.panel).inner_margin(Margin {
-            left: 12,
-            right: 8,
-            top,
-            bottom: if expanded_art { 0 } else { 8 },
-        }));
-    let response = panel.show(ui, |ui| {
-        let art_rect = expanded_art.then(|| expanded_art_rect(ui));
-        if let Some(rect) = art_rect.filter(|_| !floating_art) {
-            reserve_expanded_art(ui, rect);
-        }
-        contents(app, ui, art_rect.filter(|_| floating_art));
-        if let Some(rect) = art_rect {
-            if floating_art {
-                paint_grid_art_mask(app, ui, rect);
-            }
-            paint_expanded_art(app, ui, rect);
-        }
+        .frame(Frame::new().fill(palette.panel));
+    let response = show_sidebar_panel(panel, ui, |ui| {
+        let rail = cover_rail(ui.ctx(), ui.max_rect().width());
+        let expanded_art = has_expanded_art(app) && !rail;
+        let floating_art = app.settings.sidebar_grid && expanded_art;
+        Frame::new()
+            .inner_margin(Margin {
+                left: if rail { 8 } else { 12 },
+                right: if rail { 8 } else { 12 },
+                top,
+                bottom: if expanded_art { 0 } else { 8 },
+            })
+            .show(ui, |ui| {
+                let art_rect = expanded_art.then(|| expanded_art_rect(ui));
+                if let Some(rect) = art_rect.filter(|_| !floating_art) {
+                    reserve_expanded_art(ui, rect);
+                }
+                contents(app, ui, art_rect.filter(|_| floating_art), rail);
+                if let Some(rect) = art_rect {
+                    if floating_art {
+                        paint_grid_art_mask(app, ui, rect);
+                    }
+                    paint_expanded_art(app, ui, rect);
+                }
+            });
     });
     let width = response.response.rect.width();
     if (width - app.settings.sidebar_width).abs() > 1.0
@@ -956,32 +1048,69 @@ fn nav_row(
 
 /// Draw Library navigation, shelf controls, search, and the visible rows.
 /// Playlist ownership and text filters are applied before ordering and pin placement.
-fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
+fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>, rail: bool) {
     let palette = app.palette;
     let page = app.page().clone();
     let locale = app.locale;
     ui.add_space(4.0);
-    if nav_row(
-        ui,
-        &palette,
-        Icon::House,
-        &gettext(locale, "Home"),
-        page == Page::Home,
-    )
-    .clicked()
-    {
-        app.actions.push(Action::Open(Page::Home));
-    }
-    if nav_row(
-        ui,
-        &palette,
-        Icon::Search,
-        &gettext(locale, "Search"),
-        page == Page::Search,
-    )
-    .clicked()
-    {
-        app.actions.push(Action::FocusSearch);
+    if rail {
+        ui.vertical_centered(|ui| {
+            if theme::icon_button(
+                ui,
+                Icon::House,
+                18.0,
+                if page == Page::Home {
+                    palette.text
+                } else {
+                    palette.secondary
+                },
+                palette.text,
+                &gettext(locale, "Home"),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::Open(Page::Home));
+            }
+            if theme::icon_button(
+                ui,
+                Icon::Search,
+                18.0,
+                if page == Page::Search {
+                    palette.text
+                } else {
+                    palette.secondary
+                },
+                palette.text,
+                &gettext(locale, "Search"),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::FocusSearch);
+            }
+        });
+    } else {
+        if nav_row(
+            ui,
+            &palette,
+            Icon::House,
+            &gettext(locale, "Home"),
+            page == Page::Home,
+        )
+        .clicked()
+        {
+            app.actions.push(Action::Open(Page::Home));
+        }
+        if nav_row(
+            ui,
+            &palette,
+            Icon::Search,
+            &gettext(locale, "Search"),
+            page == Page::Search,
+        )
+        .clicked()
+        {
+            app.actions.push(Action::FocusSearch);
+        }
     }
     ui.add_space(10.0);
     ui.painter().hline(
@@ -1002,133 +1131,161 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
 
     let mut focus_search = false;
 
+    let button_gap = if rail { 0.0 } else { 2.0 };
+    let button_count = if rail { 2.0 } else { 4.0 };
+    let button_width =
+        button_count * (16.0 + theme::ICON_BUTTON_PAD) + (button_count - 1.0) * button_gap;
+    let show_library_icon = !rail;
     ui.horizontal(|ui| {
-        ui.add_space(6.0);
-        theme::icon(ui, Icon::Library, 22.0, palette.secondary);
-        ui.add_space(2.0);
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            if theme::icon_button(
-                ui,
-                Icon::PanelLeft,
-                16.0,
-                palette.secondary,
-                palette.text,
-                super::keys::platform_shortcut(
-                    &gettext(locale, "Hide sidebar (Ctrl+B)"),
-                    &gettext(locale, "Hide sidebar (Cmd+B)"),
-                ),
-            )
-            .clicked()
-            {
-                app.actions.push(Action::ToggleSidebar);
-            }
-            let grid = app.settings.sidebar_grid;
-            let (icon, label) = if grid {
-                (Icon::LayoutList, gettext(locale, "Show as list"))
-            } else {
-                (Icon::LayoutGrid, gettext(locale, "Show as grid"))
-            };
-            if theme::icon_button(ui, icon, 16.0, palette.secondary, palette.text, &label).clicked()
-            {
-                app.actions.push(Action::SetLibraryGrid(!grid));
-            }
-            // One item never deserved a menu: the plus creates directly.
-            if theme::icon_button(
-                ui,
-                Icon::Plus,
-                16.0,
-                palette.secondary,
-                palette.text,
-                &gettext(locale, "Create a playlist"),
-            )
-            .clicked()
-            {
-                app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
-                    name: String::new(),
-                    public: false,
-                    add_uris: Vec::new(),
-                }));
-            }
-            if theme::icon_button(
-                ui,
-                Icon::Search,
-                16.0,
-                palette.secondary,
-                palette.text,
-                &gettext(locale, "Search Your Library"),
-            )
-            .clicked()
-            {
-                show_search = !show_search;
-                if show_search {
-                    focus_search = true;
-                } else {
-                    app.library.filter.clear();
+        ui.spacing_mut().item_spacing.x = button_gap;
+        if rail {
+            ui.add_space(((ui.available_width() - button_width) * 0.5).max(0.0));
+        }
+        if show_library_icon {
+            ui.add_space(6.0);
+            theme::icon(ui, Icon::Library, 22.0, palette.secondary);
+            ui.add_space(2.0);
+        }
+        let width = if rail {
+            button_width
+        } else {
+            ui.available_width()
+        };
+        ui.allocate_ui_with_layout(
+            vec2(width, 16.0 + theme::ICON_BUTTON_PAD),
+            Layout::right_to_left(Align::Center),
+            |ui| {
+                ui.spacing_mut().item_spacing = vec2(button_gap, 4.0);
+                if theme::icon_button(
+                    ui,
+                    Icon::PanelLeft,
+                    16.0,
+                    palette.secondary,
+                    palette.text,
+                    super::keys::platform_shortcut(
+                        &gettext(locale, "Hide sidebar (Ctrl+B)"),
+                        &gettext(locale, "Hide sidebar (Cmd+B)"),
+                    ),
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::ToggleSidebar);
                 }
-            }
-            // The buttons come first; the heading takes the space left,
-            // a little smaller where a translation runs long, and gives way
-            // to them in the narrowest sidebar, where the icon still names
-            // the section.
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                let heading = gettext(locale, "Library");
-                let room = ui.available_width() - 6.0;
-                let fits = [15.0, 14.0, 13.0].into_iter().find(|&size| {
-                    ui.painter()
-                        .layout_no_wrap(heading.to_string(), theme::bold(size), palette.text)
-                        .size()
-                        .x
-                        <= room
-                });
-                if let Some(size) = fits {
-                    theme::text(ui, heading, theme::bold(size), palette.text);
+                if !rail {
+                    let grid = app.settings.sidebar_grid;
+                    let (icon, label) = if grid {
+                        (Icon::LayoutList, gettext(locale, "Show as list"))
+                    } else {
+                        (Icon::LayoutGrid, gettext(locale, "Show as grid"))
+                    };
+                    if theme::icon_button(ui, icon, 16.0, palette.secondary, palette.text, &label)
+                        .clicked()
+                    {
+                        app.actions.push(Action::SetLibraryGrid(!grid));
+                    }
                 }
-            });
-        });
+                if theme::icon_button(
+                    ui,
+                    Icon::Plus,
+                    16.0,
+                    palette.secondary,
+                    palette.text,
+                    &gettext(locale, "Create a playlist"),
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
+                        name: String::new(),
+                        public: false,
+                        add_uris: Vec::new(),
+                    }));
+                }
+                if !rail {
+                    if theme::icon_button(
+                        ui,
+                        Icon::Search,
+                        16.0,
+                        palette.secondary,
+                        palette.text,
+                        &gettext(locale, "Search Your Library"),
+                    )
+                    .clicked()
+                    {
+                        show_search = !show_search;
+                        if show_search {
+                            focus_search = true;
+                        } else {
+                            app.library.filter.clear();
+                        }
+                    }
+                }
+                if show_library_icon {
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        let heading = gettext(locale, "Library");
+                        let room = ui.available_width() - 6.0;
+                        let fits = [15.0, 14.0, 13.0].into_iter().find(|&size| {
+                            ui.painter()
+                                .layout_no_wrap(
+                                    heading.to_string(),
+                                    theme::bold(size),
+                                    palette.text,
+                                )
+                                .size()
+                                .x
+                                <= room
+                        });
+                        if let Some(size) = fits {
+                            theme::text(ui, heading, theme::bold(size), palette.text);
+                        }
+                    });
+                }
+            },
+        );
     });
     ui.add_space(6.0);
 
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-        for (value, label) in [
-            (Filter::Playlists, gettext(locale, "Playlists")),
-            (Filter::Albums, gettext(locale, "Albums")),
-            (Filter::Artists, gettext(locale, "Artists")),
-            (Filter::Podcasts, gettext(locale, "Podcasts")),
-        ] {
-            if theme::soft_button(ui, &palette, None, &label, filter == value).clicked() {
-                filter = value;
+    if !rail {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            for (value, label) in [
+                (Filter::Playlists, gettext(locale, "Playlists")),
+                (Filter::Albums, gettext(locale, "Albums")),
+                (Filter::Artists, gettext(locale, "Artists")),
+                (Filter::Podcasts, gettext(locale, "Podcasts")),
+            ] {
+                if theme::soft_button(ui, &palette, None, &label, filter == value).clicked() {
+                    filter = value;
+                }
             }
-        }
-    });
-    let sort = selected_sort(app, filter);
-    ui.add_space(4.0);
-    ui.horizontal_wrapped(|ui| {
-        sort_menu(app, ui, filter, sort);
-        if filter == Filter::Playlists {
-            // Translators: Library filter for playlists created by the signed-in user.
-            let label = gettext(locale, "By You");
-            let by_you = app.settings.library_by_you;
-            let response = theme::soft_button(ui, &palette, None, &label, by_you);
-            response.widget_info(|| {
-                egui::WidgetInfo::selected(
-                    egui::WidgetType::Button,
-                    ui.is_enabled(),
-                    by_you,
-                    &*label,
-                )
-            });
-            if response.clicked() {
-                app.actions.push(Action::SetLibraryByYou(!by_you));
+        });
+        let sort = selected_sort(app, filter);
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            sort_menu(app, ui, filter, sort);
+            if filter == Filter::Playlists {
+                // Translators: Library filter for playlists created by the signed-in user.
+                let label = gettext(locale, "By You");
+                let by_you = app.settings.library_by_you;
+                let response = theme::soft_button(ui, &palette, None, &label, by_you);
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        by_you,
+                        &*label,
+                    )
+                });
+                if response.clicked() {
+                    app.actions.push(Action::SetLibraryByYou(!by_you));
+                }
             }
-        }
-    });
+        });
+    }
     ui.data_mut(|data| {
         data.insert_temp(filter_id, filter);
         data.insert_temp(show_search_id, show_search);
     });
-    if show_search {
+    if show_search && !rail {
         ui.add_space(4.0);
         let response = super::widgets::search_field(
             ui,
@@ -1145,8 +1302,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     }
     ui.add_space(6.0);
 
+    // Cover-only stays tag-free: always list Playlists there, and ignore a
+    // leftover library search so the strip cannot empty itself. The expanded
+    // shelf and query return when the sidebar is widened.
+    let list_filter = if rail { Filter::Playlists } else { filter };
+    let sort = selected_sort(app, list_filter);
+
     // Make sure the selected shelf is loading.
-    match filter {
+    match list_filter {
         Filter::Playlists => {}
         Filter::Albums => {
             if !app.library.albums.loading
@@ -1177,13 +1340,17 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
         }
     }
 
-    let needle = app.library.filter.trim().to_lowercase();
+    let needle = if rail {
+        String::new()
+    } else {
+        app.library.filter.trim().to_lowercase()
+    };
     let mut entries: Vec<Entry> = Vec::new();
     let art = EntryArt::of(app);
     let mut loading = false;
     let mut error: Option<String> = None;
     let mut more_page: Option<Page> = None;
-    match filter {
+    match list_filter {
         Filter::Playlists => {
             playlist_rows(app, sort, &needle, &mut entries);
             match &app.library.playlists {
@@ -1298,8 +1465,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
         }
     }
 
-    order_entries(app, filter, sort, &mut entries);
-    let custom_order = filter == Filter::Playlists && sort == LibrarySort::Local;
+    order_entries(app, list_filter, sort, &mut entries);
+    let custom_order = list_filter == Filter::Playlists && sort == LibrarySort::Local;
     let pins = app.settings.library_pins();
     let pinned_rows = entries
         .iter()
@@ -1339,7 +1506,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     },
                 );
             }
-            if app.settings.sidebar_grid {
+            if app.settings.sidebar_grid && !rail {
                 library_grid(
                     app,
                     ui,
@@ -1356,8 +1523,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 return;
             }
 
-            let compact = app.settings.sidebar_compact;
-            let row_height = if compact {
+            let compact = app.settings.sidebar_compact && !rail;
+            let row_height = if rail {
+                COVER_RAIL_ROW_HEIGHT
+            } else if compact {
                 COMPACT_ROW_HEIGHT
             } else {
                 DEFAULT_ROW_HEIGHT
@@ -1386,7 +1555,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
             let art = app.backend.art().clone();
             super::widgets::virtual_rows(ui, entries.len(), row_height, |ui, index| {
                 let entry = &entries[index];
-                if !app.settings.sidebar_compact
+                if (!app.settings.sidebar_compact || rail)
                     && let Some(image) = &entry.image
                 {
                     // Prepare the enlarged preview before this row is opened.
@@ -1401,6 +1570,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 let playing = context_playing && current;
                 let pinned = pins.iter().any(|key| key == entry.ordering_key());
                 let (_, rect) = ui.allocate_space(vec2(ui.available_width(), row_height));
+                let rect = if rail {
+                    rect.shrink2(vec2(0.0, COVER_RAIL_ROW_GAP * 0.5))
+                } else {
+                    rect
+                };
                 let id = ui.id().with((
                     "library-row",
                     &entry.uri,
@@ -1408,6 +1582,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     entry.folder.as_ref().map(|(id, _, _)| id),
                 ));
                 let response = ui.interact(rect, id, Sense::click_and_drag());
+                if rail {
+                    response.clone().on_hover_text(&entry.name);
+                }
                 response.widget_info(|| {
                     egui::WidgetInfo::selected(
                         egui::WidgetType::Button,
@@ -1467,8 +1644,61 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     } else {
                         palette.text
                     };
-                    let indent = f32::from(entry.depth) * 14.0;
-                    if let Some((_, collapsed, _)) = &entry.folder {
+                    let indent = if rail {
+                        0.0
+                    } else {
+                        f32::from(entry.depth) * 14.0
+                    };
+                    if rail {
+                        let cover_rect = Rect::from_center_size(
+                            pos2(rect.center().x, rect.center().y),
+                            Vec2::splat(COVER_RAIL_ART),
+                        );
+                        if let Some((_, collapsed, _)) = &entry.folder {
+                            let chevron = if *collapsed {
+                                Icon::ChevronRight
+                            } else {
+                                Icon::ChevronDown
+                            };
+                            ui.painter().rect_filled(
+                                cover_rect,
+                                CornerRadius::same(6),
+                                palette.surface,
+                            );
+                            chevron.image(palette.secondary, 18.0).paint_at(
+                                ui,
+                                Rect::from_center_size(cover_rect.center(), Vec2::splat(18.0)),
+                            );
+                        } else if entry.liked {
+                            liked_cover(ui, cover_rect, 6.0);
+                        } else {
+                            super::widgets::paint_cover(
+                                ui,
+                                &palette,
+                                entry.image.as_deref(),
+                                cover_rect,
+                                if entry.round { 22.0 } else { 6.0 },
+                                if entry.round { Icon::User } else { Icon::Music },
+                                Some(app.backend.art()),
+                            );
+                        }
+                        if playing {
+                            ui.painter().rect_stroke(
+                                cover_rect,
+                                CornerRadius::same(6),
+                                egui::Stroke::new(2.0, palette.accent),
+                                egui::StrokeKind::Outside,
+                            );
+                        } else if pinned {
+                            Icon::Pin.image(palette.secondary, 11.0).paint_at(
+                                ui,
+                                Rect::from_center_size(
+                                    cover_rect.left_top() + vec2(8.0, 8.0),
+                                    Vec2::splat(11.0),
+                                ),
+                            );
+                        }
+                    } else if let Some((_, collapsed, _)) = &entry.folder {
                         let chevron = if *collapsed {
                             Icon::ChevronRight
                         } else {
@@ -1591,22 +1821,24 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                             app, ui, entry, index, cover_rect, &response, current,
                         );
                     }
-                    if playing {
-                        let icon_rect = Rect::from_center_size(
-                            pos2(rect.right() - 16.0, rect.center().y),
-                            Vec2::splat(16.0),
-                        );
-                        Icon::Volume2
-                            .image(palette.accent, 16.0)
-                            .paint_at(ui, icon_rect);
-                    } else if pinned {
-                        let icon_rect = Rect::from_center_size(
-                            pos2(rect.right() - 16.0, rect.center().y),
-                            Vec2::splat(13.0),
-                        );
-                        Icon::Pin
-                            .image(palette.secondary, 13.0)
-                            .paint_at(ui, icon_rect);
+                    if !rail {
+                        if playing {
+                            let icon_rect = Rect::from_center_size(
+                                pos2(rect.right() - 16.0, rect.center().y),
+                                Vec2::splat(16.0),
+                            );
+                            Icon::Volume2
+                                .image(palette.accent, 16.0)
+                                .paint_at(ui, icon_rect);
+                        } else if pinned {
+                            let icon_rect = Rect::from_center_size(
+                                pos2(rect.right() - 16.0, rect.center().y),
+                                Vec2::splat(13.0),
+                            );
+                            Icon::Pin
+                                .image(palette.secondary, 13.0)
+                                .paint_at(ui, icon_rect);
+                        }
                     }
                     // Rows that cannot take the song step back a little.
                     if dragging_song && !droppable {
@@ -1625,6 +1857,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     cover_took_click,
                     custom_order,
                     true,
+                    false,
                 );
             });
             if let Some(slot) = reorder_slot {
@@ -1639,7 +1872,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 if ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
                     && let Some(drag) = egui::DragAndDrop::take_payload::<DragEntry>(ui.ctx())
                 {
-                    if filter == Filter::Playlists {
+                    if list_filter == Filter::Playlists {
                         drop_playlist_row(app, &entries, pinned_rows, slot, &drag.uri);
                     } else {
                         drop_row(app, &entries, pinned_rows, slot, &drag.uri);
@@ -1917,6 +2150,7 @@ fn library_grid(
                         cover_took_click,
                         custom_order,
                         pointer.is_some(),
+                        true,
                     );
                 });
             }
@@ -2234,6 +2468,95 @@ mod ordering_tests {
         );
         app.recent_contexts = vec![uri("d"), uri("a")];
         app
+    }
+
+    #[test]
+    fn sidebar_layout_updates_during_a_held_resize_and_centers_the_cover_rail() {
+        for dark in [false, true] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut app = app(&format!("live-sidebar-drag-{dark}"));
+            app.attach(&ctx);
+            app.palette = if dark {
+                Palette::dark()
+            } else {
+                Palette::light()
+            };
+            app.settings.sidebar_width = 280.0;
+            let mut frame = |events: Vec<egui::Event>| {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(1000.0, 900.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| show(&mut app, ui),
+                );
+                output.textures_delta.clear();
+                output
+            };
+            frame(Vec::new());
+            frame(Vec::new());
+            let original =
+                egui::containers::panel::PanelState::load(&ctx, egui::Id::new("sidebar"))
+                    .unwrap()
+                    .outer_rect;
+            let handle = pos2(original.right() - 1.0, original.top() + 300.0);
+            frame(vec![egui::Event::PointerMoved(handle)]);
+            frame(vec![egui::Event::PointerButton {
+                pos: handle,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            for (width, expected_rail) in [
+                (180.0, true),
+                (72.0, true),
+                (120.0, true),
+                (200.0, true),
+                (200.5, true),
+                (199.5, true),
+                (240.0, false),
+                (200.0, false),
+                (193.0, false),
+                (180.0, true),
+            ] {
+                let pointer = pos2(original.left() + width, handle.y);
+                frame(vec![egui::Event::PointerMoved(pointer)]);
+                let output = frame(Vec::new());
+                let tree = output.platform_output.accesskit_update.unwrap();
+                let bounds = |label: &str| {
+                    tree.nodes
+                        .iter()
+                        .find(|(_, node)| node.label() == Some(label))
+                        .and_then(|(_, node)| node.bounds())
+                };
+                let home = bounds("Home").unwrap();
+                let rail = home.x1 - home.x0 < 40.0;
+                assert_eq!(
+                    rail, expected_rail,
+                    "wrong layout during a held drag at {width}"
+                );
+                if rail {
+                    let search = bounds("Search").unwrap();
+                    let plus = bounds("Create a playlist").unwrap();
+                    let hide = bounds("Hide sidebar (Ctrl+B)").unwrap();
+                    let center = (home.x0 + home.x1) * 0.5;
+                    assert!(((search.x0 + search.x1) * 0.5 - center).abs() <= 1.0);
+                    assert!(
+                        ((plus.x0.min(hide.x0) + plus.x1.max(hide.x1)) * 0.5 - center).abs() <= 1.0
+                    );
+                    assert!((plus.y0 - hide.y0).abs() <= 1.0);
+                    assert!(bounds("Show as grid").is_none());
+                } else {
+                    assert!(bounds("Show as grid").is_some());
+                }
+            }
+            app.backend.shutdown();
+        }
     }
 
     /// Drain queued UI actions through the real handler before checking the
