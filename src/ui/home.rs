@@ -7,7 +7,7 @@ use egui::{CornerRadius, Rect, Sense, Vec2, pos2, vec2};
 use crate::api::models::{Album, Episode, PlayableItem, Playlist, Show, pick_image};
 use crate::app::App;
 use crate::i18n::gettext;
-use crate::model::{Action, Loadable, Page, RowContext};
+use crate::model::{Action, Loadable, Page, RowContext, TopPeriod};
 use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
@@ -901,18 +901,81 @@ fn track_list(
 }
 
 fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
-    let tracks = app.home.top_tracks.clone();
+    let palette = app.palette;
     let title = gettext(app.locale, "Your top songs");
     let more = gettext(app.locale, "Show more top songs");
-    track_list(
-        app,
-        ui,
-        &title,
-        tracks,
-        10,
-        Some(Page::TopSongs),
-        Some(&more),
-    );
+    let tracks = app.home.top_tracks.clone();
+
+    if theme::link(ui, &*title, theme::bold(17.0), palette.text).clicked() {
+        app.actions.push(Action::Open(Page::TopSongs));
+    }
+    ui.add_space(4.0);
+
+    let labels: Vec<_> = TopPeriod::ALL
+        .iter()
+        .map(|p| (*p, p.label(app.locale)))
+        .collect();
+    let options: Vec<(TopPeriod, &str)> = labels
+        .iter()
+        .map(|(period, label)| (*period, label.as_ref()))
+        .collect();
+    if let Some(period) = widgets::chips(ui, &palette, &options, app.home.top_period) {
+        app.actions.push(Action::SetTopPeriod(period));
+    }
+    ui.add_space(8.0);
+
+    let tracks = match tracks {
+        Loadable::Loaded(tracks) => tracks,
+        Loadable::Loading | Loadable::NotLoaded => {
+            widgets::loading_row(ui, &palette, app.locale);
+            ui.add_space(12.0);
+            return;
+        }
+        Loadable::Failed(message) => {
+            widgets::error_row(ui, app, &message, Some(Page::TopSongs));
+            ui.add_space(12.0);
+            return;
+        }
+    };
+
+    let uris: Arc<[String]> = tracks
+        .iter()
+        .map(|track| track.uri.clone())
+        .collect::<Vec<_>>()
+        .into();
+    let context = RowContext::Uris(Arc::clone(&uris));
+    for (index, track) in tracks.iter().take(10).enumerate() {
+        let item = PlayableItem::Track(track.clone());
+        widgets::track_row(
+            ui,
+            app,
+            TrackRow {
+                index,
+                number: None,
+                item: &item,
+                context: &context,
+                show_cover: !app.settings.tracklist_compact,
+                show_album: true,
+                added_at: None,
+                added_by: None,
+                show_added_by: false,
+                show_plays: false,
+                compact: false,
+                thin: app.settings.tracklist_compact,
+                shift: 0.0,
+                picked: false,
+                picked_songs: &[],
+                picked_positions: &[],
+                position: None,
+            },
+        );
+    }
+    if tracks.len() > 10
+        && theme::link(ui, &*more, theme::semibold(14.0), palette.secondary).clicked()
+    {
+        app.actions.push(Action::Open(Page::TopSongs));
+    }
+    ui.add_space(16.0);
 }
 
 fn recommendations(app: &mut App, ui: &mut egui::Ui) {
