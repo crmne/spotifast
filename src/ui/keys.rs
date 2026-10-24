@@ -18,9 +18,9 @@ pub(super) const WINAMP_SHORTCUT: &str = platform_shortcut("Ctrl+M", "Cmd+Shift+
 pub(super) const MILKDROP_SHORTCUT: &str = platform_shortcut("Ctrl+Shift+K", "Cmd+Shift+K");
 
 pub fn handle(app: &mut App, ctx: &egui::Context) {
-    let typing = ctx.memory(|memory| memory.focused().is_some());
-    // A focused song row still takes Ctrl+arrow to change songs; a text
-    // field uses those keys to move its caret.
+    // A focused song row still takes Ctrl+arrow and plain shortcuts to
+    // control playback; a text field uses those keys for typing and moving
+    // its caret.
     let editing_text = ctx.text_edit_focused();
     let mut actions = Vec::new();
     ctx.input_mut(|input| {
@@ -107,7 +107,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::COMMAND, Key::ArrowUp, Action::VolumeBy(5));
             key(Modifiers::COMMAND, Key::ArrowDown, Action::VolumeBy(-5));
         }
-        if !typing {
+        if !editing_text && app.dialog.is_none() {
             key(
                 Modifiers::NONE,
                 Key::Questionmark,
@@ -133,7 +133,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             );
         }
     });
-    if !typing
+    if !editing_text
+        && app.dialog.is_none()
         && ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::B))
         && let Some(now) = app.now_playing().filter(|now| !now.is_episode)
     {
@@ -478,6 +479,45 @@ mod tests {
             frame(&mut app, &mut text, press(Key::ArrowRight, command)),
             format!("{:?}", [Action::Next])
         );
+        for (plain_key, modifiers, expected) in [
+            (Key::M, Modifiers::NONE, Action::ToggleMute),
+            (Key::S, Modifiers::NONE, Action::ToggleShuffle),
+            (Key::R, Modifiers::NONE, Action::CycleRepeat),
+            (Key::Q, Modifiers::NONE, Action::ToggleQueuePanel),
+            (Key::L, Modifiers::NONE, Action::ToggleLyricsPanel),
+            (Key::Slash, Modifiers::NONE, Action::FocusSearch),
+            (Key::F, Modifiers::NONE, Action::SetLyricsFullscreen(true)),
+            (
+                Key::Questionmark,
+                Modifiers::NONE,
+                Action::ShowDialog(Dialog::Shortcuts),
+            ),
+            (Key::ArrowLeft, Modifiers::SHIFT, Action::SeekBy(-10_000)),
+            (Key::ArrowRight, Modifiers::SHIFT, Action::SeekBy(10_000)),
+            (
+                Key::B,
+                Modifiers::NONE,
+                Action::ToggleSaved("spotify:track:trk0".into()),
+            ),
+        ] {
+            assert_eq!(
+                frame(&mut app, &mut text, press(plain_key, modifiers)),
+                format!("{:?}", [expected]),
+                "a focused row must not block plain shortcut {plain_key:?}"
+            );
+        }
+        app.dialog = Some(Dialog::Shortcuts);
+        assert_eq!(
+            frame(&mut app, &mut text, press(Key::Q, Modifiers::NONE)),
+            "[]",
+            "an open dialog blocks plain single-key shortcuts"
+        );
+        assert_eq!(
+            frame(&mut app, &mut text, press(Key::B, Modifiers::NONE)),
+            "[]",
+            "an open dialog blocks the like shortcut"
+        );
+        app.dialog = None;
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }
