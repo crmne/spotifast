@@ -93,18 +93,22 @@ pub enum Operation {
     CatalogSearch,
     Catalog,
     ArtistTopTracks,
+    RelatedArtists,
     PlaylistMetadata(PlaylistAccess),
     PlaylistItems(PlaylistAccess),
     PlaylistMutation(PlaylistAccess),
     UnsupportedDevelopmentMode,
 }
 
-/// The streaming session reads popular tracks and every playlist the shared app would have
+/// The streaming session reads popular tracks, related artists and every playlist the shared app would have
 /// been asked for: other people's, which no personal app may read, and the
 /// account's own when it has no personal app. A personal app keeps its own
 /// playlists, which it reads quickly and with every field.
 fn session_serves(operation: Operation, personal_ready: bool) -> bool {
-    if operation == Operation::ArtistTopTracks {
+    if matches!(
+        operation,
+        Operation::ArtistTopTracks | Operation::RelatedArtists
+    ) {
         return true;
     }
     matches!(
@@ -122,6 +126,7 @@ fn plan(operation: Operation, personal_ready: bool) -> ApiSource {
         | PlaylistLibrary
         | PlaylistSearch
         | ArtistTopTracks
+        | RelatedArtists
         | UnsupportedDevelopmentMode => ApiSource::Shared,
         PlaylistMetadata(PlaylistAccess::External | PlaylistAccess::Unknown)
         | PlaylistItems(PlaylistAccess::External | PlaylistAccess::Unknown)
@@ -572,6 +577,14 @@ mod tests {
             ApiSource::Shared,
             "the unavailable-session fallback retains its coverage"
         );
+    }
+
+    #[test]
+    fn related_artists_prefer_the_session_and_keep_the_shared_fallback() {
+        for personal in [false, true] {
+            assert!(session_serves(Operation::RelatedArtists, personal));
+            assert_eq!(plan(Operation::RelatedArtists, personal), ApiSource::Shared);
+        }
     }
 
     #[test]

@@ -85,6 +85,14 @@ session never supplies this list.
 An explicitly empty ranking is kept. If a nonempty ranking resolves to no
 tracks, the Web API gets its turn rather than showing a false empty answer.
 
+Related artists also prefer the same-account playback session. The existing
+configured HTTP client sends `queryArtistRelated` with the session's Login5
+bearer and client token, without waiting on the shared Web API's authorization,
+rate-limit cooldown or request budget. The returned cards retain their order,
+names and images. A successful empty list stays empty; a missing or malformed
+private response falls back to the existing shared Web API route. This uses the
+same session-read deadline and does not request another grant or permission.
+
 Background reads have separate four-request budgets for the shared Web API,
 the personal Web API, and the playback session. Waiting for shared sign-in or
 rate-limit recovery therefore cannot occupy the personal app's or playback

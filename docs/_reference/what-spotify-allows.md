@@ -83,6 +83,10 @@ clients. Spotifast uses its session for:
 - **Artist popular tracks.** The account's market-specific ranking and batched
   track details, with the shared Web API as fallback when the session cannot
   supply them. This uses librespot's existing metadata support.
+- **Related artists** through the private `queryArtistRelated` request used by
+  Spotify's own clients, with the session's Login5 bearer and client token.
+  It uses the configured HTTP transport and falls back to the shared Web API
+  if that read is unavailable. A different account's session is never used.
 - **Upcoming album pages.** Prerelease metadata supplies the real album mapping,
   cover and release time. Pathfinder supplies ordered preview rows and explicit
   playability; unpublished rows stay visible without entering playback. The
