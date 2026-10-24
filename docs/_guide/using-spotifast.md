@@ -751,6 +751,12 @@ beside it, or in its own tags, and the cover in its tags; otherwise lyrics come
 from LRCLIB by its artist, title, album and length.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
+The playing line brightens without changing the size or wrapping of the words.
+A thin indicator beneath it shows progress toward the next timed line, when
+that timing is available. It represents a whole line, not individual words.
+While browsing by hand, the other lines remain easy to read. The softened
+cover backdrop adapts to the panel's light or dark theme, and lyric animations
+respect the desktop's reduced-motion preference.
 
 The expand button, or **F** when no text field has focus, opens lyrics in
 full screen. Press **F** or **Esc**, or choose the shrink button, to return to

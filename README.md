@@ -50,6 +50,7 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | **Local files** | Play the local files your playlists list from a folder you choose in Settings, at any sample rate. |
 | **Spotify Connect** | Play on this computer or control playback on your other devices, including Google Cast speakers and groups. Cast devices appear as they are discovered; frequently and recently chosen outputs rise to the top. |
 | **Queue** | Add songs to the queue, or choose **Play next** to put a song or selection first when playing on this computer. |
+| **Lyrics** | Follow timed lyrics in a side panel or full screen, with a softened cover backdrop. Choose a line to seek, or scroll to read at your own pace. |
 | **Themes** | Choose light, dark, system appearance, or custom colours, with one theme for light mode and one for dark mode that switch with the system. On Omarchy, follow your desktop theme. |
 | **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings, and start Spotifast with your computer, with its window or in the tray. |
 | **Winamp mini player** | Use classic skins with an equalizer, playlist, and animated sound displays. |

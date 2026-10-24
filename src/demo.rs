@@ -7467,6 +7467,122 @@ mod tests {
         }
     }
 
+    #[test]
+    fn side_panel_mouse_wheel_pauses_follow_without_recentering() {
+        let (ctx, mut app) = accessible_app("lyrics-wheel-pauses-follow");
+        app.show_lyrics_panel = true;
+        app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+        app.lyrics_uri = app.now_playing().map(|now| now.uri);
+        app.lyrics_following = true;
+        let remote = app.remote.as_mut().expect("demo playback");
+        remote.state.is_playing = false;
+        remote.state.progress_ms = Some(41_000);
+
+        let mut frame = 0;
+        let wheel_input = std::cell::Cell::new(None);
+        let mut draw = |app: &mut App, events: Vec<egui::Event>| {
+            frame += 1;
+            let has_wheel = events
+                .iter()
+                .any(|event| matches!(event, egui::Event::MouseWheel { .. }));
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(frame as f64 / 60.0),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    if has_wheel {
+                        wheel_input.set(Some(ui.input(|input| {
+                            (input.pointer.hover_pos(), input.smooth_scroll_delta)
+                        })));
+                    }
+                    app.frame_ui(ui);
+                },
+            );
+            output.textures_delta.clear();
+            output.shapes
+        };
+        let line_y = |shapes: &[egui::epaint::ClippedShape], wanted: &str| {
+            shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text == wanted => {
+                        Some(text.visual_bounding_rect().center().y)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{wanted} is drawn"))
+        };
+        let line_clip = |shapes: &[egui::epaint::ClippedShape], wanted: &str| {
+            shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text == wanted => {
+                        Some(shape.clip_rect)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{wanted} is drawn"))
+        };
+
+        let mut shapes = Vec::new();
+        for _ in 0..20 {
+            shapes = draw(&mut app, vec![]);
+        }
+        let anchor_before = line_y(&shapes, "But the night is wide and the road is long");
+        let pointer = line_clip(&shapes, "But the night is wide and the road is long").center();
+        shapes = draw(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(pointer),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: egui::vec2(0.0, -4.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        assert!(
+            wheel_input
+                .get()
+                .is_some_and(|(hover, delta)| hover == Some(pointer) && delta.y != 0.0),
+            "egui receives the mouse wheel over the lyrics viewport: {:?}",
+            wheel_input.get()
+        );
+        for _ in 0..40 {
+            shapes = draw(&mut app, vec![]);
+        }
+        let anchor_after_scroll = line_y(&shapes, "But the night is wide and the road is long");
+        assert!(
+            (anchor_after_scroll - anchor_before).abs() > 20.0,
+            "the wheel scrolls the lyrics at {pointer:?}: {anchor_before} to {anchor_after_scroll}"
+        );
+        assert!(
+            !app.lyrics_following,
+            "a wheel scroll in the lyrics panel applies PauseLyricsFollow; pointer={pointer:?}, \
+             clip={:?}, input={wheel_input:?}",
+            line_clip(&shapes, "But the night is wide and the road is long")
+        );
+
+        app.remote.as_mut().unwrap().state.progress_ms = Some(105_000);
+        for _ in 0..90 {
+            shapes = draw(&mut app, vec![]);
+        }
+        let anchor_after_progress = line_y(&shapes, "But the night is wide and the road is long");
+        assert!(
+            (anchor_after_progress - anchor_after_scroll).abs() < 1.0,
+            "advancing to a later lyric does not recenter the manually scrolled panel: \
+             {anchor_after_scroll} to {anchor_after_progress}"
+        );
+        app.backend.shutdown();
+    }
+
     /// Full screen puts the cover and the lyrics side by side as one centred
     /// group, and a song without words gets its cover alone in the middle.
     #[cfg(feature = "demo")]
@@ -7486,6 +7602,11 @@ mod tests {
         ] {
             let (ctx, mut app) = accessible_app(surface);
             apply_flags(&mut app, None, Some(surface));
+            // Assert a visible lyric beside the cover. Rows beyond the
+            // viewport are deliberately faded out while following.
+            let remote = app.remote.as_mut().unwrap();
+            remote.state.is_playing = false;
+            remote.state.progress_ms = Some(106_000);
             let mut shapes = Vec::new();
             for frame in 0..30 {
                 let mut output = ctx.run_ui(
@@ -7570,8 +7691,88 @@ mod tests {
 
     #[test]
     fn fullscreen_lyrics_highlight_preserves_line_layout() {
+        for (surface_index, fullscreen) in [false, true].into_iter().enumerate() {
+            let root = std::env::temp_dir().join(format!(
+                "spotifast-lyrics-layout-{}-{surface_index}",
+                std::process::id()
+            ));
+            let ctx = egui::Context::default();
+            let waker = crate::backend::Waker::default();
+            waker.attach(&ctx);
+            let mut app = App::new(
+                &waker,
+                AppDirs {
+                    config: root.join("config"),
+                    state: root.join("state"),
+                    cache: root.join("cache"),
+                },
+                Settings::default(),
+                AppOptions {
+                    media_controls: false,
+                    restore_sign_in: false,
+                    tray: false,
+                    autostart: false,
+                },
+            );
+            app.attach(&ctx);
+            populate(&mut app);
+            app.show_lyrics_panel = true;
+            app.lyrics_fullscreen = fullscreen.then_some(false);
+            app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+            app.lyrics_following = false;
+            let mut sizes = Vec::new();
+            for (step, position) in [41_000, 47_000].into_iter().enumerate() {
+                let remote = app.remote.as_mut().unwrap();
+                remote.state.is_playing = false;
+                remote.state.progress_ms = Some(position);
+                for frame in 0..10 {
+                    let input = egui::RawInput {
+                        time: Some(step as f64 + f64::from(frame) / 30.0),
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1280.0, 800.0),
+                        )),
+                        ..Default::default()
+                    };
+                    let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+                    output.textures_delta.clear();
+                    if frame == 9 {
+                        let line = output
+                            .shapes
+                            .iter()
+                            .find_map(|shape| {
+                                if let egui::Shape::Text(text) = &shape.shape
+                                    && text.galley.job.text
+                                        == "Streetlights blinking down the river road"
+                                {
+                                    Some(text.galley.size())
+                                } else {
+                                    None
+                                }
+                            })
+                            .expect("the lyric line is rendered");
+                        sizes.push(line);
+                    }
+                }
+            }
+            app.backend.shutdown();
+            assert_eq!(
+                sizes[0],
+                sizes[1],
+                "highlighting must not rewrap or resize a line on {}",
+                if fullscreen {
+                    "full screen"
+                } else {
+                    "the side panel"
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn fullscreen_lyrics_follow_recenters_after_viewport_resizes() {
         let root =
-            std::env::temp_dir().join(format!("spotifast-lyrics-layout-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spotifast-lyrics-resize-{}", std::process::id()));
         let ctx = egui::Context::default();
         let waker = crate::backend::Waker::default();
         waker.attach(&ctx);
@@ -7595,47 +7796,48 @@ mod tests {
         app.show_lyrics_panel = true;
         app.lyrics_fullscreen = Some(false);
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
-        app.lyrics_following = false;
-        let mut sizes = Vec::new();
-        for (step, position) in [0, 41_000].into_iter().enumerate() {
-            let remote = app.remote.as_mut().unwrap();
-            remote.state.is_playing = false;
-            remote.state.progress_ms = Some(position);
-            for frame in 0..30 {
+        app.lyrics_following = true;
+        let remote = app.remote.as_mut().unwrap();
+        remote.state.is_playing = false;
+        remote.state.progress_ms = Some(79_000);
+
+        for (resize, width) in [2_000.0, 1_240.0, 760.0, 1_240.0].into_iter().enumerate() {
+            let mut focused_line = None;
+            for frame in 0..40 {
                 let input = egui::RawInput {
-                    time: Some(step as f64 + f64::from(frame) / 30.0),
+                    time: Some(resize as f64 + f64::from(frame) / 60.0),
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
-                        egui::vec2(1280.0, 800.0),
+                        egui::vec2(width, 800.0),
                     )),
                     ..Default::default()
                 };
                 let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
                 output.textures_delta.clear();
-                if frame == 29 {
-                    let line = output
-                        .shapes
-                        .iter()
-                        .find_map(|shape| {
-                            if let egui::Shape::Text(text) = &shape.shape
-                                && text.galley.job.text
-                                    == "Streetlights blinking down the river road"
-                            {
-                                Some(text.galley.size())
-                            } else {
-                                None
-                            }
-                        })
-                        .expect("the lyric line is rendered");
-                    sizes.push(line);
+                if frame == 39 {
+                    focused_line = output.shapes.iter().find_map(|shape| {
+                        if let egui::Shape::Text(text) = &shape.shape
+                            && text.galley.job.text == "But the night is wide and the road is long"
+                        {
+                            Some((shape.clip_rect, text.visual_bounding_rect()))
+                        } else {
+                            None
+                        }
+                    });
                 }
             }
+            let (clip, line) = focused_line.expect("the active lyric is rendered");
+            assert!(
+                clip.contains_rect(line),
+                "the active lyric must be fully visible at {width}px: {line:?} in {clip:?}"
+            );
+            let focus = (line.center().y - clip.top()) / clip.height();
+            assert!(
+                (focus - 0.36).abs() < 0.08,
+                "the active lyric stays near the upper focus at {width}px: {focus:.3}"
+            );
         }
         app.backend.shutdown();
-        assert_eq!(
-            sizes[0], sizes[1],
-            "highlighting must not rewrap or resize a line"
-        );
     }
 
     /// Every page, panel, and dialog lays out without panicking.

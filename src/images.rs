@@ -773,7 +773,7 @@ fn art_buckets(bytes: &[u8]) -> Option<Vec<(u64, [u8; 3])>> {
 }
 
 /// Blur applied to the full-window lyrics backdrop.
-const LYRICS_BLUR: f32 = 9.0;
+const LYRICS_BLUR: f32 = 14.0;
 
 /// Blur applied to a library thumbnail standing in for a cover.
 ///
