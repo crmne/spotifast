@@ -1389,6 +1389,10 @@ msgstr "Riproduzione automatica"
 msgid "Gapless playback"
 msgstr "Riproduzione senza pause"
 
+#: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "Dissolvenza"
+
 #: src/ui/settings.rs:615
 msgid "Keep music playing when the window closes"
 msgstr "Continua la riproduzione quando chiudi la finestra"
@@ -1506,6 +1510,14 @@ msgstr "Widget per la tacca del MacBook"
 msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "Mostra il widget interattivo In riproduzione passando il cursore sulla tacca."
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr ""
+"Sfuma la fine di un brano nell’inizio del successivo. Disattivato, il "
+"passaggio resta com’è."
 
 #: src/ui/settings.rs:706
 msgid "Local files"
@@ -1720,6 +1732,12 @@ msgstr ""
 #: src/ui/settings.rs:1356
 msgid "Off"
 msgstr "Disattivato"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} s"
 
 #: src/ui/settings.rs:1357
 msgid "Spectrum"

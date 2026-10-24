@@ -1373,6 +1373,10 @@ msgstr "自動再生"
 msgid "Gapless playback"
 msgstr "ギャップレス再生"
 
+#: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "クロスフェード"
+
 #: src/ui/settings.rs:615
 msgid "Keep music playing when the window closes"
 msgstr "ウインドウを閉じても再生を続ける"
@@ -1490,6 +1494,12 @@ msgstr "MacBookノッチウィジェット"
 msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "ノッチの上にカーソルを置いたときに対話型の再生中ウィジェットを表示します。"
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr "曲の終わりを次の曲の始まりに重ねます。オフのときは切り替わりはそのままです。"
 
 #: src/ui/settings.rs:706
 msgid "Local files"
@@ -1699,6 +1709,12 @@ msgstr ""
 #: src/ui/settings.rs:1356
 msgid "Off"
 msgstr "オフ"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} 秒"
 
 #: src/ui/settings.rs:1357
 msgid "Spectrum"

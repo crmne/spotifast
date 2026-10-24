@@ -1391,6 +1391,10 @@ msgstr "Автовідтворення"
 msgid "Gapless playback"
 msgstr "Відтворення без пауз"
 
+#: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "Перехресне згасання"
+
 #: src/ui/settings.rs:615
 msgid "Keep music playing when the window closes"
 msgstr "Продовжувати відтворення після закриття вікна"
@@ -1508,6 +1512,13 @@ msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "Показувати інтерактивний віджет «Відтворюється» під час наведення на виріз."
 
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr ""
+"Кінець пісні переходить у початок наступної. Вимкнено залишає перехід як є."
+
 #: src/ui/settings.rs:706
 msgid "Local files"
 msgstr "Локальні файли"
@@ -1543,6 +1554,12 @@ msgstr "Висока · 160 кбіт/с"
 #: src/ui/settings.rs:770
 msgid "Very high · 320 kbps"
 msgstr "Дуже висока · 320 кбіт/с"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} с"
 
 #: src/ui/settings.rs:875
 msgctxt "tray icon"

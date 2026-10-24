@@ -268,6 +268,17 @@ pub struct Settings {
     pub normalisation: bool,
     pub autoplay: bool,
     pub gapless: bool,
+    /// Whether songs fade into each other. Off is the default: nothing is
+    /// held back and songs hand over exactly as before. A file saved before
+    /// the switch existed is on only when [`Self::crossfade_secs`] is above
+    /// zero.
+    #[serde(default)]
+    pub crossfade: bool,
+    /// Song-to-song overlap in seconds, from the Settings slider, 0 to
+    /// [`crate::sink::CROSSFADE_MAX`]. Kept while the switch is off, and
+    /// used again when it is turned back on.
+    #[serde(default)]
+    pub crossfade_secs: u32,
     /// The output local playback uses: the id of a device
     /// `fastframe_audio::output_devices` lists, or `None` for the system
     /// default. Files from 0.13.3 and earlier may hold a device's name instead; see
@@ -487,6 +498,8 @@ impl Default for Settings {
             normalisation: false,
             autoplay: true,
             gapless: true,
+            crossfade: false,
+            crossfade_secs: 0,
             audio_device: None,
             local_files_folder: None,
             audio_buffer_ms: default_buffer_ms(),
@@ -675,6 +688,7 @@ impl Settings {
                 });
                 settings.migrate_proxy(text);
                 settings.forget_unusable_screen_rate();
+                settings.migrate_crossfade(text);
                 settings.proxy_password_legacy = !settings.proxy_password.is_empty();
                 settings
             }
@@ -706,6 +720,14 @@ impl Settings {
         self.search_history.retain(|entry| entry != query);
         self.search_history.insert(0, query.to_string());
         self.search_history.truncate(12);
+    }
+
+    /// A file from before the switch has no `crossfade` field. Treat a saved
+    /// length above zero as on, and zero as off.
+    pub(crate) fn migrate_crossfade(&mut self, text: &str) {
+        if !text.contains("\"crossfade\"") {
+            self.crossfade = self.crossfade_secs > 0;
+        }
     }
 
     /// Forgets the frame rate an earlier version set from Windows's 1 Hz
@@ -1528,6 +1550,25 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"skin":"A.wsz"}"#).unwrap();
         assert!(!settings.random_skin);
         assert_eq!(settings.skin.as_deref(), Some("A.wsz"));
+    }
+
+    /// A file from before the switch is on only when it already had a length.
+    /// The switch and the length then round-trip on their own.
+    #[test]
+    fn a_saved_crossfade_length_turns_the_switch_on() {
+        let mut off: Settings = serde_json::from_str(r#"{"crossfade_secs":0}"#).unwrap();
+        off.migrate_crossfade(r#"{"crossfade_secs":0}"#);
+        assert!(!off.crossfade);
+
+        let mut on: Settings = serde_json::from_str(r#"{"crossfade_secs":8}"#).unwrap();
+        on.migrate_crossfade(r#"{"crossfade_secs":8}"#);
+        assert!(on.crossfade);
+        assert_eq!(on.crossfade_secs, 8);
+
+        let kept: Settings =
+            serde_json::from_str(r#"{"crossfade":false,"crossfade_secs":8}"#).unwrap();
+        assert!(!kept.crossfade);
+        assert_eq!(kept.crossfade_secs, 8);
     }
 
     #[test]

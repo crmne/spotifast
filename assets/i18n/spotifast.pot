@@ -1357,6 +1357,10 @@ msgstr ""
 msgid "Gapless playback"
 msgstr ""
 
+#: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr ""
+
 #: src/ui/settings.rs:615
 msgid "Keep music playing when the window closes"
 msgstr ""
@@ -1465,6 +1469,12 @@ msgstr ""
 
 #: src/ui/settings.rs:702
 msgid "Show interactive Now Playing widget when hovering over the notch."
+msgstr ""
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
 msgstr ""
 
 #: src/ui/settings.rs:706
@@ -1658,6 +1668,12 @@ msgstr ""
 
 #: src/ui/settings.rs:1356
 msgid "Off"
+msgstr ""
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
 msgstr ""
 
 #: src/ui/settings.rs:1357

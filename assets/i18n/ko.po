@@ -1364,6 +1364,10 @@ msgstr "자동 재생"
 msgid "Gapless playback"
 msgstr "갭리스 재생"
 
+#: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "크로스페이드"
+
 #: src/ui/settings.rs:615
 msgid "Keep music playing when the window closes"
 msgstr "창을 닫아도 음악 계속 재생"
@@ -1477,6 +1481,12 @@ msgstr "MacBook 노치 위젯"
 #: src/ui/settings.rs:702
 msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr "노치에 마우스를 올리면 대화형 지금 재생 중 위젯을 표시합니다."
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr "곡의 끝을 다음 곡의 시작과 겹쳐 페이드합니다. 끄면 곡 전환이 그대로 유지됩니다."
 
 #: src/ui/settings.rs:706
 msgid "Local files"
@@ -1680,6 +1690,12 @@ msgstr ""
 #: src/ui/settings.rs:1356
 msgid "Off"
 msgstr "끄기"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds}초"
 
 #: src/ui/settings.rs:1357
 msgid "Spectrum"

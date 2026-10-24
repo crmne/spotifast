@@ -1345,6 +1345,10 @@ msgstr "自动播放"
 msgid "Gapless playback"
 msgstr "无缝播放"
 
+#: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "交叉淡入淡出"
+
 #: src/ui/settings.rs:615
 msgid "Keep music playing when the window closes"
 msgstr "关闭窗口后继续播放音乐"
@@ -1454,6 +1458,12 @@ msgstr "MacBook刘海小组件"
 #: src/ui/settings.rs:702
 msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr "悬停在刘海区域时显示交互式“正在播放”小组件。"
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr "将一首歌的结尾淡入下一首的开头。关闭时切换保持原样。"
 
 #: src/ui/settings.rs:706
 msgid "Local files"
@@ -1653,6 +1663,12 @@ msgstr ""
 #: src/ui/settings.rs:1356
 msgid "Off"
 msgstr "关闭"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} 秒"
 
 #: src/ui/settings.rs:1357
 msgid "Spectrum"

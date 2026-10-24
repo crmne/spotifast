@@ -13028,6 +13028,12 @@ pub fn engine_config(
         normalisation: settings.normalisation,
         autoplay: settings.autoplay,
         gapless: settings.gapless,
+        crossfade: std::time::Duration::from_secs(u64::from(
+            u32::from(settings.crossfade)
+                * settings
+                    .crossfade_secs
+                    .min(crate::sink::CROSSFADE_MAX.as_secs() as u32),
+        )),
         buffer_ms: settings.audio_buffer_ms,
         audio_device: settings
             .audio_device

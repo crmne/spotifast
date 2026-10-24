@@ -338,6 +338,8 @@ main fields are:
 | `normalisation` | `false` | Volume normalisation |
 | `autoplay` | `true` | Keep playing similar music at the end |
 | `gapless` | `true` | Gapless playback |
+| `crossfade` | `false` | Song-to-song crossfade switch. Off changes nothing. A file saved before the switch is on when `crossfade_secs` is above zero |
+| `crossfade_secs` | `0` | Crossfade length in seconds, from the Settings slider, 0 to 12. A larger saved value is treated as 12. The slider keeps its place while the switch is off, and that length is used again when the switch is turned on. Only that overlap is held, and only while the switch is on |
 | `audio_device` | `null` | The output local playback uses, by the id of a device **Audio output** in the device picker lists: PipeWire's or PulseAudio's node name or an ALSA PCM on Linux, the WASAPI endpoint id on Windows, the CoreAudio UID on macOS. `null` is the system default. A device that is not there plays through the default. A name saved by 0.13.3 or earlier opens the output that still has it and is replaced by its id once music plays there; any other name plays through the default and is kept until another choice. The `audio_backend` older versions saved is ignored and no longer written |
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
 | `local_files_folder` | `null` | Folder, with its subfolders, that a playlist's local files play from |

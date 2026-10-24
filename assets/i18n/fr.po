@@ -1389,6 +1389,10 @@ msgstr "Lecture automatique"
 msgid "Gapless playback"
 msgstr "Lecture sans blanc"
 
+#: src/ui/settings.rs:519
+msgid "Crossfade"
+msgstr "Fondu enchaîné"
+
 #: src/ui/settings.rs:615
 msgid "Keep music playing when the window closes"
 msgstr "Continuer la lecture à la fermeture de la fenêtre"
@@ -1506,6 +1510,14 @@ msgstr "Widget d’encoche MacBook"
 msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "Afficher le widget interactif En cours de lecture au survol de l’encoche."
+
+#: src/ui/settings.rs:611
+msgid ""
+"Fade the end of a song into the start of the next. Off keeps the handover as "
+"it is."
+msgstr ""
+"Enchaîne la fin d’un morceau avec le début du suivant. Désactivé, la "
+"transition reste telle quelle."
 
 #: src/ui/settings.rs:706
 msgid "Local files"
@@ -1724,6 +1736,12 @@ msgstr ""
 #: src/ui/settings.rs:1356
 msgid "Off"
 msgstr "Désactivé"
+
+#. Translators: {seconds} is a crossfade length, such as 4.
+#: src/ui/settings.rs:754
+#, rust-format
+msgid "{seconds} s"
+msgstr "{seconds} s"
 
 #: src/ui/settings.rs:1357
 msgid "Spectrum"
