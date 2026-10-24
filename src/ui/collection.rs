@@ -513,7 +513,9 @@ pub struct TableCache {
     pub visible: Arc<[usize]>,
     pub view_uris: Option<Arc<[String]>>,
     pub plays_shown_rows: bool,
-    /// Playback positions for visible rows; unavailable rows have no position.
+    /// Playback positions in `view_uris`, by item index: a finite table's
+    /// rows are server slots, not view rows. Unplayable and filtered-out
+    /// items have no position.
     pub view_positions: Arc<[Option<usize>]>,
 }
 
@@ -637,13 +639,14 @@ pub fn prepare_table_view(
         let mut view_positions = Vec::new();
         let view_uris = (sort.is_some() || !needle.is_empty() || plays_shown_rows).then(|| {
             let mut uris = Vec::new();
+            view_positions.resize(items.len(), None);
             for &index in &visible {
                 let item = &items[index].0;
-                view_positions.push(app.row_playable(item).then(|| {
+                view_positions[index] = app.row_playable(item).then(|| {
                     let position = uris.len();
                     uris.push(item.uri().to_string());
                     position
-                }));
+                });
             }
             Arc::<[String]>::from(uris)
         });
@@ -928,7 +931,7 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             app,
             TrackRow {
                 index: if entry.view_uris.is_some() {
-                    entry.view_positions[row].unwrap_or(row)
+                    entry.view_positions[index].unwrap_or(row)
                 } else {
                     actual_index
                 },
@@ -2770,6 +2773,108 @@ mod tests {
         assert!(app.actions.iter().any(|action| matches!(action,
             Action::LoadWindow { page: Page::Playlist(id), position } if id == "finite" && *position > 650 && *position < 750
         )), "a jump must request the distant rows, not the next sequential page");
+    }
+
+    /// A playlist with hidden songs plays the rows on screen, so each row
+    /// looks up its place in that list. An empty slot and a song without a
+    /// URI both show as Unavailable and play nothing; the rows below them
+    /// must still play their own song, the last one without running off
+    /// the list (#1041).
+    #[test]
+    fn rows_below_unavailable_entries_play_their_own_song() {
+        let mut app = test_app();
+        let songs = make_large_tracks(3);
+        app.hidden_songs.insert(
+            "spotify:playlist:hiding".into(),
+            std::iter::once(songs[0].0.uri().to_string()).collect(),
+        );
+        let entries = [None, Some(PlayableItem::Track(Track::default()))]
+            .into_iter()
+            .chain(songs.into_iter().map(|(item, _, _)| Some(item)))
+            .map(|item| crate::api::models::PlaylistItem {
+                item,
+                ..Default::default()
+            })
+            .collect();
+        app.playlist_pages.insert(
+            "hiding".into(),
+            PlaylistPage {
+                playlist: Loadable::Loaded(Playlist {
+                    id: "hiding".into(),
+                    name: "Hiding".into(),
+                    uri: "spotify:playlist:hiding".into(),
+                    tracks: Some(crate::api::models::TrackCount { total: 5 }),
+                    ..Default::default()
+                }),
+                items: PagedList {
+                    items: entries,
+                    total: Some(5),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let frame = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 1000.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .animated(false)
+                        .show(ui, |ui| playlist(app, ui, "hiding"));
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        frame(&mut app, vec![]);
+        let tree = frame(&mut app, vec![]);
+        let last = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.label().is_some_and(|label| {
+                    label.starts_with("Play Nested metadata song 2 with a longer title,")
+                })
+            })
+            .expect("the last song's row")
+            .0;
+        app.actions.clear();
+        frame(
+            &mut app,
+            vec![egui::Event::AccessKitActionRequest(
+                egui::accesskit::ActionRequest {
+                    action: egui::accesskit::Action::Click,
+                    target_tree: egui::accesskit::TreeId::ROOT,
+                    target_node: last,
+                    data: None,
+                },
+            )],
+        );
+        let (uris, index) = app
+            .actions
+            .iter()
+            .find_map(|action| match action {
+                Action::PlayFromRow {
+                    context: RowContext::View { uris, .. },
+                    index,
+                    ..
+                } => Some((Arc::clone(uris), *index)),
+                _ => None,
+            })
+            .expect("the click plays the shown rows");
+        assert_eq!(
+            uris.get(index as usize).map(String::as_str),
+            Some("spotify:track:large-2"),
+            "the played index must point at the clicked song"
+        );
     }
 
     #[test]
