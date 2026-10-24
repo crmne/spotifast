@@ -77,6 +77,8 @@ const SLOW_BANNER_INTERVAL: jiff::SignedDuration = jiff::SignedDuration::from_ho
 /// A "too many requests" answer older than this no longer brings up the
 /// banner: Spotify has likely caught up by the time a dialog closes.
 const SLOW_BANNER_FRESH: Duration = Duration::from_secs(60);
+/// How close a report must be to a seek's position to confirm it.
+const SEEK_AGREES_MS: u32 = 1500;
 
 /// How long a newly started context remains visible while Spotify catches up.
 /// During local takeover, Spotify may briefly alternate between old and new
@@ -294,6 +296,15 @@ pub enum PlayCountRead {
 /// How long a failed play count read waits before a visit asks again.
 const PLAY_COUNT_RETRY: Duration = Duration::from_secs(60);
 
+/// The facts that, when one changes, send the mirror a new position.
+#[derive(PartialEq)]
+struct MirrorSent {
+    uri: String,
+    playing: bool,
+    report: Option<Instant>,
+    seek: Option<Instant>,
+}
+
 pub struct App {
     pub dirs: AppDirs,
     pub settings: Settings,
@@ -417,6 +428,8 @@ pub struct App {
     local_transfer_sequence: Option<u64>,
     /// Local playback is authorized and the engine is connected.
     pub local_ready: bool,
+    /// What the mirror last heard, so it hears each change once.
+    mirror_sent: Option<MirrorSent>,
     pub local_playback: LocalPlayback,
     pub local: LocalState,
     pub remote: Option<RemoteSnapshot>,
@@ -1091,6 +1104,7 @@ impl App {
             local_device_id: None,
             local_transfer_sequence: None,
             local_ready: false,
+            mirror_sent: None,
             local_playback: LocalPlayback::Unavailable,
             local: LocalState::default(),
             remote: None,
@@ -1900,6 +1914,85 @@ impl App {
         }))
     }
 
+    /// Ends a seek's hold on another device's position once a report agrees
+    /// with it, or the song changes. Until then, Spotify can still report the
+    /// old position a second after the seek.
+    fn end_agreed_seek(&mut self, previous_uri: Option<&str>) {
+        let Some((sought, at)) = self.pending_remote_position else {
+            return;
+        };
+        let Some(state) = self.remote.as_ref().map(|remote| &remote.state) else {
+            return;
+        };
+        let sought = if state.is_playing {
+            sought.saturating_add(at.elapsed().as_millis() as u32)
+        } else {
+            sought
+        };
+        let agrees = state
+            .progress_ms
+            .is_some_and(|reported| reported.abs_diff(sought) < SEEK_AGREES_MS);
+        let uri = state.item.as_ref().map(|item| item.uri());
+        if agrees || uri != previous_uri {
+            self.pending_remote_position = None;
+        }
+    }
+
+    /// Whether the visualisers have sound for `now`: it plays here, or the
+    /// mirror plays it silently.
+    pub fn sounding(&self, now: &NowPlaying) -> bool {
+        (now.playing || now.loading) && (now.local || self.mirror_sent.is_some())
+    }
+
+    /// Whether a visualiser is on screen: the open window's own, or
+    /// MilkDrop's, which has a window of its own.
+    fn visualiser_shown(&self, ctx: &egui::Context) -> bool {
+        let own = if self.settings.winamp_window {
+            self.settings.vis != crate::settings::VisMode::Off && !self.settings.winamp_shaded
+        } else {
+            self.settings.player_bar_vis != crate::settings::PlayerBarVis::Off
+        };
+        (own && self.window_shown(ctx)) || self.winamp.tap.milkdrop_attached()
+    }
+
+    fn window_shown(&self, ctx: &egui::Context) -> bool {
+        !self.window_hidden && !ctx.input(|input| input.viewport().minimized.unwrap_or(false))
+    }
+
+    /// While a visualiser shows a song that another device plays, has the
+    /// mirror play it for the visualiser's sound.
+    fn follow_remote(&mut self, ctx: &egui::Context) {
+        let shown = self.local_ready && self.visualiser_shown(ctx);
+        let now = shown
+            .then(|| self.now_playing())
+            .flatten()
+            // Only songs on Spotify: the mirror cannot fetch a local file or
+            // play an episode.
+            .filter(|now| !now.local && now.uri.starts_with("spotify:track:") && !now.resuming);
+        let sent = now.as_ref().map(|now| MirrorSent {
+            uri: now.uri.clone(),
+            playing: now.playing,
+            report: self.remote.as_ref().map(|remote| remote.received_at),
+            // Until the hold ends: then the report's position takes over.
+            seek: self
+                .pending_remote_position
+                .map(|(_, at)| at)
+                .filter(|at| at.elapsed() < PLAYBACK_HOLD),
+        });
+        if sent == self.mirror_sent {
+            return;
+        }
+        self.mirror_sent = sent;
+        self.backend.mirror(now.map(|now| crate::player::Follow {
+            uri: now.uri,
+            clock: crate::player::Clock {
+                position_ms: now.position_ms,
+                at: Instant::now(),
+                playing: now.playing,
+            },
+        }));
+    }
+
     pub fn now_playing(&self) -> Option<NowPlaying> {
         if let Some(now) = &self.frame_now {
             return Some(now.clone());
@@ -2032,17 +2125,21 @@ impl App {
             Some((playing, at)) if at.elapsed() < PLAYBACK_HOLD => playing,
             _ => remote.state.is_playing,
         };
-        let position = match self.pending_remote_position {
-            Some((position, at)) if at.elapsed() < OPTIMISTIC_HOLD => position,
-            _ => {
-                let base = remote.state.progress_ms.unwrap_or(0);
-                if remote.state.is_playing {
-                    (base as u64 + remote.received_at.elapsed().as_millis() as u64)
-                        .min(item.duration_ms() as u64) as u32
-                } else {
-                    base
-                }
+        let advanced = |position: u32, since: Instant, playing: bool| {
+            if playing {
+                (position as u64 + since.elapsed().as_millis() as u64)
+                    .min(item.duration_ms() as u64) as u32
+            } else {
+                position
             }
+        };
+        let position = match self.pending_remote_position {
+            Some((sought, at)) if at.elapsed() < PLAYBACK_HOLD => advanced(sought, at, playing),
+            _ => advanced(
+                remote.state.progress_ms.unwrap_or(0),
+                remote.received_at,
+                remote.state.is_playing,
+            ),
         };
         let volume = match self.pending_remote_volume {
             Some((volume, at)) if at.elapsed() < OPTIMISTIC_HOLD => volume,
@@ -2775,6 +2872,8 @@ impl App {
         match &status {
             LocalPlayback::Ready { device_id } => {
                 self.local_device_id = Some(device_id.clone());
+                // A new engine has a new mirror, which needs the song again.
+                self.mirror_sent = None;
                 let became_ready = !self.local_ready;
                 self.local_ready = true;
                 if became_ready
@@ -3711,6 +3810,7 @@ impl App {
         })) {
             ctx.request_repaint_after(wait);
         }
+        self.follow_remote(ctx);
         let now = Instant::now();
         if self.winamp_level_reassert > 0 {
             self.winamp_level_reassert -= 1;
@@ -6708,6 +6808,7 @@ impl App {
                             state,
                             received_at: Instant::now(),
                         });
+                        self.end_agreed_seek(previous_uri.as_deref());
                         if let (Some(previous), Some(current)) = (
                             previous_shuffle,
                             self.remote
@@ -12345,8 +12446,7 @@ impl App {
     /// system is about to do.
     fn sync_power(&mut self, ctx: &egui::Context) {
         let conditions = self.power.conditions();
-        let shown =
-            !self.window_hidden && !ctx.input(|input| input.viewport().minimized.unwrap_or(false));
+        let shown = self.window_shown(ctx);
         let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
         let budget = crate::power::budget(conditions, shown, focused);
         if budget != self.budget {
@@ -12410,7 +12510,14 @@ impl App {
         let polling = self
             .is_connected()
             .then(|| self.connected_repaint_interval());
-        [playing, pending, polling].into_iter().flatten().min()
+        // A held seek ends on time, even with no report and nothing playing.
+        let seek_hold = self
+            .pending_remote_position
+            .and_then(|(_, at)| PLAYBACK_HOLD.checked_sub(at.elapsed()));
+        [playing, pending, polling, seek_hold]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// How long the headless loop may sleep after this tick: until the next
@@ -13783,6 +13890,162 @@ mod tests {
         }
         assert!(shelf_left < initial_left, "Shift+wheel must move the shelf");
         assert_eq!(page_offset, 0.0, "the enclosing page must stay put");
+    }
+
+    /// After a seek on another device, a report that Spotify fetched before
+    /// the seek landed must not pull the position back. One that agrees, or
+    /// a new song, ends the hold.
+    #[test]
+    fn a_remote_seek_holds_until_a_report_agrees() {
+        let mut app = headless_app();
+        let report = |app: &mut App, uri: &str, progress_ms: u32| {
+            app.handle_api(ApiResponse::PlaybackState {
+                seq: app.remote_poll_seq,
+                result: Ok(Some(PlaybackState {
+                    is_playing: false,
+                    progress_ms: Some(progress_ms),
+                    item: Some(PlayableItem::Track(Track {
+                        uri: uri.into(),
+                        duration_ms: 200_000,
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                })),
+            });
+        };
+        let position = |app: &App| app.now_playing().unwrap().position_ms;
+        report(&mut app, "spotify:track:a", 84_000);
+        app.pending_remote_position = Some((40_000, Instant::now()));
+
+        // Still the old position.
+        report(&mut app, "spotify:track:a", 84_000);
+        assert_eq!(position(&app), 40_000);
+
+        // A report that agrees takes over.
+        report(&mut app, "spotify:track:a", 40_300);
+        assert_eq!(position(&app), 40_300);
+        assert_eq!(app.pending_remote_position, None);
+
+        // A new song ends the hold.
+        app.pending_remote_position = Some((40_000, Instant::now()));
+        report(&mut app, "spotify:track:b", 0);
+        assert_eq!(position(&app), 0);
+
+        // A seek Spotify never carries out stops holding in time.
+        app.pending_remote_position = Some((40_000, Instant::now() - PLAYBACK_HOLD));
+        report(&mut app, "spotify:track:b", 84_000);
+        assert_eq!(position(&app), 84_000);
+
+        // Paused, with no report coming: a pass still runs when the hold ends.
+        let left = Duration::from_secs(1);
+        app.pending_remote_position = Some((40_000, Instant::now() - (PLAYBACK_HOLD - left)));
+        assert!(app.next_pass().is_some_and(|due| due <= left));
+    }
+
+    /// The mirror plays a speaker's song only while a visualiser shows it,
+    /// and hears each change once, not every frame.
+    #[test]
+    fn the_mirror_follows_a_speaker_only_while_a_visualiser_shows() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = true;
+        app.settings.winamp_window = false;
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Spectrum;
+        let snapshot = |is_playing: bool| RemoteSnapshot {
+            state: PlaybackState {
+                is_playing,
+                progress_ms: Some(10_000),
+                item: Some(PlayableItem::Track(Track {
+                    uri: "spotify:track:a".into(),
+                    duration_ms: 200_000,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        };
+        app.remote = Some(snapshot(true));
+
+        app.follow_remote(&ctx);
+        app.follow_remote(&ctx);
+        let sent = app.backend.take_mirror_requests();
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        let follow = sent[0].as_ref().expect("a song to follow");
+        assert_eq!(
+            (follow.uri.as_str(), follow.clock.playing),
+            ("spotify:track:a", true)
+        );
+        assert!(app.sounding(&app.now_playing().unwrap()));
+
+        // A fresh report of the same playback is passed on once.
+        app.remote = Some(snapshot(true));
+        app.follow_remote(&ctx);
+        assert_eq!(app.backend.take_mirror_requests().len(), 1);
+
+        // A seek from here is passed on at once, not at the next report.
+        app.pending_remote_position = Some((60_000, Instant::now()));
+        app.follow_remote(&ctx);
+        let sent = app.backend.take_mirror_requests();
+        // Playing, so the seek moves on by the time the call takes.
+        let position = sent[0].as_ref().unwrap().clock.position_ms;
+        assert!((60_000..61_000).contains(&position), "{position}");
+
+        // A seek the speaker never carries out gives way to the report when
+        // its hold ends. The last position sent counts: a slow machine may
+        // already pass the hold on the first call.
+        let almost = PLAYBACK_HOLD - Duration::from_millis(50);
+        app.pending_remote_position = Some((60_000, Instant::now() - almost));
+        app.follow_remote(&ctx);
+        let mut sent = app.backend.take_mirror_requests();
+        std::thread::sleep(Duration::from_millis(60));
+        app.follow_remote(&ctx);
+        sent.extend(app.backend.take_mirror_requests());
+        let last = sent
+            .last()
+            .and_then(Option::as_ref)
+            .expect("a song to follow");
+        assert!(last.clock.position_ms < 60_000, "{sent:?}");
+
+        // The shaded mini player shows no visualiser.
+        app.settings.winamp_window = true;
+        app.settings.winamp_shaded = true;
+        app.settings.vis = crate::settings::VisMode::Bars;
+        app.follow_remote(&ctx);
+        assert_eq!(app.backend.take_mirror_requests(), [None]);
+        app.settings.winamp_window = false;
+        app.settings.winamp_shaded = false;
+        app.follow_remote(&ctx);
+        assert!(app.backend.take_mirror_requests()[0].is_some());
+
+        // No visualiser: the mirror stops.
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Off;
+        app.follow_remote(&ctx);
+        assert_eq!(app.backend.take_mirror_requests(), [None]);
+
+        // The mini player's own visualiser counts.
+        app.settings.winamp_window = true;
+        app.settings.vis = crate::settings::VisMode::Bars;
+        app.follow_remote(&ctx);
+        assert!(app.backend.take_mirror_requests()[0].is_some());
+
+        // A local file on the speaker is not followed.
+        let mut local = snapshot(true);
+        local.state.item = Some(PlayableItem::Track(Track {
+            uri: "spotify:local:artist:album:title:200".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        }));
+        app.remote = Some(local);
+        app.follow_remote(&ctx);
+        assert_eq!(app.backend.take_mirror_requests(), [None]);
+        app.remote = Some(snapshot(true));
+        app.follow_remote(&ctx);
+        assert!(app.backend.take_mirror_requests()[0].is_some());
+
+        // A hidden window shows nothing.
+        app.window_hidden = true;
+        app.follow_remote(&ctx);
+        assert_eq!(app.backend.take_mirror_requests(), [None]);
     }
 
     /// A song started outside a playlist must turn off the playlist's

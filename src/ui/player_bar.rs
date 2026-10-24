@@ -128,7 +128,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
     use crate::settings::PlayerBarVis;
     use crate::vis;
     let mode = app.settings.player_bar_vis;
-    let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
+    let sounding = now.is_some_and(|now| app.sounding(now));
     let dark = ui.visuals().dark_mode;
     let colours = vis_colours(app.now_playing_palette(), app.palette.accent, dark);
     // Over a light bar the same colour paints more strongly, or white
