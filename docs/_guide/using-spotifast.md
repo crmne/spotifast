@@ -166,7 +166,8 @@ When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.
 
-Sorted and filtered views omit unavailable songs and local files from playback.
+Sorted and filtered views skip unavailable songs and local files missing from
+your source folders.
 The rows stay visible, and selecting a repeated song starts that occurrence. Filtering a playlist or Liked Songs plays only the matching songs,
 including repeated entries. Play is disabled when the view has no playable
 songs; it never falls back to the unfiltered playlist in that case. Clearing
@@ -205,6 +206,38 @@ Double-click a playlist, Liked Songs, album, artist, or podcast row in the
 Library sidebar to start playing it. A single click still opens the row's page.
 Pointing at a row's cover art also shows a play button, but only when the
 sidebar is not in compact mode.
+
+## Local files
+
+In **Settings > Playback on this computer > Local files**, select **Choose
+folder**. Its subfolders are included, and **Local Files** appears in the
+Library sidebar automatically. A previously saved folder works without setup.
+Choosing another folder replaces the current folder. **Remove** stops indexing
+the folder and hides the Library entry without deleting any files.
+
+Open **Local Files** in the Library sidebar to browse the indexed songs.
+Filter or sort the table, choose **Play** to start its displayed songs, or
+double-click a song to start there. Use **Add to queue** or **Play next** to mix local files with Spotify songs
+while this computer is the active player.
+See [playback capabilities](/what-spotify-allows/#librespot-playback).
+Local files cannot play on another Connect device or be added to Spotify
+playlists from Spotifast. Playback still requires Spotify Premium and
+**Set up playback here** in the device menu.
+
+Supported playback is **MP3 and FLAC from 8 to 384 kHz**, including mono
+and surround files, which librespot converts to stereo. MP4 and M4P files
+with AAC audio are not enabled in this build.
+Files the playback decoder cannot open are omitted from the list.
+WebM and video files are unsupported. The list uses the same URI metadata
+as librespot playback, so songs with identical artist, album, title and
+length appear once. Nested symbolic links are skipped. An unreadable subfolder
+fails the scan and keeps the previous list instead of publishing partial results.
+Files stay on your computer.
+
+Choose **Rescan** after adding files or changing their tags. Folder changes
+and Rescan restart playback on this computer so the player's file lookup
+matches the Library. Scans run in the background; an inaccessible folder
+shows an error. Check that the folder or drive is available, then rescan.
 
 ## Playing a song from search
 

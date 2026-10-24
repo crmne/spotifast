@@ -1,6 +1,6 @@
 //! User preferences, stored as one readable JSON file.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -583,6 +583,11 @@ impl Settings {
             .map(std::path::PathBuf::from)
     }
 
+    /// The configured folder in the form expected by the library scanner.
+    pub fn local_files_folders(&self) -> Vec<PathBuf> {
+        self.local_files_folder().into_iter().collect()
+    }
+
     /// The one palette shown whatever the system's appearance: a chosen
     /// palette file, or Omarchy's while Follow system follows it.
     pub(crate) fn fixed_palette(&self) -> Option<crate::theme::Palette> {
@@ -1002,6 +1007,34 @@ impl ManualProxy {
 #[cfg(test)]
 mod tests {
     use super::Settings;
+
+    #[test]
+    fn local_files_reuses_the_existing_folder_setting() {
+        use std::path::PathBuf;
+
+        let older: Settings = serde_json::from_value(serde_json::json!({
+            "local_files_folder": "Music"
+        }))
+        .unwrap();
+        assert_eq!(older.local_files_folder(), Some(PathBuf::from("Music")));
+        assert_eq!(older.local_files_folders(), vec![PathBuf::from("Music")]);
+        let saved = serde_json::to_value(&older).unwrap();
+        assert_eq!(saved["local_files_folder"], "Music");
+        assert!(saved.get("show_local_files").is_none());
+        assert!(saved.get("local_files_sources").is_none());
+        let restored: Settings = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored.local_files_folder.as_deref(), Some("Music"));
+        assert_eq!(restored.local_files_folders(), vec![PathBuf::from("Music")]);
+
+        for folder in [None, Some(""), Some(" \t")] {
+            let settings = Settings {
+                local_files_folder: folder.map(str::to_owned),
+                ..Settings::default()
+            };
+            assert_eq!(settings.local_files_folder(), None);
+            assert!(settings.local_files_folders().is_empty());
+        }
+    }
 
     #[test]
     fn new_profiles_follow_the_system_and_saved_choices_are_preserved() {

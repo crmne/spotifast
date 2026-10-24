@@ -10,6 +10,7 @@ pub(crate) mod friends;
 pub mod home;
 mod keys;
 pub mod library;
+pub mod local_files;
 pub mod login;
 mod lyrics;
 pub mod new_releases;
@@ -329,6 +330,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                                 Page::NewReleases => new_releases::page(app, ui),
                                 Page::Search => search::show(app, ui),
                                 Page::LikedSongs => collection::liked(app, ui),
+                                Page::LocalFiles => local_files::show(app, ui),
                                 Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {
                                     library::show(app, ui, page)
                                 }

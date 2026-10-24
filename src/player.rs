@@ -62,8 +62,8 @@ pub struct EngineConfig {
     pub eq: crate::eq::SharedEq,
     /// Proxy used by the Web API client. Librespot only uses the HTTP form.
     pub proxy: crate::settings::ProxyConfig,
-    /// The folder a playlist's `spotify:local:` songs play from.
-    pub local_files: Option<PathBuf>,
+    /// The folders `spotify:local:` songs play from.
+    pub local_files: Vec<PathBuf>,
 }
 
 impl EngineConfig {
@@ -522,7 +522,7 @@ impl Engine {
             normalisation_report: Some(Arc::clone(&normalisation_factor)),
             // librespot reads this folder's tags on its own player thread
             // when the engine starts, never on the UI thread.
-            local_file_directories: config.local_files.iter().cloned().collect(),
+            local_file_directories: config.local_files.clone(),
             ..PlayerConfig::default()
         };
 
@@ -1851,7 +1851,7 @@ mod tests {
             audio_cache_dir: None,
             audio_cache_limit: None,
             proxy: crate::settings::ProxyConfig::Off,
-            local_files: None,
+            local_files: Vec::new(),
         };
         let id = config.device_id();
         assert_eq!(id.len(), 40);

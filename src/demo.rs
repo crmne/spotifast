@@ -1278,6 +1278,51 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 );
                 app.local_files = Some(("/home/you/Music".into(), std::sync::Arc::new(uris)));
             }
+            "local-library" | "local-library-offline" => {
+                play_here(app);
+                app.local.playback = crate::player::Playback::Paused;
+                let items: Vec<_> = ["Kitchen Demo", "Evening Rehearsal", "Field Recording"]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, name)| {
+                        PlayableItem::Track(Track {
+                            uri: format!(
+                                "spotify:local:Demo+Artist:Home+Recordings:Demo+{index}:180"
+                            ),
+                            name: name.into(),
+                            is_local: true,
+                            duration_ms: 180_000,
+                            artists: vec![ArtistRef {
+                                name: "Demo Artist".into(),
+                                ..Default::default()
+                            }],
+                            album: Some(Album {
+                                name: "Home Recordings".into(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        })
+                    })
+                    .collect();
+                let uris = items
+                    .iter()
+                    .map(|item| {
+                        (
+                            crate::app::local_file_key(item.uri()),
+                            std::path::PathBuf::from("/home/you/Music/recording.flac"),
+                        )
+                    })
+                    .collect();
+                app.settings.local_files_folder = Some("/home/you/Music".into());
+                app.local_files = Some(("/home/you/Music".into(), std::sync::Arc::new(uris)));
+                app.local_library = Loadable::Loaded(std::sync::Arc::new(items));
+                app.local_files_scanning = false;
+                app.local_files_error = None;
+                app.local_files_revision = app.local_files_revision.wrapping_add(1);
+                if surface == "local-library-offline" {
+                    app.network_reachable = false;
+                }
+            }
             "rtl" => {
                 if let Some(page) = app.playlist_pages.get_mut("pl1") {
                     for (item, &(title, artist, album)) in
@@ -5213,7 +5258,77 @@ mod tests {
         assert_eq!(rows(&app), [true, true, false, true, false]);
         let (_, mut app) = accessible_app("local-files");
         apply_flags(&mut app, Some("playlist:pl1"), Some("local-files"));
+        play_here(&mut app);
+        app.local.playback = crate::player::Playback::Paused;
         assert_eq!(rows(&app), [true, true, true, true, false]);
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn indexed_local_files_remain_visible_and_playable_offline() {
+        let (ctx, mut app) = accessible_app("local-library-offline");
+        apply_flags(&mut app, Some("local-files"), Some("local-library-offline"));
+        let items = app.local_library.get().unwrap();
+        assert_eq!(items.len(), 3);
+        assert!(items.iter().all(|item| app.row_playable(item)));
+        assert!(!app.network_reachable);
+        let view = crate::ui::local_files::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        assert!(painted.iter().any(|(text, _)| text == "Kitchen Demo"));
+        assert!(!painted.iter().any(|(text, _)| text == "You're offline"));
+        assert_eq!(
+            Page::decode(&Page::LocalFiles.encode()),
+            Some(Page::LocalFiles)
+        );
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn local_files_sidebar_appears_automatically_for_the_configured_folder() {
+        let (ctx, mut app) = accessible_app("local-library-sidebar");
+        for folder in [None, Some("/home/you/Music"), Some("  "), None] {
+            app.settings.local_files_folder = folder.map(str::to_string);
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let local_files = tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Local Files") && node.role() == egui::accesskit::Role::Button
+            });
+            assert_eq!(
+                local_files,
+                app.settings.local_files_folder().is_some(),
+                "Local Files follows the existing folder setting: {folder:?}"
+            );
+        }
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn local_files_without_a_folder_offers_the_existing_folder_picker() {
+        let (ctx, mut app) = accessible_app("local-library-choose-folder");
+        let view = crate::ui::local_files::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let choose = painted
+            .iter()
+            .find(|(label, _)| label == "Choose folder")
+            .map(|(_, rect)| rect.center())
+            .expect("an empty Local Files page offers the folder picker");
+        assert!(!painted.iter().any(|(label, _)| label == "Show Local Files"));
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(choose, egui::PointerButton::Primary),
+            view,
+        );
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::ChooseLocalFilesFolder))
+        );
+        app.backend.shutdown();
     }
 
     #[cfg(feature = "demo")]
@@ -7672,6 +7787,7 @@ mod tests {
             Page::TopSongs,
             Page::Search,
             Page::LikedSongs,
+            Page::LocalFiles,
             Page::Albums,
             Page::Artists,
             Page::Podcasts,

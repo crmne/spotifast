@@ -47,7 +47,7 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | Feature | What you can do |
 |---|---|
 | **Library and search** | Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own. |
-| **Local files** | Play the local files your playlists list from a folder you choose in Settings, at any sample rate. |
+| **Local files** | Browse and play MP3 and FLAC files from a folder you choose in Settings, including subfolders, on this computer. |
 | **Spotify Connect** | Play on this computer or control playback on your other devices, including Google Cast speakers and groups. Cast devices appear as they are discovered; frequently and recently chosen outputs rise to the top. |
 | **Queue** | Add songs to the queue, or choose **Play next** to put a song or selection first when playing on this computer. |
 | **Themes** | Choose light, dark, system appearance, or custom colours, with one theme for light mode and one for dark mode that switch with the system. On Omarchy, follow your desktop theme. |
@@ -150,6 +150,11 @@ local playback first, then select the speaker in the device picker.
 Spotifast uses [librespot](https://github.com/librespot-org/librespot),
 [egui](https://www.egui.rs), [fastframe](https://fastframe.dev), the [Inter](https://rsms.me/inter/)
 typeface (OFL), and [Lucide](https://lucide.dev) icons (ISC).
+
+Thanks to [arlo (@spiraljng)](https://github.com/spiraljng) for the
+[Local Files prototype](https://github.com/spiraljng/spotifast/tree/7b8075d730d4b4a57a582ac879af590c1bd22dc4)
+and its librespot [queue support](https://github.com/spiraljng/librespot/commit/1f8d10a4c03b32d01030575cbf166ea999d513df)
+and [resampling](https://github.com/spiraljng/librespot/commit/a4bc693865a2a88ed056b2a0c7f75cb2e6b695a0).
 
 Spotifast is an independent project and is not affiliated with Spotify.
 Spotify is a trademark of Spotify AB.
