@@ -316,7 +316,8 @@ pub struct Settings {
     /// Allow clicks on the player bar background to cycle visualizer modes.
     pub player_bar_vis_click: bool,
     /// How many frames a second the player bar's visualizer and the mini
-    /// player's analyser draw; 0 is uncapped. MilkDrop has its own.
+    /// player's analyser draw; legacy 0 values use the 120 fps cap.
+    /// MilkDrop has its own rate.
     pub visualizer_fps: u32,
     /// Last local volume, 0..=65535.
     pub volume: u16,
@@ -1445,9 +1446,9 @@ mod tests {
         assert!(restored.tracklist_compact);
     }
 
-    /// The main window's visualizers draw 60 frames a second until the user
-    /// picks another rate, and the rate they pick, uncapped included, is
-    /// the rate they get back, without touching MilkDrop's.
+    /// The main window's visualizers default to 60 frames a second. The
+    /// chosen value, including a legacy zero, round trips without touching
+    /// MilkDrop's rate.
     #[test]
     fn the_visualizer_frame_rate_defaults_to_60_and_round_trips() {
         let settings: Settings = serde_json::from_str("{}").unwrap();

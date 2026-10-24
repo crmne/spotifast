@@ -857,19 +857,28 @@ pub fn repaint_after(ctx: &egui::Context, interval: std::time::Duration) {
     ctx.request_repaint_after(interval + std::time::Duration::from_secs_f32(predicted));
 }
 
+/// A moving UI element follows the display while focused and checks at four
+/// frames a second when another app owns the screen. Input and worker events
+/// still wake the UI immediately.
+pub fn animation_frame(ctx: &egui::Context) -> std::time::Duration {
+    let focused = ctx.input(|input| {
+        let viewport = input.viewport();
+        viewport.focused.unwrap_or(true) && viewport.visible() != Some(false)
+    });
+    if focused {
+        std::time::Duration::from_nanos(8_333_333)
+    } else {
+        std::time::Duration::from_millis(250)
+    }
+}
+
 /// Asks for a moving visualiser's next frame at `rate` frames a second, from
-/// [`crate::power::visualiser_fps`]: 0 is the display's own rate, and `None`
-/// asks for nothing, since nobody can see it.
+/// [`crate::power::visualiser_fps`]. `None` asks for nothing while focus or
+/// visibility is gone.
 pub fn visualiser_frame(ctx: &egui::Context, rate: Option<u32>) {
     let Some(rate) = rate else {
         return;
     };
-    if rate == 0 {
-        // The display paces it, through the vsync swap or, on Wayland, the
-        // compositor's frame callback that eframe waits for.
-        ctx.request_repaint();
-        return;
-    }
     let interval = 1.0 / f64::from(rate);
     let id = egui::Id::new("visualiser-frame-due");
     let now = ctx.input(|input| input.time);
@@ -913,8 +922,7 @@ fn next_beat(due: f64, now: f64, interval: f64) -> f64 {
 pub fn spinner(ui: &mut egui::Ui, size: f32, color: Color32) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
     if ui.is_rect_visible(rect) {
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(33));
+        repaint_after(ui.ctx(), animation_frame(ui.ctx()));
         let radius = size / 2.0 - 2.0;
         let start = ui.input(|input| input.time) * std::f64::consts::TAU * 1.2;
         let sweep = 250_f64.to_radians();
@@ -1235,6 +1243,49 @@ mod tests {
         assert_eq!(delays.len(), 1);
         let ms = delays[0].as_secs_f64() * 1_000.0;
         assert!((ms - 33.0).abs() < 0.5, "{ms} ms");
+    }
+
+    #[test]
+    fn animation_frames_slow_when_the_window_loses_focus_or_visibility() {
+        let ctx = egui::Context::default();
+        for (focused, minimized, occluded, expected) in [
+            (
+                Some(true),
+                Some(false),
+                Some(false),
+                std::time::Duration::from_nanos(8_333_333),
+            ),
+            (
+                Some(false),
+                Some(false),
+                Some(false),
+                std::time::Duration::from_millis(250),
+            ),
+            (
+                Some(true),
+                Some(true),
+                Some(false),
+                std::time::Duration::from_millis(250),
+            ),
+            (
+                Some(true),
+                Some(false),
+                Some(true),
+                std::time::Duration::from_millis(250),
+            ),
+        ] {
+            let mut input = egui::RawInput::default();
+            let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+            viewport.focused = focused;
+            viewport.minimized = minimized;
+            viewport.occluded = occluded;
+            let mut actual = std::time::Duration::ZERO;
+            let mut output = ctx.run_ui(input, |ui| {
+                actual = animation_frame(ui.ctx());
+            });
+            output.textures_delta.clear();
+            assert_eq!(actual, expected);
+        }
     }
 
     /// A visualiser nobody can see asks for no frames at all.

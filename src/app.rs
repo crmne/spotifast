@@ -68,9 +68,6 @@ const ROOTLIST_REFRESH: Duration = Duration::from_secs(5);
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
 
 const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
-/// Match other interface animations. egui subtracts the predicted frame time
-/// from delayed repaints, so 33 ms drives roughly one frame per 16 ms.
-const TOAST_FRAME: Duration = Duration::from_millis(33);
 const OPTIMISTIC_HOLD: Duration = Duration::from_millis(2500);
 /// The banner suggesting a personal app appears at most this often.
 const SLOW_BANNER_INTERVAL: jiff::SignedDuration = jiff::SignedDuration::from_hours(24);
@@ -779,6 +776,8 @@ pub struct App {
     pub winamp: crate::winamp::WinampState,
     /// The spectrum behind the player bar, when that is chosen.
     pub player_bar_analyser: crate::vis::WideAnalyser,
+    /// Last scope line, held while the window is out of focus.
+    pub player_bar_scope: Vec<f32>,
     /// The window's pixels per point when it last drew, so artwork chosen
     /// away from the drawing code fits the display it lands on.
     pub pixels_per_point: f32,
@@ -1303,6 +1302,7 @@ impl App {
             held_update: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
             player_bar_analyser: crate::vis::WideAnalyser::default(),
+            player_bar_scope: Vec::new(),
             pixels_per_point: 1.0,
         };
         app.local.volume = app.settings.volume;
@@ -3701,9 +3701,9 @@ impl App {
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
         if let Some(wait) = self.window_focus(ctx.input(|input| {
-            // A minimised window is away even where it keeps focus.
+            // A minimised or occluded window is away even where it keeps focus.
             let viewport = input.viewport();
-            if viewport.minimized == Some(true) {
+            if viewport.visible() == Some(false) {
                 Some(false)
             } else {
                 viewport.focused
@@ -4001,11 +4001,11 @@ impl App {
 
     /// How many frames a second the player bar's and mini player's
     /// visualizers draw now, from the user's rate and the power budget;
-    /// `None` draws none.
+    /// `None` freezes their last frame without reading the audio tap.
     pub fn visualiser_fps(&self) -> Option<u32> {
         crate::power::visualiser_fps(
             self.budget,
-            self.power.conditions(),
+            self.window_focused,
             self.settings.visualizer_fps,
         )
     }
@@ -12346,7 +12346,7 @@ impl App {
     fn sync_power(&mut self, ctx: &egui::Context) {
         let conditions = self.power.conditions();
         let shown =
-            !self.window_hidden && !ctx.input(|input| input.viewport().minimized.unwrap_or(false));
+            !self.window_hidden && !ctx.input(|input| input.viewport().visible() == Some(false));
         let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
         let budget = crate::power::budget(conditions, shown, focused);
         if budget != self.budget {
@@ -12499,7 +12499,7 @@ impl App {
 
     #[cfg(target_os = "macos")]
     fn sync_notch_widget(&mut self, _ctx: &egui::Context) {
-        let is_background = _ctx.input(|i| i.viewport().minimized.unwrap_or(false))
+        let is_background = _ctx.input(|i| i.viewport().visible() == Some(false))
             || self.window_hidden
             || !_ctx.input(|i| i.viewport().focused.unwrap_or(true));
         let enabled = self.settings.mac_notch_widget;
@@ -12543,7 +12543,7 @@ impl App {
         // animating. Hover and state-change callbacks already call notch::wake()
         // which triggers a repaint via the waker, so idle frames are not needed.
         if enabled && active {
-            _ctx.request_repaint_after(std::time::Duration::from_millis(33));
+            crate::theme::repaint_after(_ctx, crate::theme::animation_frame(_ctx));
         }
     }
 
@@ -12626,7 +12626,7 @@ impl App {
         self.sync_media_controls(ctx);
 
         if !self.toasts.is_empty() {
-            ctx.request_repaint_after(TOAST_FRAME);
+            crate::theme::repaint_after(ctx, crate::theme::animation_frame(ctx));
         }
         self.theme_transition.paint(ctx);
         self.frame_now = None;

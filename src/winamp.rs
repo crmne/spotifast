@@ -95,6 +95,8 @@ pub struct WinampState {
     /// The sound on its way out, for the visualiser.
     pub tap: Arc<AudioTap>,
     pub analyser: Analyser,
+    /// Last oscilloscope line, held while another window has focus.
+    pub scope_rows: [u8; crate::vis::COLUMNS],
     /// The equalizer as the player's thread reads it.
     pub eq: crate::eq::SharedEq,
     /// The playlist window: its first visible row, the row clicked, the
@@ -132,6 +134,7 @@ impl WinampState {
             },
             tap,
             analyser: Analyser::default(),
+            scope_rows: [crate::vis::ROWS / 2; crate::vis::COLUMNS],
             eq,
             playlist_scroll: 0,
             playlist_selection: std::collections::HashSet::new(),

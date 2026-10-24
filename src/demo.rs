@@ -7112,9 +7112,9 @@ mod tests {
         app.backend.shutdown();
     }
 
-    /// The visualizers' frame-rate dial names the rate of the screen showing
-    /// the main window as the screen's with MilkDrop never opened, and
-    /// MilkDrop's until the window's screen has said.
+    /// The main visualizers' dial caps faster screens at 120, while showing
+    /// the real screen rate when it is lower. MilkDrop's screen can stand in
+    /// until the main window reports its own.
     #[test]
     fn the_visualizer_dial_knows_the_screen_without_milkdrop() {
         let root =
@@ -7177,17 +7177,23 @@ mod tests {
             said = drawn(&mut app, &ctx);
         }
         assert!(
-            said.iter().any(|text| text == "165 fps, your screen"),
-            "the dial names the window's screen: {said:?}"
+            said.iter().any(|text| text == "120 fps"),
+            "the dial caps a 165 Hz screen at 120: {said:?}"
         );
 
         app.screen_hz = 0;
-        app.settings.milkdrop_screen_hz = 144;
-        app.settings.visualizer_fps = 144;
+        app.settings.milkdrop_screen_hz = 90;
+        app.settings.visualizer_fps = 90;
         let said = drawn(&mut app, &ctx);
         assert!(
-            said.iter().any(|text| text == "144 fps, your screen"),
+            said.iter().any(|text| text == "90 fps, your screen"),
             "MilkDrop's screen until the window's has said: {said:?}"
+        );
+        app.settings.visualizer_fps = 0;
+        let said = drawn(&mut app, &ctx);
+        assert!(
+            said.iter().any(|text| text == "120 fps"),
+            "an older uncapped choice now shows the cap: {said:?}"
         );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);

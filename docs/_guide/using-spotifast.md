@@ -451,12 +451,13 @@ song plays on this computer. It is off by default. Clicking the player
 bar's empty space switches it, as Winamp's visualizer did: off, then
 Spectrum, then Waveform, then off again. **Frame rate** in **Settings >
 Appearance** sets how often it and the mini player's analyser draw: 30, 60
-(the default), the rate of the screen showing the window, or Uncapped,
-which follows the display. They draw at half that rate while Spotifast's
-window is out of focus, at most 30 frames a second while the system saves
-energy, and not at all while nobody can see the window: minimised, in the
-tray, with the display off or the screen locked. MilkDrop has its own frame
-rate. Disable **Click player bar to change
+(the default), or the rate of the screen showing the window, up to 120.
+They freeze and stop reading audio while Spotifast's window is out of focus,
+minimised, or hidden. The waveform hides when playback pauses or stops, even
+while the window is out of focus. While the system saves energy, they draw at
+most 30 frames a second. Other interface animations slow to about four frames a
+second out of focus. Music continues playing normally. MilkDrop has its own
+frame rate. Disable **Click player bar to change
 visualizer** in **Settings > Appearance** to prevent accidental changes.
 
 Spotifast follows the system when it asks for less motion: **Animation

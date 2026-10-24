@@ -380,9 +380,8 @@ impl Analyser {
     /// moves the bars, and the bars are returned.
     pub fn step(&mut self, samples: &[f32], now: Instant) -> [Bar; BARS] {
         // Keep the step's own beat when frames come a little early or late.
-        // Frames at half rate (a window out of focus, or saving energy) owe
-        // two steps, so the bars fall as fast as at full rate; after a long
-        // gap no more than that is owed.
+        // Slower frames while saving energy owe two steps, so bars fall at
+        // the usual rate; after a long gap no more than that is owed.
         let due = self.last_step.map_or(now, |last| last + STEP);
         if now + Duration::from_millis(1) < due {
             return self.bars;
@@ -435,6 +434,11 @@ impl Analyser {
     /// there is sound again.
     pub fn settled(&self) -> bool {
         self.falloff.iter().all(|f| *f <= 0.0) && self.peaks.iter().all(|p| *p == 0)
+    }
+
+    /// Last painted bars, reused without touching the audio tap when unfocused.
+    pub fn bars(&self) -> [Bar; BARS] {
+        self.bars
     }
 
     pub fn reset(&mut self) {
@@ -626,6 +630,11 @@ impl WideAnalyser {
     /// Where each band's peak cap hangs, from 0 to 1.
     pub fn peaks(&self) -> [f32; WIDE_BANDS] {
         self.peaks
+    }
+
+    /// Last painted levels, reused without another transform when unfocused.
+    pub fn levels(&self) -> [f32; WIDE_BANDS] {
+        self.levels
     }
 
     /// Whether every band and peak has fallen to rest.

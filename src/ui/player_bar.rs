@@ -128,6 +128,7 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
     use crate::settings::PlayerBarVis;
     use crate::vis;
     let mode = app.settings.player_bar_vis;
+    let active = app.visualiser_fps().is_some();
     let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
     let dark = ui.visuals().dark_mode;
     let colours = vis_colours(app.now_playing_palette(), app.palette.accent, dark);
@@ -141,33 +142,36 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
             if !sounding && app.player_bar_analyser.settled() {
                 return false;
             }
-            let samples = if sounding {
-                app.winamp.tap.window(vis::WIDE_SAMPLES, vis::LAG)
+            let levels = if active {
+                let samples = if sounding {
+                    app.winamp.tap.window(vis::WIDE_SAMPLES, vis::LAG)
+                } else {
+                    Vec::new()
+                };
+                app.player_bar_analyser
+                    .step(&samples, std::time::Instant::now())
             } else {
-                Vec::new()
+                app.player_bar_analyser.levels()
             };
-            let levels = app
-                .player_bar_analyser
-                .step(&samples, std::time::Instant::now());
             let peaks = app.player_bar_analyser.peaks();
             spectrum(&painter, rect, &levels, &peaks, &colours, strength);
-            sounding || !app.player_bar_analyser.settled()
+            active && (sounding || !app.player_bar_analyser.settled())
         }
         PlayerBarVis::Waveform => {
             if !sounding {
                 return false;
             }
-            // Winamp's scope with a column every eight points or so.
-            let count = (rect.width() / 8.0).clamp(75.0, 320.0) as usize;
-            let samples = app.winamp.tap.window(count * vis::SCOPE_STEP, vis::LAG);
-            waveform(
-                &painter,
-                rect,
-                &vis::scope_line(&samples, count),
-                &colours,
-                strength,
-            );
-            true
+            let line = if active {
+                // Winamp's scope with a column every eight points or so.
+                let count = (rect.width() / 8.0).clamp(75.0, 320.0) as usize;
+                let samples = app.winamp.tap.window(count * vis::SCOPE_STEP, vis::LAG);
+                app.player_bar_scope = vis::scope_line(&samples, count);
+                &app.player_bar_scope
+            } else {
+                &app.player_bar_scope
+            };
+            waveform(&painter, rect, line, &colours, strength);
+            active && sounding
         }
     }
 }
@@ -1068,6 +1072,99 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         .clicked()
     {
         app.actions.push(Action::ToggleFriendsPanel);
+    }
+}
+
+#[cfg(test)]
+mod player_bar_waveform_tests {
+    use super::*;
+    use crate::app::AppOptions;
+    use crate::backend::Waker;
+    use crate::paths::AppDirs;
+    use crate::settings::{PlayerBarVis, Settings};
+
+    #[test]
+    fn paused_or_stopped_playback_never_paints_a_cached_waveform() {
+        let root =
+            std::env::temp_dir().join(format!("spotifast-waveform-test-{}", std::process::id()));
+        let settings = Settings {
+            player_bar_vis: PlayerBarVis::Waveform,
+            ..Settings::default()
+        };
+        let mut app = App::new(
+            &Waker::default(),
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            settings,
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                ..Default::default()
+            },
+        );
+        app.player_bar_scope = vec![0.8, -0.5, 0.6];
+        let paused = NowPlaying {
+            local: true,
+            device_name: None,
+            device_kind: None,
+            uri: "spotify:track:test".into(),
+            id: None,
+            title: String::new(),
+            artists: Vec::new(),
+            subtitle: String::new(),
+            album_name: String::new(),
+            album_id: None,
+            show_id: None,
+            art_url: None,
+            art_small: None,
+            duration_ms: 1000,
+            position_ms: 0,
+            playing: false,
+            loading: false,
+            shuffle: false,
+            repeat: RepeatMode::Off,
+            volume_percent: 50,
+            can_control: true,
+            can_set_volume: true,
+            is_episode: false,
+            resuming: false,
+        };
+        let mut playing = paused.clone();
+        playing.playing = true;
+        let ctx = egui::Context::default();
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 80.0));
+        for focused in [true, false] {
+            if !focused {
+                app.window_gone();
+            }
+            assert_eq!(app.visualiser_fps().is_some(), focused);
+            app.player_bar_scope = vec![0.8, -0.5, 0.6];
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                visualizer(&mut app, ui, rect, Some(&playing));
+            });
+            output.textures_delta.clear();
+            assert!(
+                !output.shapes.is_empty(),
+                "playing waveform must be visible"
+            );
+            for now in [Some(&paused), None] {
+                let mut moving = true;
+                let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    moving = visualizer(&mut app, ui, rect, now);
+                });
+                output.textures_delta.clear();
+                assert!(!moving, "silent waveform must not request another frame");
+                assert!(
+                    output.shapes.is_empty(),
+                    "cached waveform was painted while focused={focused}, stopped={}",
+                    now.is_none()
+                );
+            }
+        }
     }
 }
 

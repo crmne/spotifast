@@ -969,14 +969,19 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
         }
     }
     let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
+    let active = app.visualiser_fps().is_some();
     match mode {
         VisMode::Bars => {
-            let samples = if sounding {
-                app.winamp.tap.window(vis::FFT_SAMPLES, vis::LAG)
+            let bars = if active {
+                let samples = if sounding {
+                    app.winamp.tap.window(vis::FFT_SAMPLES, vis::LAG)
+                } else {
+                    vec![0.0; vis::FFT_SAMPLES]
+                };
+                app.winamp.analyser.step(&samples, Instant::now())
             } else {
-                vec![0.0; vis::FFT_SAMPLES]
+                app.winamp.analyser.bars()
             };
-            let bars = app.winamp.analyser.step(&samples, Instant::now());
             for (index, bar) in bars.iter().enumerate() {
                 let x = area.x + 4 * index as u32;
                 for row in (vis::ROWS - bar.height)..vis::ROWS {
@@ -993,15 +998,18 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
                     view.fill(x, area.y + u32::from(row), 3, 1, color(23));
                 }
             }
-            sounding || !app.winamp.analyser.settled()
+            active && (sounding || !app.winamp.analyser.settled())
         }
         VisMode::Scope => {
-            let samples = if sounding {
-                app.winamp.tap.window(vis::SCOPE_SAMPLES, vis::LAG)
-            } else {
-                vec![0.0; vis::SCOPE_SAMPLES]
+            if active {
+                let samples = if sounding {
+                    app.winamp.tap.window(vis::SCOPE_SAMPLES, vis::LAG)
+                } else {
+                    vec![0.0; vis::SCOPE_SAMPLES]
+                };
+                app.winamp.scope_rows = vis::scope(&samples);
             };
-            let rows = vis::scope(&samples);
+            let rows = app.winamp.scope_rows;
             let mut last = rows[0];
             for (x, &y) in rows.iter().enumerate() {
                 let (mut top, mut bottom) = (y, last);
@@ -1014,7 +1022,7 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
                     view.fill(area.x + x as u32, area.y + u32::from(row), 1, 1, shade);
                 }
             }
-            sounding
+            active && sounding
         }
         VisMode::Off => false,
     }

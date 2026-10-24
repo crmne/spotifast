@@ -712,6 +712,8 @@ pub(crate) fn run() -> eframe::Result<()> {
                 Ok(Box::new(Shell {
                     app,
                     recovery_checked: false,
+                    #[cfg(target_os = "macos")]
+                    last_active_frame: None,
                     #[cfg(windows)]
                     thumbbar,
                     #[cfg(feature = "demo")]
@@ -928,6 +930,11 @@ fn native_options(
 }
 
 fn profile_options(mut options: eframe::NativeOptions) -> eframe::NativeOptions {
+    #[cfg(target_os = "macos")]
+    {
+        // Diagnostic: measure how fast the Glow window runs without swap VSync.
+        options.glow_options.vsync = false;
+    }
     if options.persist_window {
         options.persistence_path = eframe::storage_dir("spotifast").map(|dir| dir.join("app.ron"));
     }
@@ -1288,6 +1295,8 @@ struct Shell {
     app: fastframe_shell::Held<app::App>,
     /// Whether this window's first frame checked that a monitor shows it.
     recovery_checked: bool,
+    #[cfg(target_os = "macos")]
+    last_active_frame: Option<std::time::Instant>,
     #[cfg(windows)]
     thumbbar: spotifast::thumbbar::ThumbBar,
     /// A pending `--demo-shot` capture, if this is a screenshot run.
@@ -1555,6 +1564,25 @@ impl eframe::App for Shell {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        #[cfg(target_os = "macos")]
+        {
+            let focused = ui.ctx().input(|input| {
+                let viewport = input.viewport();
+                viewport.focused.unwrap_or(true) && viewport.visible() != Some(false)
+            });
+            if focused {
+                // Immediate repaint requests can outrun the animation timer without VSync.
+                if let Some(last) = self.last_active_frame
+                    && let Some(wait) = (last + std::time::Duration::from_nanos(8_333_334))
+                        .checked_duration_since(std::time::Instant::now())
+                {
+                    std::thread::sleep(wait);
+                }
+                self.last_active_frame = Some(std::time::Instant::now());
+            } else {
+                self.last_active_frame = None;
+            }
+        }
         let mut stalls = std::mem::take(&mut self.stalls);
         stalls.ui(|| self.draw(ui));
         self.stalls = stalls;

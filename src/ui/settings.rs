@@ -238,19 +238,28 @@ pub(crate) fn clear_search(ctx: &egui::Context) {
 const PROXY_DIRTY_ID: &str = "proxy-settings-dirty";
 
 /// A frame-rate dial: 30, 60, the screen's rate once known, the current rate
-/// and Uncapped. Returns the rate a move lands on.
+/// and, for MilkDrop, Uncapped. Returns the rate a move lands on.
 fn frame_rate_dial(
     ui: &mut egui::Ui,
     palette: &Palette,
     locale: crate::i18n::Locale,
     screen_hz: u32,
     fps: u32,
+    cap: Option<u32>,
 ) -> Option<u32> {
     // The dial stops at the rates worth having and passes
     // through nothing in between, the way a gear lever does.
-    let stops = crate::milkdrop::fps_stops(screen_hz, fps);
+    let effective = cap.map_or(fps, |max| if fps == 0 { max } else { fps.min(max) });
+    let mut stops =
+        crate::milkdrop::fps_stops(cap.map_or(screen_hz, |max| screen_hz.min(max)), effective);
+    if cap.is_some() {
+        stops.pop(); // The main window's highest stop is 120 fps.
+    }
     let last = stops.len().saturating_sub(1);
-    let mut at = stops.iter().position(|rate| *rate == fps).unwrap_or(1);
+    let mut at = stops
+        .iter()
+        .position(|rate| *rate == effective)
+        .unwrap_or(1);
     let labels: Vec<String> = stops
         .iter()
         .map(|rate| crate::milkdrop::fps_label(locale, *rate, screen_hz))
@@ -1437,6 +1446,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         locale,
                         app.visualiser_screen_hz(),
                         app.settings.visualizer_fps,
+                        Some(120),
                     ) {
                         app.settings.visualizer_fps = rate;
                         changed = true;
@@ -1997,9 +2007,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             filtered_row(ui, &palette, &needle, "MilkDrop", &milkdrop_rows[3], |ui| {
-                if let Some(rate) =
-                    frame_rate_dial(ui, &palette, locale, screen_hz, app.settings.milkdrop_fps)
-                {
+                if let Some(rate) = frame_rate_dial(
+                    ui,
+                    &palette,
+                    locale,
+                    screen_hz,
+                    app.settings.milkdrop_fps,
+                    None,
+                ) {
                     app.actions.push(Action::SetMilkdropFps(rate));
                 }
             });
