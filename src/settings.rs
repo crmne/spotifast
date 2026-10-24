@@ -599,6 +599,7 @@ impl Settings {
     /// The palette to show while the system is `dark` or light: the fixed
     /// one, else Follow system's choice for that appearance. `None` leaves
     /// Spotifast's own Light or Dark.
+    #[cfg(any(not(feature = "neon-preview"), test))]
     pub(crate) fn cached_palette(&self, dark: bool) -> Option<crate::theme::Palette> {
         if let Some(palette) = self.fixed_palette() {
             return Some(palette);

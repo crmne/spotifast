@@ -62,6 +62,33 @@ impl Palette {
         }
     }
 
+    /// The opt-in Spotifast Neon preview palette. It is intentionally kept
+    /// separate from the normal dark palette so the isolated prototype does
+    /// not change anyone's regular appearance or saved themes.
+    #[cfg(feature = "neon-preview")]
+    pub fn neon_preview() -> Self {
+        Self {
+            dark: true,
+            window: Color32::from_rgb(0x0b, 0x0c, 0x14),
+            panel: Color32::from_rgb(0x11, 0x12, 0x1d),
+            surface: Color32::from_rgb(0x19, 0x1a, 0x28),
+            surface_hover: Color32::from_rgb(0x24, 0x24, 0x37),
+            surface_active: Color32::from_rgb(0x30, 0x2a, 0x45),
+            outline: Color32::from_rgb(0x2b, 0x2a, 0x3d),
+            text: Color32::from_rgb(0xf6, 0xf2, 0xff),
+            secondary: Color32::from_rgb(0xb4, 0xb0, 0xc7),
+            dim: Color32::from_rgb(0x7c, 0x79, 0x92),
+            accent: Color32::from_rgb(0xf2, 0x5c, 0xc8),
+            accent_hover: Color32::from_rgb(0xff, 0x83, 0xd7),
+            on_accent: Color32::from_rgb(0x20, 0x0d, 0x20),
+            danger: Color32::from_rgb(0xff, 0x71, 0x88),
+            warning: Color32::from_rgb(0xff, 0xc8, 0x76),
+            overlay: Color32::from_rgb(0x1c, 0x1b, 0x2b),
+            shadow: Color32::from_black_alpha(170),
+            tint: Color32::TRANSPARENT,
+        }
+    }
+
     pub fn light() -> Self {
         Self {
             dark: false,
@@ -221,7 +248,11 @@ pub const ROW_HEIGHT: f32 = 56.0;
 pub const COMPACT_ROW_HEIGHT: f32 = 48.0;
 /// The compact track list: one line, no cover.
 pub const THIN_ROW_HEIGHT: f32 = 36.0;
-pub const PLAYER_BAR_HEIGHT: f32 = 88.0;
+pub const PLAYER_BAR_HEIGHT: f32 = if cfg!(feature = "neon-preview") {
+    96.0
+} else {
+    88.0
+};
 /// The narrowest either right-hand panel goes. The queue and the lyrics
 /// take the same edge and swap places there, so a width that suits one
 /// has to suit the other, or the window would jump on the swap.
@@ -552,6 +583,153 @@ pub fn focus_ring(ui: &egui::Ui, response: &Response) {
     }
 }
 
+/// Smooth hover amount shared by the app's controls. `animate_value_with_time`
+/// only requests frames while the value is in flight, so resting controls do
+/// not keep repainting.
+fn animated_hover(ui: &egui::Ui, response: &Response) -> f32 {
+    ui.ctx().animate_value_with_time(
+        response.id.with("neon-hover"),
+        if response.hovered() || response.has_focus() {
+            1.0
+        } else {
+            0.0
+        },
+        crate::motion::seconds(ui.ctx(), 0.22),
+    )
+}
+
+fn animated_press(ui: &egui::Ui, response: &Response) -> f32 {
+    ui.ctx().animate_value_with_time(
+        response.id.with("neon-press"),
+        if response.is_pointer_button_down_on() {
+            1.0
+        } else {
+            0.0
+        },
+        crate::motion::seconds(ui.ctx(), 0.08),
+    )
+}
+
+fn neon_glow(ui: &egui::Ui, rect: egui::Rect, radius: f32, color: Color32, amount: f32) {
+    if amount <= 0.002 {
+        return;
+    }
+    let painter = ui.painter();
+    painter.rect_filled(
+        rect.expand(4.0 * amount),
+        (radius + 4.0 * amount).max(0.0),
+        color.gamma_multiply(0.045 * amount),
+    );
+    painter.rect_filled(
+        rect.expand(2.0 * amount),
+        (radius + 2.0 * amount).max(0.0),
+        color.gamma_multiply(0.07 * amount),
+    );
+    painter.rect_stroke(
+        rect,
+        radius,
+        Stroke::new(1.0, color.gamma_multiply(0.42 * amount)),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// A brief diagonal highlight that follows the same one-shot hover easing as
+/// the surrounding control. It never starts an animation while idle.
+pub fn neon_sheen(ui: &egui::Ui, rect: egui::Rect, progress: f32, color: Color32) {
+    if progress <= 0.01 || progress >= 0.99 || !ui.is_rect_visible(rect) {
+        return;
+    }
+    let painter = ui.painter().with_clip_rect(rect);
+    let sweep = rect.width() + rect.height();
+    let x = rect.left() - rect.height() + sweep * progress;
+    let points = vec![
+        egui::pos2(x, rect.top()),
+        egui::pos2(x + 24.0, rect.top()),
+        egui::pos2(x + 24.0 + rect.height(), rect.bottom()),
+        egui::pos2(x + rect.height(), rect.bottom()),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        points,
+        color.gamma_multiply(0.10),
+        Stroke::NONE,
+    ));
+}
+
+/// An appearing play affordance for cards. Its hit rect stays fixed while the
+/// circle fades and scales in from the card's hover state.
+pub fn revealed_circle_button(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    id: egui::Id,
+    reveal: f32,
+    style: RevealedCircleStyle,
+    tooltip: &str,
+) -> Response {
+    let response = ui.interact(rect, id, Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip)
+    });
+    if ui.is_rect_visible(rect) {
+        let hovered = animated_hover(ui, &response);
+        let pressed = animated_press(ui, &response);
+        let visibility = reveal.clamp(0.0, 1.0);
+        let size = rect.width().min(rect.height()) * (0.76 + 0.24 * visibility);
+        let visual_scale = if style.neon {
+            1.0 + 0.06 * hovered - 0.10 * pressed
+        } else {
+            1.0 + 0.05 * hovered
+        };
+        let visual_rect = egui::Rect::from_center_size(
+            rect.center()
+                + Vec2::new(
+                    0.0,
+                    2.0 * (1.0 - visibility) + if style.neon { pressed } else { 0.0 },
+                ),
+            Vec2::splat(size),
+        );
+        if style.neon {
+            neon_glow(
+                ui,
+                visual_rect,
+                size / 2.0,
+                style.fill_hover,
+                visibility * hovered,
+            );
+        }
+        ui.painter().circle_filled(
+            visual_rect.center(),
+            size / 2.0 * visual_scale,
+            style
+                .fill
+                .lerp_to_gamma(style.fill_hover, hovered)
+                .gamma_multiply(visibility),
+        );
+        let icon_size = size * (0.46 + 0.03 * hovered);
+        let icon_rect = egui::Rect::from_center_size(
+            visual_rect.center() + play_glyph_offset(style.icon, icon_size),
+            Vec2::splat(icon_size),
+        );
+        style
+            .icon
+            .image(style.icon_color.gamma_multiply(visibility), icon_size)
+            .paint_at(ui, icon_rect);
+    }
+    focus_ring(ui, &response);
+    if tooltip.is_empty() {
+        response
+    } else {
+        response.on_hover_text(tooltip)
+    }
+}
+
+pub struct RevealedCircleStyle {
+    pub neon: bool,
+    pub icon: Icon,
+    pub fill: Color32,
+    pub fill_hover: Color32,
+    pub icon_color: Color32,
+}
+
 /// The padding [`icon_button`] keeps around its glyph on every side. A
 /// caller that places an icon button inside a fixed box must give the box
 /// at least `size + ICON_BUTTON_PAD`: in a tighter one, egui clamps the
@@ -573,17 +751,15 @@ pub fn icon_button(
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip)
     });
     if ui.is_rect_visible(rect) {
-        let tint = if response.hovered() || response.has_focus() {
-            hover
-        } else {
-            color
-        };
-        let scale = if response.is_pointer_button_down_on() {
-            0.92
-        } else {
-            1.0
-        };
-        paint_icon(ui, icon, rect, size * scale, tint);
+        let amount = animated_hover(ui, &response);
+        let pressed = animated_press(ui, &response);
+        paint_icon(
+            ui,
+            icon,
+            rect,
+            size * (1.0 - 0.08 * pressed),
+            color.lerp_to_gamma(hover, amount),
+        );
     }
     focus_ring(ui, &response);
     if tooltip.is_empty() {
@@ -652,10 +828,9 @@ pub fn circle_button(
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip)
     });
     if ui.is_rect_visible(rect) {
-        let hovered = response.hovered();
-        let grow = if hovered { 1.05 } else { 1.0 };
-        let radius = diameter / 2.0 * grow;
-        let fill = if hovered { fill_hover } else { fill };
+        let hovered = animated_hover(ui, &response);
+        let radius = diameter / 2.0 * (1.0 + 0.05 * hovered);
+        let fill = fill.lerp_to_gamma(fill_hover, hovered);
         ui.painter().circle_filled(rect.center(), radius, fill);
         let icon_size = diameter * 0.46;
         let offset = play_glyph_offset(icon, icon_size);
@@ -705,6 +880,26 @@ pub fn circle_spinner(
 
 /// A pill-shaped text button: filled for the primary action, outlined otherwise.
 pub fn pill_button(ui: &mut egui::Ui, palette: &Palette, label: &str, primary: bool) -> Response {
+    pill_button_inner(ui, palette, label, primary, false)
+}
+
+/// The same pill button with the extra lift and glow used by the Neon theme.
+pub fn neon_pill_button(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    label: &str,
+    primary: bool,
+) -> Response {
+    pill_button_inner(ui, palette, label, primary, true)
+}
+
+fn pill_button_inner(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    label: &str,
+    primary: bool,
+    neon: bool,
+) -> Response {
     let font = semibold(13.0);
     let color = if primary {
         palette.on_accent
@@ -719,25 +914,31 @@ pub fn pill_button(ui: &mut egui::Ui, palette: &Palette, label: &str, primary: b
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
     if ui.is_rect_visible(rect) {
-        let hovered = response.hovered();
+        let hovered = animated_hover(ui, &response);
+        let pressed = animated_press(ui, &response);
         let radius = rect.height() / 2.0;
-        if primary {
-            let fill = if hovered {
-                palette.accent_hover
-            } else {
-                palette.accent
-            };
-            ui.painter().rect_filled(rect, radius, fill);
+        let draw_rect = if neon {
+            rect.expand(1.4 * hovered)
+                .translate(Vec2::new(0.0, -2.0 * hovered + pressed))
         } else {
-            let stroke_color = if hovered { palette.text } else { palette.dim };
+            rect
+        };
+        if neon {
+            neon_glow(ui, draw_rect, radius, palette.accent_hover, hovered);
+        }
+        if primary {
+            let fill = palette.accent.lerp_to_gamma(palette.accent_hover, hovered);
+            ui.painter().rect_filled(draw_rect, radius, fill);
+        } else {
+            let stroke_color = palette.dim.lerp_to_gamma(palette.text, hovered);
             ui.painter().rect_stroke(
-                rect,
+                draw_rect,
                 radius,
                 Stroke::new(1.0, stroke_color),
                 egui::StrokeKind::Inside,
             );
         }
-        let pos = rect.center() - galley.size() / 2.0;
+        let pos = draw_rect.center() - galley.size() / 2.0;
         ui.painter().galley(pos, galley, color);
     }
     focus_ring(ui, &response);
@@ -818,13 +1019,26 @@ fn soft_button_inner(
         .is_some_and(|dismiss| dismiss.hovered() || dismiss.has_focus());
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered() || over_dismiss;
-        let fill = if active {
+        let hover_amount = ui.ctx().animate_value_with_time(
+            response.id.with("neon-hover"),
+            if hovered || response.has_focus() {
+                1.0
+            } else {
+                0.0
+            },
+            crate::motion::seconds(ui.ctx(), 0.22),
+        );
+        let base_fill = if active {
             palette.text
-        } else if hovered {
-            palette.surface_hover
         } else {
             palette.surface
         };
+        let hover_fill = if active {
+            palette.text
+        } else {
+            palette.surface_hover
+        };
+        let fill = base_fill.lerp_to_gamma(hover_fill, hover_amount);
         ui.painter().rect_filled(rect, rect.height() / 2.0, fill);
         let mut x = rect.left() + padding.x;
         if let Some(icon) = icon {

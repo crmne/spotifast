@@ -1030,6 +1030,9 @@ impl App {
             .filter(|page| !matches!(page, Page::Settings | Page::Queue))
             .unwrap_or(Page::Home);
 
+        #[cfg(feature = "neon-preview")]
+        let palette = Palette::neon_preview();
+        #[cfg(not(feature = "neon-preview"))]
         let palette = settings.fixed_palette().unwrap_or_else(Palette::dark);
         let mut app = Self {
             custom_themes: theme::Catalog::default(),
@@ -1336,6 +1339,9 @@ impl App {
         ctx.add_image_loader(std::sync::Arc::new(self.backend.art().scaler()));
         // The covers the last window's egui held are gone with it.
         self.backend.art().forget_textures();
+        #[cfg(feature = "neon-preview")]
+        ctx.set_theme(egui::ThemePreference::Dark);
+        #[cfg(not(feature = "neon-preview"))]
         ctx.set_theme(self.theme_preference());
         self.applied_dark = None;
         self.winamp.forget_textures();
@@ -4241,6 +4247,22 @@ impl App {
         theme::enable_desktop_themes(&mut self.custom_themes);
     }
 
+    /// Whether the current appearance should use Neon-only interface details.
+    /// The preview build stays opt-in by executable; the regular build enables
+    /// these details only for the existing custom theme selection.
+    pub fn neon_theme_active(&self) -> bool {
+        if cfg!(feature = "neon-preview") {
+            return true;
+        }
+        let base = fastframe_theme::Base::from_dark(self.palette.dark);
+        let selected = self.settings.custom_theme.as_deref().or_else(|| {
+            (self.settings.theme == ThemeChoice::System && !self.custom_themes.follows_omarchy())
+                .then(|| self.settings.theme_pair.filename(base))
+                .flatten()
+        });
+        selected == Some("neon.json")
+    }
+
     fn poll_custom_themes(&mut self, ctx: &egui::Context) {
         // The themes folder or Omarchy's current theme changed on disk.
         if self.custom_themes.needs_reload() {
@@ -4284,6 +4306,7 @@ impl App {
 
     /// The palette file's colours to show while the system is `dark` or
     /// light, `None` for Spotifast's own Light or Dark.
+    #[cfg(not(feature = "neon-preview"))]
     fn custom_palette(&self, dark: bool) -> Option<Palette> {
         self.settings.cached_palette(dark)
     }
@@ -4323,7 +4346,13 @@ impl App {
                 ctx.options_mut(|options| options.fallback_theme = theme);
             }
         }
+        #[cfg(not(feature = "neon-preview"))]
         let dark = ctx.theme() == egui::Theme::Dark;
+        #[cfg(feature = "neon-preview")]
+        let dark = true;
+        #[cfg(feature = "neon-preview")]
+        let palette = Palette::neon_preview();
+        #[cfg(not(feature = "neon-preview"))]
         let palette = self.custom_palette(dark).unwrap_or_else(|| {
             if dark {
                 Palette::dark()
@@ -12549,6 +12578,15 @@ impl App {
 
     /// Keeps the current track in the window and taskbar title (#94).
     fn sync_window_title(&mut self, ctx: &egui::Context) {
+        #[cfg(feature = "neon-preview")]
+        let title = match self.now_playing().filter(|now| now.playing) {
+            Some(now) if now.subtitle.is_empty() => {
+                format!("{} - Spotifast Neon Preview", now.title)
+            }
+            Some(now) => format!("{} - {} - Spotifast Neon Preview", now.subtitle, now.title),
+            None => "Spotifast Neon Preview".to_string(),
+        };
+        #[cfg(not(feature = "neon-preview"))]
         let title = match self.now_playing().filter(|now| now.playing) {
             Some(now) if now.subtitle.is_empty() => format!("{} - Spotifast", now.title),
             Some(now) => format!("{} - {}", now.subtitle, now.title),
@@ -20796,6 +20834,60 @@ mod tests {
         show_system_theme(&mut app, &ctx, Some(omarchy.clone()), true);
         app.apply_theme(&ctx);
         assert_eq!(app.palette, omarchy.palette);
+    }
+
+    #[test]
+    #[cfg(feature = "neon-preview")]
+    fn neon_preview_attaches_with_dark_theme_even_when_saved_light() {
+        let mut app = test_app("neon-preview-attach-theme");
+        app.settings.theme = ThemeChoice::Light;
+        let ctx = egui::Context::default();
+
+        app.attach(&ctx);
+
+        assert_eq!(ctx.theme(), egui::Theme::Dark);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn neon_interface_follows_the_selected_theme_and_active_system_slot() {
+        let mut app = test_app("neon-theme-selection");
+        app.backend.shutdown();
+        if cfg!(feature = "neon-preview") {
+            assert!(app.neon_theme_active());
+            return;
+        }
+        assert!(!app.neon_theme_active());
+
+        app.settings.custom_theme = Some("neon.json".into());
+        assert!(
+            app.neon_theme_active(),
+            "a fixed Neon theme enables its layout"
+        );
+        app.settings.custom_theme = Some("Nord.json".into());
+        assert!(
+            !app.neon_theme_active(),
+            "other palettes keep the standard layout"
+        );
+        app.settings.custom_theme = None;
+
+        app.settings.theme = ThemeChoice::Dark;
+        app.settings.theme_pair.dark = Some(fastframe_theme::Slot {
+            filename: "neon.json".into(),
+            palette: Some(Palette::dark()),
+        });
+        assert!(
+            !app.neon_theme_active(),
+            "pair slots are inactive when the user chose a fixed built-in theme"
+        );
+
+        app.settings.theme = ThemeChoice::System;
+        assert!(app.neon_theme_active(), "the active dark slot enables Neon");
+        app.settings.theme_pair.dark.as_mut().unwrap().filename = "Nord.json".into();
+        assert!(
+            !app.neon_theme_active(),
+            "other dark slots keep the standard layout"
+        );
     }
 
     /// winit reports no system theme on Linux, so "Follow system" takes

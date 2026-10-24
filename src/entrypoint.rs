@@ -295,7 +295,20 @@ fn write_reply(out: &mut impl std::io::Write, text: &str) -> i32 {
 /// sandbox's app id, which Flatpak always sets in `FLATPAK_ID`.
 #[cfg(target_os = "linux")]
 fn desktop_entry() -> String {
-    fastframe_now_playing::desktop_entry("spotifast")
+    let id = if cfg!(feature = "neon-preview") {
+        "spotifast-neon-preview"
+    } else {
+        "spotifast"
+    };
+    fastframe_now_playing::desktop_entry(id)
+}
+
+fn application_title() -> &'static str {
+    if cfg!(feature = "neon-preview") {
+        "Spotifast Neon Preview"
+    } else {
+        "Spotifast"
+    }
 }
 
 /// The `nowplaying` snapshot as one human-readable line.
@@ -352,7 +365,10 @@ pub(crate) fn run() -> eframe::Result<()> {
     // helper, which installs and exits; otherwise the receipt and error an
     // update relaunch carries are taken out of the arguments.
     let launch = fastframe_update::intercept(&spotifast::updates::CONFIG);
-    // Before any output is listed or opened.
+    // Before any output is listed or opened. The preview deliberately skips
+    // this desktop-side integration so launching it does not rename a mixer
+    // entry belonging to the normal app.
+    #[cfg(not(feature = "neon-preview"))]
     spotifast::sink::name_in_mixers();
     // A MilkDrop child launch is a bare visualiser window, not the app: it has
     // its own event loop and OpenGL context, reads the sound from a shared
@@ -368,7 +384,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     // Demo mode invents plays, settings, and a signed-in account. Without a
     // folder of its own it would write them into the real profile, where
     // they would pass for the user's history.
-    #[cfg(feature = "demo")]
+    #[cfg(all(feature = "demo", not(feature = "neon-preview")))]
     let cli = if (cli.demo || cli.demo_shot.is_some()) && cli.demo_data.is_none() {
         Cli {
             demo_data: Some(
@@ -378,6 +394,33 @@ pub(crate) fn run() -> eframe::Result<()> {
         }
     } else {
         cli
+    };
+    // This opt-in binary is always a disposable, offline demo. Even if it is
+    // launched without the desktop wrapper, it must never discover or touch
+    // the regular Spotifast profile or a real Spotify session.
+    #[cfg(feature = "neon-preview")]
+    let cli = {
+        let demo_data = cli
+            .demo_data
+            .clone()
+            .or_else(|| {
+                std::env::var_os("SPOTIFAST_NEON_PREVIEW_DATA").map(std::path::PathBuf::from)
+            })
+            .unwrap_or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+                    .join("spotifast-neon-preview-data")
+            });
+        Cli {
+            control: None,
+            link: None,
+            start_hidden: false,
+            demo: true,
+            demo_data: Some(demo_data),
+            ..cli
+        }
     };
     // A control launch is a client, not a second app: talk to the running
     // instance and exit before touching the log file it is writing to.
@@ -496,6 +539,13 @@ pub(crate) fn run() -> eframe::Result<()> {
     // icon of its own, and no second MPRIS service to fight over media keys.
     #[allow(unused_mut)]
     let mut options = app::AppOptions::default();
+    #[cfg(feature = "neon-preview")]
+    {
+        options.media_controls = false;
+        options.restore_sign_in = false;
+        options.tray = false;
+        options.autostart = false;
+    }
     #[cfg(feature = "demo")]
     if demo {
         options.restore_sign_in = false;
@@ -641,7 +691,7 @@ pub(crate) fn run() -> eframe::Result<()> {
         #[cfg(target_os = "linux")]
         let hide_from_taskbar = options.viewport.taskbar == Some(false);
         eframe::run_native(
-            "Spotifast",
+            application_title(),
             options,
             Box::new(move |cc| {
                 if let Some(gl) = &cc.gl {
@@ -852,7 +902,11 @@ fn native_options(
     #[cfg(target_os = "linux")]
     let app_id = desktop_entry();
     #[cfg(not(target_os = "linux"))]
-    let app_id = "spotifast";
+    let app_id = if cfg!(feature = "neon-preview") {
+        "spotifast-neon-preview"
+    } else {
+        "spotifast"
+    };
     let icon = if cfg!(target_os = "macos") {
         // macOS takes the dock icon from the bundle's .icns, which is the
         // 1024px drawing with the platform's rounding. Setting a window
@@ -862,7 +916,7 @@ fn native_options(
         app_icon()
     };
     let viewport = egui::ViewportBuilder::default()
-        .with_title("Spotifast")
+        .with_title(application_title())
         .with_app_id(app_id)
         .with_taskbar(true)
         .with_icon(icon);
@@ -1011,7 +1065,12 @@ mod native_window_tests {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            assert_eq!(main.viewport.app_id.as_deref(), Some("spotifast"));
+            let expected_app_id = if cfg!(feature = "neon-preview") {
+                "spotifast-neon-preview"
+            } else {
+                "spotifast"
+            };
+            assert_eq!(main.viewport.app_id.as_deref(), Some(expected_app_id));
             assert_eq!(mini.viewport.app_id, main.viewport.app_id);
             assert_eq!(main.persistence_path, None);
         }

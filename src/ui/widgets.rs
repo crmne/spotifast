@@ -2652,19 +2652,54 @@ pub fn card(
     if response.gained_focus() {
         response.scroll_to_me(None);
     }
+    let neon = app.neon_theme_active();
+    let play_id = response.id.with("neon-card-play");
+    let hover_target = ui.rect_contains_pointer(rect)
+        || response.has_focus()
+        || ui.memory(|memory| memory.has_focus(play_id));
+    let hover = ui.ctx().animate_value_with_time(
+        response.id.with("neon-card-hover"),
+        if hover_target { 1.0 } else { 0.0 },
+        crate::motion::seconds(ui.ctx(), 0.22),
+    );
     let mut play = false;
     if ui.is_rect_visible(rect) {
-        let hovered = ui.rect_contains_pointer(rect);
-        if hovered {
+        if neon {
+            if hover > 0.002 {
+                ui.painter().rect_filled(
+                    rect.expand(1.5 * hover).translate(vec2(0.0, -2.5 * hover)),
+                    CornerRadius::same(theme::RADIUS),
+                    palette
+                        .surface_hover
+                        .gamma_multiply((if palette.dark { 0.8 } else { 1.0 }) * hover),
+                );
+                ui.painter().rect_stroke(
+                    rect.expand(1.5 * hover).translate(vec2(0.0, -2.5 * hover)),
+                    CornerRadius::same(theme::RADIUS),
+                    Stroke::new(1.0, palette.accent.gamma_multiply(0.28 * hover)),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            theme::neon_sheen(ui, rect, hover, Color32::WHITE);
+        } else if hover > 0.002 {
             ui.painter().rect_filled(
                 rect,
                 CornerRadius::same(theme::RADIUS),
                 palette
                     .surface_hover
-                    .gamma_multiply(if palette.dark { 0.8 } else { 1.0 }),
+                    .gamma_multiply((if palette.dark { 0.8 } else { 1.0 }) * hover),
             );
         }
-        let image_rect = Rect::from_min_size(rect.min + vec2(PAD, PAD), Vec2::splat(image_size));
+        let base_image_rect =
+            Rect::from_min_size(rect.min + vec2(PAD, PAD), Vec2::splat(image_size));
+        let image_rect = if neon {
+            Rect::from_center_size(
+                base_image_rect.center() + vec2(0.0, -2.5 * hover),
+                Vec2::splat(image_size * (1.0 + 0.045 * hover)),
+            )
+        } else {
+            base_image_rect
+        };
         let radius = if circular { image_size / 2.0 } else { 6.0 };
         paint_shadow(ui, &palette, image_rect, radius);
         paint_cover(
@@ -2708,27 +2743,30 @@ pub fn card(
         ui.painter()
             .galley(subtitle_pos, subtitle_galley, palette.secondary);
 
-        if playable && hovered {
+        if playable && hover > 0.005 {
             let button_rect = Rect::from_center_size(
-                pos2(image_rect.right() - 26.0, image_rect.bottom() - 26.0),
+                pos2(
+                    base_image_rect.right() - 26.0,
+                    base_image_rect.bottom() - 26.0,
+                ),
                 Vec2::splat(44.0),
             );
-            let mut child = ui.new_child(
-                UiBuilder::new()
-                    .max_rect(button_rect)
-                    .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
-            );
-            play = theme::circle_button(
-                &mut child,
-                if playing {
-                    Icon::PauseFilled
-                } else {
-                    Icon::PlayFilled
+            play = theme::revealed_circle_button(
+                ui,
+                button_rect,
+                play_id,
+                hover,
+                theme::RevealedCircleStyle {
+                    neon,
+                    icon: if playing {
+                        Icon::PauseFilled
+                    } else {
+                        Icon::PlayFilled
+                    },
+                    fill: palette.accent,
+                    fill_hover: palette.accent_hover,
+                    icon_color: palette.on_accent,
                 },
-                44.0,
-                palette.accent,
-                palette.accent_hover,
-                palette.on_accent,
                 &gettext(app.locale, if playing { "Pause" } else { "Play" }),
             )
             .clicked();

@@ -574,6 +574,13 @@ For example, `themes/gruvbox.json`:
 }
 ```
 
+The Spotifast Neon look is available as a custom theme in
+[`contrib/themes/neon.json`](../../contrib/themes/neon.json). Copy it into the
+themes folder as `neon.json`, reload themes, and select **Neon** under
+**Settings → Appearance → Theme**. That filename also enables the matching
+Home layout and animated card interactions. Other custom theme files continue
+to change colors only.
+
 `base` is `dark` (the default) or `light`. Omitted colors inherit that palette.
 Supported colors are `window`, `panel`, `surface`, `surface_hover`,
 `surface_active`, `outline`, `text`, `secondary`, `dim`, `accent`,

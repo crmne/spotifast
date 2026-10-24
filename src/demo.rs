@@ -10848,9 +10848,11 @@ mod tests {
                     crate::settings::ThemeChoice::Dark
                 };
                 app.actions.push(Action::SettingsChanged);
+                let mut time = 0.0;
                 let mut frame = |events| {
                     let mut output = ctx.run_ui(
                         egui::RawInput {
+                            time: Some(time),
                             screen_rect: Some(egui::Rect::from_min_size(
                                 egui::Pos2::ZERO,
                                 egui::vec2(1280.0, 800.0),
@@ -10860,6 +10862,7 @@ mod tests {
                         },
                         |ui| app.frame_ui(ui),
                     );
+                    time += 0.25;
                     output.textures_delta.clear();
                     output
                 };

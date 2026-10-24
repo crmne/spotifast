@@ -89,8 +89,21 @@ fn cover_play_button(
         ui.id().with(("library-cover-play", index)),
         Sense::click(),
     );
-    let play_hover = play.hovered();
-    if play_hover || parent.hovered() {
+    let play_hover = play.hovered() || play.has_focus();
+    let reveal = ui.ctx().animate_value_with_time(
+        parent.id.with("neon-sidebar-cover-hover"),
+        if play_hover
+            || parent.hovered()
+            || ui.rect_contains_pointer(cover_rect)
+            || parent.has_focus()
+        {
+            1.0
+        } else {
+            0.0
+        },
+        crate::motion::seconds(ui.ctx(), 0.16),
+    );
+    if reveal > 0.002 {
         let radius = if entry.round {
             (cover_rect.width() / 2.0).min(127.0) as u8
         } else {
@@ -99,7 +112,7 @@ fn cover_play_button(
         ui.painter().rect_filled(
             cover_rect,
             CornerRadius::same(radius),
-            egui::Color32::from_black_alpha(120),
+            egui::Color32::from_black_alpha((120.0 * reveal) as u8),
         );
         let icon = if playing {
             Icon::PauseFilled
@@ -109,9 +122,9 @@ fn cover_play_button(
         let icon_size = (cover_rect.width() * 0.24).clamp(18.0, 26.0);
         icon.image(
             if play_hover {
-                app.palette.accent
+                app.palette.accent.gamma_multiply(reveal)
             } else {
-                egui::Color32::WHITE
+                egui::Color32::WHITE.gamma_multiply(reveal)
             },
             icon_size,
         )
@@ -928,19 +941,58 @@ fn nav_row(
     icon: Icon,
     label: &str,
     active: bool,
+    neon: bool,
 ) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
     if ui.is_rect_visible(rect) {
-        let color = if active || response.hovered() {
+        let hover = ui.ctx().animate_value_with_time(
+            response.id.with("neon-sidebar-nav-hover"),
+            if response.hovered() || response.has_focus() {
+                1.0
+            } else {
+                0.0
+            },
+            crate::motion::seconds(ui.ctx(), 0.20),
+        );
+        let idle = if active {
             palette.text
         } else {
             palette.secondary
         };
-        let icon_rect =
-            Rect::from_center_size(pos2(rect.left() + 22.0, rect.center().y), Vec2::splat(22.0));
-        icon.image(color, 22.0).paint_at(ui, icon_rect);
+        let color = idle.lerp_to_gamma(palette.text, hover);
+        if neon {
+            if active || hover > 0.002 {
+                let fill = if active {
+                    palette.surface.gamma_multiply(0.75)
+                } else {
+                    palette.accent.gamma_multiply(0.045 * hover)
+                };
+                ui.painter().rect_filled(rect, CornerRadius::same(7), fill);
+            }
+            if hover > 0.002 {
+                ui.painter().rect_filled(
+                    Rect::from_min_size(
+                        pos2(rect.left(), rect.top() + 10.0 * (1.0 - hover)),
+                        vec2(2.0, rect.height() - 20.0 * (1.0 - hover)),
+                    ),
+                    CornerRadius::same(1),
+                    palette.accent.gamma_multiply(0.7 * hover),
+                );
+            }
+        }
+        let offset = if neon {
+            vec2(3.0 * hover, 0.0)
+        } else {
+            Vec2::ZERO
+        };
+        let icon_size = if neon { 22.0 + 1.0 * hover } else { 22.0 };
+        let icon_rect = Rect::from_center_size(
+            pos2(rect.left() + 22.0, rect.center().y) + offset,
+            Vec2::splat(icon_size),
+        );
+        icon.image(color, icon_size).paint_at(ui, icon_rect);
         ui.painter().text(
-            pos2(rect.left() + 46.0, rect.center().y),
+            pos2(rect.left() + 46.0, rect.center().y) + offset,
             egui::Align2::LEFT_CENTER,
             label,
             theme::bold(15.0),
@@ -960,6 +1012,32 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let palette = app.palette;
     let page = app.page().clone();
     let locale = app.locale;
+    let neon = app.neon_theme_active();
+    if neon {
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            let (mark, _) = ui.allocate_exact_size(Vec2::splat(38.0), Sense::hover());
+            ui.painter().rect_filled(
+                mark,
+                CornerRadius::same(12),
+                palette.accent.gamma_multiply(0.18),
+            );
+            Icon::Sparkles
+                .image(palette.accent, 19.0)
+                .paint_at(ui, Rect::from_center_size(mark.center(), Vec2::splat(19.0)));
+            ui.add_space(4.0);
+            ui.vertical(|ui| {
+                theme::text(ui, "SPOTIFAST", theme::bold(14.0), palette.text);
+                theme::text(
+                    ui,
+                    "NEON / THEME",
+                    theme::semibold(9.0),
+                    palette.accent_hover,
+                );
+            });
+        });
+        ui.add_space(20.0);
+    }
     ui.add_space(4.0);
     if nav_row(
         ui,
@@ -967,6 +1045,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
         Icon::House,
         &gettext(locale, "Home"),
         page == Page::Home,
+        neon,
     )
     .clicked()
     {
@@ -978,6 +1057,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
         Icon::Search,
         &gettext(locale, "Search"),
         page == Page::Search,
+        neon,
     )
     .clicked()
     {
@@ -1435,19 +1515,55 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     crate::motion::seconds(ui.ctx(), 0.12),
                 );
                 let rect = rect.translate(vec2(0.0, shift));
+                let hover = ui.ctx().animate_value_with_time(
+                    response.id.with("neon-library-row-hover"),
+                    if ui.rect_contains_pointer(rect) || response.has_focus() {
+                        1.0
+                    } else {
+                        0.0
+                    },
+                    crate::motion::seconds(ui.ctx(), 0.18),
+                );
                 // Set when the cover play button takes a click, so a double
                 // click on it does not also play from the row.
                 let mut cover_took_click = false;
                 if ui.is_rect_visible(rect) {
-                    if active {
-                        ui.painter()
-                            .rect_filled(rect, CornerRadius::same(6), palette.surface);
-                    } else if response.hovered() {
-                        ui.painter().rect_filled(
-                            rect,
-                            CornerRadius::same(6),
-                            palette.surface_hover.gamma_multiply(0.6),
-                        );
+                    if neon {
+                        let amount = if active { 1.0 } else { hover * 0.62 };
+                        if amount > 0.002 {
+                            ui.painter().rect_filled(
+                                rect,
+                                CornerRadius::same(6),
+                                palette.surface.lerp_to_gamma(palette.surface_hover, amount),
+                            );
+                            ui.painter().rect_stroke(
+                                rect,
+                                CornerRadius::same(6),
+                                egui::Stroke::new(
+                                    1.0,
+                                    palette.accent.gamma_multiply(0.22 * amount),
+                                ),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
+                        if hover > 0.002 && !active {
+                            ui.painter().rect_filled(
+                                Rect::from_min_size(
+                                    pos2(rect.left(), rect.top() + 8.0 * (1.0 - hover)),
+                                    vec2(2.0, rect.height() - 16.0 * (1.0 - hover)),
+                                ),
+                                CornerRadius::same(1),
+                                palette.accent.gamma_multiply(0.55 * hover),
+                            );
+                        }
+                    } else if active || hover > 0.002 {
+                        let fill = if active {
+                            palette.surface
+                        } else {
+                            egui::Color32::TRANSPARENT
+                                .lerp_to_gamma(palette.surface_hover.gamma_multiply(0.6), hover)
+                        };
+                        ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
                     }
                     if drop_hover {
                         ui.painter().rect_filled(

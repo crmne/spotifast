@@ -4311,9 +4311,11 @@ mod tests {
         let mut app = test_app();
         app.apply(Action::SetShuffle(true), &ctx);
         app.actions.clear();
+        let mut time = 0.0;
         let mut draw = |events| {
             let mut output = ctx.run_ui(
                 egui::RawInput {
+                    time: Some(time),
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
                         egui::vec2(800.0, 600.0),
@@ -4341,6 +4343,7 @@ mod tests {
                     );
                 },
             );
+            time += 0.25;
             output.textures_delta.clear();
             output
                 .shapes
@@ -4354,7 +4357,9 @@ mod tests {
         };
 
         draw(vec![]);
-        let tints = draw(vec![egui::Event::PointerMoved(egui::pos2(87.0, 28.0))]);
+        let hover = vec![egui::Event::PointerMoved(egui::pos2(87.0, 28.0))];
+        draw(hover.clone());
+        let tints = draw(hover);
 
         assert!(
             tints.contains(&app.palette.accent_hover),

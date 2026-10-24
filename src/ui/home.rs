@@ -40,8 +40,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     ui.add_space(6.0);
+    if app.neon_theme_active() {
+        neon_featured(app, ui);
+    }
     let greeting = crate::util::greeting(app.locale);
-    theme::text(ui, greeting.as_ref(), theme::bold(30.0), palette.text);
+    theme::text(
+        ui,
+        greeting.as_ref(),
+        theme::bold(if app.neon_theme_active() { 25.0 } else { 30.0 }),
+        palette.text,
+    );
     ui.add_space(12.0);
     quick_access(app, ui);
     ui.add_space(16.0);
@@ -70,6 +78,229 @@ struct Tile {
     /// A song played on its own, which the tile plays and whose menu it
     /// offers, rather than a playlist, album or artist.
     song: Option<crate::api::models::Track>,
+}
+
+/// A large, editorial listening card for the Neon theme. It uses
+/// the same library tile actions as the existing quick-access row, while the
+/// cover art and restrained orbit marks give Home a new visual focal point.
+fn neon_featured(app: &mut App, ui: &mut egui::Ui) {
+    let tiles = quick_access_tiles(app);
+    let Some(index) = tiles
+        .iter()
+        .position(|tile| tile.image.is_some() && !tile.liked)
+        .or_else(|| (!tiles.is_empty()).then_some(0))
+    else {
+        return;
+    };
+    let featured = &tiles[index];
+    let palette = app.palette;
+    let width = ui.available_width();
+    let height = 236.0;
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    // The cover and actions are interactive children. Keep the feature card's
+    // hover state while the pointer is over any of them.
+    let pointer_over_card = ui.rect_contains_pointer(rect);
+    let hover = ui.ctx().animate_value_with_time(
+        response.id.with("neon-featured-hover"),
+        if pointer_over_card { 1.0 } else { 0.0 },
+        crate::motion::seconds(ui.ctx(), 0.28),
+    );
+    let press = ui.ctx().animate_value_with_time(
+        response.id.with("neon-featured-press"),
+        if ui.input(|input| input.pointer.primary_down()) && pointer_over_card {
+            1.0
+        } else {
+            0.0
+        },
+        crate::motion::seconds(ui.ctx(), 0.09),
+    );
+    let draw_rect = rect
+        .expand(1.5 * hover)
+        .translate(vec2(0.0, -3.0 * hover + press));
+    let painter = ui.painter();
+    if hover > 0.002 {
+        painter.rect_filled(
+            draw_rect.expand(5.0 * hover),
+            CornerRadius::same(22),
+            palette.accent.gamma_multiply(0.035 * hover),
+        );
+    }
+    painter.rect_filled(
+        draw_rect,
+        CornerRadius::same(18),
+        palette
+            .panel
+            .lerp_to_gamma(palette.surface_hover, 0.18 * hover),
+    );
+    painter.rect_stroke(
+        draw_rect,
+        CornerRadius::same(18),
+        egui::Stroke::new(
+            1.0 + 0.45 * hover,
+            palette.outline.lerp_to_gamma(palette.accent, 0.42 * hover),
+        ),
+        egui::StrokeKind::Inside,
+    );
+    painter.rect_filled(
+        Rect::from_min_size(draw_rect.min, vec2(3.0, draw_rect.height())),
+        CornerRadius::same(2),
+        palette.accent.lerp_to_gamma(palette.accent_hover, hover),
+    );
+
+    let cover_side = (height - 28.0).min(width * 0.30).max(92.0);
+    let layout_cover = Rect::from_min_size(
+        pos2(rect.right() - cover_side - 14.0, rect.top() + 14.0),
+        Vec2::splat(cover_side),
+    );
+    let pointer_offset = if crate::motion::reduced(ui.ctx()) {
+        Vec2::ZERO
+    } else {
+        ui.ctx()
+            .pointer_latest_pos()
+            .filter(|position| rect.contains(*position))
+            .map(|position| (position - rect.center()) * (0.025 * hover))
+            .unwrap_or(Vec2::ZERO)
+    };
+    let cover = Rect::from_center_size(
+        layout_cover.center() + pointer_offset + vec2(0.0, -1.5 * hover + press),
+        Vec2::splat(cover_side * (1.0 + 0.035 * hover - 0.012 * press)),
+    );
+    let center = cover.center();
+    if hover > 0.002
+        && let Some(pointer) = ui
+            .ctx()
+            .pointer_latest_pos()
+            .filter(|position| rect.contains(*position))
+    {
+        ui.painter().with_clip_rect(rect).circle_filled(
+            pointer,
+            70.0,
+            palette.accent_hover.gamma_multiply(0.055 * hover),
+        );
+    }
+    theme::neon_sheen(ui, rect, hover, egui::Color32::WHITE);
+    painter.circle_filled(
+        center,
+        cover_side * 0.72,
+        egui::Color32::from_rgba_unmultiplied(102, 74, 231, 18),
+    );
+    painter.circle_stroke(
+        center,
+        cover_side * 0.63,
+        egui::Stroke::new(1.0, palette.accent.gamma_multiply(0.38)),
+    );
+    painter.circle_stroke(
+        center,
+        cover_side * 0.78,
+        egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgba_unmultiplied(103, 211, 239, 64),
+        ),
+    );
+    if featured.liked {
+        super::sidebar::liked_cover(ui, cover, 12.0);
+    } else {
+        widgets::paint_cover(
+            ui,
+            &palette,
+            featured.image.as_deref(),
+            cover,
+            12.0,
+            Icon::Music,
+            Some(app.backend.art()),
+        );
+    }
+    let cover_response = ui.interact(
+        layout_cover,
+        ui.id().with("neon-featured-cover"),
+        Sense::click(),
+    );
+    theme::focus_ring(ui, &cover_response);
+    if cover_response.clicked() {
+        app.actions.push(Action::Open(featured.page.clone()));
+    }
+    let text_rect = Rect::from_min_max(
+        pos2(rect.left() + 26.0, rect.top() + 20.0),
+        pos2(layout_cover.left() - 22.0, rect.bottom() - 18.0),
+    );
+    let title_size = if text_rect.width() < 200.0 {
+        20.0
+    } else if text_rect.width() < 250.0 {
+        22.0
+    } else {
+        25.0
+    };
+    let mut text_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(text_rect)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    text_ui.horizontal(|ui| {
+        let label_rect = ui.allocate_exact_size(vec2(7.0, 7.0), Sense::hover()).0;
+        ui.painter()
+            .circle_filled(label_rect.center(), 3.5, palette.accent);
+        ui.add_space(2.0);
+        theme::text(
+            ui,
+            "NEON SESSION / 01",
+            theme::semibold(10.0),
+            palette.accent_hover,
+        );
+    });
+    text_ui.add_space(18.0);
+    theme::text(
+        &mut text_ui,
+        gettext(app.locale, "Library"),
+        theme::medium(13.0),
+        palette.secondary,
+    );
+    text_ui.add_space(7.0);
+    let title = featured
+        .song
+        .as_ref()
+        .map(|song| song.name.as_str())
+        .unwrap_or(&featured.name);
+    theme::text(&mut text_ui, title, theme::bold(title_size), palette.text);
+    if let Some(song) = &featured.song {
+        text_ui.add_space(4.0);
+        theme::text(
+            &mut text_ui,
+            song.artist_names(),
+            theme::regular(13.0),
+            palette.secondary,
+        );
+    }
+    text_ui.add_space(15.0);
+    let context_here = featured
+        .uri
+        .as_deref()
+        .is_some_and(|uri| app.playing_context_uri().as_deref() == Some(uri));
+    let playing_here = context_here && app.believed_playing();
+    let play_label = gettext(app.locale, if playing_here { "Pause" } else { "Play" });
+    if theme::neon_pill_button(&mut text_ui, &palette, &play_label, true).clicked() {
+        play_tile(app, featured);
+    }
+    ui.add_space(22.0);
+}
+
+fn play_tile(app: &mut App, tile: &Tile) {
+    let Some(uri) = tile.uri.as_deref() else {
+        return;
+    };
+    if app.playing_context_uri().as_deref() == Some(uri) {
+        app.actions.push(Action::TogglePlay);
+    } else if tile.song.is_some() {
+        app.actions.push(Action::PlayUris {
+            uris: vec![uri.to_string()],
+            index: 0,
+        });
+    } else {
+        app.actions.push(Action::PlayContext {
+            uri: uri.to_string(),
+            offset_uri: None,
+            offset_index: None,
+        });
+    }
 }
 
 /// The height of a quick-access tile, and so the side of its cover.
@@ -191,6 +422,7 @@ fn quick_access_tiles(app: &App) -> Vec<Tile> {
 
 fn quick_access(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
+    let neon = app.neon_theme_active();
     let tiles = quick_access_tiles(app);
     let available = ui.available_width();
     let columns = ((available / 300.0).floor() as usize).clamp(2, 4);
@@ -215,15 +447,55 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                 };
                 let (rect, response) =
                     ui.allocate_exact_size(vec2(tile_width, TILE_HEIGHT), Sense::click());
+                let mut play_clicked = false;
                 if ui.is_rect_visible(rect) {
-                    let hovered = ui.rect_contains_pointer(rect);
-                    let fill = if hovered {
-                        palette.surface_hover
+                    let play_id = response.id.with("neon-quick-play");
+                    let hover_target = ui.rect_contains_pointer(rect)
+                        || response.has_focus()
+                        || ui.memory(|memory| memory.has_focus(play_id));
+                    let hover = ui.ctx().animate_value_with_time(
+                        response.id.with("neon-tile-hover"),
+                        if hover_target { 1.0 } else { 0.0 },
+                        crate::motion::seconds(ui.ctx(), 0.20),
+                    );
+                    let pressed = ui.ctx().animate_value_with_time(
+                        response.id.with("neon-tile-press"),
+                        if response.is_pointer_button_down_on() {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        crate::motion::seconds(ui.ctx(), 0.08),
+                    );
+                    let draw_rect = if neon {
+                        rect.expand(1.0 * hover)
+                            .translate(vec2(0.0, -2.5 * hover + pressed))
                     } else {
-                        palette.surface
+                        rect
                     };
-                    ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
-                    let cover = Rect::from_min_size(rect.min, Vec2::splat(TILE_HEIGHT));
+                    let tile_radius = if neon { 7 } else { 6 };
+                    let fill = palette.surface.lerp_to_gamma(palette.surface_hover, hover);
+                    ui.painter()
+                        .rect_filled(draw_rect, CornerRadius::same(tile_radius), fill);
+                    if neon && hover > 0.002 {
+                        ui.painter().rect_stroke(
+                            draw_rect,
+                            CornerRadius::same(tile_radius),
+                            egui::Stroke::new(1.0, palette.accent.gamma_multiply(0.36 * hover)),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    if neon {
+                        theme::neon_sheen(ui, rect, hover, egui::Color32::WHITE);
+                    }
+                    let cover = if neon {
+                        Rect::from_center_size(
+                            rect.left_center() + vec2(TILE_HEIGHT / 2.0, -1.2 * hover + pressed),
+                            Vec2::splat(TILE_HEIGHT * (1.0 + 0.055 * hover - 0.015 * pressed)),
+                        )
+                    } else {
+                        Rect::from_min_size(rect.min, Vec2::splat(TILE_HEIGHT))
+                    };
                     if *liked {
                         super::sidebar::liked_cover(ui, cover, 6.0);
                     } else {
@@ -237,7 +509,8 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                             Some(app.backend.art()),
                         );
                     }
-                    let play_room = if hovered && uri.is_some() { 52.0 } else { 12.0 };
+                    let reveal = if uri.is_some() { hover } else { 0.0 };
+                    let play_room = 12.0 + 40.0 * reveal;
                     let text_rect = Rect::from_min_max(
                         pos2(cover.right() + 12.0, rect.top()),
                         pos2(rect.right() - play_room, rect.bottom()),
@@ -251,7 +524,9 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         theme::bold(14.5),
                         palette.text,
                     );
-                    if hovered && let Some(uri) = uri {
+                    if let Some(uri) = uri
+                        && reveal > 0.005
+                    {
                         let context_here =
                             app.playing_context_uri().as_deref() == Some(uri.as_str());
                         let playing_here = context_here && app.believed_playing();
@@ -259,25 +534,26 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                             pos2(rect.right() - 28.0, rect.center().y),
                             Vec2::splat(40.0),
                         );
-                        let mut child =
-                            ui.new_child(egui::UiBuilder::new().max_rect(button).layout(
-                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                            ));
-                        if theme::circle_button(
-                            &mut child,
-                            if playing_here {
-                                Icon::PauseFilled
-                            } else {
-                                Icon::PlayFilled
+                        let play_response = theme::revealed_circle_button(
+                            ui,
+                            button,
+                            play_id,
+                            reveal,
+                            theme::RevealedCircleStyle {
+                                neon,
+                                icon: if playing_here {
+                                    Icon::PauseFilled
+                                } else {
+                                    Icon::PlayFilled
+                                },
+                                fill: palette.accent,
+                                fill_hover: palette.accent_hover,
+                                icon_color: palette.on_accent,
                             },
-                            40.0,
-                            palette.accent,
-                            palette.accent_hover,
-                            palette.on_accent,
                             &gettext(app.locale, if playing_here { "Pause" } else { "Play" }),
-                        )
-                        .clicked()
-                        {
+                        );
+                        play_clicked = play_response.clicked();
+                        if play_clicked {
                             if context_here {
                                 app.actions.push(Action::TogglePlay);
                             } else if song.is_some() {
@@ -295,7 +571,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         }
                     }
                 }
-                if response.clicked() {
+                if response.clicked() && !play_clicked {
                     app.actions.push(Action::Open(page.clone()));
                 }
                 if !liked && let Some(uri) = uri {

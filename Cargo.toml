@@ -244,6 +244,9 @@ winresource = "0.1"
 default = ["milkdrop"]
 # Sample data and screenshot flags; never part of a release build.
 demo = []
+# A standalone, offline visual redesign preview. This feature is not enabled
+# by normal builds or releases.
+neon-preview = ["demo"]
 # MilkDrop, through libprojectM: a C++ library that CMake builds into the
 # binary at compile time, so building needs cmake, a C++ compiler, and
 # libclang. `--no-default-features` leaves it out.
