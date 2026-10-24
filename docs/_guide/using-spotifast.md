@@ -185,6 +185,12 @@ Click the cover at the top of a playlist, album, artist, or podcast page to
 see it enlarged, at the largest size Spotify has. Click anywhere or press
 `Esc` to return to the page.
 
+## Release dates
+
+Hover over the year at the top of an album, single or EP page to see its full release
+date, like "Oct 5, 2026". Spotify knows some releases only to the year, for 
+those, hovering will just show the year.
+
 ## Refreshing a playlist
 
 Since 0.8.0, choose **Refresh** in a playlist's **…** menu to reload

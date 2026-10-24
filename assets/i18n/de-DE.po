@@ -29,12 +29,12 @@ msgid "Play {name}"
 msgstr "{name} abspielen"
 
 #: src/ui/sidebar.rs:302 src/app.rs:3330 src/app.rs:21894
-#: src/ui/collection.rs:2119 src/ui/collection.rs:2336
+#: src/ui/collection.rs:2126 src/ui/collection.rs:2355
 msgid "Playlist"
 msgstr "Playlist"
 
 #: src/ui/sidebar.rs:312 src/ui/friends.rs:286 src/app.rs:3304 src/app.rs:21899
-#: src/ui/collection.rs:2329 src/ui/home.rs:93 src/ui/keys.rs:264
+#: src/ui/collection.rs:2348 src/ui/home.rs:93 src/ui/keys.rs:264
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "Lieblingssongs"
@@ -164,8 +164,8 @@ msgid "Sort by recently played"
 msgstr "Nach zuletzt gespielt sortieren"
 
 #: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:793 src/ui/widgets.rs:1213
-#: src/ui/artist.rs:395 src/ui/collection.rs:295 src/ui/new_releases.rs:117
-#: src/ui/prerelease.rs:309 src/ui/search.rs:408 src/ui/show.rs:389
+#: src/ui/artist.rs:396 src/ui/collection.rs:302 src/ui/new_releases.rs:117
+#: src/ui/prerelease.rs:309 src/ui/search.rs:408 src/ui/show.rs:390
 msgid "Play"
 msgstr "Wiedergabe"
 
@@ -188,7 +188,7 @@ msgstr[1] "Playlist • {count} Titel"
 #. Translators: Keep {count} exactly as written. It becomes a number of songs.
 #. Translators: Keep {count} exactly as written. It becomes the number of selected songs.
 #. Translators: {count} is a number of songs.
-#: src/i18n.rs:201 src/ui/widgets.rs:696 src/ui/collection.rs:2430
+#: src/i18n.rs:201 src/ui/widgets.rs:696 src/ui/collection.rs:2450
 #, rust-format
 msgid "{count} song"
 msgid_plural "{count} songs"
@@ -247,7 +247,7 @@ msgstr "In Lieblingssongs speichern"
 msgid "Remove from Liked Songs"
 msgstr "Aus Lieblingssongs entfernen"
 
-#: src/ui/player_bar.rs:737 src/ui/player_bar.rs:744 src/ui/collection.rs:349
+#: src/ui/player_bar.rs:737 src/ui/player_bar.rs:744 src/ui/collection.rs:356
 #: src/ui/new_releases.rs:146
 msgid "Shuffle"
 msgstr "Zufallswiedergabe"
@@ -256,7 +256,7 @@ msgstr "Zufallswiedergabe"
 msgid "Previous"
 msgstr "Zurück"
 
-#: src/ui/player_bar.rs:791 src/ui/friends.rs:190 src/ui/collection.rs:293
+#: src/ui/player_bar.rs:791 src/ui/friends.rs:190 src/ui/collection.rs:300
 msgid "Pause"
 msgstr "Pause"
 
@@ -357,7 +357,7 @@ msgid "Next up"
 msgstr "Danach"
 
 #: src/ui/queue.rs:625 src/ui/queue.rs:658 src/ui/widgets.rs:2925
-#: src/ui/collection.rs:1241 src/ui/prerelease.rs:242
+#: src/ui/collection.rs:1248 src/ui/prerelease.rs:242
 msgid "Retry"
 msgstr "Erneut versuchen"
 
@@ -387,20 +387,20 @@ msgid "Play a song to see its lyrics."
 msgstr "Spiele einen Song ab, um den Songtext zu sehen."
 
 #: src/ui/lyrics.rs:143 src/ui/lyrics.rs:160 src/ui/artist.rs:279
-#: src/ui/artist.rs:307 src/ui/collection.rs:692 src/ui/collection.rs:1694
-#: src/ui/collection.rs:1830 src/ui/collection.rs:1856
-#: src/ui/collection.rs:1920 src/ui/collection.rs:2036
-#: src/ui/collection.rs:2062 src/ui/collection.rs:2309 src/ui/home.rs:25
+#: src/ui/artist.rs:307 src/ui/collection.rs:699 src/ui/collection.rs:1701
+#: src/ui/collection.rs:1837 src/ui/collection.rs:1863
+#: src/ui/collection.rs:1927 src/ui/collection.rs:2043
+#: src/ui/collection.rs:2069 src/ui/collection.rs:2328 src/ui/home.rs:25
 #: src/ui/library.rs:259 src/ui/search.rs:91 src/ui/show.rs:66
 #: src/ui/show.rs:112 src/ui/show.rs:142
 msgid "You're offline"
 msgstr "Du bist offline"
 
 #: src/ui/lyrics.rs:146 src/ui/lyrics.rs:163 src/ui/artist.rs:282
-#: src/ui/artist.rs:310 src/ui/collection.rs:695 src/ui/collection.rs:1697
-#: src/ui/collection.rs:1833 src/ui/collection.rs:1859
-#: src/ui/collection.rs:1923 src/ui/collection.rs:2039
-#: src/ui/collection.rs:2065 src/ui/collection.rs:2312 src/ui/home.rs:34
+#: src/ui/artist.rs:310 src/ui/collection.rs:702 src/ui/collection.rs:1704
+#: src/ui/collection.rs:1840 src/ui/collection.rs:1866
+#: src/ui/collection.rs:1930 src/ui/collection.rs:2046
+#: src/ui/collection.rs:2072 src/ui/collection.rs:2331 src/ui/home.rs:34
 #: src/ui/library.rs:262 src/ui/show.rs:69 src/ui/show.rs:115
 #: src/ui/show.rs:145
 msgid "Spotifast will reconnect automatically when your connection returns."
@@ -436,7 +436,7 @@ msgid "No timed lyrics for this track."
 msgstr "Für diesen Titel gibt es keinen synchronisierten Songtext."
 
 #: src/ui/lyrics.rs:462 src/ui/widgets.rs:2823 src/ui/widgets.rs:2863
-#: src/ui/widgets.rs:2891 src/app.rs:12946 src/ui/collection.rs:892
+#: src/ui/widgets.rs:2891 src/app.rs:12946 src/ui/collection.rs:899
 msgid "Loading…"
 msgstr "Laden…"
 
@@ -546,17 +546,17 @@ msgctxt "artist"
 msgid "Unfollow"
 msgstr "Nicht mehr folgen"
 
-#: src/ui/widgets.rs:1246 src/ui/artist.rs:411
+#: src/ui/widgets.rs:1246 src/ui/artist.rs:412
 msgctxt "artist"
 msgid "Follow"
 msgstr "Folgen"
 
-#: src/ui/widgets.rs:1247 src/ui/collection.rs:2168 src/ui/collection.rs:2191
-#: src/ui/show.rs:241
+#: src/ui/widgets.rs:1247 src/ui/collection.rs:2176 src/ui/collection.rs:2199
+#: src/ui/show.rs:242
 msgid "Remove from Your Library"
 msgstr "Aus deiner Bibliothek entfernen"
 
-#: src/ui/widgets.rs:1248 src/ui/collection.rs:2167
+#: src/ui/widgets.rs:1248 src/ui/collection.rs:2175
 msgid "Add to Your Library"
 msgstr "Zu deiner Bibliothek hinzufügen"
 
@@ -586,8 +586,8 @@ msgstr "Zum Künstler-Radio"
 msgid "Play {title}, {subtitle}"
 msgstr "{title}, {subtitle} abspielen"
 
-#: src/ui/widgets.rs:2042 src/ui/artist.rs:425 src/ui/collection.rs:398
-#: src/ui/show.rs:259 src/ui/show.rs:467
+#: src/ui/widgets.rs:2042 src/ui/artist.rs:426 src/ui/collection.rs:405
+#: src/ui/show.rs:260 src/ui/show.rs:468
 msgid "More"
 msgstr "Mehr"
 
@@ -2285,83 +2285,83 @@ msgid_plural "{count} followers"
 msgstr[0] "{count} Follower"
 msgstr[1] "{count} Follower"
 
-#: src/ui/artist.rs:386 src/ui/collection.rs:281 src/ui/show.rs:218
-#: src/ui/show.rs:376
+#: src/ui/artist.rs:387 src/ui/collection.rs:288 src/ui/show.rs:219
+#: src/ui/show.rs:377
 msgid "Starting…"
 msgstr "Wird gestartet…"
 
-#: src/ui/artist.rs:409
+#: src/ui/artist.rs:410
 msgctxt "artist"
 msgid "Following"
 msgstr "Folge ich"
 
-#: src/ui/collection.rs:120
+#: src/ui/collection.rs:122
 msgid "Enlarge cover"
 msgstr "Cover vergrößern"
 
-#: src/ui/collection.rs:300
+#: src/ui/collection.rs:307
 msgid "No playable songs in this view"
 msgstr "Keine abspielbaren Songs in dieser Ansicht"
 
-#: src/ui/collection.rs:347 src/ui/new_releases.rs:144
+#: src/ui/collection.rs:354 src/ui/new_releases.rs:144
 msgid "Shuffle off"
 msgstr "Zufallswiedergabe aus"
 
-#: src/ui/collection.rs:385 src/ui/collection.rs:411
+#: src/ui/collection.rs:392 src/ui/collection.rs:418
 msgid "Save as playlist"
 msgstr "Als Playlist speichern"
 
-#: src/ui/collection.rs:438
+#: src/ui/collection.rs:445
 msgid "Filter"
 msgstr "Filtern"
 
-#: src/ui/collection.rs:459
+#: src/ui/collection.rs:466
 msgid "Refreshing…"
 msgstr "Wird aktualisiert…"
 
-#: src/ui/collection.rs:461 src/ui/devices.rs:414
+#: src/ui/collection.rs:468 src/ui/devices.rs:414
 msgid "Refresh"
 msgstr "Aktualisieren"
 
-#: src/ui/collection.rs:884 src/ui/collection.rs:911
+#: src/ui/collection.rs:891 src/ui/collection.rs:918
 msgid "Unavailable"
 msgstr "Nicht verfügbar"
 
-#: src/ui/collection.rs:890
+#: src/ui/collection.rs:897
 msgid "You're offline. Reconnect to load more songs."
 msgstr ""
 "Du bist offline. Stelle die Verbindung wieder her, um weitere Songs zu laden."
 
-#: src/ui/collection.rs:1046
+#: src/ui/collection.rs:1053
 msgid "Nothing here yet"
 msgstr "Hier ist noch nichts"
 
-#: src/ui/collection.rs:1047
+#: src/ui/collection.rs:1054
 msgid "Added songs appear here."
 msgstr "Hier erscheinen hinzugefügte Songs."
 
-#: src/ui/collection.rs:1586 src/ui/home.rs:905
+#: src/ui/collection.rs:1593 src/ui/home.rs:905
 msgid "Your top songs"
 msgstr "Deine Top-Songs"
 
-#: src/ui/collection.rs:1595
+#: src/ui/collection.rs:1602
 msgid "Your most-played tracks from the last four weeks."
 msgstr "Deine meistgespielten Titel der letzten vier Wochen."
 
-#: src/ui/collection.rs:2115
+#: src/ui/collection.rs:2122
 msgid "Collaborative Playlist"
 msgstr "Gemeinsame Playlist"
 
-#: src/ui/collection.rs:2117
+#: src/ui/collection.rs:2124
 msgid "Public Playlist"
 msgstr "Öffentliche Playlist"
 
-#: src/ui/collection.rs:2190
+#: src/ui/collection.rs:2198
 msgid "Save to Your Library"
 msgstr "In deiner Bibliothek speichern"
 
 #. Translators: {count} is the number of people who saved a playlist.
-#: src/ui/collection.rs:2442
+#: src/ui/collection.rs:2462
 #, rust-format
 msgid "{count} save"
 msgid_plural "{count} saves"
@@ -2370,7 +2370,7 @@ msgstr[1] "{count} Mal gespeichert"
 
 #. Translators: {count} is a number of songs and {duration} their total
 #. length, such as "2 hr 13 min".
-#: src/ui/collection.rs:2455
+#: src/ui/collection.rs:2475
 #, rust-format
 msgid "{count} song, {duration}"
 msgid_plural "{count} songs, {duration}"
@@ -2378,19 +2378,19 @@ msgstr[0] "{count} Song, {duration}"
 msgstr[1] "{count} Songs, {duration}"
 
 #. Translators: {name} is the name of someone who added songs to the playlist.
-#: src/ui/collection.rs:2525
+#: src/ui/collection.rs:2545
 #, rust-format
 msgid "with {name}"
 msgstr "mit {name}"
 
 #. Translators: {first} and {second} are names of people who added songs.
-#: src/ui/collection.rs:2529
+#: src/ui/collection.rs:2549
 #, rust-format
 msgid "with {first} and {second}"
 msgstr "mit {first} und {second}"
 
 #. Translators: {count} is how many other people added songs to the playlist.
-#: src/ui/collection.rs:2536
+#: src/ui/collection.rs:2556
 #, rust-format
 msgid "and {count} other"
 msgid_plural "and {count} others"
@@ -3012,48 +3012,48 @@ msgstr "Minuten"
 msgid "seconds"
 msgstr "Sekunden"
 
-#: src/ui/radio.rs:106
+#: src/ui/radio.rs:107
 msgid "Radio comes from playback on this computer. Turn it on in Settings."
 msgstr ""
 "Radio kommt von der Wiedergabe auf diesem Computer. Aktiviere sie in den "
 "Einstellungen."
 
-#: src/ui/radio.rs:206
+#: src/ui/radio.rs:207
 msgid "Based on this playlist"
 msgstr "Basierend auf dieser Playlist"
 
-#: src/ui/radio.rs:207
+#: src/ui/radio.rs:208
 msgid "Based on this album"
 msgstr "Basierend auf diesem Album"
 
-#: src/ui/radio.rs:208
+#: src/ui/radio.rs:209
 msgid "Based on this artist"
 msgstr "Basierend auf diesem Künstler"
 
-#: src/ui/radio.rs:209
+#: src/ui/radio.rs:210
 msgid "Based on this song"
 msgstr "Basierend auf diesem Song"
 
 #. Translators: {first} is an artist name.
-#: src/ui/radio.rs:228
+#: src/ui/radio.rs:229
 #, rust-format
 msgid "With {first}"
 msgstr "Mit {first}"
 
 #. Translators: {first} and {second} are artist names.
-#: src/ui/radio.rs:231
+#: src/ui/radio.rs:232
 #, rust-format
 msgid "With {first} and {second}"
 msgstr "Mit {first} und {second}"
 
 #. Translators: {first}, {second} and {third} are artist names.
-#: src/ui/radio.rs:237
+#: src/ui/radio.rs:238
 #, rust-format
 msgid "With {first}, {second} and {third}"
 msgstr "Mit {first}, {second} und {third}"
 
 #. Translators: {first}, {second} and {third} are artist names; more follow.
-#: src/ui/radio.rs:244
+#: src/ui/radio.rs:245
 #, rust-format
 msgid "With {first}, {second}, {third} and more"
 msgstr "Mit {first}, {second}, {third} und weiteren"
@@ -3113,21 +3113,21 @@ msgid_plural "{count} episodes"
 msgstr[0] "{count} Episode"
 msgstr[1] "{count} Episoden"
 
-#: src/ui/show.rs:227
+#: src/ui/show.rs:228
 msgid "Play latest episode"
 msgstr "Neueste Episode abspielen"
 
-#: src/ui/show.rs:247
+#: src/ui/show.rs:248
 msgid "Follow podcast"
 msgstr "Podcast folgen"
 
 #. Translators: {duration} is the time left in an episode, such as "12 min".
-#: src/ui/show.rs:417
+#: src/ui/show.rs:418
 #, rust-format
 msgid "{duration} left"
 msgstr "Noch {duration}"
 
-#: src/ui/show.rs:439
+#: src/ui/show.rs:440
 msgid "Played"
 msgstr "Gehört"
 

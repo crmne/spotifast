@@ -167,7 +167,10 @@ fn album(index: usize) -> Album {
         total_tracks: Some(12),
         images: image(200 + index as u32),
         artists: vec![artist_ref(artist_index)],
-        release_date: Some(format!("{year}-03-1{}", index % 9)),
+        release_date: Some(match index {
+            1 => year.to_string(), // known only to the year
+            _ => format!("{year}-03-1{}", index % 9),
+        }),
         label: Some("Ninja Tune".into()),
         copyrights: vec![Copyright {
             text: format!("{year} Ninja Tune"),
