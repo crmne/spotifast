@@ -292,6 +292,9 @@ pub enum PlayerCommand {
     ClearQueue,
     /// Queue a track, episode or local file after the ones already queued.
     AddToQueue(String),
+    /// Take one track out of the player's queue, by its place in it. The
+    /// engine leaves the queue alone when another track is there.
+    RemoveNextTrack(usize, String),
     Seek(u32),
     /// The volume to keep: applied at once and told to Spotify Connect.
     Volume(u16),
@@ -740,6 +743,9 @@ impl Engine {
             PlayerCommand::Previous => spirc.prev()?,
             PlayerCommand::ClearQueue => spirc.clear_queue()?,
             PlayerCommand::AddToQueue(uri) => spirc.add_to_queue(SpotifyUri::from_uri(&uri)?)?,
+            PlayerCommand::RemoveNextTrack(index, uri) => {
+                spirc.remove_next_track(index, SpotifyUri::from_uri(&uri)?)?
+            }
             PlayerCommand::Seek(position_ms) => spirc.set_position_ms(position_ms)?,
             PlayerCommand::Volume(volume) => self.note_volume(volume, false)?,
             PlayerCommand::VolumePreview(volume) => self.note_volume(volume, true)?,

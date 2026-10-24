@@ -2,6 +2,15 @@
 //!
 //! eframe already places the window on-screen. The session can still refer
 //! to a monitor that was unplugged, so check before moving the window there.
+//!
+//! The Windows half keeps the app's own pixels on the top row of an
+//! undecorated window, which Windows would otherwise paint.
+
+#[cfg(windows)]
+mod win;
+
+#[cfg(windows)]
+pub use win::ClientArea;
 
 /// Why a Wayland window cannot be kept above others from the app, and what
 /// to do instead.

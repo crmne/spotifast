@@ -5807,10 +5807,13 @@ impl App {
     }
 
     /// A chosen row of Next up plays at once, and the rows above it go
-    /// with it: skips consume the queue, so the playing context and the
-    /// songs queued after the chosen one stay intact. Loading the queue's
-    /// rows as a fresh list instead used to take seconds, threw the
-    /// context away, and left Spotify's copy of the queue to reappear.
+    /// with it: the jump consumes the queue, so the playing context and
+    /// the songs queued after the chosen one stay intact. On this
+    /// computer the rows above leave the player's own queue and one skip
+    /// plays the chosen song, so no song in between is ever played.
+    /// Loading the queue's rows as a fresh list instead used to take
+    /// seconds, threw the context away, and left Spotify's copy of the
+    /// queue to reappear.
     fn play_queue_item(&mut self, index: usize, uri: String) {
         if self.resume_only() {
             // Nothing is playing anywhere, so there is no live queue to
@@ -5829,57 +5832,100 @@ impl App {
             if uris.is_empty() {
                 return;
             }
+            // The click names a song; if the rows shifted under the
+            // pointer, the song wins over the row number.
+            let index = match uris.get(index) {
+                Some(held) if *held == uri => index,
+                _ => uris.iter().position(|held| *held == uri).unwrap_or(index),
+            };
             let (uris, index) = cap_uris(&uris, index as u32);
             self.play_request(PlayRequest::tracks(uris).starting_at_index(index), false);
             return;
         }
-        let mut skips = index + 1;
+        let mut position = index;
         let mut consumed: Vec<String> = Vec::new();
+        // The rows above the chosen one, in the order the queue has them.
+        let mut above: Vec<PlayableItem> = Vec::new();
+        let mut chosen: Option<PlayableItem> = None;
         if let Loadable::Loaded(queue) = &mut self.queue {
             // The click names a song; if the rows shifted under the
             // pointer, the song wins over the row number.
-            let position = match queue.queue.get(index) {
+            let found = match queue.queue.get(index) {
                 Some(item) if item.uri() == uri => Some(index),
                 _ => queue.queue.iter().position(|item| item.uri() == uri),
             };
-            let Some(position) = position else {
+            let Some(found) = found else {
                 self.refresh_queue(true);
                 return;
             };
-            skips = position + 1;
+            position = found;
             let mut items: Vec<_> = queue.queue.drain(..=position).collect();
-            let chosen = items.pop().expect("the chosen row was just drained");
-            consumed = items.iter().map(|item| item.uri().to_string()).collect();
-            consumed.push(chosen.uri().to_string());
-            queue.currently_playing = Some(chosen);
+            let picked = items.pop().expect("the chosen row was just drained");
+            above = items;
+            consumed = above.iter().map(|item| item.uri().to_string()).collect();
+            consumed.push(picked.uri().to_string());
+            chosen = Some(picked.clone());
+            queue.currently_playing = Some(picked);
         }
         for gone in &consumed {
             if let Some(at) = self.manual_queue.iter().position(|queued| queued == gone) {
                 self.remove_manual_queue_row(at);
             }
         }
+        // The queue row already has the song's details, so the player bar
+        // can name it now instead of waiting for the engine to load it.
+        let track = chosen.as_ref().and_then(|item| match item {
+            PlayableItem::Track(track) => Some(track.clone()),
+            PlayableItem::Episode(_) => None,
+        });
+        if let Some(track) = track
+            && let Some(id) = util::uri_id(&uri)
+        {
+            self.track_cache.entry(id.to_owned()).or_insert(track);
+        }
         self.expect_track(uri.clone(), 0);
         self.queue_start_pending = Some(self.target());
-        self.set_play_pending(vec![uri]);
+        self.set_play_pending(vec![uri.clone()]);
         self.optimistic_playing = Some((true, Instant::now()));
         match self.target() {
-            Target::Local => {
-                for _ in 0..skips {
-                    self.backend.player(PlayerCommand::Next);
-                }
-            }
+            Target::Local => self.jump_local_queue(&above),
             Target::Remote(device_id) => {
+                // The Web API cannot remove or reorder a song in a live
+                // queue, so a jump would leave the rows above the chosen
+                // one in the queue and break the queue's rules. Only this
+                // computer's player can be rewritten, so a remote device
+                // still skips down to the row.
                 // With nothing to act on, one call earns the "pick
                 // something first" toast; a skip per row would repeat it.
                 if device_id.is_none() && self.remote_fresh().is_none() {
                     self.remote(RemoteAction::Next, None);
                     return;
                 }
-                for _ in 0..skips {
+                for _ in 0..=position {
                     self.remote(RemoteAction::Next, device_id.clone());
                 }
             }
         }
+    }
+
+    /// Plays the chosen queue row on this computer's player, without a
+    /// song in between. The rows above it leave the player's own queue,
+    /// one command per row, and one skip then plays the chosen song. The
+    /// player's queue is the queue the app shows, so what is left of it is
+    /// what stays. Nothing names the playing context here: naming it
+    /// makes the engine resolve it again, and the queue comes back in the
+    /// context's own order instead of the one it had.
+    fn jump_local_queue(&mut self, above: &[PlayableItem]) {
+        // From the bottom up, so the rows still to go keep their indexes:
+        // taking a row out moves the rows below it up by one. The engine
+        // checks the song and leaves the queue alone when another one is
+        // there, so a queue that moved cannot lose the wrong song.
+        for (index, item) in above.iter().enumerate().rev() {
+            let uri = item.uri().to_string();
+            self.backend
+                .player(PlayerCommand::RemoveNextTrack(index, uri));
+        }
+        self.backend.player(PlayerCommand::Next);
     }
 
     /// How many leading rows of Next up are songs the user queued here,
@@ -17024,6 +17070,333 @@ mod tests {
         assert!(
             next.is_empty(),
             "the row above the chosen song went with it"
+        );
+    }
+
+    /// A clicked row of the playing context is reached without a song in
+    /// between: the rows above it leave this computer's own queue, one
+    /// skip plays the chosen song, and the player bar names it at once.
+    #[test]
+    fn a_clicked_next_up_row_takes_the_rows_above_out_of_the_players_queue() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.local_device_id = Some("this-computer".into());
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:playlist:ctx".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.take_player_commands(),
+            vec![
+                PlayerCommand::RemoveNextTrack(0, "spotify:track:b".into()),
+                PlayerCommand::Next,
+            ],
+            "the row above leaves the player's queue and one skip plays the chosen song"
+        );
+        assert!(
+            app.backend.take_remote_play_requests().is_empty(),
+            "no song in between, and the context is not named to Spotify"
+        );
+        assert!(
+            app.play_pending("spotify:track:c"),
+            "the chosen song is named at once"
+        );
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:c"));
+        assert_eq!(next, vec!["spotify:track:d"], "the rows below stay");
+    }
+
+    /// The rows above the chosen one leave the player's queue one command
+    /// per row, from the bottom up: taking a row out moves the rows below
+    /// it up by one, so a row's index is still the engine's while the rows
+    /// above it are there.
+    #[test]
+    fn the_rows_above_leave_the_players_queue_one_by_one() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:d",
+                "spotify:track:e",
+            ],
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:e".into(),
+                index: 3,
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.take_player_commands(),
+            vec![
+                PlayerCommand::RemoveNextTrack(2, "spotify:track:d".into()),
+                PlayerCommand::RemoveNextTrack(1, "spotify:track:c".into()),
+                PlayerCommand::RemoveNextTrack(0, "spotify:track:b".into()),
+                PlayerCommand::Next,
+            ],
+            "each row leaves by its own index, and one skip plays the chosen song"
+        );
+    }
+
+    /// Nothing names the playing context. A load of it would start the
+    /// context's first song and build the queue over from there, and a
+    /// play request would make Spotify resolve the context again, so the
+    /// queue would come back in the context's own order.
+    #[test]
+    fn a_clicked_row_never_names_the_playing_context() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:playlist:ctx".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(
+            !app.backend
+                .take_player_commands()
+                .iter()
+                .any(|command| matches!(command, PlayerCommand::Load(_))),
+            "the context is not loaded over, so the player cannot start it from its first song"
+        );
+        assert!(
+            app.backend.take_remote_play_requests().is_empty(),
+            "the context is not named to Spotify either"
+        );
+    }
+
+    /// A radio is a context the Web API cannot start at a chosen song, and
+    /// it is reached the same way as any other row: the rows above it
+    /// leave the player's queue and one skip plays it.
+    #[test]
+    fn a_clicked_next_up_row_of_a_radio_is_reached_the_same_way() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:station:playlist:ctx".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.take_player_commands(),
+            vec![
+                PlayerCommand::RemoveNextTrack(0, "spotify:track:b".into()),
+                PlayerCommand::Next,
+            ],
+            "the radio is not loaded, and one skip plays the chosen song"
+        );
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:c"));
+        assert_eq!(next, vec!["spotify:track:d"], "the rows below stay");
+    }
+
+    /// A row the user queued is not part of the playing context, and it is
+    /// reached the same way: the rows above it leave the player's queue and
+    /// one skip plays it, with the rows below it after it.
+    #[test]
+    fn a_clicked_playing_next_row_is_reached_the_same_way() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.manual_queue = vec![
+            "spotify:track:b".into(),
+            "spotify:track:c".into(),
+            "spotify:track:d".into(),
+        ];
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:d",
+                "spotify:track:e",
+            ],
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.take_player_commands(),
+            vec![
+                PlayerCommand::RemoveNextTrack(0, "spotify:track:b".into()),
+                PlayerCommand::Next,
+            ],
+            "the row above leaves the player's queue and one skip plays the chosen song"
+        );
+        assert!(
+            app.backend.take_queued_tracks().is_empty(),
+            "the player's queue is not cleared and rebuilt"
+        );
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:c"));
+        assert_eq!(next, vec!["spotify:track:d", "spotify:track:e"]);
+        assert_eq!(
+            app.manual_queue,
+            ["spotify:track:d"],
+            "the row above the chosen one is let go"
+        );
+    }
+
+    /// Another device keeps skipping down to the row: the Web API cannot
+    /// remove or reorder a song in a live queue, so a jump there would
+    /// leave the rows above the chosen one in the queue. This computer's
+    /// player is not touched either.
+    #[test]
+    fn a_clicked_row_on_another_device_does_not_touch_this_computers_player() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.selected_device = Some("speaker".into());
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(crate::api::models::Device {
+                    id: Some("speaker".into()),
+                    is_active: true,
+                    ..Default::default()
+                }),
+                item: Some(crate::api::models::PlayableItem::Track(
+                    crate::api::models::Track {
+                        uri: "spotify:track:a".into(),
+                        ..Default::default()
+                    },
+                )),
+                is_playing: true,
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(
+            app.backend.take_player_commands().is_empty(),
+            "another device's queue is not this computer's to rewrite"
+        );
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:c"));
+        assert!(next.is_empty());
+    }
+
+    /// The remembered queue is found by its song too: when nothing plays,
+    /// the rows shown are the ones from the last run, and they can shift
+    /// under the pointer before the click lands.
+    #[test]
+    fn a_clicked_resumed_queue_row_is_found_by_its_song() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.connected = true;
+        app.resume_track = Some("spotify:track:a".into());
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        assert!(
+            app.resume_only(),
+            "nothing plays, so the queue is remembered"
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        let commands = app.backend.take_player_commands();
+        assert_eq!(commands.len(), 1, "the remembered rows play as one list");
+        let PlayerCommand::Load(load) = &commands[0] else {
+            panic!("the remembered rows play as a list, not a skip");
+        };
+        assert_eq!(load.uris, ["spotify:track:b", "spotify:track:c"]);
+        assert_eq!(
+            load.offset_index,
+            Some(1),
+            "the clicked song starts, not the row under the pointer"
+        );
+        assert_eq!(
+            app.current_track_uri().as_deref(),
+            Some("spotify:track:c"),
+            "the clicked song is the one marked as playing"
         );
     }
 
