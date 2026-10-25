@@ -313,6 +313,7 @@ fn top_result(
     let mut subtitle_clicked = false;
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), 232.0), Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if ui.is_rect_visible(rect) {
         let hovered = ui.rect_contains_pointer(rect);
         let fill = if hovered {

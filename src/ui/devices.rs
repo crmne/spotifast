@@ -159,6 +159,7 @@ fn enable_playback_row(app: &mut App, ui: &mut egui::Ui) {
         );
         theme::spinner(&mut spin, 16.0, palette.accent);
     }
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.clicked() && !authorizing {
         app.actions.push(Action::EnablePlayback);
     }
@@ -224,6 +225,7 @@ fn receiver_row(app: &mut App, ui: &mut egui::Ui, receiver: &crate::zeroconf::Re
         );
         theme::spinner(&mut spin, 16.0, palette.accent);
     }
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.clicked() && !activating {
         app.actions
             .push(Action::ActivateReceiver(Box::new(receiver.clone())));
@@ -261,6 +263,7 @@ fn output_picker(app: &mut App, ui: &mut egui::Ui) {
         .as_deref()
         .map(|saved| saved_output_name(saved, listed).to_string());
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.as_ref()));
     if response.hovered() {
@@ -534,6 +537,11 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                                     vec2(ui.available_width(), 52.0),
                                     Sense::click(),
                                 );
+                                let response = if !active && device.id.is_some() {
+                                    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+                                } else {
+                                    response
+                                };
                                 if response.hovered() {
                                     ui.painter().rect_filled(
                                         rect,

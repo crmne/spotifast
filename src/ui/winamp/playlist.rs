@@ -417,11 +417,14 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
             layout::PLAYLIST_TRACK_HEIGHT,
         );
         let rect = view.rect(line);
-        let response = view.ui.interact(
-            rect,
-            egui::Id::new(("playlist-row", scroll + offset)),
-            Sense::click(),
-        );
+        let response = view
+            .ui
+            .interact(
+                rect,
+                egui::Id::new(("playlist-row", scroll + offset)),
+                Sense::click(),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
         crate::autoscroll::row(view.ui, &response);
         if response.clicked() {
             let adding = view.ui.ctx().input(|input| input.modifiers.command);
@@ -537,6 +540,12 @@ fn scrollbar(app: &mut App, view: &mut View, rows: usize, height: u32) {
         layout::PLAYLIST_SCROLL_HANDLE_HEIGHT,
     );
     let response = view.interact(handle, "playlist-scroll", Sense::click_and_drag());
+    let cursor = if response.dragged() {
+        egui::CursorIcon::Grabbing
+    } else {
+        egui::CursorIcon::PointingHand
+    };
+    let response = response.on_hover_and_drag_cursor(cursor);
     if response.dragged()
         && most > 0
         && let Some(pos) = response.interact_pointer_pos()
