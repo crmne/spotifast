@@ -1884,10 +1884,10 @@ dependencies = [
 
 [[package]]
 name = "fastframe-autostart"
-version = "0.14.0"
-source = "git+https://github.com/crmne/fastframe?tag=v0.14.0#dfd2db7bc6a5ae0c62a98383c84235f64da2cace"
+version = "0.14.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.14.1#2b04c0eed57e450461a5bef61fdebc93ed7d7226"
 dependencies = [
- "fastframe-file",
+ "fastframe-file 0.14.1",
  "log",
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
@@ -1950,6 +1950,15 @@ dependencies = [
 name = "fastframe-file"
 version = "0.14.0"
 source = "git+https://github.com/crmne/fastframe?tag=v0.14.0#dfd2db7bc6a5ae0c62a98383c84235f64da2cace"
+dependencies = [
+ "log",
+ "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "fastframe-file"
+version = "0.14.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.14.1#2b04c0eed57e450461a5bef61fdebc93ed7d7226"
 dependencies = [
  "log",
  "windows-sys 0.60.2",
@@ -2047,7 +2056,7 @@ source = "git+https://github.com/crmne/fastframe?tag=v0.14.0#dfd2db7bc6a5ae0c62a
 dependencies = [
  "eframe",
  "egui",
- "fastframe-file",
+ "fastframe-file 0.14.0",
  "log",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
@@ -6130,7 +6139,7 @@ dependencies = [
  "fastframe-dirs",
  "fastframe-dock",
  "fastframe-emoji",
- "fastframe-file",
+ "fastframe-file 0.14.0",
  "fastframe-fonts",
  "fastframe-i18n",
  "fastframe-icons",

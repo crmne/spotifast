@@ -80,7 +80,7 @@ fastframe-audio = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" 
 # gesture holds.
 fastframe-scroll = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
 # Starting at login, with the window or in the tray (#122).
-fastframe-autostart = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
+fastframe-autostart = { git = "https://github.com/crmne/fastframe", tag = "v0.14.1" }
 # One running copy per user: a lock and a private channel that a second
 # launch and the command line hand their requests to.
 fastframe-instance = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
