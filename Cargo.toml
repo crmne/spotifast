@@ -86,7 +86,7 @@ fastframe-autostart = { git = "https://github.com/crmne/fastframe", tag = "v0.14
 fastframe-instance = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
 # The config, state and cache folders: the per-user ones, or for a copy from
 # the portable Windows zip, spotifast-data next to the executable (#703).
-fastframe-dirs = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
+fastframe-dirs = { git = "https://github.com/crmne/fastframe", tag = "v0.14.1" }
 # The desktop's media controls: MPRIS on Linux, the media overlay on
 # Windows, Now Playing on macOS. The media keys and those panels send
 # commands back, and closing the window keeps the music playing.

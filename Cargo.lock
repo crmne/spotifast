@@ -1915,6 +1915,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastframe-dirs"
+version = "0.14.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.14.1#2b04c0eed57e450461a5bef61fdebc93ed7d7226"
+dependencies = [
+ "directories",
+]
+
+[[package]]
 name = "fastframe-dock"
 version = "0.14.0"
 source = "git+https://github.com/crmne/fastframe?tag=v0.14.0#dfd2db7bc6a5ae0c62a98383c84235f64da2cace"
@@ -2114,7 +2122,7 @@ version = "0.14.0"
 source = "git+https://github.com/crmne/fastframe?tag=v0.14.0#dfd2db7bc6a5ae0c62a98383c84235f64da2cace"
 dependencies = [
  "anyhow",
- "fastframe-dirs",
+ "fastframe-dirs 0.14.0",
  "reqwest",
  "ring",
  "serde",
@@ -6127,7 +6135,7 @@ dependencies = [
  "egui_extras",
  "fastframe-audio",
  "fastframe-autostart",
- "fastframe-dirs",
+ "fastframe-dirs 0.14.1",
  "fastframe-dock",
  "fastframe-emoji",
  "fastframe-file",
