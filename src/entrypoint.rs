@@ -618,6 +618,11 @@ pub(crate) fn run() -> eframe::Result<()> {
         #[cfg(feature = "demo")]
         let creator_shot = shot.clone();
         let mini = lease.peek(MiniWindow::wanted);
+        // The main window with the app's own title bar has no frame, and
+        // Windows paints the top row of it. The mini player keeps its own
+        // frame, drawn by the skin.
+        #[cfg(windows)]
+        let own_frame = mini.is_none() && !main_window_decorated(fastframe_titlebar::enabled());
         let geometry = lease.peek(main_geometry);
         #[cfg(windows)]
         let locale = lease.peek(|app| app.locale);
@@ -711,11 +716,27 @@ pub(crate) fn run() -> eframe::Result<()> {
                     }
                     toolbar
                 };
+                #[cfg(windows)]
+                let client_area = {
+                    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                    let mut area = spotifast::window::ClientArea::new();
+                    if own_frame
+                        && let Ok(handle) = cc.window_handle()
+                        && let RawWindowHandle::Win32(window) = handle.as_raw()
+                    {
+                        // Installed after the toolbar, so this procedure sits
+                        // in front of it and both reach the window's own.
+                        unsafe { area.attach(window.hwnd.get()) };
+                    }
+                    area
+                };
                 Ok(Box::new(Shell {
                     app,
                     recovery_checked: false,
                     #[cfg(windows)]
                     thumbbar,
+                    #[cfg(windows)]
+                    client_area,
                     #[cfg(feature = "demo")]
                     shot: creator_shot.clone(),
                     #[cfg(feature = "demo")]
@@ -1292,6 +1313,9 @@ struct Shell {
     recovery_checked: bool,
     #[cfg(windows)]
     thumbbar: spotifast::thumbbar::ThumbBar,
+    /// Keeps the app's own pixels on the top row of an undecorated window.
+    #[cfg(windows)]
+    client_area: spotifast::window::ClientArea,
     /// A pending `--demo-shot` capture, if this is a screenshot run.
     #[cfg(feature = "demo")]
     shot: Option<Shot>,
@@ -1584,6 +1608,9 @@ impl eframe::App for Shell {
 #[cfg(windows)]
 impl Drop for Shell {
     fn drop(&mut self) {
+        // The client area's procedure sits in front of the toolbar's, so it
+        // is the one that has to let go first.
+        self.client_area.detach();
         self.thumbbar.detach();
     }
 }

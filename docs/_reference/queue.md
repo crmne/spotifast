@@ -114,9 +114,13 @@ not consume a queue row or restore an older queue saved on this computer.
 4. **Next removes the top row right away.** The app doesn't wait for
    Spotify to confirm it.
 
-5. **Playing a row from the queue skips to it.** The rows above it are
-   skipped and removed, as if you had pressed Next down to it. The rows
-   below it stay, and the playlist keeps going afterwards.
+5. **Playing a row from the queue jumps to it.** The rows above it are
+   removed. The rows below it stay, and the playlist keeps going
+   afterwards. On the player running on this computer the rows above are
+   taken out of the player's own queue, and one skip plays the row, so no
+   song in between is played and the queue keeps the order it had. Another
+   device still steps down to the row, because the Web API cannot remove a
+   song from a live queue.
 
 6. **Starting a playlist or album keeps your songs.** The rows underneath
    change to the new collection; your songs stay under **Playing next**
