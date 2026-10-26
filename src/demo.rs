@@ -3952,6 +3952,30 @@ mod tests {
             .collect()
     }
 
+    /// A Windows Media Player skin is listed under its own title, even from
+    /// a `.zip`, and choosing one says what it lacks before it has loaded.
+    #[test]
+    fn the_mini_player_settings_say_what_a_media_player_skin_lacks() {
+        let (ctx, mut app) = accessible_app("settings-media-player-skin");
+        let folder = app.dirs.skins_dir();
+        std::fs::create_dir_all(&folder).unwrap();
+        let archive = crate::skin::zip::write(&[(
+            "chrome.wms",
+            br#"<VIEW width="30" height="20"/>"#.as_slice(),
+            false,
+        )]);
+        std::fs::write(folder.join("chrome.zip"), archive).unwrap();
+        let caveat = "This skin has no equalizer or playlist window, and its scripts do not run.";
+        let text = settings_text(&ctx, &mut app, "Mini player");
+        assert!(text.iter().any(|text| text == "Windows Media Player"));
+        assert!(text.iter().any(|text| text == "chrome"));
+        assert!(!text.iter().any(|text| text == caveat));
+        app.settings.skin = Some("chrome.zip".into());
+        let text = settings_text(&ctx, &mut app, "Mini player");
+        assert!(text.iter().any(|text| text == caveat));
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap().parent().unwrap());
+    }
+
     /// The About card ends with the author's credit, and the name opens
     /// the author's website.
     #[test]

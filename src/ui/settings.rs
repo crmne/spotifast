@@ -1904,7 +1904,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                 .push(Action::SetSkin(Some(choices[picked].name.clone())));
                         }
                     }
-                    if app.winamp.skin.wmp.is_some() {
+                    if showing
+                        .is_some_and(|index| choices[index].kind == SkinKind::WindowsMediaPlayer)
+                    {
                         ui.add_space(6.0);
                         skin_note(
                             ui,
