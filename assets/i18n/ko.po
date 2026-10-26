@@ -1766,48 +1766,13 @@ msgstr "프록시를 사용하지 않습니다."
 msgid "Using the system proxy."
 msgstr "시스템 프록시를 사용합니다."
 
-#: src/ui/settings.rs:1681
-msgid "Winamp skins"
-msgstr "Winamp 스킨"
-
 #: src/ui/settings.rs:1682 src/ui/winamp/mod.rs:724 src/ui/winamp/mod.rs:870
 msgid "Always on top"
 msgstr "항상 위에 표시"
 
-#: src/ui/settings.rs:1683
-msgid "Show Winamp in taskbar"
-msgstr "작업 표시줄에 Winamp 표시"
-
 #: src/ui/settings.rs:1686
 msgid "Mini player"
 msgstr "미니 플레이어"
-
-#: src/ui/settings.rs:1690
-msgid ""
-"Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"클래식 Winamp .wsz 스킨을 사용합니다. 돌아가려면 Ctrl+M을 누르거나 스킨 로고"
-"를 클릭하세요. 창에 스킨을 끌어다 놓으면 추가됩니다."
-
-#: src/ui/settings.rs:1694
-msgid ""
-"Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"클래식 Winamp .wsz 스킨을 사용합니다. 돌아가려면 Cmd+Shift+M을 누르거나 스킨 "
-"로고를 클릭하세요. 창에 스킨을 끌어다 놓으면 추가됩니다."
-
-#: src/ui/settings.rs:1700
-msgid "Skin"
-msgstr "스킨"
-
-#. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1704
-#, rust-format
-msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-msgstr ""
-"설치된 스킨은 {folder}에 있습니다. Winamp Skin Museum에서 더 찾아보세요."
 
 #: src/ui/settings.rs:1709 src/ui/winamp/mod.rs:711
 msgid "Size"
@@ -1816,10 +1781,6 @@ msgstr "크기"
 #: src/ui/settings.rs:1710
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr "정수 배율로 스킨 픽셀을 선명하게 유지합니다."
-
-#: src/ui/settings.rs:1715
-msgid "Keep the Winamp window above everything else."
-msgstr "Winamp 창을 다른 모든 창 위에 유지합니다."
 
 #: src/ui/settings.rs:1721 src/ui/winamp/mod.rs:734
 msgid "Show in taskbar"
@@ -1833,10 +1794,6 @@ msgstr ""
 "미니 플레이어의 작업 표시줄 버튼을 유지합니다. 숨겨도 트레이 아이콘은 계속 사"
 "용할 수 있습니다."
 
-#: src/ui/settings.rs:1729
-msgid "Installed skins"
-msgstr "설치된 스킨"
-
 #: src/ui/settings.rs:1742
 msgid "Switch to it"
 msgstr "전환하기"
@@ -1844,18 +1801,6 @@ msgstr "전환하기"
 #: src/ui/settings.rs:1755
 msgid "Skin Museum"
 msgstr "Skin Museum"
-
-#: src/ui/settings.rs:1781
-msgid "Random"
-msgstr "무작위"
-
-#: src/ui/settings.rs:1820
-#, rust-format
-msgid ""
-"Now showing {skin}. Another one is picked each time the mini player opens."
-msgstr ""
-"현재 {skin}을(를) 표시 중입니다. 미니 플레이어를 열 때마다 다른 스킨이 선택됩"
-"니다."
 
 #: src/ui/settings.rs:1876
 msgid "MilkDrop window"
@@ -3997,3 +3942,115 @@ msgstr ""
 
 #~ msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
 #~ msgstr "PulseAudio는 PipeWire도 지원합니다. Rodio는 ALSA와 직접 통신합니다."
+
+#: src/ui/settings.rs:1680
+msgid "Show the mini player in taskbar"
+msgstr "미니 플레이어를 작업 표시줄에 표시"
+
+#: src/ui/settings.rs:1681
+msgid "Random skin"
+msgstr "무작위 스킨"
+
+#: src/ui/settings.rs:1682
+msgid "Winamp"
+msgstr "Winamp"
+
+#: src/ui/settings.rs:1683
+msgid "Windows Media Player"
+msgstr "Windows Media Player"
+
+#: src/ui/settings.rs:1695
+msgid "Show the mini player"
+msgstr "미니 플레이어 표시"
+
+#: src/ui/settings.rs:1699
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
+"skin on either window to add it."
+msgstr ""
+"Winamp 또는 Windows Media Player 스킨을 사용합니다. Ctrl+M을 누르면 돌아옵니"
+"다. 스킨을 두 창 중 하나에 끌어다 놓으면 추가됩니다."
+
+#: src/ui/settings.rs:1703
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
+"a skin on either window to add it."
+msgstr ""
+"Winamp 또는 Windows Media Player 스킨을 사용합니다. Cmd+Shift+M을 누르면 돌아"
+"옵니다. 스킨을 두 창 중 하나에 끌어다 놓으면 추가됩니다."
+
+#: src/ui/settings.rs:1714 src/ui/settings.rs:1778
+msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
+msgstr ""
+"클래식 .wsz 스킨입니다. 더 많은 스킨은 Winamp Skin Museum에서 찾을 수 있습니"
+"다."
+
+#: src/ui/settings.rs:1725 src/ui/settings.rs:1842
+msgid "Windows Media Player .wmz skins. Drop one on either window to add it."
+msgstr ""
+"Windows Media Player .wmz 스킨입니다. 두 창 중 하나에 끌어다 놓으면 추가됩니"
+"다."
+
+#: src/ui/settings.rs:1732
+msgid "Pick another skin each time the mini player opens."
+msgstr "미니 플레이어를 열 때마다 다른 스킨을 고릅니다."
+
+#: src/ui/settings.rs:1741
+msgid "Keep the mini player above everything else."
+msgstr "미니 플레이어를 다른 모든 창 위에 표시합니다."
+
+#: src/ui/settings.rs:1858
+#, rust-format
+msgid "Installed skins are in {folder}. None of this kind yet."
+msgstr "설치된 스킨은 {folder}에 있습니다. 이 종류의 스킨은 아직 없습니다."
+
+#: src/ui/settings.rs:1878
+msgid ""
+"This skin has no equalizer or playlist window, and its scripts do not run."
+msgstr ""
+"이 스킨에는 이퀄라이저 창과 재생목록 창이 없고, 스크립트도 실행되지 않습니다."
+
+#~ msgid "Winamp skins"
+#~ msgstr "Winamp 스킨"
+
+#~ msgid "Show Winamp in taskbar"
+#~ msgstr "작업 표시줄에 Winamp 표시"
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
+#~ "return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "클래식 Winamp .wsz 스킨을 사용합니다. 돌아가려면 Ctrl+M을 누르거나 스킨 로"
+#~ "고를 클릭하세요. 창에 스킨을 끌어다 놓으면 추가됩니다."
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo "
+#~ "to return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "클래식 Winamp .wsz 스킨을 사용합니다. 돌아가려면 Cmd+Shift+M을 누르거나 스"
+#~ "킨 로고를 클릭하세요. 창에 스킨을 끌어다 놓으면 추가됩니다."
+
+#~ msgid "Skin"
+#~ msgstr "스킨"
+
+#, rust-format
+#~ msgid ""
+#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgstr ""
+#~ "설치된 스킨은 {folder}에 있습니다. Winamp Skin Museum에서 더 찾아보세요."
+
+#~ msgid "Keep the Winamp window above everything else."
+#~ msgstr "Winamp 창을 다른 모든 창 위에 유지합니다."
+
+#~ msgid "Installed skins"
+#~ msgstr "설치된 스킨"
+
+#~ msgid "Random"
+#~ msgstr "무작위"
+
+#, rust-format
+#~ msgid ""
+#~ "Now showing {skin}. Another one is picked each time the mini player opens."
+#~ msgstr ""
+#~ "현재 {skin}을(를) 표시 중입니다. 미니 플레이어를 열 때마다 다른 스킨이 선"
+#~ "택됩니다."

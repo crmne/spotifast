@@ -1807,48 +1807,13 @@ msgstr "Proxy nie jest używane."
 msgid "Using the system proxy."
 msgstr "Używane jest proxy systemowe."
 
-#: src/ui/settings.rs:1681
-msgid "Winamp skins"
-msgstr "Skórki Winampa"
-
 #: src/ui/settings.rs:1682 src/ui/winamp/mod.rs:724 src/ui/winamp/mod.rs:870
 msgid "Always on top"
 msgstr "Zawsze na wierzchu"
 
-#: src/ui/settings.rs:1683
-msgid "Show Winamp in taskbar"
-msgstr "Pokazuj Winampa na pasku zadań"
-
 #: src/ui/settings.rs:1686
 msgid "Mini player"
 msgstr "Miniodtwarzacz"
-
-#: src/ui/settings.rs:1690
-msgid ""
-"Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"Używaj klasycznych skórek .wsz Winampa. Naciśnij Ctrl+M lub kliknij logo "
-"skórki, aby wrócić. Upuść skórkę na dowolne okno, aby ją dodać."
-
-#: src/ui/settings.rs:1694
-msgid ""
-"Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"Używaj klasycznych skórek .wsz Winampa. Naciśnij Cmd+Shift+M lub kliknij "
-"logo skórki, aby wrócić. Upuść skórkę na dowolne okno, aby ją dodać."
-
-#: src/ui/settings.rs:1700
-msgid "Skin"
-msgstr "Skórka"
-
-#. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1704
-#, rust-format
-msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-msgstr ""
-"Zainstalowane skórki są w {folder}. Więcej znajdziesz w Winamp Skin Museum."
 
 #: src/ui/settings.rs:1709 src/ui/winamp/mod.rs:711
 msgid "Size"
@@ -1857,10 +1822,6 @@ msgstr "Rozmiar"
 #: src/ui/settings.rs:1710
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr "Skalowanie o liczby całkowite zachowuje ostrość pikseli skórki."
-
-#: src/ui/settings.rs:1715
-msgid "Keep the Winamp window above everything else."
-msgstr "Utrzymuj okno Winampa nad wszystkimi innymi."
 
 #: src/ui/settings.rs:1721 src/ui/winamp/mod.rs:734
 msgid "Show in taskbar"
@@ -1874,10 +1835,6 @@ msgstr ""
 "Zachowaj przycisk miniodtwarzacza na pasku zadań. Po jego ukryciu ikona w "
 "zasobniku pozostaje dostępna."
 
-#: src/ui/settings.rs:1729
-msgid "Installed skins"
-msgstr "Zainstalowane skórki"
-
 #: src/ui/settings.rs:1742
 msgid "Switch to it"
 msgstr "Przełącz na nią"
@@ -1885,17 +1842,6 @@ msgstr "Przełącz na nią"
 #: src/ui/settings.rs:1755
 msgid "Skin Museum"
 msgstr "Skin Museum"
-
-#: src/ui/settings.rs:1781
-msgid "Random"
-msgstr "Losowa"
-
-#: src/ui/settings.rs:1820
-#, rust-format
-msgid ""
-"Now showing {skin}. Another one is picked each time the mini player opens."
-msgstr ""
-"Teraz: {skin}. Przy każdym otwarciu miniodtwarzacza wybierana jest inna."
 
 #: src/ui/settings.rs:1876
 msgid "MilkDrop window"
@@ -4117,3 +4063,114 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Ogranicz animacje tekstu"
+
+#: src/ui/settings.rs:1680
+msgid "Show the mini player in taskbar"
+msgstr "Pokazuj miniodtwarzacz na pasku zadań"
+
+#: src/ui/settings.rs:1681
+msgid "Random skin"
+msgstr "Losowa skórka"
+
+#: src/ui/settings.rs:1682
+msgid "Winamp"
+msgstr "Winamp"
+
+#: src/ui/settings.rs:1683
+msgid "Windows Media Player"
+msgstr "Windows Media Player"
+
+#: src/ui/settings.rs:1695
+msgid "Show the mini player"
+msgstr "Pokaż miniodtwarzacz"
+
+#: src/ui/settings.rs:1699
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
+"skin on either window to add it."
+msgstr ""
+"Użyj skórki Winamp lub Windows Media Player. Naciśnij Ctrl+M, aby wrócić. "
+"Upuść skórkę na jedno z okien, aby ją dodać."
+
+#: src/ui/settings.rs:1703
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
+"a skin on either window to add it."
+msgstr ""
+"Użyj skórki Winamp lub Windows Media Player. Naciśnij Cmd+Shift+M, aby "
+"wrócić. Upuść skórkę na jedno z okien, aby ją dodać."
+
+#: src/ui/settings.rs:1714 src/ui/settings.rs:1778
+msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
+msgstr "Klasyczne skórki .wsz. Więcej znajdziesz w Winamp Skin Museum."
+
+#: src/ui/settings.rs:1725 src/ui/settings.rs:1842
+msgid "Windows Media Player .wmz skins. Drop one on either window to add it."
+msgstr ""
+"Skórki .wmz programu Windows Media Player. Upuść jedną na jedno z okien, aby "
+"ją dodać."
+
+#: src/ui/settings.rs:1732
+msgid "Pick another skin each time the mini player opens."
+msgstr "Wybiera inną skórkę przy każdym otwarciu miniodtwarzacza."
+
+#: src/ui/settings.rs:1741
+msgid "Keep the mini player above everything else."
+msgstr "Trzyma miniodtwarzacz nad wszystkim innym."
+
+#: src/ui/settings.rs:1858
+#, rust-format
+msgid "Installed skins are in {folder}. None of this kind yet."
+msgstr "Zainstalowane skórki są w {folder}. Na razie brak skórek tego rodzaju."
+
+#: src/ui/settings.rs:1878
+msgid ""
+"This skin has no equalizer or playlist window, and its scripts do not run."
+msgstr ""
+"Ta skórka nie ma okna korektora ani listy odtwarzania, a jej skrypty się nie "
+"uruchamiają."
+
+#~ msgid "Winamp skins"
+#~ msgstr "Skórki Winampa"
+
+#~ msgid "Show Winamp in taskbar"
+#~ msgstr "Pokazuj Winampa na pasku zadań"
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
+#~ "return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "Używaj klasycznych skórek .wsz Winampa. Naciśnij Ctrl+M lub kliknij logo "
+#~ "skórki, aby wrócić. Upuść skórkę na dowolne okno, aby ją dodać."
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo "
+#~ "to return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "Używaj klasycznych skórek .wsz Winampa. Naciśnij Cmd+Shift+M lub kliknij "
+#~ "logo skórki, aby wrócić. Upuść skórkę na dowolne okno, aby ją dodać."
+
+#~ msgid "Skin"
+#~ msgstr "Skórka"
+
+#, rust-format
+#~ msgid ""
+#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgstr ""
+#~ "Zainstalowane skórki są w {folder}. Więcej znajdziesz w Winamp Skin "
+#~ "Museum."
+
+#~ msgid "Keep the Winamp window above everything else."
+#~ msgstr "Utrzymuj okno Winampa nad wszystkimi innymi."
+
+#~ msgid "Installed skins"
+#~ msgstr "Zainstalowane skórki"
+
+#~ msgid "Random"
+#~ msgstr "Losowa"
+
+#, rust-format
+#~ msgid ""
+#~ "Now showing {skin}. Another one is picked each time the mini player opens."
+#~ msgstr ""
+#~ "Teraz: {skin}. Przy każdym otwarciu miniodtwarzacza wybierana jest inna."

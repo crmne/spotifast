@@ -1741,42 +1741,12 @@ msgstr ""
 msgid "Using the system proxy."
 msgstr ""
 
-#: src/ui/settings.rs:1681
-msgid "Winamp skins"
-msgstr ""
-
 #: src/ui/settings.rs:1682 src/ui/winamp/mod.rs:724 src/ui/winamp/mod.rs:870
 msgid "Always on top"
 msgstr ""
 
-#: src/ui/settings.rs:1683
-msgid "Show Winamp in taskbar"
-msgstr ""
-
 #: src/ui/settings.rs:1686
 msgid "Mini player"
-msgstr ""
-
-#: src/ui/settings.rs:1690
-msgid ""
-"Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-
-#: src/ui/settings.rs:1694
-msgid ""
-"Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-
-#: src/ui/settings.rs:1700
-msgid "Skin"
-msgstr ""
-
-#. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1704
-#, rust-format
-msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
 msgstr ""
 
 #: src/ui/settings.rs:1709 src/ui/winamp/mod.rs:711
@@ -1785,10 +1755,6 @@ msgstr ""
 
 #: src/ui/settings.rs:1710
 msgid "Whole-number scaling keeps skin pixels sharp."
-msgstr ""
-
-#: src/ui/settings.rs:1715
-msgid "Keep the Winamp window above everything else."
 msgstr ""
 
 #: src/ui/settings.rs:1721 src/ui/winamp/mod.rs:734
@@ -1801,26 +1767,12 @@ msgid ""
 "when hidden."
 msgstr ""
 
-#: src/ui/settings.rs:1729
-msgid "Installed skins"
-msgstr ""
-
 #: src/ui/settings.rs:1742
 msgid "Switch to it"
 msgstr ""
 
 #: src/ui/settings.rs:1755
 msgid "Skin Museum"
-msgstr ""
-
-#: src/ui/settings.rs:1781
-msgid "Random"
-msgstr ""
-
-#: src/ui/settings.rs:1820
-#, rust-format
-msgid ""
-"Now showing {skin}. Another one is picked each time the mini player opens."
 msgstr ""
 
 #: src/ui/settings.rs:1876
@@ -3682,4 +3634,62 @@ msgid ""
 "Spotifast needs a graphics driver with OpenGL 2.0 or newer, and this PC or "
 "virtual machine does not provide one. Install the graphics driver, or turn "
 "on GPU acceleration for the virtual machine. Open {url} to read more?"
+msgstr ""
+
+#: src/ui/settings.rs:1680
+msgid "Show the mini player in taskbar"
+msgstr ""
+
+#: src/ui/settings.rs:1681
+msgid "Random skin"
+msgstr ""
+
+#: src/ui/settings.rs:1682
+msgid "Winamp"
+msgstr ""
+
+#: src/ui/settings.rs:1683
+msgid "Windows Media Player"
+msgstr ""
+
+#: src/ui/settings.rs:1695
+msgid "Show the mini player"
+msgstr ""
+
+#: src/ui/settings.rs:1699
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
+"skin on either window to add it."
+msgstr ""
+
+#: src/ui/settings.rs:1703
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
+"a skin on either window to add it."
+msgstr ""
+
+#: src/ui/settings.rs:1714 src/ui/settings.rs:1778
+msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
+msgstr ""
+
+#: src/ui/settings.rs:1725 src/ui/settings.rs:1842
+msgid "Windows Media Player .wmz skins. Drop one on either window to add it."
+msgstr ""
+
+#: src/ui/settings.rs:1732
+msgid "Pick another skin each time the mini player opens."
+msgstr ""
+
+#: src/ui/settings.rs:1741
+msgid "Keep the mini player above everything else."
+msgstr ""
+
+#: src/ui/settings.rs:1858
+#, rust-format
+msgid "Installed skins are in {folder}. None of this kind yet."
+msgstr ""
+
+#: src/ui/settings.rs:1878
+msgid ""
+"This skin has no equalizer or playlist window, and its scripts do not run."
 msgstr ""

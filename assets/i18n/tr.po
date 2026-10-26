@@ -1797,51 +1797,13 @@ msgstr "Proxy kullanılmıyor."
 msgid "Using the system proxy."
 msgstr "Sistem proxy'si kullanılıyor."
 
-#: src/ui/settings.rs:1681
-msgid "Winamp skins"
-msgstr "Winamp temaları"
-
 #: src/ui/settings.rs:1682 src/ui/winamp/mod.rs:724 src/ui/winamp/mod.rs:870
 msgid "Always on top"
 msgstr "Her zaman üstte"
 
-#: src/ui/settings.rs:1683
-msgid "Show Winamp in taskbar"
-msgstr "Winamp'ı görev çubuğunda göster"
-
 #: src/ui/settings.rs:1686
 msgid "Mini player"
 msgstr "Mini çalar"
-
-#: src/ui/settings.rs:1690
-msgid ""
-"Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"Klasik Winamp .wsz temalarını kullanın. Geri dönmek için Ctrl+M tuşuna basın "
-"veya tema logosuna tıklayın. Eklemek için herhangi bir pencereye bir tema "
-"sürükleyip bırakın."
-
-#: src/ui/settings.rs:1694
-msgid ""
-"Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"Klasik Winamp .wsz temalarını kullanın. Geri dönmek için Cmd+Shift+M tuşuna "
-"basın veya tema logosuna tıklayın. Eklemek için herhangi bir pencereye bir "
-"tema sürükleyip bırakın."
-
-#: src/ui/settings.rs:1700
-msgid "Skin"
-msgstr "Tema"
-
-#. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1704
-#, rust-format
-msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-msgstr ""
-"Yüklü temalar {folder} konumundadır. Daha fazlasını Winamp Skin Museum'da "
-"bulabilirsiniz."
 
 #: src/ui/settings.rs:1709 src/ui/winamp/mod.rs:711
 msgid "Size"
@@ -1850,10 +1812,6 @@ msgstr "Boyut"
 #: src/ui/settings.rs:1710
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr "Tam sayılı ölçeklendirme tema piksellerini keskin tutar."
-
-#: src/ui/settings.rs:1715
-msgid "Keep the Winamp window above everything else."
-msgstr "Winamp penceresini diğer her şeyin üstünde tutar."
 
 #: src/ui/settings.rs:1721 src/ui/winamp/mod.rs:734
 msgid "Show in taskbar"
@@ -1867,10 +1825,6 @@ msgstr ""
 "Mini çalar için görev çubuğunda bir düğme tutar. Gizlendiğinde sistem "
 "tepsisi simgesi kullanılabilir kalır."
 
-#: src/ui/settings.rs:1729
-msgid "Installed skins"
-msgstr "Yüklü temalar"
-
 #: src/ui/settings.rs:1742
 msgid "Switch to it"
 msgstr "Bu temaya geç"
@@ -1878,17 +1832,6 @@ msgstr "Bu temaya geç"
 #: src/ui/settings.rs:1755
 msgid "Skin Museum"
 msgstr "Skin Museum"
-
-#: src/ui/settings.rs:1781
-msgid "Random"
-msgstr "Rastgele"
-
-#: src/ui/settings.rs:1820
-#, rust-format
-msgid ""
-"Now showing {skin}. Another one is picked each time the mini player opens."
-msgstr ""
-"Şu anda {skin} gösteriliyor. Mini çalar her açıldığında başka biri seçilir."
 
 #: src/ui/settings.rs:1876
 msgid "MilkDrop window"
@@ -4080,3 +4023,118 @@ msgstr ""
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr ""
 #~ "Spotify uygulamaların sıradan tek bir şarkıyı kaldırmasına izin vermiyor."
+
+#: src/ui/settings.rs:1680
+msgid "Show the mini player in taskbar"
+msgstr "Mini çaları görev çubuğunda göster"
+
+#: src/ui/settings.rs:1681
+msgid "Random skin"
+msgstr "Rastgele tema"
+
+#: src/ui/settings.rs:1682
+msgid "Winamp"
+msgstr "Winamp"
+
+#: src/ui/settings.rs:1683
+msgid "Windows Media Player"
+msgstr "Windows Media Player"
+
+#: src/ui/settings.rs:1695
+msgid "Show the mini player"
+msgstr "Mini çaları göster"
+
+#: src/ui/settings.rs:1699
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
+"skin on either window to add it."
+msgstr ""
+"Bir Winamp veya Windows Media Player teması kullanın. Geri dönmek için "
+"Ctrl+M tuşlarına basın. Eklemek için bir temayı pencerelerden birine bırakın."
+
+#: src/ui/settings.rs:1703
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
+"a skin on either window to add it."
+msgstr ""
+"Bir Winamp veya Windows Media Player teması kullanın. Geri dönmek için "
+"Cmd+Shift+M tuşlarına basın. Eklemek için bir temayı pencerelerden birine "
+"bırakın."
+
+#: src/ui/settings.rs:1714 src/ui/settings.rs:1778
+msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
+msgstr ""
+"Klasik .wsz temaları. Daha fazlasını Winamp Skin Museum'da bulabilirsiniz."
+
+#: src/ui/settings.rs:1725 src/ui/settings.rs:1842
+msgid "Windows Media Player .wmz skins. Drop one on either window to add it."
+msgstr ""
+"Windows Media Player .wmz temaları. Eklemek için birini pencerelerden birine "
+"bırakın."
+
+#: src/ui/settings.rs:1732
+msgid "Pick another skin each time the mini player opens."
+msgstr "Mini çalar her açıldığında başka bir tema seçer."
+
+#: src/ui/settings.rs:1741
+msgid "Keep the mini player above everything else."
+msgstr "Mini çaları diğer her şeyin üstünde tutar."
+
+#: src/ui/settings.rs:1858
+#, rust-format
+msgid "Installed skins are in {folder}. None of this kind yet."
+msgstr "Yüklü temalar {folder} içinde. Bu türden henüz yok."
+
+#: src/ui/settings.rs:1878
+msgid ""
+"This skin has no equalizer or playlist window, and its scripts do not run."
+msgstr ""
+"Bu temada ekolayzır veya çalma listesi penceresi yok ve betikleri çalışmaz."
+
+#~ msgid "Winamp skins"
+#~ msgstr "Winamp temaları"
+
+#~ msgid "Show Winamp in taskbar"
+#~ msgstr "Winamp'ı görev çubuğunda göster"
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
+#~ "return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "Klasik Winamp .wsz temalarını kullanın. Geri dönmek için Ctrl+M tuşuna "
+#~ "basın veya tema logosuna tıklayın. Eklemek için herhangi bir pencereye "
+#~ "bir tema sürükleyip bırakın."
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo "
+#~ "to return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "Klasik Winamp .wsz temalarını kullanın. Geri dönmek için Cmd+Shift+M "
+#~ "tuşuna basın veya tema logosuna tıklayın. Eklemek için herhangi bir "
+#~ "pencereye bir tema sürükleyip bırakın."
+
+#~ msgid "Skin"
+#~ msgstr "Tema"
+
+#, rust-format
+#~ msgid ""
+#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgstr ""
+#~ "Yüklü temalar {folder} konumundadır. Daha fazlasını Winamp Skin Museum'da "
+#~ "bulabilirsiniz."
+
+#~ msgid "Keep the Winamp window above everything else."
+#~ msgstr "Winamp penceresini diğer her şeyin üstünde tutar."
+
+#~ msgid "Installed skins"
+#~ msgstr "Yüklü temalar"
+
+#~ msgid "Random"
+#~ msgstr "Rastgele"
+
+#, rust-format
+#~ msgid ""
+#~ "Now showing {skin}. Another one is picked each time the mini player opens."
+#~ msgstr ""
+#~ "Şu anda {skin} gösteriliyor. Mini çalar her açıldığında başka biri "
+#~ "seçilir."

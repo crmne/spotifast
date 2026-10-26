@@ -1808,50 +1808,13 @@ msgstr "Nessun proxy in uso."
 msgid "Using the system proxy."
 msgstr "In uso il proxy di sistema."
 
-#: src/ui/settings.rs:1681
-msgid "Winamp skins"
-msgstr "Skin di Winamp"
-
 #: src/ui/settings.rs:1682 src/ui/winamp/mod.rs:724 src/ui/winamp/mod.rs:870
 msgid "Always on top"
 msgstr "Sempre in primo piano"
 
-#: src/ui/settings.rs:1683
-msgid "Show Winamp in taskbar"
-msgstr "Mostra Winamp nella barra delle applicazioni"
-
 #: src/ui/settings.rs:1686
 msgid "Mini player"
 msgstr "Mini player"
-
-#: src/ui/settings.rs:1690
-msgid ""
-"Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"Usa le classiche skin .wsz di Winamp. Premi Ctrl+M o fai clic sul logo della "
-"skin per tornare indietro. Trascina una skin su una delle due finestre per "
-"aggiungerla."
-
-#: src/ui/settings.rs:1694
-msgid ""
-"Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"Usa le classiche skin .wsz di Winamp. Premi Cmd+Shift+M o fai clic sul logo "
-"della skin per tornare indietro. Trascina una skin su una delle due finestre "
-"per aggiungerla."
-
-#: src/ui/settings.rs:1700
-msgid "Skin"
-msgstr "Skin"
-
-#. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1704
-#, rust-format
-msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-msgstr ""
-"Le skin installate sono in {folder}. Trovane altre sul Winamp Skin Museum."
 
 #: src/ui/settings.rs:1709 src/ui/winamp/mod.rs:711
 msgid "Size"
@@ -1861,10 +1824,6 @@ msgstr "Dimensione"
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr ""
 "Il ridimensionamento per numeri interi mantiene nitidi i pixel della skin."
-
-#: src/ui/settings.rs:1715
-msgid "Keep the Winamp window above everything else."
-msgstr "Mantiene la finestra di Winamp sopra tutto il resto."
 
 #: src/ui/settings.rs:1721 src/ui/winamp/mod.rs:734
 msgid "Show in taskbar"
@@ -1878,10 +1837,6 @@ msgstr ""
 "Mantiene un pulsante del mini player nella barra delle applicazioni. L’icona "
 "nell’area di notifica resta disponibile quando è nascosto."
 
-#: src/ui/settings.rs:1729
-msgid "Installed skins"
-msgstr "Skin installate"
-
 #: src/ui/settings.rs:1742
 msgid "Switch to it"
 msgstr "Passa a questa"
@@ -1889,18 +1844,6 @@ msgstr "Passa a questa"
 #: src/ui/settings.rs:1755
 msgid "Skin Museum"
 msgstr "Skin Museum"
-
-#: src/ui/settings.rs:1781
-msgid "Random"
-msgstr "Casuale"
-
-#: src/ui/settings.rs:1820
-#, rust-format
-msgid ""
-"Now showing {skin}. Another one is picked each time the mini player opens."
-msgstr ""
-"Ora in uso: {skin}. Ne viene scelto un altro ogni volta che si apre il mini "
-"lettore."
 
 #: src/ui/settings.rs:1876
 msgid "MilkDrop window"
@@ -4107,3 +4050,117 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Riduci animazioni del testo"
+
+#: src/ui/settings.rs:1680
+msgid "Show the mini player in taskbar"
+msgstr "Mostra il mini player nella barra delle applicazioni"
+
+#: src/ui/settings.rs:1681
+msgid "Random skin"
+msgstr "Skin casuale"
+
+#: src/ui/settings.rs:1682
+msgid "Winamp"
+msgstr "Winamp"
+
+#: src/ui/settings.rs:1683
+msgid "Windows Media Player"
+msgstr "Windows Media Player"
+
+#: src/ui/settings.rs:1695
+msgid "Show the mini player"
+msgstr "Mostra il mini player"
+
+#: src/ui/settings.rs:1699
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
+"skin on either window to add it."
+msgstr ""
+"Usa una skin di Winamp o di Windows Media Player. Premi Ctrl+M per tornare "
+"indietro. Trascina una skin su una delle finestre per aggiungerla."
+
+#: src/ui/settings.rs:1703
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
+"a skin on either window to add it."
+msgstr ""
+"Usa una skin di Winamp o di Windows Media Player. Premi Cmd+Maiusc+M per "
+"tornare indietro. Trascina una skin su una delle finestre per aggiungerla."
+
+#: src/ui/settings.rs:1714 src/ui/settings.rs:1778
+msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
+msgstr "Skin classiche .wsz. Ne trovi altre al Winamp Skin Museum."
+
+#: src/ui/settings.rs:1725 src/ui/settings.rs:1842
+msgid "Windows Media Player .wmz skins. Drop one on either window to add it."
+msgstr ""
+"Skin .wmz di Windows Media Player. Trascinane una su una delle finestre per "
+"aggiungerla."
+
+#: src/ui/settings.rs:1732
+msgid "Pick another skin each time the mini player opens."
+msgstr "Sceglie un'altra skin ogni volta che si apre il mini player."
+
+#: src/ui/settings.rs:1741
+msgid "Keep the mini player above everything else."
+msgstr "Tiene il mini player sopra a tutto il resto."
+
+#: src/ui/settings.rs:1858
+#, rust-format
+msgid "Installed skins are in {folder}. None of this kind yet."
+msgstr ""
+"Le skin installate si trovano in {folder}. Ancora nessuna di questo tipo."
+
+#: src/ui/settings.rs:1878
+msgid ""
+"This skin has no equalizer or playlist window, and its scripts do not run."
+msgstr ""
+"Questa skin non ha le finestre dell'equalizzatore e della playlist, e i suoi "
+"script non vengono eseguiti."
+
+#~ msgid "Winamp skins"
+#~ msgstr "Skin di Winamp"
+
+#~ msgid "Show Winamp in taskbar"
+#~ msgstr "Mostra Winamp nella barra delle applicazioni"
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
+#~ "return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "Usa le classiche skin .wsz di Winamp. Premi Ctrl+M o fai clic sul logo "
+#~ "della skin per tornare indietro. Trascina una skin su una delle due "
+#~ "finestre per aggiungerla."
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo "
+#~ "to return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "Usa le classiche skin .wsz di Winamp. Premi Cmd+Shift+M o fai clic sul "
+#~ "logo della skin per tornare indietro. Trascina una skin su una delle due "
+#~ "finestre per aggiungerla."
+
+#~ msgid "Skin"
+#~ msgstr "Skin"
+
+#, rust-format
+#~ msgid ""
+#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgstr ""
+#~ "Le skin installate sono in {folder}. Trovane altre sul Winamp Skin Museum."
+
+#~ msgid "Keep the Winamp window above everything else."
+#~ msgstr "Mantiene la finestra di Winamp sopra tutto il resto."
+
+#~ msgid "Installed skins"
+#~ msgstr "Skin installate"
+
+#~ msgid "Random"
+#~ msgstr "Casuale"
+
+#, rust-format
+#~ msgid ""
+#~ "Now showing {skin}. Another one is picked each time the mini player opens."
+#~ msgstr ""
+#~ "Ora in uso: {skin}. Ne viene scelto un altro ogni volta che si apre il "
+#~ "mini lettore."

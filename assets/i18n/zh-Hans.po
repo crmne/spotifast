@@ -1739,47 +1739,13 @@ msgstr "未使用代理。"
 msgid "Using the system proxy."
 msgstr "正在使用系统代理。"
 
-#: src/ui/settings.rs:1681
-msgid "Winamp skins"
-msgstr "Winamp 皮肤"
-
 #: src/ui/settings.rs:1682 src/ui/winamp/mod.rs:724 src/ui/winamp/mod.rs:870
 msgid "Always on top"
 msgstr "窗口置顶"
 
-#: src/ui/settings.rs:1683
-msgid "Show Winamp in taskbar"
-msgstr "在任务栏中显示 Winamp"
-
 #: src/ui/settings.rs:1686
 msgid "Mini player"
 msgstr "迷你播放器"
-
-#: src/ui/settings.rs:1690
-msgid ""
-"Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"使用经典的 Winamp .wsz 皮肤。按 Ctrl+M 或点击皮肤标志即可返回。将皮肤拖放到任"
-"一窗口即可添加。"
-
-#: src/ui/settings.rs:1694
-msgid ""
-"Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to "
-"return. Drop a skin on either window to add it."
-msgstr ""
-"使用经典的 Winamp .wsz 皮肤。按 Cmd+Shift+M 或点击皮肤标志即可返回。将皮肤拖"
-"放到任一窗口即可添加。"
-
-#: src/ui/settings.rs:1700
-msgid "Skin"
-msgstr "皮肤"
-
-#. Translators: {folder} is the path of the skins folder.
-#: src/ui/settings.rs:1704
-#, rust-format
-msgid "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-msgstr "已安装的皮肤位于 {folder}。可在 Winamp Skin Museum 中找到更多皮肤。"
 
 #: src/ui/settings.rs:1709 src/ui/winamp/mod.rs:711
 msgid "Size"
@@ -1788,10 +1754,6 @@ msgstr "大小"
 #: src/ui/settings.rs:1710
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr "按整数倍缩放可使皮肤像素保持清晰。"
-
-#: src/ui/settings.rs:1715
-msgid "Keep the Winamp window above everything else."
-msgstr "让 Winamp 窗口始终位于其他窗口之上。"
 
 #: src/ui/settings.rs:1721 src/ui/winamp/mod.rs:734
 msgid "Show in taskbar"
@@ -1803,10 +1765,6 @@ msgid ""
 "when hidden."
 msgstr "在任务栏中保留迷你播放器的按钮。隐藏后，托盘图标仍然可用。"
 
-#: src/ui/settings.rs:1729
-msgid "Installed skins"
-msgstr "已安装的皮肤"
-
 #: src/ui/settings.rs:1742
 msgid "Switch to it"
 msgstr "切换到此皮肤"
@@ -1814,16 +1772,6 @@ msgstr "切换到此皮肤"
 #: src/ui/settings.rs:1755
 msgid "Skin Museum"
 msgstr "Skin Museum"
-
-#: src/ui/settings.rs:1781
-msgid "Random"
-msgstr "随机"
-
-#: src/ui/settings.rs:1820
-#, rust-format
-msgid ""
-"Now showing {skin}. Another one is picked each time the mini player opens."
-msgstr "当前皮肤：{skin}。每次打开迷你播放器都会换一个。"
 
 #: src/ui/settings.rs:1876
 msgid "MilkDrop window"
@@ -3934,3 +3882,107 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "减少歌词动画"
+
+#: src/ui/settings.rs:1680
+msgid "Show the mini player in taskbar"
+msgstr "在任务栏中显示迷你播放器"
+
+#: src/ui/settings.rs:1681
+msgid "Random skin"
+msgstr "随机皮肤"
+
+#: src/ui/settings.rs:1682
+msgid "Winamp"
+msgstr "Winamp"
+
+#: src/ui/settings.rs:1683
+msgid "Windows Media Player"
+msgstr "Windows Media Player"
+
+#: src/ui/settings.rs:1695
+msgid "Show the mini player"
+msgstr "显示迷你播放器"
+
+#: src/ui/settings.rs:1699
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
+"skin on either window to add it."
+msgstr ""
+"使用 Winamp 或 Windows Media Player 皮肤。按 Ctrl+M 返回。将皮肤拖到任一窗口"
+"上即可添加。"
+
+#: src/ui/settings.rs:1703
+msgid ""
+"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
+"a skin on either window to add it."
+msgstr ""
+"使用 Winamp 或 Windows Media Player 皮肤。按 Cmd+Shift+M 返回。将皮肤拖到任一"
+"窗口上即可添加。"
+
+#: src/ui/settings.rs:1714 src/ui/settings.rs:1778
+msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
+msgstr "经典 .wsz 皮肤。更多皮肤请到 Winamp Skin Museum 查找。"
+
+#: src/ui/settings.rs:1725 src/ui/settings.rs:1842
+msgid "Windows Media Player .wmz skins. Drop one on either window to add it."
+msgstr "Windows Media Player .wmz 皮肤。将皮肤拖到任一窗口上即可添加。"
+
+#: src/ui/settings.rs:1732
+msgid "Pick another skin each time the mini player opens."
+msgstr "每次打开迷你播放器时换一个皮肤。"
+
+#: src/ui/settings.rs:1741
+msgid "Keep the mini player above everything else."
+msgstr "让迷你播放器显示在其他所有窗口之上。"
+
+#: src/ui/settings.rs:1858
+#, rust-format
+msgid "Installed skins are in {folder}. None of this kind yet."
+msgstr "已安装的皮肤位于 {folder}。目前还没有这一类皮肤。"
+
+#: src/ui/settings.rs:1878
+msgid ""
+"This skin has no equalizer or playlist window, and its scripts do not run."
+msgstr "此皮肤没有均衡器和播放列表窗口，其脚本也不会运行。"
+
+#~ msgid "Winamp skins"
+#~ msgstr "Winamp 皮肤"
+
+#~ msgid "Show Winamp in taskbar"
+#~ msgstr "在任务栏中显示 Winamp"
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
+#~ "return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "使用经典的 Winamp .wsz 皮肤。按 Ctrl+M 或点击皮肤标志即可返回。将皮肤拖放"
+#~ "到任一窗口即可添加。"
+
+#~ msgid ""
+#~ "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo "
+#~ "to return. Drop a skin on either window to add it."
+#~ msgstr ""
+#~ "使用经典的 Winamp .wsz 皮肤。按 Cmd+Shift+M 或点击皮肤标志即可返回。将皮肤"
+#~ "拖放到任一窗口即可添加。"
+
+#~ msgid "Skin"
+#~ msgstr "皮肤"
+
+#, rust-format
+#~ msgid ""
+#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgstr "已安装的皮肤位于 {folder}。可在 Winamp Skin Museum 中找到更多皮肤。"
+
+#~ msgid "Keep the Winamp window above everything else."
+#~ msgstr "让 Winamp 窗口始终位于其他窗口之上。"
+
+#~ msgid "Installed skins"
+#~ msgstr "已安装的皮肤"
+
+#~ msgid "Random"
+#~ msgstr "随机"
+
+#, rust-format
+#~ msgid ""
+#~ "Now showing {skin}. Another one is picked each time the mini player opens."
+#~ msgstr "当前皮肤：{skin}。每次打开迷你播放器都会换一个。"
