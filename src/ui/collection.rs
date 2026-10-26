@@ -2401,11 +2401,11 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         .collect::<Vec<_>>()
         .into();
     let context = match collection_uri {
-        Some(uri) if app.library.liked.is_complete() => RowContext::Context {
+        Some(uri) => RowContext::Context {
             uri,
             editable_playlist: None,
         },
-        _ => RowContext::Uris(uris),
+        None => RowContext::Uris(uris),
     };
     let loading = app.library.liked.loading;
     let error = app.library.liked.error.clone();
