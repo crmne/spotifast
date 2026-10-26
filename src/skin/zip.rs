@@ -144,6 +144,47 @@ impl<'a> Archive<'a> {
     }
 }
 
+/// The lower-case file names in the archive at `path`, read from its central
+/// directory alone: the end of the file, not every entry's bytes, so a
+/// listing of the skins folder stays cheap.
+pub fn file_names(path: &std::path::Path) -> Result<Vec<String>, ZipError> {
+    use std::io::{Read, Seek, SeekFrom};
+    let unreadable = |_| ZipError::NotAnArchive;
+    let mut file = std::fs::File::open(path).map_err(unreadable)?;
+    let length = file.metadata().map_err(unreadable)?.len();
+    let tail_start = length.saturating_sub((END_RECORD_LEN + MAX_COMMENT_LEN) as u64);
+    file.seek(SeekFrom::Start(tail_start)).map_err(unreadable)?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail).map_err(unreadable)?;
+    let end = find_end_record(&tail).ok_or(ZipError::NotAnArchive)?;
+    let count = usize::from(u16_at(&tail, end + 10)?);
+    let size = u64::from(u32_at(&tail, end + 12)?);
+    let offset = u64::from(u32_at(&tail, end + 16)?);
+    if offset.checked_add(size).is_none_or(|stop| stop > length) || size > ENTRY_LIMIT as u64 {
+        return Err(ZipError::Truncated);
+    }
+    file.seek(SeekFrom::Start(offset)).map_err(unreadable)?;
+    let mut directory = vec![0; size as usize];
+    file.read_exact(&mut directory).map_err(unreadable)?;
+    let mut names = Vec::with_capacity(count);
+    let mut cursor = 0;
+    for _ in 0..count {
+        if u32_at(&directory, cursor)? != CENTRAL_HEADER {
+            return Err(ZipError::NotAnArchive);
+        }
+        let name_len = usize::from(u16_at(&directory, cursor + 28)?);
+        let extra_len = usize::from(u16_at(&directory, cursor + 30)?);
+        let comment_len = usize::from(u16_at(&directory, cursor + 32)?);
+        let name = String::from_utf8_lossy(slice(&directory, cursor + 46, name_len)?);
+        if !name.ends_with(['/', '\\']) {
+            let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+            names.push(base.to_ascii_lowercase());
+        }
+        cursor += 46 + name_len + extra_len + comment_len;
+    }
+    Ok(names)
+}
+
 /// The end-of-central-directory record sits at the very end, behind an
 /// optional comment, so it is found by scanning backwards.
 fn find_end_record(data: &[u8]) -> Option<usize> {
