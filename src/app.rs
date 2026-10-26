@@ -1773,12 +1773,14 @@ impl App {
     }
 
     /// Whether the loaded playlist or Liked Songs row at `position` holds
-    /// `uri`; `None` when that row is not loaded or the context is neither.
-    /// Liked Songs rows move as songs are liked and unliked elsewhere.
+    /// `uri`; `None` when that playlist row is not loaded or the context is
+    /// neither. Liked Songs rows move as songs are liked and unliked
+    /// elsewhere, and a row past the end has moved up: the list holds each
+    /// song once, so marking every copy marks the one row.
     fn context_row_holds(&self, context_uri: &str, position: u32, uri: &str) -> Option<bool> {
         if context_uri.ends_with(":collection") {
-            let row = self.library.liked.items.get(position as usize)?;
-            return Some(row.track.uri == uri);
+            let row = self.library.liked.items.get(position as usize);
+            return Some(row.is_some_and(|row| row.track.uri == uri));
         }
         let id = context_uri.strip_prefix("spotify:playlist:")?;
         let items = &self.playlist_pages.get(id)?.items;
@@ -28152,21 +28154,29 @@ mod tests {
             uri: "spotify:user:demo:collection".into(),
             editable_playlist: None,
         };
-        let song = app.library.liked.items[1].track.uri.clone();
-        app.actions.push(Action::PlayFromRow {
-            context: liked.clone(),
-            uri: song.clone(),
-            index: 1,
-        });
-        app.apply_actions(&egui::Context::default());
-        assert!(app.row_is_played_copy(&liked, 1, &song));
-        assert!(!app.row_is_played_copy(&liked, 0, &song));
+        // A middle row, and the last row, whose old place is then past the end.
+        for last in [false, true] {
+            let row = if last {
+                app.library.liked.items.len() - 1
+            } else {
+                1
+            };
+            let song = app.library.liked.items[row].track.uri.clone();
+            app.actions.push(Action::PlayFromRow {
+                context: liked.clone(),
+                uri: song.clone(),
+                index: row as u32,
+            });
+            app.apply_actions(&egui::Context::default());
+            assert!(app.row_is_played_copy(&liked, row, &song));
+            assert!(!app.row_is_played_copy(&liked, 0, &song));
 
-        // Unliking the song above moves the playing song up a row.
-        let rows = &mut app.library.liked;
-        rows.items.remove(0);
-        rows.revision = rows.revision.wrapping_add(1);
-        assert!(app.row_is_played_copy(&liked, 0, &song));
+            // Unliking the song above moves the playing song up a row.
+            let rows = &mut app.library.liked;
+            rows.items.remove(0);
+            rows.revision = rows.revision.wrapping_add(1);
+            assert!(app.row_is_played_copy(&liked, row - 1, &song));
+        }
         app.backend.shutdown();
     }
 
