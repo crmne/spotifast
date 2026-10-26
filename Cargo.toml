@@ -75,7 +75,7 @@ fastframe-power = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" 
 # and reopens after a failure. On Linux it plays through cpal's default host:
 # PipeWire, then PulseAudio, then ALSA. librespot's own backends (rodio,
 # PulseAudio) are left out.
-fastframe-audio = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
+fastframe-audio = { git = "https://github.com/crmne/fastframe", tag = "v0.14.1" }
 # The wheel step, the Linux touchpad scale and glide, and the axis a scroll
 # gesture holds.
 fastframe-scroll = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }

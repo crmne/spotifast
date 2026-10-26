@@ -1872,8 +1872,8 @@ dependencies = [
 
 [[package]]
 name = "fastframe-audio"
-version = "0.14.0"
-source = "git+https://github.com/crmne/fastframe?tag=v0.14.0#dfd2db7bc6a5ae0c62a98383c84235f64da2cace"
+version = "0.14.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.14.1#2b04c0eed57e450461a5bef61fdebc93ed7d7226"
 dependencies = [
  "cpal",
  "libc",
