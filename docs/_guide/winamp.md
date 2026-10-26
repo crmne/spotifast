@@ -51,8 +51,15 @@ close). Close takes you back to the big window.
 It does not run a skin's scripts, so panels a script opens (drawers for the
 equalizer or playlist), video, and layouts that stretch with the window do not
 work; skins that depend on them may look incomplete. A Windows Media Player
-skin is drawn at one pixel per screen pixel unless you choose a size from the
-right-click menu. Drag anywhere that is not a control to move the window.
+skin is drawn at one pixel per screen pixel unless you choose a size, either
+in Settings under **Mini player** or from the right-click menu. Both kinds of
+skin share that one size. Drag anywhere that is not a control to move the
+window, and press **Ctrl+M** (**Cmd+Shift+M** on macOS) to go back to the big
+window, since these skins have no logo to click.
+
+In Settings, the **Mini player** section lists Winamp skins and Windows Media
+Player skins under their own titles. A `.zip` file is listed under the kind of
+skin it holds.
 
 ## Main controls
 

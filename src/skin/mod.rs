@@ -38,6 +38,10 @@ pub enum SkinError {
     NoView,
 }
 
+/// The longest side a skin picture may have, in pixels: what every graphics
+/// card can hold as a texture, so a crafted skin cannot ask for more.
+pub const MAX_BITMAP_SIDE: u32 = 8192;
+
 /// A decoded bitmap: RGBA, rows top to bottom.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bitmap {
@@ -47,10 +51,19 @@ pub struct Bitmap {
 }
 
 impl Bitmap {
-    /// Decodes a BMP or PNG, whatever the file was called: skins mislabel
-    /// them. Anything unreadable is `None`, as Winamp silently skipped it.
+    /// Decodes a BMP, PNG or GIF, whatever the file was called: skins
+    /// mislabel them. Anything unreadable, or wider or taller than
+    /// [`MAX_BITMAP_SIDE`], is `None`, as Winamp silently skipped it. The
+    /// limit is checked before the pixels are allocated.
     pub fn decode(bytes: &[u8]) -> Option<Self> {
-        let image = image::load_from_memory(bytes).ok()?.into_rgba8();
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+            .with_guessed_format()
+            .ok()?;
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(MAX_BITMAP_SIDE);
+        limits.max_image_height = Some(MAX_BITMAP_SIDE);
+        reader.limits(limits);
+        let image = reader.decode().ok()?.into_rgba8();
         Some(Self {
             width: image.width(),
             height: image.height(),
@@ -326,7 +339,7 @@ impl Skin {
 
 /// Whether the files make a Windows Media Player skin: a `.wms` definition
 /// and no Winamp main window.
-fn is_media_player_skin<'a>(mut names: impl Iterator<Item = &'a str> + Clone) -> bool {
+pub(crate) fn is_media_player_skin<'a>(mut names: impl Iterator<Item = &'a str> + Clone) -> bool {
     names.clone().any(|name| name.ends_with(".wms"))
         && !names.any(|name| matches!(name, "main.bmp" | "main.png"))
 }
@@ -697,8 +710,51 @@ mod tests {
     }
 
     #[test]
+    fn a_zip_is_listed_as_the_kind_of_skin_it_holds() {
+        let root = std::env::temp_dir().join(format!("spotifast-kinds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let player = zip::write(&[
+            (
+                "Chrome/chrome.wms",
+                br#"<VIEW width="30" height="20"/>"#.as_slice(),
+                true,
+            ),
+            ("Chrome/back.png", &png(30, 20, [9, 9, 9]), false),
+        ]);
+        let winamp = zip::write(&[("main.bmp", &bmp(275, 116, [1, 1, 1]), false)]);
+        std::fs::write(root.join("chrome.zip"), player).unwrap();
+        std::fs::write(root.join("classic.zip"), winamp).unwrap();
+        std::fs::write(root.join("broken.zip"), b"not an archive").unwrap();
+        let listed = crate::winamp::list_skins(&root);
+        std::fs::remove_dir_all(&root).unwrap();
+        let kind = |name: &str| {
+            listed
+                .iter()
+                .find(|choice| choice.name == name)
+                .map(|c| c.kind)
+        };
+        assert_eq!(
+            kind("chrome.zip"),
+            Some(crate::winamp::SkinKind::WindowsMediaPlayer)
+        );
+        assert_eq!(kind("classic.zip"), Some(crate::winamp::SkinKind::Winamp));
+        assert_eq!(kind("broken.zip"), Some(crate::winamp::SkinKind::Winamp));
+    }
+
+    #[test]
+    fn a_picture_too_big_for_a_texture_is_not_decoded() {
+        assert!(Bitmap::decode(&png(MAX_BITMAP_SIDE, 1, [1, 2, 3])).is_some());
+        assert!(Bitmap::decode(&png(MAX_BITMAP_SIDE + 1, 1, [1, 2, 3])).is_none());
+        assert!(Bitmap::decode(&png(1, MAX_BITMAP_SIDE + 1, [1, 2, 3])).is_none());
+    }
+
+    #[test]
     fn an_unpacked_windows_media_player_skin_is_listed_and_read() {
-        let dir = std::env::temp_dir().join(format!("spotifast-wmp-{}", std::process::id()));
+        // A folder of its own to list, not the whole temporary directory.
+        let root = std::env::temp_dir().join(format!("spotifast-wmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("player");
         std::fs::create_dir_all(dir.join("art")).unwrap();
         std::fs::write(
             dir.join("a.wms"),
@@ -706,12 +762,12 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("art/bg.png"), png(40, 30, [3, 3, 3])).unwrap();
-        let listed = crate::winamp::list_skins(dir.parent().unwrap())
-            .into_iter()
-            .any(|choice| choice.path == dir);
+        let listed = crate::winamp::list_skins(&root);
         let skin = Skin::load(&dir).unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert!(listed);
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].path, dir);
+        assert_eq!(listed[0].kind, crate::winamp::SkinKind::WindowsMediaPlayer);
         assert_eq!(skin.wmp.as_ref().map(|wmp| wmp.height), Some(30));
     }
 

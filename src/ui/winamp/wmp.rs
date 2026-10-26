@@ -15,27 +15,12 @@ use crate::model::Action;
 use crate::settings::VisMode;
 use crate::skin::wmp::{Align, Box2, Button, Control, Field, Slider, SliderKind, Text, Wmp};
 use crate::vis;
-use crate::winamp::MAX_SCALE;
 
-use super::{fit_window, menu, options_menu, stopped};
+use super::{fit_window, menu, options_menu, stopped, unit};
 
 /// How big a skin's `fontSize` is on screen, relative to a skin pixel:
 /// the skin means points, and a point is a little more than a pixel.
 const POINT: f32 = 1.3;
-
-/// Logical points per skin pixel. A skin is drawn for a screen of its day,
-/// so by default one skin pixel is one pixel of this display, rather than
-/// the doubling Winamp's tiny skins get.
-fn unit(app: &App, ctx: &egui::Context) -> f32 {
-    let pixels_per_point = ctx.pixels_per_point();
-    let chosen = app
-        .settings
-        .skin_scale
-        .map(u32::from)
-        .unwrap_or_else(|| pixels_per_point.round().max(1.0) as u32)
-        .clamp(1, MAX_SCALE);
-    chosen as f32 / pixels_per_point
-}
 
 struct Canvas<'a> {
     origin: Pos2,
@@ -519,13 +504,17 @@ fn draw_text(app: &App, ui: &mut Ui, canvas: &Canvas, text: &Text, now: Option<&
         Align::Right => (Align2::RIGHT_CENTER, rect.max.x),
     };
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
-    painter.text(
-        pos2(x, rect.center().y),
-        anchor,
+    // Reordered for right-to-left titles, then placed by the skin's
+    // alignment on the laid-out size.
+    let color = Color32::from_rgb(r, g, b);
+    let galley = crate::bidi::layout_line(
+        &painter,
         shown,
         FontId::proportional(text.size * POINT * canvas.unit),
-        Color32::from_rgb(r, g, b),
+        color,
     );
+    let at = anchor.anchor_size(pos2(x, rect.center().y), galley.size());
+    painter.galley(at.min, galley, color);
 }
 
 /// The skin's visualisation window: the same bars or wave the Winamp

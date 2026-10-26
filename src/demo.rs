@@ -4038,16 +4038,13 @@ mod tests {
     fn settings_search_never_shows_a_section_for_an_unavailable_row() {
         let (ctx, mut app) = accessible_app("settings-search-availability");
         let text = settings_text(&ctx, &mut app, "Show in taskbar");
-        assert_eq!(
-            text.iter().any(|text| text == "Winamp skins"),
-            cfg!(windows)
-        );
+        assert_eq!(text.iter().any(|text| text == "Mini player"), cfg!(windows));
         if !cfg!(windows) {
             assert!(text.iter().any(|text| text.starts_with("No settings for")));
         }
         app.demo_windows_controls = true;
         let text = settings_text(&ctx, &mut app, "Show in taskbar");
-        assert!(text.iter().any(|text| text == "Winamp skins"));
+        assert!(text.iter().any(|text| text == "Mini player"));
         assert!(text.iter().any(|text| text == "Show in taskbar"));
 
         app.settings.web_client_id = None;
@@ -4534,7 +4531,7 @@ mod tests {
                 !tree
                     .nodes
                     .iter()
-                    .any(|(_, node)| node.label() == Some("Show Winamp in taskbar"))
+                    .any(|(_, node)| node.label() == Some("Show the mini player in taskbar"))
             );
         }
         app.demo_windows_controls = true;
@@ -4542,7 +4539,7 @@ mod tests {
             accessible_frame(&ctx, &mut app, vec![]);
         }
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let control = accessible_node(&tree, "Show Winamp in taskbar", Role::CheckBox);
+        let control = accessible_node(&tree, "Show the mini player in taskbar", Role::CheckBox);
         accessible_frame(
             &ctx,
             &mut app,
@@ -4613,15 +4610,12 @@ mod tests {
         let (ctx, mut app) = accessible_app("x11-taskbar-setting");
         app.taskbar_hiding_supported = true;
         let text = settings_text(&ctx, &mut app, "Show in taskbar");
-        assert!(text.iter().any(|text| text == "Winamp skins"));
+        assert!(text.iter().any(|text| text == "Mini player"));
         assert!(text.iter().any(|text| text == "Show in taskbar"));
 
         app.taskbar_hiding_supported = false;
         let text = settings_text(&ctx, &mut app, "Show in taskbar");
-        assert_eq!(
-            text.iter().any(|text| text == "Winamp skins"),
-            cfg!(windows)
-        );
+        assert_eq!(text.iter().any(|text| text == "Mini player"), cfg!(windows));
         app.backend.shutdown();
     }
 
@@ -7064,7 +7058,7 @@ mod tests {
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
-                        crate::ui::winamp::initial_size(&app.settings),
+                        crate::ui::winamp::initial_size(&app.settings, &app.winamp.skin),
                     )),
                     events,
                     ..Default::default()

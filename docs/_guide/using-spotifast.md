@@ -531,7 +531,7 @@ keys and the system's now-playing controls continue working while the window
 is closed.
 
 For the Winamp mini player, turn off **Show in taskbar** under
-**Settings > Winamp skins**, or **Show in taskbar** in its options menu.
+**Settings > Mini player**, or **Show in taskbar** in its options menu.
 The choice survives restarts. The mini player stays visible; the tray icon,
 **Ctrl+M**, the skin logo, and launching Spotifast again remain ways to reach
 the app. Returning to the main window always restores its taskbar button.
