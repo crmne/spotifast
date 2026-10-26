@@ -306,6 +306,19 @@ fn frame_rate_dial(
     }
 }
 
+/// A line of explanation under a skin part's title, wrapped to the width
+/// like a setting row's description.
+fn skin_note(ui: &mut egui::Ui, palette: &Palette, text: &str) {
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(text)
+                .font(theme::regular(12.5))
+                .color(palette.secondary),
+        )
+        .wrap(),
+    );
+}
+
 /// One kind of skin inside the mini player's section: a title that stands
 /// out, and what belongs to it underneath.
 fn skin_part(
@@ -1793,7 +1806,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 .and_then(|name| choices.iter().position(|choice| choice.name == name));
             if mini_rows[1].matches(&needle, &mini_player) {
                 skin_part(ui, &palette, &winamp_title, |ui| {
-                    theme::subtle(
+                    skin_note(
                         ui,
                         &palette,
                         &gettext(
@@ -1857,7 +1870,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             if mini_rows[2].matches(&needle, &mini_player) {
                 skin_part(ui, &palette, &player_title, |ui| {
-                    theme::subtle(
+                    skin_note(
                         ui,
                         &palette,
                         &gettext(
@@ -1873,7 +1886,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         .collect();
                     ui.add_space(6.0);
                     if options.is_empty() {
-                        theme::subtle(
+                        skin_note(
                             ui,
                             &palette,
                             &gettext(
@@ -1893,7 +1906,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     }
                     if app.winamp.skin.wmp.is_some() {
                         ui.add_space(6.0);
-                        theme::subtle(
+                        skin_note(
                             ui,
                             &palette,
                             &gettext(
