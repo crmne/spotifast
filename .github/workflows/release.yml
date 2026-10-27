@@ -43,6 +43,19 @@ jobs:
             package-target: windows-arm64
     steps:
       - uses: actions/checkout@v7
+      # The release's artifacts carry the tag's name (packages are named and versioned
+      # from GITHUB_REF_NAME), but the binary reports the crate's Cargo.toml version
+      # (env!("CARGO_PKG_VERSION")): v0.14.2 shipped packages named 0.14.2 whose binary
+      # said 0.14.1 (#1080). Refuse the build before spending the build minutes on it.
+      - name: The tag and the crate version must agree
+        shell: bash
+        run: |
+          v=$(grep -m1 -E '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$v" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} names $tag, but Cargo.toml says $v; bump the crate's version or retag"
+            exit 1
+          fi
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -93,6 +106,11 @@ jobs:
           # Each Windows build runs on its own processor: start it once.
           $version = (& $binary --version | Out-String).Trim()
           if ($version -notmatch '^spotifast \d+\.\d+\.\d+') { throw "Unexpected --version output: $version" }
+          # The binary's version is the crate's, not the tag's (the CLI pins
+          # `spotifast {CARGO_PKG_VERSION}` exactly): a mismatch here is a release
+          # carrying one version's name and another's code (#1080).
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          if ($version -ne "spotifast $tag") { throw "The binary reports $version, but the tag names $tag" }
 
       - name: Package
         shell: bash
