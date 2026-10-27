@@ -47,3 +47,5 @@ jobs:
       number: ${{ inputs.number || '' }}
       dry_run: ${{ inputs.dry_run || false }}
       quiet: ${{ inputs.quiet || false }}
+      # Copilot reviews only private repositories; CodeRabbit reviews public ones.
+      reviews: private
