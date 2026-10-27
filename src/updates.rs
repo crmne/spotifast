@@ -45,6 +45,15 @@ pub fn updater(proxy: &crate::settings::ProxyConfig) -> anyhow::Result<Updater> 
     })
 }
 
+/// Rebuilds the updater on its next use after proxy settings are reapplied.
+pub fn forget_updater() {
+    forget_cached_updater(&UPDATER);
+}
+
+fn forget_cached_updater(cache: &UpdaterCache) {
+    *cache.lock().unwrap_or_else(|lock| lock.into_inner()) = None;
+}
+
 // Check, download, and handoff share the HTTP runtime, certificate store,
 // and connection pool. A changed proxy policy discards the previous client;
 // a failed replacement must never fall back to that client's route.
@@ -103,6 +112,26 @@ mod tests {
         assert!(cache.lock().unwrap().is_none());
         cached_updater(&cache, &system, || Ok(Updater::new(CONFIG, NoNetwork))).unwrap();
         cached_updater(&cache, &system, || panic!("replacement was not cached")).unwrap();
+    }
+
+    #[test]
+    fn reapplying_system_proxy_rebuilds_the_cached_client() {
+        let cache = Mutex::new(None);
+        let proxy = crate::settings::ProxyConfig::System;
+        cached_updater(&cache, &proxy, || Ok(Updater::new(CONFIG, NoNetwork))).unwrap();
+        forget_cached_updater(&cache);
+        assert!(cache.lock().unwrap().is_none());
+        let mut rebuilt = false;
+        cached_updater(&cache, &proxy, || {
+            rebuilt = true;
+            Ok(Updater::new(CONFIG, NoNetwork))
+        })
+        .unwrap();
+        assert!(
+            rebuilt,
+            "the same policy must resolve the system proxy again"
+        );
+        cached_updater(&cache, &proxy, || panic!("replacement was not cached")).unwrap();
     }
 
     #[test]

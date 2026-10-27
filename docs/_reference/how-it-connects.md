@@ -262,7 +262,8 @@ out, or a reconnection that gives up stops it.
   macOS DMG. Spotifast then checks the published SHA-256 digest and the portable
   executable's reported version before offering a restart.
   Update checks, downloads and the restart handoff reuse their HTTP client and
-  connections. Changing the configured proxy policy replaces that client;
+  connections. Applying proxy settings replaces that client, even when the
+  policy is unchanged, so System resolves the current proxy again;
   an invalid replacement blocks requests instead of using the previous route.
   Automatic downloads are optional; installation always waits for your click.
   Checks and downloads do not open the update popup. The green update pill opens
