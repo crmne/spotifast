@@ -10975,18 +10975,47 @@ mod tests {
     }
 
     /// Choosing a discography category for the first time must not move the
-    /// page: its answer is still on the way, so the list already on screen
-    /// stays until the new one can take its place.
+    /// page: placeholders replace the old category and reserve its height
+    /// until the selected category arrives.
     #[test]
     fn a_discography_category_keeps_the_page_scrolled_while_it_loads() {
+        for width in [760.0, 1280.0] {
+            for light in [false, true] {
+                check_discography_category_scroll(width, light);
+            }
+        }
+    }
+
+    fn check_discography_category_scroll(width: f32, light: bool) {
         use egui::accesskit::Role;
 
         let (ctx, mut app) = accessible_app("discography-filter-scroll");
+        app.settings.theme = if light {
+            crate::settings::ThemeChoice::Light
+        } else {
+            crate::settings::ThemeChoice::Dark
+        };
+        // More than six placeholders can fill: preserving the old height
+        // must work for a long discography too.
+        let releases: Vec<_> = (0..20)
+            .map(|index| {
+                let mut album = super::album(index);
+                album.name = format!("Previous release {index}");
+                album
+            })
+            .collect();
+        let mut list = PagedList::default();
+        list.absorb(0, super::page(releases));
+        app.artist_pages
+            .get_mut("art0")
+            .unwrap()
+            .albums
+            .insert(DiscographyFilter::All.groups().to_string(), list);
         let page = Page::Artist("art0".into());
         app.open(page.clone());
         let scrolled_id = egui::Id::new(("page-scrolled", page.encode()));
         let singles = DiscographyFilter::Singles.label(app.locale).into_owned();
-        let screen = egui::vec2(1280.0, 900.0);
+        let screen = egui::vec2(width, 900.0);
         let mut time = 0.0;
         let mut draw = |app: &mut App, events: Vec<egui::Event>| {
             time += 1.0 / 60.0;
@@ -11102,10 +11131,39 @@ mod tests {
             "selecting {singles:?} moved the page from {before} to {after}"
         );
 
+        let (_, tree) = draw(&mut app, Vec::new());
+        let loading = crate::i18n::gettext(app.locale, "Loading…");
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| { node.label() == Some(loading.as_ref()) }),
+            "the selected category shows loading placeholders"
+        );
+        assert!(
+            tree.nodes.iter().all(|(_, node)| {
+                !node
+                    .label()
+                    .is_some_and(|label| label.starts_with("Previous release "))
+            }),
+            "the previous category's cards must disappear while loading"
+        );
+
         // The answer arrives with as many cards as the list it replaces, so
         // taking its place must leave the reader where they were.
         let mut list = PagedList::default();
-        list.absorb(0, super::page((0..8).map(super::album).collect()));
+        list.absorb(
+            0,
+            super::page(
+                (0..20)
+                    .map(|index| {
+                        let mut album = super::album(index);
+                        album.name = format!("Selected single {index}");
+                        album.album_type = Some("single".into());
+                        album
+                    })
+                    .collect(),
+            ),
+        );
         app.artist_pages
             .get_mut("art0")
             .unwrap()
@@ -11113,13 +11171,21 @@ mod tests {
             .insert(DiscographyFilter::Singles.groups().to_string(), list);
         let loaded = settle!();
         assert_eq!(
-            app.artist_pages["art0"].shown_filter,
+            app.artist_pages["art0"].filter,
             DiscographyFilter::Singles,
-            "the loaded category takes the old list's place"
+            "the loaded category remains selected"
         );
         assert!(
             loaded >= before - 1.0,
             "loading {singles:?} moved the page from {before} to {loaded}"
+        );
+        let (_, tree) = draw(&mut app, Vec::new());
+        assert!(
+            tree.nodes.iter().any(|(_, node)| {
+                node.label()
+                    .is_some_and(|label| label.starts_with("Selected single "))
+            }),
+            "the selected category replaces the placeholders"
         );
         app.backend.shutdown();
     }
