@@ -158,9 +158,9 @@ their original signatures; this setup does not replace release assets.
 
 ## Windows Installer package
 
-Each Windows release job builds the Inno Setup program
-(`packaging/windows/spotifast.iss`) and the Windows Installer package from the
-same binary. The package comes from `packaging/windows/spotifast.wxs` (WiX
+Each Windows release job builds the Windows Installer package; releases up
+to 0.14.2 also shipped an Inno Setup program (`-setup.exe`,
+`packaging/windows/spotifast.iss`). The package comes from `packaging/windows/spotifast.wxs` (WiX
 Toolset 5): native-packages selects `windows-amd64` or `windows-arm64` with
 `--defer-recipes` and runs `packaging/windows/build-msi.py`. That script
 compiles the package's custom actions (`running-copy.c`,
@@ -168,11 +168,14 @@ compiles the package's custom actions (`running-copy.c`,
 version resource does not carry the release version, and runs WiX with
 `-pdbtype none`, so the package is the only output.
 
-Windows installs move to the package over two releases. The next release
-ships both `-setup.exe` and `.msi`: earlier versions only know the setup
-program and update through it, and that release's updater prefers the package.
-Later releases can drop the setup program, `spotifast.iss` and
-`test-uninstall.py`.
+Windows installs moved to the package while 0.13.0 to 0.14.2 shipped both
+`-setup.exe` and `.msi`: those versions' updater prefers the package. Releases
+after 0.14.2 ship only the package. 0.12.x and earlier look only for a
+`-setup.exe`, so they no longer find updates; their users run the `.msi` once
+(the download page says so), and it takes over their install.
+`spotifast.iss` stays so `test-msi.py` can make a setup program install to
+take over; `test-uninstall.py` and CI's Inno syntax check can go when nobody
+needs them.
 
 The updater (fastframe-update) runs `msiexec /i PACKAGE /qn /norestart /l*v LOG
 INSTALLFOLDER="<the app's folder>"` and accepts exit codes 0 and 3010. The package:

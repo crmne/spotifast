@@ -143,24 +143,9 @@ jobs:
           cp "$RUNNER_TEMP/appimage/packages/$id/appimage/"*.AppImage \
             "$RUNNER_TEMP/appimage/packages/$id/appimage/"*.AppImage.zsync dist/
 
-      # Inno Setup ships with the runner image. PowerShell, because bash on
-      # Windows rewrites /D... arguments as paths.
-      - name: Installer
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart("v")
-          $arch = "${{ matrix.target }}".Split("-")[0]
-          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
-          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
-          & $iscc "/DVersion=$version" "/DArch=$arch" `
-            "/DBinary=$PWD\target\${{ matrix.target }}\release\spotifast.exe" `
-            "/DOutputDir=$PWD\dist" packaging\windows\spotifast.iss
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      # The Windows Installer package, from the same binary. One release ships
-      # it beside the setup program: earlier versions update through the setup
-      # program, and their next update moves them to the package (PACKAGING.md).
+      # The Windows installer: the Windows Installer package, which also takes
+      # over a copy the Inno Setup program of 0.14.2 and earlier installed
+      # (PACKAGING.md, "Windows Installer package").
       - uses: ruby/setup-ruby@v1
         if: runner.os == 'Windows'
         with:
@@ -190,7 +175,6 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.zip
-            dist/*-setup.exe
             dist/*.msi
             dist/*.AppImage
             dist/*.AppImage.zsync

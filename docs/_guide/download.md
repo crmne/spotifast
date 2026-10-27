@@ -56,10 +56,11 @@ or the ARM version if your PC uses an ARM processor:
 - [Windows installer (ARM PCs)]({{ base }}/spotifast-v{{ v }}-aarch64-pc-windows-msvc{{ windows_installer }})
 {% if windows_installer == ".msi" %}
 The installer is a Windows Installer package (`.msi`). Spotifast installed
-with the earlier setup program (`-setup.exe`) moves to it through its own
-updates, or right away when you run the new installer, and keeps its settings,
-its folder and its Start menu entry. Windows then lists one Spotifast under
-installed apps.
+with the earlier setup program (`-setup.exe`) moves to it when you run the new
+installer, and keeps its settings, its folder and its Start menu entry.
+Windows then lists one Spotifast under installed apps. Versions 0.13.0 and
+later also move to it through their own updates; 0.12.x and earlier no longer
+find updates, so run the installer once by hand.
 {% endif %}
 To run Spotifast without an installer, download a ZIP file, extract it, and
 open `spotifast.exe`. Since 0.13.4, it keeps its settings, state and caches
