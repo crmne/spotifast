@@ -6208,7 +6208,16 @@ async fn read_playlist_cache(path: std::path::PathBuf) -> std::io::Result<(Cache
         {
             log::warn!("unable to clean playlist cache {}: {error}", path.display());
         }
-        cache
+        cache.map(|(mut cached, appendable)| {
+            for row in &mut cached.items {
+                for item in row.item.iter_mut().chain(row.track.iter_mut()) {
+                    if let PlayableItem::Track(track) = item {
+                        session_reads::normalize_local_track_labels(track);
+                    }
+                }
+            }
+            (cached, appendable)
+        })
     })
     .await
     .map_err(std::io::Error::other)?
@@ -6834,6 +6843,78 @@ mod playlist_cache_tests {
         assert_eq!(cached.snapshot, "old");
         assert_eq!(cached.total, None);
         assert_eq!(cached.next_offset, None);
+    }
+
+    #[tokio::test]
+    async fn cached_local_track_labels_are_normalized_on_restore() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-local-labels-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let raw: PlaylistItem = serde_json::from_value(serde_json::json!({
+            "added_at": "2026-10-26T10:00:00Z", "is_local": true,
+            "item": {
+                "type": "track",
+                "uri": "spotify:local:Tan+Bi%C3%B3nica:Boquitas+Pintadas:Tel%C3%A9fonos:180",
+                "name": "Tel%C3%A9fonos", "duration_ms": 180_000, "is_local": true,
+                "artists": [{"name": "Tan+Bi%C3%B3nica"}],
+                "album": {"name": "Boquitas+Pintadas"}
+            }
+        }))
+        .unwrap();
+        let mut expected = raw.clone();
+        let Some(PlayableItem::Track(track)) = expected.item.as_mut() else {
+            panic!("a local file is a track");
+        };
+        track.name = "Teléfonos".into();
+        track.artists[0].name = "Tan Biónica".into();
+        track.album.as_mut().unwrap().name = "Boquitas Pintadas".into();
+        // Cache rows can store either the session's `item` or the Web API's `track`.
+        let mut api_row = raw.clone();
+        api_row.track = api_row.item.take();
+        let mut expected_api = expected.clone();
+        expected_api.track = expected_api.item.take();
+        for incremental in [false, true] {
+            let path = root.join(format!("{incremental}.json"));
+            let items = vec![raw.clone(), api_row.clone(), PlaylistItem::default()];
+            if incremental {
+                write_incremental_playlist_cache_file(
+                    &path,
+                    "snapshot".into(),
+                    PlaylistCacheRows::Replace(items),
+                    10,
+                    Some(3),
+                )
+                .unwrap();
+            } else {
+                write_cached_playlist(
+                    path.clone(),
+                    CachedPlaylist {
+                        snapshot: "snapshot".into(),
+                        items,
+                        total: Some(10),
+                        next_offset: Some(3),
+                    },
+                )
+                .await
+                .unwrap();
+            }
+            let (cached, appendable) = read_playlist_cache(path).await.unwrap();
+            assert_eq!(
+                cached.items,
+                [
+                    expected.clone(),
+                    expected_api.clone(),
+                    PlaylistItem::default()
+                ]
+            );
+            assert_eq!(cached.snapshot, "snapshot");
+            assert_eq!(cached.total, Some(10));
+            assert_eq!(cached.next_offset, Some(3));
+            assert_eq!(appendable, incremental);
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
