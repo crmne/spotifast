@@ -12,6 +12,7 @@ use crate::util;
 use super::collection::{Hero, HeroArt, hero, hero_images};
 use super::widgets::{self, TrackRow};
 
+/// Draws the artist page and keeps discography loading placeholders in place.
 pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
     if !app.artist_pages.contains_key(id) {
         app.ensure_loaded(Page::Artist(id.to_string()));
@@ -228,7 +229,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     _ => {
                         let count = previous.map_or(6, |(_, count)| count.max(1));
                         widgets::grid(ui, |ui| {
-                            widgets::skeleton_cards(ui, &palette, app.locale, count, false)
+                            widgets::skeleton_cards_filling(
+                                ui,
+                                &palette,
+                                app.locale,
+                                count,
+                                false,
+                                previous.map_or(0.0, |(height, _)| height),
+                            )
                         });
                         count
                     }

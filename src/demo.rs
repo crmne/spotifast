@@ -10974,6 +10974,100 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Discography placeholders fill the old grid, including any space
+    /// reserved for pagination, without relying on an outer minimum height.
+    #[test]
+    fn discography_placeholders_fill_the_previous_grid_height() {
+        use crate::ui::widgets;
+
+        let (ctx, mut app) = accessible_app("discography-placeholder-height");
+        for light in [false, true] {
+            ctx.set_theme(if light {
+                egui::Theme::Light
+            } else {
+                egui::Theme::Dark
+            });
+            for width in [760.0, 1280.0] {
+                for count in [1, 8, 20] {
+                    for footer in [0.0, 32.0] {
+                        let mut loaded_height = 0.0;
+                        let mut output = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(width, 6000.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ui| {
+                                ui.set_width(width - 298.0);
+                                loaded_height = ui
+                                    .scope(|ui| {
+                                        widgets::grid(ui, |ui| {
+                                            for index in 0..count {
+                                                let album = super::album(index);
+                                                widgets::card(
+                                                    ui,
+                                                    &mut app,
+                                                    None,
+                                                    &album.name,
+                                                    "2026 • Album",
+                                                    widgets::CardCover::square(false),
+                                                );
+                                            }
+                                        });
+                                        ui.add_space(footer);
+                                    })
+                                    .response
+                                    .rect
+                                    .height();
+                            },
+                        );
+                        output.textures_delta.clear();
+                        let palette = app.palette;
+                        let locale = app.locale;
+                        let mut skeleton_height = 0.0;
+                        let mut output = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(width, 6000.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ui| {
+                                ui.set_width(width - 298.0);
+                                skeleton_height = ui
+                                    .scope(|ui| {
+                                        widgets::grid(ui, |ui| {
+                                            widgets::skeleton_cards_filling(
+                                                ui,
+                                                &palette,
+                                                locale,
+                                                count,
+                                                false,
+                                                loaded_height,
+                                            );
+                                        });
+                                    })
+                                    .response
+                                    .rect
+                                    .height();
+                            },
+                        );
+                        output.textures_delta.clear();
+                        assert!(
+                            (skeleton_height - loaded_height).abs() <= 1.0,
+                            "{width}px, light={light}, {count} cards, footer={footer}: \
+                             loaded {loaded_height}, skeletons {skeleton_height}"
+                        );
+                    }
+                }
+            }
+        }
+        app.backend.shutdown();
+    }
+
     /// Choosing a discography category for the first time must not move the
     /// page: placeholders replace the old category and reserve its height
     /// until the selected category arrives.
