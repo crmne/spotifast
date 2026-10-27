@@ -1,8 +1,8 @@
-# Shared CLI: gem install native-packages --version 0.10.0
+# Shared CLI: gem install native-packages --version 0.11.0
 ---
 schema: 1
 tool:
-  version: 0.10.0
+  version: 0.11.0
   nfpm: 2.47.0
 # Ubuntu 24.04 and Debian 13 use the ALSA t64 package name. Override ELF
 # inference as well as the explicit dependencies below.
@@ -94,6 +94,14 @@ nfpm:
       - libstdc++
   rpm:
     buildhost: github-actions
+# Windows code and installers are signed through Azure Artifact Signing as
+# PlentyLabs when the windows-signing environment provides the account
+# (PACKAGING.md, "Windows signing").
+windows:
+  signing:
+    provider: azure-artifact-signing
+    description: Spotifast
+    publisher: PlentyLabs UG (haftungsbeschränkt) & Co. KG
 targets:
   macos-universal:
     platform: macos

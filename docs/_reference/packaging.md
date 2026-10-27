@@ -6,7 +6,7 @@ nav_order: 20
 
 Spotifast keeps release asset definitions, nFPM configuration and native AUR and
 Homebrew templates in `native-packages.yaml` and `packaging/`. Common automation comes from the pinned
-[native-packages](https://github.com/crmne/native-packages) gem, installed with `gem install native-packages --version 0.10.0`.
+[native-packages](https://github.com/crmne/native-packages) gem, installed with `gem install native-packages --version 0.11.0`.
 
 Stable releases build the existing Linux, macOS and Windows artifacts first.
 The Linux build jobs also build the AppImages (`appimage-amd64`,

@@ -32,7 +32,6 @@ jobs:
             vcpkg-triplet: x64-windows-static
             msvc-arch: x64
             pe-machine: 8664 machine \(x64\)
-            package-target: windows-amd64
           # A native arm64 runner, as for Linux: the binary is built, checked
           # and started on the processor it ships for, MilkDrop included.
           - os: windows-11-arm
@@ -40,7 +39,6 @@ jobs:
             vcpkg-triplet: arm64-windows-static
             msvc-arch: arm64
             pe-machine: AA64 machine \(ARM64\)
-            package-target: windows-arm64
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -94,29 +92,31 @@ jobs:
           $version = (& $binary --version | Out-String).Trim()
           if ($version -notmatch '^spotifast \d+\.\d+\.\d+') { throw "Unexpected --version output: $version" }
 
+      # Windows rows hand their checked binary to the windows job, which signs
+      # it on x64 (Azure Artifact Signing doesn't run on Arm runners) and
+      # packages it. That job replaces this artifact with the packages.
+      - name: Hand the Windows binary on
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/spotifast.exe
+          if-no-files-found: error
+
       - name: Package
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           name="spotifast-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "dist/$name"
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/spotifast.exe" "dist/$name/"
-          else
-            cp "target/${{ matrix.target }}/release/spotifast" "dist/$name/"
-          fi
+          cp "target/${{ matrix.target }}/release/spotifast" "dist/$name/"
           cp README.md LICENSE "dist/$name/"
           cp packaging/spotifast-portable.txt "dist/$name/"
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            # Desktop integration for package builds and hand-installs.
-            cp --parents packaging/applications/spotifast.desktop packaging/icons/spotifast.svg "dist/$name/"
-            cp --parents contrib/omarchy/spotifast.json.tpl contrib/omarchy/spotifast-theme "dist/$name/"
-          fi
+          # Desktop integration for package builds and hand-installs.
+          cp --parents packaging/applications/spotifast.desktop packaging/icons/spotifast.svg "dist/$name/"
+          cp --parents contrib/omarchy/spotifast.json.tpl contrib/omarchy/spotifast-theme "dist/$name/"
           cd dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            7z a "$name.zip" "$name"
-          else
-            tar czf "$name.tar.gz" "$name"
-          fi
+          tar czf "$name.tar.gz" "$name"
 
       # The AppImage, from the archive just built and before the release is
       # published: checksums.txt lists it with its .zsync file and the
@@ -132,7 +132,7 @@ jobs:
         if: runner.os == 'Linux' && !contains(github.ref_name, '-')
         run: |
           sudo apt-get install -y --no-install-recommends libarchive-tools squashfs-tools zsync
-          gem install native-packages --version 0.10.0 --no-document
+          gem install native-packages --version 0.11.0 --no-document
           case "${{ matrix.target }}" in
             x86_64-unknown-linux-gnu) id=appimage-amd64 ;;
             aarch64-unknown-linux-gnu) id=appimage-arm64 ;;
@@ -143,22 +143,99 @@ jobs:
           cp "$RUNNER_TEMP/appimage/packages/$id/appimage/"*.AppImage \
             "$RUNNER_TEMP/appimage/packages/$id/appimage/"*.AppImage.zsync dist/
 
-      # The Windows installer: the Windows Installer package, which also takes
-      # over a copy the Inno Setup program of 0.14.2 and earlier installed
-      # (PACKAGING.md, "Windows Installer package").
-      - uses: ruby/setup-ruby@v1
-        if: runner.os == 'Windows'
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.AppImage
+            dist/*.AppImage.zsync
+          if-no-files-found: error
+
+  windows:
+    name: windows (${{ matrix.target }})
+    needs: build
+    # x64 for both targets: Azure Artifact Signing doesn't run on Arm
+    # runners, and WiX builds arm64 packages on x64.
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+    # Signs in to Azure Artifact Signing as the app registration that trusts
+    # only this environment, which deploys only from v* tags (PACKAGING.md,
+    # "Windows signing").
+    environment: windows-signing
+    # The Artifact Signing account native-packages signs with.
+    env:
+      AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+      AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+      AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            package-target: windows-amd64
+            msvc-arch: x64
+          # The MSI's custom actions cross-compile for arm64 from x64.
+          - target: aarch64-pc-windows-msvc
+            package-target: windows-arm64
+            msvc-arch: amd64_arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release
+
+      # native-packages signs the Windows code (native-packages.yaml,
+      # windows.signing) through the Azure CLI sign-in below, once the
+      # windows-signing environment names a certificate profile.
+      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
         with:
           ruby-version: '4.0'
+      - name: Install native-packages
+        run: gem install native-packages --version 0.11.0 --no-document
+      - name: Sign in to Azure for code signing
+        if: vars.AZURE_SIGNING_PROFILE != ''
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Signed before anything packs it, so the zip and the MSI both carry a
+      # signed binary.
+      - name: Sign the binary
+        if: vars.AZURE_SIGNING_PROFILE != ''
+        shell: pwsh
+        run: native-packages sign-windows target\${{ matrix.target }}\release\spotifast.exe
+
+      - name: Package
+        shell: bash
+        run: |
+          name="spotifast-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/spotifast.exe" "dist/$name/"
+          cp README.md LICENSE packaging/spotifast-portable.txt "dist/$name/"
+          cd dist
+          7z a "$name.zip" "$name"
+
+      # The Windows installer: the Windows Installer package, which also takes
+      # over a copy the Inno Setup program of 0.14.2 and earlier installed
+      # (PACKAGING.md, "Windows Installer package"). build-msi.py compiles its custom actions with the MSVC tools for the
+      # package's architecture.
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc-arch }}
+      # native-packages signs the MSI before recording its checksum.
       - name: Windows Installer package
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           dotnet tool install wix --version 5.0.2 --tool-path "$env:RUNNER_TEMP\wix"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:PATH = "$env:RUNNER_TEMP\wix;$env:PATH"
-          gem install native-packages --version 0.10.0 --no-document
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $version = $env:GITHUB_REF_NAME.TrimStart("v")
           $payload = "dist\msi-input-${{ matrix.target }}"
           New-Item -ItemType Directory -Force $payload | Out-Null
@@ -169,15 +246,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item "$packages\packages\${{ matrix.package-target }}\msi\*.msi" dist\
 
+      # Replaces the binary the build job handed over with the packages.
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
+          overwrite: true
           path: |
-            dist/*.tar.gz
             dist/*.zip
             dist/*.msi
-            dist/*.AppImage
-            dist/*.AppImage.zsync
           if-no-files-found: error
 
   macos:
@@ -215,7 +291,7 @@ jobs:
         with:
           ruby-version: '4.0'
       - name: Install native packaging
-        run: gem install native-packages --version 0.10.0 --no-document
+        run: gem install native-packages --version 0.11.0 --no-document
 
       - name: App bundle
         run: |
@@ -273,8 +349,8 @@ jobs:
     name: GitHub release
     # The bundle is welcome but not required: a Flatpak failure must not
     # hold the release.
-    needs: [build, macos, flatpak]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.macos.result == 'success' }}
+    needs: [build, windows, macos, flatpak]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.windows.result == 'success' && needs.macos.result == 'success' }}
     runs-on: ubuntu-latest
     # Publishing waits for the maintainer's approval, and only this job can
     # read the release signing key (v* tags only).
@@ -306,7 +382,7 @@ jobs:
         env:
           SPOTIFAST_UPDATE_SIGNING_KEY: ${{ secrets.SPOTIFAST_UPDATE_SIGNING_KEY }}
         run: |
-          gem install native-packages --version 0.10.0 --no-document
+          gem install native-packages --version 0.11.0 --no-document
           native-packages sign-checksums dist/checksums.txt \
             --public-key assets/update-public-key.hex \
             --key-env SPOTIFAST_UPDATE_SIGNING_KEY

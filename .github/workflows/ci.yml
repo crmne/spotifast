@@ -220,7 +220,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "$env:RUNNER_TEMP\wix" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
           $env:PATH = "$env:RUNNER_TEMP\wix;$env:PATH"
-          gem install native-packages --version 0.10.0 --no-document
+          gem install native-packages --version 0.11.0 --no-document
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
           $target, $id = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64-pc-windows-msvc', 'windows-arm64' } else { 'x86_64-pc-windows-msvc', 'windows-amd64' }

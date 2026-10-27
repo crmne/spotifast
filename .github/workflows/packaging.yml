@@ -41,7 +41,7 @@ jobs:
   packaging:
     permissions:
       contents: write
-    uses: crmne/native-packages/.github/workflows/package.yml@226fb48cb375c7cb309a3e642c7228a6e00e9ebf # v0.10.0
+    uses: crmne/native-packages/.github/workflows/package.yml@25a4214d2f203357c84b069f39de7c17c0be6253 # v0.11.0
     with:
       targets: linux-amd64,linux-arm64
       # Packaging changes exercise real release binaries on both architectures.
@@ -121,7 +121,7 @@ jobs:
             libwayland-client0 libwayland-cursor0 libwayland-egl1 libx11-6 \
             libx11-xcb1 libxcursor1 libxi6 libxrandr2 libasound2t64 libpipewire-0.3-0t64 \
             libpulse0
-          gem install native-packages --version 0.10.0 --no-document
+          gem install native-packages --version 0.11.0 --no-document
           native-packages build --release "$VERSION" --target "$TARGET" --defer-recipes --output dist/appimage
       - name: Run the AppImage and read its update information
         run: |
