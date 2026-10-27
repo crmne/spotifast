@@ -261,6 +261,9 @@ out, or a reconnection that gives up stops it.
   before downloading the matching binary archive, Windows installer, or universal
   macOS DMG. Spotifast then checks the published SHA-256 digest and the portable
   executable's reported version before offering a restart.
+  Update checks, downloads and the restart handoff reuse their HTTP client and
+  connections. Changing the configured proxy policy replaces that client;
+  an invalid replacement blocks requests instead of using the previous route.
   Automatic downloads are optional; installation always waits for your click.
   Checks and downloads do not open the update popup. The green update pill opens
   it on request; closing the popup does not cancel a download.
