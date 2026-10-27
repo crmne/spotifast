@@ -10986,6 +10986,7 @@ mod tests {
         }
     }
 
+    /// Exercises the category change at one window width and theme.
     fn check_discography_category_scroll(width: f32, light: bool) {
         use egui::accesskit::Role;
 
@@ -11127,16 +11128,16 @@ mod tests {
             "the click must select the chip"
         );
         assert!(
-            after >= before - 1.0,
+            (after - before).abs() <= 1.0,
             "selecting {singles:?} moved the page from {before} to {after}"
         );
 
         let (_, tree) = draw(&mut app, Vec::new());
         let loading = crate::i18n::gettext(app.locale, "Loading…");
         assert!(
-            tree.nodes
-                .iter()
-                .any(|(_, node)| { node.label() == Some(loading.as_ref()) }),
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some(loading.as_ref()) || node.value() == Some(loading.as_ref())
+            }),
             "the selected category shows loading placeholders"
         );
         assert!(
@@ -11176,7 +11177,7 @@ mod tests {
             "the loaded category remains selected"
         );
         assert!(
-            loaded >= before - 1.0,
+            (loaded - before).abs() <= 1.0,
             "loading {singles:?} moved the page from {before} to {loaded}"
         );
         let (_, tree) = draw(&mut app, Vec::new());

@@ -134,10 +134,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             let height_id = ui.make_persistent_id(("discography-height", id));
             let list = page.albums.get(page.filter.groups());
             let loading = list.is_none_or(|list| !list.loaded_once && list.error.is_none());
-            let previous_height = ui.ctx().data(|data| data.get_temp::<f32>(height_id));
+            let previous = ui
+                .ctx()
+                .data(|data| data.get_temp::<(f32, usize)>(height_id));
             let discography = ui.scope(|ui| {
                 if loading {
-                    ui.set_min_height(previous_height.unwrap_or(0.0));
+                    ui.set_min_height(previous.map_or(0.0, |(height, _)| height));
                 }
                 match list {
                     Some(list) if !loading => {
@@ -221,15 +223,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                     .push(Action::LoadMoreArtistAlbums(id.to_string()));
                             }
                         }
+                        albums.len()
                     }
-                    _ => widgets::grid(ui, |ui| {
-                        widgets::skeleton_cards(ui, &palette, app.locale, 6, false)
-                    }),
+                    _ => {
+                        let count = previous.map_or(6, |(_, count)| count.max(1));
+                        widgets::grid(ui, |ui| {
+                            widgets::skeleton_cards(ui, &palette, app.locale, count, false)
+                        });
+                        count
+                    }
                 }
             });
             if !loading {
                 ui.ctx().data_mut(|data| {
-                    data.insert_temp(height_id, discography.response.rect.height());
+                    data.insert_temp(
+                        height_id,
+                        (discography.response.rect.height(), discography.inner),
+                    );
                 });
             }
             ui.add_space(20.0);
