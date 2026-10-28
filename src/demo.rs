@@ -3936,6 +3936,61 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn storage_shows_measured_sizes_and_refreshes_after_clearing() {
+        use crate::storage::Size;
+        let (ctx, mut app) = accessible_app("storage-sizes");
+        std::fs::create_dir_all(&app.dirs.state).unwrap();
+        std::fs::create_dir_all(app.dirs.art_cache_dir()).unwrap();
+        std::fs::create_dir_all(app.dirs.audio_cache_dir().join("nested")).unwrap();
+        std::fs::write(app.dirs.art_cache_dir().join("sample"), [0; 13]).unwrap();
+        std::fs::write(app.dirs.audio_cache_dir().join("nested/sample"), [0; 27]).unwrap();
+        app.plays.record(track(0), jiff::Timestamp::now());
+        let history = serde_json::to_vec(app.plays.plays()).unwrap();
+        let history_size = history.len() as u64;
+        std::fs::write(app.dirs.history_file(), history).unwrap();
+        let wait = |app: &mut App, expected: [Size; 3]| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                let text = settings_text(&ctx, app, "Storage");
+                if app.storage_usage.sizes == expected {
+                    break text;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "storage scan timed out: expected {expected:?}, got {:?}",
+                    app.storage_usage.sizes
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        };
+        let text = wait(
+            &mut app,
+            [Size::Bytes(13), Size::Bytes(27), Size::Bytes(history_size)],
+        );
+        for label in [
+            "Artwork cache · 13 B".to_owned(),
+            "Audio cache · 27 B".to_owned(),
+            format!(
+                "Play history · {}",
+                crate::storage::format_bytes(history_size)
+            ),
+        ] {
+            assert!(text.iter().any(|text| text == &label), "{text:?}");
+        }
+        // Run the real action handler without drawing the rest of the app,
+        // whose demo covers would download and refill the cache under test.
+        app.apply(Action::ClearArtCache, &ctx);
+        wait(
+            &mut app,
+            [Size::Bytes(0), Size::Bytes(27), Size::Bytes(history_size)],
+        );
+        app.apply(Action::ClearPlayHistory, &ctx);
+        wait(&mut app, [Size::Bytes(0), Size::Bytes(27), Size::Bytes(2)]);
+        assert!(app.plays.is_empty());
+        app.backend.shutdown();
+    }
+
     /// The About card ends with the author's credit, and the name opens
     /// the author's website.
     #[test]

@@ -46,6 +46,18 @@ where each system keeps it, not in `settings.json`:
 Deleting the entry turns it off. Uninstalling Spotifast does not remove the
 Linux or Windows entry; choose **Off** first.
 
+Settings > Storage shows the current file sizes of the artwork cache, audio
+cache and local play history beside their names, in decimal units (1 MB is
+1,000,000 bytes). Sizes are checked in the background while this section is
+visible and refreshed about every five seconds, including after clearing.
+Missing files show 0 B; unreadable files show Unavailable. Artwork counts the
+files its Clear artwork button removes; audio includes nested cache folders.
+Symbolic links are skipped. These are file sizes, so filesystem allocation,
+compression and files still open during playback can affect the disk space
+actually freed. Clear history saves an empty history file rather than deleting
+the file. Sign-in credentials are managed by the system and have no file-size
+estimate here.
+
 Clearing caches never signs you out. Sign-out from Settings covers the shared
 and personal Web API grants and the independent playback credential. It also
 removes the cached library of every account: playlist pages, the playlist

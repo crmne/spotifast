@@ -2173,7 +2173,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 
     let storage = gettext(locale, "Storage");
-    let storage_rows = [
+    let mut storage_rows = [
         RowText::new(
             gettext(locale, "Artwork cache"),
             // Translators: {folder} is the path of a cache folder.
@@ -2208,6 +2208,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ];
     if section_matches(&needle, &storage, &storage_rows) {
         any_visible = true;
+        app.storage_usage.update(&app.dirs, ui.ctx());
+        for (row, size) in storage_rows.iter_mut().zip(app.storage_usage.sizes) {
+            let size = match size {
+                crate::storage::Size::Checking => gettext(locale, "Checking…").into_owned(),
+                crate::storage::Size::Bytes(bytes) => crate::storage::format_bytes(bytes),
+                crate::storage::Size::Unavailable => gettext(locale, "Unavailable").into_owned(),
+            };
+            row.title = format!("{} · {size}", row.title).into();
+        }
         section(ui, &palette, &storage, |ui| {
             filtered_row(ui, &palette, &needle, &storage, &storage_rows[0], |ui| {
                 if theme::soft_button(
