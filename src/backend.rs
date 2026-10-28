@@ -103,6 +103,9 @@ pub enum AuthStatus {
         url: String,
     },
     Connecting,
+    /// Still connecting: Spotify is rate limiting the account check, which
+    /// keeps retrying (#861).
+    RateLimited,
     Connected {
         username: String,
     },
@@ -110,6 +113,15 @@ pub enum AuthStatus {
     /// Spotify turned the sign-in down for a reason the sign-in screen
     /// explains in the listener's language and shows how to fix.
     Refused(SignInProblem),
+}
+
+impl AuthStatus {
+    /// Still on the way to signed in, with nothing for the listener to do:
+    /// at startup, during the account check, and while Spotify rate limits
+    /// that check (#861).
+    pub fn is_connecting(&self) -> bool {
+        matches!(self, Self::Starting | Self::Connecting | Self::RateLimited)
+    }
 }
 
 /// Why Spotify turned a sign-in down, for the sign-in screen to explain.
@@ -788,6 +800,12 @@ pub enum Command {
         lease: CredentialLease,
         attempt: u64,
         error: ApiError,
+    },
+    /// Internal: Spotify rate limited a Web API grant's account check, which
+    /// keeps retrying.
+    WebVerificationRateLimited {
+        source: ApiSource,
+        lease: CredentialLease,
     },
     /// Internal: a Web API browser flow or verification ended (success or not).
     SignInEnded {
@@ -2305,6 +2323,21 @@ impl Worker {
                         );
                         let _ = cancel.send(true);
                     }
+                    if !self.signed_in {
+                        // The account check outlives its browser step while
+                        // it waits out Spotify's limits, and a restored
+                        // grant never had one (#861). Stop those too, so
+                        // none of them signs in after Cancel.
+                        for source in [ApiSource::Shared, ApiSource::Personal] {
+                            if matches!(self.api.state(source), SessionState::Authorizing) {
+                                let slot = web_slot(source);
+                                self.credentials.invalidate(slot);
+                                self.restore_pending[slot.index()] = false;
+                                self.web_tokens[slot.index()] = None;
+                                self.api.clear(source);
+                            }
+                        }
+                    }
                     if let Some(source) = self.authorizing_source.take()
                         && matches!(self.api.state(source), SessionState::Authorizing)
                     {
@@ -2475,8 +2508,14 @@ impl Worker {
                         && self.authorization_attempt == attempt
                     {
                         self.on_web_signed_in(source, *token);
+                        self.on_browser_step_done(source);
                     } else if self.authorization_attempt == attempt {
                         self.finish_authorization(source);
+                    }
+                }
+                Command::WebVerificationRateLimited { source, lease } => {
+                    if lease.current() {
+                        self.on_web_verification_rate_limited(source);
                     }
                 }
                 Command::WebVerified {
@@ -3042,6 +3081,12 @@ impl Worker {
                     Err(error) if error.status().is_some_and(|status| status < 500) => break error,
                     Err(error) => {
                         log::warn!("Spotify sign-in verification will retry: {error}");
+                        if matches!(error, ApiError::RateLimited) {
+                            let _ = commands.send(Command::WebVerificationRateLimited {
+                                source,
+                                lease: lease.clone(),
+                            });
+                        }
                         tokio::time::sleep(wait).await;
                         wait = (wait * 2).min(Duration::from_secs(60));
                         if !matches!(gateway.state(source), SessionState::Authorizing) {
@@ -3062,6 +3107,33 @@ impl Worker {
                 error,
             });
         });
+    }
+
+    /// The browser approval produced a grant, and only the account check is
+    /// left. That check can wait a long time on Spotify's limits (#861), so
+    /// the sign-in screen stops pointing at the browser, and the browser is
+    /// free for the next approval. Cancel still stops the check.
+    fn on_browser_step_done(&mut self, source: ApiSource) {
+        if !self.signed_in {
+            self.emit(Event::Auth(AuthStatus::Connecting));
+        }
+        self.cancel_signin = None;
+        // The next approval, a playback one included, owns the browser now,
+        // so the account check finishing must not end or cancel it.
+        if self.authorizing_source == Some(source) {
+            self.authorizing_source = None;
+        }
+        if let Some(pending) = self.pending_authorization.take() {
+            self.sign_in_source(pending);
+        }
+    }
+
+    /// Tells the sign-in screen why it is still waiting. A signed-in
+    /// account's check runs quietly in the background.
+    fn on_web_verification_rate_limited(&mut self, source: ApiSource) {
+        if !self.signed_in && matches!(self.api.state(source), SessionState::Authorizing) {
+            self.emit(Event::Auth(AuthStatus::RateLimited));
+        }
     }
 
     fn forget_web_grant(&mut self, source: ApiSource) {
@@ -8463,6 +8535,122 @@ mod authorization_tests {
             assert!(worker.authorizing_source.is_none());
             assert_eq!(worker.authorization_attempt, 0);
         }
+    }
+
+    /// Once the browser hands over a grant, the sign-in screen stops
+    /// pointing at the browser, and the browser is free for the next
+    /// approval while the account check waits on Spotify (#861).
+    #[test]
+    fn a_finished_browser_step_shows_connecting_and_frees_the_browser() {
+        let _turn = WEB_PORT.lock().unwrap_or_else(|poison| poison.into_inner());
+        let (runtime, mut worker, events) = worker("browser-step-done");
+        let _entered = runtime.enter();
+        // The next approval stops at its port check and opens nothing.
+        let _occupied =
+            std::net::TcpListener::bind(("127.0.0.1", crate::auth::WEB_REDIRECT_PORT)).unwrap();
+        worker.cancel_signin = Some(watch::channel(false).0);
+        worker.authorizing_source = Some(ApiSource::Personal);
+        worker
+            .api
+            .set_state(ApiSource::Personal, SessionState::Authorizing);
+        worker.pending_authorization = Some(ApiSource::Personal);
+
+        worker.on_browser_step_done(ApiSource::Personal);
+
+        let received: Vec<_> = events.try_iter().collect();
+        assert!(matches!(
+            received.first(),
+            Some(Event::Auth(AuthStatus::Connecting))
+        ));
+        assert!(
+            received.iter().any(|event| matches!(event,
+                Event::Auth(AuthStatus::Failed(message)) if message.contains("8989")
+            )),
+            "the queued approval did not start"
+        );
+        assert!(worker.cancel_signin.is_none());
+        assert!(worker.authorizing_source.is_none());
+        assert!(worker.pending_authorization.is_none());
+    }
+
+    /// An approval that takes the browser while an account check waits
+    /// keeps it when that check finishes (#861).
+    #[test]
+    fn a_finished_account_check_leaves_the_next_approval_alone() {
+        let (runtime, mut worker, _events) = worker("check-after-browser-step");
+        let _entered = runtime.enter();
+        worker.cancel_signin = Some(watch::channel(false).0);
+        worker.authorizing_source = Some(ApiSource::Personal);
+
+        worker.on_browser_step_done(ApiSource::Personal);
+        // A playback approval takes the browser, as
+        // `authorize_playback_in_browser` does.
+        worker.cancel_signin = Some(watch::channel(false).0);
+        worker.finish_authorization(ApiSource::Personal);
+
+        assert!(worker.cancel_signin.is_some());
+        assert!(worker.authorizing_source.is_none());
+    }
+
+    /// A rate-limited account check tells the sign-in screen, and only
+    /// while nobody is signed in (#861).
+    #[test]
+    fn a_rate_limited_account_check_says_so_before_sign_in() {
+        let (runtime, mut worker, events) = worker("rate-limited-check");
+        let _entered = runtime.enter();
+        let rate_limited = |events: &std::sync::mpsc::Receiver<Event>| {
+            events
+                .try_iter()
+                .filter(|event| matches!(event, Event::Auth(AuthStatus::RateLimited)))
+                .count()
+        };
+
+        // No check waiting: nothing to explain.
+        worker.on_web_verification_rate_limited(ApiSource::Personal);
+        assert_eq!(rate_limited(&events), 0);
+
+        worker
+            .api
+            .set_state(ApiSource::Personal, SessionState::Authorizing);
+        worker.on_web_verification_rate_limited(ApiSource::Personal);
+        assert_eq!(rate_limited(&events), 1);
+
+        // Once signed in, the rest of a check runs quietly.
+        worker.signed_in = true;
+        worker.on_web_verification_rate_limited(ApiSource::Personal);
+        assert_eq!(
+            rate_limited(&events),
+            0,
+            "a signed-in account showed the sign-in notice"
+        );
+    }
+
+    /// Cancel stops an account check that outlived its browser step, and a
+    /// restored grant's, instead of leaving it to retry behind the sign-in
+    /// screen and sign in later (#861).
+    #[test]
+    fn cancel_stops_a_waiting_account_check() {
+        let (runtime, mut worker, _events) = worker("cancel-account-check");
+        let shared = worker.credentials.lease(CredentialSlot::Shared);
+        let personal = worker.credentials.lease(CredentialSlot::Personal);
+        for source in [ApiSource::Shared, ApiSource::Personal] {
+            worker.api.set_state(source, SessionState::Authorizing);
+        }
+        worker.restore_pending = [true; 3];
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::CancelSignIn).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+        for source in [ApiSource::Shared, ApiSource::Personal] {
+            assert_eq!(worker.api.state(source), SessionState::Unavailable);
+        }
+        assert!(!shared.current(), "a late shared check could still sign in");
+        assert!(
+            !personal.current(),
+            "a late personal check could still sign in"
+        );
+        assert!(!worker.restore_pending[CredentialSlot::Shared.index()]);
+        assert!(!worker.restore_pending[CredentialSlot::Personal.index()]);
     }
 
     /// Tests that bind the playback callback port take turns.

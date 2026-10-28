@@ -110,7 +110,9 @@ everyone in with is.
 
 While it waits, searches and your library take longer to load, playback
 controls can feel slow, and signing in can take a while. The top bar shows a
-spinner; point at it to see what Spotifast is waiting for. Your playlists and
+spinner; point at it to see what Spotifast is waiting for. While you sign
+in, the sign-in screen says Spotify is being slow: sign-in finishes on its
+own once Spotify allows it, and **Cancel** stops waiting. Your playlists and
 Home keep what they showed last time until the update arrives.
 
 ### On the shared app

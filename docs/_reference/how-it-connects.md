@@ -86,6 +86,14 @@ background through rate limits without showing the top bar's "Waiting for
 Spotify" spinner, since nothing on screen waits for it. A request waiting for
 shared access that turns out not to exist goes to the personal app.
 
+Once the browser hands back a grant, the sign-in screen shows "Connecting to
+Spotify…" instead of the browser prompt, and the browser is free for another
+approval. Until someone is signed in, **Cancel** stops the account check,
+including a restored grant's, since it retries through rate limits and server
+errors alike, and nothing it was checking signs in afterwards. A song asked
+for meanwhile does not start either. If Spotify rate limits the check, the
+sign-in screen says so under the spinner.
+
 Web API sign-in opens the browser only after its local callback port is available. If
 port 8989 is occupied, the sign-in screen keeps the error visible. Close the
 app using that port, then choose **Try again**. Since 0.13.2, playback setup

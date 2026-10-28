@@ -30,7 +30,6 @@ use egui::{Align2, Color32, Context, CornerRadius, Frame, Id, Margin, Rect, Stro
 
 use crate::api::models::pick_image;
 use crate::app::App;
-use crate::backend::AuthStatus;
 use crate::model::{Action, Loadable, Page, ToastKind};
 use crate::theme::{self, Icon};
 
@@ -42,8 +41,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.actions.push(Action::InstallSkin(path));
     }
     let signed_in = app.is_connected() && app.user.is_some();
-    let connecting = matches!(app.auth, AuthStatus::Connecting | AuthStatus::Starting)
-        || (app.is_connected() && app.user.is_none());
+    let connecting = app.auth.is_connecting() || (app.is_connected() && app.user.is_none());
     if !signed_in {
         player_bar::end_tint_session(ctx);
         login::show(app, ui, connecting);

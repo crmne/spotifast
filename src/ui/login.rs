@@ -274,6 +274,29 @@ fn sign_in_column(app: &mut App, ui: &mut egui::Ui, connecting: bool, beside: Op
                     palette.text,
                 );
             });
+            if app.auth == AuthStatus::RateLimited {
+                // Spotify can hold the account check back for a long time,
+                // so say so rather than spin with no word (#861).
+                ui.add_space(6.0);
+                wrapped(
+                    ui,
+                    gettext(
+                        locale,
+                        "Spotify is being slow. Sign-in finishes on its own once Spotify allows it.",
+                    ),
+                    theme::regular(12.5),
+                    palette.secondary,
+                );
+            }
+            // The account check retries through rate limits and server
+            // errors alike, so it can always be stopped. A signed-in
+            // account still loading is not a sign-in to cancel.
+            if matches!(app.auth, AuthStatus::Connecting | AuthStatus::RateLimited) {
+                ui.add_space(6.0);
+                if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked() {
+                    app.actions.push(Action::CancelSignIn);
+                }
+            }
         }
         status => {
             let problem = match status {
@@ -665,6 +688,77 @@ fn big_button(ui: &mut egui::Ui, app: &App, label: &str) -> bool {
 mod tests {
     use super::*;
     use crate::{app::AppOptions, backend::Waker, paths::AppDirs, settings::Settings};
+
+    /// An account check offers Cancel, and a rate-limited one says why it is
+    /// waiting (#861). A signed-in account still loading offers neither.
+    #[test]
+    fn the_account_check_offers_cancel_and_explains_a_rate_limit() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-rate-limited-login-{}",
+            std::process::id()
+        ));
+        let mut app = App::new(
+            &Waker::default(),
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(760.0, 620.0));
+        let frame = |app: &mut App| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| show(app, ui, true),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        let cancel = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Cancel") && node.role() == egui::accesskit::Role::Button
+            })
+        };
+        let notice = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.value()
+                    .or(node.label())
+                    .is_some_and(|text| text.contains("finishes on its own"))
+            })
+        };
+
+        app.auth = AuthStatus::RateLimited;
+        let tree = frame(&mut app);
+        assert!(cancel(&tree));
+        assert!(notice(&tree));
+
+        // Server errors retry without a notice, and can still be stopped.
+        app.auth = AuthStatus::Connecting;
+        let tree = frame(&mut app);
+        assert!(cancel(&tree));
+        assert!(!notice(&tree));
+
+        // A signed-in account loading its profile is not a sign-in.
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        let tree = frame(&mut app);
+        assert!(!cancel(&tree));
+        assert!(!notice(&tree));
+    }
 
     #[test]
     fn expanded_proxy_settings_remain_reachable_in_a_short_window() {

@@ -1172,6 +1172,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.auth = AuthStatus::Connecting;
                 app.user = None;
             }
+            // The same card while Spotify rate limits the account check.
+            "rate-limited" => {
+                app.auth = AuthStatus::RateLimited;
+                app.user = None;
+            }
             // The sign-in card for someone signing in again with their app,
             // and each way Spotify can turn a sign-in down.
             "sign-in-returning" => {
@@ -7085,6 +7090,7 @@ mod tests {
                 url: "https://accounts.spotify.com/authorize".into(),
             },
             AuthStatus::Connecting,
+            AuthStatus::RateLimited,
             // The longest explanations, beside the setup steps.
             AuthStatus::Refused(crate::backend::SignInProblem::SharedRetired),
             AuthStatus::Refused(crate::backend::SignInProblem::AccountNotAllowed),

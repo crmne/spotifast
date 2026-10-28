@@ -2754,6 +2754,14 @@ impl App {
         }
     }
 
+    /// Sign-in needs the main window. A sign-in still connecting, including
+    /// one Spotify is rate limiting (#861), does not.
+    fn needs_sign_in(&self) -> bool {
+        !(self.is_connected() && self.user.is_some())
+            && !self.auth.is_connecting()
+            && !(self.is_connected() && self.user.is_none())
+    }
+
     fn handle_auth(&mut self, status: AuthStatus) {
         match &status {
             AuthStatus::Connected { .. } => {
@@ -9225,8 +9233,7 @@ impl App {
                     LocalPlayback::Connecting
                         | LocalPlayback::Authorizing
                         | LocalPlayback::WaitingForNetwork
-                ) || (self.settings.playback_authorized
-                    && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
+                ) || (self.settings.playback_authorized && self.auth.is_connecting())
                 {
                     self.queued_play = Some(request);
                 } else {
@@ -11661,6 +11668,12 @@ impl App {
                 self.backend.send(Command::CancelSignIn);
                 self.sign_in_url = None;
                 self.auth = AuthStatus::SignedOut;
+                // A play held for the sign-in must not start after a later
+                // one (#861).
+                if self.queued_play.take().is_some() {
+                    self.clear_play_pending();
+                    self.intent_track = None;
+                }
             }
             Action::ConfigurePersonalWebApp => {
                 self.save_settings();
@@ -12984,10 +12997,7 @@ impl App {
             }
         }
         // Switch to the main window when sign-in is required.
-        let needs_sign_in = !(self.is_connected() && self.user.is_some())
-            && !matches!(self.auth, AuthStatus::Connecting | AuthStatus::Starting)
-            && !(self.is_connected() && self.user.is_none());
-        if self.settings.winamp_window && needs_sign_in && !self.switch_intent {
+        if self.settings.winamp_window && self.needs_sign_in() && !self.switch_intent {
             self.actions.push(Action::ToggleWinampWindow);
         }
         if self.settings.winamp_window {
@@ -17357,17 +17367,64 @@ mod tests {
     /// local player is connecting. Its intent must survive that race.
     #[test]
     fn pressing_play_while_startup_connects_is_held_for_the_player() {
+        // A restored sign-in Spotify is rate limiting is still connecting
+        // (#861).
+        for auth in [
+            AuthStatus::Starting,
+            AuthStatus::Connecting,
+            AuthStatus::RateLimited,
+        ] {
+            let mut app = headless_app();
+            app.local_ready = false;
+            app.local_playback = LocalPlayback::Unavailable;
+            app.auth = auth.clone();
+            app.settings.playback_authorized = true;
+            app.resume_track = Some("spotify:track:abc".into());
+
+            app.toggle_play();
+
+            assert!(app.queued_play.is_some(), "{auth:?}");
+            assert!(!app.show_devices, "startup is not a missing-device error");
+        }
+    }
+
+    /// Cancelling a sign-in drops the play held for it, so a later sign-in
+    /// does not start it (#861).
+    #[test]
+    fn cancelling_sign_in_drops_the_held_play() {
         let mut app = headless_app();
+        let ctx = egui::Context::default();
         app.local_ready = false;
         app.local_playback = LocalPlayback::Unavailable;
-        app.auth = AuthStatus::Starting;
+        app.auth = AuthStatus::RateLimited;
         app.settings.playback_authorized = true;
         app.resume_track = Some("spotify:track:abc".into());
-
         app.toggle_play();
-
         assert!(app.queued_play.is_some());
-        assert!(!app.show_devices, "startup is not a missing-device error");
+
+        app.apply(Action::CancelSignIn, &ctx);
+
+        assert!(app.queued_play.is_none());
+        assert!(!app.any_play_pending());
+        assert!(app.intent_track.is_none());
+    }
+
+    /// A restored sign-in still connecting, or rate limited by Spotify,
+    /// leaves the mini player open; only a real sign-in needs the main
+    /// window (#861).
+    #[test]
+    fn the_mini_player_stays_while_sign_in_connects() {
+        let mut app = headless_app();
+        for auth in [
+            AuthStatus::Starting,
+            AuthStatus::Connecting,
+            AuthStatus::RateLimited,
+        ] {
+            app.auth = auth.clone();
+            assert!(!app.needs_sign_in(), "{auth:?}");
+        }
+        app.auth = AuthStatus::SignedOut;
+        assert!(app.needs_sign_in());
     }
 
     /// Previous and Next move a restored track without starting playback.
