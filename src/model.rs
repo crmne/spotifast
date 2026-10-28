@@ -1398,6 +1398,7 @@ pub enum Action {
     ShowWindow,
     HideWindow,
     ClearArtCache,
+    ClearAudioCache,
     /// Clear local play history.
     ClearPlayHistory,
     /// Open or close the Winamp window.
