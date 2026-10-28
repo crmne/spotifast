@@ -3988,6 +3988,20 @@ mod tests {
         app.apply(Action::ClearPlayHistory, &ctx);
         wait(&mut app, [Size::Bytes(0), Size::Bytes(27), Size::Bytes(2)]);
         assert!(app.plays.is_empty());
+        app.apply(Action::ClearAudioCache, &ctx);
+        assert!(app.clearing_audio_cache);
+        let text = settings_text(&ctx, &mut app, "Storage");
+        assert!(text.iter().any(|text| text == "Clearing…"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.clearing_audio_cache {
+            app.background_frame(&ctx);
+            assert!(
+                std::time::Instant::now() < deadline,
+                "audio clear timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        wait(&mut app, [Size::Bytes(0), Size::Bytes(0), Size::Bytes(2)]);
         app.backend.shutdown();
     }
 

@@ -128,6 +128,78 @@ fn measure(path: &Path, recursive: bool) -> io::Result<u64> {
     Ok(total)
 }
 
+/// Clear only the disposable audio folder. The active librespot cache must
+/// remove its own entries so its size limiter does not retain deleted files.
+/// Keep bucket directories: a download may still be finishing into one.
+pub(crate) fn clear_audio(
+    root: &Path,
+    cache: Option<&librespot_core::cache::Cache>,
+) -> Result<u64, String> {
+    let mut removed = 0;
+    let mut paths = vec![root.to_owned()];
+    while let Some(path) = paths.pop() {
+        let metadata = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        };
+        if metadata.is_symlink() {
+            if path == root {
+                return Err("The audio cache folder is a symbolic link.".into());
+            }
+            continue;
+        }
+        if metadata.is_dir() {
+            for entry in std::fs::read_dir(&path).map_err(|error| error.to_string())? {
+                paths.push(entry.map_err(|error| error.to_string())?.path());
+            }
+        } else if metadata.is_file() {
+            let deleted = if let Some(cache) = cache {
+                let file = audio_file_id(root, &path)
+                    .filter(|file| cache.file_path(*file).as_ref() == Some(&path))
+                    .ok_or_else(|| format!("Unrecognized audio cache file: {}", path.display()))?;
+                match cache.remove_file(file) {
+                    Ok(()) => true,
+                    Err(error) if error.kind == librespot_core::error::ErrorKind::NotFound => false,
+                    Err(error) => return Err(error.to_string()),
+                }
+            } else {
+                match std::fs::remove_file(&path) {
+                    Ok(()) => true,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                    Err(error) => return Err(format!("{}: {error}", path.display())),
+                }
+            };
+            if deleted {
+                removed += metadata.len();
+            }
+        }
+    }
+    Ok(removed)
+}
+
+/// Librespot stores a 20-byte file ID as two hex characters for the bucket
+/// and 38 for the file. Reject other paths rather than removing a different
+/// cache entry or leaving its size accounting stale.
+fn audio_file_id(root: &Path, path: &Path) -> Option<librespot_core::file_id::FileId> {
+    let relative = path.strip_prefix(root).ok()?;
+    let mut parts = relative.iter();
+    let bucket = parts.next()?.to_str()?;
+    let name = parts.next()?.to_str()?;
+    if parts.next().is_some() || bucket.len() != 2 || name.len() != 38 {
+        return None;
+    }
+    let hex = format!("{bucket}{name}");
+    if !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut id = [0; 20];
+    for (index, byte) in id.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(librespot_core::file_id::FileId::from_raw(&id))
+}
+
 /// Decimal units. Keep nonempty
 /// files visibly nonzero, even below one kilobyte.
 pub(crate) fn format_bytes(bytes: u64) -> String {
@@ -261,5 +333,84 @@ mod tests {
         ] {
             assert_eq!(format_bytes(bytes), expected);
         }
+    }
+
+    #[test]
+    fn clearing_audio_updates_the_live_limiter_and_preserves_an_open_song() {
+        use librespot_core::{cache::Cache, file_id::FileId};
+        use std::io::{Cursor, Read};
+        let dir = TestDir::new();
+        let audio = dir.path().join("audio");
+        let state = dir.path().join("state");
+        let cache = Cache::new(None::<&Path>, Some(&state), Some(&audio), Some(100)).unwrap();
+        let first = FileId::from_raw(&[0x11; 20]);
+        cache.save_file(first, &mut Cursor::new([1; 40])).unwrap();
+        cache
+            .save_file(FileId::from_raw(&[0x22; 20]), &mut Cursor::new([2; 40]))
+            .unwrap();
+        cache.save_volume(123);
+        let mut playing = cache.file(first).unwrap();
+        assert_eq!(clear_audio(&audio, Some(&cache)).unwrap(), 80);
+        assert_eq!(cache.volume(), Some(123));
+        let mut bytes = Vec::new();
+        playing.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, vec![1; 40]);
+        // Stale accounting would try to evict the deleted files and return
+        // NotFound here, although the new entry fits the entire cache budget.
+        cache
+            .save_file(FileId::from_raw(&[0x33; 20]), &mut Cursor::new([3; 70]))
+            .unwrap();
+        assert_eq!(measure(&audio, true).unwrap(), 70);
+    }
+
+    #[test]
+    fn clearing_an_inactive_cache_removes_nested_files_but_not_sibling_state() {
+        let dir = TestDir::new();
+        let audio = dir.path().join("audio");
+        assert_eq!(clear_audio(&audio, None).unwrap(), 0);
+        std::fs::create_dir_all(audio.join("nested")).unwrap();
+        std::fs::write(audio.join("nested/track"), [0; 27]).unwrap();
+        let history = dir.path().join("history.json");
+        std::fs::write(&history, "[]").unwrap();
+        assert_eq!(clear_audio(&audio, None).unwrap(), 27);
+        assert_eq!(measure(&audio, true).unwrap(), 0);
+        assert_eq!(std::fs::read_to_string(history).unwrap(), "[]");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clearing_audio_does_not_follow_links_or_hide_permission_errors() {
+        use std::os::unix::{fs::PermissionsExt, fs::symlink};
+        let dir = TestDir::new();
+        let audio = dir.path().join("audio");
+        std::fs::create_dir(&audio).unwrap();
+        let outside = dir.path().join("keep");
+        std::fs::write(&outside, [0; 13]).unwrap();
+        symlink(&outside, audio.join("link")).unwrap();
+        symlink(dir.path(), audio.join("folder-link")).unwrap();
+        assert_eq!(clear_audio(&audio, None).unwrap(), 0);
+        assert!(outside.exists());
+        assert!(clear_audio(&audio.join("folder-link"), None).is_err());
+        std::fs::write(audio.join("locked"), [0; 7]).unwrap();
+        std::fs::set_permissions(&audio, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let cleared = clear_audio(&audio, None);
+        std::fs::set_permissions(&audio, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(cleared.is_err());
+        assert!(audio.join("locked").exists());
+    }
+
+    #[test]
+    fn an_active_cache_rejects_files_it_cannot_account_for() {
+        let dir = TestDir::new();
+        let cache =
+            librespot_core::cache::Cache::new(None::<&Path>, None, Some(dir.path()), Some(100))
+                .unwrap();
+        std::fs::write(dir.path().join("unexpected"), [0; 7]).unwrap();
+        assert!(
+            clear_audio(dir.path(), Some(&cache))
+                .unwrap_err()
+                .contains("Unrecognized")
+        );
+        assert!(dir.path().join("unexpected").exists());
     }
 }

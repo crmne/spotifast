@@ -2231,7 +2231,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     app.actions.push(Action::ClearArtCache);
                 }
             });
-            filtered_row(ui, &palette, &needle, &storage, &storage_rows[1], |_| {});
+            filtered_row(ui, &palette, &needle, &storage, &storage_rows[1], |ui| {
+                let label = if app.clearing_audio_cache {
+                    gettext(locale, "Clearing…")
+                } else {
+                    gettext(locale, "Clear audio")
+                };
+                if ui
+                    .add_enabled_ui(!app.clearing_audio_cache, |ui| {
+                        theme::soft_button(ui, &palette, Some(Icon::Trash), &label, false)
+                    })
+                    .inner
+                    .clicked()
+                {
+                    app.actions.push(Action::ClearAudioCache);
+                }
+            });
             filtered_row(ui, &palette, &needle, &storage, &storage_rows[2], |ui| {
                 if theme::soft_button(
                     ui,

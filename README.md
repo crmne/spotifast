@@ -130,7 +130,7 @@ The complete guide lives at **[spotifast.rocks](https://spotifast.rocks/)**.
 |---|---|
 | Sign in, set up playback, or configure themes, fonts, and proxies | [Getting started](https://spotifast.rocks/getting-started/) |
 | Learn shortcuts, command-line controls, and updates | [Everyday use](https://spotifast.rocks/using-spotifast/) |
-| Check storage sizes and find configuration and stored files | [Settings and files](https://spotifast.rocks/settings-and-files/) |
+| Check storage sizes, clear cached audio and find stored files | [Settings and files](https://spotifast.rocks/settings-and-files/) |
 | Understand scrolling performance and reduce loading delays | [Make it even faster](https://spotifast.rocks/make-it-even-faster/) |
 | Fix "Spotify refused the audio key" or "Spotify is being slow" | [When something goes wrong](https://spotifast.rocks/troubleshooting/) |
 | Understand what is stored and sent | [Privacy](https://spotifast.rocks/privacy/) · [How it connects](https://spotifast.rocks/how-it-connects/) |
