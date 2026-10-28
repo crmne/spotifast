@@ -50,8 +50,10 @@ Settings > Storage shows the current file sizes of the artwork cache, audio
 cache and local play history beside their names, in decimal units (1 MB is
 1,000,000 bytes). Sizes are checked in the background while this section is
 visible and refreshed about every five seconds, including after clearing.
-Missing files show 0 B; unreadable files show Unavailable. Artwork counts the
-files its Clear artwork button removes; audio includes nested cache folders.
+Missing files show 0 B; metadata or directory-traversal errors show Unavailable.
+File contents are not read to measure usage, so a file without read permission
+can still have a size when its metadata is accessible. Artwork counts the files
+its Clear artwork button removes; audio includes nested cache folders.
 Symbolic links are skipped. These are file sizes, so filesystem allocation,
 compression and files still open during playback can affect the disk space
 actually freed. Clear history saves an empty history file rather than deleting

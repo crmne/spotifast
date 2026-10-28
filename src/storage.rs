@@ -290,12 +290,33 @@ mod tests {
         std::fs::write(dir.path().join("readable"), [0; 13]).unwrap();
         std::fs::create_dir(&nested).unwrap();
         std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let access = std::fs::read_dir(&nested);
         let measured = measure(dir.path(), true);
         std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert_eq!(
-            measured.unwrap_err().kind(),
-            io::ErrorKind::PermissionDenied
-        );
+        match access {
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                assert_eq!(
+                    measured.unwrap_err().kind(),
+                    io::ErrorKind::PermissionDenied
+                );
+            }
+            // A privileged runner can traverse the directory despite its mode.
+            Ok(_) => assert_eq!(measured.unwrap(), 13),
+            Err(error) => panic!("unexpected directory access error: {error}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_size_does_not_require_reading_the_file_contents() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TestDir::new();
+        let file = dir.path().join("unreadable");
+        std::fs::write(&file, [0; 13]).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let measured = measure(&file, false);
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(measured.unwrap(), 13);
     }
 
     #[test]
@@ -392,11 +413,21 @@ mod tests {
         assert!(outside.exists());
         assert!(clear_audio(&audio.join("folder-link"), None).is_err());
         std::fs::write(audio.join("locked"), [0; 7]).unwrap();
+        let probe = audio.join("permission-probe");
+        std::fs::write(&probe, []).unwrap();
         std::fs::set_permissions(&audio, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let access = std::fs::remove_file(&probe);
         let cleared = clear_audio(&audio, None);
         std::fs::set_permissions(&audio, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(cleared.is_err());
-        assert!(audio.join("locked").exists());
+        match access {
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                assert!(cleared.is_err());
+                assert!(audio.join("locked").exists());
+            }
+            // Creating/removing directory entries can bypass mode bits for root.
+            Ok(()) => assert_eq!(cleared.unwrap(), 7),
+            Err(error) => panic!("unexpected file removal error: {error}"),
+        }
     }
 
     #[test]
