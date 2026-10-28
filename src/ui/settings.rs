@@ -337,31 +337,37 @@ fn section(
     ui.add_space(8.0);
 }
 
-/// What the local files row says: the folder and how many songs it holds,
-/// or what a folder is for.
+/// Explain local playback and report background indexing without doing disk
+/// work while drawing Settings.
 fn local_files_detail(app: &App) -> String {
     let locale = app.locale;
     let Some(folder) = app.settings.local_files_folder() else {
         return gettext(
             locale,
-            "Play the local files your playlists list from a folder on this computer.",
+            "Index audio from a folder on this computer. Local files play on this computer only.",
         )
         .into_owned();
     };
     let folder = folder.display().to_string();
-    match &app.local_files {
-        Some((_, uris)) => ngettext(
-            locale,
-            // Translators: {count} is a number of songs, {folder} a folder on this computer.
-            "{count} song in {folder}",
-            "{count} songs in {folder}",
-            uris.len() as u32,
-        )
-        .replace("{count}", &uris.len().to_string())
-        .replace("{folder}", &folder),
+    if app.local_files_scanning {
         // Translators: {folder} is a folder on this computer.
-        None => gettext(locale, "Looking for songs in {folder}…").replace("{folder}", &folder),
+        return gettext(locale, "Looking for songs in {folder}…").replace("{folder}", &folder);
     }
+    if let Some(error) = &app.local_files_error {
+        return error.clone();
+    }
+    let Some(items) = app.local_library.get() else {
+        return folder;
+    };
+    ngettext(
+        locale,
+        // Translators: {count} is a number of songs, {folder} a folder on this computer.
+        "{count} song in {folder}",
+        "{count} songs in {folder}",
+        items.len() as u32,
+    )
+    .replace("{count}", &items.len().to_string())
+    .replace("{folder}", &folder)
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -1002,16 +1008,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
             let choose_folder = gettext(locale, "Choose folder");
             let remove_folder = gettext(locale, "Remove");
+            let rescan = gettext(locale, "Rescan");
             let has_folder = app.settings.local_files_folder().is_some();
-            // Pill buttons are a little wider than soft ones; the open
-            // button carries an icon. Narrow windows put them under the text.
+            // Pill buttons are a little wider than soft ones; icon buttons
+            // also need room. Narrow windows put them under the text.
             let pill_width = |label: &str| theme::soft_button_width(ui, label) + 16.0;
             let folder_controls_width = pill_width(&choose_folder)
                 + if has_folder {
                     pill_width(&remove_folder)
                         + theme::soft_button_width(ui, &open_folder)
-                        + 22.0
-                        + 12.0
+                        + theme::soft_button_width(ui, &rescan)
+                        + 44.0
+                        + 18.0
                 } else {
                     0.0
                 };
@@ -1039,6 +1047,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         .clicked()
                         {
                             app.actions.push(Action::OpenLocalFilesFolder);
+                        }
+                        if ui
+                            .add_enabled_ui(!app.local_files_scanning, |ui| {
+                                theme::soft_button(
+                                    ui,
+                                    &palette,
+                                    Some(Icon::Refresh),
+                                    &rescan,
+                                    false,
+                                )
+                            })
+                            .inner
+                            .clicked()
+                        {
+                            app.actions.push(Action::RescanLocalFiles);
                         }
                     }
                     if theme::pill_button(ui, &palette, &choose_folder, false).clicked() {

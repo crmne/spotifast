@@ -592,7 +592,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         }
     }
 
-    if !now.is_episode {
+    if !now.is_episode && !now.uri.starts_with("spotify:local:") {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
         // A liked heart stays green under the pointer, like shuffle.
         let (icon, color, hover, tooltip) = if saved {
@@ -671,6 +671,8 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 }
             }
         }
+    } else if now.uri.starts_with("spotify:local:") {
+        egui::Popup::close_id(ui.ctx(), egui::Id::new(LIKED_POPUP_ID));
     }
 }
 

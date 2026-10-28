@@ -169,7 +169,7 @@ librespot provides:
   playback session. Sonos receivers are discovered on the local network;
   the Web API alone cannot start or control them.
 - Songs and podcast episodes.
-- Local files that a playlist lists, played from the local files folder chosen
+- Local files browsed from the Library or listed in a playlist, played from the folder chosen
   in Settings and its subfolders. Spotify keeps only a local file's artist,
   album, title and length, so the player matches each `spotify:local:` entry
   to the MP3, MP4, M4P or FLAC file whose tags and length give the same.
@@ -197,6 +197,17 @@ visualisers and an event for rejected audio keys. When Spotify refuses an
 audio key, nothing in Spotifast can fix it; see
 [Spotify refused the audio key](/troubleshooting/#audio-key). The patches are listed in
 `Cargo.toml` and dropped as librespot merges them.
+
+The local-file engine updates build on spiraljng's
+[sample-rate conversion](https://github.com/spiraljng/librespot/commit/a4bc693865a2a88ed056b2a0c7f75cb2e6b695a0)
+and [local queue support](https://github.com/spiraljng/librespot/commit/1f8d10a4c03b32d01030575cbf166ea999d513df).
+The approved librespot dependency carries these changes and
+[crmne's channel handling](https://github.com/librespot-org/librespot/pull/1840).
+The Library page indexes MP3 and FLAC files the pinned decoder can open.
+MP4 and M4P discovery exists upstream, but their usual AAC codec is not enabled
+in this build. WebM and video playback need upstream support.
+Folder changes and **Rescan** refresh the index and restart local playback so
+the page and player agree on available files.
 
 ## Not available
 
@@ -229,9 +240,11 @@ The Web API and librespot do not provide these features:
   playlists or search, and no way to feed the equalizer and visualisers.
   Spotifast will reconsider it if Spotify offers a supported desktop path.
   See [issue #965](https://github.com/crmne/spotifast/issues/965).
-- **Local files from Spotify's Local Files playlist.** librespot cannot play
-  that playlist; add the songs to another playlist first. Local files on other
-  computers or phones are not shared either: Spotify keeps only their names.
+- **Spotify's Local Files playlist and local-file uploads.** librespot cannot
+  read that special playlist. Spotifast's **Local Files** page indexes this
+  computer's source folders independently. Spotifast cannot add those files
+  to Spotify playlists, send their audio to another Connect device, or fetch
+  local files from other computers or phones. Spotify keeps only their names.
 - **Audiobooks.** librespot does not play them. Spotify lists some
   audiobooks among saved shows; since 0.10.0, Spotifast asks the
   librespot session which ones and leaves them out of the Podcasts shelf.

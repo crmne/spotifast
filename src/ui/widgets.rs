@@ -684,6 +684,7 @@ pub fn picked_menu(
     ui.set_min_width(220.0);
     ui.set_max_width(300.0);
     let count = songs.len();
+    let has_local = songs.iter().any(local_item);
     let uris: Vec<String> = songs.iter().map(|item| item.uri().to_string()).collect();
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -734,20 +735,22 @@ pub fn picked_menu(
         });
     }
     // Set one explicit saved state for the full selection.
-    let all_saved = uris.iter().all(|uri| app.is_saved(uri).unwrap_or(false));
-    let (icon, text) = if all_saved {
-        (
-            Icon::HeartFilled,
-            gettext(locale, "Remove from Liked Songs"),
-        )
-    } else {
-        (Icon::Heart, gettext(locale, "Save to Liked Songs"))
-    };
-    if menu_item(ui, &palette, Some(icon), &text) {
-        app.actions.push(Action::SetSavedMany {
-            uris: uris.clone(),
-            saved: !all_saved,
-        });
+    if !has_local {
+        let all_saved = uris.iter().all(|uri| app.is_saved(uri).unwrap_or(false));
+        let (icon, text) = if all_saved {
+            (
+                Icon::HeartFilled,
+                gettext(locale, "Remove from Liked Songs"),
+            )
+        } else {
+            (Icon::Heart, gettext(locale, "Save to Liked Songs"))
+        };
+        if menu_item(ui, &palette, Some(icon), &text) {
+            app.actions.push(Action::SetSavedMany {
+                uris: uris.clone(),
+                saved: !all_saved,
+            });
+        }
     }
     // One entry covers the whole selection on both the unsorted context and
     // a sorted or filtered view. The caller only passes a playlist when
@@ -766,7 +769,9 @@ pub fn picked_menu(
             positions: positions.to_vec(),
         });
     }
-    add_to_playlist_menu(ui, app, songs);
+    if !has_local {
+        add_to_playlist_menu(ui, app, songs);
+    }
 }
 
 fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
@@ -967,6 +972,7 @@ fn item_menu_at(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
+    let local = local_item(item);
     // A local file queues only on this computer's player (#1002).
     let queueable = app.can_queue(&uri);
     if menu_item_enabled(
@@ -1007,7 +1013,7 @@ fn item_menu_at(
             rows: vec![(index, uri.clone())],
         });
     }
-    if item.is_track() {
+    if !local && item.is_track() {
         let saved = app.is_saved(&uri).unwrap_or(false);
         let (icon, text) = if saved {
             (
@@ -1021,12 +1027,14 @@ fn item_menu_at(
             app.actions.push(Action::ToggleSaved(uri.clone()));
         }
         add_to_playlist_menu(ui, app, std::slice::from_ref(item));
-    } else if menu_item(
-        ui,
-        &palette,
-        Some(Icon::Bookmark),
-        &gettext(locale, "Save episode"),
-    ) {
+    } else if !local
+        && menu_item(
+            ui,
+            &palette,
+            Some(Icon::Bookmark),
+            &gettext(locale, "Save episode"),
+        )
+    {
         app.actions.push(Action::ToggleSaved(uri.clone()));
     }
     // Removal names the row's song and position, so it stays available on
@@ -1084,6 +1092,9 @@ fn item_menu_at(
                 positions: position.into_iter().collect(),
             });
         }
+    }
+    if local {
+        return;
     }
     // Spotify's own mixes hide a song for this listener without removing
     // it from anyone's copy (#779).
@@ -1307,6 +1318,12 @@ pub fn context_menu_items(
     ) {
         app.actions.push(Action::OpenInSpotify(uri.to_string()));
     }
+}
+
+/// Recognizes both local URIs and the local flag retained by playlist metadata.
+fn local_item(item: &PlayableItem) -> bool {
+    item.uri().starts_with("spotify:local:")
+        || matches!(item, PlayableItem::Track(track) if track.is_local)
 }
 
 /// Whether a row can start playback through Spotify. Unknown availability
@@ -1974,7 +1991,7 @@ fn track_row_contents(
     if cols.heart > 0.0 {
         let saved = app.is_saved(row.item.uri());
         let heart_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.heart, row_height));
-        if row.item.is_track() {
+        if row.item.is_track() && !local_item(row.item) {
             let mut child = ui.new_child(
                 UiBuilder::new()
                     .max_rect(heart_rect)
@@ -3939,6 +3956,154 @@ mod tests {
                 autostart: false,
             },
         )
+    }
+
+    #[test]
+    fn local_song_menus_queue_only_on_this_computer() {
+        for picked in [false, true] {
+            for active in [false, true] {
+                let mut app = test_app();
+                app.backend.set_offline(true);
+                let local = PlayableItem::Track(Track {
+                    uri: "spotify:local:Artist:Album:Song:180".into(),
+                    name: "Song".into(),
+                    is_local: true,
+                    ..Track::default()
+                });
+                app.local_files = Some((
+                    "/music".into(),
+                    std::sync::Arc::new(std::collections::HashMap::from([(
+                        local.uri().to_string(),
+                        "/music/song.mp3".into(),
+                    )])),
+                ));
+                if active {
+                    app.local_ready = true;
+                    app.local.playback = crate::player::Playback::Playing;
+                    app.local.track = Some(crate::player::LocalTrack {
+                        uri: "spotify:track:current".into(),
+                        ..Default::default()
+                    });
+                }
+                let ctx = egui::Context::default();
+                ctx.enable_accesskit();
+                theme::install(&ctx);
+                let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    if picked {
+                        picked_menu(
+                            ui,
+                            &mut app,
+                            &[
+                                local.clone(),
+                                PlayableItem::Track(Track {
+                                    uri: "spotify:track:cloud".into(),
+                                    ..Track::default()
+                                }),
+                            ],
+                            &[],
+                            None,
+                        );
+                    } else {
+                        item_menu(ui, &mut app, &local, None, None);
+                    }
+                });
+                output.textures_delta.clear();
+                let tree = output.platform_output.accesskit_update.unwrap();
+                for label in ["Play next", "Add to queue"] {
+                    let node = &tree
+                        .nodes
+                        .iter()
+                        .find(|(_, node)| node.label() == Some(label))
+                        .expect(label)
+                        .1;
+                    assert_eq!(
+                        node.is_disabled(),
+                        !active && (label == "Play next" || !picked),
+                        "{label}"
+                    );
+                }
+                for label in [
+                    "Save to Liked Songs",
+                    "Add to playlist",
+                    "Go to song radio",
+                    "Copy link",
+                    "Open in Spotify",
+                ] {
+                    assert!(
+                        tree.nodes
+                            .iter()
+                            .all(|(_, node)| node.label() != Some(label)),
+                        "local songs must not offer {label}"
+                    );
+                }
+                app.backend.shutdown();
+            }
+        }
+    }
+
+    #[test]
+    fn local_playlist_rows_keep_removal_and_positional_move_controls() {
+        for picked in [false, true] {
+            for sorted in [false, true] {
+                let mut app = test_app();
+                app.backend.set_offline(true);
+                let local = PlayableItem::Track(Track {
+                    uri: "spotify:local:Artist:Album:Song:180".into(),
+                    name: "Song".into(),
+                    is_local: true,
+                    ..Track::default()
+                });
+                let editable = ("playlist".into(), None);
+                let context = if sorted {
+                    RowContext::View {
+                        uris: std::sync::Arc::from([local.uri().to_string()]),
+                        context_uri: "spotify:playlist:playlist".into(),
+                        editable_playlist: Some(editable.clone()),
+                    }
+                } else {
+                    RowContext::Context {
+                        uri: "spotify:playlist:playlist".into(),
+                        editable_playlist: Some(editable.clone()),
+                    }
+                };
+                let ctx = egui::Context::default();
+                ctx.enable_accesskit();
+                theme::install(&ctx);
+                let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    if picked {
+                        picked_menu(
+                            ui,
+                            &mut app,
+                            std::slice::from_ref(&local),
+                            &[3],
+                            Some(&editable),
+                        );
+                    } else {
+                        item_menu_at(ui, &mut app, &local, Some(&context), Some(3), Some(3));
+                    }
+                });
+                output.textures_delta.clear();
+                let tree = output.platform_output.accesskit_update.unwrap();
+                let has = |label| {
+                    tree.nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some(label))
+                };
+                assert!(has("Remove from this playlist"));
+                assert_eq!(has("Move up"), !picked && !sorted);
+                assert_eq!(has("Move down"), !picked && !sorted);
+                for label in [
+                    "Save to Liked Songs",
+                    "Add to playlist",
+                    "Go to song radio",
+                    "Copy link",
+                    "Open in Spotify",
+                ] {
+                    assert!(!has(label), "local playlist rows must not offer {label}");
+                }
+                app.backend.shutdown();
+            }
+        }
     }
 
     fn run_on(

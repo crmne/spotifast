@@ -330,6 +330,21 @@ user can open. On Windows, `instance.key` holds the loopback port and a
 random token that every request must carry. Spotifast writes them on each
 start; nothing in them needs keeping.
 
+## Local files
+
+**Settings > Playback on this computer > Local files > Choose folder** selects
+one folder to scan, including its subfolders. The Library's **Local Files** page
+appears automatically when a folder is configured. Choosing another folder
+replaces it; **Remove** clears the folder and hides the Library entry without deleting
+files. The existing `local_files_folder` field in `settings.json` stores the
+path. The index is rebuilt in memory, using the same URI metadata as
+librespot playback. No audio files are copied or uploaded.
+
+**Rescan** refreshes the index after files or tags change. Changing the folder
+or rescanning restarts playback on this computer to refresh the player's
+lookup too. See [Local files](/using-spotifast/#local-files) for supported
+formats and playback requirements.
+
 ## settings.json
 
 Settings are stored in one readable JSON file and written atomically. Its
@@ -344,7 +359,7 @@ main fields are:
 | `gapless` | `true` | Gapless playback |
 | `audio_device` | `null` | The output local playback uses, by the id of a device **Audio output** in the device picker lists: PipeWire's or PulseAudio's node name or an ALSA PCM on Linux, the WASAPI endpoint id on Windows, the CoreAudio UID on macOS. `null` is the system default. A device that is not there plays through the default. A name saved by 0.13.3 or earlier opens the output that still has it and is replaced by its id once music plays there; any other name plays through the default and is kept until another choice. The `audio_backend` older versions saved is ignored and no longer written |
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
-| `local_files_folder` | `null` | Folder, with its subfolders, that a playlist's local files play from |
+| `local_files_folder` | `null` | Music folder searched with its subfolders; configuring it shows Local Files in the Library sidebar |
 | `theme` | `system` | Follow the system appearance by default; explicit `dark` and `light` choices remain available |
 | `language` | `system` | Since 0.10.0: the interface language. `system` follows the operating system's preferred languages and falls back to English; a tag such as `es`, `de-DE`, `pt-BR` or `zh-Hant` selects that language. An unknown tag follows the system |
 | `custom_theme` | `null` | Selected JSON filename from the `themes` folder |
@@ -479,6 +494,12 @@ visible while replacing the page content, with unfinished controls disabled.
 `home-loading` shows Home while its shelves are still loading.
 `--demo-language <TAG>` shows the interface in one of the bundled languages,
 such as `es` or `ja`, in place of the saved setting and the system's language.
+
+For Local Files, `--demo-page local-files --demo-show local-library` supplies
+three indexed recordings. Use `local-library-filtered`, `local-library-sorted`,
+`local-library-empty`, `local-library-scanning`, `local-library-error`, or
+`local-library-choose-folder` instead for those interface states. Add `light`
+to capture light mode, and `--demo-size 760x800` for a narrow window.
 
 `--demo-shot <PATH>` writes the window to a PNG and exits, which is useful for
 making deterministic screenshots for these pages:

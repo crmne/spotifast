@@ -510,6 +510,8 @@ pub struct TableCache {
     pub user_names_revision: u64,
     /// Which scan of the local files folder decided the playable rows.
     pub local_files: usize,
+    /// Local rows can only play while this computer is the target.
+    pub local_target: bool,
     pub visible: Arc<[usize]>,
     pub view_uris: Option<Arc<[String]>>,
     pub plays_shown_rows: bool,
@@ -607,6 +609,8 @@ fn local_files_scan(app: &App) -> usize {
         .map_or(0, |(_, uris)| Arc::as_ptr(uris) as usize)
 }
 
+/// Cache the filtered or sorted row mapping and its playable URI sequence.
+/// A local scan or playback-target change invalidates availability decisions.
 pub fn prepare_table_view(
     ui: &mut egui::Ui,
     app: &App,
@@ -630,6 +634,7 @@ pub fn prepare_table_view(
             && c.items_revision == items_revision
             && c.user_names_revision == app.user_names_revision
             && c.local_files == local_files_scan(app)
+            && c.local_target == app.can_play_local_files()
     });
 
     if let Some(entry) = cached.filter(|_| is_valid) {
@@ -656,6 +661,7 @@ pub fn prepare_table_view(
             items_revision,
             user_names_revision: app.user_names_revision,
             local_files: local_files_scan(app),
+            local_target: app.can_play_local_files(),
             visible: visible.into(),
             view_uris,
             plays_shown_rows,
@@ -684,10 +690,12 @@ fn view_context(base: &RowContext, view_uris: Option<&Arc<[String]>>) -> RowCont
     }
 }
 
+/// Draw shared collection rows, keeping local files interactive while offline.
 pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     let palette = app.palette;
     let locale = app.locale;
-    if table.items.is_empty() && !app.network_reachable {
+    let needs_network = table.page != Page::LocalFiles;
+    if table.items.is_empty() && !app.network_reachable && needs_network {
         widgets::empty_state(
             ui,
             &palette,
@@ -700,7 +708,7 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         );
         return;
     }
-    if !app.network_reachable {
+    if !app.network_reachable && needs_network {
         ui.add_enabled_ui(false, |ui| {
             ui.multiply_opacity(0.55);
             table_contents(app, ui, table);
@@ -3375,6 +3383,7 @@ mod tests {
             items_revision: 5,
             user_names_revision: 2,
             local_files: 0,
+            local_target: false,
             visible: Arc::new([2]),
             view_uris: Some(Arc::new(["spotify:track:t_2".to_string()])),
             plays_shown_rows: false,
@@ -3476,6 +3485,54 @@ mod tests {
                 autostart: false,
             },
         )
+    }
+
+    #[test]
+    fn a_cached_local_view_follows_the_playback_device() {
+        let mut app = test_app();
+        app.backend.set_offline(true);
+        app.local_ready = true;
+        let uri = "spotify:local:Artist:Album:Song:180";
+        app.local_files = Some((
+            "/music".into(),
+            Arc::new(std::collections::HashMap::from([(
+                uri.to_string(),
+                "/music/recording.flac".into(),
+            )])),
+        ));
+        let items = vec![(
+            PlayableItem::Track(crate::api::models::Track {
+                uri: uri.into(),
+                is_local: true,
+                ..Default::default()
+            }),
+            None,
+            None,
+        )];
+        let ctx = egui::Context::default();
+        let mut caches = Vec::new();
+        for remote in [false, true] {
+            app.selected_device = remote.then(|| "speaker".into());
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                caches.push(prepare_table_view(
+                    ui,
+                    &app,
+                    &Page::LocalFiles,
+                    &items,
+                    ViewOptions {
+                        needle: "",
+                        sort: None,
+                        plays_shown_rows: true,
+                    },
+                    1,
+                ));
+            });
+            output.textures_delta.clear();
+        }
+        assert_eq!(caches[0].view_uris.as_ref().unwrap().len(), 1);
+        assert!(caches[1].view_uris.as_ref().unwrap().is_empty());
+        assert!(!Arc::ptr_eq(&caches[0], &caches[1]));
+        app.backend.shutdown();
     }
 
     struct KeyboardTable {

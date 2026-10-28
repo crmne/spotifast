@@ -1089,6 +1089,19 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     });
     ui.add_space(6.0);
 
+    if app.settings.local_files_folder().is_some()
+        && nav_row(
+            ui,
+            &palette,
+            Icon::Music,
+            &gettext(locale, "Local Files"),
+            page == Page::LocalFiles,
+        )
+        .clicked()
+    {
+        app.actions.push(Action::Open(Page::LocalFiles));
+    }
+
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
         for (value, label) in [

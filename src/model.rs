@@ -114,6 +114,8 @@ pub enum Page {
     NewReleases,
     Search,
     LikedSongs,
+    /// Audio indexed from folders on this computer, with no Spotify context.
+    LocalFiles,
     Albums,
     Artists,
     Podcasts,
@@ -130,6 +132,7 @@ pub enum Page {
 }
 
 impl Page {
+    /// Encode the stable key used by saved navigation and table preferences.
     pub fn encode(&self) -> String {
         match self {
             Page::Home => "home".into(),
@@ -137,6 +140,7 @@ impl Page {
             Page::NewReleases => "new-releases".into(),
             Page::Search => "search".into(),
             Page::LikedSongs => "liked".into(),
+            Page::LocalFiles => "local-files".into(),
             Page::Albums => "albums".into(),
             Page::Artists => "artists".into(),
             Page::Podcasts => "podcasts".into(),
@@ -151,6 +155,7 @@ impl Page {
         }
     }
 
+    /// Restore a saved page key, rejecting unknown kinds and invalid radio seeds.
     pub fn decode(text: &str) -> Option<Self> {
         Some(match text {
             "home" => Page::Home,
@@ -158,6 +163,7 @@ impl Page {
             "new-releases" => Page::NewReleases,
             "search" => Page::Search,
             "liked" => Page::LikedSongs,
+            "local-files" => Page::LocalFiles,
             "albums" => Page::Albums,
             "artists" => Page::Artists,
             "podcasts" => Page::Podcasts,
@@ -1397,8 +1403,9 @@ pub enum Action {
     /// Windows: draw Spotifast's own title bar instead of the standard one.
     SetCustomTitlebar(bool),
     OpenSkinsFolder,
-    /// Pick the folder a playlist's local files play from.
+    /// Choose or replace this computer's local audio folder.
     ChooseLocalFilesFolder,
+    RescanLocalFiles,
     /// Stop playing local files.
     ForgetLocalFilesFolder,
     OpenLocalFilesFolder,
