@@ -168,7 +168,7 @@ tokio-tungstenite = "0.28"
 futures-util = { version = "0.3", features = ["sink"] }
 # Extract only the executable and notices from Spotify's official Soloist builds.
 tar = { version = "0.4", default-features = false }
-zip = { version = "6", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 sha1 = "0.10"
 sha2 = "0.10"
 # Spotify names a Cast device by the MD5 of its friendly name (`cast.rs`).
