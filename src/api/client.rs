@@ -832,12 +832,23 @@ impl ApiClient {
         Ok(())
     }
 
-    /// Turns shuffle on, then starts `request`. Shuffle applies to what is
-    /// playing now, and a context that forbids it, as autoplay's does, gets
-    /// a 403 "Restriction violated" until something replaces it (#1307,
-    /// #1346): then the start goes first, and shuffle follows on the new one.
-    pub async fn shuffle_play(&self, device_id: Option<&str>, request: &PlayRequest) -> Result<()> {
-        match self.set_shuffle(true, device_id).await {
+    /// Applies `shuffle` and `repeat` (`None` leaves a mode as it is), then
+    /// starts `request`. Shuffle applies to what is playing now, and a
+    /// context that forbids it, as autoplay's does, gets a 403 "Restriction
+    /// violated" until something replaces it (#1307, #1346): then the start
+    /// goes first, and the modes follow on the new one.
+    pub async fn shuffle_play(
+        &self,
+        device_id: Option<&str>,
+        request: &PlayRequest,
+        shuffle: Option<bool>,
+        repeat: Option<&str>,
+    ) -> Result<()> {
+        let shuffled = match shuffle {
+            Some(state) => self.set_shuffle(state, device_id).await,
+            None => Ok(()),
+        };
+        match shuffled {
             Err(ApiError::Status {
                 status: 403,
                 message,
@@ -847,13 +858,23 @@ impl ApiClient {
             {
                 self.play(device_id, Some(request)).await?;
                 // Playing is what was asked; an unshuffled start beats none.
-                if let Err(error) = self.set_shuffle(true, device_id).await {
-                    log::warn!("Shuffle after starting failed: {error}");
+                if let Some(state) = shuffle {
+                    if let Err(error) = self.set_shuffle(state, device_id).await {
+                        log::warn!("Shuffle after starting failed: {error}");
+                    }
+                }
+                if let Some(state) = repeat {
+                    if let Err(error) = self.set_repeat(state, device_id).await {
+                        log::warn!("Repeat after starting failed: {error}");
+                    }
                 }
                 Ok(())
             }
             shuffled => {
                 shuffled?;
+                if let Some(state) = repeat {
+                    self.set_repeat(state, device_id).await?;
+                }
                 self.play(device_id, Some(request)).await
             }
         }
@@ -1735,6 +1756,8 @@ mod tests {
                 .shuffle_play(
                     Some("soloist"),
                     &PlayRequest::context("spotify:playlist:p1"),
+                    Some(true),
+                    None,
                 )
                 .await;
             assert_eq!(result.is_ok(), started, "{replies:?}: {result:?}");

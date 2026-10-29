@@ -339,8 +339,9 @@ pub fn actions_row(
             let is_filtered = filter.as_ref().is_some_and(|f| !f.trim().is_empty());
             // A radio is mixed afresh each time Spotify is asked, so it
             // always plays the songs on screen.
+            let page_shuffle = app.page_shuffle_shown(uri);
             let play_view = actions.view.is_some()
-                && (!app.playing_context_shuffle()
+                && (!page_shuffle
                     || is_filtered
                     || actions.save_radio.is_some()
                     || actions.plays_shown_rows);
@@ -404,7 +405,7 @@ pub fn actions_row(
                     });
                 }
             }
-            let shuffle = app.playing_context_shuffle();
+            let shuffle = page_shuffle;
             if theme::icon_button(
                 ui,
                 Icon::Shuffle,
@@ -429,7 +430,14 @@ pub fn actions_row(
             )
             .clicked()
             {
-                app.actions.push(Action::SetShuffle(!shuffle));
+                app.actions.push(if context_here {
+                    Action::SetShuffle(!shuffle)
+                } else {
+                    Action::SetShuffleForNextPlay {
+                        shuffle: !shuffle,
+                        context: uri.clone(),
+                    }
+                });
             }
         }
         if let Some((uri, saved)) = &actions.saved {
@@ -5197,7 +5205,10 @@ mod tests {
         ]);
 
         assert!(
-            matches!(app.actions.as_slice(), [Action::SetShuffle(true)]),
+            matches!(
+                app.actions.as_slice(),
+                [Action::SetShuffleForNextPlay { shuffle: true, .. }]
+            ),
             "shuffle must not start playback: {:?}",
             app.actions
         );
