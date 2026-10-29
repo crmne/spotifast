@@ -1862,6 +1862,11 @@ pub struct SessionState {
     /// Local repeat mode ("off", "context" or "track") saved across
     /// restarts. Sessions saved before it existed read as off.
     pub repeat: String,
+    /// Shuffle and repeat as last chosen while a playlist played, applied to
+    /// the next playlist started. `None` until one has been chosen.
+    pub playlist_modes: Option<PlayModes>,
+    /// The same for albums.
+    pub album_modes: Option<PlayModes>,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
     /// Last window inner size, to restore on next launch. Logical pixels
@@ -1887,6 +1892,15 @@ pub struct SessionState {
     /// start returns it to this mode instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lyrics_fullscreen_from: Option<WindowMode>,
+}
+
+/// The shuffle and repeat choice remembered for one kind of context.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlayModes {
+    pub shuffle: bool,
+    /// "off", "context" or "track", as in `SessionState::repeat`.
+    pub repeat: String,
 }
 
 /// Whether a window was full screen, and whether it was maximized.

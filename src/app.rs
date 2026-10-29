@@ -21,7 +21,7 @@ use crate::model::QueueTab;
 use crate::model::*;
 use crate::paths::AppDirs;
 use crate::player::{EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand, RepeatMode};
-use crate::settings::{CachedRootlist, SessionState, Settings, ThemeChoice};
+use crate::settings::{CachedRootlist, PlayModes, SessionState, Settings, ThemeChoice};
 use crate::single_instance::ControlCommand;
 use crate::theme::{self, Palette};
 use crate::util;
@@ -671,6 +671,12 @@ pub struct App {
     /// The repeat mode saved by the last run, which the first local load
     /// starts with: the engine starts at off.
     repeat_wanted: RepeatMode,
+    /// Shuffle and repeat last chosen while a playlist, or an album, played.
+    playlist_modes: Option<PlayModes>,
+    album_modes: Option<PlayModes>,
+    /// Shuffle or repeat was chosen with nothing playing: the next play
+    /// keeps that choice, and it becomes its kind's remembered one.
+    modes_chosen: bool,
     /// Last local shuffle change, used to ignore its echo from the engine.
     shuffle_set_at: Option<Instant>,
     /// When tracks recently came up unavailable, to spot a key-service
@@ -1255,6 +1261,9 @@ impl App {
             local_files: None,
             shuffle_wanted: session.shuffle_on,
             repeat_wanted: RepeatMode::from_api(&session.repeat),
+            playlist_modes: session.playlist_modes.clone(),
+            album_modes: session.album_modes.clone(),
+            modes_chosen: false,
             shuffle_set_at: None,
             unavailable_at: Vec::new(),
             last_unavailable_reconnect: None,
@@ -9086,7 +9095,73 @@ impl App {
         self.supersede_play_search();
         // A play from a row names its row again after this.
         self.played_row = None;
+        let context = request.context_uri.clone();
+        let chosen = shuffle_first || self.modes_chosen;
+        let shuffle_first = shuffle_first
+            || context
+                .as_deref()
+                .is_some_and(|context| self.apply_play_modes(context));
         self.start_play(request, shuffle_first);
+        if chosen && context.as_deref().and_then(ContextKind::of).is_some() {
+            self.modes_chosen = false;
+            self.remember_play_modes();
+        }
+    }
+
+    /// Brings shuffle and repeat to what was last chosen for this kind of
+    /// context, unless a choice made with nothing playing is still waiting
+    /// for its play. Returns whether the play must start shuffled.
+    fn apply_play_modes(&mut self, context: &str) -> bool {
+        if self.modes_chosen {
+            return false;
+        }
+        let Some(modes) = ContextKind::of(context).and_then(|kind| self.modes_for(kind)) else {
+            return false;
+        };
+        let repeat = RepeatMode::from_api(&modes.repeat);
+        if !matches!(self.target(), Target::Remote(None)) && repeat != self.current_repeat() {
+            self.set_repeat(repeat);
+        }
+        if !modes.shuffle && self.shuffle_wanted {
+            self.set_shuffle(false);
+        }
+        modes.shuffle
+    }
+
+    fn modes_for(&self, kind: ContextKind) -> Option<PlayModes> {
+        match kind {
+            ContextKind::Playlist => self.playlist_modes.clone(),
+            ContextKind::Album => self.album_modes.clone(),
+        }
+    }
+
+    fn current_repeat(&self) -> RepeatMode {
+        self.now_playing()
+            .map_or_else(|| self.local_repeat(), |now| now.repeat)
+    }
+
+    /// Files a shuffle or repeat choice under the kind of context playing,
+    /// or holds it for the next play when nothing is.
+    fn remember_play_modes(&mut self) {
+        let Some(kind) = self
+            .playing_context_uri()
+            .as_deref()
+            .and_then(ContextKind::of)
+        else {
+            if self.playing_context_uri().is_none() {
+                self.modes_chosen = true;
+            }
+            return;
+        };
+        let modes = PlayModes {
+            shuffle: self.shuffle_wanted,
+            repeat: self.current_repeat().api_name().into(),
+        };
+        match kind {
+            ContextKind::Playlist => self.playlist_modes = Some(modes),
+            ContextKind::Album => self.album_modes = Some(modes),
+        }
+        self.session_dirty = true;
     }
 
     /// A playback choice made now: a play-search still in flight must not
@@ -11047,7 +11122,8 @@ impl App {
                         self.cache_track_from_context(&context_uri, uri);
                     }
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
-                    self.play_request(request, false);
+                    let shuffle_first = self.apply_play_modes(&context_uri);
+                    self.play_request(request, shuffle_first);
                     self.played_row = played;
                     self.note_recent_context(&context_uri);
                     self.assumed_context = Some(AssumedContext {
@@ -11147,13 +11223,21 @@ impl App {
                     .now_playing()
                     .map_or(self.shuffle_wanted, |now| now.shuffle);
                 self.set_shuffle(!shuffle);
+                self.remember_play_modes();
             }
-            Action::SetShuffle(shuffle) => self.set_shuffle(shuffle),
+            Action::SetShuffle(shuffle) => {
+                self.set_shuffle(shuffle);
+                self.remember_play_modes();
+            }
             Action::CycleRepeat => {
                 let mode = self.now_playing().map(|now| now.repeat).unwrap_or_default();
                 self.set_repeat(mode.next());
+                self.remember_play_modes();
             }
-            Action::SetRepeat(mode) => self.set_repeat(mode),
+            Action::SetRepeat(mode) => {
+                self.set_repeat(mode);
+                self.remember_play_modes();
+            }
             Action::AddToQueue { uri, label } => self.add_to_queue(uri, label),
             Action::QueueMany { songs } => self.queue_many(songs),
             Action::PlayNext { items } => {
@@ -13141,6 +13225,8 @@ impl App {
                     .unwrap_or_default(),
                 shuffle_on: self.shuffle_wanted,
                 repeat: self.local_repeat().api_name().into(),
+                playlist_modes: self.playlist_modes.clone(),
+                album_modes: self.album_modes.clone(),
                 sorts: self
                     .table_sorts
                     .iter()
@@ -13556,6 +13642,26 @@ fn friendly_api_error(locale: Locale, error: &crate::api::ApiError) -> String {
         gettext(locale, "Network connection error. Check your connection.").into_owned()
     } else {
         error.to_string()
+    }
+}
+
+/// The kinds of context that remember their own shuffle and repeat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ContextKind {
+    Playlist,
+    Album,
+}
+
+impl ContextKind {
+    fn of(uri: &str) -> Option<Self> {
+        let uri = crate::link::canonical_context_uri(uri);
+        if uri.starts_with("spotify:playlist:") {
+            Some(Self::Playlist)
+        } else if uri.starts_with("spotify:album:") {
+            Some(Self::Album)
+        } else {
+            None
+        }
     }
 }
 
@@ -17540,6 +17646,73 @@ mod tests {
         app.apply(Action::Next, &ctx);
         assert_eq!(app.now_playing().unwrap().repeat, RepeatMode::Context);
         app.backend.shutdown();
+    }
+
+    /// Playlists and albums each start with the shuffle and repeat last
+    /// chosen while one of their kind played.
+    #[test]
+    fn playlists_and_albums_remember_their_own_shuffle_and_repeat() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let play = |app: &mut App, uri: &str| {
+            app.apply(
+                Action::PlayContext {
+                    uri: uri.into(),
+                    offset_uri: None,
+                    offset_index: None,
+                },
+                &ctx,
+            );
+        };
+        play(&mut app, "spotify:playlist:p");
+        app.apply(Action::SetShuffle(true), &ctx);
+        app.apply(Action::SetRepeat(RepeatMode::Context), &ctx);
+
+        play(&mut app, "spotify:album:a");
+        assert!(
+            app.shuffle_wanted,
+            "an album with no choice yet keeps the mode"
+        );
+        app.apply(Action::SetShuffle(false), &ctx);
+        assert!(
+            app.playlist_modes
+                .as_ref()
+                .is_some_and(|modes| modes.shuffle)
+        );
+        assert!(app.album_modes.as_ref().is_some_and(|modes| !modes.shuffle));
+
+        play(&mut app, "spotify:playlist:p2");
+        assert!(app.shuffle_wanted, "the playlist's shuffle returns");
+        assert_eq!(
+            app.playlist_modes
+                .as_ref()
+                .map(|modes| modes.repeat.as_str()),
+            Some("context")
+        );
+        play(&mut app, "spotify:album:a2");
+        assert!(!app.shuffle_wanted, "the album's shuffle returns");
+    }
+
+    /// A choice made with nothing playing belongs to the next play.
+    #[test]
+    fn a_choice_made_before_playing_applies_to_that_play() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "off".into(),
+        });
+        app.apply(Action::SetShuffle(true), &ctx);
+        app.apply(
+            Action::PlayContext {
+                uri: "spotify:album:a".into(),
+                offset_uri: None,
+                offset_index: None,
+            },
+            &ctx,
+        );
+        assert!(app.shuffle_wanted);
+        assert!(app.album_modes.as_ref().is_some_and(|modes| modes.shuffle));
     }
 
     /// A restored session keeps shuffle enabled when skipping.
