@@ -65,11 +65,21 @@ const QUEUE_WAIT: Duration = Duration::from_millis(50);
 /// Maximum time `stop` waits for the queue to drain.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// The most `stop` waits, once the queue has drained, for the device to
+/// play what it still holds: the end of the fade. Pausing the device any
+/// sooner cuts the fade off there, or on Windows keeps the rest of it to
+/// play at the next Play.
+const SETTLE_LIMIT: Duration = Duration::from_millis(500);
+
 /// Length of each side of an interrupted-track fade.
 const INTERRUPT_FADE: Duration = Duration::from_millis(50);
 
-/// How long Play takes to come up, and Pause and Stop to go down.
-const TRANSPORT_FADE: Duration = Duration::from_millis(50);
+/// How long Play takes to come up, and Pause and Stop to go down: long
+/// enough to hear as a fade, not only to avoid a click. librespot stops
+/// decoding when it pauses, so the sound already queued is all a pause has
+/// to fade through. The fade takes all of it rather than playing the rest
+/// as silence, and Play picks the song up where the fade left it.
+const TRANSPORT_FADE: Duration = QUEUE_AHEAD;
 
 /// Smooths slider and mute changes at the device's sample rate.
 const VOLUME_RAMP: Duration = Duration::from_millis(30);
@@ -94,14 +104,18 @@ pub const BUFFER_MS_RANGE: std::ops::RangeInclusive<u32> = 20..=500;
 /// is right when one track reaches its end, but an explicit skip otherwise
 /// leaves the old queued audio in front of the replacement. The old signal is
 /// faded on rodio's output thread before its queue is discarded; writes stay
-/// gated until librespot reports that the replacement track is loaded.
-/// A confirmed seek also discards queued audio, without gating packets from
-/// the decoder that has already moved to the requested position.
+/// gated until librespot reports that the replacement track is loaded, which
+/// then comes up the way Play does. A confirmed seek also discards queued
+/// audio, without gating packets from the decoder that has already moved to
+/// the requested position.
 pub struct AudioControl {
     target: Mutex<AudioTarget>,
     waiting_for_track: AtomicBool,
     reset_output: AtomicBool,
     reset_processing: AtomicBool,
+    /// The next fresh queue starts a song the listener chose, rather than
+    /// carrying on after a seek.
+    song_start: AtomicBool,
     buffer_ms: u32,
 }
 
@@ -118,6 +132,7 @@ impl AudioControl {
             waiting_for_track: AtomicBool::new(false),
             reset_output: AtomicBool::new(false),
             reset_processing: AtomicBool::new(false),
+            song_start: AtomicBool::new(false),
             buffer_ms: buffer_ms.clamp(*BUFFER_MS_RANGE.start(), *BUFFER_MS_RANGE.end()),
         })
     }
@@ -166,6 +181,7 @@ impl AudioControl {
             // The replacement gets a fresh rodio sink on its first write.
             sink.stop();
         }
+        self.song_start.store(true, Ordering::SeqCst);
         self.reset_output.store(true, Ordering::SeqCst);
         self.reset_processing.store(true, Ordering::SeqCst);
     }
@@ -192,6 +208,11 @@ impl AudioControl {
 
     fn take_reset(&self) -> bool {
         self.reset_output.swap(false, Ordering::SeqCst)
+    }
+
+    /// Whether the fresh queue just taken starts a song the listener chose.
+    fn take_song_start(&self) -> bool {
+        self.song_start.swap(false, Ordering::SeqCst)
     }
 
     fn register(&self, sink: &Arc<rodio::Sink>, envelope: Arc<Envelope>) {
@@ -362,7 +383,7 @@ struct TransitionSource {
     inner: rodio::buffer::SamplesBuffer,
     /// Smooths a track the listener replaced part way through.
     interrupt: Arc<Envelope>,
-    /// Carries Play and Pause.
+    /// Carries Play and Pause, and the start of a song the listener chose.
     transport: Arc<Envelope>,
     /// The count this chunk's frames belong to.
     queued: Arc<Queued>,
@@ -419,7 +440,11 @@ impl Iterator for TransitionSource {
         if self.channel == 0 {
             // Both step every frame. They are independent ramps that happen
             // to share a signal, so a skip during a pause rides them at once.
-            self.gain = self.interrupt.next_gain() * self.transport.next_gain();
+            // Play and Pause are long enough to hear, so their ramp is
+            // squared: a straight line in gain hangs near full and then
+            // drops away, where this falls and rises evenly to the ear.
+            let transport = self.transport.next_gain();
+            self.gain = self.interrupt.next_gain() * transport * transport;
             self.remaining = self.remaining.saturating_sub(1);
             self.queued.consumed.fetch_add(1, Ordering::Relaxed);
         }
@@ -480,7 +505,8 @@ struct Output {
     resampler: Option<Resampler>,
     envelope: Arc<Envelope>,
     /// The Play and Pause ramp, kept across track changes so a skip during a
-    /// fade does not snap the level back.
+    /// fade does not snap the level back. A song the listener chose starts
+    /// it again from silence, once the old one has faded out.
     transport: Arc<Envelope>,
     /// How much sound is queued, so Pause can cut its ramp to fit.
     queued: Arc<Queued>,
@@ -785,12 +811,17 @@ impl Sink for RodioSink {
         if let Some(output) = &mut self.output {
             // The drain below plays the queue out, so the ramp is cut to
             // what is in it. During steady playback that is the whole
-            // 50 ms; just after a seek or a track change it is whatever has
+            // fade; just after a seek or a track change it is whatever has
             // been decoded since.
             output.transport.fade_out_over(output.queued.frames());
             let deadline = Instant::now() + DRAIN_TIMEOUT;
             while !output.sink.empty() && !output.failed() && Instant::now() < deadline {
                 thread::sleep(Duration::from_millis(10));
+            }
+            // The fade has left rodio, but the device holds its end for as
+            // long as its latency. Let it play that out to silence first.
+            if output.sink.empty() && !output.failed() && !output.device.is_paused() {
+                thread::sleep(output.device.clock().latency().min(SETTLE_LIMIT));
             }
             output.sink.pause();
             // With the queue played out, the device can stop asking for
@@ -833,6 +864,11 @@ impl Sink for RodioSink {
             output.fed = false;
             output.last_write = None;
             self.applied_volume = -1.0;
+            if self.control.take_song_start() {
+                // A chosen song comes up from silence the way Play does. A
+                // seek only declicks, so the music carries straight on.
+                output.transport.close();
+            }
         }
         self.apply_volume();
         let Some(output) = &mut self.output else {
@@ -1404,6 +1440,50 @@ mod tests {
         assert!(sink.stop().is_ok());
     }
 
+    /// The first packet of a song chosen mid-song starts the Play ramp from
+    /// silence; the first after a seek leaves it open. Needs an output, as
+    /// above.
+    #[test]
+    fn a_chosen_song_rises_from_silence_and_a_seek_does_not() {
+        let control = AudioControl::new(DEFAULT_BUFFER_MS);
+        let mut sink = RodioSink::new(
+            None,
+            Arc::new(|_| {}),
+            Box::new(librespot_playback::mixer::NoOpVolume),
+            DEFAULT_BUFFER_MS,
+            Arc::clone(&control),
+        );
+        assert!(sink.start().is_ok());
+        let Some(output) = &mut sink.output else {
+            return;
+        };
+        output.transport = Envelope::open(output.sample_rate, TRANSPORT_FADE);
+        // A fade is thousands of frames at any device rate, so however soon
+        // the device takes a packet, a ramp that started again is not back up.
+        let full = |sink: &RodioSink| {
+            sink.output
+                .as_ref()
+                .is_some_and(|output| output.transport.level.load(Ordering::Relaxed) == SCALE)
+        };
+        let mut converter = Converter::new(None);
+        let packet = || AudioPacket::Samples(vec![0.0; 441 * NUM_CHANNELS as usize]);
+
+        control.handle_player_event(&PlayerEvent::Seeked {
+            play_request_id: 1,
+            track_id: librespot_core::SpotifyUri::from_uri("spotify:track:14XWXWv5FoCbFzLksawpEe")
+                .unwrap(),
+            position_ms: 90_000,
+        });
+        sink.write(packet(), &mut converter).unwrap();
+        assert!(full(&sink), "a seek carries on at full");
+
+        control.interrupt();
+        control.track_changed();
+        sink.write(packet(), &mut converter).unwrap();
+        assert!(!full(&sink), "a chosen song comes up from silence");
+        assert!(sink.stop().is_ok());
+    }
+
     fn no_device(_: Option<&str>, _: u32, _: &AudioControl) -> Result<Output, OpenError> {
         Err(OpenError::NoDevice)
     }
@@ -1627,6 +1707,34 @@ mod tests {
         assert!(control.take_reset());
     }
 
+    /// A song the listener chose comes up the way Play does, and so does
+    /// one that Previous rewound. A seek is no new start: after its
+    /// declick the music carries straight on.
+    #[test]
+    fn a_chosen_song_comes_up_like_play_and_a_seek_carries_on() {
+        let seeked = || PlayerEvent::Seeked {
+            play_request_id: 1,
+            track_id: librespot_core::SpotifyUri::from_uri("spotify:track:14XWXWv5FoCbFzLksawpEe")
+                .unwrap(),
+            position_ms: 90_000,
+        };
+        let control = AudioControl::new(DEFAULT_BUFFER_MS);
+        control.handle_player_event(&seeked());
+        assert!(control.take_reset());
+        assert!(!control.take_song_start(), "a seek carries on");
+
+        control.interrupt();
+        control.track_changed();
+        assert!(control.take_reset());
+        assert!(control.take_song_start(), "a chosen song starts");
+        assert!(!control.take_song_start(), "once");
+
+        control.interrupt();
+        control.handle_player_event(&seeked());
+        assert!(control.take_reset());
+        assert!(control.take_song_start(), "a rewound song starts too");
+    }
+
     #[test]
     fn an_interrupted_signal_fades_out_and_a_replacement_fades_in() {
         let frames = fade_frames(RATE, INTERRUPT_FADE);
@@ -1739,6 +1847,43 @@ mod tests {
         let transport = Envelope::open(RATE, TRANSPORT_FADE);
         transport.fade_out_over(u64::from(nominal) * 10);
         falls_silent_after(&transport, nominal);
+    }
+
+    /// In steady playback the queue holds from a refill short of
+    /// `QUEUE_AHEAD` up to all of it, and a pause fades through every frame
+    /// of that: none of the song plays as silence before Play picks it up.
+    #[test]
+    fn a_pause_in_steady_playback_fades_through_the_whole_queue() {
+        let full = fade_frames(RATE, QUEUE_AHEAD);
+        for queued in [full - fade_frames(RATE, REFILL), full] {
+            let transport = Envelope::open(RATE, TRANSPORT_FADE);
+            transport.fade_out_over(u64::from(queued));
+            falls_silent_after(&transport, queued);
+        }
+    }
+
+    /// Half way through Play or Pause the music is at a quarter of full
+    /// scale (-12 dB), not half (-6 dB), so it moves evenly to the ear
+    /// instead of leaping out of silence or hanging near full.
+    #[test]
+    fn play_and_pause_move_evenly_to_the_ear() {
+        let frames = fade_frames(RATE, TRANSPORT_FADE);
+        let (interrupt, _) = wide_open();
+
+        let transport = Envelope::rising(RATE, TRANSPORT_FADE);
+        let risen = gains(frames + 1, &interrupt, &transport);
+        assert_eq!(risen[0], 0.0);
+        assert!((risen[frames as usize / 2] - 0.25).abs() < 0.001);
+        assert_eq!(risen[frames as usize], 1.0);
+        assert!(risen.windows(2).all(|pair| pair[0] <= pair[1]));
+
+        let transport = Envelope::open(RATE, TRANSPORT_FADE);
+        transport.fade_out();
+        let fallen = gains(frames + 1, &interrupt, &transport);
+        assert_eq!(fallen[0], 1.0);
+        assert!((fallen[frames as usize / 2] - 0.25).abs() < 0.001);
+        assert_eq!(fallen[frames as usize], 0.0);
+        assert!(fallen.windows(2).all(|pair| pair[0] >= pair[1]));
     }
 
     /// A dozen of librespot's shortest packets (4 ms each) are less than one

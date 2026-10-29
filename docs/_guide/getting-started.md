@@ -84,8 +84,10 @@ You can rename it in Settings.
   this computer**, **Start with your computer** opens it when you log in,
   **With the window** or quietly **In the tray** (**In the menu bar** on
   macOS).
-- **Play and Pause fade.** With the default audio settings, music played on
-  this computer fades in or out to avoid a hard cut.
+- **Play and Pause fade.** Music played on this computer fades in over about
+  200 ms when it starts or resumes, including a song you pick while another
+  is playing, and fades out over about 200 ms when you pause, instead of
+  starting or stopping with a hard cut.
 - **Play buttons show progress.** The button spins until Spotify responds.
 - **Pages keep their shape while they load.** Until Spotify answers, grey
   rows and cards in the shape of the songs, albums and playlists to come
