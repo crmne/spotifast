@@ -162,6 +162,11 @@ songs after those already queued. See [The Queue's Rules](/queue/).
 The **Shuffle** button beside **Play** selects the playback order without
 starting the playlist. Select Shuffle first, then press **Play**.
 
+Spotifast remembers the Shuffle and Repeat you last used while a playlist
+played, and separately while an album played. Starting any playlist applies
+the playlist choice, and starting any album applies the album choice. A kind
+you have not chosen for yet keeps the current mode.
+
 When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.
