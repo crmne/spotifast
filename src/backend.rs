@@ -758,6 +758,8 @@ pub enum Command {
     AuthorizePlayback,
     /// Reload the engine config (audio settings changed).
     RestartEngine(EngineConfig),
+    /// Remove cached audio on the disk worker, keeping the active cache's accounting.
+    ClearAudioCache,
     /// Rebuild the HTTP client. Restart local playback only when its HTTP
     /// proxy changed; Off, System, and SOCKS5 share a direct engine connection.
     ApplyProxy {
@@ -975,6 +977,7 @@ pub struct LyricsRequest {
 
 pub enum Event {
     Soloist(crate::soloist::Update),
+    AudioCacheCleared(Result<u64, String>),
     /// The folder picked in the local files dialog; `None` when cancelled.
     LocalFilesFolderChosen(Option<std::path::PathBuf>),
     /// The songs in `folder`, by the `spotify:local:` URIs they play for.
@@ -1345,6 +1348,7 @@ impl Backend {
             && !matches!(
                 command,
                 Command::Accent { .. }
+                    | Command::ClearAudioCache
                     | Command::Shutdown
                     | Command::CheckForUpdates { .. }
                     | Command::InspectUpdate
@@ -2398,6 +2402,10 @@ impl Worker {
                     config.proxy = self.engine_config.proxy.clone();
                     self.engine_config = config;
                     self.replace_engine();
+                }
+                Command::ClearAudioCache => {
+                    let result = self.clear_audio_cache().await;
+                    self.emit(Event::AudioCacheCleared(result));
                 }
                 Command::ApplyProxy { request, config } => self.change_proxy(request, config, None),
                 Command::Player(command) => {
@@ -3591,6 +3599,36 @@ impl Worker {
         }
         self.take_engine_for_resume();
         self.resume_engine();
+    }
+
+    async fn clear_audio_cache(&self) -> Result<u64, String> {
+        // A connecting engine has a cache of its own that this worker cannot
+        // yet reach. A carried player can still be using its former session's
+        // cache. Wait until there is one owner whose accounting we can update.
+        if self.engine_busy
+            || self.kept_player.is_some()
+            || self.engine.as_ref().is_some_and(|engine| engine.carrying())
+        {
+            return Err("Playback is reconnecting. Try again once it is ready.".into());
+        }
+        let cache = self.engine.as_ref().and_then(|engine| {
+            engine
+                .session()
+                .cache()
+                .filter(|cache| {
+                    cache
+                        .file_path(librespot_core::file_id::FileId::from_raw(&[0; 20]))
+                        .is_some()
+                })
+                .cloned()
+        });
+        let root = self.dirs.audio_cache_dir();
+        // Await in command order so an engine replacement cannot open a new
+        // cache while this one is being cleared. The UI and playing audio do
+        // not wait for the disk, and no grant or playback setting changes.
+        tokio::task::spawn_blocking(move || crate::storage::clear_audio(&root, cache.as_deref()))
+            .await
+            .map_err(|error| error.to_string())?
     }
 
     /// Reconnect the engine after its session dropped on its own. Whatever
@@ -8481,6 +8519,21 @@ mod authorization_tests {
             event, Event::Api(response) if matches!(response.as_ref(),
                 ApiResponse::MadeForYou { top_mixes: Ok(mixes), .. } if mixes.len() == 1)
         )));
+    }
+
+    #[test]
+    fn audio_cache_clear_works_without_sign_in_and_waits_for_reconnection() {
+        let (runtime, mut worker, _) = worker("audio-clear");
+        let root = worker.dirs.audio_cache_dir();
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        std::fs::write(root.join("nested/track"), [0; 27]).unwrap();
+        worker.engine_busy = true;
+        assert!(runtime.block_on(worker.clear_audio_cache()).is_err());
+        assert!(root.join("nested/track").exists());
+        worker.engine_busy = false;
+        assert_eq!(runtime.block_on(worker.clear_audio_cache()).unwrap(), 27);
+        assert!(!worker.signed_in);
+        assert!(!root.join("nested/track").exists());
     }
 
     pub(super) fn worker(

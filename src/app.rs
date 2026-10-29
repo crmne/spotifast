@@ -308,6 +308,8 @@ const PLAY_COUNT_RETRY: Duration = Duration::from_secs(60);
 
 pub struct App {
     pub dirs: AppDirs,
+    pub(crate) storage_usage: crate::storage::Usage,
+    pub(crate) clearing_audio_cache: bool,
     pub settings: Settings,
     /// Proxy policy actually handed to network workers. Manual form edits are
     /// drafts until Apply (or Sign in), so unrelated downloads and engine
@@ -1056,6 +1058,8 @@ impl App {
         let palette = settings.fixed_palette().unwrap_or_else(Palette::dark);
         let mut app = Self {
             custom_themes: theme::Catalog::default(),
+            storage_usage: crate::storage::Usage::default(),
+            clearing_audio_cache: false,
             dirs,
             settings,
             applied_proxy,
@@ -2488,10 +2492,10 @@ impl App {
 
     fn handle_backend_events(&mut self, events: Vec<Event>) {
         for event in events {
-            // Offline, as in demo mode, only colours read from cover art and
-            // local update checks come through.
+            // Offline, as in demo mode, disk-only audio clearing, colours
+            // read from cover art and local update checks still come through.
             if self.offline
-                && !matches!(&event, Event::Accent { .. })
+                && !matches!(&event, Event::Accent { .. } | Event::AudioCacheCleared(_))
                 && (self.update_source.is_github()
                     || !matches!(
                         &event,
@@ -2505,6 +2509,22 @@ impl App {
                 continue;
             }
             match event {
+                Event::AudioCacheCleared(result) => {
+                    self.clearing_audio_cache = false;
+                    self.storage_usage.invalidate();
+                    match result {
+                        Ok(bytes) => self.toast(
+                            // Translators: {size} includes its unit, such as 12.5 MB.
+                            gettext(self.locale, "Cleared {size} of audio")
+                                .replace("{size}", &crate::storage::format_bytes(bytes)),
+                        ),
+                        Err(error) => self.toast_error(
+                            // Translators: {error} describes a filesystem or playback error.
+                            gettext(self.locale, "Couldn't clear audio cache: {error}")
+                                .replace("{error}", &error),
+                        ),
+                    }
+                }
                 Event::PlaylistCoverChecked {
                     id,
                     request,
@@ -12210,30 +12230,40 @@ impl App {
                 });
             }
             Action::ClearPlayHistory => {
+                self.storage_usage.invalidate();
                 self.plays.clear();
                 self.plays.save(&self.files, &self.dirs.history_file());
                 self.rebuild_recents();
                 self.toast(gettext(self.locale, "Play history cleared"));
             }
-            Action::ClearArtCache => match self.backend.art().clear_disk_cache() {
-                Ok(bytes) => {
-                    ctx.forget_all_images();
-                    // The media controls hold a path into what was just
-                    // deleted; forget it, or the next sync hands the system
-                    // a file that is no longer there.
-                    self.media_art = None;
-                    self.toast(
-                        // Translators: {size} is a size in megabytes, such as 12.5.
-                        gettext(self.locale, "Cleared {size} MB of artwork")
-                            .replace("{size}", &format!("{:.1}", bytes as f64 / 1_048_576.0)),
-                    );
+            Action::ClearAudioCache => {
+                if !self.clearing_audio_cache {
+                    self.clearing_audio_cache = true;
+                    self.backend.send(Command::ClearAudioCache);
                 }
-                Err(error) => self.toast_error(
-                    // Translators: {error} is an error message.
-                    gettext(self.locale, "Couldn't clear artwork: {error}")
-                        .replace("{error}", &error.to_string()),
-                ),
-            },
+            }
+            Action::ClearArtCache => {
+                self.storage_usage.invalidate();
+                match self.backend.art().clear_disk_cache() {
+                    Ok(bytes) => {
+                        ctx.forget_all_images();
+                        // The media controls hold a path into what was just
+                        // deleted; forget it, or the next sync hands the system
+                        // a file that is no longer there.
+                        self.media_art = None;
+                        self.toast(
+                            // Translators: {size} is a size in megabytes, such as 12.5.
+                            gettext(self.locale, "Cleared {size} MB of artwork")
+                                .replace("{size}", &format!("{:.1}", bytes as f64 / 1_048_576.0)),
+                        );
+                    }
+                    Err(error) => self.toast_error(
+                        // Translators: {error} is an error message.
+                        gettext(self.locale, "Couldn't clear artwork: {error}")
+                            .replace("{error}", &error.to_string()),
+                    ),
+                }
+            }
             Action::ToggleWinampWindow => {
                 // One window at a time: this one closes and the loop in
                 // `main` opens the other kind where each was last.
@@ -24251,6 +24281,23 @@ mod tests {
         assert!(
             app.backend.art().prefetch(&ctx, url),
             "the loader still remembers artwork that has been deleted"
+        );
+    }
+
+    #[test]
+    fn audio_clear_failure_releases_the_button_and_refreshes_sizes_offline() {
+        let mut app = headless_app();
+        app.offline = true;
+        app.clearing_audio_cache = true;
+        app.storage_usage.sizes = [crate::storage::Size::Bytes(100); 3];
+        app.handle_backend_events(vec![Event::AudioCacheCleared(
+            Err("fixture failure".into()),
+        )]);
+        assert!(!app.clearing_audio_cache);
+        assert_eq!(app.storage_usage.sizes, [crate::storage::Size::Checking; 3]);
+        assert_eq!(
+            app.toasts.last().unwrap().message,
+            "Couldn't clear audio cache: fixture failure"
         );
     }
 
