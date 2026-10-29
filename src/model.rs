@@ -1189,6 +1189,11 @@ pub enum Action {
     ToggleShuffle,
     CycleRepeat,
     SetShuffle(bool),
+    /// Shuffle chosen on a page other than the playing context's.
+    SetShuffleForNextPlay {
+        shuffle: bool,
+        context: String,
+    },
     SetRepeat(crate::player::RepeatMode),
     AddToQueue {
         uri: String,
