@@ -13,6 +13,27 @@ use crate::model::{Action, Page, RowContext};
 use crate::prerelease::Prerelease;
 use crate::theme::{self, Icon};
 
+/// Saturate the artwork wash, then bound its luminance so even translucent
+/// white secondary labels retain at least 4.5:1 contrast across the gradient.
+fn artwork_wash([red, green, blue]: [u8; 3]) -> Color32 {
+    let peak = red.max(green).max(blue) as f32;
+    let deepen = |channel: u8| ((peak - (peak - channel as f32) * 1.25).max(0.0) * 0.85) as u8;
+    let color = Color32::from_rgb(deepen(red), deepen(green), deepen(blue));
+    let linear = egui::Rgba::from(color);
+    let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
+    // Leave room for sRGB rounding below a 0.10 luminance ceiling. Even
+    // uncomposited white at alpha 210 has enough contrast against that ceiling.
+    if luminance <= 0.095 {
+        return color;
+    }
+    let scale = 0.095 / luminance;
+    Color32::from(egui::Rgba::from_rgb(
+        linear.r() * scale,
+        linear.g() * scale,
+        linear.b() * scale,
+    ))
+}
+
 pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
     let palette = app.palette;
     let locale = app.locale;
@@ -128,11 +149,8 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
     });
     let hero_bottom = hero.response.rect.bottom() + 24.0;
     if let Some([red, green, blue]) = data.color {
-        // A more saturated, darker artwork wash keeps the white hero readable.
-        let peak = red.max(green).max(blue) as f32;
-        let deepen = |channel: u8| ((peak - (peak - channel as f32) * 1.25).max(0.0) * 0.85) as u8;
-        let [red, green, blue] = [deepen(red), deepen(green), deepen(blue)];
-        let top = Color32::from_rgb(red, green, blue);
+        let top = artwork_wash([red, green, blue]);
+        let [red, green, blue, _] = top.to_array();
         let peak = red.max(green).max(blue) as f32;
         let shade = |amount: f32| {
             Color32::from_rgb(
@@ -539,6 +557,28 @@ mod tests {
     use crate::app::AppOptions;
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn artwork_wash_keeps_secondary_labels_readable_for_light_and_saturated_colors() {
+        let luminance = |color: Color32| {
+            let linear = egui::Rgba::from(color);
+            0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b()
+        };
+        // This is a conservative lower bound for white at alpha 210 composited
+        // over any opaque background; the actual foreground is never darker.
+        let foreground = luminance(Color32::from_gray(210));
+        for red in (0..=255).step_by(17) {
+            for green in (0..=255).step_by(17) {
+                for blue in (0..=255).step_by(17) {
+                    let wash = artwork_wash([red, green, blue]);
+                    assert_eq!(wash.a(), 255);
+                    let contrast = (foreground + 0.05) / (luminance(wash) + 0.05);
+                    assert!(contrast >= 4.5, "{red},{green},{blue}: {contrast}");
+                }
+            }
+        }
+        assert_eq!(artwork_wash([40, 60, 80]), Color32::from_rgb(25, 46, 68));
+    }
 
     fn texts(shape: &egui::epaint::Shape, found: &mut Vec<egui::Rect>) {
         match shape {
