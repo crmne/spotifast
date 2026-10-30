@@ -11160,6 +11160,14 @@ impl App {
                 RowContext::View {
                     uris, context_uri, ..
                 } => {
+                    // The header's Play names no song. With shuffle on it
+                    // starts at a random row, as a whole context does in
+                    // `shuffle_start`; a clicked row still plays first.
+                    let index = if uri.is_empty() && self.shuffle_wanted && !uris.is_empty() {
+                        rand::random_range(0..uris.len()) as u32
+                    } else {
+                        index
+                    };
                     let played = uris.get(index as usize).cloned().map(|uri| PlayedRow {
                         context: context_uri.clone(),
                         view: true,
@@ -29614,6 +29622,56 @@ mod tests {
             first.uri,
             "the preview stays while the play request is pending"
         );
+    }
+
+    #[test]
+    fn shuffled_header_play_of_a_shown_view_starts_at_a_random_row() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.shuffle_wanted = true;
+        let ctx = egui::Context::default();
+        let uris: Arc<[String]> = (0..20)
+            .map(|n| format!("spotify:track:t{n}"))
+            .collect::<Vec<_>>()
+            .into();
+        let view = || RowContext::View {
+            context_uri: "spotify:playlist:mix".into(),
+            uris: Arc::clone(&uris),
+            editable_playlist: None,
+        };
+        let mut starts = HashSet::new();
+        for _ in 0..30 {
+            app.apply(
+                Action::PlayFromRow {
+                    context: view(),
+                    uri: String::new(),
+                    index: 0,
+                },
+                &ctx,
+            );
+            let play = app.queued_play.as_ref().unwrap();
+            assert_eq!(play.uris.as_slice(), uris.as_ref());
+            starts.insert(play.offset_position.unwrap());
+        }
+        assert!(
+            starts.len() > 1,
+            "the header's Play must not always start at the top row: {starts:?}"
+        );
+
+        app.apply(
+            Action::PlayFromRow {
+                context: view(),
+                uri: uris[0].clone(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.queued_play.as_ref().unwrap().offset_position,
+            Some(0),
+            "a clicked row still plays first with shuffle on"
+        );
+        app.backend.shutdown();
     }
 
     #[test]
