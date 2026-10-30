@@ -327,6 +327,11 @@ pub fn paint_shadow(ui: &Ui, palette: &Palette, rect: Rect, radius: f32) {
 
 /// Fills `rect` with a vertical gradient from `top` to `bottom`.
 pub fn paint_vertical_gradient(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {
+    ui.painter().add(vertical_gradient(rect, top, bottom));
+}
+
+/// A gradient shape whose bounds can be set after laying out its content.
+pub fn vertical_gradient(rect: Rect, top: Color32, bottom: Color32) -> egui::Shape {
     let mut mesh = egui::Mesh::default();
     mesh.colored_vertex(rect.left_top(), top);
     mesh.colored_vertex(rect.right_top(), top);
@@ -334,7 +339,7 @@ pub fn paint_vertical_gradient(ui: &Ui, rect: Rect, top: Color32, bottom: Color3
     mesh.colored_vertex(rect.left_bottom(), bottom);
     mesh.add_triangle(0, 1, 2);
     mesh.add_triangle(0, 2, 3);
-    ui.painter().add(egui::Shape::mesh(mesh));
+    egui::Shape::mesh(mesh)
 }
 
 /// Lays out only the rows that intersect the visible area of the enclosing

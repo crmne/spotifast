@@ -6,6 +6,68 @@ use protobuf::CodedInputStream;
 
 use crate::api::models::{Album, ArtistRef, Image, Track};
 
+/// The artist overview's countdown card. Its URI is not an album URI.
+#[derive(Clone, Debug)]
+pub struct UpcomingRelease {
+    pub uri: String,
+    pub name: String,
+    pub images: Vec<Image>,
+    pub release_unix: i64,
+}
+
+impl UpcomingRelease {
+    /// Read the optional card without resolving tracks or changing pre-save state.
+    pub fn from_artist(artist: &serde_json::Value) -> anyhow::Result<Option<Self>> {
+        let data = artist
+            .get("preRelease")
+            .context("missing prerelease field")?;
+        if data.is_null() {
+            return Ok(None);
+        }
+        let uri = data
+            .get("uri")
+            .and_then(|v| v.as_str())
+            .context("missing prerelease URI")?;
+        ensure!(
+            uri.starts_with("spotify:prerelease:")
+                && uri.strip_prefix("spotify:prerelease:").is_some_and(|id| {
+                    id.len() == 22 && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                })
+                && crate::link::parse(uri).as_deref() == Some(uri),
+            "invalid prerelease URI"
+        );
+        let name = data
+            .pointer("/preReleaseContent/name")
+            .and_then(|v| v.as_str())
+            .filter(|name| !name.trim().is_empty())
+            .context("missing upcoming release title")?;
+        let release: jiff::Timestamp = data
+            .pointer("/releaseDate/isoString")
+            .and_then(|v| v.as_str())
+            .context("missing release instant")?
+            .parse()?;
+        let images: Vec<Image> = serde_json::from_value(
+            data.pointer("/preReleaseContent/coverArt/sources")
+                .filter(|sources| !sources.is_null())
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([])),
+        )?;
+        Ok(Some(Self {
+            uri: uri.into(),
+            name: name.into(),
+            images: images
+                .into_iter()
+                .filter(|image| image.url.starts_with("https://i.scdn.co/image/"))
+                .collect(),
+            release_unix: release.as_second(),
+        }))
+    }
+
+    pub fn is_upcoming(&self, now: i64) -> bool {
+        self.release_unix > now
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Prerelease {
     pub uri: String,
@@ -194,6 +256,10 @@ impl Prerelease {
                 Ok(Some(Track {
                     id: actual_uri.rsplit(':').next().map(str::to_string),
                     uri: actual_uri.into(),
+                    linked_from: (actual_uri != uri).then(|| crate::api::models::LinkedTrack {
+                        id: uri.rsplit(':').next().map(str::to_string),
+                        uri: uri.into(),
+                    }),
                     name: data
                         .get("name")
                         .and_then(|v| v.as_str())
@@ -340,6 +406,60 @@ fn image(bytes: &[u8]) -> anyhow::Result<Image> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn artist_prerelease_reads_fog_lakes_live_response() {
+        let artist = serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+        let upcoming = UpcomingRelease::from_artist(&artist).unwrap().unwrap();
+        assert_eq!(upcoming.name, "Hollowbody");
+        assert_eq!(upcoming.uri, "spotify:prerelease:08LfxqlFRyEpd5h32mB8ho");
+        assert_eq!(upcoming.images.len(), 3);
+        let release: jiff::Timestamp = "2026-11-13T05:00:00Z".parse().unwrap();
+        assert_eq!(upcoming.release_unix, release.as_second());
+        assert!(upcoming.is_upcoming(release.as_second() - 1));
+        assert!(!upcoming.is_upcoming(release.as_second()));
+    }
+
+    #[test]
+    fn artist_prerelease_distinguishes_absence_from_a_broken_response() {
+        assert!(
+            UpcomingRelease::from_artist(&serde_json::json!({"preRelease": null}))
+                .unwrap()
+                .is_none()
+        );
+        assert!(UpcomingRelease::from_artist(&serde_json::json!({})).is_err());
+        let original: serde_json::Value =
+            serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+        for uri in [
+            "https://example.com",
+            "spotify:album:08LfxqlFRyEpd5h32mB8ho",
+            "spotify:prerelease:bad",
+        ] {
+            let mut artist = original.clone();
+            artist["preRelease"]["uri"] = uri.into();
+            assert!(UpcomingRelease::from_artist(&artist).is_err());
+        }
+        let mut artist = original.clone();
+        artist["preRelease"]["releaseDate"]["isoString"] = "invalid".into();
+        assert!(UpcomingRelease::from_artist(&artist).is_err());
+        let mut artist = original;
+        artist["preRelease"]["preReleaseContent"]["name"] = " ".into();
+        assert!(UpcomingRelease::from_artist(&artist).is_err());
+    }
+
+    #[test]
+    fn artist_prerelease_accepts_missing_or_null_artwork() {
+        let original: serde_json::Value =
+            serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+        for cover in [serde_json::json!({}), serde_json::json!({"sources": null})] {
+            let mut artist = original.clone();
+            artist["preRelease"]["preReleaseContent"]["coverArt"] = cover;
+            let upcoming = UpcomingRelease::from_artist(&artist).unwrap().unwrap();
+            assert_eq!(upcoming.name, "Hollowbody");
+            assert!(upcoming.images.is_empty());
+        }
+    }
+
     const URI: &str = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
     const FIXTURE: &[u8] = include_bytes!("testdata/prerelease.pb");
 
@@ -412,6 +532,23 @@ mod tests {
                 .is_err()
         );
         assert!(page.album_preview(&serde_json::json!({"data":{"albumUnion":{"uri":page.album.uri,"tracksV2":{"totalCount":34,"items":[]}}}})).is_err());
+    }
+
+    #[test]
+    fn preview_preserves_original_identity_for_relinked_song_play_counts() {
+        let body: serde_json::Value =
+            serde_json::from_str(include_str!("testdata/fog-lake-prerelease-album.json")).unwrap();
+        let mut page = Prerelease::default();
+        page.album.uri = body["data"]["albumUnion"]["uri"].as_str().unwrap().into();
+        let (tracks, _) = page.album_preview(&body).unwrap();
+        let song = tracks[2].as_ref().unwrap();
+        assert_eq!(song.name, "Styrofoam");
+        assert_eq!(song.uri, "spotify:track:5OuXUG2p5hVmkfgopDYFz8");
+        assert_eq!(
+            song.linked_from.as_ref().unwrap().uri,
+            "spotify:track:3RKh0XWdeVSHc0rf8XgeUg"
+        );
+        assert!(tracks[0].as_ref().unwrap().linked_from.is_none());
     }
 
     #[test]

@@ -13,6 +13,27 @@ use crate::model::{Action, Page, RowContext};
 use crate::prerelease::Prerelease;
 use crate::theme::{self, Icon};
 
+/// Saturate the artwork wash, then bound its luminance so even translucent
+/// white secondary labels retain at least 4.5:1 contrast across the gradient.
+fn artwork_wash([red, green, blue]: [u8; 3]) -> Color32 {
+    let peak = red.max(green).max(blue) as f32;
+    let deepen = |channel: u8| ((peak - (peak - channel as f32) * 1.25).max(0.0) * 0.85) as u8;
+    let color = Color32::from_rgb(deepen(red), deepen(green), deepen(blue));
+    let linear = egui::Rgba::from(color);
+    let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
+    // Leave room for sRGB rounding below a 0.10 luminance ceiling. Even
+    // uncomposited white at alpha 210 has enough contrast against that ceiling.
+    if luminance <= 0.095 {
+        return color;
+    }
+    let scale = 0.095 / luminance;
+    Color32::from(egui::Rgba::from_rgb(
+        linear.r() * scale,
+        linear.g() * scale,
+        linear.b() * scale,
+    ))
+}
+
 pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
     let palette = app.palette;
     let locale = app.locale;
@@ -29,32 +50,18 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
     let now = jiff::Timestamp::now().as_second();
     let wide = ui.available_width() > 700.0;
     let cover_size = if wide { 232.0 } else { 160.0 };
-    if let Some([red, green, blue]) = data.color {
-        let bounds = ui.max_rect().expand2(vec2(widgets::PAGE_PADDING, 4.0));
-        let top = Color32::from_rgb(red, green, blue);
-        let dark = Color32::from_rgb(
-            (red as f32 * 0.40) as u8,
-            (green as f32 * 0.40) as u8,
-            (blue as f32 * 0.40) as u8,
-        );
-        widgets::paint_vertical_gradient(
-            ui,
-            egui::Rect::from_min_size(bounds.min, vec2(bounds.width(), cover_size + 104.0)),
-            top,
-            dark,
-        );
-        widgets::paint_vertical_gradient(
-            ui,
-            egui::Rect::from_min_size(
-                bounds.min + vec2(0.0, cover_size + 104.0),
-                vec2(bounds.width(), 300.0),
-            ),
-            dark,
-            palette.window,
-        );
-    }
-    ui.add_space(80.0);
-    ui.horizontal_top(|ui| {
+    let background = ui.painter().add(egui::Shape::Noop);
+    let body_background = ui.painter().add(egui::Shape::Noop);
+    let hero_top = ui.cursor().top() - 4.0;
+    let bounds = ui.max_rect().expand2(vec2(widgets::PAGE_PADDING, 0.0));
+    ui.add_space(48.0);
+    let stacked = ui.available_width() < 480.0;
+    let layout = if stacked {
+        egui::Layout::top_down(egui::Align::Min)
+    } else {
+        egui::Layout::left_to_right(egui::Align::TOP)
+    };
+    let hero = ui.with_layout(layout, |ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(cover_size), Sense::hover());
         widgets::paint_cover(
@@ -69,14 +76,8 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
         ui.vertical(|ui| {
             ui.set_width(ui.available_width());
             theme::text(ui, gettext(locale, "Album"), theme::medium(14.0), hero_text);
-            let mut title_size = if ui.available_width() > 1050.0 {
-                72.0
-            } else if wide {
-                48.0
-            } else {
-                28.0
-            };
-            if ui.available_width() >= 900.0 {
+            let mut title_size = if wide { 72.0 } else { 36.0 };
+            if ui.available_width() >= 360.0 {
                 let measured = ui
                     .painter()
                     .layout_no_wrap(data.album.name.clone(), theme::bold(title_size), hero_text)
@@ -96,6 +97,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
             ui.add(egui::Label::new(title));
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
                 if let Some(url) = &data.artist_image {
                     let (rect, _) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::hover());
                     widgets::paint_cover(
@@ -145,6 +147,45 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
             }
         });
     });
+    let hero_bottom = hero.response.rect.bottom() + 24.0;
+    if let Some([red, green, blue]) = data.color {
+        let top = artwork_wash([red, green, blue]);
+        let [red, green, blue, _] = top.to_array();
+        let peak = red.max(green).max(blue) as f32;
+        let shade = |amount: f32| {
+            Color32::from_rgb(
+                (red as f32 - peak * (1.0 - amount)).max(0.0) as u8,
+                (green as f32 - peak * (1.0 - amount)).max(0.0) as u8,
+                (blue as f32 - peak * (1.0 - amount)).max(0.0) as u8,
+            )
+        };
+        ui.painter().set(
+            background,
+            widgets::vertical_gradient(
+                egui::Rect::from_min_max(
+                    egui::pos2(bounds.left(), hero_top),
+                    egui::pos2(bounds.right(), hero_bottom),
+                ),
+                top,
+                shade(0.36),
+            ),
+        );
+        ui.painter().set(
+            body_background,
+            widgets::vertical_gradient(
+                egui::Rect::from_min_size(
+                    egui::pos2(bounds.left(), hero_bottom),
+                    vec2(bounds.width(), 220.0),
+                ),
+                if palette.dark {
+                    shade(0.18)
+                } else {
+                    super::blend(palette.window, top, 0.12)
+                },
+                palette.window,
+            ),
+        );
+    }
     ui.add_space(48.0);
     ui.horizontal(|ui| {
         let green = Color32::from_rgb(0x1e, 0xd7, 0x60);
@@ -251,7 +292,10 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
         palette.text,
     );
     ui.add_space(14.0);
-    ui.horizontal(|ui| {
+    app.actions
+        .push(Action::RequestPlayCounts(data.album.uri.clone()));
+    let show_plays = ui.available_width() >= 640.0 && app.has_play_counts(&data.album.uri);
+    let columns = ui.horizontal(|ui| {
         ui.add_space(18.0);
         theme::text(ui, "#", theme::regular(13.0), palette.secondary);
         ui.add_space(16.0);
@@ -266,6 +310,18 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
             ui.add_space(30.0);
         });
     });
+    if show_plays {
+        ui.painter().text(
+            egui::pos2(
+                columns.response.rect.right() - 200.0,
+                columns.response.rect.center().y,
+            ),
+            egui::Align2::RIGHT_CENTER,
+            gettext(locale, "Plays"),
+            theme::regular(13.0),
+            palette.secondary,
+        );
+    }
     ui.separator();
     let playable: Arc<[String]> = data
         .tracks
@@ -346,14 +402,17 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
             });
         let title_rect = egui::Rect::from_min_size(
             rect.min + vec2(48.0, 9.0),
-            vec2((rect.width() - 132.0).max(1.0), 42.0),
+            vec2(
+                (rect.width() - if show_plays { 310.0 } else { 132.0 }).max(1.0),
+                42.0,
+            ),
         );
         ui.scope_builder(egui::UiBuilder::new().max_rect(title_rect), |ui| {
             ui.set_clip_rect(ui.clip_rect().intersect(title_rect));
             ui.spacing_mut().item_spacing.y = 1.0;
             theme::text(ui, name, theme::medium(15.0), color);
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 1.0;
+                ui.spacing_mut().item_spacing.x = 5.0;
                 if track.as_ref().is_some_and(|track| track.explicit) {
                     ui.add(egui::Label::new(
                         egui::RichText::new("E")
@@ -388,6 +447,24 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
                 }
             });
         });
+        if show_plays
+            && enabled
+            && let Some(plays) = track.as_ref().and_then(|track| {
+                track
+                    .linked_from
+                    .as_ref()
+                    .and_then(|original| app.play_counts.get(&original.uri))
+                    .or_else(|| app.play_counts.get(&track.uri))
+            })
+        {
+            ui.painter().text(
+                rect.right_center() - vec2(200.0, 0.0),
+                egui::Align2::RIGHT_CENTER,
+                crate::util::format_count(*plays),
+                theme::regular(14.0),
+                palette.secondary,
+            );
+        }
         let duration = track
             .as_ref()
             .filter(|track| track.duration_ms > 0)
@@ -480,6 +557,28 @@ mod tests {
     use crate::app::AppOptions;
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn artwork_wash_keeps_secondary_labels_readable_for_light_and_saturated_colors() {
+        let luminance = |color: Color32| {
+            let linear = egui::Rgba::from(color);
+            0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b()
+        };
+        // This is a conservative lower bound for white at alpha 210 composited
+        // over any opaque background; the actual foreground is never darker.
+        let foreground = luminance(Color32::from_gray(210));
+        for red in (0..=255).step_by(17) {
+            for green in (0..=255).step_by(17) {
+                for blue in (0..=255).step_by(17) {
+                    let wash = artwork_wash([red, green, blue]);
+                    assert_eq!(wash.a(), 255);
+                    let contrast = (foreground + 0.05) / (luminance(wash) + 0.05);
+                    assert!(contrast >= 4.5, "{red},{green},{blue}: {contrast}");
+                }
+            }
+        }
+        assert_eq!(artwork_wash([40, 60, 80]), Color32::from_rgb(25, 46, 68));
+    }
 
     fn texts(shape: &egui::epaint::Shape, found: &mut Vec<egui::Rect>) {
         match shape {

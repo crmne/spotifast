@@ -1945,7 +1945,8 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 );
                 return;
             }
-            app.request_play_counts(&album.uri);
+            app.actions
+                .push(Action::RequestPlayCounts(album.uri.clone()));
             let show_plays = app.has_play_counts(&album.uri);
             album_hero(app, ui, album, &page.tracks, preview.as_deref());
             let saved = app.is_saved(&album.uri).unwrap_or(false);

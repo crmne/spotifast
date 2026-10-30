@@ -1068,14 +1068,53 @@ const DEMO_CLIENT_ID: &str = "0123456789abcdef0123456789abcdef";
 pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     // Default screenshots to the main window regardless of saved settings.
     app.settings.winamp_window = false;
-    if page == Some("prerelease") {
+    if matches!(page, Some("prerelease" | "prerelease-fog-lake")) {
         let uri = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
         if let Ok(mut data) =
             crate::prerelease::Prerelease::decode(include_bytes!("testdata/prerelease.pb"), uri)
         {
-            let body =
-                serde_json::from_str(include_str!("testdata/prerelease-album.json")).unwrap();
+            let body: serde_json::Value = if page == Some("prerelease-fog-lake") {
+                let body: serde_json::Value =
+                    serde_json::from_str(include_str!("testdata/fog-lake-prerelease-album.json"))
+                        .unwrap();
+                let card = crate::prerelease::UpcomingRelease::from_artist(
+                    &serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap(),
+                )
+                .unwrap()
+                .unwrap();
+                data.uri = card.uri;
+                data.release_unix = Some(Timestamp::now().as_second() + 14 * 86400);
+                data.album.uri = body["data"]["albumUnion"]["uri"].as_str().unwrap().into();
+                data.album.id = data.album.uri.rsplit(':').next().unwrap().into();
+                data.album.name = card.name;
+                data.album.images = card.images;
+                data.album.artists = vec![crate::api::models::ArtistRef {
+                    id: Some("04GCjO1r1hPelibCUq9S8H".into()),
+                    name: "Fog Lake".into(),
+                    uri: Some("spotify:artist:04GCjO1r1hPelibCUq9S8H".into()),
+                }];
+                body
+            } else {
+                serde_json::from_str(include_str!("testdata/prerelease-album.json")).unwrap()
+            };
             let (tracks, total) = data.album_preview(&body).unwrap();
+            if let Some(rows) = body
+                .pointer("/data/albumUnion/tracksV2/items")
+                .and_then(|rows| rows.as_array())
+            {
+                for row in rows {
+                    if let (Some(uri), Some(count)) = (
+                        row.pointer("/track/uri").and_then(|v| v.as_str()),
+                        row.pointer("/track/playcount")
+                            .and_then(|v| v.as_str())
+                            .and_then(|v| v.parse::<u64>().ok()),
+                    ) {
+                        app.play_counts.insert(uri.into(), count);
+                    }
+                }
+                app.play_count_reads
+                    .insert(data.album.uri.clone(), crate::app::PlayCountRead::Answered);
+            }
             data.tracks = tracks;
             data.album.total_tracks = Some(total);
             data.saved = Some(false);
@@ -1097,6 +1136,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     }
     for surface in show.unwrap_or("").split(',').map(str::trim) {
         match surface {
+            "artist-upcoming" => {
+                app.artist_prereleases.insert(
+                    artist(0).uri,
+                    crate::prerelease::UpcomingRelease {
+                        uri: "spotify:prerelease:08LfxqlFRyEpd5h32mB8ho".into(),
+                        name: "A new chapter".into(),
+                        images: image(1),
+                        release_unix: Timestamp::now().as_second() + 14 * 86400,
+                    },
+                );
+            }
             "spotify-access-missing" | "spotify-access-authorizing" => {
                 app.local_ready = false;
                 app.local_playback = if surface == "spotify-access-missing" {
@@ -1172,6 +1222,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     ),
                     _ => Status::Off,
                 };
+            }
+            "prerelease-light-artwork" => {
+                for page in app.album_pages.values_mut() {
+                    if let Some(data) = &mut page.prerelease {
+                        data.color = Some([255, 255, 255]);
+                    }
+                }
             }
             "presaved" => {
                 for page in app.album_pages.values_mut() {
@@ -1990,11 +2047,20 @@ mod tests {
         app: &mut App,
         events: Vec<egui::Event>,
     ) -> egui::accesskit::TreeUpdate {
+        accessible_frame_height(ctx, app, events, 800.0)
+    }
+
+    fn accessible_frame_height(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+        height: f32,
+    ) -> egui::accesskit::TreeUpdate {
         let mut output = ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
-                    egui::vec2(1280.0, 800.0),
+                    egui::vec2(1280.0, height),
                 )),
                 events,
                 ..Default::default()
@@ -2006,6 +2072,59 @@ mod tests {
             .platform_output
             .accesskit_update
             .expect("screen-reader tree")
+    }
+
+    #[test]
+    fn artist_upcoming_card_opens_countdown_without_saving_or_playing() {
+        let (ctx, mut app) = accessible_app("artist-upcoming");
+        let uri = "spotify:prerelease:08LfxqlFRyEpd5h32mB8ho";
+        let release_unix = Timestamp::now().as_second() + 14 * 86400;
+        app.artist_prereleases.insert(
+            artist(0).uri,
+            crate::prerelease::UpcomingRelease {
+                uri: uri.into(),
+                name: "A new chapter".into(),
+                images: image(1),
+                release_unix,
+            },
+        );
+        app.open(Page::Artist("art0".into()));
+        let _ = accessible_frame_height(&ctx, &mut app, vec![], 1200.0);
+        let tree = accessible_frame_height(&ctx, &mut app, vec![], 1200.0);
+        let button = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.role() == egui::accesskit::Role::Button
+                    && node
+                        .label()
+                        .is_some_and(|label| label.starts_with("Release countdown: A new chapter"))
+            })
+            .expect("upcoming release is an accessible button")
+            .0;
+        let saved_before = app.saved.clone();
+        let playing_before = app.playing_context_uri();
+        let _ = accessible_frame_height(
+            &ctx,
+            &mut app,
+            vec![accessible_action(
+                button,
+                egui::accesskit::Action::Click,
+                None,
+            )],
+            1200.0,
+        );
+        assert_eq!(app.pending_spotify_link(), Some(uri));
+        assert_eq!(
+            app.saved, saved_before,
+            "opening the countdown does not pre-save"
+        );
+        assert_eq!(
+            app.playing_context_uri(),
+            playing_before,
+            "opening the countdown does not play"
+        );
+        app.backend.shutdown();
     }
 
     fn accessible_node(
@@ -6615,6 +6734,9 @@ mod tests {
             view_frame(ctx, app, vec![egui::Event::PointerMoved(pos)], view);
         }
         let text = view_frame(ctx, app, vec![], view);
+        // Drawing may request page metadata, independently of the menu gesture.
+        app.actions
+            .retain(|action| !matches!(action, Action::RequestPlayCounts(_)));
         assert!(
             app.actions.is_empty(),
             "right-click must not navigate or play"
@@ -6635,6 +6757,8 @@ mod tests {
             pointer_click(copy.1.center(), egui::PointerButton::Primary),
             view,
         );
+        app.actions
+            .retain(|action| !matches!(action, Action::RequestPlayCounts(_)));
         assert!(matches!(app.actions.as_slice(), [Action::CopyLink(link)] if link == uri));
     }
 
