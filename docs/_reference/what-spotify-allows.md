@@ -97,7 +97,8 @@ clients. Spotifast uses its session for:
   Spotify's own clients, with the session's Login5 bearer and client token.
   It uses the configured HTTP transport and falls back to the Web API, which
   answers only a shared grant from before 0.14.2, if that read is unavailable. A different account's session is never used.
-- **Upcoming album pages.** Prerelease metadata supplies the real album mapping,
+- **Upcoming album pages.** Artist overviews supply countdown cards without a
+  prior pre-save. Prerelease metadata supplies the real album mapping,
   cover and release time. Pathfinder supplies ordered preview rows and explicit
   playability; unpublished rows stay visible without entering playback. The
   session collection service reads pre-save state and writes it only after the

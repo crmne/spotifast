@@ -320,7 +320,11 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                 .ctx()
                 .data(|data| data.get_temp::<f32>(scrolled_id))
                 .unwrap_or(0.0);
-            if let Some((top, bottom)) = header_wash(&palette, overview, tint) {
+            let countdown = matches!(&page, Page::Album(id)
+                if app.album_pages.get(id).is_some_and(|page| page.prerelease.is_some()));
+            // Countdown pages own their hero gradient. The generic artwork wash
+            // otherwise leaves an unrelated color band behind the search bar.
+            if !countdown && let Some((top, bottom)) = header_wash(&palette, overview, tint) {
                 widgets::paint_vertical_gradient(ui, header_rect(rect, scrolled), top, bottom);
             }
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);

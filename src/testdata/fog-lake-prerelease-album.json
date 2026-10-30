@@ -1,0 +1,387 @@
+{
+  "data": {
+    "albumUnion": {
+      "artists": {
+        "items": [
+          {
+            "profile": {
+              "name": "Fog Lake"
+            },
+            "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H",
+            "visuals": {
+              "avatarImage": {
+                "sources": [
+                  {
+                    "height": 640,
+                    "url": "https://i.scdn.co/image/ab6761610000e5eb1c2dad5e52d8e00bed1608dc",
+                    "width": 640
+                  },
+                  {
+                    "height": 160,
+                    "url": "https://i.scdn.co/image/ab6761610000f1781c2dad5e52d8e00bed1608dc",
+                    "width": 160
+                  },
+                  {
+                    "height": 320,
+                    "url": "https://i.scdn.co/image/ab676161000051741c2dad5e52d8e00bed1608dc",
+                    "width": 320
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "totalCount": 1
+      },
+      "copyright": {
+        "items": [
+          {
+            "text": "2026 Fog Lake",
+            "type": "C"
+          },
+          {
+            "text": "2026 Fog Lake",
+            "type": "P"
+          }
+        ],
+        "totalCount": 2
+      },
+      "coverArt": {
+        "extractedColors": {
+          "colorDark": {
+            "hex": "#4C842E"
+          },
+          "colorLight": {
+            "hex": "#78D048"
+          },
+          "colorRaw": {
+            "hex": "#78D048"
+          }
+        },
+        "sources": [
+          {
+            "height": 300,
+            "url": "https://i.scdn.co/image/ab67616d00001e02209b43a9c855762aba5bc482",
+            "width": 300
+          },
+          {
+            "height": 64,
+            "url": "https://i.scdn.co/image/ab67616d00004851209b43a9c855762aba5bc482",
+            "width": 64
+          },
+          {
+            "height": 640,
+            "url": "https://i.scdn.co/image/ab67616d0000b273209b43a9c855762aba5bc482",
+            "width": 640
+          }
+        ]
+      },
+      "date": {
+        "isoString": "2026-11-13T00:00:00Z",
+        "precision": "DAY"
+      },
+      "name": "Hollowbody",
+      "tracksV2": {
+        "items": [
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 193032
+              },
+              "name": "Dandelion",
+              "playability": {
+                "playable": false
+              },
+              "playcount": "0",
+              "relinkingInformation": null,
+              "uri": "spotify:track:4Hnyl0yR2nMmgcmO8lD1AF"
+            },
+            "uid": "94c826718a3930141124"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 206913
+              },
+              "name": "Elephant",
+              "playability": {
+                "playable": false
+              },
+              "playcount": "0",
+              "relinkingInformation": null,
+              "uri": "spotify:track:6VG5QfHsPoHcKYBeiWs6G1"
+            },
+            "uid": "02382f26446e32e0d7ce"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "EXPLICIT"
+              },
+              "duration": {
+                "totalMilliseconds": 172937
+              },
+              "name": "Styrofoam",
+              "playability": {
+                "playable": true
+              },
+              "playcount": "12504",
+              "relinkingInformation": {
+                "linkedTrack": {
+                  "__typename": "Track",
+                  "uri": "spotify:track:5OuXUG2p5hVmkfgopDYFz8"
+                }
+              },
+              "uri": "spotify:track:3RKh0XWdeVSHc0rf8XgeUg"
+            },
+            "uid": "6f2f7f88e7be4892d896"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 244125
+              },
+              "name": "Gamut",
+              "playability": {
+                "playable": true
+              },
+              "playcount": "23749",
+              "relinkingInformation": {
+                "linkedTrack": {
+                  "__typename": "Track",
+                  "uri": "spotify:track:5sk7J329w6TKBZ7onE0SaB"
+                }
+              },
+              "uri": "spotify:track:5KJ9DlwQAg6VGZSV437dee"
+            },
+            "uid": "4227c1be0be506790d22"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 235000
+              },
+              "name": "Bogus",
+              "playability": {
+                "playable": true
+              },
+              "playcount": "120984",
+              "relinkingInformation": {
+                "linkedTrack": {
+                  "__typename": "Track",
+                  "uri": "spotify:track:7d0HmRRRzBFYJ2HBDVATl2"
+                }
+              },
+              "uri": "spotify:track:7rSDjECc7f3r7euSDOeIQQ"
+            },
+            "uid": "37f9212d8f25e6e97e42"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 156000
+              },
+              "name": "Sadie",
+              "playability": {
+                "playable": false
+              },
+              "playcount": "0",
+              "relinkingInformation": null,
+              "uri": "spotify:track:1gSFzUTQzbJlGmhVoB828K"
+            },
+            "uid": "4f954da21dfa24bbb1a4"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 200817
+              },
+              "name": "Hummingbird",
+              "playability": {
+                "playable": false
+              },
+              "playcount": "0",
+              "relinkingInformation": null,
+              "uri": "spotify:track:0XNUt5Mlt4wp5O4U9r0XUc"
+            },
+            "uid": "0f753f4e953b76f9ea80"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 218337
+              },
+              "name": "Rocco",
+              "playability": {
+                "playable": false
+              },
+              "playcount": "0",
+              "relinkingInformation": null,
+              "uri": "spotify:track:5sfhteKwgzcnM3wpIcR8mJ"
+            },
+            "uid": "40776eb36867d8f5bfa4"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 202540
+              },
+              "name": "Set it Off",
+              "playability": {
+                "playable": false
+              },
+              "playcount": "0",
+              "relinkingInformation": null,
+              "uri": "spotify:track:6tuRNnvw6nBkcxVWyT4TT9"
+            },
+            "uid": "0b7d3b00adb09ad51627"
+          },
+          {
+            "track": {
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Fog Lake"
+                    },
+                    "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+                  }
+                ]
+              },
+              "contentRating": {
+                "label": "NONE"
+              },
+              "duration": {
+                "totalMilliseconds": 195981
+              },
+              "name": "Balcony",
+              "playability": {
+                "playable": false
+              },
+              "playcount": "0",
+              "relinkingInformation": null,
+              "uri": "spotify:track:2IB4itue6EUReMjhpTvSoh"
+            },
+            "uid": "882659961de6aca44a0a"
+          }
+        ],
+        "totalCount": 10
+      },
+      "uri": "spotify:album:4UelZbXLzeHu2g8WGH18Y4"
+    }
+  }
+}
