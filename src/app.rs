@@ -3009,6 +3009,18 @@ impl App {
                 }
                 if became_ready {
                     self.reread_playlists_over_session();
+                    let artists: Vec<_> = self
+                        .artist_pages
+                        .iter()
+                        .filter(|(_, page)| {
+                            page.top_tracks_without_session
+                                && matches!(page.top_tracks, Loadable::Failed(_))
+                        })
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    for id in artists {
+                        self.request_artist_top_tracks(&id);
+                    }
                     // The session reads Spotify's own feed of new releases,
                     // which the Web API stand-in only approximates.
                     if self.home.requested {
@@ -5491,6 +5503,16 @@ impl App {
             }
             Page::Settings => self.refresh_autostart(),
         }
+    }
+
+    fn request_artist_top_tracks(&mut self, id: &str) {
+        let Some(page) = self.artist_pages.get_mut(id) else {
+            return;
+        };
+        page.top_tracks = Loadable::Loading;
+        page.top_tracks_without_session = !self.local_ready;
+        self.backend
+            .api(ApiRequest::ArtistTopTracks { id: id.to_owned() });
     }
 
     fn load_artist_albums(&mut self, id: &str, filter: DiscographyFilter) {
@@ -8373,12 +8395,12 @@ impl App {
                     if let Some(image) = pick_image(&artist.images, 64) {
                         self.tint_for(Some(image));
                     }
-                    if let Some(page) = self.artist_pages.get_mut(&id)
-                        && page.top_tracks.needs_load()
+                    if self
+                        .artist_pages
+                        .get(&id)
+                        .is_some_and(|page| page.top_tracks.needs_load())
                     {
-                        page.top_tracks = Loadable::Loading;
-                        self.backend
-                            .api(ApiRequest::ArtistTopTracks { id: id.clone() });
+                        self.request_artist_top_tracks(&id);
                     }
                 }
                 if let Some(page) = self.artist_pages.get_mut(&id) {
@@ -8389,11 +8411,26 @@ impl App {
                 }
             }
             ApiResponse::ArtistTopTracks { id, result } => {
+                // The old Web API request may finish after the session became ready.
+                // Retry only reads started without it, so a persistent failure stops.
+                if result.is_err()
+                    && self.local_ready
+                    && self
+                        .artist_pages
+                        .get(&id)
+                        .is_some_and(|page| page.top_tracks_without_session)
+                {
+                    self.request_artist_top_tracks(&id);
+                    return;
+                }
                 if let Ok(tracks) = &result {
                     let uris: Vec<String> = tracks.iter().map(|track| track.uri.clone()).collect();
                     self.request_contains(uris);
                 }
                 if let Some(page) = self.artist_pages.get_mut(&id) {
+                    if result.is_ok() {
+                        page.top_tracks_without_session = false;
+                    }
                     page.top_tracks = match result {
                         Ok(tracks) => Loadable::Loaded(tracks),
                         Err(error) => Loadable::Failed(friendly_api_error(self.locale, &error)),
@@ -14011,6 +14048,96 @@ mod tests {
 
     /// #623: the missing-output message the sink reports is the one the
     /// catalogues translate.
+    #[test]
+    fn popular_tracks_retry_once_when_the_session_becomes_ready_in_either_order() {
+        for soloist in [false, true] {
+            for error_after_ready in [false, true] {
+                let mut app = headless_app();
+                app.settings.soloist_enabled = soloist;
+                app.local_ready = false;
+                app.artist_pages
+                    .insert("artist".into(), ArtistPage::default());
+                app.handle_api(ApiResponse::Artist {
+                    id: "artist".into(),
+                    result: Ok(Artist {
+                        id: "artist".into(),
+                        ..Default::default()
+                    }),
+                });
+                assert!(app.artist_pages["artist"].top_tracks_without_session);
+                let ready = || LocalPlayback::Ready {
+                    device_id: "device".into(),
+                };
+                let refused = || ApiResponse::ArtistTopTracks {
+                    id: "artist".into(),
+                    result: Err(crate::api::ApiError::Status {
+                        status: 403,
+                        message: "Forbidden".into(),
+                    }),
+                };
+                if error_after_ready {
+                    app.handle_playback(ready());
+                    assert!(
+                        app.artist_pages["artist"].top_tracks_without_session,
+                        "wait for the pending request; do not duplicate it"
+                    );
+                    app.handle_api(refused());
+                } else {
+                    app.handle_api(refused());
+                    assert!(matches!(
+                        app.artist_pages["artist"].top_tracks,
+                        Loadable::Failed(_)
+                    ));
+                    app.handle_playback(ready());
+                }
+                assert!(app.artist_pages["artist"].top_tracks.is_loading());
+                assert!(!app.artist_pages["artist"].top_tracks_without_session);
+                app.handle_api(refused());
+                app.handle_playback(ready());
+                assert!(
+                    matches!(app.artist_pages["artist"].top_tracks, Loadable::Failed(_)),
+                    "a refused session retry must not loop"
+                );
+                app.backend.shutdown();
+            }
+        }
+    }
+
+    #[test]
+    fn popular_tracks_keep_successful_lists_when_the_session_connects() {
+        for tracks in [
+            Vec::new(),
+            vec![Track {
+                id: Some("track".into()),
+                ..Default::default()
+            }],
+        ] {
+            let mut app = headless_app();
+            app.local_ready = false;
+            app.artist_pages
+                .insert("artist".into(), ArtistPage::default());
+            app.request_artist_top_tracks("artist");
+            app.handle_api(ApiResponse::ArtistTopTracks {
+                id: "artist".into(),
+                result: Ok(tracks.clone()),
+            });
+            app.handle_playback(LocalPlayback::Ready {
+                device_id: "device".into(),
+            });
+            assert_eq!(
+                app.artist_pages["artist"].top_tracks.get().unwrap().len(),
+                tracks.len()
+            );
+            assert!(!app.artist_pages["artist"].top_tracks_without_session);
+            app.reset_data();
+            assert!(
+                app.artist_pages.is_empty(),
+                "retry state must not survive sign-out"
+            );
+            app.backend.shutdown();
+        }
+    }
+
     #[test]
     fn a_missing_audio_output_is_reported_in_the_users_language() {
         assert_eq!(
