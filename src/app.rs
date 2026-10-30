@@ -14046,8 +14046,6 @@ mod tests {
         Episode, Image, Page as ApiPage, ResumePoint, SavedEpisode, SavedTrack, SearchResults,
     };
 
-    /// #623: the missing-output message the sink reports is the one the
-    /// catalogues translate.
     #[test]
     fn popular_tracks_retry_once_when_the_session_becomes_ready_in_either_order() {
         for soloist in [false, true] {
@@ -14138,6 +14136,8 @@ mod tests {
         }
     }
 
+    /// #623: the missing-output message the sink reports is the one the
+    /// catalogues translate.
     #[test]
     fn a_missing_audio_output_is_reported_in_the_users_language() {
         assert_eq!(
