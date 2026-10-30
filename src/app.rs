@@ -11163,7 +11163,8 @@ impl App {
                     // The header's Play names no song. With shuffle on it
                     // starts at a random row, as a whole context does in
                     // `shuffle_start`; a clicked row still plays first.
-                    let index = if uri.is_empty() && self.shuffle_wanted && !uris.is_empty() {
+                    let shuffled_start = uri.is_empty() && self.shuffle_wanted && !uris.is_empty();
+                    let index = if shuffled_start {
                         rand::random_range(0..uris.len()) as u32
                     } else {
                         index
@@ -11174,7 +11175,12 @@ impl App {
                         index,
                         uri,
                     });
-                    let (uris, index) = cap_uris(uris.as_ref(), index);
+                    let (uris, index) = if shuffled_start {
+                        // Any row may start, with a full list around it.
+                        cap_uris_around(uris.as_ref(), index)
+                    } else {
+                        cap_uris(uris.as_ref(), index)
+                    };
                     if let Some(uri) = uris.get(index as usize) {
                         self.cache_track_from_context(&context_uri, uri);
                     }
@@ -13795,15 +13801,25 @@ fn autoplay_seed(
     near_end.then(|| track.uri.clone())
 }
 
+/// The most songs a plain track list hands the player.
+const MAX_PLAYED_URIS: usize = 500;
+
 /// Caps large track lists at 500 items starting from the selected row.
 fn cap_uris(uris: &[String], index: u32) -> (Vec<String>, u32) {
-    const MAX: usize = 500;
-    if uris.len() <= MAX {
+    if uris.len() <= MAX_PLAYED_URIS {
         return (uris.to_vec(), index);
     }
     let start = (index as usize).min(uris.len().saturating_sub(1));
-    let end = (start + MAX).min(uris.len());
+    let end = (start + MAX_PLAYED_URIS).min(uris.len());
     (uris[start..end].to_vec(), 0)
+}
+
+/// Caps large track lists at 500 items that include the selected row,
+/// moving the window back near the end so it stays full.
+fn cap_uris_around(uris: &[String], index: u32) -> (Vec<String>, u32) {
+    let start = (index as usize).min(uris.len().saturating_sub(MAX_PLAYED_URIS));
+    let end = (start + MAX_PLAYED_URIS).min(uris.len());
+    (uris[start..end].to_vec(), index - start as u32)
 }
 
 fn evict_lru_map<V>(
@@ -29651,7 +29667,13 @@ mod tests {
             );
             let play = app.queued_play.as_ref().unwrap();
             assert_eq!(play.uris.as_slice(), uris.as_ref());
-            starts.insert(play.offset_position.unwrap());
+            let start = play.offset_position.unwrap();
+            assert_eq!(
+                app.current_track_uri(),
+                Some(uris[start as usize].clone()),
+                "the chosen song shows as playing at once"
+            );
+            starts.insert(start);
         }
         assert!(
             starts.len() > 1,
@@ -29671,6 +29693,54 @@ mod tests {
             Some(0),
             "a clicked row still plays first with shuffle on"
         );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn shuffled_header_play_of_a_long_view_hands_over_a_full_list() {
+        let uris: Vec<String> = (0..600).map(|n| format!("spotify:track:t{n}")).collect();
+        let (window, index) = cap_uris_around(&uris, 590);
+        assert_eq!(
+            window.len(),
+            MAX_PLAYED_URIS,
+            "a late start keeps 500 songs"
+        );
+        assert_eq!(window[index as usize], uris[590]);
+        assert_eq!(
+            window.first(),
+            Some(&uris[100]),
+            "the window ends at the last song"
+        );
+        let (window, index) = cap_uris_around(&uris, 3);
+        assert_eq!(
+            (window.len(), window.first(), index),
+            (MAX_PLAYED_URIS, Some(&uris[3]), 0)
+        );
+        let (window, index) = cap_uris_around(&uris[..20], 7);
+        assert_eq!((window.len(), index), (20, 7), "a short list is kept whole");
+
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.shuffle_wanted = true;
+        let ctx = egui::Context::default();
+        let uris: Arc<[String]> = uris.into();
+        for _ in 0..20 {
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::View {
+                        context_uri: "spotify:playlist:mix".into(),
+                        uris: Arc::clone(&uris),
+                        editable_playlist: None,
+                    },
+                    uri: String::new(),
+                    index: 0,
+                },
+                &ctx,
+            );
+            let play = app.queued_play.as_ref().unwrap();
+            assert_eq!(play.uris.len(), MAX_PLAYED_URIS);
+            assert!(play.offset_position.unwrap() < MAX_PLAYED_URIS as u32);
+        }
         app.backend.shutdown();
     }
 
