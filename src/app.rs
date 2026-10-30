@@ -6967,6 +6967,26 @@ impl App {
         }
     }
 
+    /// An endpoint denial is not an empty recommendation response. Keep any
+    /// recommendations already shown; without a usable result, omit the shelf.
+    /// Do not remember a permanent capability verdict: Home refresh tries again.
+    pub(crate) fn receive_recommendations(
+        &mut self,
+        result: Result<Vec<Track>, crate::api::ApiError>,
+    ) {
+        if result
+            .as_ref()
+            .is_err_and(|error| matches!(error.status(), Some(403 | 404)))
+            && self.home.recommendations.get().is_none_or(Vec::is_empty)
+        {
+            self.home.recommendations = Loadable::Loaded(Vec::new());
+        } else if self.home.recommendations.get().is_some_and(Vec::is_empty) {
+            self.home.recommendations = Loadable::from_result(result);
+        } else {
+            self.home.recommendations.refresh(result);
+        }
+    }
+
     /// Applies an API response to the current page and ignores stale Home data.
     fn handle_api(&mut self, mut response: ApiResponse) {
         match &mut response {
@@ -7421,7 +7441,7 @@ impl App {
                     let uris: Vec<String> = tracks.iter().map(|track| track.uri.clone()).collect();
                     self.request_contains(uris);
                 }
-                self.home.recommendations.refresh(result);
+                self.receive_recommendations(result);
             }
             ApiResponse::MadeForYou {
                 generation,
@@ -15963,6 +15983,84 @@ mod tests {
                 Vec::new(),
             )],
             ..Default::default()
+        }
+    }
+
+    #[test]
+    fn recommendations_endpoint_denial_omits_only_an_unavailable_shelf() {
+        for status in [403, 404] {
+            let mut app = listener_app();
+            let generation = app.home.generation;
+            app.home.recommendations = Loadable::Loading;
+            app.handle_api(ApiResponse::Recommendations {
+                generation: generation.wrapping_add(1),
+                result: Err(crate::api::ApiError::Status {
+                    status,
+                    message: "denied".into(),
+                }),
+            });
+            assert!(
+                app.home.recommendations.is_loading(),
+                "ignore stale responses"
+            );
+            app.handle_api(ApiResponse::Recommendations {
+                generation,
+                result: Err(crate::api::ApiError::Status {
+                    status,
+                    message: "denied".into(),
+                }),
+            });
+            assert_eq!(app.home.recommendations.get(), Some(&Vec::new()));
+            let tracks = vec![song("spotify:track:recommended")];
+            app.handle_api(ApiResponse::Recommendations {
+                generation,
+                result: Ok(tracks.clone()),
+            });
+            assert_eq!(
+                app.home.recommendations.get(),
+                Some(&tracks),
+                "later success restores the shelf"
+            );
+            app.handle_api(ApiResponse::Recommendations {
+                generation,
+                result: Err(crate::api::ApiError::Status {
+                    status,
+                    message: "denied".into(),
+                }),
+            });
+            assert_eq!(
+                app.home.recommendations.get(),
+                Some(&tracks),
+                "keep useful results"
+            );
+        }
+    }
+
+    #[test]
+    fn recommendations_transient_and_authentication_errors_stay_visible() {
+        for error in [
+            crate::api::ApiError::Network("offline".into()),
+            crate::api::ApiError::RateLimited,
+            crate::api::ApiError::NotSignedIn,
+            crate::api::ApiError::Decode("invalid response".into()),
+            crate::api::ApiError::Status {
+                status: 401,
+                message: "expired".into(),
+            },
+            crate::api::ApiError::Status {
+                status: 500,
+                message: "server error".into(),
+            },
+        ] {
+            for initial in [Loadable::Loading, Loadable::Loaded(Vec::new())] {
+                let mut app = listener_app();
+                app.home.recommendations = initial;
+                app.handle_api(ApiResponse::Recommendations {
+                    generation: app.home.generation,
+                    result: Err(error.clone()),
+                });
+                assert!(matches!(app.home.recommendations, Loadable::Failed(_)));
+            }
         }
     }
 

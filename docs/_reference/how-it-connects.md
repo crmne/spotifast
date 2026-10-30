@@ -796,3 +796,11 @@ feed the visualizers before volume, then play through the default output.
 Only that child's stream is held at unity gain; its documented volume events
 set the final processed gain. The route is temporary and local, and writes no
 audio to disk. Other platforms retain Soloist's direct output.
+
+Home's **Recommended for you** shelf uses the Web API recommendations endpoint.
+When that endpoint returns HTTP 403 or 404 and no recommendations have loaded,
+the shelf is omitted instead of displaying an error with a Retry button.
+Previously loaded recommendations remain visible. This is not a permanent
+capability decision: refreshing Home tries the request again. Network, sign-in,
+rate-limit and server errors retain their normal error handling. No alternate
+recommendation source is substituted.
