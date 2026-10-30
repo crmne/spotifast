@@ -1097,6 +1097,36 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     }
     for surface in show.unwrap_or("").split(',').map(str::trim) {
         match surface {
+            "recommendations-denied-before"
+            | "recommendations-denied"
+            | "recommendations-network"
+            | "recommendations-available" => {
+                app.open(Page::Home);
+                app.settings.home.made_for_you.visible = false;
+                app.home.new_releases = Loadable::Loaded(Vec::new());
+                app.home.recently_played = Loadable::Loaded(Vec::new());
+                app.home.top_artists = Loadable::Loaded(Vec::new());
+                app.home.podcasts.clear();
+                app.home.top_tracks = Loadable::Loaded((0..3).map(track).collect());
+                app.settings.home.recommendations.visible = true;
+                if surface == "recommendations-available" {
+                    app.home.recommendations = Loadable::Loaded((3..6).map(track).collect());
+                } else if surface == "recommendations-denied-before" {
+                    // Reference fixture for the old, unhandled HTTP 404 state.
+                    app.home.recommendations = Loadable::Failed("Not Found".into());
+                } else {
+                    app.home.recommendations = Loadable::Loading;
+                    let error = if surface == "recommendations-network" {
+                        crate::api::ApiError::Network("connection interrupted".into())
+                    } else {
+                        crate::api::ApiError::Status {
+                            status: 404,
+                            message: "Not Found".into(),
+                        }
+                    };
+                    app.receive_recommendations(Err(error));
+                }
+            }
             "spotify-access-missing" | "spotify-access-authorizing" => {
                 app.local_ready = false;
                 app.local_playback = if surface == "spotify-access-missing" {
