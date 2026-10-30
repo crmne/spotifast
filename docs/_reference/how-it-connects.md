@@ -118,6 +118,8 @@ If Popular was requested before the session connected and failed, Spotifast
 retries it once when that session becomes ready, including a failure arriving
 after readiness. Successful lists, including empty ones, are kept. A failed
 session-backed retry remains visible rather than starting a retry loop.
+Each request carries an identity that survives page recreation and account
+reset; an older response cannot retry or replace a newer Popular list.
 
 Related artists also prefer the same-account playback session. The existing
 configured HTTP client sends `queryArtistRelated` with the session's Login5

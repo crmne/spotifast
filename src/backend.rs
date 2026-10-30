@@ -318,6 +318,7 @@ pub enum ApiRequest {
     },
     ArtistTopTracks {
         id: String,
+        generation: u64,
     },
     ArtistAlbums {
         id: String,
@@ -580,6 +581,7 @@ pub enum ApiResponse {
     },
     ArtistTopTracks {
         id: String,
+        generation: u64,
         result: ApiResult<Vec<Track>>,
     },
     ArtistAlbums {
@@ -5775,7 +5777,8 @@ async fn handle(
             result: routed!(artist(&id)),
             id,
         },
-        ApiRequest::ArtistTopTracks { id } => ApiResponse::ArtistTopTracks {
+        ApiRequest::ArtistTopTracks { id, generation } => ApiResponse::ArtistTopTracks {
+            generation,
             result: routed!(artist_top_tracks(&id)),
             id,
         },
@@ -6141,7 +6144,7 @@ enum SessionRead<'a> {
 fn session_read(request: &ApiRequest) -> Option<SessionRead<'_>> {
     Some(match request {
         ApiRequest::RelatedArtists { id } => SessionRead::RelatedArtists { id },
-        ApiRequest::ArtistTopTracks { id } => SessionRead::ArtistTop { id },
+        ApiRequest::ArtistTopTracks { id, .. } => SessionRead::ArtistTop { id },
         ApiRequest::Playlist { id, .. } => SessionRead::Header { id },
         ApiRequest::PlaylistItems { id, offset, .. } => SessionRead::Rows {
             id,
@@ -6176,9 +6179,10 @@ fn session_response(request: &ApiRequest, answer: SessionAnswer) -> Option<ApiRe
                 result,
             }
         }
-        (ApiRequest::ArtistTopTracks { id }, SessionAnswer::ArtistTop(result)) => {
+        (ApiRequest::ArtistTopTracks { id, generation }, SessionAnswer::ArtistTop(result)) => {
             ApiResponse::ArtistTopTracks {
                 id: id.clone(),
+                generation: *generation,
                 result,
             }
         }
@@ -9450,6 +9454,7 @@ mod session_tests {
         let api = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
         let request = ApiRequest::ArtistTopTracks {
             id: "artist1".into(),
+            generation: 42,
         };
         assert_eq!(operation_for(&api, &request), Operation::ArtistTopTracks);
         assert_eq!(
@@ -9458,7 +9463,7 @@ mod session_tests {
         );
         assert!(
             matches!(session_response(&request, SessionAnswer::ArtistTop(Ok(Vec::new()))),
-            Some(ApiResponse::ArtistTopTracks { id, result: Ok(tracks) }) if id == "artist1" && tracks.is_empty())
+            Some(ApiResponse::ArtistTopTracks { id, generation: 42, result: Ok(tracks) }) if id == "artist1" && tracks.is_empty())
         );
         let transient = settle(Err::<Vec<Track>, Failure>(Failure::Retry(anyhow::anyhow!(
             "connection lost"
@@ -9477,6 +9482,7 @@ mod session_tests {
         assert!(matches!(
             session_response(&request, SessionAnswer::ArtistTop(refused)),
             Some(ApiResponse::ArtistTopTracks {
+                generation: 42,
                 result: Err(ApiError::Status { status: 403, .. }),
                 ..
             })
