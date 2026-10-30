@@ -33,7 +33,14 @@ pub fn marquee_strip(text: &str) -> String {
 /// How long a listing of the skins folder is trusted.
 const CHOICES_FRESH: Duration = Duration::from_secs(5);
 /// File extensions a skin archive may carry.
-const ARCHIVE_EXTENSIONS: [&str; 2] = ["wsz", "zip"];
+const ARCHIVE_EXTENSIONS: [&str; 3] = ["wsz", "wmz", "zip"];
+
+/// Which player a skin is made for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SkinKind {
+    Winamp,
+    WindowsMediaPlayer,
+}
 
 /// A skin in the skins folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +48,7 @@ pub struct SkinChoice {
     /// The file or folder name, which is what the settings store.
     pub name: String,
     pub path: PathBuf,
+    pub kind: SkinKind,
 }
 
 impl SkinChoice {
@@ -74,6 +82,8 @@ pub struct WinampState {
     /// The skin's sheets on the graphics card, made on demand and dropped
     /// with the window, since textures belong to a window's context.
     textures: HashMap<Sheet, egui::TextureHandle>,
+    /// A Windows Media Player skin's pictures, by their keys.
+    wmp_textures: HashMap<String, egui::TextureHandle>,
     loading: Option<mpsc::Receiver<Loaded>>,
     /// The skins folder's contents, as last listed.
     pub choices: Vec<SkinChoice>,
@@ -117,6 +127,7 @@ impl WinampState {
             skin: Skin::builtin(),
             worn: None,
             textures: HashMap::new(),
+            wmp_textures: HashMap::new(),
             loading: None,
             choices: Vec::new(),
             choices_listed: None,
@@ -142,13 +153,21 @@ impl WinampState {
         }
     }
 
-    /// Screen pixels per skin pixel: the setting, or else double size on
-    /// this display, which is the size people remember Winamp at.
-    pub fn scale(settings: &Settings, pixels_per_point: f32) -> u32 {
+    /// Screen pixels per skin pixel, for everything that draws or sizes a
+    /// skin: the setting, or else double size on this display for a Winamp
+    /// skin, which is the size people remember it at. A Windows Media
+    /// Player skin is made for a screen of its day, so by default one of
+    /// its pixels is one pixel of this display.
+    pub fn scale(settings: &Settings, pixels_per_point: f32, skin: &Skin) -> u32 {
+        let default = if skin.wmp.is_some() {
+            pixels_per_point
+        } else {
+            2.0 * pixels_per_point
+        };
         let chosen = settings
             .skin_scale
             .map(u32::from)
-            .unwrap_or_else(|| (2.0 * pixels_per_point).round() as u32);
+            .unwrap_or_else(|| default.round() as u32);
         chosen.clamp(1, MAX_SCALE)
     }
 
@@ -161,11 +180,13 @@ impl WinampState {
         self.skin = skin;
         self.worn = name;
         self.textures.clear();
+        self.wmp_textures.clear();
     }
 
     /// The window is gone (or about to be), and with it the textures.
     pub fn forget_textures(&mut self) {
         self.textures.clear();
+        self.wmp_textures.clear();
         self.playlist_text.clear();
     }
 
@@ -190,6 +211,30 @@ impl WinampState {
         self.textures
             .iter()
             .map(|(sheet, handle)| (*sheet, handle.id()))
+            .collect()
+    }
+
+    /// The Windows Media Player skin's pictures as textures, made now if
+    /// they are not yet. Empty for a Winamp skin.
+    pub fn wmp_textures(&mut self, ctx: &egui::Context) -> HashMap<String, egui::TextureId> {
+        let Some(wmp) = self.skin.wmp.as_ref() else {
+            return HashMap::new();
+        };
+        for (key, bitmap) in &wmp.images {
+            if self.wmp_textures.contains_key(key) {
+                continue;
+            }
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [bitmap.width as usize, bitmap.height as usize],
+                &bitmap.rgba,
+            );
+            let handle =
+                ctx.load_texture(format!("wmp-{key}"), image, egui::TextureOptions::NEAREST);
+            self.wmp_textures.insert(key.clone(), handle);
+        }
+        self.wmp_textures
+            .iter()
+            .map(|(key, handle)| (key.clone(), handle.id()))
             .collect()
     }
 
@@ -333,22 +378,37 @@ pub fn list_skins(folder: &Path) -> Vec<SkinChoice> {
         .filter_map(|entry| {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
-            let is_skin = if path.is_dir() {
-                has_main_bitmap(&path)
+            let kind = if path.is_dir() {
+                folder_kind(&path)
+            } else if is_skin_file(&path) {
+                Some(archive_kind(&path))
             } else {
-                is_skin_file(&path)
+                None
             };
-            is_skin.then_some(SkinChoice { name, path })
+            kind.map(|kind| SkinChoice { name, path, kind })
         })
         .collect();
     skins.sort_by_key(|skin| skin.name.to_lowercase());
     skins
 }
 
-/// Whether an unpacked skin has a main window bitmap, looked for the way
-/// [`Skin::from_dir`] reads one: in nested folders too, down to the same
-/// depth, without following links.
-fn has_main_bitmap(folder: &Path) -> bool {
+/// What an archive holds, by its file names alone. One that cannot be read
+/// is listed as a Winamp skin, and says what is wrong when it is chosen.
+fn archive_kind(path: &Path) -> SkinKind {
+    match crate::skin::zip::file_names(path) {
+        Ok(names) if crate::skin::is_media_player_skin(names.iter().map(String::as_str)) => {
+            SkinKind::WindowsMediaPlayer
+        }
+        _ => SkinKind::Winamp,
+    }
+}
+
+/// What an unpacked skin is, or `None` when it has no main window bitmap
+/// or definition, looked for the way [`Skin::from_dir`] reads one: in nested
+/// folders too, down to the same depth, without following links. A Winamp
+/// main window wins over a definition, as it does when the skin is read.
+fn folder_kind(folder: &Path) -> Option<SkinKind> {
+    let mut definition = false;
     let mut folders = VecDeque::from([(folder.to_path_buf(), 0)]);
     while let Some((folder, depth)) = folders.pop_front() {
         let Ok(entries) = std::fs::read_dir(folder) else {
@@ -363,12 +423,14 @@ fn has_main_bitmap(folder: &Path) -> bool {
             } else if kind.is_file() {
                 let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
                 if name == "main.bmp" || name == "main.png" {
-                    return true;
+                    // Nothing found later can change the answer.
+                    return Some(SkinKind::Winamp);
                 }
+                definition |= name.ends_with(".wms");
             }
         }
     }
-    false
+    definition.then_some(SkinKind::WindowsMediaPlayer)
 }
 
 /// A skin other than `current`, at random, from `candidates` (`None` is the
@@ -402,14 +464,39 @@ mod tests {
     #[test]
     fn the_size_defaults_to_double_on_this_display() {
         let mut settings = Settings::default();
-        assert_eq!(WinampState::scale(&settings, 1.0), 2);
-        assert_eq!(WinampState::scale(&settings, 2.0), 4);
-        assert_eq!(WinampState::scale(&settings, 1.2), 2);
-        assert_eq!(WinampState::scale(&settings, 1.5), 3);
+        let skin = Skin::builtin();
+        assert_eq!(WinampState::scale(&settings, 1.0, &skin), 2);
+        assert_eq!(WinampState::scale(&settings, 2.0, &skin), 4);
+        assert_eq!(WinampState::scale(&settings, 1.2, &skin), 2);
+        assert_eq!(WinampState::scale(&settings, 1.5, &skin), 3);
         settings.skin_scale = Some(1);
-        assert_eq!(WinampState::scale(&settings, 2.0), 1);
+        assert_eq!(WinampState::scale(&settings, 2.0, &skin), 1);
         settings.skin_scale = Some(9);
-        assert_eq!(WinampState::scale(&settings, 1.0), MAX_SCALE);
+        assert_eq!(WinampState::scale(&settings, 1.0, &skin), MAX_SCALE);
+    }
+
+    #[test]
+    fn a_windows_media_player_skin_defaults_to_one_pixel_and_shares_the_size_setting() {
+        let mut settings = Settings::default();
+        let winamp = Skin::builtin();
+        let archive = crate::skin::zip::write(&[(
+            "player.wms",
+            br#"<VIEW width="30" height="20"/>"#.as_slice(),
+            false,
+        )]);
+        let player = Skin::from_archive("player", &archive).unwrap();
+        assert!(player.wmp.is_some());
+        assert_eq!(WinampState::scale(&settings, 1.0, &player), 1);
+        assert_eq!(WinampState::scale(&settings, 2.0, &player), 2);
+        assert_eq!(WinampState::scale(&settings, 1.0, &winamp), 2);
+        // A stored size means the same for both kinds.
+        settings.skin_scale = Some(3);
+        assert_eq!(WinampState::scale(&settings, 1.0, &player), 3);
+        assert_eq!(WinampState::scale(&settings, 1.0, &winamp), 3);
+        assert_eq!(
+            crate::ui::winamp::initial_size(&settings, &player),
+            egui::vec2(90.0, 60.0)
+        );
     }
 
     #[test]
@@ -481,6 +568,7 @@ mod tests {
         let choice = |name: &str| SkinChoice {
             name: name.to_string(),
             path: PathBuf::new(),
+            kind: SkinKind::Winamp,
         };
         assert_eq!(choice("Zaxon Remake 1.0.wsz").label(), "Zaxon Remake 1.0");
         assert_eq!(choice("Unpacked").label(), "Unpacked");

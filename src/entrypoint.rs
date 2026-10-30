@@ -751,7 +751,7 @@ struct MiniWindow {
 impl MiniWindow {
     fn wanted(app: &app::App) -> Option<Self> {
         app.settings.winamp_window.then(|| Self {
-            size: spotifast::ui::winamp::initial_size(&app.settings),
+            size: spotifast::ui::winamp::initial_size(&app.settings, &app.winamp.skin),
             geometry: Geometry {
                 position: app.winamp.geometry.position,
                 ..Geometry::default()
@@ -1073,7 +1073,8 @@ mod native_window_tests {
                 skin_scale: Some(2),
                 ..Default::default()
             };
-            let size = spotifast::ui::winamp::initial_size(&settings);
+            let size =
+                spotifast::ui::winamp::initial_size(&settings, &spotifast::skin::Skin::builtin());
             let options = native_options(
                 false,
                 Some(MiniWindow {
