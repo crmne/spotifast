@@ -745,6 +745,14 @@ counts out. The column needs a window wide enough for it.
 
 ## Upcoming albums
 
+Artist pages show a **Release countdown** section between Popular and Discography
+when Spotify supplies a countdown page. Select its album row to open the artwork,
+countdown, track preview and Pre-save button. The preview shows play counts when
+Spotify supplies them and the window has room for the extra column.
+This needs the same-account Spotify access connection, including when Soloist
+handles playback. Visiting the artist never pre-saves an album. Refresh the artist
+page to check for a newly announced release; cards disappear after release time.
+
 Open a `spotify:prerelease:` URI or an `open.spotify.com/prerelease/` link
 with Spotifast to see the artwork, release countdown and track-list preview.
 This requires local playback authorization. Pre-save adds the resolved album

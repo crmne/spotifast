@@ -1,0 +1,33 @@
+{
+  "name": "Fog Lake",
+  "preRelease": {
+    "preReleaseContent": {
+      "coverArt": {
+        "sources": [
+          {
+            "height": 300,
+            "url": "https://i.scdn.co/image/ab67616d00001e02209b43a9c855762aba5bc482",
+            "width": 300
+          },
+          {
+            "height": 64,
+            "url": "https://i.scdn.co/image/ab67616d00004851209b43a9c855762aba5bc482",
+            "width": 64
+          },
+          {
+            "height": 640,
+            "url": "https://i.scdn.co/image/ab67616d0000b273209b43a9c855762aba5bc482",
+            "width": 640
+          }
+        ]
+      },
+      "name": "Hollowbody",
+      "type": "ALBUM"
+    },
+    "releaseDate": {
+      "isoString": "2026-11-13T05:00:00Z"
+    },
+    "uri": "spotify:prerelease:08LfxqlFRyEpd5h32mB8ho"
+  },
+  "uri": "spotify:artist:04GCjO1r1hPelibCUq9S8H"
+}

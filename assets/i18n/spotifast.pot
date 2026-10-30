@@ -2344,7 +2344,15 @@ msgid ""
 "Custom themes could not be loaded. Run spotifast reload-themes to try again."
 msgstr ""
 
-#: src/ui/artist.rs:32
+#: src/ui/artist.rs:337
+msgid "Release countdown"
+msgstr ""
+
+#: src/ui/prerelease.rs:300
+msgid "Plays"
+msgstr ""
+
+#: src/ui/artist.rs:40
 msgid "Popular"
 msgstr ""
 

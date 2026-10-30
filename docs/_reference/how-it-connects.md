@@ -746,6 +746,14 @@ these fields clears it. See [password storage and migration](/settings-and-files
 
 ## Upcoming albums and countdown links
 
+Artist discovery reuses the `queryArtistOverview` request for play counts with
+`includePrerelease: true`. Its optional `preRelease` supplies the countdown URI,
+title, artwork and release instant. The card is kept in memory per signed-in
+account and cleared on sign-out. Refreshing the artist asks again; a failed read
+keeps the previous card, and a card past its release instant is not drawn.
+Artists with no popular tracks still request the overview. No library write is
+sent until the listener opens the countdown page and presses Pre-save.
+
 `spotify:prerelease:` and Spotify prerelease share links require the same-account
 local playback session. The session's extended metadata kind 138 resolves the
 prerelease URI to its real album URI, cover, artist and release instant. They

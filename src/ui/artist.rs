@@ -27,7 +27,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         Loadable::Loaded(artist) => {
             artist_hero(app, ui, artist, preview.as_deref());
             artist_actions(app, ui, artist);
-
+            // The same overview supplies both play counts and the upcoming release.
+            app.request_play_counts(&artist.uri);
             // Popular.
             theme::section_title(ui, &palette, &gettext(locale, "Popular"));
             ui.add_space(4.0);
@@ -42,7 +43,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     let items: Vec<PlayableItem> =
                         tracks.iter().cloned().map(PlayableItem::Track).collect();
                     let limit = if page.show_all_top { items.len() } else { 5 };
-                    app.request_play_counts(&artist.uri);
                     let show_plays = app.has_play_counts(&artist.uri);
                     let render_top = |ui: &mut egui::Ui, app: &mut App| {
                         for (index, item) in items.iter().take(limit).enumerate() {
@@ -110,6 +110,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 }
             }
             ui.add_space(20.0);
+
+            if let Some(upcoming) = app.artist_prereleases.get(&artist.uri).cloned()
+                && upcoming.is_upcoming(jiff::Timestamp::now().as_second())
+            {
+                upcoming_release(app, ui, &upcoming);
+                ui.add_space(32.0);
+            }
 
             // Discography.
             theme::section_title(ui, &palette, &gettext(locale, "Discography"));
@@ -319,6 +326,83 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
     }
     app.artist_pages.insert(id.to_string(), page);
+}
+
+fn upcoming_release(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    release: &crate::prerelease::UpcomingRelease,
+) {
+    let palette = app.palette;
+    let heading = gettext(app.locale, "Release countdown");
+    theme::section_title(ui, &palette, &heading);
+    ui.add_space(12.0);
+    let album_label = gettext(app.locale, "Album");
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width().min(440.0), 96.0),
+        egui::Sense::click(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("{heading}: {}", release.name),
+        )
+    });
+    if response.gained_focus() {
+        response.scroll_to_me(None);
+    }
+    ui.painter().rect_filled(
+        rect,
+        theme::RADIUS as f32,
+        if response.hovered() || response.has_focus() {
+            palette.surface_hover
+        } else {
+            egui::Color32::TRANSPARENT
+        },
+    );
+    let cover = egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 4.0), egui::Vec2::splat(88.0));
+    widgets::paint_cover(
+        ui,
+        &palette,
+        pick_image(&release.images, app.art_px(88.0)),
+        cover,
+        4.0,
+        Icon::Music,
+        Some(app.backend.art()),
+    );
+    let left = cover.right() + 12.0;
+    let right = rect.right() - 12.0;
+    for (text, y, font, color) in [
+        (
+            release.name.as_str(),
+            28.0,
+            theme::semibold(16.0),
+            palette.text,
+        ),
+        (
+            album_label.as_ref(),
+            52.0,
+            theme::regular(13.0),
+            palette.secondary,
+        ),
+    ] {
+        let galley = widgets::ellipsized(ui, text, font, color, (right - left).max(1.0), 1);
+        let x = if galley.job.halign == egui::Align::RIGHT {
+            right
+        } else {
+            left
+        };
+        ui.painter()
+            .galley(egui::pos2(x, rect.top() + y), galley, color);
+    }
+    if response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(&release.name)
+        .clicked()
+    {
+        app.actions.push(Action::OpenLink(release.uri.clone()));
+    }
 }
 
 fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Option<&Artist>) {

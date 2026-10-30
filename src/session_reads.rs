@@ -381,18 +381,24 @@ const PLAY_COUNT_PAGE: usize = 50;
 /// No album runs longer; a page that never ends stops here.
 const MAX_PLAY_COUNT_ROWS: usize = 1000;
 
-/// Spotify's play count for each song of an album, or of an artist's
-/// popular songs, by track URI. Only the Pathfinder queries Spotify's own
-/// apps make carry them: the Web API has none. A song Spotify gives no
-/// count is left out, and the caller shows nothing for it.
-pub async fn play_counts(
+/// Supplementary album or artist data returned by Spotify's Pathfinder queries.
+#[derive(Debug, Default)]
+pub struct PageMetadata {
+    pub play_counts: HashMap<String, u64>,
+    pub upcoming: Option<crate::prerelease::UpcomingRelease>,
+}
+
+/// Read song play counts and, for artists, the upcoming release. Neither is
+/// available through the Web API. Songs without counts are left out.
+pub async fn page_metadata(
     session: &Session,
     web: &crate::api::ApiClient,
     uri: &str,
-) -> anyhow::Result<HashMap<String, u64>> {
+) -> anyhow::Result<PageMetadata> {
     let login = session.login5().auth_token().await?;
     let client_token = session.spclient().client_token().await?;
     let mut counts = HashMap::new();
+    let mut upcoming = None;
     match crate::util::uri_kind(uri) {
         Some("album") => {
             let mut offset = 0;
@@ -426,7 +432,7 @@ pub async fn play_counts(
         Some("artist") => {
             let query = serde_json::json!({
                 "operationName": "queryArtistOverview",
-                "variables": {"uri": uri, "locale": "", "includePrerelease": false},
+                "variables": {"uri": uri, "locale": "", "includePrerelease": true},
                 "extensions": {
                     "persistedQuery": {"version": 1, "sha256Hash": ARTIST_OVERVIEW_HASH}
                 }
@@ -434,6 +440,16 @@ pub async fn play_counts(
             let body = web
                 .partner_request(&login.access_token, &client_token, &query)
                 .await?;
+            anyhow::ensure!(
+                body.get("errors").is_none_or(
+                    |errors| errors.is_null() || errors.as_array().is_some_and(Vec::is_empty)
+                ),
+                "Spotify could not return this artist overview"
+            );
+            upcoming = crate::prerelease::UpcomingRelease::from_artist(
+                body.pointer("/data/artistUnion")
+                    .ok_or_else(|| anyhow::anyhow!("missing artist overview"))?,
+            )?;
             let top = body
                 .pointer("/data/artistUnion/discography/topTracks")
                 .ok_or_else(|| anyhow::anyhow!("Spotify answered without the popular songs"))?;
@@ -441,7 +457,10 @@ pub async fn play_counts(
         }
         _ => anyhow::bail!("Spotify counts plays only for album and artist songs"),
     }
-    Ok(counts)
+    Ok(PageMetadata {
+        play_counts: counts,
+        upcoming,
+    })
 }
 
 /// Adds the counts of a Pathfinder list of `{track: {uri, playcount}}`

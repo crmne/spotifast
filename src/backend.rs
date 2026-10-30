@@ -879,7 +879,10 @@ pub enum Command {
     UserNames(Vec<String>),
     /// Read Spotify's play counts for an album's songs or an artist's
     /// popular songs, by the album's or the artist's URI.
-    PlayCounts(String),
+    PlayCounts {
+        uri: String,
+        generation: u64,
+    },
     /// Read what friends are listening to through the streaming session,
     /// for the app's request generation.
     FriendActivity(u64),
@@ -1090,7 +1093,8 @@ pub enum Event {
     /// could not be read.
     PlayCounts {
         uri: String,
-        result: Result<std::collections::HashMap<String, u64>, String>,
+        generation: u64,
+        result: Result<session_reads::PageMetadata, String>,
     },
     /// Saved shows that Spotify's metadata marks as audiobooks. librespot
     /// cannot play them, so the Podcasts shelf leaves them out.
@@ -2757,7 +2761,7 @@ impl Worker {
                     }
                 }
                 Command::UserNames(ids) => self.fetch_user_names(ids),
-                Command::PlayCounts(uri) => self.fetch_play_counts(uri),
+                Command::PlayCounts { uri, generation } => self.fetch_play_counts(uri, generation),
                 Command::FriendActivity(generation) => self.fetch_friend_activity(generation),
                 Command::LoadLikedSongsCache { generation } => {
                     if let Some(account) = self.api.account() {
@@ -4752,11 +4756,15 @@ impl Worker {
     /// popular songs was played. It needs the playback session and a
     /// verified Web API grant, as upcoming album pages do; without them the
     /// lists simply show no counts.
-    fn fetch_play_counts(&self, uri: String) {
+    fn fetch_play_counts(&self, uri: String, generation: u64) {
         let events = self.events.clone();
         let waker = self.waker.clone();
         let send = move |uri, result| {
-            let _ = events.send(Event::PlayCounts { uri, result });
+            let _ = events.send(Event::PlayCounts {
+                uri,
+                generation,
+                result,
+            });
             waker.wake();
         };
         let Some(engine) = self.engine.clone() else {
@@ -4769,7 +4777,7 @@ impl Worker {
         tokio::spawn(async move {
             let read = tokio::time::timeout(
                 Duration::from_secs(15),
-                session_reads::play_counts(engine.session(), &web, &uri),
+                session_reads::page_metadata(engine.session(), &web, &uri),
             );
             let result = tokio::select! {
                 biased;
