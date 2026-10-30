@@ -1223,6 +1223,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     _ => Status::Off,
                 };
             }
+            "prerelease-light-artwork" => {
+                for page in app.album_pages.values_mut() {
+                    if let Some(data) = &mut page.prerelease {
+                        data.color = Some([255, 255, 255]);
+                    }
+                }
+            }
             "presaved" => {
                 for page in app.album_pages.values_mut() {
                     if let Some(data) = &mut page.prerelease {

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-30 16:23-0700\n"
+"POT-Creation-Date: 2026-10-30 16:45-0700\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Polish\n"
@@ -166,7 +166,7 @@ msgstr "Sortuj według ostatnio odtwarzanych"
 
 #: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:798 src/ui/widgets.rs:1218
 #: src/ui/artist.rs:481 src/ui/collection.rs:302 src/ui/new_releases.rs:117
-#: src/ui/prerelease.rs:347 src/ui/search.rs:408 src/ui/show.rs:390
+#: src/ui/prerelease.rs:365 src/ui/search.rs:408 src/ui/show.rs:390
 msgid "Play"
 msgstr "Odtwórz"
 
@@ -362,7 +362,7 @@ msgid "Next up"
 msgstr "Dalej"
 
 #: src/ui/queue.rs:625 src/ui/queue.rs:658 src/ui/widgets.rs:2931
-#: src/ui/collection.rs:1251 src/ui/prerelease.rs:265
+#: src/ui/collection.rs:1251 src/ui/prerelease.rs:283
 msgid "Retry"
 msgstr "Ponów"
 
@@ -537,11 +537,11 @@ msgstr "Przejdź do albumu"
 msgid "Go to podcast"
 msgstr "Przejdź do podcastu"
 
-#: src/ui/widgets.rs:1191 src/ui/widgets.rs:1303 src/ui/prerelease.rs:249
+#: src/ui/widgets.rs:1191 src/ui/widgets.rs:1303 src/ui/prerelease.rs:267
 msgid "Copy link"
 msgstr "Kopiuj link"
 
-#: src/ui/widgets.rs:1199 src/ui/widgets.rs:1311 src/ui/prerelease.rs:253
+#: src/ui/widgets.rs:1199 src/ui/widgets.rs:1311 src/ui/prerelease.rs:271
 msgid "Open in Spotify"
 msgstr "Otwórz w Spotify"
 
@@ -808,7 +808,7 @@ msgid "Radio"
 msgstr "Radio"
 
 #: src/app.rs:3616 src/api/models.rs:299 src/ui/artist.rs:341
-#: src/ui/prerelease.rs:57
+#: src/ui/prerelease.rs:78
 msgid "Album"
 msgstr "Album"
 
@@ -3283,57 +3283,57 @@ msgstr "Maksymalizuj"
 msgid "Restore"
 msgstr "Przywróć"
 
-#: src/ui/prerelease.rs:114
+#: src/ui/prerelease.rs:135
 msgid "Releases"
 msgstr "Premiera"
 
-#: src/ui/prerelease.rs:177
+#: src/ui/prerelease.rs:195
 msgid "Saving…"
 msgstr "Zapisywanie…"
 
-#: src/ui/prerelease.rs:179
+#: src/ui/prerelease.rs:197
 msgid "Pre-saved"
 msgstr "Zapisano przed premierą"
 
-#: src/ui/prerelease.rs:181
+#: src/ui/prerelease.rs:199
 msgid "Pre-save"
 msgstr "Zapisz przed premierą"
 
-#: src/ui/prerelease.rs:209
+#: src/ui/prerelease.rs:227
 msgid "Pre-save on Spotify"
 msgstr "Zapisz przed premierą w Spotify"
 
-#: src/ui/prerelease.rs:272
+#: src/ui/prerelease.rs:290
 msgid "Track list preview"
 msgstr "Podgląd listy utworów"
 
-#: src/ui/prerelease.rs:286
+#: src/ui/prerelease.rs:304
 msgctxt "column"
 msgid "Title"
 msgstr "Tytuł"
 
-#: src/ui/prerelease.rs:302
+#: src/ui/prerelease.rs:320
 msgid "Plays"
 msgstr "Odtworzenia"
 
-#: src/ui/prerelease.rs:364 src/ui/prerelease.rs:371
+#: src/ui/prerelease.rs:382 src/ui/prerelease.rs:389
 #, rust-format
 msgid "Track {number}"
 msgstr "Utwór {number}"
 
-#: src/ui/prerelease.rs:502
+#: src/ui/prerelease.rs:520
 msgid "days"
 msgstr "dni"
 
-#: src/ui/prerelease.rs:503
+#: src/ui/prerelease.rs:521
 msgid "hours"
 msgstr "godzin"
 
-#: src/ui/prerelease.rs:504
+#: src/ui/prerelease.rs:522
 msgid "minutes"
 msgstr "minut"
 
-#: src/ui/prerelease.rs:505
+#: src/ui/prerelease.rs:523
 msgid "seconds"
 msgstr "sekund"
 
