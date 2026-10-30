@@ -802,3 +802,11 @@ Subsequent volume-change events from Spotify update Spotifast's output fader,
 then restore the source to 100%. Reset echoes and state snapshots never
 replace the output fader. Windows capture only observes the direct output,
 so this volume policy is not applied there.
+
+Home's **Recommended for you** shelf uses the Web API recommendations endpoint.
+When that endpoint returns HTTP 403 or 404 and no recommendations have loaded,
+the shelf is omitted instead of displaying an error with a Retry button.
+Previously loaded recommendations remain visible. This is not a permanent
+capability decision: refreshing Home tries the request again. Network, sign-in,
+rate-limit and server errors retain their normal error handling. No alternate
+recommendation source is substituted.
