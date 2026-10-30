@@ -48,6 +48,7 @@ impl UpcomingRelease {
             .parse()?;
         let images: Vec<Image> = serde_json::from_value(
             data.pointer("/preReleaseContent/coverArt/sources")
+                .filter(|sources| !sources.is_null())
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!([])),
         )?;
@@ -444,6 +445,19 @@ mod tests {
         let mut artist = original;
         artist["preRelease"]["preReleaseContent"]["name"] = " ".into();
         assert!(UpcomingRelease::from_artist(&artist).is_err());
+    }
+
+    #[test]
+    fn artist_prerelease_accepts_missing_or_null_artwork() {
+        let original: serde_json::Value =
+            serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+        for cover in [serde_json::json!({}), serde_json::json!({"sources": null})] {
+            let mut artist = original.clone();
+            artist["preRelease"]["preReleaseContent"]["coverArt"] = cover;
+            let upcoming = UpcomingRelease::from_artist(&artist).unwrap().unwrap();
+            assert_eq!(upcoming.name, "Hollowbody");
+            assert!(upcoming.images.is_empty());
+        }
     }
 
     const URI: &str = "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL";
