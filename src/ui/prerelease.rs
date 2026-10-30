@@ -274,7 +274,8 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
         palette.text,
     );
     ui.add_space(14.0);
-    app.request_play_counts(&data.album.uri);
+    app.actions
+        .push(Action::RequestPlayCounts(data.album.uri.clone()));
     let show_plays = ui.available_width() >= 640.0 && app.has_play_counts(&data.album.uri);
     let columns = ui.horizontal(|ui| {
         ui.add_space(18.0);

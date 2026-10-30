@@ -6727,6 +6727,9 @@ mod tests {
             view_frame(ctx, app, vec![egui::Event::PointerMoved(pos)], view);
         }
         let text = view_frame(ctx, app, vec![], view);
+        // Drawing may request page metadata, independently of the menu gesture.
+        app.actions
+            .retain(|action| !matches!(action, Action::RequestPlayCounts(_)));
         assert!(
             app.actions.is_empty(),
             "right-click must not navigate or play"
@@ -6747,6 +6750,8 @@ mod tests {
             pointer_click(copy.1.center(), egui::PointerButton::Primary),
             view,
         );
+        app.actions
+            .retain(|action| !matches!(action, Action::RequestPlayCounts(_)));
         assert!(matches!(app.actions.as_slice(), [Action::CopyLink(link)] if link == uri));
     }
 

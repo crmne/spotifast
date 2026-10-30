@@ -749,8 +749,10 @@ Artist pages show a **Release countdown** section between Popular and Discograph
 when Spotify supplies a countdown page. Select its album row to open the artwork,
 countdown, track preview and Pre-save button. The preview shows play counts when
 Spotify supplies them and the window has room for the extra column.
-This needs the same-account Spotify access connection, including when Soloist
-handles playback. Visiting the artist never pre-saves an album. Refresh the artist
+Discovery needs both a ready same-account Spotify access (local playback)
+connection and a verified Web API sign-in, including when Soloist handles
+playback. Until both are ready, a fresh artist visit may show no countdown card.
+Visiting the artist never pre-saves an album. Refresh the artist
 page to check for a newly announced release; cards disappear after release time.
 
 Open a `spotify:prerelease:` URI or an `open.spotify.com/prerelease/` link

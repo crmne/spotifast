@@ -1292,6 +1292,8 @@ pub enum Action {
     },
     /// Open a web page in the browser.
     OpenUrl(String),
+    /// Read page metadata after drawing, with the existing per-URI retry guard.
+    RequestPlayCounts(String),
     SetPrereleaseSaved {
         uri: String,
         saved: bool,

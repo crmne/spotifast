@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-30 14:22-0700\n"
+"POT-Creation-Date: 2026-10-30 16:23-0700\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Italian\n"
@@ -28,13 +28,13 @@ msgstr "Metti in pausa {name}"
 msgid "Play {name}"
 msgstr "Riproduci {name}"
 
-#: src/ui/sidebar.rs:302 src/app.rs:3600 src/app.rs:23528
-#: src/ui/collection.rs:2139 src/ui/collection.rs:2368
+#: src/ui/sidebar.rs:302 src/app.rs:3600 src/app.rs:23529
+#: src/ui/collection.rs:2140 src/ui/collection.rs:2369
 msgid "Playlist"
 msgstr "Playlist"
 
-#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:3574 src/app.rs:23533
-#: src/ui/collection.rs:2361 src/ui/home.rs:93 src/ui/keys.rs:337
+#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:3574 src/app.rs:23534
+#: src/ui/collection.rs:2362 src/ui/home.rs:93 src/ui/keys.rs:337
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "Brani che ti piacciono"
@@ -139,8 +139,8 @@ msgstr "Da te"
 msgid "Search in Your Library"
 msgstr "Cerca nella tua libreria"
 
-#: src/ui/sidebar.rs:1243 src/app.rs:3635 src/ui/artist.rs:228
-#: src/ui/artist.rs:448 src/ui/home.rs:791 src/ui/library.rs:101
+#: src/ui/sidebar.rs:1243 src/app.rs:3635 src/ui/artist.rs:229
+#: src/ui/artist.rs:449 src/ui/home.rs:791 src/ui/library.rs:101
 #: src/ui/search.rs:159 src/ui/search.rs:491 src/ui/winamp/playlist.rs:746
 msgid "Artist"
 msgstr "Artista"
@@ -164,8 +164,8 @@ msgid "Sort by recently played"
 msgstr "Ordina per ascoltati di recente"
 
 #: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:798 src/ui/widgets.rs:1218
-#: src/ui/artist.rs:480 src/ui/collection.rs:302 src/ui/new_releases.rs:117
-#: src/ui/prerelease.rs:346 src/ui/search.rs:408 src/ui/show.rs:390
+#: src/ui/artist.rs:481 src/ui/collection.rs:302 src/ui/new_releases.rs:117
+#: src/ui/prerelease.rs:347 src/ui/search.rs:408 src/ui/show.rs:390
 msgid "Play"
 msgstr "Riproduci"
 
@@ -188,7 +188,7 @@ msgstr[1] "Playlist • {count} brani"
 #. Translators: Keep {count} exactly as written. It becomes a number of songs.
 #. Translators: Keep {count} exactly as written. It becomes the number of selected songs.
 #. Translators: {count} is a number of songs.
-#: src/i18n.rs:201 src/ui/widgets.rs:701 src/ui/collection.rs:2463
+#: src/i18n.rs:201 src/ui/widgets.rs:701 src/ui/collection.rs:2464
 #, rust-format
 msgid "{count} song"
 msgid_plural "{count} songs"
@@ -369,7 +369,7 @@ msgstr "Nessun ascolto recente"
 msgid "Played songs appear here."
 msgstr "I brani ascoltati appaiono qui."
 
-#: src/ui/queue.rs:719 src/ui/artist.rs:208
+#: src/ui/queue.rs:719 src/ui/artist.rs:209
 msgid "Load more"
 msgstr "Carica altri"
 
@@ -386,21 +386,21 @@ msgstr "Segui"
 msgid "Play a song to see its lyrics."
 msgstr "Riproduci un brano per vederne il testo."
 
-#: src/ui/lyrics.rs:143 src/ui/lyrics.rs:160 src/ui/artist.rs:286
-#: src/ui/artist.rs:314 src/ui/collection.rs:702 src/ui/collection.rs:1714
+#: src/ui/lyrics.rs:143 src/ui/lyrics.rs:160 src/ui/artist.rs:287
+#: src/ui/artist.rs:315 src/ui/collection.rs:702 src/ui/collection.rs:1714
 #: src/ui/collection.rs:1850 src/ui/collection.rs:1876
-#: src/ui/collection.rs:1940 src/ui/collection.rs:2056
-#: src/ui/collection.rs:2082 src/ui/collection.rs:2341 src/ui/home.rs:25
+#: src/ui/collection.rs:1940 src/ui/collection.rs:2057
+#: src/ui/collection.rs:2083 src/ui/collection.rs:2342 src/ui/home.rs:25
 #: src/ui/library.rs:259 src/ui/search.rs:91 src/ui/show.rs:66
 #: src/ui/show.rs:112 src/ui/show.rs:142
 msgid "You're offline"
 msgstr "Sei offline"
 
-#: src/ui/lyrics.rs:146 src/ui/lyrics.rs:163 src/ui/artist.rs:289
-#: src/ui/artist.rs:317 src/ui/collection.rs:705 src/ui/collection.rs:1717
+#: src/ui/lyrics.rs:146 src/ui/lyrics.rs:163 src/ui/artist.rs:290
+#: src/ui/artist.rs:318 src/ui/collection.rs:705 src/ui/collection.rs:1717
 #: src/ui/collection.rs:1853 src/ui/collection.rs:1879
-#: src/ui/collection.rs:1943 src/ui/collection.rs:2059
-#: src/ui/collection.rs:2085 src/ui/collection.rs:2344 src/ui/home.rs:34
+#: src/ui/collection.rs:1943 src/ui/collection.rs:2060
+#: src/ui/collection.rs:2086 src/ui/collection.rs:2345 src/ui/home.rs:34
 #: src/ui/library.rs:262 src/ui/show.rs:69 src/ui/show.rs:115
 #: src/ui/show.rs:145
 msgid "Spotifast will reconnect automatically when your connection returns."
@@ -436,7 +436,7 @@ msgid "No timed lyrics for this track."
 msgstr "Nessun testo sincronizzato per questo brano."
 
 #: src/ui/lyrics.rs:462 src/ui/widgets.rs:2829 src/ui/widgets.rs:2869
-#: src/ui/widgets.rs:2897 src/app.rs:13695 src/ui/collection.rs:902
+#: src/ui/widgets.rs:2897 src/app.rs:13696 src/ui/collection.rs:902
 msgid "Loading…"
 msgstr "Caricamento…"
 
@@ -550,17 +550,17 @@ msgctxt "artist"
 msgid "Unfollow"
 msgstr "Smetti di seguire"
 
-#: src/ui/widgets.rs:1251 src/ui/artist.rs:496
+#: src/ui/widgets.rs:1251 src/ui/artist.rs:497
 msgctxt "artist"
 msgid "Follow"
 msgstr "Segui"
 
-#: src/ui/widgets.rs:1252 src/ui/collection.rs:2189 src/ui/collection.rs:2212
+#: src/ui/widgets.rs:1252 src/ui/collection.rs:2190 src/ui/collection.rs:2213
 #: src/ui/show.rs:242
 msgid "Remove from Your Library"
 msgstr "Rimuovi dalla tua libreria"
 
-#: src/ui/widgets.rs:1253 src/ui/collection.rs:2188
+#: src/ui/widgets.rs:1253 src/ui/collection.rs:2189
 msgid "Add to Your Library"
 msgstr "Aggiungi alla tua libreria"
 
@@ -590,7 +590,7 @@ msgstr "Vai alla radio dell’artista"
 msgid "Play {title}, {subtitle}"
 msgstr "Riproduci {title}, {subtitle}"
 
-#: src/ui/widgets.rs:2048 src/ui/artist.rs:510 src/ui/collection.rs:405
+#: src/ui/widgets.rs:2048 src/ui/artist.rs:511 src/ui/collection.rs:405
 #: src/ui/show.rs:260 src/ui/show.rs:468
 msgid "More"
 msgstr "Altro"
@@ -646,7 +646,7 @@ msgstr "ASCOLTI"
 msgid "Sort by duration"
 msgstr "Ordina per durata"
 
-#: src/ui/widgets.rs:2908 src/app.rs:13904 src/app.rs:13918
+#: src/ui/widgets.rs:2908 src/app.rs:13905 src/app.rs:13919
 msgid "Network connection error. Check your connection."
 msgstr "Errore di connessione di rete. Controlla la connessione."
 
@@ -802,7 +802,7 @@ msgstr "Audio di Spotify disconnesso. Riconnessione della riproduzione locale"
 msgid "Radio"
 msgstr "Radio"
 
-#: src/app.rs:3616 src/api/models.rs:299 src/ui/artist.rs:340
+#: src/app.rs:3616 src/api/models.rs:299 src/ui/artist.rs:341
 #: src/ui/prerelease.rs:57
 msgid "Album"
 msgstr "Album"
@@ -860,7 +860,7 @@ msgid "Queue cleared"
 msgstr "Coda svuotata"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:6508 src/app.rs:23518
+#: src/app.rs:6508 src/app.rs:23519
 #, rust-format
 msgid "Queue {date}"
 msgstr "Coda {date}"
@@ -1118,70 +1118,70 @@ msgstr "Riavvio della riproduzione locale"
 msgid "Local playback needs Spotify Premium"
 msgstr "La riproduzione locale richiede Spotify Premium"
 
-#: src/app.rs:12407
+#: src/app.rs:12408
 msgid "Play history cleared"
 msgstr "Cronologia di ascolto cancellata"
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:12418
+#: src/app.rs:12419
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr "Liberati {size} MB di copertine"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:12424
+#: src/app.rs:12425
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr "Impossibile cancellare le copertine: {error}"
 
-#: src/app.rs:12651
+#: src/app.rs:12652
 msgid "Downloading MilkDrop preset packs"
 msgstr "Download dei pacchetti di preset MilkDrop"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:12685
+#: src/app.rs:12686
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "Download dei preset {name}"
 
-#: src/app.rs:13838
+#: src/app.rs:13839
 msgid "Couldn't start playback"
 msgstr "Impossibile avviare la riproduzione"
 
-#: src/app.rs:13839
+#: src/app.rs:13840
 msgid "Couldn't pause"
 msgstr "Impossibile mettere in pausa"
 
-#: src/app.rs:13840
+#: src/app.rs:13841
 msgid "Couldn't skip"
 msgstr "Impossibile passare al successivo"
 
-#: src/app.rs:13841
+#: src/app.rs:13842
 msgid "Couldn't go back"
 msgstr "Impossibile tornare indietro"
 
-#: src/app.rs:13842
+#: src/app.rs:13843
 msgid "Couldn't seek"
 msgstr "Impossibile cambiare posizione"
 
-#: src/app.rs:13843
+#: src/app.rs:13844
 msgid "Couldn't change the volume"
 msgstr "Impossibile cambiare il volume"
 
-#: src/app.rs:13844
+#: src/app.rs:13845
 msgid "Couldn't change shuffle"
 msgstr "Impossibile cambiare la riproduzione casuale"
 
-#: src/app.rs:13845
+#: src/app.rs:13846
 msgid "Couldn't change repeat"
 msgstr "Impossibile cambiare la ripetizione"
 
-#: src/app.rs:13888 src/ui/mod.rs:437
+#: src/app.rs:13889 src/ui/mod.rs:437
 msgid "Spotify won't let this computer play this song right now."
 msgstr ""
 "Spotify non lascia riprodurre questo brano su questo computer, per ora."
 
-#: src/app.rs:13895
+#: src/app.rs:13896
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1189,20 +1189,20 @@ msgstr ""
 "Nessun dispositivo di uscita audio trovato. Collegane o attivane uno, poi "
 "premi di nuovo Riproduci."
 
-#: src/app.rs:13909
+#: src/app.rs:13910
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify non rende disponibili i brani di questa playlist alle app di terze "
 "parti."
 
-#: src/app.rs:14030
+#: src/app.rs:14031
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "L’accesso a Spotify è scaduto. Accedi di nuovo, poi riprova a caricare la "
 "copertina."
 
-#: src/app.rs:14035
+#: src/app.rs:14036
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If using a personal app, reconnect "
@@ -1212,21 +1212,21 @@ msgstr ""
 "accedi di nuovo per concedere il permesso di caricare immagini. Se usi "
 "un’app personale, ricollegala anche nelle Impostazioni."
 
-#: src/app.rs:14039
+#: src/app.rs:14040
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr ""
 "Spotify ha rifiutato le dimensioni dell’immagine. Scegli un’immagine più "
 "piccola."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:14042
+#: src/app.rs:14043
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Impossibile caricare la copertina: {error}. Riprova."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:23538 src/app/radio.rs:38
+#: src/app.rs:23539 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Radio di {track}"
@@ -2475,52 +2475,52 @@ msgstr ""
 "Impossibile caricare i temi personalizzati. Esegui spotifast reload-themes "
 "per riprovare."
 
-#: src/ui/artist.rs:33
+#: src/ui/artist.rs:34
 msgid "Popular"
 msgstr "Popolari"
 
-#: src/ui/artist.rs:89
+#: src/ui/artist.rs:90
 msgid "Show less"
 msgstr "Mostra meno"
 
-#: src/ui/artist.rs:91
+#: src/ui/artist.rs:92
 msgid "See more"
 msgstr "Mostra altro"
 
-#: src/ui/artist.rs:102
+#: src/ui/artist.rs:103
 msgid "No popular songs to show."
 msgstr "Nessun brano popolare da mostrare."
 
-#: src/ui/artist.rs:122
+#: src/ui/artist.rs:123
 msgid "Discography"
 msgstr "Discografia"
 
-#: src/ui/artist.rs:201
+#: src/ui/artist.rs:202
 msgid "Nothing in this category."
 msgstr "Niente in questa categoria."
 
-#: src/ui/artist.rs:229
+#: src/ui/artist.rs:230
 msgid "Fans also like"
 msgstr "Ai fan piacciono anche"
 
-#: src/ui/artist.rs:337
+#: src/ui/artist.rs:338
 msgid "Release countdown"
 msgstr "Conto alla rovescia per l’uscita"
 
 #. Translators: {count} is the number of people who follow an artist.
-#: src/ui/artist.rs:416
+#: src/ui/artist.rs:417
 #, rust-format
 msgid "{count} follower"
 msgid_plural "{count} followers"
 msgstr[0] "{count} follower"
 msgstr[1] "{count} follower"
 
-#: src/ui/artist.rs:471 src/ui/collection.rs:288 src/ui/show.rs:219
+#: src/ui/artist.rs:472 src/ui/collection.rs:288 src/ui/show.rs:219
 #: src/ui/show.rs:377
 msgid "Starting…"
 msgstr "Avvio…"
 
-#: src/ui/artist.rs:494
+#: src/ui/artist.rs:495
 msgctxt "artist"
 msgid "Following"
 msgstr "Segui già"
@@ -2573,20 +2573,20 @@ msgstr "I brani che aggiungi appaiono qui."
 msgid "Your top songs"
 msgstr "I tuoi brani più ascoltati"
 
-#: src/ui/collection.rs:2135
+#: src/ui/collection.rs:2136
 msgid "Collaborative Playlist"
 msgstr "Playlist collaborativa"
 
-#: src/ui/collection.rs:2137
+#: src/ui/collection.rs:2138
 msgid "Public Playlist"
 msgstr "Playlist pubblica"
 
-#: src/ui/collection.rs:2211
+#: src/ui/collection.rs:2212
 msgid "Save to Your Library"
 msgstr "Salva nella tua libreria"
 
 #. Translators: {count} is the number of people who saved a playlist.
-#: src/ui/collection.rs:2475
+#: src/ui/collection.rs:2476
 #, rust-format
 msgid "{count} save"
 msgid_plural "{count} saves"
@@ -2595,7 +2595,7 @@ msgstr[1] "{count} salvataggi"
 
 #. Translators: {count} is a number of songs and {duration} their total
 #. length, such as "2 hr 13 min".
-#: src/ui/collection.rs:2488
+#: src/ui/collection.rs:2489
 #, rust-format
 msgid "{count} song, {duration}"
 msgid_plural "{count} songs, {duration}"
@@ -2603,19 +2603,19 @@ msgstr[0] "{count} brano, {duration}"
 msgstr[1] "{count} brani, {duration}"
 
 #. Translators: {name} is the name of someone who added songs to the playlist.
-#: src/ui/collection.rs:2558
+#: src/ui/collection.rs:2559
 #, rust-format
 msgid "with {name}"
 msgstr "con {name}"
 
 #. Translators: {first} and {second} are names of people who added songs.
-#: src/ui/collection.rs:2562
+#: src/ui/collection.rs:2563
 #, rust-format
 msgid "with {first} and {second}"
 msgstr "con {first} e {second}"
 
 #. Translators: {count} is how many other people added songs to the playlist.
-#: src/ui/collection.rs:2569
+#: src/ui/collection.rs:2570
 #, rust-format
 msgid "and {count} other"
 msgid_plural "and {count} others"
@@ -3303,33 +3303,33 @@ msgstr "Presalva su Spotify"
 msgid "Track list preview"
 msgstr "Anteprima dei brani"
 
-#: src/ui/prerelease.rs:285
+#: src/ui/prerelease.rs:286
 msgctxt "column"
 msgid "Title"
 msgstr "Titolo"
 
-#: src/ui/prerelease.rs:301
+#: src/ui/prerelease.rs:302
 msgid "Plays"
 msgstr "Riproduzioni"
 
-#: src/ui/prerelease.rs:363 src/ui/prerelease.rs:370
+#: src/ui/prerelease.rs:364 src/ui/prerelease.rs:371
 #, rust-format
 msgid "Track {number}"
 msgstr "Brano {number}"
 
-#: src/ui/prerelease.rs:501
+#: src/ui/prerelease.rs:502
 msgid "days"
 msgstr "giorni"
 
-#: src/ui/prerelease.rs:502
+#: src/ui/prerelease.rs:503
 msgid "hours"
 msgstr "ore"
 
-#: src/ui/prerelease.rs:503
+#: src/ui/prerelease.rs:504
 msgid "minutes"
 msgstr "minuti"
 
-#: src/ui/prerelease.rs:504
+#: src/ui/prerelease.rs:505
 msgid "seconds"
 msgstr "secondi"
 

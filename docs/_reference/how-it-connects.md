@@ -747,7 +747,11 @@ these fields clears it. See [password storage and migration](/settings-and-files
 ## Upcoming albums and countdown links
 
 Artist discovery reuses the `queryArtistOverview` request for play counts with
-`includePrerelease: true`. Its optional `preRelease` supplies the countdown URI,
+`includePrerelease: true`. Discovery waits for the same-account local playback
+session to be ready and requires an already verified Web API grant. This also
+applies when Soloist handles playback: its player connection alone does not
+supply the overview. Without both prerequisites, a fresh artist visit can omit
+the countdown card. Its optional `preRelease` supplies the countdown URI,
 title, artwork and release instant. The card is kept in memory per signed-in
 account and cleared on sign-out. Refreshing the artist asks again; a failed read
 keeps the previous card, and a card past its release instant is not drawn.

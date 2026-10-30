@@ -12370,6 +12370,7 @@ impl App {
                     self.backend.send(Command::AuthorizePlayback);
                 }
             }
+            Action::RequestPlayCounts(uri) => self.request_play_counts(&uri),
             Action::SetPrereleaseSaved { uri, saved } => {
                 if self.local_ready {
                     for page in self.album_pages.values_mut() {
@@ -25846,16 +25847,25 @@ mod tests {
         let album = "spotify:album:a";
         app.network_reachable = true;
         app.local_ready = false;
-        app.request_play_counts(album);
+        app.apply(
+            Action::RequestPlayCounts(album.into()),
+            &egui::Context::default(),
+        );
         assert_eq!(app.play_count_reads.get(album), None);
 
         app.local_ready = true;
-        app.request_play_counts(album);
+        app.apply(
+            Action::RequestPlayCounts(album.into()),
+            &egui::Context::default(),
+        );
         assert_eq!(app.play_count_reads.get(album), Some(&PlayCountRead::Asked));
         assert!(!app.has_play_counts(album));
 
         app.receive_play_counts(album.into(), 0, Err("unavailable".into()));
-        app.request_play_counts(album);
+        app.apply(
+            Action::RequestPlayCounts(album.into()),
+            &egui::Context::default(),
+        );
         assert!(matches!(
             app.play_count_reads.get(album),
             Some(PlayCountRead::Failed(_))

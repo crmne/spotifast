@@ -28,7 +28,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             artist_hero(app, ui, artist, preview.as_deref());
             artist_actions(app, ui, artist);
             // The same overview supplies both play counts and the upcoming release.
-            app.request_play_counts(&artist.uri);
+            app.actions
+                .push(Action::RequestPlayCounts(artist.uri.clone()));
             // Popular.
             theme::section_title(ui, &palette, &gettext(locale, "Popular"));
             ui.add_space(4.0);
