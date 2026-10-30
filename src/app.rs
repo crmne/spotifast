@@ -518,6 +518,8 @@ pub struct App {
     load_generation: u64,
     pub album_pages: HashMap<String, AlbumPage>,
     pub artist_pages: HashMap<String, ArtistPage>,
+    /// Never reset on page eviction or account reset, so old replies cannot match.
+    artist_top_tracks_generation: u64,
     pub show_pages: HashMap<String, ShowPage>,
     /// Radio pages by the seed's URI.
     pub radio_pages: HashMap<String, RadioPage>,
@@ -1185,6 +1187,7 @@ impl App {
             load_generation: 0,
             album_pages: HashMap::new(),
             artist_pages: HashMap::new(),
+            artist_top_tracks_generation: 0,
             show_pages: HashMap::new(),
             radio_pages: HashMap::new(),
             hidden_songs: HashMap::new(),
@@ -5509,10 +5512,15 @@ impl App {
         let Some(page) = self.artist_pages.get_mut(id) else {
             return;
         };
+        self.artist_top_tracks_generation = self.artist_top_tracks_generation.wrapping_add(1);
+        let generation = self.artist_top_tracks_generation;
+        page.top_tracks_generation = generation;
         page.top_tracks = Loadable::Loading;
         page.top_tracks_without_session = !self.local_ready;
-        self.backend
-            .api(ApiRequest::ArtistTopTracks { id: id.to_owned() });
+        self.backend.api(ApiRequest::ArtistTopTracks {
+            id: id.to_owned(),
+            generation,
+        });
     }
 
     fn load_artist_albums(&mut self, id: &str, filter: DiscographyFilter) {
@@ -8410,7 +8418,18 @@ impl App {
                     };
                 }
             }
-            ApiResponse::ArtistTopTracks { id, result } => {
+            ApiResponse::ArtistTopTracks {
+                id,
+                generation,
+                result,
+            } => {
+                if self
+                    .artist_pages
+                    .get(&id)
+                    .is_none_or(|page| page.top_tracks_generation != generation)
+                {
+                    return;
+                }
                 // The old Web API request may finish after the session became ready.
                 // Retry only reads started without it, so a persistent failure stops.
                 if result.is_err()
@@ -14066,8 +14085,10 @@ mod tests {
                 let ready = || LocalPlayback::Ready {
                     device_id: "device".into(),
                 };
-                let refused = || ApiResponse::ArtistTopTracks {
+                let first_generation = app.artist_pages["artist"].top_tracks_generation;
+                let refused = |generation| ApiResponse::ArtistTopTracks {
                     id: "artist".into(),
+                    generation,
                     result: Err(crate::api::ApiError::Status {
                         status: 403,
                         message: "Forbidden".into(),
@@ -14079,9 +14100,9 @@ mod tests {
                         app.artist_pages["artist"].top_tracks_without_session,
                         "wait for the pending request; do not duplicate it"
                     );
-                    app.handle_api(refused());
+                    app.handle_api(refused(first_generation));
                 } else {
-                    app.handle_api(refused());
+                    app.handle_api(refused(first_generation));
                     assert!(matches!(
                         app.artist_pages["artist"].top_tracks,
                         Loadable::Failed(_)
@@ -14090,7 +14111,7 @@ mod tests {
                 }
                 assert!(app.artist_pages["artist"].top_tracks.is_loading());
                 assert!(!app.artist_pages["artist"].top_tracks_without_session);
-                app.handle_api(refused());
+                app.handle_api(refused(app.artist_pages["artist"].top_tracks_generation));
                 app.handle_playback(ready());
                 assert!(
                     matches!(app.artist_pages["artist"].top_tracks, Loadable::Failed(_)),
@@ -14098,6 +14119,65 @@ mod tests {
                 );
                 app.backend.shutdown();
             }
+        }
+    }
+
+    #[test]
+    fn popular_tracks_ignore_old_replies_after_page_recreation_and_account_reset() {
+        for reset_account in [false, true] {
+            let mut app = headless_app();
+            app.local_ready = false;
+            app.artist_pages
+                .insert("artist".into(), ArtistPage::default());
+            app.request_artist_top_tracks("artist");
+            let old = app.artist_pages["artist"].top_tracks_generation;
+            if reset_account {
+                app.reset_data();
+            } else {
+                app.artist_pages.remove("artist");
+            }
+            app.artist_pages
+                .insert("artist".into(), ArtistPage::default());
+            app.local_ready = false;
+            app.request_artist_top_tracks("artist");
+            let current = app.artist_pages["artist"].top_tracks_generation;
+            assert_ne!(old, current);
+            app.local_ready = true;
+            let failure = |generation| ApiResponse::ArtistTopTracks {
+                id: "artist".into(),
+                generation,
+                result: Err(crate::api::ApiError::Status {
+                    status: 403,
+                    message: "Forbidden".into(),
+                }),
+            };
+            app.handle_api(failure(old));
+            assert_eq!(
+                app.artist_pages["artist"].top_tracks_generation, current,
+                "old failure must not start a retry"
+            );
+            assert!(app.artist_pages["artist"].top_tracks.is_loading());
+            let tracks = vec![Track {
+                id: Some("current".into()),
+                ..Default::default()
+            }];
+            app.handle_api(ApiResponse::ArtistTopTracks {
+                id: "artist".into(),
+                generation: current,
+                result: Ok(tracks.clone()),
+            });
+            app.handle_api(failure(old));
+            app.handle_api(ApiResponse::ArtistTopTracks {
+                id: "artist".into(),
+                generation: old,
+                result: Ok(Vec::new()),
+            });
+            assert_eq!(
+                app.artist_pages["artist"].top_tracks.get(),
+                Some(&tracks),
+                "stale failure or success must not replace current tracks"
+            );
+            app.backend.shutdown();
         }
     }
 
@@ -14117,6 +14197,7 @@ mod tests {
             app.request_artist_top_tracks("artist");
             app.handle_api(ApiResponse::ArtistTopTracks {
                 id: "artist".into(),
+                generation: app.artist_pages["artist"].top_tracks_generation,
                 result: Ok(tracks.clone()),
             });
             app.handle_playback(LocalPlayback::Ready {

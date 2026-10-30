@@ -950,6 +950,8 @@ pub struct ArtistPage {
     pub top_tracks: Loadable<Vec<Track>>,
     /// The pending or failed read can be retried once the session is ready.
     pub top_tracks_without_session: bool,
+    /// Identity of the current request, allocated outside the page.
+    pub top_tracks_generation: u64,
     pub albums: HashMap<String, PagedList<Album>>,
     pub related: Loadable<Vec<Artist>>,
     pub filter: DiscographyFilter,
