@@ -410,9 +410,11 @@ Gear Lever work as well, from the update information inside it.
 
 Select **By You** under Playlists to show only playlists owned by your signed-in
 account, alongside Liked Songs. Followed playlists and collaborative playlists
-owned by someone else are hidden, including pinned ones. Search and the selected
-sort still apply. Matching playlists appear in a flat list, including those in
-collapsed folders. Turn By You off to restore the full list and folder view.
+owned by someone else are hidden, including pinned ones. The selected sort still
+applies. In text search and sorts that do not support folders, the playlists are shown 
+in a flat list. In sorts that do support folders, folders stay in place with only your
+playlists inside: folders left empty are hidden, counts show your playlists,
+and collapsed folders stay collapsed. Turn By You off to restore the full list.
 The choice is remembered on this computer and only affects the Playlists shelf.
 It uses the ownership information already loaded with your library and makes no
 additional Spotify requests.
@@ -426,7 +428,7 @@ dates come last.
 
 **Name** keeps your Spotify playlist folders, as Spotify does: playlists sort
 by name inside each folder, and folders sort by name among the playlists
-beside them. A search or **By You** still lists matching playlists flat.
+beside them.
 
 **Spotify custom order** follows your playlist order and folders from Spotify.
 Set up playback on this computer to load that order. Your playlists stay
