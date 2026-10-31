@@ -25,6 +25,25 @@ pub enum Budget {
     Background,
 }
 
+impl Budget {
+    /// Where the budget is kept in egui's temporary data.
+    fn id() -> egui::Id {
+        egui::Id::new("spotifast-power-budget")
+    }
+
+    /// Keeps the budget where drawing code that has only egui's context,
+    /// such as a spinner, can read it.
+    pub fn store(self, ctx: &egui::Context) {
+        ctx.data_mut(|data| data.insert_temp(Self::id(), self));
+    }
+
+    /// The budget last stored, or the designed one before the first.
+    pub fn of(ctx: &egui::Context) -> Self {
+        ctx.data(|data| data.get_temp(Self::id()))
+            .unwrap_or_default()
+    }
+}
+
 /// The budget for `conditions`, given whether a window is shown and focused.
 pub fn budget(conditions: Conditions, window_shown: bool, focused: bool) -> Budget {
     if !window_shown || conditions.display_off || conditions.locked {

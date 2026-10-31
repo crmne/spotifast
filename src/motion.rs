@@ -2,7 +2,7 @@
 //! macOS's "Reduce motion" and GNOME's "Animations". When it does, the
 //! interface shows where each animation ends at once: egui's own easing and
 //! scrolling to a place, the reveal of a new theme, the fades that follow
-//! the song, the lyrics, and rows making room for a drag.
+//! the song, the lyrics, toasts, and rows making room for a drag.
 
 use std::time::{Duration, Instant};
 

@@ -5658,6 +5658,37 @@ mod tests {
         );
     }
 
+    /// A notice too long for the mini player's marquee moves through it
+    /// with no song loaded, as a song's name does, until the notice leaves.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_long_notice_moves_through_the_mini_players_marquee() {
+        let (ctx, mut app) = accessible_app("winamp-notice");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("winamp"));
+        app.remote = None;
+        app.local.track = None;
+        assert!(app.now_playing().is_none());
+        let delay = |app: &mut App| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+            output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+        };
+        // The first frames settle start-up work that asks for frames of its
+        // own; the steady state is what matters.
+        app.toast("Downloading MilkDrop preset packs, which takes a while");
+        for _ in 0..3 {
+            delay(&mut app);
+        }
+        let moving = delay(&mut app);
+        assert!(
+            moving <= std::time::Duration::from_millis(250),
+            "the marquee moves a character every 220 ms, not when the notice \
+             leaves: asked for {moving:?}"
+        );
+        app.backend.shutdown();
+    }
+
     /// The player bar's visualizer draws only when chosen and while the
     /// song plays on this computer, and asks for frames only then.
     #[cfg(feature = "demo")]

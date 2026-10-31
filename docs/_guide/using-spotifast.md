@@ -483,7 +483,11 @@ Spotifast follows the system when it asks for less motion: **Animation
 effects** turned off in Windows, **Reduce motion** on macOS, or GNOME's
 **Animations** turned off. Its animations then show where they end at once:
 the player bar's colour changes without fading, lyrics jump to the sung line,
-and a new theme replaces the old one without the reveal. Spinners still turn.
+toasts appear and leave without fading, and a new theme replaces the old one
+without the reveal. Spinners still turn, thirty times a second. When the
+system does not ask for less motion, toasts fade at the display's own rate, at
+about 30 frames a second while the system saves energy or the window is out
+of focus, and not at all while nobody can see the window.
 
 In **Settings > Appearance**, **Compact track list** puts each song on one
 line. In narrow lists, the added date follows the artist credits with a spaced
