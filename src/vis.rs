@@ -87,6 +87,14 @@ impl AudioTap {
         *self.shm.lock().unwrap_or_else(|p| p.into_inner()) = ring;
     }
 
+    /// Whether MilkDrop's window is open and reading this tap.
+    pub fn milkdrop_attached(&self) -> bool {
+        #[cfg(feature = "milkdrop")]
+        return self.shm.lock().unwrap_or_else(|p| p.into_inner()).is_some();
+        #[cfg(not(feature = "milkdrop"))]
+        false
+    }
+
     /// Adds scaled stereo samples to the mono analyser buffer and, when
     /// attached, MilkDrop's stereo shared-memory ring.
     pub fn push(&self, interleaved: &[f64], gain: f32) {
@@ -140,6 +148,37 @@ impl AudioTap {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clear();
+    }
+}
+
+/// A sink that plays nothing, but takes sound only as fast as a speaker
+/// would. Behind [`Tapped`], it lets the visualisers show a song that another
+/// device plays. The newest sample stays [`LAG`] ahead of the clock, as with
+/// a real output, so the visualisers' look-back lands on the present.
+#[derive(Default)]
+pub struct Paced {
+    started: Option<Instant>,
+    frames: u64,
+}
+
+impl Sink for Paced {
+    fn stop(&mut self) -> SinkResult<()> {
+        *self = Self::default();
+        Ok(())
+    }
+
+    fn write(&mut self, packet: AudioPacket, _: &mut Converter) -> SinkResult<()> {
+        let AudioPacket::Samples(samples) = packet else {
+            return Ok(());
+        };
+        let started = *self.started.get_or_insert_with(Instant::now);
+        self.frames += (samples.len() / NUM_CHANNELS as usize) as u64;
+        let ahead = Duration::from_secs_f64(self.frames as f64 / f64::from(SAMPLE_RATE));
+        let lag = Duration::from_secs_f64(LAG as f64 / f64::from(SAMPLE_RATE));
+        if let Some(wait) = ahead.checked_sub(lag + started.elapsed()) {
+            std::thread::sleep(wait);
+        }
+        Ok(())
     }
 }
 
@@ -676,6 +715,27 @@ mod tests {
                 .extend_from_slice(packet.samples().unwrap());
             Ok(())
         }
+    }
+
+    #[test]
+    fn a_paced_sink_takes_sound_at_the_speed_it_plays() {
+        let mut sink = Paced::default();
+        let tenth = vec![0.0; SAMPLE_RATE as usize / 10 * NUM_CHANNELS as usize];
+        let started = Instant::now();
+        for _ in 0..5 {
+            sink.write(
+                AudioPacket::Samples(tenth.clone()),
+                &mut Converter::new(None),
+            )
+            .unwrap();
+        }
+        // Half a second, less what is kept ahead.
+        let expected = Duration::from_millis(500)
+            - Duration::from_secs_f64(LAG as f64 / f64::from(SAMPLE_RATE));
+        let took = started.elapsed();
+        assert!(took + Duration::from_millis(20) >= expected, "{took:?}");
+        // Loose above: a busy machine may sleep long, never short.
+        assert!(took < expected * 2, "{took:?}");
     }
 
     fn recorded_tap(
