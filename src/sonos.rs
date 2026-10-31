@@ -11,13 +11,17 @@
 //! A Sonos does not appear in the device list while idle, so it is found by
 //! its ZeroConf endpoint (`/spotifyzc` on port 1400) and offered from there.
 //! It asks for an OAuth authorization code rather than librespot's login
-//! blob. No credential is sent to its HTTP receiver: the existing session
-//! transfers and controls playback through Spotify instead.
+//! blob. If Spotify cannot find an idle player, the existing session exchanges
+//! its token for a Sonos authorization code before retrying the transfer. Only
+//! that code goes to the receiver; the access token stays with Spotify.
 
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Mutex;
+use std::time::Duration;
 
+use anyhow::{Context, Result, bail};
+use librespot_core::http_client::HttpClientError;
 use librespot_core::session::Session;
 use serde_json::{Value, json};
 
@@ -27,6 +31,9 @@ use crate::backend::RemoteAction;
 
 const PORT: u16 = 1400;
 const ZEROCONF_PATH: &str = "/spotifyzc";
+/// The audience used by Sonos's Spotify integration, never supplied by the LAN.
+const SONOS_CLIENT_ID: &str = "9b377073ea334637b1406f329ce005de";
+const ACTIVATION_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// A Sonos player known by its Spotify Connect device id.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -219,6 +226,239 @@ fn failure(error: impl std::fmt::Display) -> crate::api::client::ApiError {
     crate::api::client::ApiError::Network(error.to_string())
 }
 
+/// librespot also calls redirects and 410 `NotFound`. Only 404 activates Sonos.
+fn missing_device(error: &librespot_core::Error) -> bool {
+    matches!(
+        error.error.downcast_ref::<HttpClientError>(),
+        Some(HttpClientError::StatusCode(http::StatusCode::NOT_FOUND))
+    )
+}
+
+/// Validate the fresh probe before obtaining any account-bound code.
+fn validate_activation(info: &crate::zeroconf::Info, device_id: &str) -> Result<()> {
+    if info.device_id != device_id || info.token_type != "authorization_code" {
+        bail!(
+            "The Sonos receiver changed or does not accept authorization codes. Refresh the device list and try again."
+        );
+    }
+    Ok(())
+}
+
+/// Exchange only with Spotify. The receiver cannot choose the audience or URL.
+fn exchange_form(client_id: &str, access_token: &str) -> String {
+    [
+        ("audience", SONOS_CLIENT_ID),
+        ("client_id", client_id),
+        (
+            "grant_type",
+            "urn:ietf:params:oauth:grant-type:token-exchange",
+        ),
+        (
+            "requested_token_type",
+            "urn:spotify:params:oauth:authorization_code",
+        ),
+        ("resource", "urn:spotify:resources:connect"),
+        ("scope", "streaming"),
+        (
+            "subject_token_type",
+            "urn:ietf:params:oauth:token-type:access_token",
+        ),
+        ("subject_token", access_token),
+    ]
+    .into_iter()
+    .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
+    .collect::<Vec<_>>()
+    .join("&")
+}
+
+/// This reply contains a credential. Never include its body in errors or logs.
+fn authorization_code(body: &[u8]) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct Reply {
+        access_token: String,
+    }
+    let reply: Reply = serde_json::from_slice(body)
+        .map_err(|_| anyhow::anyhow!("Spotify did not return a Sonos authorization code"))?;
+    if reply.access_token.is_empty() {
+        bail!("Spotify returned an empty Sonos authorization code");
+    }
+    Ok(reply.access_token)
+}
+
+/// LAN replies are untrusted. Bound them and keep their contents out of errors.
+async fn receiver_reply<T: serde::de::DeserializeOwned>(
+    mut response: reqwest::Response,
+) -> Result<T> {
+    if !response.status().is_success() {
+        bail!("Sonos refused the request (HTTP {})", response.status());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .context("Sonos reply was interrupted")?
+    {
+        if body.len() + chunk.len() > 64 * 1024 {
+            bail!("Sonos returned an oversized reply");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body).map_err(|_| anyhow::anyhow!("Sonos returned an unreadable reply"))
+}
+
+/// Sign in an idle Sonos without handing it the session's reusable credential.
+async fn activate(session: &Session, speaker: &Speaker) -> Result<()> {
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(6))
+        .build()?;
+    let endpoint = format!(
+        "http://{}{ZEROCONF_PATH}",
+        std::net::SocketAddr::new(speaker.address, PORT)
+    );
+    activate_with(
+        &http,
+        &endpoint,
+        &speaker.device_id,
+        &session.username(),
+        session.device_id(),
+        || exchange_code(session),
+    )
+    .await
+}
+
+async fn exchange_code(session: &Session) -> Result<String> {
+    let token = session
+        .login5()
+        .auth_token()
+        .await
+        .context("Spotify could not authorise Sonos activation")?;
+    let request = http::Request::builder()
+        .method(http::Method::POST)
+        .uri("https://accounts.spotify.com/api/token")
+        .header(
+            http::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
+        .body(exchange_form(&session.client_id(), &token.access_token).into())?;
+    let body = session.http_client().request_body(request).await
+        .context("Spotify refused Sonos activation. Start the speaker in Spotify once, then select it again in Spotifast.")?;
+    authorization_code(&body)
+}
+
+/// The exchange runs only after checking the probe. Tests supply a dummy code.
+async fn activate_with<F, Fut>(
+    http: &reqwest::Client,
+    endpoint: &str,
+    device_id: &str,
+    username: &str,
+    origin: &str,
+    exchange: F,
+) -> Result<()>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<String>>,
+{
+    let info: crate::zeroconf::Info = receiver_reply(
+        http.get(endpoint)
+            .query(&[("action", "getInfo")])
+            .send()
+            .await
+            .context("Sonos did not answer the activation probe")?,
+    )
+    .await?;
+    validate_activation(&info, device_id)?;
+    let code = exchange().await?;
+    let form = [
+        ("action", "addUser"),
+        (
+            "version",
+            if info.version.is_empty() {
+                "2.9.0"
+            } else {
+                &info.version
+            },
+        ),
+        ("tokenType", "authorization_code"),
+        ("clientKey", ""),
+        ("loginId", username),
+        ("userName", username),
+        ("blob", code.as_str()),
+        ("deviceName", "Spotifast"),
+        ("deviceId", origin),
+    ];
+    #[derive(serde::Deserialize)]
+    struct Reply {
+        status: i64,
+    }
+    let reply: Reply = receiver_reply(
+        http.post(endpoint)
+            .form(&form)
+            .send()
+            .await
+            .context("Sonos did not accept the activation request")?,
+    )
+    .await?;
+    if reply.status != 101 {
+        bail!(
+            "Sonos refused activation (status {}). Start the speaker in Spotify once, then select it again in Spotifast.",
+            reply.status
+        );
+    }
+    Ok(())
+}
+
+/// Retain both transfer routes; only a missing known Sonos needs activation.
+async fn transfer_with_activation<T, TF, A, AF>(
+    mut transfer: T,
+    activation: Option<A>,
+) -> Result<(), crate::api::client::ApiError>
+where
+    T: FnMut(bool) -> TF,
+    TF: std::future::Future<Output = Result<(), librespot_core::Error>>,
+    A: FnOnce() -> AF,
+    AF: std::future::Future<Output = Result<()>>,
+{
+    let first = match transfer(false).await {
+        Ok(()) => return Ok(()),
+        Err(error) => error,
+    };
+    match transfer(true).await {
+        Ok(()) => return Ok(()),
+        Err(error)
+            if !missing_device(&first) || !missing_device(&error) || activation.is_none() =>
+        {
+            return Err(failure(error));
+        }
+        Err(_) => {}
+    }
+    tokio::time::timeout(ACTIVATION_TIMEOUT, activation.unwrap()())
+        .await
+        .map_err(|_| {
+            failure(
+                "Sonos activation timed out. Start the speaker in Spotify once, then try again.",
+            )
+        })?
+        .map_err(|error| failure(format!("{error:#}")))?;
+    // addUser can finish before Spotify publishes the newly signed-in device.
+    // Retain the session source too when there is no active source to transfer.
+    for attempt in 0..5 {
+        let result = match transfer(false).await {
+            Err(error) if missing_device(&error) => transfer(true).await,
+            result => result,
+        };
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error) if missing_device(&error) && attempt < 4 => {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            Err(error) => return Err(failure(error)),
+        }
+    }
+    unreachable!()
+}
+
 /// Sends a player command to a restricted device over the session.
 pub async fn command(
     session: &Session,
@@ -273,19 +513,29 @@ impl Controller {
         session: &Session,
         to: &str,
     ) -> Result<(), crate::api::client::ApiError> {
-        let spclient = session.spclient();
-        // `to` as the source too means "from whichever device is active".
-        match spclient.transfer(to, to, None).await {
-            Ok(_) => Ok(()),
-            Err(first) => {
-                log::debug!("Connect transfer from the active device failed: {first}");
-                spclient
-                    .transfer(session.device_id(), to, None)
+        let speaker = self.speaker(to);
+        transfer_with_activation(
+            |from_session| async move {
+                // `to` as the source too means "from whichever device is active".
+                session
+                    .spclient()
+                    .transfer(
+                        if from_session {
+                            session.device_id()
+                        } else {
+                            to
+                        },
+                        to,
+                        None,
+                    )
                     .await
                     .map(drop)
-                    .map_err(failure)
-            }
-        }
+            },
+            speaker
+                .as_ref()
+                .map(|speaker| || activate(session, speaker)),
+        )
+        .await
     }
 
     /// Serializes complete batches with individual additions, as the Web API does.
@@ -331,6 +581,334 @@ impl Controller {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use librespot_core::error::ErrorKind;
+
+    fn not_found() -> librespot_core::Error {
+        HttpClientError::StatusCode(http::StatusCode::NOT_FOUND).into()
+    }
+
+    #[test]
+    fn only_an_http_404_counts_as_a_missing_device() {
+        for status in [404, 410, 301, 307, 308, 403, 429, 500, 503] {
+            let error =
+                HttpClientError::StatusCode(http::StatusCode::from_u16(status).unwrap()).into();
+            assert_eq!(missing_device(&error), status == 404);
+        }
+        assert!(!missing_device(&librespot_core::Error::not_found(
+            "non-HTTP error"
+        )));
+    }
+
+    #[test]
+    fn activation_requires_the_selected_identity_and_authorization_code_protocol() {
+        for (id, token_type, valid) in [
+            ("selected", "authorization_code", true),
+            ("other", "authorization_code", false),
+            ("selected", "default", false),
+            ("selected", "accesstoken", false),
+            ("selected", "", false),
+        ] {
+            let info =
+                serde_json::from_value(json!({ "deviceID": id, "tokenType": token_type })).unwrap();
+            assert_eq!(validate_activation(&info, "selected").is_ok(), valid);
+        }
+    }
+
+    #[test]
+    fn exchange_is_limited_to_sonos_streaming_and_encodes_the_subject() {
+        let body = exchange_form("our-client", "dummy&token=1");
+        let pairs: HashMap<String, String> = body
+            .split('&')
+            .map(|pair| {
+                let (key, value) = pair.split_once('=').unwrap();
+                (key.into(), urlencoding::decode(value).unwrap().into_owned())
+            })
+            .collect();
+        assert_eq!(pairs.len(), 8);
+        assert_eq!(pairs["audience"], SONOS_CLIENT_ID);
+        assert_eq!(pairs["client_id"], "our-client");
+        assert_eq!(pairs["subject_token"], "dummy&token=1");
+        assert_eq!(pairs["scope"], "streaming");
+        assert_eq!(pairs["resource"], "urn:spotify:resources:connect");
+        assert_eq!(
+            pairs["requested_token_type"],
+            "urn:spotify:params:oauth:authorization_code"
+        );
+    }
+
+    #[test]
+    fn exchange_errors_do_not_disclose_response_contents() {
+        assert_eq!(
+            authorization_code(br#"{"access_token":"dummy-code"}"#).unwrap(),
+            "dummy-code"
+        );
+        for body in [
+            br#"{"access_token":""}"#.as_slice(),
+            br#"{"error":"secret-body"}"#,
+            br#"{"access_token":123,"secret-body":true}"#,
+        ] {
+            let error = authorization_code(body).unwrap_err().to_string();
+            assert!(!error.contains("secret-body"));
+            assert!(!error.contains("123"));
+        }
+    }
+
+    #[tokio::test]
+    async fn transfers_activate_only_a_missing_known_sonos_and_preserve_fallback_order() {
+        use std::cell::RefCell;
+        // active route, session route, activation allowed, expected calls
+        for (first, second, allowed, expected) in [
+            (None, None, true, vec!["active"]),
+            (
+                Some(ErrorKind::NotFound),
+                None,
+                true,
+                vec!["active", "session"],
+            ),
+            (
+                Some(ErrorKind::NotFound),
+                Some(ErrorKind::NotFound),
+                true,
+                vec!["active", "session", "activate", "active"],
+            ),
+            (
+                Some(ErrorKind::NotFound),
+                Some(ErrorKind::NotFound),
+                false,
+                vec!["active", "session"],
+            ),
+            (
+                Some(ErrorKind::NotFound),
+                Some(ErrorKind::PermissionDenied),
+                true,
+                vec!["active", "session"],
+            ),
+            (
+                Some(ErrorKind::Unavailable),
+                Some(ErrorKind::Unavailable),
+                true,
+                vec!["active", "session"],
+            ),
+        ] {
+            let calls = RefCell::new(Vec::new());
+            let mut failures = [first, second].into_iter();
+            let result = transfer_with_activation(
+                |from_session| {
+                    calls
+                        .borrow_mut()
+                        .push(if from_session { "session" } else { "active" });
+                    std::future::ready(match failures.next().flatten() {
+                        None => Ok(()),
+                        Some(ErrorKind::NotFound) => Err(not_found()),
+                        Some(kind) => {
+                            Err(librespot_core::Error::new(kind, "test transfer failure"))
+                        }
+                    })
+                },
+                allowed.then_some(|| {
+                    calls.borrow_mut().push("activate");
+                    std::future::ready(Ok(()))
+                }),
+            )
+            .await;
+            assert_eq!(*calls.borrow(), expected);
+            assert_eq!(
+                result.is_ok(),
+                second.is_none()
+                    || first.is_none()
+                    || (allowed && second == Some(ErrorKind::NotFound))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn activation_failure_stops_transfers_and_keeps_the_actionable_error() {
+        let mut transfers = 0;
+        let result = transfer_with_activation(
+            |_| {
+                transfers += 1;
+                std::future::ready(Err(not_found()))
+            },
+            Some(|| std::future::ready(Err(anyhow::anyhow!("activation refused")))),
+        )
+        .await;
+        assert_eq!(transfers, 2);
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("activation refused")
+        );
+    }
+
+    #[tokio::test]
+    async fn after_activation_a_non_missing_transfer_failure_is_not_retried() {
+        let mut transfers = 0;
+        let result = transfer_with_activation(
+            |_| {
+                transfers += 1;
+                std::future::ready(Err(if transfers <= 2 {
+                    not_found()
+                } else {
+                    librespot_core::Error::permission_denied("retry refused")
+                }))
+            },
+            Some(|| std::future::ready(Ok(()))),
+        )
+        .await;
+        assert_eq!(transfers, 3);
+        assert!(result.unwrap_err().to_string().contains("retry refused"));
+    }
+
+    #[tokio::test]
+    async fn registration_retries_are_bounded_and_keep_the_final_failure() {
+        let mut transfers = 0;
+        let mut activations = 0;
+        let result = transfer_with_activation(
+            |_| {
+                transfers += 1;
+                std::future::ready(Err(not_found()))
+            },
+            Some(|| {
+                activations += 1;
+                std::future::ready(Ok(()))
+            }),
+        )
+        .await;
+        assert_eq!(transfers, 12);
+        assert_eq!(activations, 1);
+        assert!(result.unwrap_err().to_string().contains("404"));
+    }
+
+    #[tokio::test]
+    async fn activation_retries_the_session_source_when_no_device_is_active() {
+        let mut sources = Vec::new();
+        transfer_with_activation(
+            |from_session| {
+                sources.push(from_session);
+                std::future::ready(if sources.len() == 4 && from_session {
+                    Ok(())
+                } else {
+                    Err(not_found())
+                })
+            },
+            Some(|| std::future::ready(Ok(()))),
+        )
+        .await
+        .unwrap();
+        assert_eq!(sources, [false, true, false, true]);
+    }
+
+    async fn mock_receiver(
+        responses: Vec<String>,
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/spotifyzc", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for response in responses {
+                let (mut stream, _) =
+                    tokio::time::timeout(Duration::from_secs(3), listener.accept())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut chunk = [0; 1024];
+                    let length = stream.read(&mut chunk).await.unwrap();
+                    assert!(length > 0);
+                    request.extend_from_slice(&chunk[..length]);
+                    if let Some(end) = request.windows(4).position(|s| s == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&request[..end]).to_lowercase();
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length: "))
+                            .unwrap_or("0")
+                            .parse()
+                            .unwrap();
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                requests.push(String::from_utf8(request).unwrap());
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+            requests
+        });
+        (url, server)
+    }
+
+    fn response(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[tokio::test]
+    async fn receiver_activation_probes_before_exchange_and_sends_only_the_code() {
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        for status in [101, 102] {
+            let (endpoint, server) = mock_receiver(vec![
+                response(r#"{"deviceID":"selected","tokenType":"authorization_code","version":"2.10.0"}"#),
+                response(&format!(r#"{{"status":{status},"statusString":"secret-receiver-body"}}"#)),
+            ]).await;
+            let exchanges = std::cell::Cell::new(0);
+            let result = activate_with(
+                &http,
+                &endpoint,
+                "selected",
+                "dummy-user",
+                "dummy-origin",
+                || {
+                    exchanges.set(exchanges.get() + 1);
+                    std::future::ready(Ok("dummy-code&with=symbols".into()))
+                },
+            )
+            .await;
+            assert_eq!(result.is_ok(), status == 101);
+            if let Err(error) = result {
+                assert!(!error.to_string().contains("secret-receiver-body"));
+            }
+            assert_eq!(exchanges.get(), 1);
+            let requests = server.await.unwrap();
+            assert!(requests[0].starts_with("GET /spotifyzc?action=getInfo "));
+            assert!(requests[1].starts_with("POST /spotifyzc "));
+            let form = requests[1].split_once("\r\n\r\n").unwrap().1;
+            assert!(form.contains("blob=dummy-code%26with%3Dsymbols"));
+            assert!(form.contains("tokenType=authorization_code"));
+            assert!(form.contains("deviceId=dummy-origin"));
+            assert!(form.contains("loginId=dummy-user"));
+            assert!(!form.contains("subject_token"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_changed_unsupported_redirected_or_oversized_probe_never_exchanges_a_token() {
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        for reply in [
+            response(r#"{"deviceID":"other","tokenType":"authorization_code"}"#),
+            response(r#"{"deviceID":"selected","tokenType":"accesstoken"}"#),
+            response(r#"{"deviceID":"selected"}"#),
+            response(&"x".repeat(65 * 1024)),
+            "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:1/steal\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),
+        ] {
+            let (endpoint, server) = mock_receiver(vec![reply]).await;
+            let result = activate_with(&http, &endpoint, "selected", "dummy-user", "dummy-origin", || async { panic!("must validate before exchange") }).await;
+            assert!(result.is_err());
+            assert_eq!(server.await.unwrap().len(), 1);
+        }
+    }
 
     fn receiver(port: u16, path: &str) -> crate::zeroconf::Receiver {
         crate::zeroconf::Receiver {
