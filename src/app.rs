@@ -1744,7 +1744,7 @@ impl App {
     /// Only the Mac rerenderer owns a fader after capture. Windows observes
     /// Soloist's output; Linux already applies synchronized Connect volume.
     fn has_soloist_output_volume(&self) -> bool {
-        cfg!(all(target_os = "macos", feature = "soloist-preview"))
+        cfg!(all(target_os = "macos", feature = "soloist-native-audio"))
             && self.settings.soloist_enabled
             && self.soloist_audio
     }
@@ -29314,7 +29314,7 @@ mod tests {
             expires: u64::MAX,
         };
         app.soloist_audio = true;
-        let native_mac = cfg!(all(target_os = "macos", feature = "soloist-preview"));
+        let native_mac = cfg!(all(target_os = "macos", feature = "soloist-native-audio"));
         let builtin = app.settings.volume;
         // Slider motion changes the local fader at once, with no Spotify write.
         app.set_volume(25, false);

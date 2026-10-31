@@ -167,9 +167,9 @@ Basic controls and state use Soloist's loopback API; collection offsets use
 the existing Spotify playback requests. Full queue editing and audio access
 remain unavailable through Soloist's documented API. On Linux with PipeWire,
 Spotifast processes its owned Soloist output through the operating system for
-EQ and visualizers; it does not capture the system mix. Separate
-[native audio previews](/soloist/#native-audio-preview) add process-only Mac
-EQ and visualizers, and Windows visualizers. Mac previews apply Spotifast’s
+EQ and visualizers; it does not capture the system mix.
+[Native audio support](/soloist/#native-audio) adds process-only Mac
+EQ and visualizers, and Windows visualizers. The Mac route applies Spotifast’s
 output volume after the visualizers and hold Soloist's source at 100% once
 redirected. Spotify/phone volume events change that output level before the
 source is reset, so Spotify's indicator returns to 100%. Windows capture

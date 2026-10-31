@@ -58,7 +58,7 @@ app. [Make It Even Faster](/make-it-even-faster/#shared-app) explains why.
 
 ## Enable playback on this computer
 
-Source builds from `main` (not yet released) lead with **Set up Soloist** after
+Since 0.15, Spotifast leads with **Set up Soloist** after
 sign-in, including the first launch after updating. Follow the
 [Soloist setup](/soloist/) or choose **Use the built-in player** for the
 playback described below. Your choice is remembered. Soloist setup appears
@@ -197,7 +197,10 @@ cargo install --git https://github.com/crmne/spotifast --locked
 
 MilkDrop uses libprojectM, which is built from source. This needs CMake, a C++
 compiler, and libclang. To build without MilkDrop or those tools, add
-`--no-default-features`. On Linux, you also need the development packages for
+`--no-default-features`. This also leaves out native Soloist audio capture on
+Mac and Windows. To keep that capture without MilkDrop, add
+`--no-default-features --features soloist-native-audio` (a C++ compiler is
+still needed). On Linux, you also need the development packages for
 ALSA and PipeWire, and the windowing libraries. On Arch:
 
 ```bash

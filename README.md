@@ -22,8 +22,8 @@
 Spotifast is a Spotify client written in Rust with
 [egui](https://www.egui.rs) and [fastframe](https://fastframe.dev), the
 framework behind a family of native desktop apps. It plays music through
-[librespot](https://github.com/librespot-org/librespot), typically uses
-100–250 MB of RAM, starts in well under a second, and has no browser engine.
+[Spotify Soloist](https://spotifast.rocks/soloist/) or the built-in
+[librespot](https://github.com/librespot-org/librespot) player, and has no browser engine.
 
 The interface includes complete
 [translations for all supported languages](docs/_reference/translating.md#languages-and-coverage).
@@ -42,17 +42,17 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 
 [Features](#your-music-on-your-desktop) · [Install](#install) · [First playback](#start-listening) · [Mini player](#the-winamp-mini-player) · [MilkDrop](#music-in-motion) · [Help](#guides-and-help)
 
-On `main` (not yet released), setup leads with Spotify's
+Since 0.15, setup leads with Spotify's
 [Soloist player](https://spotifast.rocks/soloist/), with guided key setup,
 one-time pairing and automatic renewal of expiring builds. New listeners and
 people updating see this choice once after sign-in on supported platforms.
 **Use the built-in player** keeps librespot, with Spotifast's EQ, visualizers,
 local files and full queue editing. The choice is remembered.
 On Linux with PipeWire, Soloist also supports Spotifast’s EQ and visualizers
-through a private audio route. Stable Windows and macOS builds retain Soloist’s direct output.
-Separate [native audio previews](https://spotifast.rocks/soloist/#native-audio-preview)
-add Mac EQ and visualizers, and Windows visualizers, including MilkDrop.
-The Mac preview keeps Soloist at full volume after redirecting its output,
+through a private audio route. [Native audio support](https://spotifast.rocks/soloist/#native-audio)
+adds EQ and visualizers on macOS 14.2 or newer, and visualizers on Windows 11,
+including MilkDrop. Windows Soloist playback does not support audible EQ.
+The Mac route keeps Soloist at full volume after redirecting its output,
 then applies Spotifast’s volume after the visualizers, including mute. Phone
 volume changes adjust that output level; Spotify’s indicator returns to 100%.
 Windows visuals follow Soloist’s source volume and stop when it is muted.

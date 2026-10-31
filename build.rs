@@ -43,7 +43,7 @@ fn glew_library(lib: &std::path::Path) -> Option<&'static str> {
 }
 
 fn main() {
-    #[cfg(feature = "soloist-preview")]
+    #[cfg(feature = "soloist-native-audio")]
     native_soloist_audio();
     fastframe_i18n::build::compile_catalogs("assets/i18n");
     #[cfg(windows)]
@@ -93,7 +93,7 @@ fn main() {
     }
 }
 
-#[cfg(feature = "soloist-preview")]
+#[cfg(feature = "soloist-native-audio")]
 fn native_soloist_audio() {
     let target = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let source = match target.as_str() {

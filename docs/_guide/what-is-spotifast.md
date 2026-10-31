@@ -68,10 +68,11 @@ Spotifast has a limited scope:
   to play music on this computer. [How it connects](/how-it-connects/)
   explains why.
 - **The built-in player supports up to 320 kbps.** librespot cannot play
-  Spotify Lossless. Source builds from `main` also offer the optional
+  Spotify Lossless. Since 0.15, Spotifast also offers the optional
   [Soloist player](/soloist/), which uses Spotify's own implementation with
-  lossless support. This is not included in v0.14.2. Soloist does not report
-  the delivered audio format or supply audio to Spotifast's EQ and visualisers.
+  lossless support. Soloist does not report the delivered audio format.
+  Spotifast's [private audio routes](/soloist/#playback-and-current-limits)
+  provide EQ and visualizers on Linux and Mac, and visualizers on Windows.
 - No video podcasts or social features.
 - Spotifast is an **unofficial** app. Changes at Spotify can temporarily
   break features until Spotifast is updated.

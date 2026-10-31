@@ -5,7 +5,7 @@ nav_order: 5
 permalink: /soloist/
 ---
 
-Available in source builds from `main`; not included in v0.14.2.
+Available since Spotifast 0.15.
 
 Spotifast can run [Spotify Soloist](https://developer.spotify.com/documentation/soloist)
 as its first setup choice. New listeners and people updating see **Set up
@@ -146,18 +146,19 @@ If PipeWire is unavailable at startup, Soloist uses its ordinary output and
 EQ and visualizer controls stay hidden. A route that fails during playback
 stops the player and offers retry in Settings.
 
-Windows, macOS and Linux without this route keep Soloist's direct output.
-They do not yet support Spotifast's EQ or visualizers with Soloist. Local files
-and full queue editing still require the built-in player on every platform.
+Linux without PipeWire keeps Soloist's direct output, without EQ or visualizers.
+The Mac and Windows routes are described below. Local files and full queue
+editing still require the built-in player on every platform.
 The Soloist API itself provides no PCM stream. OS audio processing does not
 establish which Spotify format was delivered, and is not advertised as
 bit-perfect or as a DRM workaround.
 
-### Native audio preview
+<span id="native-audio-preview"></span>
 
-Maintainer audition builds made with `--features soloist-preview` also enable
-native process capture on macOS 14.2 or newer and Windows build 20348 or newer.
-These builds are separate from stable releases. On Mac, allow **System Audio
+### Native audio {#native-audio}
+
+Regular builds include native process capture on macOS 14.2 or newer and
+Windows build 20348 or newer (including Windows 11). On Mac, allow **System Audio
 Recording** for Spotifast, then play a song: a private Core Audio tap passes
 only Spotifast's Soloist child through its EQ, limiter and visualizers,
 including MilkDrop. Until capture receives audio, Soloist's ordinary output
@@ -197,8 +198,6 @@ cannot supply a separate output fader. Windows 11's
 [pre-volume loopback option](https://learn.microsoft.com/en-us/windows-hardware/drivers/audio/ksproperty-audioloopback)
 refers to endpoint volume, which affects other apps as well. Spotifast leaves
 that system control alone.
-Mac previews share the installed app's saved setup and run one copy at a time.
-Windows previews use the existing portable layout, with their own settings.
 
 Spotify lists capabilities such as Smart Shuffle, Jam and crossfade for its
 player. Spotifast only offers controls exposed by the documented Soloist API;

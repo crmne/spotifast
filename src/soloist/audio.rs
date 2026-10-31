@@ -1,6 +1,6 @@
 //! Private OS audio routing for the managed Soloist process. No system mix is
-//! recorded. Linux uses PipeWire. The audition feature adds native process
-//! capture on macOS and Windows; stable builds keep their ordinary output.
+//! recorded. Linux uses PipeWire; the default native-audio feature adds
+//! process capture on macOS and Windows.
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering},
@@ -31,14 +31,14 @@ struct State {
     failed: AtomicBool,
     playing: AtomicBool,
     volume: AtomicU8,
-    #[cfg(all(feature = "soloist-preview", target_os = "macos"))]
+    #[cfg(all(feature = "soloist-native-audio", target_os = "macos"))]
     output_volume: OutputVolume,
 }
 
 #[cfg(any(
     target_os = "linux",
     all(
-        feature = "soloist-preview",
+        feature = "soloist-native-audio",
         any(target_os = "macos", target_os = "windows")
     )
 ))]
@@ -51,14 +51,14 @@ impl State {
             failed: AtomicBool::new(false),
             playing: AtomicBool::new(false),
             volume: AtomicU8::new(0),
-            #[cfg(all(feature = "soloist-preview", target_os = "macos"))]
+            #[cfg(all(feature = "soloist-native-audio", target_os = "macos"))]
             output_volume: OutputVolume::default(),
         }
     }
 }
 
 #[cfg(all(
-    feature = "soloist-preview",
+    feature = "soloist-native-audio",
     any(test, target_os = "macos", target_os = "windows")
 ))]
 #[path = "native.rs"]
@@ -80,12 +80,12 @@ impl Bridge {
         output_volume: OutputVolume,
     ) -> Option<Self> {
         #[cfg(not(all(
-            feature = "soloist-preview",
+            feature = "soloist-native-audio",
             any(target_os = "macos", target_os = "windows")
         )))]
         let _ = output_volume;
         #[cfg(all(
-            feature = "soloist-preview",
+            feature = "soloist-native-audio",
             any(target_os = "macos", target_os = "windows")
         ))]
         {
@@ -94,7 +94,7 @@ impl Bridge {
         #[cfg(not(any(
             target_os = "linux",
             all(
-                feature = "soloist-preview",
+                feature = "soloist-native-audio",
                 any(target_os = "macos", target_os = "windows")
             )
         )))]
@@ -139,7 +139,7 @@ impl Bridge {
     /// A confirmed Mac route can raise the source without exposing dry audio.
     /// Windows observes only; Linux already locks source gain in PipeWire.
     pub fn owns_output_volume(&self) -> bool {
-        cfg!(all(target_os = "macos", feature = "soloist-preview"))
+        cfg!(all(target_os = "macos", feature = "soloist-native-audio"))
             && self.routed()
             && !self.failed()
     }
@@ -170,7 +170,7 @@ impl Bridge {
     any(
         target_os = "linux",
         all(
-            feature = "soloist-preview",
+            feature = "soloist-native-audio",
             any(target_os = "macos", target_os = "windows")
         )
     )
@@ -188,7 +188,7 @@ mod tests {
         bridge.state.routed.store(true, Ordering::Release);
         assert_eq!(
             bridge.owns_output_volume(),
-            cfg!(all(target_os = "macos", feature = "soloist-preview"))
+            cfg!(all(target_os = "macos", feature = "soloist-native-audio"))
         );
         bridge.state.failed.store(true, Ordering::Release);
         assert!(!bridge.owns_output_volume());

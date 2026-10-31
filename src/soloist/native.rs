@@ -1,4 +1,4 @@
-//! Audition-only native adapters. The Mac controller holds source volume at
+//! Native Soloist audio adapters. The Mac controller holds source volume at
 //! unity after redirecting; Windows observation follows the source volume.
 //! The OS callbacks never run Rust DSP: a dedicated worker owns this state.
 #[cfg(any(target_os = "macos", target_os = "windows"))]

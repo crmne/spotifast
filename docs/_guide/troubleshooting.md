@@ -24,8 +24,8 @@ Spotify refused the audio key. Try again later
 ### What it means
 
 Spotify sends music to your computer locked. To play a song, the player has
-to ask Spotify for that song's key and use it to unlock the audio. Spotifast
-plays music through [librespot](https://github.com/librespot-org/librespot),
+to ask Spotify for that song's key and use it to unlock the audio. Spotifast's
+built-in player uses [librespot](https://github.com/librespot-org/librespot),
 and librespot asks for a key every time a song starts. Here, Spotify said no.
 Your sign-in works and your library looks normal, but without the key there
 is nothing to turn into sound.
@@ -59,7 +59,14 @@ keys.
 
 ### What works
 
-Play the music on another Spotify device and keep using Spotifast as the
+Since 0.15, you can choose **Settings → Spotify Soloist** to play through
+Spotify's own player on this computer. [Soloist setup](/soloist/#setup) guides
+you through getting a personal Soloist key and pairing once in Spotify. It
+uses Spotify's playback implementation, so it may avoid the refused-key
+problem with the built-in player. This does not fix Spotify's key refusals
+for librespot. Spotify Premium and a supported platform are required.
+
+You can also play the music on another Spotify device and keep using Spotifast as the
 remote. **Play on another device** in the banner opens the device picker, the
 same one as the devices button in the player bar. Pick your phone, a speaker,
 or a computer with the official Spotify app open. The music plays there, and
