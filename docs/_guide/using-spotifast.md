@@ -278,9 +278,12 @@ can confirm the level or show a change made on another device. If the volume
 request fails, an error appears and the slider returns to the reported level.
 The seek slider previews on press and seeks on release.
 
-The default local output smooths volume and mute changes over 30 ms. Explicit
-track changes and play/pause/stop use nominal 50 ms fades. Stopping can shorten
-the fade to the queued audio. Natural track transitions remain gapless.
+The default local output smooths volume and mute changes over 30 ms. Play fades
+in over 200 ms. Pause and stop fade out over the 200 ms of music already queued,
+so Play picks the song up where the fade left it. An explicit track change fades
+the old song out over 50 ms and brings the new one in like Play; a seek comes
+back in over 50 ms. Pausing just after a seek or a track change can shorten the
+fade to the queued audio. Natural track transitions remain gapless.
 
 Left and right arrows adjust a focused volume slider by five percentage
 points, or the seek slider by one percent of the song. Screen readers can
