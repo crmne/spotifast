@@ -169,6 +169,7 @@ fn nav_button(
             Sense::hover()
         },
     );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tooltip));
     if ui.is_rect_visible(rect) {
         let fill = if palette.dark {
             egui::Color32::from_black_alpha(90)
@@ -178,13 +179,14 @@ fn nav_button(
         ui.painter().circle_filled(rect.center(), 16.0, fill);
         let color = if !enabled {
             palette.dim
-        } else if response.hovered() {
+        } else if response.hovered() || response.has_focus() {
             palette.text
         } else {
             palette.secondary
         };
         theme::paint_icon(ui, icon, rect, 20.0, color);
     }
+    theme::focus_ring(ui, &response);
     if enabled {
         response.on_hover_text(tooltip)
     } else {
@@ -409,8 +411,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .unwrap_or_default();
                 let (rect, response) =
                     ui.allocate_exact_size(Vec2::splat(AVATAR_SIZE), Sense::click());
+                let account_label = if name.is_empty() {
+                    gettext(locale, "Account")
+                } else {
+                    name.as_str().into()
+                };
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        &account_label,
+                    )
+                });
                 if ui.is_rect_visible(rect) {
-                    let fill = if response.hovered() {
+                    let fill = if response.hovered() || response.has_focus() {
                         palette.surface_hover
                     } else {
                         palette.surface
@@ -446,6 +460,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         }
                     }
                 }
+                theme::focus_ring(ui, &response);
                 let response = response.on_hover_text(&name);
                 egui::Popup::menu(&response)
                     .frame(super::widgets::menu_frame(&palette))
