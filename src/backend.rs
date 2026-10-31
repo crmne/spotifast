@@ -2029,6 +2029,7 @@ impl Worker {
         let client = crate::http::build_client(&proxy)?;
         let restart = self.engine_proxy != proxy.librespot_url();
         self.http.replace(client);
+        crate::updates::forget_updater();
         self.engine_config.proxy = proxy;
         Ok(restart)
     }
