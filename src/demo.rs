@@ -12238,4 +12238,315 @@ mod tests {
         );
         app.backend.shutdown();
     }
+
+    /// Discography placeholders fill the old grid, including any space
+    /// reserved for pagination, without relying on an outer minimum height.
+    #[test]
+    fn discography_placeholders_fill_the_previous_grid_height() {
+        use crate::ui::widgets;
+
+        let (ctx, mut app) = accessible_app("discography-placeholder-height");
+        for light in [false, true] {
+            ctx.set_theme(if light {
+                egui::Theme::Light
+            } else {
+                egui::Theme::Dark
+            });
+            for width in [760.0, 1280.0] {
+                for count in [1, 8, 20] {
+                    for footer in [0.0, 32.0] {
+                        let mut loaded_height = 0.0;
+                        let mut output = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(width, 6000.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ui| {
+                                ui.set_width(width - 298.0);
+                                loaded_height = ui
+                                    .scope(|ui| {
+                                        widgets::grid(ui, |ui| {
+                                            for index in 0..count {
+                                                let album = super::album(index);
+                                                widgets::card(
+                                                    ui,
+                                                    &mut app,
+                                                    None,
+                                                    &album.name,
+                                                    "2026 • Album",
+                                                    widgets::CardCover::square(false),
+                                                );
+                                            }
+                                        });
+                                        ui.add_space(footer);
+                                    })
+                                    .response
+                                    .rect
+                                    .height();
+                            },
+                        );
+                        output.textures_delta.clear();
+                        let palette = app.palette;
+                        let locale = app.locale;
+                        let mut skeleton_height = 0.0;
+                        let mut output = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(width, 6000.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ui| {
+                                ui.set_width(width - 298.0);
+                                skeleton_height = ui
+                                    .scope(|ui| {
+                                        widgets::grid(ui, |ui| {
+                                            widgets::skeleton_cards_filling(
+                                                ui,
+                                                &palette,
+                                                locale,
+                                                count,
+                                                false,
+                                                loaded_height,
+                                            );
+                                        });
+                                    })
+                                    .response
+                                    .rect
+                                    .height();
+                            },
+                        );
+                        output.textures_delta.clear();
+                        assert!(
+                            (skeleton_height - loaded_height).abs() <= 1.0,
+                            "{width}px, light={light}, {count} cards, footer={footer}: \
+                             loaded {loaded_height}, skeletons {skeleton_height}"
+                        );
+                    }
+                }
+            }
+        }
+        app.backend.shutdown();
+    }
+
+    /// Choosing a discography category for the first time must not move the
+    /// page: placeholders replace the old category and reserve its height
+    /// until the selected category arrives.
+    #[test]
+    fn a_discography_category_keeps_the_page_scrolled_while_it_loads() {
+        for width in [760.0, 1280.0] {
+            for light in [false, true] {
+                check_discography_category_scroll(width, light);
+            }
+        }
+    }
+
+    /// Exercises the category change at one window width and theme.
+    fn check_discography_category_scroll(width: f32, light: bool) {
+        use egui::accesskit::Role;
+
+        let (ctx, mut app) = accessible_app("discography-filter-scroll");
+        app.settings.theme = if light {
+            crate::settings::ThemeChoice::Light
+        } else {
+            crate::settings::ThemeChoice::Dark
+        };
+        // More than six placeholders can fill: preserving the old height
+        // must work for a long discography too.
+        let releases: Vec<_> = (0..20)
+            .map(|index| {
+                let mut album = super::album(index);
+                album.name = format!("Previous release {index}");
+                album
+            })
+            .collect();
+        let mut list = PagedList::default();
+        list.absorb(0, super::page(releases));
+        app.artist_pages
+            .get_mut("art0")
+            .unwrap()
+            .albums
+            .insert(DiscographyFilter::All.groups().to_string(), list);
+        let page = Page::Artist("art0".into());
+        app.open(page.clone());
+        let scrolled_id = egui::Id::new(("page-scrolled", page.encode()));
+        let singles = DiscographyFilter::Singles.label(app.locale).into_owned();
+        let screen = egui::vec2(width, 900.0);
+        let mut time = 0.0;
+        let mut draw = |app: &mut App, events: Vec<egui::Event>| {
+            time += 1.0 / 60.0;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, screen)),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            let offset = ctx
+                .data(|data| data.get_temp::<f32>(scrolled_id))
+                .unwrap_or(0.0);
+            let tree = output.platform_output.accesskit_update.unwrap();
+            (offset, tree)
+        };
+        for _ in 0..4 {
+            draw(&mut app, Vec::new());
+        }
+        let wheel = |notches: f32| {
+            vec![
+                egui::Event::PointerMoved(egui::pos2(550.0, 400.0)),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: egui::vec2(0.0, -notches),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        let chip_bounds = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == Role::Button && node.label() == Some(singles.as_str())
+                })
+                .and_then(|(_, node)| node.bounds())
+        };
+        // egui smooths a wheel notch over a few frames, so let the page come
+        // to rest after each one before reading the chip's position.
+        macro_rules! settle {
+            () => {{
+                let mut last = f32::NAN;
+                let mut still = 0;
+                let mut offset = 0.0;
+                for _ in 0..120 {
+                    offset = draw(&mut app, Vec::new()).0;
+                    if (offset - last).abs() < 0.01 {
+                        still += 1;
+                    } else {
+                        still = 0;
+                    }
+                    last = offset;
+                    if still >= 3 {
+                        break;
+                    }
+                }
+                offset
+            }};
+        }
+        let mut at = None;
+        let mut before = 0.0;
+        let mut direction = 1.0;
+        for _ in 0..20 {
+            let (offset, tree) = draw(&mut app, Vec::new());
+            let Some(bounds) = chip_bounds(&tree) else {
+                draw(&mut app, wheel(direction));
+                settle!();
+                continue;
+            };
+            if bounds.y0 >= 60.0 && bounds.y1 <= 200.0 {
+                before = offset;
+                at = Some(egui::pos2(
+                    ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                    ((bounds.y0 + bounds.y1) / 2.0) as f32,
+                ));
+                break;
+            }
+            direction = if bounds.y0 < 60.0 { -1.0 } else { 1.0 };
+            draw(&mut app, wheel(direction));
+            settle!();
+        }
+        let at = at.unwrap_or_else(|| panic!("no visible {singles:?} chip"));
+        draw(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let after = settle!();
+        assert_eq!(
+            app.artist_pages["art0"].filter,
+            DiscographyFilter::Singles,
+            "the click must select the chip"
+        );
+        assert!(
+            (after - before).abs() <= 1.0,
+            "selecting {singles:?} moved the page from {before} to {after}"
+        );
+
+        let (_, tree) = draw(&mut app, Vec::new());
+        let loading = crate::i18n::gettext(app.locale, "Loading…");
+        assert!(
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some(loading.as_ref()) || node.value() == Some(loading.as_ref())
+            }),
+            "the selected category shows loading placeholders"
+        );
+        assert!(
+            tree.nodes.iter().all(|(_, node)| {
+                !node
+                    .label()
+                    .is_some_and(|label| label.starts_with("Previous release "))
+            }),
+            "the previous category's cards must disappear while loading"
+        );
+
+        // The answer arrives with as many cards as the list it replaces, so
+        // taking its place must leave the reader where they were.
+        let mut list = PagedList::default();
+        list.absorb(
+            0,
+            super::page(
+                (0..20)
+                    .map(|index| {
+                        let mut album = super::album(index);
+                        album.name = format!("Selected single {index}");
+                        album.album_type = Some("single".into());
+                        album
+                    })
+                    .collect(),
+            ),
+        );
+        app.artist_pages
+            .get_mut("art0")
+            .unwrap()
+            .albums
+            .insert(DiscographyFilter::Singles.groups().to_string(), list);
+        let loaded = settle!();
+        assert_eq!(
+            app.artist_pages["art0"].filter,
+            DiscographyFilter::Singles,
+            "the loaded category remains selected"
+        );
+        assert!(
+            (loaded - before).abs() <= 1.0,
+            "loading {singles:?} moved the page from {before} to {loaded}"
+        );
+        let (_, tree) = draw(&mut app, Vec::new());
+        assert!(
+            tree.nodes.iter().any(|(_, node)| {
+                node.label()
+                    .is_some_and(|label| label.starts_with("Selected single "))
+            }),
+            "the selected category replaces the placeholders"
+        );
+        app.backend.shutdown();
+    }
 }
