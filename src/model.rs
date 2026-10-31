@@ -989,6 +989,8 @@ pub enum SortColumn {
     Added,
     Duration,
     AddedBy,
+    /// Spotify's play count, where the list shows one.
+    Plays,
     /// The list's own order, for playing it reversed from the # heading.
     Index,
 }

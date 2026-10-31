@@ -741,7 +741,10 @@ Album pages have a **Plays** column, and an artist's popular songs show
 how often each was played, as Spotify counts them. The counts come from
 Spotify's playback service, so they need playback on this computer to be
 set up. Without it, or when Spotify does not answer, the lists leave the
-counts out. The column needs a window wide enough for it.
+counts out. The column needs a window wide enough for it. Click the
+**Plays** heading to sort the album's songs from most to least played, again
+for least to most, and a third time to return to album order. Songs without a
+count sort last.
 
 ## Upcoming albums
 
