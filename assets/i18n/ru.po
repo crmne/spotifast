@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-30 22:05-0700\n"
+"POT-Creation-Date: 2026-10-31 00:59-0700\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Russian\n"
@@ -165,7 +165,7 @@ msgstr "Ничего не найдено."
 msgid "Sort by recently played"
 msgstr "Сортировать по недавно прослушанным"
 
-#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:798 src/ui/widgets.rs:1245
+#: src/ui/sidebar.rs:1988 src/ui/player_bar.rs:798 src/ui/widgets.rs:1248
 #: src/ui/artist.rs:396 src/ui/collection.rs:302 src/ui/new_releases.rs:117
 #: src/ui/prerelease.rs:309 src/ui/search.rs:408 src/ui/show.rs:390
 msgid "Play"
@@ -244,12 +244,12 @@ msgid "Add to playlist"
 msgstr "Добавить в плейлист"
 
 #: src/ui/player_bar.rs:615 src/ui/widgets.rs:744 src/ui/widgets.rs:1018
-#: src/ui/widgets.rs:2030
+#: src/ui/widgets.rs:2033
 msgid "Save to Liked Songs"
 msgstr "Сохранить в Любимые треки"
 
 #: src/ui/player_bar.rs:665 src/ui/widgets.rs:741 src/ui/widgets.rs:1015
-#: src/ui/widgets.rs:2028
+#: src/ui/widgets.rs:2031
 msgid "Remove from Liked Songs"
 msgstr "Удалить из Любимых треков"
 
@@ -362,7 +362,7 @@ msgstr "Добавлено в очередь"
 msgid "Next up"
 msgstr "Далее"
 
-#: src/ui/queue.rs:625 src/ui/queue.rs:658 src/ui/widgets.rs:2958
+#: src/ui/queue.rs:625 src/ui/queue.rs:658 src/ui/widgets.rs:2961
 #: src/ui/collection.rs:1251 src/ui/prerelease.rs:242
 msgid "Retry"
 msgstr "Повторить"
@@ -439,8 +439,8 @@ msgstr "Инструментальная композиция"
 msgid "No timed lyrics for this track."
 msgstr "Для этого трека нет синхронизированного текста."
 
-#: src/ui/lyrics.rs:462 src/ui/widgets.rs:2856 src/ui/widgets.rs:2896
-#: src/ui/widgets.rs:2924 src/app.rs:13655 src/ui/collection.rs:902
+#: src/ui/lyrics.rs:462 src/ui/widgets.rs:2859 src/ui/widgets.rs:2899
+#: src/ui/widgets.rs:2927 src/app.rs:13655 src/ui/collection.rs:902
 msgid "Loading…"
 msgstr "Загрузка…"
 
@@ -474,7 +474,7 @@ msgstr "Слушает сейчас"
 msgid "Play next"
 msgstr "Воспроизвести следующим"
 
-#: src/ui/widgets.rs:726 src/ui/widgets.rs:987 src/ui/widgets.rs:1267
+#: src/ui/widgets.rs:726 src/ui/widgets.rs:987 src/ui/widgets.rs:1270
 msgid "Add to queue"
 msgstr "Добавить в очередь"
 
@@ -538,82 +538,82 @@ msgstr "Перейти к альбому"
 msgid "Go to podcast"
 msgstr "Перейти к подкасту"
 
-#: src/ui/widgets.rs:1186 src/ui/widgets.rs:1330 src/ui/prerelease.rs:226
+#: src/ui/widgets.rs:1186 src/ui/widgets.rs:1333 src/ui/prerelease.rs:226
 msgid "Copy link"
 msgstr "Скопировать ссылку"
 
-#: src/ui/widgets.rs:1198
+#: src/ui/widgets.rs:1199
 msgid "Copy details"
 msgstr "Скопировать сведения"
 
-#: src/ui/widgets.rs:1202
+#: src/ui/widgets.rs:1203
 msgid "Song title"
 msgstr "Название трека"
 
-#: src/ui/widgets.rs:1213
+#: src/ui/widgets.rs:1215
 msgid "Artist and song title"
 msgstr "Исполнитель и название трека"
 
-#: src/ui/widgets.rs:1226 src/ui/widgets.rs:1338 src/ui/prerelease.rs:230
+#: src/ui/widgets.rs:1229 src/ui/widgets.rs:1341 src/ui/prerelease.rs:230
 msgid "Open in Spotify"
 msgstr "Открыть в Spotify"
 
-#: src/ui/widgets.rs:1257
+#: src/ui/widgets.rs:1260
 msgid "Shuffle play"
 msgstr "Перемешать и слушать"
 
-#: src/ui/widgets.rs:1277
+#: src/ui/widgets.rs:1280
 msgctxt "artist"
 msgid "Unfollow"
 msgstr "Отписаться"
 
-#: src/ui/widgets.rs:1278 src/ui/artist.rs:412
+#: src/ui/widgets.rs:1281 src/ui/artist.rs:412
 msgctxt "artist"
 msgid "Follow"
 msgstr "Подписаться"
 
-#: src/ui/widgets.rs:1279 src/ui/collection.rs:2189 src/ui/collection.rs:2212
+#: src/ui/widgets.rs:1282 src/ui/collection.rs:2189 src/ui/collection.rs:2212
 #: src/ui/show.rs:242
 msgid "Remove from Your Library"
 msgstr "Удалить из медиатеки"
 
-#: src/ui/widgets.rs:1280 src/ui/collection.rs:2188
+#: src/ui/widgets.rs:1283 src/ui/collection.rs:2188
 msgid "Add to Your Library"
 msgstr "Добавить в медиатеку"
 
-#: src/ui/widgets.rs:1290 src/ui/dialogs.rs:458
+#: src/ui/widgets.rs:1293 src/ui/dialogs.rs:458
 msgid "Edit details"
 msgstr "Изменить сведения"
 
-#: src/ui/widgets.rs:1304 src/ui/dialogs.rs:94
+#: src/ui/widgets.rs:1307 src/ui/dialogs.rs:94
 msgid "Delete"
 msgstr "Удалить"
 
-#: src/ui/widgets.rs:1315
+#: src/ui/widgets.rs:1318
 msgid "Go to playlist radio"
 msgstr "Перейти к радио плейлиста"
 
-#: src/ui/widgets.rs:1316
+#: src/ui/widgets.rs:1319
 msgid "Go to album radio"
 msgstr "Перейти к радио альбома"
 
-#: src/ui/widgets.rs:1317
+#: src/ui/widgets.rs:1320
 msgid "Go to artist radio"
 msgstr "Перейти к радио исполнителя"
 
 #. Translators: {title} is a song or episode name, {subtitle} its artists or podcast.
-#: src/ui/widgets.rs:1539
+#: src/ui/widgets.rs:1542
 #, rust-format
 msgid "Play {title}, {subtitle}"
 msgstr "Воспроизвести {title}, {subtitle}"
 
-#: src/ui/widgets.rs:2075 src/ui/artist.rs:426 src/ui/collection.rs:405
+#: src/ui/widgets.rs:2078 src/ui/artist.rs:426 src/ui/collection.rs:405
 #: src/ui/show.rs:260 src/ui/show.rs:468
 msgid "More"
 msgstr "Ещё"
 
 #. Translators: The label beside the pointer while songs are dragged. {name} is the first song's name and {count} how many more songs are dragged with it.
-#: src/ui/widgets.rs:2227
+#: src/ui/widgets.rs:2230
 #, rust-format
 msgid "{name} + {count} more"
 msgid_plural "{name} + {count} more"
@@ -622,95 +622,95 @@ msgstr[1] "{name} + ещё {count}"
 msgstr[2] "{name} + ещё {count}"
 
 #. Translators: {column} is a column heading of a song list, such as Title.
-#: src/ui/widgets.rs:2345
+#: src/ui/widgets.rs:2348
 #, rust-format
 msgid "Sort by {column}"
 msgstr "Сортировка: {column}"
 
-#: src/ui/widgets.rs:2395
+#: src/ui/widgets.rs:2398
 msgid "Sort by playlist order"
 msgstr "Сортировать в порядке плейлиста"
 
-#: src/ui/widgets.rs:2430
+#: src/ui/widgets.rs:2433
 msgid "Original order, reversed"
 msgstr "Исходный порядок, обратный"
 
-#: src/ui/widgets.rs:2443
+#: src/ui/widgets.rs:2446
 msgctxt "column heading"
 msgid "TITLE"
 msgstr "НАЗВАНИЕ"
 
-#: src/ui/widgets.rs:2472
+#: src/ui/widgets.rs:2475
 msgctxt "column heading"
 msgid "ALBUM"
 msgstr "АЛЬБОМ"
 
-#: src/ui/widgets.rs:2481
+#: src/ui/widgets.rs:2484
 msgctxt "column heading"
 msgid "ADDED BY"
 msgstr "КТО ДОБАВИЛ"
 
-#: src/ui/widgets.rs:2490
+#: src/ui/widgets.rs:2493
 msgctxt "column heading"
 msgid "DATE ADDED"
 msgstr "ДАТА ДОБАВЛЕНИЯ"
 
-#: src/ui/widgets.rs:2500
+#: src/ui/widgets.rs:2503
 msgctxt "column heading"
 msgid "PLAYS"
 msgstr "ПРОСЛУШИВАНИЯ"
 
-#: src/ui/widgets.rs:2522 src/ui/widgets.rs:2552
+#: src/ui/widgets.rs:2525 src/ui/widgets.rs:2555
 msgid "Sort by duration"
 msgstr "Сортировать по длительности"
 
-#: src/ui/widgets.rs:2935 src/app.rs:13864 src/app.rs:13878
+#: src/ui/widgets.rs:2938 src/app.rs:13864 src/app.rs:13878
 msgid "Network connection error. Check your connection."
 msgstr "Ошибка сетевого подключения. Проверьте соединение."
 
-#: src/ui/widgets.rs:3193
+#: src/ui/widgets.rs:3196
 msgid "Cut"
 msgstr "Вырезать"
 
-#: src/ui/widgets.rs:3198 src/ui/login.rs:560
+#: src/ui/widgets.rs:3201 src/ui/login.rs:560
 msgid "Copy"
 msgstr "Копировать"
 
-#: src/ui/widgets.rs:3203
+#: src/ui/widgets.rs:3206
 msgid "Paste"
 msgstr "Вставить"
 
-#: src/ui/widgets.rs:3220
+#: src/ui/widgets.rs:3223
 msgid "Select all"
 msgstr "Выделить всё"
 
-#: src/ui/widgets.rs:3327
+#: src/ui/widgets.rs:3330
 msgid "Clear"
 msgstr "Очистить"
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
-#: src/ui/widgets.rs:3372
+#: src/ui/widgets.rs:3375
 #, rust-format
 msgid "Built with love by {name}"
 msgstr "Сделано с любовью: {name}"
 
-#: src/ui/widgets.rs:3517
+#: src/ui/widgets.rs:3520
 msgid "Host"
 msgstr "Хост"
 
-#: src/ui/widgets.rs:3534
+#: src/ui/widgets.rs:3537
 msgid "Port"
 msgstr "Порт"
 
-#: src/ui/widgets.rs:3552
+#: src/ui/widgets.rs:3555
 msgid "Username"
 msgstr "Имя пользователя"
 
-#: src/ui/widgets.rs:3563
+#: src/ui/widgets.rs:3566
 msgid "Password"
 msgstr "Пароль"
 
-#: src/ui/widgets.rs:3581
+#: src/ui/widgets.rs:3584
 msgid ""
 "Proxy login applies to Web requests. Local playback uses this proxy only "
 "without a login."
@@ -718,7 +718,7 @@ msgstr ""
 "Логин прокси применяется к веб-запросам. Локальное воспроизведение "
 "использует этот прокси только без логина."
 
-#: src/ui/widgets.rs:3585
+#: src/ui/widgets.rs:3588
 msgid ""
 "Spotify hostnames are resolved by the proxy. Local playback connects "
 "directly."
