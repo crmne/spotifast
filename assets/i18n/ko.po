@@ -142,6 +142,7 @@ msgstr "내 라이브러리에서 검색"
 #: src/ui/sidebar.rs:1243 src/app.rs:3620 src/ui/artist.rs:221
 #: src/ui/artist.rs:364 src/ui/home.rs:791 src/ui/library.rs:101
 #: src/ui/search.rs:159 src/ui/search.rs:491 src/ui/winamp/playlist.rs:746
+#: src/ui/widgets.rs:1206
 msgid "Artist"
 msgstr "아티스트"
 
@@ -530,6 +531,18 @@ msgstr "팟캐스트로 이동"
 #: src/ui/widgets.rs:1186 src/ui/widgets.rs:1298 src/ui/prerelease.rs:226
 msgid "Copy link"
 msgstr "링크 복사"
+
+#: src/ui/widgets.rs:1198
+msgid "Copy details"
+msgstr "세부 정보 복사"
+
+#: src/ui/widgets.rs:1202
+msgid "Song title"
+msgstr "곡 제목"
+
+#: src/ui/widgets.rs:1213
+msgid "Artist and song title"
+msgstr "아티스트 및 곡 제목"
 
 #: src/ui/widgets.rs:1194 src/ui/widgets.rs:1306 src/ui/prerelease.rs:230
 msgid "Open in Spotify"
@@ -3153,6 +3166,7 @@ msgstr "앱의 클라이언트 ID를 입력란에 붙여넣고 로그인하세�
 
 #. Translators: shown on the Copy button for a moment after it copied.
 #: src/ui/login.rs:558
+#: src/app.rs:11824
 msgid "Copied"
 msgstr "복사됨"
 

@@ -142,6 +142,7 @@ msgstr "Buscar en tu biblioteca"
 #: src/ui/sidebar.rs:1243 src/app.rs:3620 src/ui/artist.rs:221
 #: src/ui/artist.rs:364 src/ui/home.rs:791 src/ui/library.rs:101
 #: src/ui/search.rs:159 src/ui/search.rs:491 src/ui/winamp/playlist.rs:746
+#: src/ui/widgets.rs:1206
 msgid "Artist"
 msgstr "Artista"
 
@@ -536,6 +537,18 @@ msgstr "Ir al pódcast"
 #: src/ui/widgets.rs:1186 src/ui/widgets.rs:1298 src/ui/prerelease.rs:226
 msgid "Copy link"
 msgstr "Copiar enlace"
+
+#: src/ui/widgets.rs:1198
+msgid "Copy details"
+msgstr "Copiar detalles"
+
+#: src/ui/widgets.rs:1202
+msgid "Song title"
+msgstr "Título de la canción"
+
+#: src/ui/widgets.rs:1213
+msgid "Artist and song title"
+msgstr "Artista y título de la canción"
 
 #: src/ui/widgets.rs:1194 src/ui/widgets.rs:1306 src/ui/prerelease.rs:230
 msgid "Open in Spotify"
@@ -3223,6 +3236,7 @@ msgstr "Pega el Client ID de la app en el campo e inicia sesión."
 
 #. Translators: shown on the Copy button for a moment after it copied.
 #: src/ui/login.rs:558
+#: src/app.rs:11824
 msgid "Copied"
 msgstr "Copiado"
 

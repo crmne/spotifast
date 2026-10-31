@@ -11818,6 +11818,12 @@ impl App {
                     self.toast(gettext(self.locale, "Link copied"));
                 }
             }
+            Action::CopyText(text) => {
+                if !text.is_empty() {
+                    ctx.copy_text(text);
+                    self.toast(gettext(self.locale, "Copied"));
+                }
+            }
             Action::CopySongs(items) => {
                 let links: Vec<String> = items
                     .iter()

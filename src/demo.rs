@@ -6527,6 +6527,108 @@ mod tests {
     }
 
     #[test]
+    fn song_menu_copies_the_title_and_artists_from_a_submenu() {
+        let (ctx, mut app) = accessible_app("song-menu-copy-details");
+        let mut item = track(0);
+        item.artists = vec![
+            ArtistRef {
+                id: Some("first".into()),
+                name: "Ween".into(),
+                uri: Some("spotify:artist:first".into()),
+            },
+            ArtistRef {
+                id: None,
+                name: "Guest".into(),
+                uri: None,
+            },
+        ];
+        let title = item.name.clone();
+        app.search.results = Loadable::Loaded(SearchResults {
+            tracks: Some(page(vec![item])),
+            ..Default::default()
+        });
+        for (label, expected) in [
+            ("Song title", title.clone()),
+            ("Artist", "Ween, Guest".to_string()),
+            ("Artist and song title", format!("Ween, Guest - {title}")),
+        ] {
+            search_frame(&ctx, &mut app, vec![]);
+            let text = search_frame(&ctx, &mut app, vec![]);
+            let pos = text
+                .iter()
+                .find(|(text, _)| text == &title)
+                .expect("top result title")
+                .1
+                .center();
+            search_frame(
+                &ctx,
+                &mut app,
+                pointer_click(pos, egui::PointerButton::Secondary),
+            );
+            let text = search_frame(&ctx, &mut app, vec![]);
+            assert!(
+                !text.iter().any(|(text, _)| text == "Song title"),
+                "the copy entries stay inside the submenu"
+            );
+            let details = text
+                .iter()
+                .find(|(text, _)| text == "Copy details")
+                .expect("the song menu offers Copy details")
+                .1
+                .center();
+            search_frame(
+                &ctx,
+                &mut app,
+                pointer_click(details, egui::PointerButton::Primary),
+            );
+            search_frame(&ctx, &mut app, vec![]);
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 2200.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| crate::ui::search::show(&mut app, ui),
+            );
+            let text = menu_text(&output);
+            let tree = output.platform_output.accesskit_update.unwrap();
+            // A menu item spans its menu, so its width is the menu's.
+            let width = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == egui::accesskit::Role::Button
+                        && node.label() == Some("Song title")
+                })
+                .and_then(|(_, node)| node.bounds())
+                .expect("the submenu's first entry")
+                .width();
+            assert!(width <= 300.0, "the submenu is {width} points wide");
+            let entry = text
+                .iter()
+                .rev()
+                .find(|(text, _)| text == label)
+                .unwrap_or_else(|| panic!("Copy details is missing {label}"))
+                .1
+                .center();
+            app.actions.clear();
+            search_frame(
+                &ctx,
+                &mut app,
+                pointer_click(entry, egui::PointerButton::Primary),
+            );
+            assert!(
+                matches!(app.actions.as_slice(), [Action::CopyText(text)] if text == &expected),
+                "{label}: {:?}",
+                app.actions
+            );
+        }
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn song_top_result_artist_name_opens_the_available_profile_or_the_album() {
         for artist_id in [Some("ween"), None] {
             let (ctx, mut app) = accessible_app("top-result-song-artist");

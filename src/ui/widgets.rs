@@ -1187,6 +1187,38 @@ fn item_menu_at(
     ) {
         app.actions.push(Action::CopyLink(uri.clone()));
     }
+    if let PlayableItem::Track(track) = item
+        && !track.name.is_empty()
+    {
+        let artists = track.artist_names();
+        menu_submenu(
+            ui,
+            &palette,
+            Some(Icon::Copy),
+            &gettext(locale, "Copy details"),
+            |ui| {
+                ui.set_min_width(200.0);
+                ui.set_max_width(300.0);
+                if menu_item(ui, &palette, None, &gettext(locale, "Song title")) {
+                    app.actions.push(Action::CopyText(track.name.clone()));
+                }
+                if !artists.is_empty() {
+                    if menu_item(ui, &palette, None, &gettext(locale, "Artist")) {
+                        app.actions.push(Action::CopyText(artists.clone()));
+                    }
+                    if menu_item(
+                        ui,
+                        &palette,
+                        None,
+                        &gettext(locale, "Artist and song title"),
+                    ) {
+                        app.actions
+                            .push(Action::CopyText(format!("{artists} - {}", track.name)));
+                    }
+                }
+            },
+        );
+    }
     if menu_item(
         ui,
         &palette,
