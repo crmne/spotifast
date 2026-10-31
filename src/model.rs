@@ -1282,6 +1282,8 @@ pub enum Action {
     },
     RefreshQueue,
     CopyLink(String),
+    /// Copy plain text, such as a song title or its artists.
+    CopyText(String),
     /// Copy picked songs' links, one per line, and remember the songs so a
     /// paste of the same links can show their rows at once.
     CopySongs(Vec<PlayableItem>),
