@@ -70,9 +70,9 @@ in a `spotifast-data` folder next to it, so the folder carries everything
 - [Windows ZIP (most PCs)]({{ base }}/spotifast-v{{ v }}-x86_64-pc-windows-msvc.zip)
 - [Windows ZIP (ARM PCs)]({{ base }}/spotifast-v{{ v }}-aarch64-pc-windows-msvc.zip)
 
-Either way, SmartScreen may warn about an unknown publisher on first run;
-choose **More info**, then **Run anyway**. The Windows files are not signed
-with a publisher certificate, so Windows has no publisher name to show.
+The Windows executable and installer are signed as **PlentyLabs UG
+(haftungsbeschränkt) & Co. KG**. SmartScreen may still show a warning while
+the publisher builds reputation.
 
 Spotifast needs OpenGL 2.0 or newer, which every current Windows graphics
 driver provides. In a virtual machine or remote session that only has the
