@@ -145,7 +145,8 @@
                 ];
               # The command-alias regression starts its own bus, isolated from
               # the listener's desktop and running application.
-              nativeCheckInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
+              # The Soloist tests look at processes with `ps`.
+              nativeCheckInputs = [ pkgs.procps ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
               buildInputs =
                 pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (
                   with pkgs;
