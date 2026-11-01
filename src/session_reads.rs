@@ -449,10 +449,10 @@ pub async fn page_metadata(
                 ),
                 "Spotify could not return this artist overview"
             );
-            upcoming = crate::prerelease::UpcomingRelease::from_artist(
+            upcoming = upcoming_release(
                 body.pointer("/data/artistUnion")
                     .ok_or_else(|| anyhow::anyhow!("missing artist overview"))?,
-            )?;
+            );
             let top = body
                 .pointer("/data/artistUnion/discography/topTracks")
                 .ok_or_else(|| anyhow::anyhow!("Spotify answered without the popular songs"))?;
@@ -466,6 +466,15 @@ pub async fn page_metadata(
     Ok(PageMetadata {
         play_counts: counts,
         upcoming,
+    })
+}
+
+/// An artist's upcoming release. One this app cannot read is logged and left
+/// out: the play counts in the same answer still stand.
+fn upcoming_release(artist: &serde_json::Value) -> Option<crate::prerelease::UpcomingRelease> {
+    crate::prerelease::UpcomingRelease::from_artist(artist).unwrap_or_else(|error| {
+        log::warn!("leaving out an unreadable upcoming release: {error}");
+        None
     })
 }
 
@@ -2014,6 +2023,14 @@ mod tests {
             super::play_counts_from(&serde_json::json!({}), &mut counts),
             0
         );
+    }
+
+    #[test]
+    fn a_malformed_upcoming_release_is_left_out() {
+        let artist = serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+        assert!(super::upcoming_release(&artist).is_some());
+        assert!(super::upcoming_release(&serde_json::json!({"preRelease": "odd"})).is_none());
+        assert!(super::upcoming_release(&serde_json::json!({})).is_none());
     }
 
     #[test]

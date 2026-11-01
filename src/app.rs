@@ -317,7 +317,9 @@ struct Listening {
 pub enum PlayCountRead {
     Asked,
     Answered,
-    /// A valid overview with no play counts; it may still have a prerelease.
+    /// An artist's valid overview with no counts at all; it may still have a
+    /// prerelease, and is revalidated with it. An album with no counts, or an
+    /// artist with listeners but no songs' counts, counts as `Failed`.
     Empty,
     /// The read failed then; it is asked again after `PLAY_COUNT_RETRY`.
     Failed(Instant),
@@ -7054,14 +7056,22 @@ impl App {
         if generation != self.play_count_generation {
             return;
         }
+        let artist = uri.starts_with("spotify:artist:");
+        // Monthly listeners share the map, under the artist's URI, but only a
+        // song's count gives the plays column anything to show.
+        let songs = result.as_ref().is_ok_and(|data| {
+            data.play_counts
+                .keys()
+                .any(|uri| uri.starts_with("spotify:track:"))
+        });
         if let Ok(data) = &result
-            && uri.starts_with("spotify:artist:")
+            && artist
         {
             self.artist_metadata_reads.insert(
                 uri.clone(),
                 ArtistMetadataRead {
                     received_at: Instant::now(),
-                    has_counts: !data.play_counts.is_empty(),
+                    has_counts: songs,
                 },
             );
             if let Some(upcoming) = &data.upcoming {
@@ -7072,18 +7082,17 @@ impl App {
             }
         }
         let read = match result {
-            // An answer without a single song's count has nothing to show in
-            // the plays column, even with the artist's monthly listeners.
             Ok(data) => {
-                let songs = data
-                    .play_counts
-                    .keys()
-                    .any(|uri| uri.starts_with("spotify:track:"));
+                let nothing = data.play_counts.is_empty();
                 self.play_counts.extend(data.play_counts);
                 if songs {
                     PlayCountRead::Answered
-                } else {
+                } else if artist && nothing {
                     PlayCountRead::Empty
+                } else {
+                    // Songs' counts are missing, even if an artist's monthly
+                    // listeners came: asked again on a visit a minute later.
+                    PlayCountRead::Failed(Instant::now())
                 }
             }
             Err(_) => PlayCountRead::Failed(Instant::now()),
@@ -26586,8 +26595,11 @@ mod tests {
         // Monthly listeners alone are shown, but the songs' counts are still
         // missing and asked for again.
         let artist = "spotify:artist:c";
-        let listeners = HashMap::from([(artist.to_string(), 9)]);
-        app.receive_play_counts(artist.into(), Ok(listeners));
+        let listeners = crate::session_reads::PageMetadata {
+            play_counts: HashMap::from([(artist.to_string(), 9)]),
+            ..Default::default()
+        };
+        app.receive_play_counts(artist.into(), 0, Ok(listeners));
         assert_eq!(app.play_counts.get(artist), Some(&9));
         assert!(!app.has_play_counts(artist));
         assert!(matches!(
@@ -26772,6 +26784,25 @@ mod tests {
         };
         app.offline = true;
         assert_eq!(app.remote_push_due(), None);
+    }
+
+    #[test]
+    fn an_album_without_counts_is_asked_again() {
+        let mut app = headless_app();
+        app.local_ready = true;
+        app.network_reachable = true;
+        let album = "spotify:album:a";
+        app.receive_play_counts(album.into(), 0, Ok(Default::default()));
+        assert!(matches!(
+            app.play_count_reads[album],
+            PlayCountRead::Failed(_)
+        ));
+        app.play_count_reads.insert(
+            album.into(),
+            PlayCountRead::Failed(Instant::now() - PLAY_COUNT_RETRY),
+        );
+        app.request_play_counts(album);
+        assert_eq!(app.play_count_reads[album], PlayCountRead::Asked);
     }
 
     /// Both empty and populated artist overviews expire without request storms;
