@@ -118,7 +118,10 @@ pub fn expand(tag: &str) -> (&'static str, &'static [(&'static str, &'static str
                 ("min", "0"),
                 ("max", "wmpprop:player.currentMedia.duration"),
                 ("value", "wmpprop:player.controls.currentPosition"),
-                ("ondragend", "jscript:player.controls.currentPosition=value;"),
+                (
+                    "ondragend",
+                    "jscript:player.controls.currentPosition=value;",
+                ),
             ],
         ),
         "volumeslider" => (

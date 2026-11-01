@@ -212,7 +212,10 @@ fn unescape(value: &str) -> String {
     while let Some(at) = rest.find('&') {
         out.push_str(&rest[..at]);
         rest = &rest[at..];
-        let entity = rest.find(';').filter(|end| *end <= 10).map(|end| &rest[1..end]);
+        let entity = rest
+            .find(';')
+            .filter(|end| *end <= 10)
+            .map(|end| &rest[1..end]);
         let decoded = entity.and_then(|entity| match entity {
             "quot" => Some('"'),
             "apos" => Some('\''),

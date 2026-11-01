@@ -39,27 +39,48 @@ Winamp 3 and 5 skin formats are not supported; choose classic Winamp 2 skins.
 
 The mini player also wears Windows Media Player skins. Drop a `.wmz` file (or
 an unpacked skin folder with a `.wms` file in it) on either window, exactly as
-with a Winamp skin, and pick it in Settings.
+with a Winamp skin, and pick it in Settings. The Internet Archive's
+[Windows Media Player Skins Collection](https://archive.org/details/windowsmediaplayerskinscollection)
+has over 170 of them.
 
-Spotifast draws the skin's pictures, buttons, seek and volume sliders, and
-text showing the song, its artist, and the time. Where a skin has a
-visualisation window, the same bars or sound wave as the Winamp display play
-there (click it to change them). Buttons are recognised by their name or
-script (play, pause, stop, next, previous, mute, shuffle, repeat, minimize,
-close). Close takes you back to the big window.
+A skin runs as it did in Windows Media Player. Its own scripts run, in a
+sandbox with no access to your files, the network or other programs, so its
+intro animations, drawers, shutters and hidden panels work. Every view it
+defines works: a skin that opens separate windows for its playlist, equalizer
+or visualisation opens real windows here too. Windows take the skin's shape.
+A skin's preferences, such as which panels were open, are kept for next time.
 
-It does not run a skin's scripts, so panels a script opens (drawers for the
-equalizer or playlist), video, and layouts that stretch with the window do not
-work; skins that depend on them may look incomplete. A Windows Media Player
-skin is drawn at one pixel per screen pixel unless you choose a size, either
-in Settings under **Mini player** or from the right-click menu. Both kinds of
-skin share that one size. Drag anywhere that is not a control to move the
-window, and press **Ctrl+M** (**Cmd+Shift+M** on macOS) to go back to the big
-window, since these skins have no logo to click.
+Skins work with what Spotifast has:
+
+- **Playback** controls, seek, volume, mute, shuffle and repeat are real. Fast
+  forward and rewind jump ten seconds, and Stop pauses and rewinds.
+- **Playlist** panels show the playing song and the queue. Double-click a row
+  to play it.
+- **Equalizer** panels change Spotifast's equalizer, and balance changes the
+  balance. Moving a band turns the equalizer on. Skins with settings Spotifast
+  has no match for, such as SRS WOW or crossfade, show them without effect.
+- **Visualisation** areas show the same bars or sound wave as the Winamp
+  display, from the sound after the equalizer and before the volume.
+- **Video** areas show the song's cover. Spotify audio has no video, so a skin
+  that waits for video to open its video view does not open it.
+- **File, CD, library and web** buttons do nothing: a skin plays what Spotifast
+  plays, and it cannot open files or web pages.
+
+Sounds a skin plays for itself are not played. A few skins use pictures or
+text built into Windows Media Player; those parts stay blank. Many skins have
+bugs in their own scripts that Windows Media Player ignored, and Spotifast
+ignores them as well.
+
+A Windows Media Player skin is drawn at one pixel per screen pixel unless you
+choose a size, either in Settings under **Mini player** or from the
+right-click menu. Both kinds of skin share that one size. Drag anywhere that is
+not a control to move the window, and press **Ctrl+M** (**Cmd+Shift+M** on
+macOS) to go back to the big window. A skin's own Close and Return buttons do
+the same.
 
 In Settings, the **Mini player** section lists Winamp skins and Windows Media
 Player skins under their own titles. A `.zip` file is listed under the kind of
-skin it holds.
+skin it holds. **Open folder** opens the one folder both kinds are kept in.
 
 ## Main controls
 

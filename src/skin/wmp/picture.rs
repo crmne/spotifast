@@ -7,8 +7,8 @@
 //! is not drawn until it is.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, OnceLock};
 
 use image::AnimationDecoder;
 
@@ -106,7 +106,10 @@ impl Picture {
     }
 
     fn bytes(&self) -> usize {
-        self.frames.iter().map(|frame| frame.bitmap.rgba.len()).sum()
+        self.frames
+            .iter()
+            .map(|frame| frame.bitmap.rgba.len())
+            .sum()
     }
 }
 
@@ -316,10 +319,7 @@ pub struct Images {
 impl Images {
     /// Starts the worker. `arrived` runs on its thread after each picture,
     /// to wake the window.
-    pub fn new(
-        files: Arc<HashMap<String, Vec<u8>>>,
-        arrived: impl Fn() + Send + 'static,
-    ) -> Self {
+    pub fn new(files: Arc<HashMap<String, Vec<u8>>>, arrived: impl Fn() + Send + 'static) -> Self {
         let (to_worker, requests) = channel::<ImageKey>();
         let (answers, from_worker) = channel();
         let started = std::thread::Builder::new()

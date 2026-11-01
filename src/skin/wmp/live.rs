@@ -205,9 +205,10 @@ impl Element {
                 }) || self.flag("sticky", false)
             }
             Kind::View => false,
-            _ => self.handlers.keys().any(|key| {
-                matches!(key.as_str(), "onclick" | "ondblclick" | "onmousedown")
-            }),
+            _ => self
+                .handlers
+                .keys()
+                .any(|key| matches!(key.as_str(), "onclick" | "ondblclick" | "onmousedown")),
         }
     }
 
@@ -527,7 +528,10 @@ impl ViewState {
         }
         self.store(id, key, value);
         self.changed = true;
-        if matches!(key, "image" | "backgroundimage" | "positionimage" | "mappingimage") {
+        if matches!(
+            key,
+            "image" | "backgroundimage" | "positionimage" | "mappingimage"
+        ) {
             self.size_from_picture(id);
         }
         let (width, height) = (self.elements[id].width, self.elements[id].height);
@@ -560,7 +564,12 @@ impl ViewState {
 
     /// Queues an element's own handler, if it has one.
     pub fn fire(&mut self, id: ElementId, name: &str, args: Vec<(String, Value)>) {
-        if let Some(handler) = self.elements.get(id).and_then(|e| e.handlers.get(name)).cloned() {
+        if let Some(handler) = self
+            .elements
+            .get(id)
+            .and_then(|e| e.handlers.get(name))
+            .cloned()
+        {
             self.queue_handler(Element::host(id), handler, args);
         }
     }

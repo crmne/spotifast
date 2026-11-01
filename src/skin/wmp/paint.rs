@@ -31,14 +31,10 @@ pub type Clip = Arc<Vec<Box2>>;
 fn intersect(a: Box2, b: Box2) -> Option<Box2> {
     let x = a.x.max(b.x);
     let y = a.y.max(b.y);
-    let right = a
-        .x
-        .saturating_add(a.width)
-        .min(b.x.saturating_add(b.width));
-    let bottom = a
-        .y
-        .saturating_add(a.height)
-        .min(b.y.saturating_add(b.height));
+    let right = a.x.saturating_add(a.width).min(b.x.saturating_add(b.width));
+    let bottom =
+        a.y.saturating_add(a.height)
+            .min(b.y.saturating_add(b.height));
     (right > x && bottom > y).then_some(Box2 {
         x,
         y,
@@ -48,7 +44,11 @@ fn intersect(a: Box2, b: Box2) -> Option<Box2> {
 }
 
 fn clip_to(clip: &Clip, area: Box2) -> Clip {
-    Arc::new(clip.iter().filter_map(|rect| intersect(*rect, area)).collect())
+    Arc::new(
+        clip.iter()
+            .filter_map(|rect| intersect(*rect, area))
+            .collect(),
+    )
 }
 
 /// A shape's rectangles are few, since joined rows share one.
@@ -145,7 +145,10 @@ fn soonest(a: &mut Option<u64>, b: u64) {
 
 pub fn font_of(element: &Element) -> (f32, bool, bool, bool, bool, bool) {
     let points = element.num("fontsize", 10.0).clamp(1.0, 256.0) as f32;
-    let style = element.str("fontstyle").unwrap_or_default().to_ascii_lowercase();
+    let style = element
+        .str("fontstyle")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     let face = element
         .str("fontface")
         .or_else(|| element.str("fonttype"))
@@ -155,7 +158,10 @@ pub fn font_of(element: &Element) -> (f32, bool, bool, bool, bool, bool) {
     let has = |word: &str| !normal && style.split_whitespace().any(|part| part == word);
     (
         points * PIXELS_PER_POINT,
-        has("bold") || element.str("fontweight").is_some_and(|w| w.eq_ignore_ascii_case("bold")),
+        has("bold")
+            || element
+                .str("fontweight")
+                .is_some_and(|w| w.eq_ignore_ascii_case("bold")),
         has("italic"),
         has("underline"),
         has("strikeout"),
@@ -276,7 +282,9 @@ impl Painter<'_> {
         let plain = clip_to(clip, area);
         let clipping = element.str("clippingcolor");
         let key = name.as_ref().map(|name| self.key_for(id, name));
-        let picture = key.as_ref().and_then(|key| self.current(id, "backgroundimage", key));
+        let picture = key
+            .as_ref()
+            .and_then(|key| self.current(id, "backgroundimage", key));
         // The clipping colour cuts the picture into the sub-view's shape,
         // children included. Only that colour: a transparent hole is a
         // window onto what lies under the picture, not outside the shape.
@@ -643,7 +651,10 @@ impl Painter<'_> {
             }
         };
         // The pieces, in slider coordinates, before cutting to from..to.
-        let mut pieces = vec![(0, 0, border), (whole - border, image_length - border, border)];
+        let mut pieces = vec![
+            (0, 0, border),
+            (whole - border, image_length - border, border),
+        ];
         let mut at = border;
         let mut count = 0;
         while at < whole - border && count < MAX_TILES {
@@ -707,9 +718,7 @@ impl Painter<'_> {
             .flatten();
         let slides = element.flag("slide", true);
         let back_color = element.color("backgroundcolor");
-        let fore_color = element
-            .str("foregroundcolor")
-            .and_then(|text| color(&text));
+        let fore_color = element.str("foregroundcolor").and_then(|text| color(&text));
         let length = if vertical { area.height } else { area.width };
         let edge = slider_edge(element, length, border);
         // The near end of the value: the left, or the bottom.
@@ -725,7 +734,9 @@ impl Painter<'_> {
         if let Some(name) = background {
             let key = self.key_for(id, &name);
             if let Some((picture, frame)) = self.current(id, "background", &key) {
-                self.run_along(&picture, frame, area, vertical, border, 0, length, alpha, clip);
+                self.run_along(
+                    &picture, frame, area, vertical, border, 0, length, alpha, clip,
+                );
             }
         }
         if let Some(fore_color) = fore_color {
@@ -784,7 +795,9 @@ impl Painter<'_> {
                         }
                     },
                 );
-                self.run_along(&picture, frame, moved, vertical, border, 0, length, alpha, &inside);
+                self.run_along(
+                    &picture, frame, moved, vertical, border, 0, length, alpha, &inside,
+                );
             }
         }
         if let Some(name) = thumb {
@@ -794,9 +807,15 @@ impl Painter<'_> {
                 // The thumb's middle sits on the edge; across the slider it
                 // lines up with the track's top or left.
                 let (x, y) = if vertical {
-                    (area.x, area.y.saturating_add(edge).saturating_sub(height / 2))
+                    (
+                        area.x,
+                        area.y.saturating_add(edge).saturating_sub(height / 2),
+                    )
                 } else {
-                    (area.x.saturating_add(edge).saturating_sub(width / 2), area.y)
+                    (
+                        area.x.saturating_add(edge).saturating_sub(width / 2),
+                        area.y,
+                    )
                 };
                 self.out.push(Paint::Picture {
                     picture,
@@ -864,8 +883,7 @@ impl Painter<'_> {
     }
 
     fn text(&mut self, id: ElementId, area: Box2, alpha: f64, clip: &Clip) {
-        let (size_px, bold, italic, underline, strikeout, mono) =
-            font_of(&self.view.elements[id]);
+        let (size_px, bold, italic, underline, strikeout, mono) = font_of(&self.view.elements[id]);
         let element = &self.view.elements[id];
         let hovered = self.view.hover == Some(id);
         let state_color = |base: &str| {
@@ -985,12 +1003,14 @@ impl Painter<'_> {
             8.0 * PIXELS_PER_POINT
         };
         let foreground = element.color("foregroundcolor").unwrap_or([0, 0, 0]);
-        let background = element.str("backgroundcolor").map_or(Some([255, 255, 255]), |text| {
-            color(&text)
-        });
+        let background = element
+            .str("backgroundcolor")
+            .map_or(Some([255, 255, 255]), |text| color(&text));
         let playing_fg = element.color("itemplayingcolor").unwrap_or([0, 255, 0]);
         let playing_bg = element.color("itemplayingbackgroundcolor");
-        let selected_fg = element.color("itemselectedcolor").unwrap_or([255, 255, 255]);
+        let selected_fg = element
+            .color("itemselectedcolor")
+            .unwrap_or([255, 255, 255]);
         let selected_bg = element
             .color("itemselectedbackgroundcolor")
             .unwrap_or([10, 36, 106]);
@@ -1173,10 +1193,9 @@ fn is_album_art(name: &str) -> bool {
 }
 
 fn frame_size(picture: &Picture, frame: usize) -> (i32, i32) {
-    picture
-        .frames
-        .get(frame)
-        .map_or((0, 0), |frame| (frame.bitmap.width as i32, frame.bitmap.height as i32))
+    picture.frames.get(frame).map_or((0, 0), |frame| {
+        (frame.bitmap.width as i32, frame.bitmap.height as i32)
+    })
 }
 
 /// Cuts a piece of a strip to the part from..to of the strip.
@@ -1235,7 +1254,14 @@ pub fn custom_index(value: f64, min: f64, max: f64, count: i32) -> i32 {
     (((value - min) / span).clamp(0.0, 1.0) * f64::from(count - 1)).round() as i32
 }
 
-fn ellipsised(text: &str, width: f32, measure: &Measure, size: f32, bold: bool, mono: bool) -> String {
+fn ellipsised(
+    text: &str,
+    width: f32,
+    measure: &Measure,
+    size: f32,
+    bold: bool,
+    mono: bool,
+) -> String {
     if measure(text, size, bold, mono) <= width {
         return text.to_owned();
     }
@@ -1362,7 +1388,8 @@ fn hit_in(
             let pixel = map.pixel((x - left) as u32, (y - top) as u32)?;
             order.iter().rev().copied().find(|child| {
                 let button = &view.elements[*child];
-                button.visible && button.color("mappingcolor") == Some([pixel[0], pixel[1], pixel[2]])
+                button.visible
+                    && button.color("mappingcolor") == Some([pixel[0], pixel[1], pixel[2]])
             })
         }
         Kind::Player | Kind::Equalizer | Kind::VideoSettings | Kind::Other => None,
@@ -1397,7 +1424,10 @@ fn solid_at(view: &ViewState, images: &mut Images, id: ElementId, x: f64, y: f64
             .str("backgroundcolor")
             .is_some_and(|text| color(&text).is_some());
     };
-    let Some((key, _)) = element.shown.values().find(|(key, _)| key.file == super::file_name(&name))
+    let Some((key, _)) = element
+        .shown
+        .values()
+        .find(|(key, _)| key.file == super::file_name(&name))
     else {
         return element.width > 0.0;
     };
@@ -1410,7 +1440,10 @@ fn solid_at(view: &ViewState, images: &mut Images, id: ElementId, x: f64, y: f64
     if element.flag("backgroundtiled", false) && frame.bitmap.width > 0 && frame.bitmap.height > 0 {
         return frame
             .bitmap
-            .pixel(x as u32 % frame.bitmap.width, y as u32 % frame.bitmap.height)
+            .pixel(
+                x as u32 % frame.bitmap.width,
+                y as u32 % frame.bitmap.height,
+            )
             .is_some_and(|pixel| pixel[3] > 0);
     }
     frame
@@ -1442,7 +1475,10 @@ mod tests {
     fn text_is_cut_with_an_ellipsis() {
         let measure = |text: &str, _: f32, _: bool, _: bool| text.chars().count() as f32 * 10.0;
         assert_eq!(ellipsised("abc", 30.0, &measure, 1.0, false, false), "abc");
-        assert_eq!(ellipsised("abcdef", 40.0, &measure, 1.0, false, false), "abc…");
+        assert_eq!(
+            ellipsised("abcdef", 40.0, &measure, 1.0, false, false),
+            "abc…"
+        );
         assert_eq!(ellipsised("abcdef", 1.0, &measure, 1.0, false, false), "…");
     }
 }

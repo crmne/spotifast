@@ -259,9 +259,7 @@ impl Bridge<'_> {
 
     fn view_get(&self, element: &Element, name: &str) -> Option<Value> {
         Some(match name {
-            "minwidth" | "minheight" | "maxwidth" | "maxheight" => {
-                number(element.num(name, 0.0))
-            }
+            "minwidth" | "minheight" | "maxwidth" | "maxheight" => number(element.num(name, 0.0)),
             "timerinterval" => number(element.num(name, 1000.0)),
             "titlebar" => Value::Bool(element.flag("titlebar", true)),
             "resizable" => Value::Bool(element.flag("resizable", element.flag("titlebar", true))),
@@ -284,9 +282,7 @@ impl Bridge<'_> {
             "currentpreset" => number(0.0),
             "effectcount" => number(EFFECTS.len() as f64),
             "currenteffectpresetcount" => number(1.0),
-            "effectcangofullscreen" | "effecthaspropertypage" | "fullscreen" => {
-                Value::Bool(false)
-            }
+            "effectcangofullscreen" | "effecthaspropertypage" | "fullscreen" => Value::Bool(false),
             _ => return None,
         })
     }
@@ -483,13 +479,8 @@ impl Bridge<'_> {
         match name {
             "moveto" | "slideto" => {
                 let to = (arg_number(args, 0), arg_number(args, 1));
-                self.view.start_move(
-                    id,
-                    to,
-                    None,
-                    arg_number(args, 2),
-                    name == "slideto",
-                );
+                self.view
+                    .start_move(id, to, None, arg_number(args, 2), name == "slideto");
                 return Ok(Value::Undefined);
             }
             "movesizeto" => {
@@ -567,6 +558,10 @@ impl Bridge<'_> {
                     self.shared.deck.eq_preset = None;
                     self.command(Command::ResetEq);
                     return Ok(Value::Undefined);
+                }
+                "gainlevels" => {
+                    let band = format!("gainlevel{}", arg_number(args, 0));
+                    return Ok(self.element_get(id, &band));
                 }
                 "presettitle" => {
                     let at = arg_number(args, 0) as usize;
@@ -718,7 +713,19 @@ impl Host for Bridge<'_> {
         }
         if matches!(
             lower.as_str(),
-            "left" | "top" | "width" | "height" | "visible" | "enabled" | "zindex" | "alphablend"
+            "left"
+                | "top"
+                | "width"
+                | "height"
+                | "visible"
+                | "enabled"
+                | "zindex"
+                | "alphablend"
+                | "moveto"
+                | "slideto"
+                | "movesizeto"
+                | "alphablendto"
+                | "click"
         ) {
             return true;
         }
@@ -742,6 +749,11 @@ impl Host for Bridge<'_> {
             Kind::View => matches!(
                 lower.as_str(),
                 "close" | "minimize" | "maximize" | "restore" | "size" | "returntomediacenter"
+            ),
+            Kind::Equalizer => lower == "reset" || lower.starts_with("gainlevel"),
+            Kind::ListBox => matches!(
+                lower.as_str(),
+                "show" | "dismiss" | "appenditem" | "deleteall" | "selecteditem" | "itemcount"
             ),
             _ => false,
         }
@@ -769,20 +781,19 @@ impl Host for Bridge<'_> {
                 "version" => number(1.0),
                 _ => Value::Undefined,
             },
-            MEDIACENTER => self
-                .shared
-                .mediacenter
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| match name {
-                    "effecttype" => text(EFFECTS[self.deck().effect.min(EFFECTS.len() - 1)]),
-                    "effectpreset" | "videozoom" => number(if name == "videozoom" {
-                        100.0
-                    } else {
-                        0.0
-                    }),
-                    _ => Value::Undefined,
-                }),
+            MEDIACENTER => {
+                self.shared
+                    .mediacenter
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| match name {
+                        "effecttype" => text(EFFECTS[self.deck().effect.min(EFFECTS.len() - 1)]),
+                        "effectpreset" | "videozoom" => {
+                            number(if name == "videozoom" { 100.0 } else { 0.0 })
+                        }
+                        _ => Value::Undefined,
+                    })
+            }
             CDROMS | COLLECTION => match name {
                 "count" => number(0.0),
                 _ => Value::Undefined,
@@ -876,12 +887,20 @@ impl Host for Bridge<'_> {
     fn call(&mut self, object: HostId, name: &str, args: &[Value]) -> Result<Value, String> {
         let lower = name.to_ascii_lowercase();
         let name = lower.as_str();
+        // `eq.gainLevels(band) = value`, as the parser hands it over.
+        if let Some(property) = name.strip_prefix("set:") {
+            if property == "gainlevels" {
+                let band = format!("gainlevel{}", arg_number(args, 0));
+                let value = args.get(1).cloned().unwrap_or(Value::Undefined);
+                self.set(object, &band, value);
+                return Ok(Value::Undefined);
+            }
+            return self.call(object, property, args);
+        }
         match object {
             CONTROLS => {
-                let sounding = matches!(
-                    self.deck().state,
-                    PlayState::Playing | PlayState::Buffering
-                );
+                let sounding =
+                    matches!(self.deck().state, PlayState::Playing | PlayState::Buffering);
                 match name {
                     "play" => {
                         if !sounding {
@@ -972,10 +991,16 @@ impl Host for Bridge<'_> {
             },
             THEME => Ok(self.theme_call(name, args)),
             CDROMS | COLLECTION => Ok(match name {
-                "getbyname" | "getbyattribute" | "getall" | "getbyauthor" | "getbyalbum"
-                | "getbygenre" | "item" | "newplaylist" | "createquery" | "getbyattributeandmediatype" => {
-                    Value::Host(COLLECTION)
-                }
+                "getbyname"
+                | "getbyattribute"
+                | "getall"
+                | "getbyauthor"
+                | "getbyalbum"
+                | "getbygenre"
+                | "item"
+                | "newplaylist"
+                | "createquery"
+                | "getbyattributeandmediatype" => Value::Host(COLLECTION),
                 "getmediaatom" => {
                     let wanted = arg_text(args, 0).to_ascii_lowercase();
                     number(
@@ -1009,7 +1034,10 @@ impl Bridge<'_> {
         let song = self.song(object);
         let bitrate = self.deck().bitrate;
         Ok(match name {
-            "getiteminfo" | "getiteminfobytype" => song_info(song, bitrate, &arg_text(args, 0)),
+            // Item information is always a string, durations included.
+            "getiteminfo" | "getiteminfobytype" => {
+                text(&text_of(&song_info(song, bitrate, &arg_text(args, 0))))
+            }
             "getiteminfobyatom" => {
                 let atom = arg_number(args, 0);
                 let name = if atom >= 0.0 {
@@ -1017,9 +1045,14 @@ impl Bridge<'_> {
                 } else {
                     ""
                 };
-                song_info(song, bitrate, name)
+                text(&text_of(&song_info(song, bitrate, name)))
             }
-            "getattributename" => text(ATOMS.get(arg_number(args, 0) as usize).copied().unwrap_or("")),
+            "getattributename" => text(
+                ATOMS
+                    .get(arg_number(args, 0) as usize)
+                    .copied()
+                    .unwrap_or(""),
+            ),
             "isidentical" | "ismemberof" | "isreadonlyitem" => Value::Bool(false),
             "setiteminfo" => Value::Undefined,
             _ => self.media_get(object, name),
@@ -1029,7 +1062,9 @@ impl Bridge<'_> {
     fn theme_call(&mut self, name: &str, args: &[Value]) -> Value {
         match name {
             "openview" | "openviewrelative" => {
-                self.shared.requests.push(ViewRequest::Open(arg_text(args, 0)));
+                self.shared
+                    .requests
+                    .push(ViewRequest::Open(arg_text(args, 0)));
             }
             "closeview" => {
                 self.shared
