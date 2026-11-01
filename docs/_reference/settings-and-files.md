@@ -270,7 +270,8 @@ On macOS, settings, state, and the logs are in
 `~/Library/Caches/me.paolino.spotifast`. On Windows, settings are in
 `%APPDATA%\paolino\spotifast\config`, state and the logs in
 `%LOCALAPPDATA%\paolino\spotifast\data`, and the caches in
-`%LOCALAPPDATA%\paolino\spotifast\cache`.
+`%LOCALAPPDATA%\paolino\spotifast\cache`. The main window's size and
+interface memory are in `app.ron`, in `%APPDATA%\spotifast\data` on Windows.
 
 ### Portable copies
 
@@ -282,7 +283,7 @@ it.
 | What | Where |
 | --- | --- |
 | Settings, skins, MilkDrop presets, themes | `spotifast-data\config\` |
-| State, history, logs, credential markers and the encrypted grant copies | `spotifast-data\state\` |
+| State, history, logs, `app.ron`, credential markers and the encrypted grant copies | `spotifast-data\state\` |
 | Caches | `spotifast-data\cache\` |
 
 The first time it starts without that folder, it copies (never moves) your
@@ -292,6 +293,11 @@ again. The installed Spotifast keeps its own files, and from then on the two
 never share settings, history or caches. The copy is made in
 `spotifast-data.partial` and renamed when complete, so a copy interrupted by
 a crash or power cut is made again at the next start.
+
+`app.ron` is in that folder too. A portable copy that has none
+yet starts from a copy of `%APPDATA%\spotifast\data\app.ron`, so the window
+opens as you left it. That file stays where it is, because the installed
+Spotifast uses it; without an installed copy you can delete it.
 
 If Spotifast cannot write next to its executable, for example in
 `Program Files` or on read-only media, it uses the folders above and says why
@@ -323,7 +329,9 @@ directory), a `spotifast` folder in your private temporary directory
 Windows. A portable copy has its own, `instance\scope-portable-<id>` in the
 installed state directory, with one `<id>` per portable folder, so it runs
 beside the installed copy and other portable copies instead of handing your
-launches to them. `instance.lock` marks the running copy; the system releases it when
+launches to them. This is the one thing a portable copy keeps outside its
+folder, because the folder may sit on a drive other users can read. It holds
+nothing of yours. `instance.lock` marks the running copy; the system releases it when
 Spotifast quits or crashes. `instance.sock` (Linux and macOS) is the socket
 a second launch and the `spotifast` command reach it through, which only your
 user can open. On Windows, `instance.key` holds the loopback port and a
