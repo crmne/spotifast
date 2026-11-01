@@ -30524,6 +30524,79 @@ mod tests {
         assert_eq!(app.pending_remote_volume.as_ref().unwrap().percent, 43);
     }
 
+    /// The player bar's slider hands the drag to `set_volume`, which decides
+    /// what reaches a remote device; held down, it already moves Soloist.
+    #[test]
+    fn dragging_the_volume_slider_moves_our_own_soloist_before_the_release() {
+        use egui::accesskit::Role;
+        fn draw(
+            ctx: &egui::Context,
+            app: &mut App,
+            time: u32,
+            events: Vec<egui::Event>,
+        ) -> egui::accesskit::TreeUpdate {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(time as f64 / 60.0),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        }
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = remote_volume_app();
+        app.attach(&ctx);
+        app.soloist_device_id = app
+            .remote
+            .as_ref()
+            .unwrap()
+            .state
+            .device
+            .as_ref()
+            .unwrap()
+            .id
+            .clone();
+        draw(&ctx, &mut app, 0, vec![]);
+        let tree = draw(&ctx, &mut app, 1, vec![]);
+        let slider = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.role() == Role::Slider && node.label() == Some("Volume (%)"))
+            .and_then(|(_, node)| node.bounds())
+            .expect("the player bar's volume slider");
+        let y = ((slider.y0 + slider.y1) / 2.0) as f32;
+        let at = |fraction: f64| egui::pos2((slider.x0 + slider.width() * fraction) as f32, y);
+        draw(
+            &ctx,
+            &mut app,
+            2,
+            vec![
+                egui::Event::PointerMoved(at(0.9)),
+                egui::Event::PointerButton {
+                    pos: at(0.9),
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        draw(&ctx, &mut app, 3, vec![egui::Event::PointerMoved(at(0.8))]);
+        let pending = app.pending_remote_volume.as_ref().map(|p| p.percent);
+        assert!(
+            pending.is_some_and(|percent| percent > 40),
+            "the held slider reached Soloist: {pending:?}"
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn remote_volume_waits_for_a_poll_sent_after_its_write_completes() {
         let mut app = remote_volume_app();

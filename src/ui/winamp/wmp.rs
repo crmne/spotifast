@@ -396,10 +396,8 @@ fn draw_slider(
         SliderKind::Volume => {
             if let Some(value) = dragging {
                 app.volume_preview = Some(value);
-                if now.is_none_or(|now| now.local) {
-                    app.actions
-                        .push(Action::PreviewVolume((value * 100.0).round() as u8));
-                }
+                app.actions
+                    .push(Action::PreviewVolume((value * 100.0).round() as u8));
             }
             if let Some(value) = committed {
                 app.volume_preview = None;

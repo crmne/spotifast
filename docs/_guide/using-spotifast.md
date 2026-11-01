@@ -282,7 +282,8 @@ this playlist**. On macOS, both `Delete` and `Fn+Delete` work. Text fields,
 dialogs and open menus keep Delete from acting on the list.
 
 Press and hold the player bar's volume slider to update local volume without
-moving the pointer. Remote volume is sent on release and keeps your chosen
+moving the pointer. Spotifast's own Soloist follows a drag as you go; other
+remote volume is sent on release. Both keep your chosen
 level while Spotify updates, including during rate limits. Fresh updates
 can confirm the level or show a change made on another device. Some speakers,
 Sonos among them, report the old level for a few seconds after a change, so
