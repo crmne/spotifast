@@ -6792,12 +6792,19 @@ impl App {
 
     fn receive_play_counts(&mut self, uri: String, result: Result<HashMap<String, u64>, String>) {
         let read = match result {
-            // An answer without a single count has nothing to show.
-            Ok(counts) if !counts.is_empty() => {
+            // An answer without a single song's count has nothing to show in
+            // the plays column, even with the artist's monthly listeners, so
+            // it is asked again later.
+            Ok(counts) => {
+                let songs = counts.keys().any(|uri| uri.starts_with("spotify:track:"));
                 self.play_counts.extend(counts);
-                PlayCountRead::Answered
+                if songs {
+                    PlayCountRead::Answered
+                } else {
+                    PlayCountRead::Failed(Instant::now())
+                }
             }
-            Ok(_) | Err(_) => PlayCountRead::Failed(Instant::now()),
+            Err(_) => PlayCountRead::Failed(Instant::now()),
         };
         self.play_count_reads.insert(uri, read);
     }
@@ -25828,6 +25835,18 @@ mod tests {
         // An answer with no counts shows no column.
         app.receive_play_counts("spotify:artist:b".into(), Ok(HashMap::new()));
         assert!(!app.has_play_counts("spotify:artist:b"));
+
+        // Monthly listeners alone are shown, but the songs' counts are still
+        // missing and asked for again.
+        let artist = "spotify:artist:c";
+        let listeners = HashMap::from([(artist.to_string(), 9)]);
+        app.receive_play_counts(artist.into(), Ok(listeners));
+        assert_eq!(app.play_counts.get(artist), Some(&9));
+        assert!(!app.has_play_counts(artist));
+        assert!(matches!(
+            app.play_count_reads.get(artist),
+            Some(PlayCountRead::Failed(_))
+        ));
     }
 
     #[test]
