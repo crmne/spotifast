@@ -318,7 +318,7 @@ fn controls(app: &mut App, ui: &mut egui::Ui, onboarding: bool) {
     match &app.soloist_status {
         Status::Off | Status::NeedsKey | Status::Failed(_) => {
             if let Status::Failed(error) = &app.soloist_status {
-                ui.label(error);
+                ui.label(error.message(locale));
                 ui.add_space(8.0);
             }
             if theme::soft_button(

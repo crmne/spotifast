@@ -8,6 +8,7 @@ src/ui/widgets.rs
 src/app.rs
 src/ui/settings.rs
 src/ui/soloist.rs
+src/soloist/mod.rs
 src/api/models.rs
 src/app/radio.rs
 src/milkdrop.rs

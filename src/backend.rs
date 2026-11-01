@@ -2224,6 +2224,13 @@ impl Worker {
                             crate::soloist::Status::Off,
                         )));
                     }
+                    // A rate-limited sign-in can still be unverified here.
+                    // Saying so beats a button that seems to do nothing (#1137).
+                    if enabled && self.api.account().is_none() {
+                        self.emit(Event::Soloist(crate::soloist::Update::Status(
+                            crate::soloist::Status::Failed(crate::soloist::Failure::NotSignedIn),
+                        )));
+                    }
                     if enabled && let Some(account) = self.api.account() {
                         let commands = self.commands.clone();
                         let generation = self.soloist_generation;

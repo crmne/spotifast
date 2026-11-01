@@ -22378,7 +22378,7 @@ mod tests {
             },
             ready.clone(),
             Status::NeedsKey,
-            Status::Failed("unavailable".into()),
+            Status::Failed(crate::soloist::Failure::Stopped),
         ] {
             app.on_soloist(Update::Status(status));
             assert!(app.soloist_waiting());
@@ -22576,7 +22576,7 @@ mod tests {
             });
             let seq = app.remote_poll_seq;
             app.on_soloist(crate::soloist::Update::Status(
-                crate::soloist::Status::Failed("stopped".into()),
+                crate::soloist::Status::Failed(crate::soloist::Failure::Stopped),
             ));
             assert_eq!(app.remote.is_some(), id == "speaker");
             assert_eq!(app.selected_device.is_some(), id == "speaker");
