@@ -84,7 +84,23 @@ extern "C" int spotifast_soloist_audio(uint32_t pid, void *context, Control cont
             bool wanted = (control(context) & 2) != 0;
             if (wanted != playing) {
                 if (wanted) check(capture.client->Start());
-                else { check(capture.client->Stop()); check(capture.client->Reset()); event(context, 2); }
+                else {
+                    check(capture.client->Stop());
+                    // Reset can succeed yet leave process loopback silent after
+                    // Start on Windows. Drain pending packets without resetting
+                    // the WASAPI client; event 2 still clears the Rust DSP/tap.
+                    UINT32 pending = 0;
+                    check(capture.packets->GetNextPacketSize(&pending));
+                    while (pending) {
+                        BYTE *data = nullptr;
+                        UINT32 frames = 0;
+                        DWORD flags = 0;
+                        check(capture.packets->GetBuffer(&data, &frames, &flags, nullptr, nullptr));
+                        check(capture.packets->ReleaseBuffer(frames));
+                        check(capture.packets->GetNextPacketSize(&pending));
+                    }
+                    event(context, 2);
+                }
                 playing = wanted;
             }
             if (!playing) { Sleep(25); continue; }

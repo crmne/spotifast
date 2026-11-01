@@ -96,6 +96,10 @@ mod adapter {
             event: extern "C" fn(*mut c_void, u32),
         ) -> i32;
     }
+    #[cfg(all(test, target_os = "windows"))]
+    mod windows_test {
+        include!("native/windows_test.rs");
+    }
     extern "C" fn control(context: *mut c_void) -> u32 {
         // SAFETY: the native worker joins its callbacks before returning.
         let state = unsafe { &(*context.cast::<Context>()).state };
