@@ -86,7 +86,7 @@ Spotifast uses separate credentials for Web API access and local playback:
    to disk or logged. If the feed fails, the session's older
    `presence-view/v1/buddylist` stands in.
 
-When Soloist plays, **Settings → Account → Spotify access** keeps this separate
+When Soloist plays, **Settings → Spotify Soloist → Spotify access** keeps this separate
 connection available. **Authorize** opens the existing browser approval without
 switching playback to the built-in player. Once connected, missing Made for you,
 listening activity and lyrics can be read again through the session.

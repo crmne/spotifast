@@ -23,24 +23,30 @@ a lossless indicator or offer an unsupported quality selector.
 ## Setup
 
 1. Sign in to Spotify in Spotifast. Spotify Premium is required.
-2. Choose **Set up Soloist**, then **Get your Soloist key from
-   Spotify**. You can also start from **Settings → Spotify Soloist** later.
-   Follow Spotify's instructions to generate a personal Soloist
-   key. This is separate from the Client ID of your Web API app.
-3. Paste the key and choose **Download and enable Soloist**. Spotifast saves
-   the key in the system credential store and downloads Spotify's build for
-   this computer. No administrator account is needed.
-4. Open the official Spotify app on the same network, signed into the same
-   account. Choose the exact **Spotifast Soloist (…)** name shown in setup
-   from Spotify's device picker. Spotifast checks that this player appears
-   in your signed-in account's device list before controlling it. Choose
-   **Start listening** once setup confirms the account.
+2. Choose **Set up Soloist**, and follow the three steps. You can also start
+   from **Settings → Spotify Soloist** later.
+3. Copy your personal key from
+   [Spotify's Soloist page](https://developer.spotify.com/dashboard/soloist).
+   It is separate from the Client ID of your Web API app. Paste it and choose
+   **Download Soloist**. Spotifast saves the key in the system credential store
+   and downloads Spotify's build for this computer, showing its progress. No
+   administrator account is needed.
+4. Open the Spotify desktop app on the same network, signed into the same
+   account, and play a song. Choose the exact **Spotifast Soloist (…)** name
+   shown in setup from Spotify's list of devices. Spotifast checks that this
+   player appears in your signed-in account's device list before controlling
+   it. Choose **Start listening** once setup confirms the account.
 
-If the device never appears, try the Spotify desktop app first: some people find
-that the phone and web apps do not list it until it has been chosen once. A
-firewall can also hide it, because Spotify's apps find Soloist over the local
-network. On Linux with UFW, allow Soloist's TCP port (`sudo ss -tlnp | grep
-soloist` shows it) from your local network.
+If the device does not appear, **Soloist isn't in the list** in setup opens the
+same advice as this section, and it opens by itself after a while. Try the
+Spotify desktop app first, with a song playing: the device often appears only
+then, and some people find that the phone and web apps do not list it until it
+has been chosen once. A firewall, VPN or guest Wi-Fi can also hide it, because
+Spotify's apps find Soloist over the local network. On Linux with UFW, allow
+Soloist's TCP port (`sudo ss -tlnp | grep soloist` shows it) from your local
+network. On a network that keeps devices apart, join this computer to your
+phone's hotspot and pair once there: only the first pairing needs local
+discovery. Restarting the computer has also helped some people.
 
 You can choose **Use the built-in player** at any setup step, including after
 a failed download or while waiting for pairing. This stops Soloist if setup
@@ -62,20 +68,34 @@ While Soloist is enabled, built-in playback preferences are hidden. On Linux
 with PipeWire, EQ and visualization settings appear once the private Soloist
 audio route is established, even while paused. This is automatic and separate
 from account verification. Shared controls for the tray, startup and Spotifast updates remain
-under **Application**. The Soloist card shows its version, expiry and a short
-capability note, with a link to this guide. **Turn off Soloist** sits in its
-header, like **Sign out** in the Account card.
-Starting and account verification use the same loading screen as Spotify
-sign-in, with **Starting Soloist…** or **Verifying Soloist…** as its status.
-Playback commands, including shortcuts and row double-clicks, are unavailable
+under **Application**. **Settings → Spotify Soloist** holds its rows: status,
+with the one action that helps when it needs you, version and expiry, audio
+quality, **Spotify access** and **Turn off Soloist**, with a link to this guide.
+Setup itself stays in setup: with Soloist off, **Set up Soloist** there tries
+your saved key first and asks for one only if it has none.
+At launch, starting and account verification use the same loading screen as
+Spotify sign-in, with **Starting Soloist…** or **Verifying Soloist…** as its
+status, for a few seconds at most. If it takes longer, the app opens and a
+banner carries on. Playback commands, including shortcuts, are unavailable
 until the device is verified; they never start the built-in player as a
-fallback. **Set up Soloist** opens setup if the check needs help. Downloads,
-pairing and errors show setup directly, including its built-in-player option.
-After downloading, setup shows **Connect in Spotify**, the exact device name
-to choose and a waiting indicator. Once verified, **Start listening** opens
-Spotifast. Version, quality and other background details remain in Settings;
+fallback.
+
+Setup is for setting up. Once you have finished it, nothing Soloist does takes
+the app away, and it is never reopened except by your own choice. If Soloist
+stops while you listen, your library stays open and a banner says so.
+Spotifast starts it again by itself, up to three times, after 2, 10 and 30
+seconds, and picks up what was playing unless something else is playing by
+then. A song you choose meanwhile waits and starts when Soloist is back. After
+that, or for a problem restarting cannot fix, such as a locked credential
+store, the banner says what happened and offers **Try again** and **Use the
+built-in player**. If Spotify signs Soloist out or stops listing it for longer
+than about 20 seconds, **Connect in Spotify** opens the pairing step. During
+setup a failure is shown straight away with **Try again**, except that a
+sign-in Spotify has not finished verifying is retried by itself.
+One short device list from Spotify does not unbind a running, signed-in Soloist.
+
 **Use the built-in player** stays available as a small link below each setup card.
-The saved key and pairing are retained for **Enable with saved key** next time; signing out of Spotifast
+The saved key and pairing are retained for next time; signing out of Spotifast
 removes them. Closing Spotifast completely stops the child player. Closing to
 the tray leaves both running. If an earlier Spotifast left its player running,
 the next start stops that player first, so it cannot block the new one.
@@ -93,7 +113,8 @@ last 30 days it checks daily, while running, for a fresh download. It stages
 the replacement without interrupting music, then applies it when the player
 is inactive or Spotifast restarts. A paused active session also waits, to
 preserve its queue. If Spotify has not published a usable replacement, the
-error is shown in Settings; the built-in player remains available.
+error is shown in the banner and in Settings; the built-in player remains
+available.
 
 Downloads come directly from `soloist-builds.spotifycdn.com` over HTTPS.
 Spotifast does not bundle or mirror Spotify's executable. Archive extraction
@@ -114,7 +135,8 @@ yet expose those as Soloist preferences.
 Library browsing, search and playlist management keep using Spotifast's
 existing Spotify connections. Soloist's loopback API handles basic playback
 controls, state and queue reads. If its event connection drops while Soloist
-is still available, Spotifast reconnects it. A second drop within 30 seconds shows an error.
+is still available, Spotifast reconnects it. A second drop within 30 seconds
+restarts the player, as described under Setup.
 Starting a collection at a chosen row goes
 through the existing Spotify playback request, retaining its context and
 position; it does not skip through earlier songs or shorten the playlist.
@@ -123,8 +145,8 @@ Lyrics also keep their existing sources. Spotify's own lyrics are tried when
 the separate librespot session is signed in, even while Soloist plays. Soloist
 does not supply lyrics through its API or replace that session's login. Without
 it, cached Spotify lyrics remain usable and LRCLIB provides the fallback.
-If these features are missing, choose **Settings → Account → Spotify access →
-Authorize**. This separate browser approval enables Made for you, listening
+If these features are missing, choose **Settings → Spotify Soloist → Spotify
+access → Authorize**. This separate browser approval enables Made for you, listening
 activity and Spotify lyrics while keeping Soloist selected. The listening
 activity panel also offers this approval when its connection is missing.
 Temporary LRCLIB overloads are retried, then search is tried if the exact lookup
@@ -153,7 +175,7 @@ filter. No microphone or system mix is captured, and samples are never saved
 to disk. Pausing clears buffered samples; closing Soloist removes the route.
 If PipeWire is unavailable at startup, Soloist uses its ordinary output and
 EQ and visualizer controls stay hidden. A route that fails during playback
-stops the player and offers retry in Settings.
+stops the player, and Spotifast restarts it as described under Setup.
 
 Linux without PipeWire keeps Soloist's direct output, without EQ or visualizers.
 The Mac and Windows routes are described below. Local files and full queue
@@ -172,7 +194,8 @@ Recording** for Spotifast, then play a song: a private Core Audio tap passes
 only Spotifast's Soloist child through its EQ, limiter and visualizers,
 including MilkDrop. Until capture receives audio, Soloist's ordinary output
 continues. Denying permission leaves ordinary playback available. Once routed,
-an output-device or sample-rate change stops the player and offers reconnect.
+an output-device or sample-rate change stops the player, and Spotifast
+restarts it.
 
 On Windows, WASAPI captures only the owned Soloist process and its children
 for the spectrum, oscilloscope and MilkDrop. It does not change the audio
@@ -198,8 +221,8 @@ repeated events from that reset never turn the output up or unmute it.
 Before capture is ready, including briefly after reconnecting, Soloist keeps
 its ordinary output and source volume. Spotifast raises the source only after
 its private Mac route has taken over the audible output. If Soloist does not
-confirm the full source level within five seconds, the player stops and offers
-retry in Settings.
+confirm the full source level within five seconds, the player stops, and
+Spotifast restarts it.
 
 Windows capture comes after Soloist's volume, so Spotifast undoes Soloist's
 volume curve for the visualizers: they keep their level as the volume falls.

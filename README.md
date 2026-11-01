@@ -59,10 +59,11 @@ Windows visuals keep their level as Soloist’s volume falls and stop only when 
 When enabled, Soloist appears as **This computer**; settings show the controls
 that apply to it. Turning it off restores the built-in player's preferences.
 While Soloist starts and its account is verified, the Spotify loading screen shows
-**Verifying Soloist…** and waits to accept playback commands. **Set up Soloist**
-opens setup if pairing needs attention. After downloading, the wizard focuses on
-choosing the named device in Spotify, with the built-in player available as a
-quiet alternative below the card. **Settings → Account → Spotify access**
+**Verifying Soloist…** and waits to accept playback commands. Setup takes three
+steps, and ends with choosing the named device in Spotify, with the built-in
+player available as a quiet alternative below the card. If Soloist stops later,
+a banner over the app says so while Spotifast restarts it, and offers **Try
+again** if that does not work. **Settings → Spotify Soloist → Spotify access**
 connects the separate Spotify session for Made for you, listening activity and
 Spotify lyrics without changing players.
 
