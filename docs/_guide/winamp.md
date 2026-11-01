@@ -1,6 +1,6 @@
 ---
 title: The Winamp Mini Player
-description: Use classic Winamp 2 skins with an analyser, equalizer, and playlist.
+description: Use Winamp 2 and Windows Media Player skins, with their visualizers, equalizers, and playlists.
 nav_order: 4
 ---
 
@@ -36,6 +36,8 @@ Skins can have transparent areas and shapes other than rectangles. Modern
 Winamp 3 and 5 skin formats are not supported; choose classic Winamp 2 skins.
 
 ## Windows Media Player skins
+
+![Headspace, Cerulean and Activate, three classic Windows Media Player skins, with their panels open](/assets/images/wmp-skins.png)
 
 The mini player also wears Windows Media Player skins. Drop a `.wmz` file (or
 an unpacked skin folder with a `.wms` file in it) on either window, exactly as
