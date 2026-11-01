@@ -222,6 +222,14 @@ pub struct NowPlaying {
     pub resuming: bool,
 }
 
+/// What Soloist's state does to the window: see `App::soloist_view`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SoloistView {
+    App,
+    Loading,
+    Setup,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     Local,
@@ -470,6 +478,21 @@ pub struct App {
     pub soloist_device_id: Option<String>,
     pub soloist_update: Option<String>,
     soloist_select: bool,
+    /// When `soloist_status` last became what it is now.
+    pub(crate) soloist_status_at: Instant,
+    /// The app has opened since sign-in, so the loading screen stays away.
+    pub(crate) soloist_settled: bool,
+    /// When Spotifast next starts a stopped player by itself.
+    pub(crate) soloist_retry_at: Option<Instant>,
+    soloist_retries: usize,
+    soloist_bound_at: Option<Instant>,
+    /// Music was playing on Soloist when it stopped.
+    soloist_resume: bool,
+    /// Setup was chosen in this run, not resumed from `session.json`.
+    soloist_setup_chosen: bool,
+    /// Setup is open for someone whose Soloist was already set up, who can
+    /// leave it again without giving the player up.
+    pub(crate) soloist_setup_optional: bool,
     pub local: LocalState,
     pub remote: Option<RemoteSnapshot>,
     remote_polled_at: Instant,
@@ -957,6 +980,20 @@ const TRAY_WAIT: Duration = Duration::from_secs(30);
 const STARTS_WINDOWED: bool =
     cfg!(windows) || (cfg!(target_os = "linux") && !cfg!(feature = "demo"));
 
+/// How long a returning listener may see the loading screen for one step of
+/// Soloist's start. Past this the app opens and a banner carries on.
+const SOLOIST_LOADING_GRACE: Duration = Duration::from_secs(10);
+/// Every start reports pairing until Soloist answers, and a dropped session
+/// usually comes back. Only past this does it need the listener.
+pub(crate) const SOLOIST_PAIRING_GRACE: Duration = Duration::from_secs(20);
+/// The waits before Spotifast starts a stopped player again by itself.
+const SOLOIST_RETRIES: [Duration; 3] = [
+    Duration::from_secs(2),
+    Duration::from_secs(10),
+    Duration::from_secs(30),
+];
+/// A player that ran this long starts its retries from the first again.
+const SOLOIST_STABLE: Duration = Duration::from_secs(60);
 /// How often a volume drag updates our own Soloist.
 const SOLOIST_VOLUME_PACE: Duration = Duration::from_millis(100);
 
@@ -1191,6 +1228,14 @@ impl App {
             soloist_device_id: None,
             soloist_update: None,
             soloist_select: false,
+            soloist_status_at: Instant::now(),
+            soloist_settled: false,
+            soloist_retry_at: None,
+            soloist_retries: 0,
+            soloist_bound_at: None,
+            soloist_resume: false,
+            soloist_setup_chosen: false,
+            soloist_setup_optional: false,
             local: LocalState::default(),
             remote: None,
             remote_polled_at: Instant::now() - REMOTE_POLL_UNSEEN,
@@ -1646,6 +1691,39 @@ impl App {
             })
     }
 
+    /// What Soloist's state does to the window. Setup belongs to people who
+    /// have not finished it. Once they have, nothing Soloist does takes the
+    /// app away: a stopped player is a banner over a working library.
+    pub fn soloist_view(&self) -> SoloistView {
+        use crate::soloist::Status;
+        if self.show_soloist_onboarding() {
+            SoloistView::Setup
+        } else if !self.soloist_waiting()
+            || self.soloist_settled
+            || matches!(self.soloist_status, Status::NeedsKey | Status::Failed(_))
+        {
+            SoloistView::App
+        } else {
+            SoloistView::Loading
+        }
+    }
+
+    /// Spotifast is bringing the player back and needs nothing from the
+    /// listener, so a song chosen now waits for it.
+    pub fn soloist_recovering(&self) -> bool {
+        use crate::soloist::Status;
+        self.soloist_waiting()
+            && self.soloist_view() == SoloistView::App
+            && match self.soloist_status {
+                Status::NeedsKey => false,
+                Status::Failed(_) => self.soloist_retry_at.is_some(),
+                Status::Pairing { .. } | Status::Ready { .. } => {
+                    self.soloist_status_at.elapsed() < SOLOIST_PAIRING_GRACE
+                }
+                _ => true,
+            }
+    }
+
     pub fn user_id(&self) -> Option<&str> {
         self.user.as_ref().map(|user| user.id.as_str())
     }
@@ -1865,8 +1943,9 @@ impl App {
             Status::Starting | Status::Off => gettext(self.locale, "Starting Soloist…"),
             Status::Downloading { .. } => gettext(self.locale, "Downloading Soloist from Spotify…"),
             Status::Ready { .. } => gettext(self.locale, "Verifying Soloist…"),
-            Status::Pairing { .. } => gettext(self.locale, "3. Pair once in Spotify"),
-            Status::NeedsKey | Status::Failed(_) => gettext(self.locale, "Soloist needs attention"),
+            Status::Pairing { .. } | Status::NeedsKey | Status::Failed(_) => {
+                gettext(self.locale, "Connecting to Spotify…")
+            }
         }
     }
 
@@ -3060,12 +3139,26 @@ impl App {
             Update::Status(status) => {
                 let ready = matches!(status, Status::Ready { .. });
                 if matches!(status, Status::Ready { .. } | Status::Pairing { .. }) { self.soloist_key.clear(); }
+                if std::mem::discriminant(&status) != std::mem::discriminant(&self.soloist_status) {
+                    self.soloist_status_at = Instant::now();
+                }
                 if !ready {
+                    // Remembered before the target goes: the player may stop
+                    // mid-song, and its song should carry on when it is back.
+                    self.soloist_resume |= self.soloist_device_id.is_some()
+                        && self.targets_own_soloist()
+                        && self.now_playing().is_some_and(|now| now.playing);
                     self.soloist_audio = false;
                     self.clear_soloist_target();
                     self.backend.send(Command::SoloistDevice(None));
                 }
                 if let Status::Ready { version, .. } = &status && self.soloist_update.as_ref() == Some(version) { self.soloist_update = None; }
+                if let Status::Failed(failure) = &status {
+                    self.schedule_soloist_retry(&failure.clone());
+                }
+                if matches!(status, Status::NeedsKey) {
+                    self.soloist_give_up();
+                }
                 self.soloist_status = status;
                 if ready {
                     self.devices_fetched_at = None;
@@ -3085,6 +3178,58 @@ impl App {
         }
     }
 
+    /// Decides what a failure does next. Someone who finished setup gets
+    /// their player back by itself a few times. During setup only a sign-in
+    /// still being verified retries: anything else needs them to read it.
+    fn schedule_soloist_retry(&mut self, failure: &crate::soloist::Failure) {
+        self.soloist_settled = true;
+        if self
+            .soloist_bound_at
+            .take()
+            .is_some_and(|at| at.elapsed() >= SOLOIST_STABLE)
+        {
+            self.soloist_retries = 0;
+        }
+        let returning = self.soloist_onboarding == crate::settings::SoloistOnboarding::Complete;
+        let due = (self.settings.soloist_enabled
+            && failure.retries()
+            && (returning || *failure == crate::soloist::Failure::NotSignedIn))
+            .then(|| SOLOIST_RETRIES.get(self.soloist_retries))
+            .flatten();
+        self.soloist_retry_at = due.map(|wait| Instant::now() + *wait);
+        if due.is_none() {
+            self.soloist_give_up();
+        }
+    }
+
+    /// Nothing will bring the player back unasked: a song held for it would
+    /// only start at some surprising later moment.
+    fn soloist_give_up(&mut self) {
+        self.soloist_retry_at = None;
+        if self.queued_play.take().is_some() {
+            self.clear_play_pending();
+        }
+    }
+
+    fn retry_soloist_when_due(&mut self, ctx: &egui::Context) {
+        let Some(at) = self.soloist_retry_at else {
+            return;
+        };
+        let now = Instant::now();
+        if now < at {
+            ctx.request_repaint_after(at - now);
+            return;
+        }
+        self.soloist_retry_at = None;
+        self.soloist_retries += 1;
+        self.soloist_status = crate::soloist::Status::Starting;
+        self.soloist_status_at = now;
+        self.backend.send(Command::Soloist {
+            enabled: true,
+            key: None,
+        });
+    }
+
     fn bind_soloist_device(&mut self) {
         let crate::soloist::Status::Ready { name, .. } = &self.soloist_status else {
             return;
@@ -3096,14 +3241,43 @@ impl App {
             .iter()
             .filter(|device| device.name == *name && device.id.is_some())
             .collect();
+        // Spotify's list leaves out a quiet device now and then. Soloist is
+        // still running and signed in, so one short list changes nothing.
+        if matching.is_empty() && self.soloist_device_id.is_some() {
+            return;
+        }
         let device = (matching.len() == 1).then(|| matching[0].clone());
         let newly_bound = self.soloist_device_id.is_none();
         self.soloist_device_id = device.as_ref().and_then(|device| device.id.clone());
         self.backend.send(Command::SoloistDevice(device));
         if newly_bound && let Some(id) = self.soloist_device_id.clone() {
-            if std::mem::take(&mut self.soloist_select) {
-                let play = self.now_playing().is_some_and(|now| now.playing);
+            self.soloist_settled = true;
+            self.soloist_retry_at = None;
+            self.soloist_bound_at = Some(Instant::now());
+            // A setup resumed from an earlier run has nothing left to show.
+            if self.soloist_onboarding == crate::settings::SoloistOnboarding::Setup
+                && !self.soloist_setup_chosen
+            {
+                self.soloist_onboarding = crate::settings::SoloistOnboarding::Complete;
+                self.save_session();
+            }
+            let elsewhere = self.remote_fresh().is_some_and(|remote| {
+                remote.state.is_playing
+                    && remote.state.device.as_ref().and_then(|d| d.id.as_deref())
+                        != Some(id.as_str())
+            });
+            let resume = std::mem::take(&mut self.soloist_resume) && !elsewhere;
+            if self.queued_play.is_some() {
+                // A song chosen while the player was away outranks what it
+                // was playing before.
+                self.soloist_select = false;
+                self.selected_device = Some(id);
+                self.replay_queued_play();
+            } else if std::mem::take(&mut self.soloist_select) {
+                let play = resume || self.now_playing().is_some_and(|now| now.playing);
                 self.transfer_remote(id, play);
+            } else if resume {
+                self.transfer_remote(id, true);
             } else if !self.local.is_active()
                 && self.selected_device.is_none()
                 && self
@@ -3121,6 +3295,7 @@ impl App {
             AuthStatus::Connected { .. } => {
                 self.sign_in_url = None;
                 if self.settings.soloist_enabled {
+                    self.soloist_status_at = Instant::now();
                     self.backend.send(Command::Soloist {
                         enabled: true,
                         key: None,
@@ -3142,6 +3317,10 @@ impl App {
                 self.soloist_audio = false;
                 self.soloist_update = None;
                 self.soloist_select = false;
+                self.soloist_settled = false;
+                self.soloist_retries = 0;
+                self.soloist_resume = false;
+                self.soloist_give_up();
                 if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
                     self.dialog = None;
                 }
@@ -4170,6 +4349,24 @@ impl App {
 
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
+        self.retry_soloist_when_due(ctx);
+        if self.queued_play.is_some() && self.soloist_waiting() && !self.soloist_recovering() {
+            self.soloist_give_up();
+        }
+        if self.soloist_view() == SoloistView::Loading {
+            let waited = self.soloist_status_at.elapsed();
+            if self.is_connected() && waited >= SOLOIST_LOADING_GRACE {
+                self.soloist_settled = true;
+            } else {
+                ctx.request_repaint_after(SOLOIST_LOADING_GRACE.saturating_sub(waited));
+            }
+        } else if self.soloist_recovering()
+            && self.soloist_status_at.elapsed() < SOLOIST_PAIRING_GRACE
+        {
+            ctx.request_repaint_after(
+                SOLOIST_PAIRING_GRACE.saturating_sub(self.soloist_status_at.elapsed()),
+            );
+        }
         if let Some(wait) = self.window_focus(ctx.input(|input| {
             // A minimised window is away even where it keeps focus.
             let viewport = input.viewport();
@@ -9765,7 +9962,7 @@ impl App {
     /// in one ordered exchange: two independent requests race, and shuffle
     /// sometimes lost.
     fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
-        if self.soloist_waiting() {
+        if self.soloist_waiting() && !self.soloist_recovering() {
             return;
         }
         // Whatever starts now outranks a play-search still in flight.
@@ -9792,7 +9989,7 @@ impl App {
     }
 
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
-        if self.soloist_waiting() {
+        if self.soloist_waiting() && !self.soloist_recovering() {
             self.clear_play_pending();
             return;
         }
@@ -9870,6 +10067,11 @@ impl App {
             at: Instant::now(),
         });
         self.queue_start_pending = Some(self.target());
+        // Held for Soloist, never handed to the built-in player meanwhile.
+        if self.soloist_waiting() {
+            self.queued_play = Some(request);
+            return;
+        }
         match self.target() {
             Target::Local if !self.local.connected => {
                 // Hold the request while the local engine reconnects.
@@ -11614,7 +11816,17 @@ impl App {
     pub(crate) fn apply(&mut self, action: Action, ctx: &egui::Context) {
         // Covers buttons, row double-clicks, keyboard/media shortcuts and IPC
         // before any optimistic state or queued request can change.
+        let held = self.soloist_recovering()
+            && matches!(
+                &action,
+                Action::PlayContext { .. }
+                    | Action::PlayEpisode { .. }
+                    | Action::PlayUris { .. }
+                    | Action::PlayFromRow { .. }
+                    | Action::ShufflePlay(_)
+            );
         if self.soloist_waiting()
+            && !held
             && matches!(
                 &action,
                 Action::PlayContext { .. }
@@ -12754,8 +12966,21 @@ impl App {
                 }
             }
             Action::StartSoloistSetup => {
+                self.soloist_setup_optional = self.settings.soloist_enabled
+                    && self.soloist_onboarding == crate::settings::SoloistOnboarding::Complete;
                 self.soloist_onboarding = crate::settings::SoloistOnboarding::Setup;
+                self.soloist_setup_chosen = true;
+                self.soloist_give_up();
                 self.save_session();
+            }
+            Action::LeaveSoloistSetup => {
+                self.soloist_onboarding = crate::settings::SoloistOnboarding::Complete;
+                self.soloist_setup_optional = false;
+                self.save_session();
+            }
+            Action::EnableSoloist => {
+                self.apply(Action::StartSoloistSetup, ctx);
+                self.apply(Action::SetSoloist(true), ctx);
             }
             Action::FinishSoloistSetup => {
                 if self.settings.soloist_enabled
@@ -12787,6 +13012,10 @@ impl App {
                 self.mark_settings_dirty();
                 self.soloist_select = enabled;
                 self.soloist_update = None;
+                self.soloist_retries = 0;
+                self.soloist_resume &= enabled;
+                self.soloist_give_up();
+                self.soloist_status_at = Instant::now();
                 let key = if enabled {
                     self.soloist_key.trim().to_owned()
                 } else {
@@ -12802,7 +13031,15 @@ impl App {
                     key: (!key.trim().is_empty()).then_some(key),
                 });
             }
-            Action::RetrySoloist => self.apply(Action::SetSoloist(true), ctx),
+            Action::RetrySoloist => {
+                // Stops whatever is left first: a player that is only slow
+                // still runs, and starting it again would change nothing.
+                self.backend.send(Command::Soloist {
+                    enabled: false,
+                    key: None,
+                });
+                self.apply(Action::SetSoloist(true), ctx);
+            }
             Action::RestartEngine => {
                 self.save_settings();
                 let config = engine_config(
@@ -22337,7 +22574,7 @@ mod tests {
             },
             ready.clone(),
             Status::NeedsKey,
-            Status::Failed(crate::soloist::Failure::Stopped),
+            Status::Failed(crate::soloist::Failure::InvalidKey),
         ] {
             app.on_soloist(Update::Status(status));
             assert!(app.soloist_waiting());
@@ -22425,6 +22662,253 @@ mod tests {
             app.audio_processing_available(),
             "built-in player remains available"
         );
+        app.backend.shutdown();
+    }
+
+    /// A listener who finished setup, with Soloist playing on this computer.
+    fn listening_on_soloist(name: &str) -> (egui::Context, App) {
+        use crate::soloist::{Status, Update};
+        let ctx = egui::Context::default();
+        let mut app = test_app(name);
+        app.backend.set_offline(true);
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.user = Some(crate::api::models::User {
+            id: "listener".into(),
+            product: Some("premium".into()),
+            ..Default::default()
+        });
+        app.settings.soloist_enabled = true;
+        app.soloist_onboarding = crate::settings::SoloistOnboarding::Complete;
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        app.devices = vec![Device {
+            id: Some("own".into()),
+            name: "owned".into(),
+            ..Default::default()
+        }];
+        app.bind_soloist_device();
+        assert_eq!(app.soloist_device_id.as_deref(), Some("own"));
+        (ctx, app)
+    }
+
+    fn soloist_is_due(app: &mut App, ctx: &egui::Context) {
+        app.soloist_retry_at = Some(Instant::now());
+        app.retry_soloist_when_due(ctx);
+    }
+
+    /// The report behind the banner: a player that stopped put a returning
+    /// listener on the setup page, with its key field, and nothing came back.
+    #[test]
+    fn a_stopped_soloist_never_returns_a_finished_listener_to_setup() {
+        use crate::soloist::{Failure, Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-stops");
+        for failure in [
+            Failure::Stopped,
+            Failure::Unstable,
+            Failure::AudioLost,
+            Failure::KeyStore,
+            Failure::Expired,
+        ] {
+            app.on_soloist(Update::Status(Status::Failed(failure)));
+            assert_eq!(app.soloist_view(), SoloistView::App);
+            assert!(!app.show_soloist_onboarding());
+        }
+        app.on_soloist(Update::Status(Status::NeedsKey));
+        assert_eq!(app.soloist_view(), SoloistView::App);
+        app.on_soloist(Update::Status(Status::Pairing {
+            name: "owned".into(),
+            version: "test".into(),
+        }));
+        assert_eq!(app.soloist_view(), SoloistView::App);
+        assert_eq!(
+            app.soloist_onboarding,
+            crate::settings::SoloistOnboarding::Complete
+        );
+        // Only the listener's own choice opens setup again.
+        app.apply(Action::StartSoloistSetup, &ctx);
+        assert_eq!(app.soloist_view(), SoloistView::Setup);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_stopped_soloist_restarts_by_itself_a_few_times_then_asks() {
+        use crate::soloist::{Failure, Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-restarts");
+        for _ in 0..SOLOIST_RETRIES.len() {
+            app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+            assert!(app.soloist_recovering(), "a restart is scheduled");
+            soloist_is_due(&mut app, &ctx);
+            assert!(matches!(app.soloist_status, Status::Starting));
+        }
+        app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+        assert!(app.soloist_retry_at.is_none(), "out of tries");
+        assert!(!app.soloist_recovering());
+        app.apply(Action::RetrySoloist, &ctx);
+        assert!(matches!(app.soloist_status, Status::Starting));
+        app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+        assert!(app.soloist_retry_at.is_some(), "Try again starts afresh");
+        app.backend.shutdown();
+    }
+
+    /// Restarting cannot fix these, and retrying a key store only nags.
+    #[test]
+    fn soloist_failures_that_need_the_listener_do_not_restart() {
+        use crate::soloist::{Failure, Status, Update};
+        let (_ctx, mut app) = listening_on_soloist("soloist-no-restart");
+        for failure in [Failure::KeyStore, Failure::InvalidKey, Failure::Expired] {
+            app.on_soloist(Update::Status(Status::Failed(failure)));
+            assert!(app.soloist_retry_at.is_none());
+        }
+        app.backend.shutdown();
+    }
+
+    /// During setup a failure is for reading, except a sign-in Spotify is
+    /// still verifying: that passes by itself (#1137).
+    #[test]
+    fn setup_waits_out_an_unverified_sign_in_but_not_other_failures() {
+        use crate::soloist::{Failure, Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-setup-failure");
+        app.apply(Action::StartSoloistSetup, &ctx);
+        app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+        assert!(app.soloist_retry_at.is_none());
+        assert_eq!(app.soloist_view(), SoloistView::Setup);
+        app.on_soloist(Update::Status(Status::Failed(Failure::NotSignedIn)));
+        assert!(app.soloist_retry_at.is_some());
+        app.backend.shutdown();
+    }
+
+    /// Spotify's device list leaves a quiet Soloist out now and then. That
+    /// dropped the verified device, and with it the whole app.
+    #[test]
+    fn a_short_device_list_does_not_unbind_a_running_soloist() {
+        let (_ctx, mut app) = listening_on_soloist("soloist-short-list");
+        app.devices.clear();
+        app.bind_soloist_device();
+        assert_eq!(app.soloist_device_id.as_deref(), Some("own"));
+        assert!(!app.soloist_waiting());
+        app.backend.shutdown();
+    }
+
+    /// A song chosen while the player restarts waits for it, and never
+    /// starts on the built-in player instead.
+    #[test]
+    fn a_song_chosen_while_soloist_reconnects_waits_for_it() {
+        use crate::soloist::{Failure, Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-held-play");
+        app.local_ready = true;
+        app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+        app.apply(
+            Action::PlayUris {
+                uris: vec!["spotify:track:held".into()],
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(app.queued_play.is_some());
+        assert!(app.backend.take_remote_play_requests().is_empty());
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        app.bind_soloist_device();
+        assert!(app.queued_play.is_none());
+        assert_eq!(app.selected_device.as_deref(), Some("own"));
+        assert_eq!(app.backend.take_remote_play_requests().len(), 1);
+        app.backend.shutdown();
+    }
+
+    /// Once nothing will restart the player, a held song is let go rather
+    /// than starting at some surprising later moment.
+    #[test]
+    fn a_held_song_is_dropped_when_soloist_gives_up() {
+        use crate::soloist::{Failure, Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-held-dropped");
+        app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+        app.apply(
+            Action::PlayUris {
+                uris: vec!["spotify:track:held".into()],
+                index: 0,
+            },
+            &ctx,
+        );
+        app.on_soloist(Update::Status(Status::Failed(Failure::KeyStore)));
+        assert!(app.queued_play.is_none());
+        assert!(!app.any_play_pending());
+        app.backend.shutdown();
+    }
+
+    /// The old loading screen's link could save "setup" in a working
+    /// session. Starting from it must not reopen setup on every launch.
+    #[test]
+    fn a_saved_setup_step_ends_itself_when_soloist_verifies() {
+        use crate::settings::SoloistOnboarding;
+        use crate::soloist::{Status, Update};
+        let (_ctx, mut app) = listening_on_soloist("soloist-resumed-setup");
+        app.soloist_onboarding = SoloistOnboarding::Setup;
+        app.on_soloist(Update::Status(Status::Starting));
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        app.bind_soloist_device();
+        assert_eq!(app.soloist_onboarding, SoloistOnboarding::Complete);
+        app.backend.shutdown();
+    }
+
+    /// Pressing Try again after the retries ran out still picks the song up.
+    #[test]
+    fn try_again_resumes_what_soloist_was_playing() {
+        use crate::soloist::{Failure, Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-try-again-resumes");
+        app.soloist_resume = true;
+        app.on_soloist(Update::Status(Status::Failed(Failure::KeyStore)));
+        app.apply(Action::RetrySoloist, &ctx);
+        assert!(app.soloist_resume);
+        app.apply(Action::SetSoloist(false), &ctx);
+        assert!(!app.soloist_resume);
+        app.backend.shutdown();
+    }
+
+    /// Setup opened from the banner is a visit, not a way to lose the app.
+    #[test]
+    fn a_finished_listener_can_leave_setup_and_keep_soloist() {
+        use crate::settings::SoloistOnboarding;
+        let (ctx, mut app) = listening_on_soloist("soloist-leave-setup");
+        app.on_soloist(crate::soloist::Update::Status(
+            crate::soloist::Status::NeedsKey,
+        ));
+        app.apply(Action::StartSoloistSetup, &ctx);
+        assert!(app.soloist_setup_optional);
+        assert_eq!(app.soloist_view(), SoloistView::Setup);
+        app.apply(Action::LeaveSoloistSetup, &ctx);
+        assert_eq!(app.soloist_onboarding, SoloistOnboarding::Complete);
+        assert_eq!(app.soloist_view(), SoloistView::App);
+        assert!(app.settings.soloist_enabled);
+        app.backend.shutdown();
+    }
+
+    /// Chosen in this run, it ends with its own Start listening instead.
+    #[test]
+    fn setup_chosen_now_keeps_its_last_step() {
+        use crate::settings::SoloistOnboarding;
+        use crate::soloist::{Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-chosen-setup");
+        app.apply(Action::StartSoloistSetup, &ctx);
+        app.on_soloist(Update::Status(Status::Starting));
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        app.bind_soloist_device();
+        assert_eq!(app.soloist_onboarding, SoloistOnboarding::Setup);
         app.backend.shutdown();
     }
 

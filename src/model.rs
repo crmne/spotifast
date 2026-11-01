@@ -1397,6 +1397,8 @@ pub enum Action {
     SetSoloist(bool),
     RetrySoloist,
     StartSoloistSetup,
+    EnableSoloist,
+    LeaveSoloistSetup,
     FinishSoloistSetup,
     UseBuiltInPlayer,
     RestartEngine,

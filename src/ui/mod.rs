@@ -54,25 +54,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         fastframe_titlebar::resize(ui);
         return;
     }
-    if app.soloist_waiting()
-        && !app.show_soloist_onboarding()
-        && matches!(
-            app.soloist_status,
-            crate::soloist::Status::Off
-                | crate::soloist::Status::Starting
-                | crate::soloist::Status::Ready { .. }
-        )
-    {
+    let soloist_view = app.soloist_view();
+    if soloist_view != crate::app::SoloistView::App {
         player_bar::end_tint_session(ctx);
-        login::show(app, ui, true);
-        toasts(app, ctx, 20.0);
-        caption_buttons(ui, &app.palette, app.locale);
-        fastframe_titlebar::resize(ui);
-        return;
-    }
-    if app.show_soloist_onboarding() || app.soloist_waiting() {
-        player_bar::end_tint_session(ctx);
-        soloist::onboarding(app, ui);
+        if soloist_view == crate::app::SoloistView::Loading {
+            login::show(app, ui, true);
+        } else {
+            soloist::onboarding(app, ui);
+        }
         toasts(app, ctx, 20.0);
         caption_buttons(ui, &app.palette, app.locale);
         fastframe_titlebar::resize(ui);
@@ -336,7 +325,9 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             // One banner at a time: a song that will not play matters more
             // than a slow app, which waits its turn.
             if app.dialog.is_none() && page != Page::Settings {
-                if app.audio_key_banner {
+                if app.soloist_waiting() {
+                    soloist::banner(app, ui);
+                } else if app.audio_key_banner {
                     audio_key_banner(app, ui);
                 } else if app.slow_banner {
                     slow_banner(app, ui);
@@ -407,7 +398,8 @@ fn slow_banner(app: &mut App, ui: &mut egui::Ui) {
             locale,
             "Spotifast no longer offers the shared sign-in, and Spotify can stop accepting it at any time. Register Spotifast and you won't have to wait.",
         ),
-        [
+        false,
+        vec![
             (
                 gettext(locale, "Register Spotifast"),
                 Action::OpenPersonalAppSetup,
@@ -419,7 +411,7 @@ fn slow_banner(app: &mut App, ui: &mut egui::Ui) {
                 Action::OpenUrl(SLOW_BANNER_GUIDE.into()),
             ),
         ],
-        Action::CloseSlowBanner,
+        Some(Action::CloseSlowBanner),
     );
 }
 
@@ -440,7 +432,8 @@ fn audio_key_banner(app: &mut App, ui: &mut egui::Ui) {
             locale,
             "Spotify refused the key that unlocks the audio. Spotifast can't fix that, but it sometimes clears up on its own. You can still play on your phone or another Spotify device.",
         ),
-        [
+        false,
+        vec![
             (
                 gettext(locale, "Play on another device"),
                 Action::PlayOnAnotherDevice,
@@ -450,20 +443,21 @@ fn audio_key_banner(app: &mut App, ui: &mut egui::Ui) {
                 Action::OpenUrl(AUDIO_KEY_GUIDE.into()),
             ),
         ],
-        Action::CloseAudioKeyBanner,
+        Some(Action::CloseAudioKeyBanner),
     );
 }
 
-/// A notice under the top bar: a bold line, a sentence or two, a main and
-/// a secondary button, and a close button.
+/// A notice under the top bar: a bold line, with a spinner while `busy`, a
+/// sentence or two, its buttons with the main one first, and a close button
+/// unless the notice goes by itself.
 fn banner(
     app: &mut App,
     ui: &mut egui::Ui,
     title: &str,
     text: &str,
-    [(primary, primary_action), (secondary, secondary_action)]: [(std::borrow::Cow<'static, str>, Action);
-        2],
-    close: Action,
+    busy: bool,
+    buttons: Vec<(std::borrow::Cow<'static, str>, Action)>,
+    close: Option<Action>,
 ) {
     use crate::i18n::gettext;
     let palette = app.palette;
@@ -487,28 +481,34 @@ fn banner(
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                if theme::icon_button(
-                    ui,
-                    Icon::X,
-                    16.0,
-                    palette.secondary,
-                    palette.text,
-                    &gettext(locale, "Close banner"),
-                )
-                .clicked()
+                if let Some(close) = close
+                    && theme::icon_button(
+                        ui,
+                        Icon::X,
+                        16.0,
+                        palette.secondary,
+                        palette.text,
+                        &gettext(locale, "Close banner"),
+                    )
+                    .clicked()
                 {
                     app.actions.push(close);
                 }
                 ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                     ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(title)
-                                .font(theme::bold(14.0))
-                                .color(palette.text),
-                        )
-                        .wrap(),
-                    );
+                    ui.horizontal(|ui| {
+                        if busy {
+                            theme::spinner(ui, 14.0, palette.accent);
+                        }
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(title)
+                                    .font(theme::bold(14.0))
+                                    .color(palette.text),
+                            )
+                            .wrap(),
+                        );
+                    });
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(text)
@@ -517,15 +517,16 @@ fn banner(
                         )
                         .wrap(),
                     );
-                    ui.add_space(6.0);
-                    ui.horizontal_wrapped(|ui| {
-                        if theme::pill_button(ui, &palette, &primary, true).clicked() {
-                            app.actions.push(primary_action);
-                        }
-                        if theme::pill_button(ui, &palette, &secondary, false).clicked() {
-                            app.actions.push(secondary_action);
-                        }
-                    });
+                    if !buttons.is_empty() {
+                        ui.add_space(6.0);
+                        ui.horizontal_wrapped(|ui| {
+                            for (index, (label, action)) in buttons.into_iter().enumerate() {
+                                if theme::pill_button(ui, &palette, &label, index == 0).clicked() {
+                                    app.actions.push(action);
+                                }
+                            }
+                        });
+                    }
                 });
             });
         });
