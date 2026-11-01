@@ -713,7 +713,9 @@ fn paint_expanded_art(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
 }
 
 /// Project the playlist shelf without changing its saved order or pins.
-/// Ownership filtering is flat, like text search, so matching playlists in
+/// The Spotify order keeps the folder tree; ownership filtering then hides
+/// playlists the account does not own and folders left empty, with counts
+/// reflecting the visible rows. Text search stays flat so matches in
 /// collapsed folders remain reachable. Liked Songs belongs to the account.
 fn playlist_rows(app: &App, sort: LibrarySort, needle: &str, entries: &mut Vec<Entry>) {
     let liked = liked_entry(app);
@@ -731,7 +733,7 @@ fn playlist_rows(app: &App, sort: LibrarySort, needle: &str, entries: &mut Vec<E
             .any(|row| matches!(row, crate::player::RootlistEntry::FolderStart { .. })),
         _ => false,
     };
-    if folders && needle.is_empty() && !app.settings.library_by_you {
+    if folders && needle.is_empty() {
         folder_rows(app, user_id.unwrap_or(""), entries);
     } else if let Some(playlists) = app.library.playlists.get() {
         for (index, playlist) in playlists.iter().enumerate() {
@@ -755,6 +757,8 @@ fn playlist_rows(app: &App, sort: LibrarySort, needle: &str, entries: &mut Vec<E
 }
 
 /// Playlist rows in account order, including collapsible folders (#95).
+/// With the By You filter only owned playlists are shown; folders left
+/// empty are hidden and their counts reflect the visible rows.
 fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
     use crate::player::RootlistEntry;
     let Some(playlists) = app.library.playlists.get() else {
@@ -765,54 +769,82 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
         .enumerate()
         .map(|(index, playlist)| (playlist.uri.as_str(), (index, playlist)))
         .collect();
+    let by_you = app.settings.library_by_you;
+    let owner = app.user_id().filter(|id| !id.is_empty());
+    let visible = |playlist: &crate::api::models::Playlist| {
+        !by_you || owner.is_some_and(|id| playlist.owned_by(id))
+    };
     let mut depth = 0u8;
     // Rows inside a rolled-up folder stay off the list; the stack knows
     // how deep the rolled-up one sits.
     let mut hidden_from: Option<u8> = None;
+    // Folders emptied by the ownership filter are skipped with their whole
+    // subtree; the depth below remembers where the skipped folder started.
+    let mut skipped_from: Option<u8> = None;
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for row in &app.rootlist {
         match row {
             RootlistEntry::FolderStart { id, name } => {
+                if skipped_from.is_some() || hidden_from.is_some() {
+                    depth += 1;
+                    continue;
+                }
+                let count = if by_you {
+                    folder_visible_playlists(&app.rootlist, &by_uri, &visible, id)
+                } else {
+                    folder_playlists(&app.rootlist, id)
+                };
+                if by_you && count == 0 {
+                    skipped_from = Some(depth);
+                    depth += 1;
+                    continue;
+                }
                 let collapsed = app.collapsed_folders.contains(id);
-                if hidden_from.is_none() {
-                    let count = folder_playlists(&app.rootlist, id);
-                    entries.push(Entry {
-                        image: None,
-                        grid_image: None,
-                        name: if name.is_empty() {
-                            gettext(app.locale, "Folder").into_owned()
-                        } else {
-                            name.clone()
-                        },
-                        subtitle: app.locale.folder_playlist_count(count as u32),
-                        grid_subtitle: app.locale.playlist_count(count as u32),
-                        page: Page::Home,
-                        uri: String::new(),
-                        round: false,
-                        liked: false,
-                        owned: false,
-                        editable: false,
-                        playlist_index: None,
-                        folder: Some((id.clone(), collapsed, count)),
-                        depth,
-                        added_at: None,
-                    });
-                    if collapsed {
-                        hidden_from = Some(depth);
-                    }
+                entries.push(Entry {
+                    image: None,
+                    grid_image: None,
+                    name: if name.is_empty() {
+                        gettext(app.locale, "Folder").into_owned()
+                    } else {
+                        name.clone()
+                    },
+                    subtitle: app.locale.folder_playlist_count(count as u32),
+                    grid_subtitle: app.locale.playlist_count(count as u32),
+                    page: Page::Home,
+                    uri: String::new(),
+                    round: false,
+                    liked: false,
+                    owned: false,
+                    editable: false,
+                    playlist_index: None,
+                    folder: Some((id.clone(), collapsed, count)),
+                    depth,
+                    added_at: None,
+                });
+                if collapsed {
+                    hidden_from = Some(depth);
                 }
                 depth += 1;
             }
             RootlistEntry::FolderEnd => {
                 depth = depth.saturating_sub(1);
+                if skipped_from == Some(depth) {
+                    skipped_from = None;
+                }
                 if hidden_from == Some(depth) {
                     hidden_from = None;
                 }
             }
             RootlistEntry::Playlist(uri) => {
+                if skipped_from.is_some() {
+                    continue;
+                }
                 let Some((index, playlist)) = by_uri.get(uri.as_str()) else {
                     continue;
                 };
+                if !visible(playlist) {
+                    continue;
+                }
                 if !seen.insert(uri.as_str()) {
                     continue;
                 }
@@ -834,6 +866,9 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
     // Playlists the rootlist has not met yet, the newly followed, wait at
     // the end rather than vanish.
     for (index, playlist) in playlists.iter().enumerate() {
+        if !visible(playlist) {
+            continue;
+        }
         if !seen.contains(playlist.uri.as_str()) {
             entries.push(playlist_entry(
                 app.locale,
@@ -846,6 +881,48 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
             ));
         }
     }
+}
+
+/// How many playlists a folder holds that pass the ownership filter,
+/// nested ones included. Counts occurrences like `folder_playlists`.
+fn folder_visible_playlists(
+    rootlist: &[crate::player::RootlistEntry],
+    by_uri: &std::collections::HashMap<&str, (usize, &crate::api::models::Playlist)>,
+    visible: &impl Fn(&crate::api::models::Playlist) -> bool,
+    id: &str,
+) -> usize {
+    use crate::player::RootlistEntry;
+    let mut counting = false;
+    let mut depth = 0usize;
+    let mut count = 0;
+    for row in rootlist {
+        match row {
+            RootlistEntry::FolderStart { id: this, .. } => {
+                if counting {
+                    depth += 1;
+                } else if this == id {
+                    counting = true;
+                    depth = 1;
+                }
+            }
+            RootlistEntry::FolderEnd if counting => {
+                depth -= 1;
+                if depth == 0 {
+                    return count;
+                }
+            }
+            RootlistEntry::Playlist(uri)
+                if counting
+                    && by_uri
+                        .get(uri.as_str())
+                        .is_some_and(|(_, playlist)| visible(playlist)) =>
+            {
+                count += 1;
+            }
+            _ => {}
+        }
+    }
+    count
 }
 
 /// How many playlists a folder holds, nested ones included.
@@ -2372,10 +2449,11 @@ mod ordering_tests {
         app.backend.shutdown();
     }
 
-    /// Ensure the flat owned view reveals matching rows inside collapsed folders
-    /// and disabling it restores the tree without changing folder expansion state.
+    /// Ensure the owned view keeps collapsed folders collapsed, hides folders
+    /// left empty, and disabling it restores the tree without changing
+    /// folder expansion state.
     #[test]
-    fn by_you_reveals_owned_playlists_in_collapsed_folders_and_restores_the_tree() {
+    fn by_you_keeps_collapsed_folders_and_hides_emptied_ones() {
         use crate::player::RootlistEntry;
         let mut app = ownership_app("by-you-folders");
         app.rootlist = vec![
@@ -2384,6 +2462,12 @@ mod ordering_tests {
                 name: "Folder".into(),
             },
             RootlistEntry::Playlist(uri("c")),
+            RootlistEntry::FolderEnd,
+            RootlistEntry::FolderStart {
+                id: "empty".into(),
+                name: "Empty".into(),
+            },
+            RootlistEntry::Playlist(uri("b")),
             RootlistEntry::FolderEnd,
         ];
         app.collapsed_folders = vec!["folder".into()];
@@ -2402,26 +2486,61 @@ mod ordering_tests {
         );
         app.settings.library_by_you = true;
         let entries = projected(&app, "");
+        let folder = entries
+            .iter()
+            .find(|entry| {
+                entry
+                    .folder
+                    .as_ref()
+                    .is_some_and(|folder| folder.0 == "folder")
+            })
+            .expect("owned folder stays");
+        assert_eq!(folder.folder.as_ref().unwrap().2, 1);
+        assert_eq!(folder.depth, 0);
+        assert!(!entries.iter().any(|entry| {
+            entry
+                .folder
+                .as_ref()
+                .is_some_and(|folder| folder.0 == "empty")
+        }));
+        // The collapsed folder keeps hiding its owned playlist; the other
+        // owned playlist waits at the top level.
         assert!(
-            entries
-                .iter()
-                .all(|entry| entry.folder.is_none() && entry.depth == 0)
+            !entries.iter().any(|entry| entry.uri == uri("c")),
+            "collapsed folders stay collapsed"
         );
-        assert!(entries.iter().any(|entry| entry.uri == uri("c")));
+        let top = entries
+            .iter()
+            .find(|entry| entry.uri == uri("a"))
+            .expect("owned top-level playlist stays");
+        assert_eq!(top.depth, 0);
+        assert!(entries.iter().any(|entry| entry.liked));
+        // Expanding reveals the owned playlist inside its folder.
+        app.collapsed_folders.clear();
+        let expanded = projected(&app, "");
+        let inside = expanded
+            .iter()
+            .find(|entry| entry.uri == uri("c"))
+            .expect("owned playlist in its folder");
+        assert_eq!(inside.depth, 1);
+        app.collapsed_folders = vec!["folder".into()];
         app.settings.library_by_you = false;
-        assert!(
-            projected(&app, "")
-                .iter()
-                .any(|entry| entry.folder.is_some())
-        );
+        let restored = projected(&app, "");
+        assert!(restored.iter().any(|entry| {
+            entry
+                .folder
+                .as_ref()
+                .is_some_and(|folder| folder.0 == "empty")
+        }));
         assert_eq!(app.collapsed_folders, ["folder"]);
         app.backend.shutdown();
     }
 
-    /// Verify indexed Spotify ordering uses the first duplicate rootlist entry,
-    /// keeps unlisted playlists visible, and applies pins without rewriting data.
+    /// Verify the owned Spotify order keeps folders, uses the first duplicate
+    /// rootlist entry, keeps unlisted playlists visible, and applies pins
+    /// without rewriting data.
     #[test]
-    fn flat_by_you_spotify_order_keeps_first_occurrences_missing_rows_and_pins() {
+    fn by_you_spotify_order_keeps_folders_first_occurrences_missing_rows_and_pins() {
         use crate::player::RootlistEntry;
         let mut app = ownership_app("by-you-rootlist-index");
         let owner = app.user_id().unwrap().to_string();
@@ -2443,9 +2562,25 @@ mod ordering_tests {
             RootlistEntry::Playlist(uri("c")),
         ];
         let rootlist = app.rootlist.clone();
-        assert_eq!(ids(&projected(&app, "")), ["c", "a", "d", ""]);
+        let entries = projected(&app, "");
+        let folder = entries
+            .iter()
+            .find(|entry| entry.folder.is_some())
+            .expect("folder stays with the filter on");
+        assert_eq!(folder.folder.as_ref().unwrap().2, 1);
+        assert_eq!(folder.depth, 0);
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.uri == uri("c"))
+                .expect("owned playlist stays in its folder")
+                .depth,
+            1
+        );
+        assert!(!entries.iter().any(|entry| entry.uri == uri("b")));
+        assert_eq!(ids(&entries), ["", "c", "a", "d", ""]);
         app.settings.pinned_contexts = vec![uri("a")];
-        assert_eq!(ids(&projected(&app, "")), ["a", "c", "d", ""]);
+        assert_eq!(ids(&projected(&app, "")), ["a", "", "c", "d", ""]);
         assert_eq!(app.rootlist, rootlist);
         assert_eq!(
             app.library
