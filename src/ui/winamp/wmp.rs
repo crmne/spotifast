@@ -69,15 +69,18 @@ impl Canvas<'_> {
             return;
         };
         let (width, height) = (bitmap.width as f32, bitmap.height as f32);
-        let (x, y) = (part.x - corner.0, part.y - corner.1);
+        let (x, y) = (
+            part.x.saturating_sub(corner.0),
+            part.y.saturating_sub(corner.1),
+        );
         let uv = Rect::from_min_max(
             pos2(
                 (x as f32 / width).clamp(0.0, 1.0),
                 (y as f32 / height).clamp(0.0, 1.0),
             ),
             pos2(
-                ((x + part.width) as f32 / width).clamp(0.0, 1.0),
-                ((y + part.height) as f32 / height).clamp(0.0, 1.0),
+                (x.saturating_add(part.width) as f32 / width).clamp(0.0, 1.0),
+                (y.saturating_add(part.height) as f32 / height).clamp(0.0, 1.0),
             ),
         );
         ui.painter()
@@ -148,8 +151,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     let mut x = 0;
                     while x < width && (x / tile_width) < 200 {
                         let part = Box2 {
-                            x: picture.x + x,
-                            y: picture.y + y,
+                            x: picture.x.saturating_add(x),
+                            y: picture.y.saturating_add(y),
                             width: tile_width.min(width - x),
                             height: tile_height.min(height - y),
                         };
@@ -306,6 +309,10 @@ fn draw_slider(
         SliderKind::Seek => now.is_some_and(|now| now.duration_ms > 0 && !stopped(Some(now))),
         SliderKind::Volume => true,
     };
+    if slider.kind == SliderKind::Seek && !enabled {
+        // The song ended under a drag: no release will come to clear this.
+        app.seek_preview = None;
+    }
     let rect = canvas.rect(area);
     let id = Id::new(("wmp-slider", index));
     let response = ui.interact(
@@ -378,10 +385,12 @@ fn draw_slider(
             if let Some(value) = dragging {
                 app.seek_preview = Some(value);
             }
-            if let (Some(value), Some(now)) = (committed, now) {
+            if let Some(value) = committed {
                 app.seek_preview = None;
-                app.actions
-                    .push(Action::Seek((value * now.duration_ms as f32) as u32));
+                if let Some(now) = now {
+                    app.actions
+                        .push(Action::Seek((value * now.duration_ms as f32) as u32));
+                }
             }
         }
         SliderKind::Volume => {
@@ -418,25 +427,26 @@ fn draw_slider(
     .clamp(0.0, 1.0);
     // Where the thumb sits, from the slider's start edge.
     let toward_end = if slider.reversed { 1.0 - value } else { value };
-    let offset = border
-        + (if slider.vertical {
+    let offset = border.saturating_add(
+        (if slider.vertical {
             1.0 - toward_end
         } else {
             toward_end
         } * travel)
-            .round() as i32;
+            .round() as i32,
+    );
 
     canvas.picture(ui, &slider.background, area.x, area.y);
     if let Some(bitmap) = canvas.wmp.image(&slider.foreground) {
         // The filled part: from the start of the track to the thumb's middle.
-        let fill = offset + thumb_length / 2;
+        let fill = offset.saturating_add(thumb_length / 2);
         let (width, height) = (bitmap.width as i32, bitmap.height as i32);
         // The thumb sits at `offset` from the top or left edge, so the
         // fill is the side the value grew from.
         let part = match (slider.vertical, slider.reversed) {
             (true, false) => Box2 {
                 x: area.x,
-                y: area.y + fill.clamp(0, height),
+                y: area.y.saturating_add(fill.clamp(0, height)),
                 width,
                 height: height - fill.clamp(0, height),
             },
@@ -453,7 +463,7 @@ fn draw_slider(
                 height,
             },
             (false, true) => Box2 {
-                x: area.x + fill.clamp(0, width),
+                x: area.x.saturating_add(fill.clamp(0, width)),
                 y: area.y,
                 width: width - fill.clamp(0, width),
                 height,
@@ -464,9 +474,9 @@ fn draw_slider(
         }
     }
     let (thumb_x, thumb_y) = if slider.vertical {
-        (area.x, area.y + offset)
+        (area.x, area.y.saturating_add(offset))
     } else {
-        (area.x + offset, area.y)
+        (area.x.saturating_add(offset), area.y)
     };
     canvas.picture(ui, &thumb_picture.cloned(), thumb_x, thumb_y);
 }
