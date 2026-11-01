@@ -6243,6 +6243,7 @@ dependencies = [
  "sha2 0.10.9",
  "skrifa",
  "symphonia",
+ "sysinfo",
  "tar",
  "thiserror 2.0.20",
  "tiny-skia",
