@@ -45,7 +45,9 @@ playlist position, provided the rows load from the beginning and no missing
 or local entry comes before it; otherwise it starts by name, which plays the
 first copy. A song started from a row marks only that row as playing and
 loading; other copies in the same list look like ordinary rows until another
-song plays. A filtered playlist or Liked Songs view
+song plays. Another playlist that also holds the playing song shows it as an
+ordinary row, since the song is not playing from there. A filtered playlist or
+Liked Songs view
 plays its matching songs in displayed order, including duplicates. An empty or entirely
 unplayable view disables Play instead of starting the unfiltered context.
 
