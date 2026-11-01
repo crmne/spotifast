@@ -4,8 +4,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Spotifast\n"
-"Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
-"template=translation.yml\n"
+"Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?template=translation.yml\n"
 "POT-Creation-Date: 2026-11-02 13:06+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
@@ -700,15 +699,11 @@ msgid "Password"
 msgstr "密码"
 
 #: src/ui/widgets.rs:3685
-msgid ""
-"Proxy login applies to Web requests. Local playback uses this proxy only "
-"without a login."
+msgid "Proxy login applies to Web requests. Local playback uses this proxy only without a login."
 msgstr "代理登录信息仅用于 Web 请求。本地播放仅在不需要登录时使用此代理。"
 
 #: src/ui/widgets.rs:3689
-msgid ""
-"Spotify hostnames are resolved by the proxy. Local playback connects "
-"directly."
+msgid "Spotify hostnames are resolved by the proxy. Local playback connects directly."
 msgstr "Spotify 主机名由代理解析。本地播放直接连接。"
 
 #: src/app.rs:1067
@@ -775,9 +770,7 @@ msgstr "{name} 已就绪"
 #. Translators: {error} is a sentence saying why the proxy password could not be stored.
 #: src/app.rs:2842
 #, rust-format
-msgid ""
-"{error} The original settings file is kept intact; changed preferences are "
-"not saved yet."
+msgid "{error} The original settings file is kept intact; changed preferences are not saved yet."
 msgstr "{error}原始设置文件保持不变，更改的偏好设置尚未保存。"
 
 #. Translators: {version} is a version number such as 1.4.0.
@@ -797,9 +790,7 @@ msgid "Couldn't check for updates: {error}"
 msgstr "无法检查更新：{error}"
 
 #: src/app.rs:3084
-msgid ""
-"Soloist could not download its renewal. It will retry tomorrow; the current "
-"build is still installed."
+msgid "Soloist could not download its renewal. It will retry tomorrow; the current build is still installed."
 msgstr "Soloist 无法下载新版本。明天会重试，当前版本仍保留安装。"
 
 #: src/app.rs:3246
@@ -873,14 +864,11 @@ msgstr "代理设置已应用"
 #. Translators: {error} is an error message.
 #: src/app.rs:4701
 #, rust-format
-msgid ""
-"Proxy could not be applied: {error}. Previous connection settings are still "
-"in use."
+msgid "Proxy could not be applied: {error}. Previous connection settings are still in use."
 msgstr "无法应用代理：{error}。仍在使用之前的连接设置。"
 
 #: src/app.rs:6281
-msgid ""
-"Spotify hasn't confirmed your playlist changes yet. Try refreshing again."
+msgid "Spotify hasn't confirmed your playlist changes yet. Try refreshing again."
 msgstr "Spotify 尚未确认你的歌单更改，请再次刷新。"
 
 #: src/app.rs:6759
@@ -1121,9 +1109,7 @@ msgid_plural "{count} links copied"
 msgstr[0] "已复制 {count} 个链接"
 
 #: src/app.rs:12671
-msgid ""
-"Spotify doesn't let apps reorder your playlists, so this order is saved on "
-"this computer"
+msgid "Spotify doesn't let apps reorder your playlists, so this order is saved on this computer"
 msgstr "Spotify 不允许应用调整歌单顺序，因此此顺序保存在这台电脑上"
 
 #: src/app.rs:12817
@@ -1197,14 +1183,11 @@ msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify 现在不让这台电脑播放这首歌。"
 
 #: src/app.rs:14430
-msgid ""
-"No audio output device was found. Connect or enable one, then press play "
-"again."
+msgid "No audio output device was found. Connect or enable one, then press play again."
 msgstr "未找到音频输出设备。请连接或启用一个设备，然后再次点击播放。"
 
 #: src/app.rs:14444
-msgid ""
-"Spotify doesn't make this playlist's songs available to third-party apps."
+msgid "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr "Spotify 不向第三方应用提供此歌单中的歌曲。"
 
 #: src/app.rs:14575
@@ -1212,13 +1195,8 @@ msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr "Spotify 登录已过期。请重新登录，然后重试上传封面。"
 
 #: src/app.rs:14580
-msgid ""
-"Spotify refused this cover. Check that you own the playlist, then sign in "
-"again to grant image upload permission. If you use your own Client ID, "
-"authorize it again in Settings too."
-msgstr ""
-"Spotify 拒绝了此封面。请确认你是歌单的所有者，然后重新登录以授予上传图片的权"
-"限。如果使用你自己的 Client ID，也请在设置中重新授权。"
+msgid "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If you use your own Client ID, authorize it again in Settings too."
+msgstr "Spotify 拒绝了此封面。请确认你是歌单的所有者，然后重新登录以授予上传图片的权限。如果使用你自己的 Client ID，也请在设置中重新授权。"
 
 #: src/app.rs:14584
 msgid "Spotify rejected the image size. Choose a smaller image."
@@ -1253,8 +1231,7 @@ msgid "Delete “{name}”"
 msgstr "删除“{name}”"
 
 #: src/ui/settings.rs:380
-msgid ""
-"Play the local files your playlists list from a folder on this computer."
+msgid "Play the local files your playlists list from a folder on this computer."
 msgstr "从这台电脑上的文件夹播放播放列表中的本地文件。"
 
 #. Translators: {count} is a number of songs, {folder} a folder on this computer.
@@ -1324,12 +1301,8 @@ msgid "Spotify registration"
 msgstr "Spotify 注册"
 
 #: src/ui/settings.rs:511
-msgid ""
-"You're still on the shared sign-in Spotifast used before, which Spotify can "
-"stop accepting at any time. Register Spotifast to keep listening."
-msgstr ""
-"你仍在使用 Spotifast 以前使用的共享登录，Spotify 随时可能停止接受它。请注册 "
-"Spotifast 以继续收听。"
+msgid "You're still on the shared sign-in Spotifast used before, which Spotify can stop accepting at any time. Register Spotifast to keep listening."
+msgstr "你仍在使用 Spotifast 以前使用的共享登录，Spotify 随时可能停止接受它。请注册 Spotifast 以继续收听。"
 
 #: src/ui/settings.rs:516
 msgid "Spotifast connects with the Client ID you registered with Spotify."
@@ -1349,8 +1322,7 @@ msgid "Spotifast registered"
 msgstr "Spotifast 已注册"
 
 #: src/ui/settings.rs:533
-msgid ""
-"Supported requests use your Client ID. Other requests use the shared sign-in."
+msgid "Supported requests use your Client ID. Other requests use the shared sign-in."
 msgstr "受支持的请求使用你的 Client ID。其他请求使用共享登录。"
 
 #: src/ui/settings.rs:538
@@ -1524,13 +1496,11 @@ msgid "Play tracks without silence between them."
 msgstr "歌曲之间不插入静音。"
 
 #: src/ui/settings.rs:783
-msgid ""
-"Spotifast hides to the system tray. Quit from the tray menu or with Ctrl+Q."
+msgid "Spotifast hides to the system tray. Quit from the tray menu or with Ctrl+Q."
 msgstr "Spotifast 会隐藏到系统托盘。可通过托盘菜单或 Ctrl+Q 退出。"
 
 #: src/ui/settings.rs:788
-msgid ""
-"Spotifast hides to the menu bar. Quit from its menu-bar icon or with Cmd+Q."
+msgid "Spotifast hides to the menu bar. Quit from its menu-bar icon or with Cmd+Q."
 msgstr "Spotifast 会隐藏到菜单栏。可通过菜单栏图标或 Cmd+Q 退出。"
 
 #: src/ui/settings.rs:795
@@ -1542,9 +1512,7 @@ msgid "Output buffer"
 msgstr "输出缓冲"
 
 #: src/ui/settings.rs:801
-msgid ""
-"More buffering can prevent clicks on busy computers. Less buffering makes "
-"controls respond sooner."
+msgid "More buffering can prevent clicks on busy computers. Less buffering makes controls respond sooner."
 msgstr "增加缓冲可以避免繁忙的电脑出现爆音，减少缓冲可以让控制响应更快。"
 
 #: src/ui/settings.rs:807
@@ -1572,12 +1540,8 @@ msgid "Local files"
 msgstr "本地文件"
 
 #: src/ui/settings.rs:831
-msgid ""
-"When off, Spotifast lives in the menu bar and leaves Cmd+Tab. Open it from "
-"its menu-bar icon."
-msgstr ""
-"关闭后，Spotifast 只留在菜单栏，也不会出现在 Cmd+Tab 中。请从菜单栏图标打开"
-"它。"
+msgid "When off, Spotifast lives in the menu bar and leaves Cmd+Tab. Open it from its menu-bar icon."
+msgstr "关闭后，Spotifast 只留在菜单栏，也不会出现在 Cmd+Tab 中。请从菜单栏图标打开它。"
 
 #: src/ui/settings.rs:837
 msgid "Tray icon"
@@ -1679,8 +1643,7 @@ msgid "Light mode theme"
 msgstr "浅色模式主题"
 
 #: src/ui/settings.rs:1236
-msgid ""
-"Used while your computer is in light mode. Only light themes are listed."
+msgid "Used while your computer is in light mode. Only light themes are listed."
 msgstr "电脑处于浅色模式时使用。仅列出浅色主题。"
 
 #: src/ui/settings.rs:1240
@@ -1704,8 +1667,7 @@ msgid "Language"
 msgstr "语言"
 
 #: src/ui/settings.rs:1272
-msgid ""
-"System follows your computer's language. Untranslated text stays in English."
+msgid "System follows your computer's language. Untranslated text stays in English."
 msgstr "“系统”会跟随电脑的语言。未翻译的文字将以英语显示。"
 
 #: src/ui/settings.rs:1279
@@ -1733,21 +1695,15 @@ msgid "Cmd+Plus and Cmd+Minus work anywhere; Cmd+0 resets."
 msgstr "Cmd+加号和 Cmd+减号随处可用，Cmd+0 可重置。"
 
 #: src/ui/settings.rs:1308
-msgid ""
-"Middle-click a list, then move the pointer to scroll it. Off by default, "
-"because a middle click usually pastes on Linux."
-msgstr ""
-"在列表上点击鼠标中键，然后移动指针即可滚动。默认关闭，因为在 Linux 上中键点击"
-"通常用于粘贴。"
+msgid "Middle-click a list, then move the pointer to scroll it. Off by default, because a middle click usually pastes on Linux."
+msgstr "在列表上点击鼠标中键，然后移动指针即可滚动。默认关闭，因为在 Linux 上中键点击通常用于粘贴。"
 
 #: src/ui/settings.rs:1316
-msgid ""
-"Draw Spotifast's own title bar and window buttons instead of the desktop's."
+msgid "Draw Spotifast's own title bar and window buttons instead of the desktop's."
 msgstr "使用 Spotifast 自己的标题栏和窗口按钮，而不是桌面环境提供的。"
 
 #: src/ui/settings.rs:1324
-msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+msgid "Show the song moving behind the player bar's controls while it plays here."
 msgstr "歌曲在本机播放时，在播放栏控件后方显示它的律动。"
 
 #: src/ui/settings.rs:1329
@@ -1759,12 +1715,8 @@ msgid "Frame rate"
 msgstr "帧率"
 
 #: src/ui/settings.rs:1335
-msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
-"fewer resources. MilkDrop has its own."
-msgstr ""
-"播放栏和迷你播放器可视化效果的绘制频率。帧率越低占用资源越少。MilkDrop 有单独"
-"的设置。"
+msgid "How often the player bar and mini player visualizers draw. Lower rates use fewer resources. MilkDrop has its own."
+msgstr "播放栏和迷你播放器可视化效果的绘制频率。帧率越低占用资源越少。MilkDrop 有单独的设置。"
 
 #: src/ui/settings.rs:1483
 msgid "Off"
@@ -1796,12 +1748,8 @@ msgid "Mode"
 msgstr "模式"
 
 #: src/ui/settings.rs:1698
-msgid ""
-"Off ignores environment variables. System uses them, and the OS proxy on "
-"macOS and Windows."
-msgstr ""
-"“关闭”会忽略环境变量。“系统”会使用环境变量，在 macOS 和 Windows 上还会使用操"
-"作系统代理。"
+msgid "Off ignores environment variables. System uses them, and the OS proxy on macOS and Windows."
+msgstr "“关闭”会忽略环境变量。“系统”会使用环境变量，在 macOS 和 Windows 上还会使用操作系统代理。"
 
 #: src/ui/settings.rs:1750 src/ui/login.rs:644
 msgid "Apply settings"
@@ -1844,20 +1792,12 @@ msgid "Show the mini player"
 msgstr "显示迷你播放器"
 
 #: src/ui/settings.rs:1796
-msgid ""
-"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
-"skin on either window to add it."
-msgstr ""
-"使用 Winamp 或 Windows Media Player 皮肤。按 Ctrl+M 返回。将皮肤拖到任一窗口"
-"上即可添加。"
+msgid "Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a skin on either window to add it."
+msgstr "使用 Winamp 或 Windows Media Player 皮肤。按 Ctrl+M 返回。将皮肤拖到任一窗口上即可添加。"
 
 #: src/ui/settings.rs:1800
-msgid ""
-"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
-"a skin on either window to add it."
-msgstr ""
-"使用 Winamp 或 Windows Media Player 皮肤。按 Cmd+Shift+M 返回。将皮肤拖到任一"
-"窗口上即可添加。"
+msgid "Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop a skin on either window to add it."
+msgstr "使用 Winamp 或 Windows Media Player 皮肤。按 Cmd+Shift+M 返回。将皮肤拖到任一窗口上即可添加。"
 
 #: src/ui/settings.rs:1811 src/ui/settings.rs:1875
 msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
@@ -1888,9 +1828,7 @@ msgid "Show in taskbar"
 msgstr "在任务栏中显示"
 
 #: src/ui/settings.rs:1847
-msgid ""
-"Keep a taskbar button for the mini player. The tray icon stays available "
-"when hidden."
+msgid "Keep a taskbar button for the mini player. The tray icon stays available when hidden."
 msgstr "在任务栏中保留迷你播放器的按钮。隐藏后，托盘图标仍然可用。"
 
 #: src/ui/settings.rs:1856
@@ -1907,8 +1845,7 @@ msgid "Installed skins are in {folder}. None of this kind yet."
 msgstr "已安装的皮肤位于 {folder}。目前还没有这一类皮肤。"
 
 #: src/ui/settings.rs:1979
-msgid ""
-"This skin has no equalizer or playlist window, and its scripts do not run."
+msgid "This skin has no equalizer or playlist window, and its scripts do not run."
 msgstr "此皮肤没有均衡器和播放列表窗口，其脚本也不会运行。"
 
 #: src/ui/settings.rs:2044
@@ -1916,22 +1853,12 @@ msgid "MilkDrop window"
 msgstr "MilkDrop 窗口"
 
 #: src/ui/settings.rs:2052
-msgid ""
-"A projectM visualiser for local playback. Open it here, from the top bar, "
-"with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
-"shortcuts."
-msgstr ""
-"用于本地播放的 projectM 可视化效果。可在此处、顶部栏、按 Ctrl+Shift+K 或通过"
-"迷你播放器的 V 菜单打开。按 ? 或 F1 查看快捷键。"
+msgid "A projectM visualiser for local playback. Open it here, from the top bar, with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its shortcuts."
+msgstr "用于本地播放的 projectM 可视化效果。可在此处、顶部栏、按 Ctrl+Shift+K 或通过迷你播放器的 V 菜单打开。按 ? 或 F1 查看快捷键。"
 
 #: src/ui/settings.rs:2056
-msgid ""
-"A projectM visualiser for local playback. Open it here, from the top bar, "
-"with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
-"shortcuts."
-msgstr ""
-"用于本地播放的 projectM 可视化效果。可在此处、顶部栏、按 Cmd+Shift+K 或通过迷"
-"你播放器的 V 菜单打开。按 ? 或 F1 查看快捷键。"
+msgid "A projectM visualiser for local playback. Open it here, from the top bar, with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its shortcuts."
+msgstr "用于本地播放的 projectM 可视化效果。可在此处、顶部栏、按 Cmd+Shift+K 或通过迷你播放器的 V 菜单打开。按 ? 或 F1 查看快捷键。"
 
 #: src/ui/settings.rs:2062 src/ui/settings.rs:2241
 msgid "Presets"
@@ -1940,35 +1867,21 @@ msgstr "预设"
 #. Translators: {folder} is the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2067
 #, rust-format
-msgid ""
-"None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
-"MilkDrop first opens with an empty folder."
-msgstr ""
-"{folder} 中还没有预设。请将 .milk 文件添加到此处。首次打开 MilkDrop 时如果文"
-"件夹为空，Spotifast 会下载预设。"
+msgid "None yet in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgstr "{folder} 中还没有预设。请将 .milk 文件添加到此处。首次打开 MilkDrop 时如果文件夹为空，Spotifast 会下载预设。"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2073
 #, rust-format
-msgid ""
-"One preset in {folder}. Add .milk files here. Spotifast downloads presets "
-"when MilkDrop first opens with an empty folder."
-msgstr ""
-"{folder} 中有 1 个预设。请将 .milk 文件添加到此处。首次打开 MilkDrop 时如果文"
-"件夹为空，Spotifast 会下载预设。"
+msgid "One preset in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgstr "{folder} 中有 1 个预设。请将 .milk 文件添加到此处。首次打开 MilkDrop 时如果文件夹为空，Spotifast 会下载预设。"
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2079
 #, rust-format
-msgid ""
-"{count} preset in {folder}. Add .milk files here. Spotifast downloads "
-"presets when MilkDrop first opens with an empty folder."
-msgid_plural ""
-"{count} presets in {folder}. Add .milk files here. Spotifast downloads "
-"presets when MilkDrop first opens with an empty folder."
-msgstr[0] ""
-"{folder} 中有 {count} 个预设。请将 .milk 文件添加到此处。首次打开 MilkDrop 时"
-"如果文件夹为空，Spotifast 会下载预设。"
+msgid "{count} preset in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgid_plural "{count} presets in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgstr[0] "{folder} 中有 {count} 个预设。请将 .milk 文件添加到此处。首次打开 MilkDrop 时如果文件夹为空，Spotifast 会下载预设。"
 
 #: src/ui/settings.rs:2088
 msgid "Time per preset"
@@ -1985,12 +1898,8 @@ msgstr "帧率越低占用资源越少。“不限制”会尽可能快地绘制
 #. Translators: {hz} is the screen's refresh rate in hertz.
 #: src/ui/settings.rs:2104
 #, rust-format
-msgid ""
-"Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
-"Uncapped draws as fast as possible."
-msgstr ""
-"你的屏幕刷新率为 {hz} Hz，更高的帧率不会增加可见帧数。“不限制”会尽可能快地绘"
-"制。"
+msgid "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. Uncapped draws as fast as possible."
+msgstr "你的屏幕刷新率为 {hz} Hz，更高的帧率不会增加可见帧数。“不限制”会尽可能快地绘制。"
 
 #: src/ui/settings.rs:2111
 msgid "Resolution"
@@ -2035,9 +1944,7 @@ msgid "Equalizer"
 msgstr "均衡器"
 
 #: src/ui/settings.rs:2235
-msgid ""
-"A ten-band equalizer for playback on this computer. It does not affect other "
-"devices."
+msgid "A ten-band equalizer for playback on this computer. It does not affect other devices."
 msgstr "用于这台电脑上播放的十段均衡器，不影响其他设备。"
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
@@ -2169,16 +2076,11 @@ msgid "Allow Spotifast in System Settings, General, Login Items."
 msgstr "请在“系统设置”>“通用”>“登录项”中允许 Spotifast。"
 
 #: src/ui/settings.rs:2583
-msgid ""
-"Starting in the menu bar needs Keep music playing when the window closes. "
-"Until then, the window opens."
-msgstr ""
-"要在菜单栏中启动，需要开启“关闭窗口后继续播放音乐”。在此之前会打开窗口。"
+msgid "Starting in the menu bar needs Keep music playing when the window closes. Until then, the window opens."
+msgstr "要在菜单栏中启动，需要开启“关闭窗口后继续播放音乐”。在此之前会打开窗口。"
 
 #: src/ui/settings.rs:2588
-msgid ""
-"Starting in the tray needs Keep music playing when the window closes. Until "
-"then, the window opens."
+msgid "Starting in the tray needs Keep music playing when the window closes. Until then, the window opens."
 msgstr "要在托盘中启动，需要开启“关闭窗口后继续播放音乐”。在此之前会打开窗口。"
 
 #: src/ui/settings.rs:2594
@@ -2259,9 +2161,7 @@ msgid "Turn off Soloist"
 msgstr "关闭 Soloist"
 
 #: src/ui/soloist.rs:308
-msgid ""
-"Spotify has not published Soloist for this platform. The built-in player "
-"remains available."
+msgid "Spotify has not published Soloist for this platform. The built-in player remains available."
 msgstr "Spotify 尚未发布适用于此平台的 Soloist。内置播放器仍可使用。"
 
 #: src/ui/soloist.rs:314
@@ -2289,8 +2189,7 @@ msgid "Enable with saved key"
 msgstr "使用已保存的密钥启用"
 
 #: src/ui/soloist.rs:391 src/ui/soloist.rs:410
-msgid ""
-"Open Spotify with the same account and network. In its device picker, choose:"
+msgid "Open Spotify with the same account and network. In its device picker, choose:"
 msgstr "使用相同账号和网络打开 Spotify，然后在设备列表中选择："
 
 #: src/ui/soloist.rs:422
@@ -2402,9 +2301,7 @@ msgid "Loading local themes…"
 msgstr "正在加载本地主题…"
 
 #: src/theme.rs:209
-msgid ""
-"The selected theme is unavailable. Keeping the last usable appearance. See "
-"the log for details."
+msgid "The selected theme is unavailable. Keeping the last usable appearance. See the log for details."
 msgstr "所选主题不可用，将保留上次可用的外观。详情请查看日志。"
 
 #: src/theme.rs:213
@@ -2412,27 +2309,19 @@ msgid "The themes folder could not be read. See the log for details."
 msgstr "无法读取主题文件夹，详情请查看日志。"
 
 #: src/theme.rs:217
-msgid ""
-"The themes folder has more than 512 entries. Keep fewer files there to list "
-"the custom palettes."
+msgid "The themes folder has more than 512 entries. Keep fewer files there to list the custom palettes."
 msgstr "主题文件夹中的项目超过 512 个。请减少其中的文件以列出自定义配色。"
 
 #: src/theme.rs:221
-msgid ""
-"Only 128 custom palettes can be listed. Keep fewer JSON files in the themes "
-"folder to see the rest."
-msgstr ""
-"最多只能列出 128 个自定义配色。请减少主题文件夹中的 JSON 文件以查看其余配色。"
+msgid "Only 128 custom palettes can be listed. Keep fewer JSON files in the themes folder to see the rest."
+msgstr "最多只能列出 128 个自定义配色。请减少主题文件夹中的 JSON 文件以查看其余配色。"
 
 #: src/theme.rs:225
-msgid ""
-"The Omarchy palette could not be loaded. Keeping the last usable appearance. "
-"See the log for details."
+msgid "The Omarchy palette could not be loaded. Keeping the last usable appearance. See the log for details."
 msgstr "无法加载 Omarchy 调色板，将保留上次可用的外观。详情请查看日志。"
 
 #: src/theme.rs:229
-msgid ""
-"Custom themes could not be loaded. Run spotifast reload-themes to try again."
+msgid "Custom themes could not be loaded. Run spotifast reload-themes to try again."
 msgstr "无法加载自定义主题。请运行 spotifast reload-themes 重试。"
 
 #: src/ui/artist.rs:35
@@ -2645,13 +2534,8 @@ msgid "Register Spotifast with Spotify"
 msgstr "向 Spotify 注册 Spotifast"
 
 #: src/ui/dialogs.rs:46
-msgid ""
-"You're on the shared sign-in Spotifast used before. Spotifast no longer "
-"offers it, and Spotify can stop accepting it at any time. Register Spotifast "
-"so nothing stops your music. It takes about two minutes."
-msgstr ""
-"你正在使用 Spotifast 以前使用的共享登录。Spotifast 已不再提供它，Spotify 也随"
-"时可能停止接受它。请注册 Spotifast，让音乐不会中断。大约需要两分钟。"
+msgid "You're on the shared sign-in Spotifast used before. Spotifast no longer offers it, and Spotify can stop accepting it at any time. Register Spotifast so nothing stops your music. It takes about two minutes."
+msgstr "你正在使用 Spotifast 以前使用的共享登录。Spotifast 已不再提供它，Spotify 也随时可能停止接受它。请注册 Spotifast，让音乐不会中断。大约需要两分钟。"
 
 #: src/ui/dialogs.rs:53
 msgid "Not now"
@@ -2703,12 +2587,8 @@ msgid "This account cannot play music here"
 msgstr "此账户无法在此播放音乐"
 
 #: src/ui/dialogs.rs:213
-msgid ""
-"Playback needs Spotify Premium. Free accounts can browse and search, but "
-"cannot play music through Spotifast."
-msgstr ""
-"播放需要 Spotify Premium。免费账户可以浏览和搜索，但无法通过 Spotifast 播放音"
-"乐。"
+msgid "Playback needs Spotify Premium. Free accounts can browse and search, but cannot play music through Spotifast."
+msgstr "播放需要 Spotify Premium。免费账户可以浏览和搜索，但无法通过 Spotifast 播放音乐。"
 
 #: src/ui/dialogs.rs:222
 msgid "OK"
@@ -2743,14 +2623,9 @@ msgstr "“{first}”和“{second}”已在“{playlist}”中。仍要添加�
 #. Translators: {first} and {second} are song names, {count} is how many more songs are already in the playlist, and {playlist} is a playlist name.
 #: src/ui/dialogs.rs:301
 #, rust-format
-msgid ""
-"“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add "
-"them anyway?"
-msgid_plural ""
-"“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add "
-"them anyway?"
-msgstr[0] ""
-"“{first}”、“{second}”及另外 {count} 首歌曲已在“{playlist}”中。仍要添加吗？"
+msgid "“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add them anyway?"
+msgid_plural "“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add them anyway?"
+msgstr[0] "“{first}”、“{second}”及另外 {count} 首歌曲已在“{playlist}”中。仍要添加吗？"
 
 #: src/ui/dialogs.rs:376
 msgid "My playlist"
@@ -3066,34 +2941,20 @@ msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr "Spotifast {version} • 与 Spotify 无关"
 
 #: src/ui/login.rs:170
-msgid ""
-"That doesn't look like a Client ID. It is 32 letters and digits, shown on "
-"Spotify's page for your registration."
-msgstr ""
-"这看起来不像 Client ID。Client ID 由 32 个字母和数字组成，显示在 Spotify 上你"
-"的注册页面中。"
+msgid "That doesn't look like a Client ID. It is 32 letters and digits, shown on Spotify's page for your registration."
+msgstr "这看起来不像 Client ID。Client ID 由 32 个字母和数字组成，显示在 Spotify 上你的注册页面中。"
 
 #: src/ui/login.rs:174
-msgid ""
-"Spotify doesn't know this Client ID. Copy it again from Spotify's developer "
-"dashboard."
+msgid "Spotify doesn't know this Client ID. Copy it again from Spotify's developer dashboard."
 msgstr "Spotify 不认识此 Client ID。请从 Spotify 开发者控制台重新复制。"
 
 #: src/ui/login.rs:178
-msgid ""
-"Spotify didn't let this account use this Client ID. Sign in with the Spotify "
-"account that registered it, which needs Premium."
-msgstr ""
-"Spotify 不允许此账户使用此 Client ID。请使用注册它的 Spotify 账户登录，该账户"
-"需要 Premium。"
+msgid "Spotify didn't let this account use this Client ID. Sign in with the Spotify account that registered it, which needs Premium."
+msgstr "Spotify 不允许此账户使用此 Client ID。请使用注册它的 Spotify 账户登录，该账户需要 Premium。"
 
 #: src/ui/login.rs:182
-msgid ""
-"Spotify no longer accepts the shared sign-in Spotifast used before. Register "
-"Spotifast to keep listening."
-msgstr ""
-"Spotify 已不再接受 Spotifast 以前使用的共享登录。请注册 Spotifast 以继续收"
-"听。"
+msgid "Spotify no longer accepts the shared sign-in Spotifast used before. Register Spotifast to keep listening."
+msgstr "Spotify 已不再接受 Spotifast 以前使用的共享登录。请注册 Spotifast 以继续收听。"
 
 #: src/ui/login.rs:219
 msgid "A native Spotify client."
@@ -3109,24 +2970,16 @@ msgstr "没有打开？重新打开登录页面"
 
 #: src/ui/login.rs:257
 #, rust-format
-msgid ""
-"If Spotify says “Invalid redirect URI”, add {uri} to your registration "
-"exactly, save, and sign in again."
-msgstr ""
-"如果 Spotify 显示“Invalid redirect URI”，请将 {uri} 原样添加到你的注册信息"
-"中，保存后重新登录。"
+msgid "If Spotify says “Invalid redirect URI”, add {uri} to your registration exactly, save, and sign in again."
+msgstr "如果 Spotify 显示“Invalid redirect URI”，请将 {uri} 原样添加到你的注册信息中，保存后重新登录。"
 
 #: src/ui/login.rs:310
 msgid "Sign in with Spotify"
 msgstr "使用 Spotify 登录"
 
 #: src/ui/login.rs:321
-msgid ""
-"Sign in through your browser. Spotifast never sees your password. Local "
-"playback needs Spotify Premium."
-msgstr ""
-"通过浏览器登录。Spotifast 永远不会看到你的密码。本地播放需要 Spotify "
-"Premium。"
+msgid "Sign in through your browser. Spotifast never sees your password. Local playback needs Spotify Premium."
+msgstr "通过浏览器登录。Spotifast 永远不会看到你的密码。本地播放需要 Spotify Premium。"
 
 #: src/ui/login.rs:330
 msgid "How to register Spotifast"
@@ -3137,26 +2990,19 @@ msgid "Proxy Settings"
 msgstr "代理设置"
 
 #: src/ui/login.rs:409
-msgid ""
-"A Client ID is 32 letters and digits. Copy it from Spotify's developer "
-"dashboard."
+msgid "A Client ID is 32 letters and digits. Copy it from Spotify's developer dashboard."
 msgstr "Client ID 由 32 个字母和数字组成。请从 Spotify 开发者控制台复制。"
 
 #: src/ui/login.rs:469
-msgid ""
-"Spotify asks you to register Spotifast once, on an account with Premium. It "
-"takes about two minutes and gives you a Client ID."
-msgstr ""
-"Spotify 要求你用具有 Premium 的账户注册一次 Spotifast。大约需要两分钟，完成后"
-"你会得到一个 Client ID。"
+msgid "Spotify asks you to register Spotifast once, on an account with Premium. It takes about two minutes and gives you a Client ID."
+msgstr "Spotify 要求你用具有 Premium 的账户注册一次 Spotifast。大约需要两分钟，完成后你会得到一个 Client ID。"
 
 #: src/ui/login.rs:479
 msgid "Open Spotify's developer dashboard."
 msgstr "打开 Spotify 开发者控制台。"
 
 #: src/ui/login.rs:500
-msgid ""
-"Click Create app, Spotify's name for this registration. Any name will do."
+msgid "Click Create app, Spotify's name for this registration. Any name will do."
 msgstr "点击“Create app”，这是 Spotify 对此注册的叫法。名称随意。"
 
 #: src/ui/login.rs:508
@@ -3176,12 +3022,8 @@ msgid "Spotify is being slow on the shared sign-in."
 msgstr "Spotify 在共享登录上响应缓慢。"
 
 #: src/ui/mod.rs:408
-msgid ""
-"Spotifast no longer offers the shared sign-in, and Spotify can stop "
-"accepting it at any time. Register Spotifast and you won't have to wait."
-msgstr ""
-"Spotifast 已不再提供共享登录，Spotify 也随时可能停止接受它。注册 Spotifast，"
-"就不用再等待了。"
+msgid "Spotifast no longer offers the shared sign-in, and Spotify can stop accepting it at any time. Register Spotifast and you won't have to wait."
+msgstr "Spotifast 已不再提供共享登录，Spotify 也随时可能停止接受它。注册 Spotifast，就不用再等待了。"
 
 #. Translators: a button that opens a page explaining why
 #. the banner it sits in appeared.
@@ -3190,13 +3032,8 @@ msgid "Why?"
 msgstr "为什么？"
 
 #: src/ui/mod.rs:441
-msgid ""
-"Spotify refused the key that unlocks the audio. Spotifast can't fix that, "
-"but it sometimes clears up on its own. You can still play on your phone or "
-"another Spotify device."
-msgstr ""
-"Spotify 拒绝提供解锁音频的密钥。Spotifast 没法解决，但有时过一会儿会自己恢"
-"复。你仍然可以在手机或其他 Spotify 设备上播放。"
+msgid "Spotify refused the key that unlocks the audio. Spotifast can't fix that, but it sometimes clears up on its own. You can still play on your phone or another Spotify device."
+msgstr "Spotify 拒绝提供解锁音频的密钥。Spotifast 没法解决，但有时过一会儿会自己恢复。你仍然可以在手机或其他 Spotify 设备上播放。"
 
 #: src/ui/mod.rs:445
 msgid "Play on another device"
@@ -3431,8 +3268,7 @@ msgid "What do you want to play?"
 msgstr "想听什么？"
 
 #: src/ui/topbar.rs:546
-msgid ""
-"Spotifast is offline. Reconnecting automatically when connection returns."
+msgid "Spotifast is offline. Reconnecting automatically when connection returns."
 msgstr "Spotifast 处于离线状态。连接恢复后将自动重新连接。"
 
 #: src/ui/topbar.rs:574
@@ -3820,46 +3656,284 @@ msgid "Open page"
 msgstr "打开页面"
 
 #: src/window.rs:51
-msgid ""
-"On Windows on ARM, the OpenGL that Spotifast draws with comes from "
-"Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft "
-"Store page to install or repair it?"
-msgstr ""
-"在 ARM 版 Windows 上，Spotifast 用于绘制界面的 OpenGL 由 Microsoft 的 "
-"OpenCL, OpenGL & Vulkan Compatibility Pack 提供。要打开其 Microsoft Store 页"
-"面以安装或修复吗？"
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr "在 ARM 版 Windows 上，Spotifast 用于绘制界面的 OpenGL 由 Microsoft 的 OpenCL, OpenGL & Vulkan Compatibility Pack 提供。要打开其 Microsoft Store 页面以安装或修复吗？"
 
 #. Translators: Keep {url} exactly as written. It becomes the address
 #. of the Spotifast download page.
 #: src/window.rs:58
 #, rust-format
-msgid ""
-"Spotifast needs a graphics driver with OpenGL 2.0 or newer, and this PC or "
-"virtual machine does not provide one. Install the graphics driver, or turn "
-"on GPU acceleration for the virtual machine. Open {url} to read more?"
-msgstr ""
-"Spotifast 需要支持 OpenGL 2.0 或更高版本的显卡驱动程序，而这台电脑或虚拟机没"
-"有提供。请安装显卡驱动程序，或为虚拟机开启 GPU 加速。要打开 {url} 了解更多"
-"吗？"
+msgid "Spotifast needs a graphics driver with OpenGL 2.0 or newer, and this PC or virtual machine does not provide one. Install the graphics driver, or turn on GPU acceleration for the virtual machine. Open {url} to read more?"
+msgstr "Spotifast 需要支持 OpenGL 2.0 或更高版本的显卡驱动程序，而这台电脑或虚拟机没有提供。请安装显卡驱动程序，或为虚拟机开启 GPU 加速。要打开 {url} 了解更多吗？"
 
-#~ msgid ""
-#~ "Spotify refused this cover. Check that you own the playlist, then sign in "
-#~ "again to grant image upload permission. If using a personal app, "
-#~ "reconnect it in Settings too."
-#~ msgstr ""
-#~ "Spotify 拒绝了此封面。请确认你是歌单的所有者，然后重新登录以授予上传图片的"
-#~ "权限。如果使用个人应用，也请在设置中重新连接它。"
+#. Translators: {step} and {steps} are numbers, as in "Step 2 of 3".
+#: src/ui/soloist.rs:199
+#, rust-format
+msgid "Step {step} of {steps}"
+msgstr "第 {step} 步，共 {steps} 步"
+
+#: src/ui/soloist.rs:315
+msgid "Spotify's own player, running on this computer. Spotifast sets it up and keeps it updated."
+msgstr "Spotify 官方播放器，在这台电脑上运行。Spotifast 负责设置和更新。"
+
+#: src/ui/soloist.rs:321
+msgid "Get your personal key from Spotify."
+msgstr "从 Spotify 获取你的个人密钥。"
+
+#: src/ui/soloist.rs:322
+msgid "Spotifast downloads the player."
+msgstr "Spotifast 下载播放器。"
+
+#: src/ui/soloist.rs:323
+msgid "Choose it once in the Spotify app."
+msgstr "在 Spotify 应用中选择一次。"
+
+#: src/ui/soloist.rs:338
+msgid "Requires Spotify Premium."
+msgstr "需要 Spotify Premium。"
+
+#: src/ui/soloist.rs:365
+msgid "Get your Soloist key"
+msgstr "获取 Soloist 密钥"
+
+#: src/ui/soloist.rs:368
+msgid "Spotify gives each Premium account its own key. Spotifast keeps it in your system's credential store."
+msgstr "Spotify 为每个 Premium 账户提供专属密钥。Spotifast 将其保存在系统凭据存储中。"
+
+#: src/ui/soloist.rs:384
+msgid "Copy your key from Spotify's Soloist page."
+msgstr "从 Spotify 的 Soloist 页面复制密钥。"
+
+#: src/ui/soloist.rs:399
+msgid "Paste it here."
+msgstr "粘贴到这里。"
+
+#: src/ui/soloist.rs:412
+msgid "Soloist key"
+msgstr "Soloist 密钥"
+
+#: src/ui/soloist.rs:443
+msgid "Download Soloist"
+msgstr "下载 Soloist"
+
+#: src/ui/soloist.rs:460
+msgid "Starting Soloist"
+msgstr "正在启动 Soloist"
+
+#: src/ui/soloist.rs:461
+msgid "Checking your key and starting Spotify's player."
+msgstr "正在检查密钥并启动 Spotify 的播放器。"
+
+#: src/ui/soloist.rs:472
+msgid "This is taking longer than usual. Spotify may be busy, so it's safe to wait."
+msgstr "这比平时要久。Spotify 可能正忙，可以放心等待。"
+
+#: src/ui/soloist.rs:488 src/ui/soloist.rs:755
+msgid "Downloading Soloist"
+msgstr "正在下载 Soloist"
+
+#: src/ui/soloist.rs:489 src/ui/soloist.rs:753
+msgid "Directly from Spotify, to this computer."
+msgstr "直接从 Spotify 下载到这台电脑。"
+
+#: src/ui/soloist.rs:545
+msgid "Choose Soloist in Spotify"
+msgstr "在 Spotify 中选择 Soloist"
+
+#: src/ui/soloist.rs:546
+msgid "You only do this once, on the same network."
+msgstr "只需在同一网络下操作一次。"
+
+#: src/ui/soloist.rs:554
+msgid "Open the Spotify desktop app, on the same account."
+msgstr "用同一账户打开 Spotify 桌面应用。"
+
+#: src/ui/soloist.rs:563
+msgid "Play a song. Soloist often only appears while one plays."
+msgstr "播放一首歌曲。Soloist 通常只在播放时才会出现。"
+
+#: src/ui/soloist.rs:571
+msgid "Open its list of devices and choose:"
+msgstr "打开设备列表并选择："
+
+#: src/ui/soloist.rs:584
+msgid "Soloist isn't in the list"
+msgstr "列表中没有 Soloist"
+
+#: src/ui/soloist.rs:613
+msgid "Phones and the web player may not list it until it has been chosen once. Start with the desktop app, on this computer."
+msgstr "手机和网页播放器可能要在选择过一次后才会显示它。请先从这台电脑上的桌面应用开始。"
+
+#: src/ui/soloist.rs:617
+msgid "A firewall, VPN or guest Wi-Fi can hide it. Allow Soloist on your local network, or pair once over your phone's hotspot."
+msgstr "防火墙、VPN 或访客 Wi-Fi 可能会让它无法显示。请在本地网络中允许 Soloist，或通过手机热点配对一次。"
+
+#: src/ui/soloist.rs:624
+msgid "More help in the guide"
+msgstr "在指南中查看更多帮助"
+
+#: src/ui/soloist.rs:643
+msgid "Almost there"
+msgstr "马上就好"
+
+#: src/ui/soloist.rs:646
+msgid "Soloist is connected. Spotify is confirming it's on your account."
+msgstr "Soloist 已连接。Spotify 正在确认它已关联到你的账户。"
+
+#: src/ui/soloist.rs:660
+msgid "Spotify is slow to answer. Playing a song on Soloist from the Spotify app can help."
+msgstr "Spotify 响应较慢。在 Spotify 应用中用 Soloist 播放一首歌曲可能会有帮助。"
+
+#: src/ui/soloist.rs:675
+msgid "Soloist will play your music on this computer."
+msgstr "Soloist 将在这台电脑上播放你的音乐。"
+
+#: src/ui/soloist.rs:691
+msgid "Soloist didn't start"
+msgstr "Soloist 未能启动"
+
+#: src/ui/soloist.rs:701
+msgid "Enter a different key"
+msgstr "输入其他密钥"
+
+#: src/ui/soloist.rs:723
+msgid "Reconnecting Soloist…"
+msgstr "正在重新连接 Soloist…"
+
+#: src/ui/soloist.rs:726
+msgid "Keep browsing. A song you choose now starts when it's back."
+msgstr "你可以继续浏览。现在选择的歌曲会在恢复后开始播放。"
+
+#: src/ui/soloist.rs:734
+msgid "Soloist isn't running"
+msgstr "Soloist 未运行"
+
+#: src/ui/soloist.rs:743
+msgid "Soloist needs your key"
+msgstr "Soloist 需要你的密钥"
+
+#: src/ui/soloist.rs:744 src/ui/soloist.rs:858
+msgid "Spotifast can't find the key you saved."
+msgstr "Spotifast 找不到你保存的密钥。"
+
+#: src/ui/soloist.rs:747 src/ui/soloist.rs:955
+msgid "Add your key"
+msgstr "添加密钥"
+
+#: src/ui/soloist.rs:762
+msgid "Soloist needs to connect again"
+msgstr "Soloist 需要重新连接"
+
+#: src/ui/soloist.rs:765
+msgid "Spotify signed it out on this computer. Choose it once more in Spotify."
+msgstr "Spotify 已在这台电脑上将其登出。请在 Spotify 中再选择一次。"
+
+#: src/ui/soloist.rs:771
+msgid "Spotify hasn't listed Soloist yet"
+msgstr "Spotify 尚未列出 Soloist"
+
+#: src/ui/soloist.rs:774
+msgid "Soloist is running. Playing a song on it from the Spotify app usually helps."
+msgstr "Soloist 正在运行。在 Spotify 应用中用它播放一首歌曲通常会有帮助。"
+
+#: src/ui/soloist.rs:802
+msgid "Spotify's own player, running on this computer. Requires Premium."
+msgstr "Spotify 官方播放器，在这台电脑上运行。需要 Premium。"
+
+#: src/ui/soloist.rs:809
+msgid "Status"
+msgstr "状态"
+
+#: src/ui/soloist.rs:810
+msgid "Version"
+msgstr "版本"
+
+#: src/ui/soloist.rs:821
+msgid "Spotify manages it. Soloist doesn't report the format it plays."
+msgstr "由 Spotify 管理。Soloist 不会报告其播放的格式。"
+
+#: src/ui/soloist.rs:837
+msgid "Go back to the built-in player. Your key stays saved."
+msgstr "返回内置播放器。你的密钥仍会保存。"
+
+#: src/ui/soloist.rs:848
+msgid "Ready on this computer."
+msgstr "已在这台电脑上就绪。"
+
+#: src/ui/soloist.rs:877
+#, rust-format
+msgid "{version}, good until {date}. Updates automatically."
+msgstr "{version}，有效期至 {date}。自动更新。"
+
+#: src/ui/soloist.rs:928
+msgid "Turn off"
+msgstr "关闭"
+
+#: src/soloist/mod.rs:75
+msgid "Spotify hasn't confirmed your sign-in yet. Try again in a moment."
+msgstr "Spotify 尚未确认你的登录。请稍后重试。"
+
+#: src/soloist/mod.rs:77
+msgid "That doesn't look like a Soloist key."
+msgstr "这看起来不是 Soloist 密钥。"
+
+#: src/soloist/mod.rs:80
+msgid "Spotifast couldn't reach your saved key. Unlock the system credential store and try again."
+msgstr "Spotifast 无法读取你保存的密钥。请解锁系统凭据存储后重试。"
+
+#: src/soloist/mod.rs:84
+msgid "Spotifast couldn't download Soloist. Check your connection and try again."
+msgstr "Spotifast 无法下载 Soloist。请检查连接后重试。"
+
+#: src/soloist/mod.rs:88
+msgid "Soloist stopped while starting. Check your key and this computer's audio service."
+msgstr "Soloist 在启动时停止。请检查密钥和这台电脑的音频服务。"
+
+#: src/soloist/mod.rs:90
+msgid "Soloist took too long to start."
+msgstr "Soloist 启动时间过长。"
+
+#: src/soloist/mod.rs:91
+msgid "Soloist stopped unexpectedly."
+msgstr "Soloist 意外停止。"
+
+#: src/soloist/mod.rs:92
+msgid "Soloist keeps losing its connection."
+msgstr "Soloist 不断断开连接。"
+
+#: src/soloist/mod.rs:93
+msgid "Soloist lost its audio output."
+msgstr "Soloist 失去了音频输出。"
+
+#: src/soloist/mod.rs:96
+msgid "This Soloist build has expired, and Spotify hasn't published a new one yet."
+msgstr "此 Soloist 版本已过期，Spotify 尚未发布新版本。"
+
+#: src/ui/keys.rs:364
+msgid "Winamp mini player"
+msgstr "Winamp 迷你播放器"
+
+#: src/ui/login.rs:257
+#, rust-format
+msgid "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, save, and sign in again."
+msgstr "如果 Spotify 显示“Invalid redirect URI”，请将 {uri} 原样添加到你的应用中，保存后重新登录。"
+
+#: src/ui/topbar.rs:589
+msgid "Winamp mini player (Ctrl+M)"
+msgstr "Winamp 迷你播放器 (Ctrl+M)"
+
+#: src/ui/topbar.rs:590
+msgid "Winamp mini player (Cmd+Shift+M)"
+msgstr "Winamp 迷你播放器 (Cmd+Shift+M)"
+
+#~ msgid "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If using a personal app, reconnect it in Settings too."
+#~ msgstr "Spotify 拒绝了此封面。请确认你是歌单的所有者，然后重新登录以授予上传图片的权限。如果使用个人应用，也请在设置中重新连接它。"
 
 #~ msgid "Personal Spotify app"
 #~ msgstr "个人 Spotify 应用"
 
-#~ msgid ""
-#~ "You're still signed in through the shared app Spotifast used before, "
-#~ "which Spotify can stop accepting at any time. Set up your own app to keep "
-#~ "listening."
-#~ msgstr ""
-#~ "你仍在通过 Spotifast 以前使用的共享应用登录，Spotify 随时可能停止接受它。"
-#~ "请设置你自己的应用以继续收听。"
+#~ msgid "You're still signed in through the shared app Spotifast used before, which Spotify can stop accepting at any time. Set up your own app to keep listening."
+#~ msgstr "你仍在通过 Spotifast 以前使用的共享应用登录，Spotify 随时可能停止接受它。请设置你自己的应用以继续收听。"
 
 #~ msgid "Spotifast signs in through your own free Spotify app."
 #~ msgstr "Spotifast 通过你自己的免费 Spotify 应用登录。"
@@ -3885,44 +3959,23 @@ msgstr ""
 #~ msgid "Move to your own Spotify app"
 #~ msgstr "改用你自己的 Spotify 应用"
 
-#~ msgid ""
-#~ "You're signed in through the shared app Spotifast used before. Spotifast "
-#~ "no longer offers it, and Spotify can stop accepting it at any time. Set "
-#~ "up your own free Spotify app so nothing stops your music. It takes a few "
-#~ "minutes."
-#~ msgstr ""
-#~ "你正在通过 Spotifast 以前使用的共享应用登录。Spotifast 已不再提供它，"
-#~ "Spotify 也随时可能停止接受它。请设置你自己的免费 Spotify 应用，让音乐不会"
-#~ "中断。只需几分钟。"
+#~ msgid "You're signed in through the shared app Spotifast used before. Spotifast no longer offers it, and Spotify can stop accepting it at any time. Set up your own free Spotify app so nothing stops your music. It takes a few minutes."
+#~ msgstr "你正在通过 Spotifast 以前使用的共享应用登录。Spotifast 已不再提供它，Spotify 也随时可能停止接受它。请设置你自己的免费 Spotify 应用，让音乐不会中断。只需几分钟。"
 
 #~ msgid "Set up personal app"
 #~ msgstr "设置个人应用"
 
-#~ msgid ""
-#~ "That doesn't look like a Client ID. It is 32 letters and digits, shown on "
-#~ "your app's page in the dashboard."
-#~ msgstr ""
-#~ "这看起来不像客户端 ID。客户端 ID 由 32 个字母和数字组成，显示在控制台中你"
-#~ "的应用页面上。"
+#~ msgid "That doesn't look like a Client ID. It is 32 letters and digits, shown on your app's page in the dashboard."
+#~ msgstr "这看起来不像客户端 ID。客户端 ID 由 32 个字母和数字组成，显示在控制台中你的应用页面上。"
 
-#~ msgid ""
-#~ "Spotify doesn't know this Client ID. Copy it again from your app's page "
-#~ "in the dashboard."
+#~ msgid "Spotify doesn't know this Client ID. Copy it again from your app's page in the dashboard."
 #~ msgstr "Spotify 无法识别此客户端 ID。请从控制台中你的应用页面重新复制。"
 
-#~ msgid ""
-#~ "Spotify didn't let this account use the app. Sign in with the Spotify "
-#~ "account that created it, which needs Premium."
-#~ msgstr ""
-#~ "Spotify 不允许此账户使用该应用。请使用创建该应用的 Spotify 账户登录，该账"
-#~ "户需要 Premium。"
+#~ msgid "Spotify didn't let this account use the app. Sign in with the Spotify account that created it, which needs Premium."
+#~ msgstr "Spotify 不允许此账户使用该应用。请使用创建该应用的 Spotify 账户登录，该账户需要 Premium。"
 
-#~ msgid ""
-#~ "Spotify no longer accepts the shared sign-in Spotifast used before. Set "
-#~ "up your own Spotify app to keep listening."
-#~ msgstr ""
-#~ "Spotify 已不再接受 Spotifast 以前使用的共享登录。请设置你自己的 Spotify 应"
-#~ "用以继续收听。"
+#~ msgid "Spotify no longer accepts the shared sign-in Spotifast used before. Set up your own Spotify app to keep listening."
+#~ msgstr "Spotify 已不再接受 Spotifast 以前使用的共享登录。请设置你自己的 Spotify 应用以继续收听。"
 
 #~ msgid "How to set up your Spotify app"
 #~ msgstr "如何设置你的 Spotify 应用"
@@ -3933,12 +3986,8 @@ msgstr ""
 #~ msgid "Set up your Spotify app"
 #~ msgstr "设置你的 Spotify 应用"
 
-#~ msgid ""
-#~ "Spotifast signs in through your own free Spotify app. Spotify requires "
-#~ "its owner to have Premium."
-#~ msgstr ""
-#~ "Spotifast 通过你自己的免费 Spotify 应用登录。Spotify 要求应用所有者拥有 "
-#~ "Premium。"
+#~ msgid "Spotifast signs in through your own free Spotify app. Spotify requires its owner to have Premium."
+#~ msgstr "Spotifast 通过你自己的免费 Spotify 应用登录。Spotify 要求应用所有者拥有 Premium。"
 
 #~ msgid "Click Create app. Any name will do."
 #~ msgstr "点击“Create app”。名称随意。"
@@ -3949,13 +3998,8 @@ msgstr ""
 #~ msgid "Spotify is being slow on the shared app."
 #~ msgstr "Spotify 在共享应用上响应很慢。"
 
-#~ msgid ""
-#~ "Spotifast no longer offers the shared app, and Spotify can stop accepting "
-#~ "it at any time. Set up your own free Spotify app and you won't have to "
-#~ "wait."
-#~ msgstr ""
-#~ "Spotifast 已不再提供共享应用，Spotify 也随时可能停止接受它。设置你自己的免"
-#~ "费 Spotify 应用，就不用再等待了。"
+#~ msgid "Spotifast no longer offers the shared app, and Spotify can stop accepting it at any time. Set up your own free Spotify app and you won't have to wait."
+#~ msgstr "Spotifast 已不再提供共享应用，Spotify 也随时可能停止接受它。设置你自己的免费 Spotify 应用，就不用再等待了。"
 
 #~ msgid "Winamp skins"
 #~ msgstr "Winamp 皮肤"
@@ -3963,19 +4007,11 @@ msgstr ""
 #~ msgid "Show Winamp in taskbar"
 #~ msgstr "在任务栏中显示 Winamp"
 
-#~ msgid ""
-#~ "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
-#~ "return. Drop a skin on either window to add it."
-#~ msgstr ""
-#~ "使用经典的 Winamp .wsz 皮肤。按 Ctrl+M 或点击皮肤标志即可返回。将皮肤拖放"
-#~ "到任一窗口即可添加。"
+#~ msgid "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to return. Drop a skin on either window to add it."
+#~ msgstr "使用经典的 Winamp .wsz 皮肤。按 Ctrl+M 或点击皮肤标志即可返回。将皮肤拖放到任一窗口即可添加。"
 
-#~ msgid ""
-#~ "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo "
-#~ "to return. Drop a skin on either window to add it."
-#~ msgstr ""
-#~ "使用经典的 Winamp .wsz 皮肤。按 Cmd+Shift+M 或点击皮肤标志即可返回。将皮肤"
-#~ "拖放到任一窗口即可添加。"
+#~ msgid "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to return. Drop a skin on either window to add it."
+#~ msgstr "使用经典的 Winamp .wsz 皮肤。按 Cmd+Shift+M 或点击皮肤标志即可返回。将皮肤拖放到任一窗口即可添加。"
 
 #~ msgid "Skin"
 #~ msgstr "皮肤"
@@ -3992,69 +4028,34 @@ msgstr ""
 #~ msgid "Spotify's own player, with lossless support."
 #~ msgstr "Spotify 官方播放器，支持无损音频。"
 
-#~ msgid ""
-#~ "You'll need Spotify Premium, your personal Soloist key and one pairing in "
-#~ "Spotify. Spotifast handles the download and updates."
-#~ msgstr ""
-#~ "需要 Spotify Premium、你的个人 Soloist 密钥，以及在 Spotify 中完成一次配"
-#~ "对。Spotifast 会负责下载和更新。"
+#~ msgid "You'll need Spotify Premium, your personal Soloist key and one pairing in Spotify. Spotifast handles the download and updates."
+#~ msgstr "需要 Spotify Premium、你的个人 Soloist 密钥，以及在 Spotify 中完成一次配对。Spotifast 会负责下载和更新。"
 
-#~ msgid ""
-#~ "For local files and full queue editing, use the built-in player. You can "
-#~ "switch later in Settings."
-#~ msgstr ""
-#~ "如需播放本地文件和完整的队列编辑功能，请使用内置播放器。稍后可在设置中切"
-#~ "换。"
+#~ msgid "For local files and full queue editing, use the built-in player. You can switch later in Settings."
+#~ msgstr "如需播放本地文件和完整的队列编辑功能，请使用内置播放器。稍后可在设置中切换。"
 
-#~ msgid ""
-#~ "Create a Soloist key in Spotify's developer dashboard. This is separate "
-#~ "from your Web API app's Client ID."
-#~ msgstr ""
-#~ "在 Spotify 开发者控制台中创建 Soloist 密钥。它与你的 Web API 应用的 "
-#~ "Client ID 不同。"
+#~ msgid "Create a Soloist key in Spotify's developer dashboard. This is separate from your Web API app's Client ID."
+#~ msgstr "在 Spotify 开发者控制台中创建 Soloist 密钥。它与你的 Web API 应用的 Client ID 不同。"
 
-#~ msgid ""
-#~ "Soloist makes its own Spotify connections. Spotifast's proxy settings do "
-#~ "not route its audio traffic."
-#~ msgstr ""
-#~ "Soloist 自行连接 Spotify。Spotifast 的代理设置不适用于 Soloist 的音频流"
-#~ "量。"
+#~ msgid "Soloist makes its own Spotify connections. Spotifast's proxy settings do not route its audio traffic."
+#~ msgstr "Soloist 自行连接 Spotify。Spotifast 的代理设置不适用于 Soloist 的音频流量。"
 
-#~ msgid ""
-#~ "Downloads directly from Spotify and saves your key in the system "
-#~ "credential store. By enabling Soloist, you use Spotify's separate "
-#~ "software under its terms."
-#~ msgstr ""
-#~ "直接从 Spotify 下载，并将密钥保存在系统凭据存储中。启用 Soloist 即表示你使"
-#~ "用 Spotify 的独立软件，并遵守其条款。"
+#~ msgid "Downloads directly from Spotify and saves your key in the system credential store. By enabling Soloist, you use Spotify's separate software under its terms."
+#~ msgstr "直接从 Spotify 下载，并将密钥保存在系统凭据存储中。启用 Soloist 即表示你使用 Spotify 的独立软件，并遵守其条款。"
 
-#~ msgid ""
-#~ "Open Spotify on the same network, using the account signed in here. In "
-#~ "the device picker, choose:"
+#~ msgid "Open Spotify on the same network, using the account signed in here. In the device picker, choose:"
 #~ msgstr "在同一网络上打开 Spotify，使用此处登录的账号。在设备列表中选择："
 
-#~ msgid ""
-#~ "Spotifast will notice when pairing finishes. Future starts reconnect "
-#~ "automatically."
+#~ msgid "Spotifast will notice when pairing finishes. Future starts reconnect automatically."
 #~ msgstr "Spotifast 会检测到配对完成。以后启动时会自动重新连接。"
 
-#~ msgid ""
-#~ "If this takes a while, make sure Spotify is signed in to the same account "
-#~ "as Spotifast, then select this device there."
-#~ msgstr ""
-#~ "如果等待较久，请确认 Spotify 与 Spotifast 登录的是同一个账号，然后在 "
-#~ "Spotify 中选择此设备。"
+#~ msgid "If this takes a while, make sure Spotify is signed in to the same account as Spotifast, then select this device there."
+#~ msgstr "如果等待较久，请确认 Spotify 与 Spotifast 登录的是同一个账号，然后在 Spotify 中选择此设备。"
 
-#~ msgid ""
-#~ "For EQ, visualizers, local files and queue editing, use the built-in "
-#~ "player. You can switch later in Settings."
-#~ msgstr ""
-#~ "如需使用均衡器、可视化、本地文件和队列编辑，请选择内置播放器。之后可以在设"
-#~ "置中切换。"
+#~ msgid "For EQ, visualizers, local files and queue editing, use the built-in player. You can switch later in Settings."
+#~ msgstr "如需使用均衡器、可视化、本地文件和队列编辑，请选择内置播放器。之后可以在设置中切换。"
 
-#~ msgid ""
-#~ "Spotify manages audio quality. EQ, visualizers and local files use the "
-#~ "built-in player."
+#~ msgid "Spotify manages audio quality. EQ, visualizers and local files use the built-in player."
 #~ msgstr "音质由 Spotify 管理。均衡器、可视化和本地文件使用内置播放器。"
 
 #~ msgid "Confirming your Spotify account…"
@@ -4063,60 +4064,34 @@ msgstr ""
 #~ msgid "Details"
 #~ msgstr "详细信息"
 
-#~ msgid ""
-#~ "Spotifast checks daily for a replacement during the last 30 days of each "
-#~ "build. Updates wait until Soloist is inactive."
-#~ msgstr ""
-#~ "在每个版本到期前的最后 30 天内，Spotifast 每天检查是否有替代版本。更新会等"
-#~ "待 Soloist 进入非活动状态。"
+#~ msgid "Spotifast checks daily for a replacement during the last 30 days of each build. Updates wait until Soloist is inactive."
+#~ msgstr "在每个版本到期前的最后 30 天内，Spotifast 每天检查是否有替代版本。更新会等待 Soloist 进入非活动状态。"
 
-#~ msgid ""
-#~ "Soloist uses your system audio output. Turn it off to use the built-in "
-#~ "player's EQ, visualizers, local files and queue editing."
-#~ msgstr ""
-#~ "Soloist 使用系统音频输出。关闭它即可使用内置播放器的均衡器、可视化效果、本"
-#~ "地文件和队列编辑功能。"
+#~ msgid "Soloist uses your system audio output. Turn it off to use the built-in player's EQ, visualizers, local files and queue editing."
+#~ msgstr "Soloist 使用系统音频输出。关闭它即可使用内置播放器的均衡器、可视化效果、本地文件和队列编辑功能。"
 
-#~ msgid ""
-#~ "Spotify chooses playback quality. Soloist does not report the delivered "
-#~ "audio format yet."
+#~ msgid "Spotify chooses playback quality. Soloist does not report the delivered audio format yet."
 #~ msgstr "Spotify 决定播放音质。Soloist 尚未报告实际接收的音频格式。"
 
-#~ msgid ""
-#~ "Audio quality, output, EQ and local-file settings below apply to the "
-#~ "built-in player."
+#~ msgid "Audio quality, output, EQ and local-file settings below apply to the built-in player."
 #~ msgstr "下方的音质、输出、均衡器和本地文件设置适用于内置播放器。"
 
-#~ msgid ""
-#~ "Spotify's own player, with support for lossless audio. Requires Premium, "
-#~ "your personal Soloist key, and one pairing in the Spotify app."
-#~ msgstr ""
-#~ "Spotify 自己的播放器，支持无损音频。需要 Premium、你的个人 Soloist 密钥，"
-#~ "以及在 Spotify 应用中进行一次配对。"
+#~ msgid "Spotify's own player, with support for lossless audio. Requires Premium, your personal Soloist key, and one pairing in the Spotify app."
+#~ msgstr "Spotify 自己的播放器，支持无损音频。需要 Premium、你的个人 Soloist 密钥，以及在 Spotify 应用中进行一次配对。"
 
-#~ msgid ""
-#~ "Soloist plays through your system audio output. Spotifast's EQ, "
-#~ "visualizers, local files, and full queue editing are available with the "
-#~ "built-in player."
-#~ msgstr ""
-#~ "Soloist 使用系统音频输出。Spotifast 的均衡器、可视化、本地文件和完整队列编"
-#~ "辑功能可通过内置播放器使用。"
+#~ msgid "Soloist plays through your system audio output. Spotifast's EQ, visualizers, local files, and full queue editing are available with the built-in player."
+#~ msgstr "Soloist 使用系统音频输出。Spotifast 的均衡器、可视化、本地文件和完整队列编辑功能可通过内置播放器使用。"
 
 #~ msgid "Soloist is ready"
 #~ msgstr "Soloist 已就绪"
 
-#~ msgid ""
-#~ "A fresh build is downloaded. It will be applied when Soloist is inactive "
-#~ "or Spotifast restarts."
-#~ msgstr ""
-#~ "新版本已下载。Soloist 处于非活动状态或 Spotifast 重新启动时将应用更新。"
+#~ msgid "A fresh build is downloaded. It will be applied when Soloist is inactive or Spotifast restarts."
+#~ msgstr "新版本已下载。Soloist 处于非活动状态或 Spotifast 重新启动时将应用更新。"
 
 #~ msgid "Soloist setup, privacy and limitations"
 #~ msgstr "Soloist 设置、隐私和限制"
 
-#~ msgid ""
-#~ "Use a personal Development Mode app for a separate API quota. The shared "
-#~ "app stays active."
+#~ msgid "Use a personal Development Mode app for a separate API quota. The shared app stays active."
 #~ msgstr "使用个人开发模式应用可获得独立的 API 配额。共享应用仍保持可用。"
 
 #~ msgid "Remove personal app"
@@ -4128,25 +4103,16 @@ msgstr ""
 #~ msgid "Spotify can be slow on the shared app"
 #~ msgstr "使用共享应用时 Spotify 可能会很慢"
 
-#~ msgid ""
-#~ "Everyone using Spotifast shares one app, and Spotify slows it down when "
-#~ "it's busy. Set up your own personal Spotify app and you won't have to "
-#~ "wait. It's free and takes a few minutes."
-#~ msgstr ""
-#~ "所有 Spotifast 用户共用一个应用，Spotify 在繁忙时会限制它的速度。设置你自"
-#~ "己的个人 Spotify 应用，就不用再等了。它是免费的，只需几分钟。"
+#~ msgid "Everyone using Spotifast shares one app, and Spotify slows it down when it's busy. Set up your own personal Spotify app and you won't have to wait. It's free and takes a few minutes."
+#~ msgstr "所有 Spotifast 用户共用一个应用，Spotify 在繁忙时会限制它的速度。设置你自己的个人 Spotify 应用，就不用再等了。它是免费的，只需几分钟。"
 
 #~ msgid "Use the shared Spotify app instead"
 #~ msgstr "改用共享 Spotify 应用"
 
-#~ msgid ""
-#~ "Set up your own personal Spotify app and you won't have to wait. It's "
-#~ "free and takes a few minutes."
-#~ msgstr ""
-#~ "设置你自己的个人 Spotify 应用，就不用再等了。它是免费的，只需几分钟。"
+#~ msgid "Set up your own personal Spotify app and you won't have to wait. It's free and takes a few minutes."
+#~ msgstr "设置你自己的个人 Spotify 应用，就不用再等了。它是免费的，只需几分钟。"
 
-#~ msgid ""
-#~ "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
+#~ msgid "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
 #~ msgstr "Spotifast 会隐藏到系统托盘。可通过托盘菜单或 Cmd+Q 退出。"
 
 #~ msgid "Your most-played tracks from the last four weeks."
@@ -4155,35 +4121,20 @@ msgstr ""
 #~ msgid "Spend less time waiting for Spotify"
 #~ msgstr "减少等待 Spotify 的时间"
 
-#~ msgid ""
-#~ "Spotifast's default connection shares Spotify's request limit with other "
-#~ "listeners. When it gets busy, loading music and using playback controls "
-#~ "can take longer."
-#~ msgstr ""
-#~ "Spotifast 的默认连接与其他听众共享 Spotify 的请求限额。繁忙时，加载音乐和"
-#~ "使用播放控制可能需要更长时间。"
+#~ msgid "Spotifast's default connection shares Spotify's request limit with other listeners. When it gets busy, loading music and using playback controls can take longer."
+#~ msgstr "Spotifast 的默认连接与其他听众共享 Spotify 的请求限额。繁忙时，加载音乐和使用播放控制可能需要更长时间。"
 
-#~ msgid ""
-#~ "Your Premium account lets you create a free personal Spotify app. Connect "
-#~ "it here to give supported requests your own allowance. Some pages still "
-#~ "use the shared connection."
-#~ msgstr ""
-#~ "你的 Premium 账户可以免费创建个人 Spotify 应用。在此连接后，支持的请求将使"
-#~ "用你自己的配额。部分页面仍会使用共享连接。"
+#~ msgid "Your Premium account lets you create a free personal Spotify app. Connect it here to give supported requests your own allowance. Some pages still use the shared connection."
+#~ msgstr "你的 Premium 账户可以免费创建个人 Spotify 应用。在此连接后，支持的请求将使用你自己的配额。部分页面仍会使用共享连接。"
 
-#~ msgid ""
-#~ "Setup takes a few minutes. You can also find it later in Settings under "
-#~ "Personal Spotify app."
+#~ msgid "Setup takes a few minutes. You can also find it later in Settings under Personal Spotify app."
 #~ msgstr "设置只需几分钟。之后也可以在“设置”的“个人 Spotify 应用”中找到。"
 
 #~ msgid "Keep shared app"
 #~ msgstr "继续使用共享应用"
 
-#~ msgid ""
-#~ "Play the local files your playlists list from a folder on this computer. "
-#~ "Only 44.1 kHz files play."
-#~ msgstr ""
-#~ "从这台电脑上的文件夹播放播放列表中的本地文件。只能播放 44.1 kHz 的文件。"
+#~ msgid "Play the local files your playlists list from a folder on this computer. Only 44.1 kHz files play."
+#~ msgstr "从这台电脑上的文件夹播放播放列表中的本地文件。只能播放 44.1 kHz 的文件。"
 
 #~ msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
 #~ msgstr "PulseAudio 也支持 PipeWire。Rodio 直接与 ALSA 通信。"

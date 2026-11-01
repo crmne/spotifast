@@ -4,8 +4,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Spotifast\n"
-"Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
-"template=translation.yml\n"
+"Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?template=translation.yml\n"
 "POT-Creation-Date: 2026-11-02 13:06+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
@@ -411,9 +410,7 @@ msgstr "Du bist offline"
 #: src/ui/library.rs:262 src/ui/show.rs:69 src/ui/show.rs:115
 #: src/ui/show.rs:145
 msgid "Spotifast will reconnect automatically when your connection returns."
-msgstr ""
-"Spotifast verbindet sich automatisch wieder, sobald die Verbindung "
-"wiederhergestellt ist."
+msgstr "Spotifast verbindet sich automatisch wieder, sobald die Verbindung wiederhergestellt ist."
 
 #. Translators: Keep {error} unchanged. It is the original failure detail.
 #: src/ui/lyrics.rs:171 src/ui/lyrics.rs:455 src/ui/lyrics.rs:691
@@ -707,20 +704,12 @@ msgid "Password"
 msgstr "Passwort"
 
 #: src/ui/widgets.rs:3685
-msgid ""
-"Proxy login applies to Web requests. Local playback uses this proxy only "
-"without a login."
-msgstr ""
-"Die Proxy-Anmeldung gilt für Web-Anfragen. Die lokale Wiedergabe nutzt "
-"diesen Proxy nur ohne Anmeldung."
+msgid "Proxy login applies to Web requests. Local playback uses this proxy only without a login."
+msgstr "Die Proxy-Anmeldung gilt für Web-Anfragen. Die lokale Wiedergabe nutzt diesen Proxy nur ohne Anmeldung."
 
 #: src/ui/widgets.rs:3689
-msgid ""
-"Spotify hostnames are resolved by the proxy. Local playback connects "
-"directly."
-msgstr ""
-"Spotify-Hostnamen werden vom Proxy aufgelöst. Die lokale Wiedergabe "
-"verbindet sich direkt."
+msgid "Spotify hostnames are resolved by the proxy. Local playback connects directly."
+msgstr "Spotify-Hostnamen werden vom Proxy aufgelöst. Die lokale Wiedergabe verbindet sich direkt."
 
 #: src/app.rs:1067
 msgid "Restoring proxy settings"
@@ -766,8 +755,7 @@ msgstr[1] "{count} unbekannte Dateien wurden nicht gelöscht."
 
 #: src/app.rs:2729
 msgid "Playback is reconnecting. Try again once it is ready."
-msgstr ""
-"Die Wiedergabe verbindet sich neu. Versuche es erneut, sobald sie bereit ist."
+msgstr "Die Wiedergabe verbindet sich neu. Versuche es erneut, sobald sie bereit ist."
 
 #: src/app.rs:2734
 msgid "The audio cache folder is a symbolic link."
@@ -788,12 +776,8 @@ msgstr "{name} ist bereit"
 #. Translators: {error} is a sentence saying why the proxy password could not be stored.
 #: src/app.rs:2842
 #, rust-format
-msgid ""
-"{error} The original settings file is kept intact; changed preferences are "
-"not saved yet."
-msgstr ""
-"{error} Die ursprüngliche Einstellungsdatei bleibt unverändert; geänderte "
-"Einstellungen werden noch nicht gespeichert."
+msgid "{error} The original settings file is kept intact; changed preferences are not saved yet."
+msgstr "{error} Die ursprüngliche Einstellungsdatei bleibt unverändert; geänderte Einstellungen werden noch nicht gespeichert."
 
 #. Translators: {version} is a version number such as 1.4.0.
 #: src/app.rs:2999
@@ -812,12 +796,8 @@ msgid "Couldn't check for updates: {error}"
 msgstr "Suche nach Updates fehlgeschlagen: {error}"
 
 #: src/app.rs:3084
-msgid ""
-"Soloist could not download its renewal. It will retry tomorrow; the current "
-"build is still installed."
-msgstr ""
-"Soloist konnte die neue Version nicht herunterladen. Morgen wird es erneut "
-"versucht; die aktuelle Version bleibt installiert."
+msgid "Soloist could not download its renewal. It will retry tomorrow; the current build is still installed."
+msgstr "Soloist konnte die neue Version nicht herunterladen. Morgen wird es erneut versucht; die aktuelle Version bleibt installiert."
 
 #: src/app.rs:3246
 #, rust-format
@@ -891,19 +871,12 @@ msgstr "Proxy-Einstellungen angewendet"
 #. Translators: {error} is an error message.
 #: src/app.rs:4701
 #, rust-format
-msgid ""
-"Proxy could not be applied: {error}. Previous connection settings are still "
-"in use."
-msgstr ""
-"Proxy konnte nicht angewendet werden: {error}. Die bisherigen "
-"Verbindungseinstellungen bleiben aktiv."
+msgid "Proxy could not be applied: {error}. Previous connection settings are still in use."
+msgstr "Proxy konnte nicht angewendet werden: {error}. Die bisherigen Verbindungseinstellungen bleiben aktiv."
 
 #: src/app.rs:6281
-msgid ""
-"Spotify hasn't confirmed your playlist changes yet. Try refreshing again."
-msgstr ""
-"Spotify hat deine Playlist-Änderungen noch nicht bestätigt. Aktualisiere "
-"erneut."
+msgid "Spotify hasn't confirmed your playlist changes yet. Try refreshing again."
+msgstr "Spotify hat deine Playlist-Änderungen noch nicht bestätigt. Aktualisiere erneut."
 
 #: src/app.rs:6759
 msgid "Queue cleared"
@@ -1075,14 +1048,11 @@ msgstr "{name} wird zur Warteschlange hinzugefügt…"
 
 #: src/app.rs:10749
 msgid "Playback device changed. Add the album to queue again"
-msgstr ""
-"Wiedergabegerät geändert. Füge das Album erneut zur Warteschlange hinzu"
+msgstr "Wiedergabegerät geändert. Füge das Album erneut zur Warteschlange hinzu"
 
 #: src/app.rs:10758 src/app.rs:10776 src/app.rs:10785
 msgid "Couldn't load the album's songs in order. Try again"
-msgstr ""
-"Die Songs des Albums konnten nicht in der richtigen Reihenfolge geladen "
-"werden. Versuche es erneut"
+msgstr "Die Songs des Albums konnten nicht in der richtigen Reihenfolge geladen werden. Versuche es erneut"
 
 #. Translators: {name} is an album name and {error} is an error message.
 #: src/app.rs:10765
@@ -1130,9 +1100,7 @@ msgstr[1] "{count} eingefügte Links konnten nicht hinzugefügt werden"
 
 #: src/app.rs:12287
 msgid "Spotify doesn't let apps remove a playlist description, so it was kept"
-msgstr ""
-"Spotify erlaubt Apps nicht, eine Playlist-Beschreibung zu entfernen, daher "
-"wurde sie beibehalten"
+msgstr "Spotify erlaubt Apps nicht, eine Playlist-Beschreibung zu entfernen, daher wurde sie beibehalten"
 
 #: src/app.rs:12349 src/app.rs:12368
 msgid "Link copied"
@@ -1152,12 +1120,8 @@ msgstr[0] "{count} Link kopiert"
 msgstr[1] "{count} Links kopiert"
 
 #: src/app.rs:12671
-msgid ""
-"Spotify doesn't let apps reorder your playlists, so this order is saved on "
-"this computer"
-msgstr ""
-"Spotify erlaubt Apps nicht, deine Playlists neu anzuordnen, daher wird diese "
-"Reihenfolge auf diesem Computer gespeichert"
+msgid "Spotify doesn't let apps reorder your playlists, so this order is saved on this computer"
+msgstr "Spotify erlaubt Apps nicht, deine Playlists neu anzuordnen, daher wird diese Reihenfolge auf diesem Computer gespeichert"
 
 #: src/app.rs:12817
 msgid "Restarting local playback"
@@ -1230,36 +1194,20 @@ msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify lässt diesen Computer diesen Song gerade nicht abspielen."
 
 #: src/app.rs:14430
-msgid ""
-"No audio output device was found. Connect or enable one, then press play "
-"again."
-msgstr ""
-"Kein Audioausgabegerät gefunden. Schließe eins an oder aktiviere eins und "
-"drücke dann erneut auf Wiedergabe."
+msgid "No audio output device was found. Connect or enable one, then press play again."
+msgstr "Kein Audioausgabegerät gefunden. Schließe eins an oder aktiviere eins und drücke dann erneut auf Wiedergabe."
 
 #: src/app.rs:14444
-msgid ""
-"Spotify doesn't make this playlist's songs available to third-party apps."
-msgstr ""
-"Spotify stellt die Songs dieser Playlist nicht für Apps von Drittanbietern "
-"bereit."
+msgid "Spotify doesn't make this playlist's songs available to third-party apps."
+msgstr "Spotify stellt die Songs dieser Playlist nicht für Apps von Drittanbietern bereit."
 
 #: src/app.rs:14575
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
-msgstr ""
-"Spotify-Anmeldung abgelaufen. Melde dich erneut an und lade das Cover dann "
-"noch einmal hoch."
+msgstr "Spotify-Anmeldung abgelaufen. Melde dich erneut an und lade das Cover dann noch einmal hoch."
 
 #: src/app.rs:14580
-msgid ""
-"Spotify refused this cover. Check that you own the playlist, then sign in "
-"again to grant image upload permission. If you use your own Client ID, "
-"authorize it again in Settings too."
-msgstr ""
-"Spotify hat dieses Cover abgelehnt. Prüfe, ob dir die Playlist gehört, und "
-"melde dich erneut an, um das Hochladen von Bildern zu erlauben. Wenn du "
-"deine eigene Client ID nutzt, autorisiere sie auch in den Einstellungen "
-"erneut."
+msgid "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If you use your own Client ID, authorize it again in Settings too."
+msgstr "Spotify hat dieses Cover abgelehnt. Prüfe, ob dir die Playlist gehört, und melde dich erneut an, um das Hochladen von Bildern zu erlauben. Wenn du deine eigene Client ID nutzt, autorisiere sie auch in den Einstellungen erneut."
 
 #: src/app.rs:14584
 msgid "Spotify rejected the image size. Choose a smaller image."
@@ -1269,8 +1217,7 @@ msgstr "Spotify hat die Bildgröße abgelehnt. Wähle ein kleineres Bild."
 #: src/app.rs:14587
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
-msgstr ""
-"Das Cover konnte nicht hochgeladen werden: {error}. Versuche es erneut."
+msgstr "Das Cover konnte nicht hochgeladen werden: {error}. Versuche es erneut."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
@@ -1295,11 +1242,8 @@ msgid "Delete “{name}”"
 msgstr "„{name}“ löschen"
 
 #: src/ui/settings.rs:380
-msgid ""
-"Play the local files your playlists list from a folder on this computer."
-msgstr ""
-"Spiele die lokalen Dateien deiner Playlists aus einem Ordner auf diesem "
-"Computer ab."
+msgid "Play the local files your playlists list from a folder on this computer."
+msgstr "Spiele die lokalen Dateien deiner Playlists aus einem Ordner auf diesem Computer ab."
 
 #. Translators: {count} is a number of songs, {folder} a folder on this computer.
 #: src/ui/settings.rs:389
@@ -1369,19 +1313,12 @@ msgid "Spotify registration"
 msgstr "Spotify-Registrierung"
 
 #: src/ui/settings.rs:511
-msgid ""
-"You're still on the shared sign-in Spotifast used before, which Spotify can "
-"stop accepting at any time. Register Spotifast to keep listening."
-msgstr ""
-"Du nutzt noch die gemeinsame Anmeldung, die Spotifast früher verwendet hat, "
-"und Spotify kann sie jederzeit ablehnen. Registriere Spotifast, um "
-"weiterzuhören."
+msgid "You're still on the shared sign-in Spotifast used before, which Spotify can stop accepting at any time. Register Spotifast to keep listening."
+msgstr "Du nutzt noch die gemeinsame Anmeldung, die Spotifast früher verwendet hat, und Spotify kann sie jederzeit ablehnen. Registriere Spotifast, um weiterzuhören."
 
 #: src/ui/settings.rs:516
 msgid "Spotifast connects with the Client ID you registered with Spotify."
-msgstr ""
-"Spotifast verbindet sich mit der Client ID, die du bei Spotify registriert "
-"hast."
+msgstr "Spotifast verbindet sich mit der Client ID, die du bei Spotify registriert hast."
 
 #: src/ui/settings.rs:521 src/ui/dialogs.rs:50 src/ui/login.rs:461
 #: src/ui/mod.rs:412
@@ -1397,11 +1334,8 @@ msgid "Spotifast registered"
 msgstr "Spotifast ist registriert"
 
 #: src/ui/settings.rs:533
-msgid ""
-"Supported requests use your Client ID. Other requests use the shared sign-in."
-msgstr ""
-"Unterstützte Anfragen nutzen deine Client ID. Andere Anfragen nutzen die "
-"gemeinsame Anmeldung."
+msgid "Supported requests use your Client ID. Other requests use the shared sign-in."
+msgstr "Unterstützte Anfragen nutzen deine Client ID. Andere Anfragen nutzen die gemeinsame Anmeldung."
 
 #: src/ui/settings.rs:538
 msgid "Spotifast uses your Client ID for Spotify's Web API."
@@ -1574,35 +1508,24 @@ msgid "Play tracks without silence between them."
 msgstr "Spielt Titel ohne Pause dazwischen ab."
 
 #: src/ui/settings.rs:783
-msgid ""
-"Spotifast hides to the system tray. Quit from the tray menu or with Ctrl+Q."
-msgstr ""
-"Spotifast wird im Infobereich ausgeblendet. Beende es über das Menü im "
-"Infobereich oder mit Strg+Q."
+msgid "Spotifast hides to the system tray. Quit from the tray menu or with Ctrl+Q."
+msgstr "Spotifast wird im Infobereich ausgeblendet. Beende es über das Menü im Infobereich oder mit Strg+Q."
 
 #: src/ui/settings.rs:788
-msgid ""
-"Spotifast hides to the menu bar. Quit from its menu-bar icon or with Cmd+Q."
-msgstr ""
-"Spotifast wird in der Menüleiste ausgeblendet. Beende es über sein Symbol in "
-"der Menüleiste oder mit Cmd+Q."
+msgid "Spotifast hides to the menu bar. Quit from its menu-bar icon or with Cmd+Q."
+msgstr "Spotifast wird in der Menüleiste ausgeblendet. Beende es über sein Symbol in der Menüleiste oder mit Cmd+Q."
 
 #: src/ui/settings.rs:795
 msgid "Checks GitHub once a day. No personal data is sent."
-msgstr ""
-"Prüft einmal täglich GitHub. Es werden keine persönlichen Daten gesendet."
+msgstr "Prüft einmal täglich GitHub. Es werden keine persönlichen Daten gesendet."
 
 #: src/ui/settings.rs:798
 msgid "Output buffer"
 msgstr "Ausgabepuffer"
 
 #: src/ui/settings.rs:801
-msgid ""
-"More buffering can prevent clicks on busy computers. Less buffering makes "
-"controls respond sooner."
-msgstr ""
-"Mehr Puffer kann Knackser auf ausgelasteten Computern verhindern. Weniger "
-"Puffer lässt die Steuerung schneller reagieren."
+msgid "More buffering can prevent clicks on busy computers. Less buffering makes controls respond sooner."
+msgstr "Mehr Puffer kann Knackser auf ausgelasteten Computern verhindern. Weniger Puffer lässt die Steuerung schneller reagieren."
 
 #: src/ui/settings.rs:807
 msgid "Save downloaded audio for later playback."
@@ -1614,8 +1537,7 @@ msgstr "Wiedergabeeinstellungen angewendet"
 
 #: src/ui/settings.rs:815
 msgid "Downloads in the background. You choose when to restart."
-msgstr ""
-"Lädt im Hintergrund herunter. Du entscheidest, wann neu gestartet wird."
+msgstr "Lädt im Hintergrund herunter. Du entscheidest, wann neu gestartet wird."
 
 #: src/ui/settings.rs:819 src/ui/settings.rs:1066
 msgid "MacBook notch widget"
@@ -1623,21 +1545,15 @@ msgstr "MacBook-Notch-Widget"
 
 #: src/ui/settings.rs:822
 msgid "Show interactive Now Playing widget when hovering over the notch."
-msgstr ""
-"Interaktives „Aktuelle Wiedergabe“-Widget beim Bewegen des Zeigers über die "
-"Notch anzeigen."
+msgstr "Interaktives „Aktuelle Wiedergabe“-Widget beim Bewegen des Zeigers über die Notch anzeigen."
 
 #: src/ui/settings.rs:826
 msgid "Local files"
 msgstr "Lokale Dateien"
 
 #: src/ui/settings.rs:831
-msgid ""
-"When off, Spotifast lives in the menu bar and leaves Cmd+Tab. Open it from "
-"its menu-bar icon."
-msgstr ""
-"Wenn aus, bleibt Spotifast in der Menüleiste und erscheint nicht bei "
-"Cmd+Tab. Öffne es über sein Symbol in der Menüleiste."
+msgid "When off, Spotifast lives in the menu bar and leaves Cmd+Tab. Open it from its menu-bar icon."
+msgstr "Wenn aus, bleibt Spotifast in der Menüleiste und erscheint nicht bei Cmd+Tab. Öffne es über sein Symbol in der Menüleiste."
 
 #: src/ui/settings.rs:837
 msgid "Tray icon"
@@ -1739,11 +1655,8 @@ msgid "Light mode theme"
 msgstr "Design im hellen Modus"
 
 #: src/ui/settings.rs:1236
-msgid ""
-"Used while your computer is in light mode. Only light themes are listed."
-msgstr ""
-"Wird verwendet, solange dein Computer im hellen Modus ist. Nur helle Designs "
-"werden angezeigt."
+msgid "Used while your computer is in light mode. Only light themes are listed."
+msgstr "Wird verwendet, solange dein Computer im hellen Modus ist. Nur helle Designs werden angezeigt."
 
 #: src/ui/settings.rs:1240
 msgid "Dark mode theme"
@@ -1751,9 +1664,7 @@ msgstr "Design im dunklen Modus"
 
 #: src/ui/settings.rs:1243
 msgid "Used while your computer is in dark mode. Only dark themes are listed."
-msgstr ""
-"Wird verwendet, solange dein Computer im dunklen Modus ist. Nur dunkle "
-"Designs werden angezeigt."
+msgstr "Wird verwendet, solange dein Computer im dunklen Modus ist. Nur dunkle Designs werden angezeigt."
 
 #: src/ui/settings.rs:1260
 msgid "Follow system uses your Omarchy colours."
@@ -1761,25 +1672,19 @@ msgstr "„System folgen“ verwendet deine Omarchy-Farben."
 
 #: src/ui/settings.rs:1264
 msgid "Follow system uses your desktop's light or dark appearance."
-msgstr ""
-"„System folgen“ übernimmt die helle oder dunkle Darstellung deines Desktops."
+msgstr "„System folgen“ übernimmt die helle oder dunkle Darstellung deines Desktops."
 
 #: src/ui/settings.rs:1269 src/ui/settings.rs:2732
 msgid "Language"
 msgstr "Sprache"
 
 #: src/ui/settings.rs:1272
-msgid ""
-"System follows your computer's language. Untranslated text stays in English."
-msgstr ""
-"„System“ folgt der Sprache deines Computers. Nicht übersetzter Text bleibt "
-"auf Englisch."
+msgid "System follows your computer's language. Untranslated text stays in English."
+msgstr "„System“ folgt der Sprache deines Computers. Nicht übersetzter Text bleibt auf Englisch."
 
 #: src/ui/settings.rs:1279
 msgid "Use the current cover's colour on pages and the player bar."
-msgstr ""
-"Die Farbe des aktuellen Covers auf Seiten und in der Wiedergabeleiste "
-"verwenden."
+msgstr "Die Farbe des aktuellen Covers auf Seiten und in der Wiedergabeleiste verwenden."
 
 #: src/ui/settings.rs:1284
 msgid "Show names without covers in the sidebar."
@@ -1802,45 +1707,28 @@ msgid "Cmd+Plus and Cmd+Minus work anywhere; Cmd+0 resets."
 msgstr "Cmd+Plus und Cmd+Minus funktionieren überall; Cmd+0 setzt zurück."
 
 #: src/ui/settings.rs:1308
-msgid ""
-"Middle-click a list, then move the pointer to scroll it. Off by default, "
-"because a middle click usually pastes on Linux."
-msgstr ""
-"Klicke mit der mittleren Maustaste in eine Liste und bewege dann den Zeiger, "
-"um sie zu scrollen. Standardmäßig aus, da ein Mittelklick unter Linux meist "
-"einfügt."
+msgid "Middle-click a list, then move the pointer to scroll it. Off by default, because a middle click usually pastes on Linux."
+msgstr "Klicke mit der mittleren Maustaste in eine Liste und bewege dann den Zeiger, um sie zu scrollen. Standardmäßig aus, da ein Mittelklick unter Linux meist einfügt."
 
 #: src/ui/settings.rs:1316
-msgid ""
-"Draw Spotifast's own title bar and window buttons instead of the desktop's."
-msgstr ""
-"Eigene Titelleiste und Fensterschaltflächen von Spotifast statt der "
-"Standardelemente des Desktops zeichnen."
+msgid "Draw Spotifast's own title bar and window buttons instead of the desktop's."
+msgstr "Eigene Titelleiste und Fensterschaltflächen von Spotifast statt der Standardelemente des Desktops zeichnen."
 
 #: src/ui/settings.rs:1324
-msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
-msgstr ""
-"Zeigt den Song in Bewegung hinter den Steuerelementen der Wiedergabeleiste, "
-"während er hier läuft."
+msgid "Show the song moving behind the player bar's controls while it plays here."
+msgstr "Zeigt den Song in Bewegung hinter den Steuerelementen der Wiedergabeleiste, während er hier läuft."
 
 #: src/ui/settings.rs:1329
 msgid "Allow clicks on empty player bar space to cycle the visualizer."
-msgstr ""
-"Klicks auf freie Bereiche der Wiedergabeleiste wechseln die Visualisierung."
+msgstr "Klicks auf freie Bereiche der Wiedergabeleiste wechseln die Visualisierung."
 
 #: src/ui/settings.rs:1332 src/ui/settings.rs:2095
 msgid "Frame rate"
 msgstr "Bildrate"
 
 #: src/ui/settings.rs:1335
-msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
-"fewer resources. MilkDrop has its own."
-msgstr ""
-"Wie oft die Visualisierungen der Wiedergabeleiste und des Mini-Players "
-"zeichnen. Niedrigere Raten brauchen weniger Ressourcen. MilkDrop hat eine "
-"eigene."
+msgid "How often the player bar and mini player visualizers draw. Lower rates use fewer resources. MilkDrop has its own."
+msgstr "Wie oft die Visualisierungen der Wiedergabeleiste und des Mini-Players zeichnen. Niedrigere Raten brauchen weniger Ressourcen. MilkDrop hat eine eigene."
 
 #: src/ui/settings.rs:1483
 msgid "Off"
@@ -1872,12 +1760,8 @@ msgid "Mode"
 msgstr "Modus"
 
 #: src/ui/settings.rs:1698
-msgid ""
-"Off ignores environment variables. System uses them, and the OS proxy on "
-"macOS and Windows."
-msgstr ""
-"„Aus“ ignoriert Umgebungsvariablen. „System“ nutzt sie und unter macOS und "
-"Windows den Proxy des Betriebssystems."
+msgid "Off ignores environment variables. System uses them, and the OS proxy on macOS and Windows."
+msgstr "„Aus“ ignoriert Umgebungsvariablen. „System“ nutzt sie und unter macOS und Windows den Proxy des Betriebssystems."
 
 #: src/ui/settings.rs:1750 src/ui/login.rs:644
 msgid "Apply settings"
@@ -1920,20 +1804,12 @@ msgid "Show the mini player"
 msgstr "Mini-Player anzeigen"
 
 #: src/ui/settings.rs:1796
-msgid ""
-"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
-"skin on either window to add it."
-msgstr ""
-"Verwende einen Winamp- oder Windows-Media-Player-Skin. Mit Strg+M kehrst du "
-"zurück. Zieh einen Skin auf eines der Fenster, um ihn hinzuzufügen."
+msgid "Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a skin on either window to add it."
+msgstr "Verwende einen Winamp- oder Windows-Media-Player-Skin. Mit Strg+M kehrst du zurück. Zieh einen Skin auf eines der Fenster, um ihn hinzuzufügen."
 
 #: src/ui/settings.rs:1800
-msgid ""
-"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
-"a skin on either window to add it."
-msgstr ""
-"Verwende einen Winamp- oder Windows-Media-Player-Skin. Mit Cmd+Umschalt+M "
-"kehrst du zurück. Zieh einen Skin auf eines der Fenster, um ihn hinzuzufügen."
+msgid "Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop a skin on either window to add it."
+msgstr "Verwende einen Winamp- oder Windows-Media-Player-Skin. Mit Cmd+Umschalt+M kehrst du zurück. Zieh einen Skin auf eines der Fenster, um ihn hinzuzufügen."
 
 #: src/ui/settings.rs:1811 src/ui/settings.rs:1875
 msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
@@ -1941,9 +1817,7 @@ msgstr "Klassische .wsz-Skins. Mehr findest du im Winamp Skin Museum."
 
 #: src/ui/settings.rs:1822 src/ui/settings.rs:1939
 msgid "Windows Media Player .wmz skins. Drop one on either window to add it."
-msgstr ""
-"Windows-Media-Player-Skins (.wmz). Zieh einen auf eines der Fenster, um ihn "
-"hinzuzufügen."
+msgstr "Windows-Media-Player-Skins (.wmz). Zieh einen auf eines der Fenster, um ihn hinzuzufügen."
 
 #: src/ui/settings.rs:1829
 msgid "Pick another skin each time the mini player opens."
@@ -1966,12 +1840,8 @@ msgid "Show in taskbar"
 msgstr "In der Taskleiste anzeigen"
 
 #: src/ui/settings.rs:1847
-msgid ""
-"Keep a taskbar button for the mini player. The tray icon stays available "
-"when hidden."
-msgstr ""
-"Eine Taskleisten-Schaltfläche für den Mini-Player behalten. Das Symbol im "
-"Infobereich bleibt verfügbar, wenn sie ausgeblendet ist."
+msgid "Keep a taskbar button for the mini player. The tray icon stays available when hidden."
+msgstr "Eine Taskleisten-Schaltfläche für den Mini-Player behalten. Das Symbol im Infobereich bleibt verfügbar, wenn sie ausgeblendet ist."
 
 #: src/ui/settings.rs:1856
 msgid "Switch to it"
@@ -1987,35 +1857,20 @@ msgid "Installed skins are in {folder}. None of this kind yet."
 msgstr "Installierte Skins liegen in {folder}. Noch keiner dieser Art."
 
 #: src/ui/settings.rs:1979
-msgid ""
-"This skin has no equalizer or playlist window, and its scripts do not run."
-msgstr ""
-"Dieser Skin hat kein Equalizer- und kein Playlist-Fenster, und seine Skripte "
-"laufen nicht."
+msgid "This skin has no equalizer or playlist window, and its scripts do not run."
+msgstr "Dieser Skin hat kein Equalizer- und kein Playlist-Fenster, und seine Skripte laufen nicht."
 
 #: src/ui/settings.rs:2044
 msgid "MilkDrop window"
 msgstr "MilkDrop-Fenster"
 
 #: src/ui/settings.rs:2052
-msgid ""
-"A projectM visualiser for local playback. Open it here, from the top bar, "
-"with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
-"shortcuts."
-msgstr ""
-"Ein projectM-Visualizer für die lokale Wiedergabe. Öffne ihn hier, über die "
-"obere Leiste, mit Strg+Umschalt+K oder über das V-Menü des Mini-Players. "
-"Drücke ? oder F1 für seine Tastenkürzel."
+msgid "A projectM visualiser for local playback. Open it here, from the top bar, with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its shortcuts."
+msgstr "Ein projectM-Visualizer für die lokale Wiedergabe. Öffne ihn hier, über die obere Leiste, mit Strg+Umschalt+K oder über das V-Menü des Mini-Players. Drücke ? oder F1 für seine Tastenkürzel."
 
 #: src/ui/settings.rs:2056
-msgid ""
-"A projectM visualiser for local playback. Open it here, from the top bar, "
-"with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
-"shortcuts."
-msgstr ""
-"Ein projectM-Visualizer für die lokale Wiedergabe. Öffne ihn hier, über die "
-"obere Leiste, mit Cmd+Umschalt+K oder über das V-Menü des Mini-Players. "
-"Drücke ? oder F1 für seine Tastenkürzel."
+msgid "A projectM visualiser for local playback. Open it here, from the top bar, with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its shortcuts."
+msgstr "Ein projectM-Visualizer für die lokale Wiedergabe. Öffne ihn hier, über die obere Leiste, mit Cmd+Umschalt+K oder über das V-Menü des Mini-Players. Drücke ? oder F1 für seine Tastenkürzel."
 
 #: src/ui/settings.rs:2062 src/ui/settings.rs:2241
 msgid "Presets"
@@ -2024,40 +1879,22 @@ msgstr "Presets"
 #. Translators: {folder} is the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2067
 #, rust-format
-msgid ""
-"None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
-"MilkDrop first opens with an empty folder."
-msgstr ""
-"Noch keine in {folder}. Lege hier .milk-Dateien ab. Spotifast lädt Presets "
-"herunter, wenn MilkDrop zum ersten Mal mit leerem Ordner geöffnet wird."
+msgid "None yet in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgstr "Noch keine in {folder}. Lege hier .milk-Dateien ab. Spotifast lädt Presets herunter, wenn MilkDrop zum ersten Mal mit leerem Ordner geöffnet wird."
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2073
 #, rust-format
-msgid ""
-"One preset in {folder}. Add .milk files here. Spotifast downloads presets "
-"when MilkDrop first opens with an empty folder."
-msgstr ""
-"Ein Preset in {folder}. Lege hier .milk-Dateien ab. Spotifast lädt Presets "
-"herunter, wenn MilkDrop zum ersten Mal mit leerem Ordner geöffnet wird."
+msgid "One preset in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgstr "Ein Preset in {folder}. Lege hier .milk-Dateien ab. Spotifast lädt Presets herunter, wenn MilkDrop zum ersten Mal mit leerem Ordner geöffnet wird."
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2079
 #, rust-format
-msgid ""
-"{count} preset in {folder}. Add .milk files here. Spotifast downloads "
-"presets when MilkDrop first opens with an empty folder."
-msgid_plural ""
-"{count} presets in {folder}. Add .milk files here. Spotifast downloads "
-"presets when MilkDrop first opens with an empty folder."
-msgstr[0] ""
-"{count} Preset in {folder}. Lege hier .milk-Dateien ab. Spotifast lädt "
-"Presets herunter, wenn MilkDrop zum ersten Mal mit leerem Ordner geöffnet "
-"wird."
-msgstr[1] ""
-"{count} Presets in {folder}. Lege hier .milk-Dateien ab. Spotifast lädt "
-"Presets herunter, wenn MilkDrop zum ersten Mal mit leerem Ordner geöffnet "
-"wird."
+msgid "{count} preset in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgid_plural "{count} presets in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgstr[0] "{count} Preset in {folder}. Lege hier .milk-Dateien ab. Spotifast lädt Presets herunter, wenn MilkDrop zum ersten Mal mit leerem Ordner geöffnet wird."
+msgstr[1] "{count} Presets in {folder}. Lege hier .milk-Dateien ab. Spotifast lädt Presets herunter, wenn MilkDrop zum ersten Mal mit leerem Ordner geöffnet wird."
 
 #: src/ui/settings.rs:2088
 msgid "Time per preset"
@@ -2069,19 +1906,13 @@ msgstr "Wie lange jedes Preset läuft, bevor das nächste eingeblendet wird."
 
 #: src/ui/settings.rs:2099
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
-msgstr ""
-"Niedrigere Raten brauchen weniger Ressourcen. „Unbegrenzt“ zeichnet so "
-"schnell wie möglich."
+msgstr "Niedrigere Raten brauchen weniger Ressourcen. „Unbegrenzt“ zeichnet so schnell wie möglich."
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
 #: src/ui/settings.rs:2104
 #, rust-format
-msgid ""
-"Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
-"Uncapped draws as fast as possible."
-msgstr ""
-"Dein Bildschirm aktualisiert mit {hz} Hz. Höhere Raten bringen keine "
-"sichtbaren Bilder mehr. „Unbegrenzt“ zeichnet so schnell wie möglich."
+msgid "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. Uncapped draws as fast as possible."
+msgstr "Dein Bildschirm aktualisiert mit {hz} Hz. Höhere Raten bringen keine sichtbaren Bilder mehr. „Unbegrenzt“ zeichnet so schnell wie möglich."
 
 #: src/ui/settings.rs:2111
 msgid "Resolution"
@@ -2089,9 +1920,7 @@ msgstr "Auflösung"
 
 #: src/ui/settings.rs:2114
 msgid "Half and Quarter use fewer resources and scale the image back up."
-msgstr ""
-"„Halb“ und „Viertel“ brauchen weniger Ressourcen und skalieren das Bild "
-"wieder hoch."
+msgstr "„Halb“ und „Viertel“ brauchen weniger Ressourcen und skalieren das Bild wieder hoch."
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
 #: src/ui/settings.rs:2121
@@ -2128,12 +1957,8 @@ msgid "Equalizer"
 msgstr "Equalizer"
 
 #: src/ui/settings.rs:2235
-msgid ""
-"A ten-band equalizer for playback on this computer. It does not affect other "
-"devices."
-msgstr ""
-"Ein Zehnband-Equalizer für die Wiedergabe auf diesem Computer. Andere Geräte "
-"sind nicht betroffen."
+msgid "A ten-band equalizer for playback on this computer. It does not affect other devices."
+msgstr "Ein Zehnband-Equalizer für die Wiedergabe auf diesem Computer. Andere Geräte sind nicht betroffen."
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
 #: src/ui/settings.rs:2243
@@ -2173,9 +1998,7 @@ msgstr "Wiedergabeverlauf"
 #: src/ui/settings.rs:2366
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
-msgstr ""
-"Hier gespielte Titel werden in {file} gespeichert. Diese Datei wird nie "
-"hochgeladen."
+msgstr "Hier gespielte Titel werden in {file} gespeichert. Diese Datei wird nie hochgeladen."
 
 #: src/ui/settings.rs:2371
 msgid "Sign-in"
@@ -2183,9 +2006,7 @@ msgstr "Anmeldung"
 
 #: src/ui/settings.rs:2374
 msgid "Sign-ins are saved in the system credential store when available."
-msgstr ""
-"Anmeldungen werden, wenn verfügbar, im Anmeldedatenspeicher des Systems "
-"gesichert."
+msgstr "Anmeldungen werden, wenn verfügbar, im Anmeldedatenspeicher des Systems gesichert."
 
 #: src/ui/settings.rs:2383 src/ui/settings.rs:2442
 msgid "Checking…"
@@ -2265,24 +2086,15 @@ msgstr "Im Infobereich"
 
 #: src/ui/settings.rs:2577
 msgid "Allow Spotifast in System Settings, General, Login Items."
-msgstr ""
-"Erlaube Spotifast in den Systemeinstellungen unter Allgemein, Anmeldeobjekte."
+msgstr "Erlaube Spotifast in den Systemeinstellungen unter Allgemein, Anmeldeobjekte."
 
 #: src/ui/settings.rs:2583
-msgid ""
-"Starting in the menu bar needs Keep music playing when the window closes. "
-"Until then, the window opens."
-msgstr ""
-"Der Start in der Menüleiste braucht „Musik weiterspielen, wenn das Fenster "
-"geschlossen wird“. Bis dahin öffnet sich das Fenster."
+msgid "Starting in the menu bar needs Keep music playing when the window closes. Until then, the window opens."
+msgstr "Der Start in der Menüleiste braucht „Musik weiterspielen, wenn das Fenster geschlossen wird“. Bis dahin öffnet sich das Fenster."
 
 #: src/ui/settings.rs:2588
-msgid ""
-"Starting in the tray needs Keep music playing when the window closes. Until "
-"then, the window opens."
-msgstr ""
-"Der Start im Infobereich braucht „Musik weiterspielen, wenn das Fenster "
-"geschlossen wird“. Bis dahin öffnet sich das Fenster."
+msgid "Starting in the tray needs Keep music playing when the window closes. Until then, the window opens."
+msgstr "Der Start im Infobereich braucht „Musik weiterspielen, wenn das Fenster geschlossen wird“. Bis dahin öffnet sich das Fenster."
 
 #: src/ui/settings.rs:2594
 msgid "Open Spotifast when you log in, with its window or in the menu bar."
@@ -2315,8 +2127,7 @@ msgstr "Spotifys offizieller Player zum Musikhören außerhalb der Spotify-App."
 
 #: src/ui/soloist.rs:190
 msgid "Requires Spotify Premium. Spotifast handles downloads and updates."
-msgstr ""
-"Spotify Premium erforderlich. Spotifast übernimmt Downloads und Updates."
+msgstr "Spotify Premium erforderlich. Spotifast übernimmt Downloads und Updates."
 
 #: src/ui/soloist.rs:193 src/ui/login.rs:352
 msgid "Set up Soloist"
@@ -2356,21 +2167,15 @@ msgstr "Wird automatisch aktualisiert."
 
 #: src/ui/soloist.rs:286
 msgid "Spotify's player, with lossless support. Requires Premium."
-msgstr ""
-"Spotifys Player mit Unterstützung für verlustfreies Audio. Premium "
-"erforderlich."
+msgstr "Spotifys Player mit Unterstützung für verlustfreies Audio. Premium erforderlich."
 
 #: src/ui/soloist.rs:292
 msgid "Turn off Soloist"
 msgstr "Soloist ausschalten"
 
 #: src/ui/soloist.rs:308
-msgid ""
-"Spotify has not published Soloist for this platform. The built-in player "
-"remains available."
-msgstr ""
-"Spotify hat Soloist für diese Plattform noch nicht veröffentlicht. Der "
-"integrierte Player bleibt verfügbar."
+msgid "Spotify has not published Soloist for this platform. The built-in player remains available."
+msgstr "Spotify hat Soloist für diese Plattform noch nicht veröffentlicht. Der integrierte Player bleibt verfügbar."
 
 #: src/ui/soloist.rs:314
 msgid "Sign in to Spotify before setting up Soloist."
@@ -2397,11 +2202,8 @@ msgid "Enable with saved key"
 msgstr "Mit gespeichertem Schlüssel aktivieren"
 
 #: src/ui/soloist.rs:391 src/ui/soloist.rs:410
-msgid ""
-"Open Spotify with the same account and network. In its device picker, choose:"
-msgstr ""
-"Öffne Spotify mit demselben Konto im selben Netzwerk. Wähle in der "
-"Geräteauswahl:"
+msgid "Open Spotify with the same account and network. In its device picker, choose:"
+msgstr "Öffne Spotify mit demselben Konto im selben Netzwerk. Wähle in der Geräteauswahl:"
 
 #: src/ui/soloist.rs:422
 msgid "Update ready. It will install when Soloist is inactive."
@@ -2512,48 +2314,28 @@ msgid "Loading local themes…"
 msgstr "Lokale Designs werden geladen…"
 
 #: src/theme.rs:209
-msgid ""
-"The selected theme is unavailable. Keeping the last usable appearance. See "
-"the log for details."
-msgstr ""
-"Das ausgewählte Design ist nicht verfügbar. Die letzte nutzbare Darstellung "
-"bleibt aktiv. Details stehen im Protokoll."
+msgid "The selected theme is unavailable. Keeping the last usable appearance. See the log for details."
+msgstr "Das ausgewählte Design ist nicht verfügbar. Die letzte nutzbare Darstellung bleibt aktiv. Details stehen im Protokoll."
 
 #: src/theme.rs:213
 msgid "The themes folder could not be read. See the log for details."
-msgstr ""
-"Der Designordner konnte nicht gelesen werden. Details stehen im Protokoll."
+msgstr "Der Designordner konnte nicht gelesen werden. Details stehen im Protokoll."
 
 #: src/theme.rs:217
-msgid ""
-"The themes folder has more than 512 entries. Keep fewer files there to list "
-"the custom palettes."
-msgstr ""
-"Der Designordner enthält mehr als 512 Einträge. Lege dort weniger Dateien "
-"ab, damit die eigenen Paletten aufgelistet werden."
+msgid "The themes folder has more than 512 entries. Keep fewer files there to list the custom palettes."
+msgstr "Der Designordner enthält mehr als 512 Einträge. Lege dort weniger Dateien ab, damit die eigenen Paletten aufgelistet werden."
 
 #: src/theme.rs:221
-msgid ""
-"Only 128 custom palettes can be listed. Keep fewer JSON files in the themes "
-"folder to see the rest."
-msgstr ""
-"Es können nur 128 eigene Paletten aufgelistet werden. Lege weniger JSON-"
-"Dateien in den Designordner, um den Rest zu sehen."
+msgid "Only 128 custom palettes can be listed. Keep fewer JSON files in the themes folder to see the rest."
+msgstr "Es können nur 128 eigene Paletten aufgelistet werden. Lege weniger JSON-Dateien in den Designordner, um den Rest zu sehen."
 
 #: src/theme.rs:225
-msgid ""
-"The Omarchy palette could not be loaded. Keeping the last usable appearance. "
-"See the log for details."
-msgstr ""
-"Die Omarchy-Farbpalette konnte nicht geladen werden. Die letzte nutzbare "
-"Darstellung bleibt aktiv. Details stehen im Protokoll."
+msgid "The Omarchy palette could not be loaded. Keeping the last usable appearance. See the log for details."
+msgstr "Die Omarchy-Farbpalette konnte nicht geladen werden. Die letzte nutzbare Darstellung bleibt aktiv. Details stehen im Protokoll."
 
 #: src/theme.rs:229
-msgid ""
-"Custom themes could not be loaded. Run spotifast reload-themes to try again."
-msgstr ""
-"Eigene Designs konnten nicht geladen werden. Führe spotifast reload-themes "
-"aus, um es erneut zu versuchen."
+msgid "Custom themes could not be loaded. Run spotifast reload-themes to try again."
+msgstr "Eigene Designs konnten nicht geladen werden. Führe spotifast reload-themes aus, um es erneut zu versuchen."
 
 #: src/ui/artist.rs:35
 msgid "Popular"
@@ -2644,8 +2426,7 @@ msgstr "Aktualisieren"
 
 #: src/ui/collection.rs:995
 msgid "You're offline. Reconnect to load more songs."
-msgstr ""
-"Du bist offline. Stelle die Verbindung wieder her, um weitere Songs zu laden."
+msgstr "Du bist offline. Stelle die Verbindung wieder her, um weitere Songs zu laden."
 
 #: src/ui/collection.rs:1151
 msgid "Nothing here yet"
@@ -2748,9 +2529,7 @@ msgstr "Audioausgaben werden gesucht…"
 
 #: src/ui/devices.rs:520
 msgid "No devices found. Open Spotify on another device, then refresh."
-msgstr ""
-"Keine Geräte gefunden. Öffne Spotify auf einem anderen Gerät und "
-"aktualisiere dann."
+msgstr "Keine Geräte gefunden. Öffne Spotify auf einem anderen Gerät und aktualisiere dann."
 
 #: src/ui/devices.rs:538
 msgid "This computer"
@@ -2773,15 +2552,8 @@ msgid "Register Spotifast with Spotify"
 msgstr "Spotifast bei Spotify registrieren"
 
 #: src/ui/dialogs.rs:46
-msgid ""
-"You're on the shared sign-in Spotifast used before. Spotifast no longer "
-"offers it, and Spotify can stop accepting it at any time. Register Spotifast "
-"so nothing stops your music. It takes about two minutes."
-msgstr ""
-"Du nutzt die gemeinsame Anmeldung, die Spotifast früher verwendet hat. "
-"Spotifast bietet sie nicht mehr an, und Spotify kann sie jederzeit ablehnen. "
-"Registriere Spotifast, damit deine Musik nicht stoppt. Das dauert etwa zwei "
-"Minuten."
+msgid "You're on the shared sign-in Spotifast used before. Spotifast no longer offers it, and Spotify can stop accepting it at any time. Register Spotifast so nothing stops your music. It takes about two minutes."
+msgstr "Du nutzt die gemeinsame Anmeldung, die Spotifast früher verwendet hat. Spotifast bietet sie nicht mehr an, und Spotify kann sie jederzeit ablehnen. Registriere Spotifast, damit deine Musik nicht stoppt. Das dauert etwa zwei Minuten."
 
 #: src/ui/dialogs.rs:53
 msgid "Not now"
@@ -2799,8 +2571,7 @@ msgstr "Aus deiner Bibliothek entfernen?"
 #: src/ui/dialogs.rs:74
 #, rust-format
 msgid "Delete “{name}”? You can recover it from Spotify for 90 days."
-msgstr ""
-"„{name}“ löschen? Du kannst sie 90 Tage lang über Spotify wiederherstellen."
+msgstr "„{name}“ löschen? Du kannst sie 90 Tage lang über Spotify wiederherstellen."
 
 #. Translators: {name} is a playlist name.
 #: src/ui/dialogs.rs:77
@@ -2834,12 +2605,8 @@ msgid "This account cannot play music here"
 msgstr "Mit diesem Konto kann hier keine Musik abgespielt werden"
 
 #: src/ui/dialogs.rs:213
-msgid ""
-"Playback needs Spotify Premium. Free accounts can browse and search, but "
-"cannot play music through Spotifast."
-msgstr ""
-"Die Wiedergabe erfordert Spotify Premium. Mit Free-Konten kannst du stöbern "
-"und suchen, aber keine Musik über Spotifast abspielen."
+msgid "Playback needs Spotify Premium. Free accounts can browse and search, but cannot play music through Spotifast."
+msgstr "Die Wiedergabe erfordert Spotify Premium. Mit Free-Konten kannst du stöbern und suchen, aber keine Musik über Spotifast abspielen."
 
 #: src/ui/dialogs.rs:222
 msgid "OK"
@@ -2869,24 +2636,15 @@ msgstr "„{name}“ ist bereits in „{playlist}“. Trotzdem hinzufügen?"
 #: src/ui/dialogs.rs:292
 #, rust-format
 msgid "“{first}” and “{second}” are already in “{playlist}”. Add them anyway?"
-msgstr ""
-"„{first}“ und „{second}“ sind bereits in „{playlist}“. Trotzdem hinzufügen?"
+msgstr "„{first}“ und „{second}“ sind bereits in „{playlist}“. Trotzdem hinzufügen?"
 
 #. Translators: {first} and {second} are song names, {count} is how many more songs are already in the playlist, and {playlist} is a playlist name.
 #: src/ui/dialogs.rs:301
 #, rust-format
-msgid ""
-"“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add "
-"them anyway?"
-msgid_plural ""
-"“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add "
-"them anyway?"
-msgstr[0] ""
-"„{first}“, „{second}“ und {count} weiterer sind bereits in „{playlist}“. "
-"Trotzdem hinzufügen?"
-msgstr[1] ""
-"„{first}“, „{second}“ und {count} weitere sind bereits in „{playlist}“. "
-"Trotzdem hinzufügen?"
+msgid "“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add them anyway?"
+msgid_plural "“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add them anyway?"
+msgstr[0] "„{first}“, „{second}“ und {count} weiterer sind bereits in „{playlist}“. Trotzdem hinzufügen?"
+msgstr[1] "„{first}“, „{second}“ und {count} weitere sind bereits in „{playlist}“. Trotzdem hinzufügen?"
 
 #: src/ui/dialogs.rs:376
 msgid "My playlist"
@@ -3187,9 +2945,7 @@ msgstr "Hier erscheinen gespeicherte Episoden."
 
 #: src/ui/new_releases.rs:34
 msgid "The latest releases from artists you follow, newest first."
-msgstr ""
-"Die neuesten Veröffentlichungen der Künstler, denen du folgst, die neuesten "
-"zuerst."
+msgstr "Die neuesten Veröffentlichungen der Künstler, denen du folgst, die neuesten zuerst."
 
 #: src/ui/new_releases.rs:59
 msgid "No new releases"
@@ -3205,36 +2961,20 @@ msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr "Spotifast {version} • nicht mit Spotify verbunden"
 
 #: src/ui/login.rs:170
-msgid ""
-"That doesn't look like a Client ID. It is 32 letters and digits, shown on "
-"Spotify's page for your registration."
-msgstr ""
-"Das sieht nicht nach einer Client ID aus. Sie besteht aus 32 Buchstaben und "
-"Ziffern und steht auf Spotifys Seite zu deiner Registrierung."
+msgid "That doesn't look like a Client ID. It is 32 letters and digits, shown on Spotify's page for your registration."
+msgstr "Das sieht nicht nach einer Client ID aus. Sie besteht aus 32 Buchstaben und Ziffern und steht auf Spotifys Seite zu deiner Registrierung."
 
 #: src/ui/login.rs:174
-msgid ""
-"Spotify doesn't know this Client ID. Copy it again from Spotify's developer "
-"dashboard."
-msgstr ""
-"Spotify kennt diese Client ID nicht. Kopiere sie noch einmal aus dem "
-"Entwickler-Dashboard von Spotify."
+msgid "Spotify doesn't know this Client ID. Copy it again from Spotify's developer dashboard."
+msgstr "Spotify kennt diese Client ID nicht. Kopiere sie noch einmal aus dem Entwickler-Dashboard von Spotify."
 
 #: src/ui/login.rs:178
-msgid ""
-"Spotify didn't let this account use this Client ID. Sign in with the Spotify "
-"account that registered it, which needs Premium."
-msgstr ""
-"Spotify hat diesem Konto die Nutzung dieser Client ID nicht erlaubt. Melde "
-"dich mit dem Spotify-Konto an, das sie registriert hat. Es braucht Premium."
+msgid "Spotify didn't let this account use this Client ID. Sign in with the Spotify account that registered it, which needs Premium."
+msgstr "Spotify hat diesem Konto die Nutzung dieser Client ID nicht erlaubt. Melde dich mit dem Spotify-Konto an, das sie registriert hat. Es braucht Premium."
 
 #: src/ui/login.rs:182
-msgid ""
-"Spotify no longer accepts the shared sign-in Spotifast used before. Register "
-"Spotifast to keep listening."
-msgstr ""
-"Spotify akzeptiert die gemeinsame Anmeldung, die Spotifast früher genutzt "
-"hat, nicht mehr. Registriere Spotifast, um weiterzuhören."
+msgid "Spotify no longer accepts the shared sign-in Spotifast used before. Register Spotifast to keep listening."
+msgstr "Spotify akzeptiert die gemeinsame Anmeldung, die Spotifast früher genutzt hat, nicht mehr. Registriere Spotifast, um weiterzuhören."
 
 #: src/ui/login.rs:219
 msgid "A native Spotify client."
@@ -3250,24 +2990,16 @@ msgstr "Nicht geöffnet? Anmeldeseite erneut öffnen"
 
 #: src/ui/login.rs:257
 #, rust-format
-msgid ""
-"If Spotify says “Invalid redirect URI”, add {uri} to your registration "
-"exactly, save, and sign in again."
-msgstr ""
-"Wenn Spotify „Invalid redirect URI“ meldet, füge {uri} genau so zu deiner "
-"Registrierung hinzu, speichere und melde dich erneut an."
+msgid "If Spotify says “Invalid redirect URI”, add {uri} to your registration exactly, save, and sign in again."
+msgstr "Wenn Spotify „Invalid redirect URI“ meldet, füge {uri} genau so zu deiner Registrierung hinzu, speichere und melde dich erneut an."
 
 #: src/ui/login.rs:310
 msgid "Sign in with Spotify"
 msgstr "Mit Spotify anmelden"
 
 #: src/ui/login.rs:321
-msgid ""
-"Sign in through your browser. Spotifast never sees your password. Local "
-"playback needs Spotify Premium."
-msgstr ""
-"Melde dich über deinen Browser an. Spotifast sieht dein Passwort nie. Lokale "
-"Wiedergabe erfordert Spotify Premium."
+msgid "Sign in through your browser. Spotifast never sees your password. Local playback needs Spotify Premium."
+msgstr "Melde dich über deinen Browser an. Spotifast sieht dein Passwort nie. Lokale Wiedergabe erfordert Spotify Premium."
 
 #: src/ui/login.rs:330
 msgid "How to register Spotifast"
@@ -3278,31 +3010,20 @@ msgid "Proxy Settings"
 msgstr "Proxy-Einstellungen"
 
 #: src/ui/login.rs:409
-msgid ""
-"A Client ID is 32 letters and digits. Copy it from Spotify's developer "
-"dashboard."
-msgstr ""
-"Eine Client ID besteht aus 32 Buchstaben und Ziffern. Kopiere sie aus dem "
-"Entwickler-Dashboard von Spotify."
+msgid "A Client ID is 32 letters and digits. Copy it from Spotify's developer dashboard."
+msgstr "Eine Client ID besteht aus 32 Buchstaben und Ziffern. Kopiere sie aus dem Entwickler-Dashboard von Spotify."
 
 #: src/ui/login.rs:469
-msgid ""
-"Spotify asks you to register Spotifast once, on an account with Premium. It "
-"takes about two minutes and gives you a Client ID."
-msgstr ""
-"Spotify verlangt, dass du Spotifast einmal registrierst, mit einem Premium-"
-"Konto. Das dauert etwa zwei Minuten und gibt dir eine Client ID."
+msgid "Spotify asks you to register Spotifast once, on an account with Premium. It takes about two minutes and gives you a Client ID."
+msgstr "Spotify verlangt, dass du Spotifast einmal registrierst, mit einem Premium-Konto. Das dauert etwa zwei Minuten und gibt dir eine Client ID."
 
 #: src/ui/login.rs:479
 msgid "Open Spotify's developer dashboard."
 msgstr "Öffne das Entwickler-Dashboard von Spotify."
 
 #: src/ui/login.rs:500
-msgid ""
-"Click Create app, Spotify's name for this registration. Any name will do."
-msgstr ""
-"Klicke auf „Create app“, so nennt Spotify diese Registrierung. Der Name ist "
-"egal."
+msgid "Click Create app, Spotify's name for this registration. Any name will do."
+msgstr "Klicke auf „Create app“, so nennt Spotify diese Registrierung. Der Name ist egal."
 
 #: src/ui/login.rs:508
 msgid "Under Redirect URIs, add exactly:"
@@ -3321,12 +3042,8 @@ msgid "Spotify is being slow on the shared sign-in."
 msgstr "Spotify ist bei der gemeinsamen Anmeldung langsam."
 
 #: src/ui/mod.rs:408
-msgid ""
-"Spotifast no longer offers the shared sign-in, and Spotify can stop "
-"accepting it at any time. Register Spotifast and you won't have to wait."
-msgstr ""
-"Spotifast bietet die gemeinsame Anmeldung nicht mehr an, und Spotify kann "
-"sie jederzeit ablehnen. Registriere Spotifast, dann musst du nicht warten."
+msgid "Spotifast no longer offers the shared sign-in, and Spotify can stop accepting it at any time. Register Spotifast and you won't have to wait."
+msgstr "Spotifast bietet die gemeinsame Anmeldung nicht mehr an, und Spotify kann sie jederzeit ablehnen. Registriere Spotifast, dann musst du nicht warten."
 
 #. Translators: a button that opens a page explaining why
 #. the banner it sits in appeared.
@@ -3335,14 +3052,8 @@ msgid "Why?"
 msgstr "Warum?"
 
 #: src/ui/mod.rs:441
-msgid ""
-"Spotify refused the key that unlocks the audio. Spotifast can't fix that, "
-"but it sometimes clears up on its own. You can still play on your phone or "
-"another Spotify device."
-msgstr ""
-"Spotify hat den Schlüssel verweigert, der den Ton entsperrt. Spotifast kann "
-"daran nichts ändern, aber manchmal löst es sich von selbst. Auf deinem Handy "
-"oder einem anderen Spotify-Gerät kannst du trotzdem abspielen."
+msgid "Spotify refused the key that unlocks the audio. Spotifast can't fix that, but it sometimes clears up on its own. You can still play on your phone or another Spotify device."
+msgstr "Spotify hat den Schlüssel verweigert, der den Ton entsperrt. Spotifast kann daran nichts ändern, aber manchmal löst es sich von selbst. Auf deinem Handy oder einem anderen Spotify-Gerät kannst du trotzdem abspielen."
 
 #: src/ui/mod.rs:445
 msgid "Play on another device"
@@ -3420,9 +3131,7 @@ msgstr "Sekunden"
 
 #: src/ui/radio.rs:107
 msgid "Radio comes from playback on this computer. Turn it on in Settings."
-msgstr ""
-"Radio kommt von der Wiedergabe auf diesem Computer. Aktiviere sie in den "
-"Einstellungen."
+msgstr "Radio kommt von der Wiedergabe auf diesem Computer. Aktiviere sie in den Einstellungen."
 
 #: src/ui/radio.rs:207
 msgid "Based on this playlist"
@@ -3476,9 +3185,7 @@ msgstr "Prüfe die Schreibweise oder versuche es mit weniger Wörtern."
 
 #: src/ui/search.rs:94
 msgid "Connect to the internet to search songs, artists, and playlists."
-msgstr ""
-"Verbinde dich mit dem Internet, um nach Songs, Künstlern und Playlists zu "
-"suchen."
+msgstr "Verbinde dich mit dem Internet, um nach Songs, Künstlern und Playlists zu suchen."
 
 #: src/ui/search.rs:104 src/ui/winamp/playlist.rs:647
 msgid "Search Spotify"
@@ -3582,11 +3289,8 @@ msgid "What do you want to play?"
 msgstr "Was möchtest du hören?"
 
 #: src/ui/topbar.rs:546
-msgid ""
-"Spotifast is offline. Reconnecting automatically when connection returns."
-msgstr ""
-"Spotifast ist offline. Die Verbindung wird automatisch wiederhergestellt, "
-"sobald das Netzwerk verfügbar ist."
+msgid "Spotifast is offline. Reconnecting automatically when connection returns."
+msgstr "Spotifast ist offline. Die Verbindung wird automatisch wiederhergestellt, sobald das Netzwerk verfügbar ist."
 
 #: src/ui/topbar.rs:574
 msgid "MilkDrop visualiser (Ctrl+Shift+K)"
@@ -3646,8 +3350,7 @@ msgstr "Bereit zur Installation"
 
 #: src/ui/update.rs:115
 msgid "Music playing on this computer will stop when Spotifast restarts."
-msgstr ""
-"Musik, die auf diesem Computer läuft, stoppt beim Neustart von Spotifast."
+msgstr "Musik, die auf diesem Computer läuft, stoppt beim Neustart von Spotifast."
 
 #: src/ui/update.rs:122
 msgid "Restart to update"
@@ -3968,9 +3671,7 @@ msgstr "Guten Abend"
 
 #: src/window.rs:12
 msgid "On Wayland, use your desktop's Keep Above shortcut or window rule."
-msgstr ""
-"Nutze unter Wayland das Tastenkürzel „Immer im Vordergrund“ oder eine "
-"Fensterregel deines Desktops."
+msgstr "Nutze unter Wayland das Tastenkürzel „Immer im Vordergrund“ oder eine Fensterregel deines Desktops."
 
 #: src/window.rs:31
 msgid "Spotifast cannot open its window"
@@ -3981,49 +3682,284 @@ msgid "Open page"
 msgstr "Seite öffnen"
 
 #: src/window.rs:51
-msgid ""
-"On Windows on ARM, the OpenGL that Spotifast draws with comes from "
-"Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft "
-"Store page to install or repair it?"
-msgstr ""
-"Unter Windows on ARM stammt das OpenGL, mit dem Spotifast zeichnet, aus "
-"Microsofts OpenCL, OpenGL & Vulkan Compatibility Pack. Seine Seite im "
-"Microsoft Store öffnen, um es zu installieren oder zu reparieren?"
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
+msgstr "Unter Windows on ARM stammt das OpenGL, mit dem Spotifast zeichnet, aus Microsofts OpenCL, OpenGL & Vulkan Compatibility Pack. Seine Seite im Microsoft Store öffnen, um es zu installieren oder zu reparieren?"
 
 #. Translators: Keep {url} exactly as written. It becomes the address
 #. of the Spotifast download page.
 #: src/window.rs:58
 #, rust-format
-msgid ""
-"Spotifast needs a graphics driver with OpenGL 2.0 or newer, and this PC or "
-"virtual machine does not provide one. Install the graphics driver, or turn "
-"on GPU acceleration for the virtual machine. Open {url} to read more?"
-msgstr ""
-"Spotifast braucht einen Grafiktreiber mit OpenGL 2.0 oder neuer, und dieser "
-"PC oder diese virtuelle Maschine bietet keinen. Installiere den "
-"Grafiktreiber oder schalte die GPU-Beschleunigung der virtuellen Maschine "
-"ein. {url} öffnen, um mehr zu erfahren?"
+msgid "Spotifast needs a graphics driver with OpenGL 2.0 or newer, and this PC or virtual machine does not provide one. Install the graphics driver, or turn on GPU acceleration for the virtual machine. Open {url} to read more?"
+msgstr "Spotifast braucht einen Grafiktreiber mit OpenGL 2.0 oder neuer, und dieser PC oder diese virtuelle Maschine bietet keinen. Installiere den Grafiktreiber oder schalte die GPU-Beschleunigung der virtuellen Maschine ein. {url} öffnen, um mehr zu erfahren?"
 
-#~ msgid ""
-#~ "Spotify refused this cover. Check that you own the playlist, then sign in "
-#~ "again to grant image upload permission. If using a personal app, "
-#~ "reconnect it in Settings too."
-#~ msgstr ""
-#~ "Spotify hat dieses Cover abgelehnt. Prüfe, ob dir die Playlist gehört, "
-#~ "und melde dich erneut an, um das Hochladen von Bildern zu erlauben. Wenn "
-#~ "du eine persönliche App nutzt, verbinde sie auch in den Einstellungen neu."
+#. Translators: {step} and {steps} are numbers, as in "Step 2 of 3".
+#: src/ui/soloist.rs:199
+#, rust-format
+msgid "Step {step} of {steps}"
+msgstr "Schritt {step} von {steps}"
+
+#: src/ui/soloist.rs:315
+msgid "Spotify's own player, running on this computer. Spotifast sets it up and keeps it updated."
+msgstr "Spotifys eigener Player, direkt auf diesem Computer. Spotifast richtet ihn ein und hält ihn aktuell."
+
+#: src/ui/soloist.rs:321
+msgid "Get your personal key from Spotify."
+msgstr "Hol dir deinen persönlichen Schlüssel von Spotify."
+
+#: src/ui/soloist.rs:322
+msgid "Spotifast downloads the player."
+msgstr "Spotifast lädt den Player herunter."
+
+#: src/ui/soloist.rs:323
+msgid "Choose it once in the Spotify app."
+msgstr "Wähle ihn einmal in der Spotify-App aus."
+
+#: src/ui/soloist.rs:338
+msgid "Requires Spotify Premium."
+msgstr "Erfordert Spotify Premium."
+
+#: src/ui/soloist.rs:365
+msgid "Get your Soloist key"
+msgstr "Soloist-Schlüssel holen"
+
+#: src/ui/soloist.rs:368
+msgid "Spotify gives each Premium account its own key. Spotifast keeps it in your system's credential store."
+msgstr "Spotify gibt jedem Premium-Konto einen eigenen Schlüssel. Spotifast bewahrt ihn im Anmeldedatenspeicher deines Systems auf."
+
+#: src/ui/soloist.rs:384
+msgid "Copy your key from Spotify's Soloist page."
+msgstr "Kopiere deinen Schlüssel von Spotifys Soloist-Seite."
+
+#: src/ui/soloist.rs:399
+msgid "Paste it here."
+msgstr "Füge ihn hier ein."
+
+#: src/ui/soloist.rs:412
+msgid "Soloist key"
+msgstr "Soloist-Schlüssel"
+
+#: src/ui/soloist.rs:443
+msgid "Download Soloist"
+msgstr "Soloist herunterladen"
+
+#: src/ui/soloist.rs:460
+msgid "Starting Soloist"
+msgstr "Soloist wird gestartet"
+
+#: src/ui/soloist.rs:461
+msgid "Checking your key and starting Spotify's player."
+msgstr "Dein Schlüssel wird geprüft und Spotifys Player gestartet."
+
+#: src/ui/soloist.rs:472
+msgid "This is taking longer than usual. Spotify may be busy, so it's safe to wait."
+msgstr "Das dauert länger als üblich. Spotify ist vielleicht ausgelastet, du kannst einfach warten."
+
+#: src/ui/soloist.rs:488 src/ui/soloist.rs:755
+msgid "Downloading Soloist"
+msgstr "Soloist wird heruntergeladen"
+
+#: src/ui/soloist.rs:489 src/ui/soloist.rs:753
+msgid "Directly from Spotify, to this computer."
+msgstr "Direkt von Spotify auf diesen Computer."
+
+#: src/ui/soloist.rs:545
+msgid "Choose Soloist in Spotify"
+msgstr "Soloist in Spotify auswählen"
+
+#: src/ui/soloist.rs:546
+msgid "You only do this once, on the same network."
+msgstr "Das musst du nur einmal tun, im selben Netzwerk."
+
+#: src/ui/soloist.rs:554
+msgid "Open the Spotify desktop app, on the same account."
+msgstr "Öffne die Spotify-Desktop-App mit demselben Konto."
+
+#: src/ui/soloist.rs:563
+msgid "Play a song. Soloist often only appears while one plays."
+msgstr "Spiele einen Song ab. Soloist erscheint oft erst während der Wiedergabe."
+
+#: src/ui/soloist.rs:571
+msgid "Open its list of devices and choose:"
+msgstr "Öffne dort die Geräteliste und wähle:"
+
+#: src/ui/soloist.rs:584
+msgid "Soloist isn't in the list"
+msgstr "Soloist ist nicht in der Liste"
+
+#: src/ui/soloist.rs:613
+msgid "Phones and the web player may not list it until it has been chosen once. Start with the desktop app, on this computer."
+msgstr "Smartphones und der Web-Player zeigen es eventuell erst an, wenn es einmal ausgewählt wurde. Beginne mit der Desktop-App auf diesem Computer."
+
+#: src/ui/soloist.rs:617
+msgid "A firewall, VPN or guest Wi-Fi can hide it. Allow Soloist on your local network, or pair once over your phone's hotspot."
+msgstr "Eine Firewall, ein VPN oder ein Gäste-Wi-Fi können es verbergen. Erlaube Soloist in deinem lokalen Netzwerk oder kopple es einmal über den Hotspot deines Smartphones."
+
+#: src/ui/soloist.rs:624
+msgid "More help in the guide"
+msgstr "Mehr Hilfe in der Anleitung"
+
+#: src/ui/soloist.rs:643
+msgid "Almost there"
+msgstr "Fast geschafft"
+
+#: src/ui/soloist.rs:646
+msgid "Soloist is connected. Spotify is confirming it's on your account."
+msgstr "Soloist ist verbunden. Spotify bestätigt gerade, dass es zu deinem Konto gehört."
+
+#: src/ui/soloist.rs:660
+msgid "Spotify is slow to answer. Playing a song on Soloist from the Spotify app can help."
+msgstr "Spotify antwortet langsam. Es kann helfen, in der Spotify-App einen Song auf Soloist abzuspielen."
+
+#: src/ui/soloist.rs:675
+msgid "Soloist will play your music on this computer."
+msgstr "Soloist spielt deine Musik auf diesem Computer ab."
+
+#: src/ui/soloist.rs:691
+msgid "Soloist didn't start"
+msgstr "Soloist ist nicht gestartet"
+
+#: src/ui/soloist.rs:701
+msgid "Enter a different key"
+msgstr "Anderen Schlüssel eingeben"
+
+#: src/ui/soloist.rs:723
+msgid "Reconnecting Soloist…"
+msgstr "Soloist wird neu verbunden…"
+
+#: src/ui/soloist.rs:726
+msgid "Keep browsing. A song you choose now starts when it's back."
+msgstr "Stöbere einfach weiter. Ein jetzt gewählter Song startet, sobald es wieder da ist."
+
+#: src/ui/soloist.rs:734
+msgid "Soloist isn't running"
+msgstr "Soloist läuft nicht"
+
+#: src/ui/soloist.rs:743
+msgid "Soloist needs your key"
+msgstr "Soloist braucht deinen Schlüssel"
+
+#: src/ui/soloist.rs:744 src/ui/soloist.rs:858
+msgid "Spotifast can't find the key you saved."
+msgstr "Spotifast findet deinen gespeicherten Schlüssel nicht."
+
+#: src/ui/soloist.rs:747 src/ui/soloist.rs:955
+msgid "Add your key"
+msgstr "Schlüssel hinzufügen"
+
+#: src/ui/soloist.rs:762
+msgid "Soloist needs to connect again"
+msgstr "Soloist muss sich neu verbinden"
+
+#: src/ui/soloist.rs:765
+msgid "Spotify signed it out on this computer. Choose it once more in Spotify."
+msgstr "Spotify hat es auf diesem Computer abgemeldet. Wähle es noch einmal in Spotify aus."
+
+#: src/ui/soloist.rs:771
+msgid "Spotify hasn't listed Soloist yet"
+msgstr "Spotify zeigt Soloist noch nicht an"
+
+#: src/ui/soloist.rs:774
+msgid "Soloist is running. Playing a song on it from the Spotify app usually helps."
+msgstr "Soloist läuft. Meist hilft es, in der Spotify-App einen Song darauf abzuspielen."
+
+#: src/ui/soloist.rs:802
+msgid "Spotify's own player, running on this computer. Requires Premium."
+msgstr "Spotifys eigener Player, direkt auf diesem Computer. Erfordert Premium."
+
+#: src/ui/soloist.rs:809
+msgid "Status"
+msgstr "Status"
+
+#: src/ui/soloist.rs:810
+msgid "Version"
+msgstr "Version"
+
+#: src/ui/soloist.rs:821
+msgid "Spotify manages it. Soloist doesn't report the format it plays."
+msgstr "Spotify legt sie fest. Soloist meldet nicht, welches Format es abspielt."
+
+#: src/ui/soloist.rs:837
+msgid "Go back to the built-in player. Your key stays saved."
+msgstr "Zurück zum integrierten Player. Dein Schlüssel bleibt gespeichert."
+
+#: src/ui/soloist.rs:848
+msgid "Ready on this computer."
+msgstr "Auf diesem Computer bereit."
+
+#: src/ui/soloist.rs:877
+#, rust-format
+msgid "{version}, good until {date}. Updates automatically."
+msgstr "{version}, gültig bis {date}. Wird automatisch aktualisiert."
+
+#: src/ui/soloist.rs:928
+msgid "Turn off"
+msgstr "Ausschalten"
+
+#: src/soloist/mod.rs:75
+msgid "Spotify hasn't confirmed your sign-in yet. Try again in a moment."
+msgstr "Spotify hat deine Anmeldung noch nicht bestätigt. Versuche es gleich noch einmal."
+
+#: src/soloist/mod.rs:77
+msgid "That doesn't look like a Soloist key."
+msgstr "Das sieht nicht nach einem Soloist-Schlüssel aus."
+
+#: src/soloist/mod.rs:80
+msgid "Spotifast couldn't reach your saved key. Unlock the system credential store and try again."
+msgstr "Spotifast konnte nicht auf deinen gespeicherten Schlüssel zugreifen. Entsperre den Anmeldedatenspeicher des Systems und versuche es erneut."
+
+#: src/soloist/mod.rs:84
+msgid "Spotifast couldn't download Soloist. Check your connection and try again."
+msgstr "Spotifast konnte Soloist nicht herunterladen. Überprüfe deine Verbindung und versuche es erneut."
+
+#: src/soloist/mod.rs:88
+msgid "Soloist stopped while starting. Check your key and this computer's audio service."
+msgstr "Soloist wurde beim Start beendet. Überprüfe deinen Schlüssel und den Audiodienst dieses Computers."
+
+#: src/soloist/mod.rs:90
+msgid "Soloist took too long to start."
+msgstr "Soloist hat zu lange zum Starten gebraucht."
+
+#: src/soloist/mod.rs:91
+msgid "Soloist stopped unexpectedly."
+msgstr "Soloist wurde unerwartet beendet."
+
+#: src/soloist/mod.rs:92
+msgid "Soloist keeps losing its connection."
+msgstr "Soloist verliert immer wieder die Verbindung."
+
+#: src/soloist/mod.rs:93
+msgid "Soloist lost its audio output."
+msgstr "Soloist hat seine Audioausgabe verloren."
+
+#: src/soloist/mod.rs:96
+msgid "This Soloist build has expired, and Spotify hasn't published a new one yet."
+msgstr "Dieser Soloist-Build ist abgelaufen, und Spotify hat noch keinen neuen veröffentlicht."
+
+#: src/ui/keys.rs:364
+msgid "Winamp mini player"
+msgstr "Winamp-Mini-Player"
+
+#: src/ui/login.rs:257
+#, rust-format
+msgid "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, save, and sign in again."
+msgstr "Wenn Spotify „Invalid redirect URI“ meldet, füge {uri} genau so zu deiner App hinzu, speichere und melde dich erneut an."
+
+#: src/ui/topbar.rs:589
+msgid "Winamp mini player (Ctrl+M)"
+msgstr "Winamp-Mini-Player (Strg+M)"
+
+#: src/ui/topbar.rs:590
+msgid "Winamp mini player (Cmd+Shift+M)"
+msgstr "Winamp-Mini-Player (Cmd+Umschalt+M)"
+
+#~ msgid "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If using a personal app, reconnect it in Settings too."
+#~ msgstr "Spotify hat dieses Cover abgelehnt. Prüfe, ob dir die Playlist gehört, und melde dich erneut an, um das Hochladen von Bildern zu erlauben. Wenn du eine persönliche App nutzt, verbinde sie auch in den Einstellungen neu."
 
 #~ msgid "Personal Spotify app"
 #~ msgstr "Persönliche Spotify-App"
 
-#~ msgid ""
-#~ "You're still signed in through the shared app Spotifast used before, "
-#~ "which Spotify can stop accepting at any time. Set up your own app to keep "
-#~ "listening."
-#~ msgstr ""
-#~ "Du bist noch über die gemeinsame App angemeldet, die Spotifast früher "
-#~ "genutzt hat und die Spotify jederzeit ablehnen kann. Richte deine eigene "
-#~ "App ein, um weiterzuhören."
+#~ msgid "You're still signed in through the shared app Spotifast used before, which Spotify can stop accepting at any time. Set up your own app to keep listening."
+#~ msgstr "Du bist noch über die gemeinsame App angemeldet, die Spotifast früher genutzt hat und die Spotify jederzeit ablehnen kann. Richte deine eigene App ein, um weiterzuhören."
 
 #~ msgid "Spotifast signs in through your own free Spotify app."
 #~ msgstr "Spotifast meldet dich über deine eigene kostenlose Spotify-App an."
@@ -4038,9 +3974,7 @@ msgstr ""
 #~ msgstr "Persönliche App bereit"
 
 #~ msgid "Supported requests use your app. Other requests use the shared app."
-#~ msgstr ""
-#~ "Unterstützte Anfragen nutzen deine App. Andere Anfragen nutzen die "
-#~ "gemeinsame App."
+#~ msgstr "Unterstützte Anfragen nutzen deine App. Andere Anfragen nutzen die gemeinsame App."
 
 #~ msgid "Spotifast uses your app for Spotify's Web API."
 #~ msgstr "Spotifast nutzt deine App für die Web API von Spotify."
@@ -4051,65 +3985,35 @@ msgstr ""
 #~ msgid "Move to your own Spotify app"
 #~ msgstr "Zur eigenen Spotify-App wechseln"
 
-#~ msgid ""
-#~ "You're signed in through the shared app Spotifast used before. Spotifast "
-#~ "no longer offers it, and Spotify can stop accepting it at any time. Set "
-#~ "up your own free Spotify app so nothing stops your music. It takes a few "
-#~ "minutes."
-#~ msgstr ""
-#~ "Du bist über die gemeinsame App angemeldet, die Spotifast früher genutzt "
-#~ "hat. Spotifast bietet sie nicht mehr an, und Spotify kann sie jederzeit "
-#~ "ablehnen. Richte deine eigene kostenlose Spotify-App ein, damit deine "
-#~ "Musik nicht stoppt. Das dauert nur ein paar Minuten."
+#~ msgid "You're signed in through the shared app Spotifast used before. Spotifast no longer offers it, and Spotify can stop accepting it at any time. Set up your own free Spotify app so nothing stops your music. It takes a few minutes."
+#~ msgstr "Du bist über die gemeinsame App angemeldet, die Spotifast früher genutzt hat. Spotifast bietet sie nicht mehr an, und Spotify kann sie jederzeit ablehnen. Richte deine eigene kostenlose Spotify-App ein, damit deine Musik nicht stoppt. Das dauert nur ein paar Minuten."
 
 #~ msgid "Set up personal app"
 #~ msgstr "Persönliche App einrichten"
 
-#~ msgid ""
-#~ "That doesn't look like a Client ID. It is 32 letters and digits, shown on "
-#~ "your app's page in the dashboard."
-#~ msgstr ""
-#~ "Das sieht nicht nach einer Client ID aus. Sie besteht aus 32 Buchstaben "
-#~ "und Ziffern und steht auf der Seite deiner App im Dashboard."
+#~ msgid "That doesn't look like a Client ID. It is 32 letters and digits, shown on your app's page in the dashboard."
+#~ msgstr "Das sieht nicht nach einer Client ID aus. Sie besteht aus 32 Buchstaben und Ziffern und steht auf der Seite deiner App im Dashboard."
 
-#~ msgid ""
-#~ "Spotify doesn't know this Client ID. Copy it again from your app's page "
-#~ "in the dashboard."
-#~ msgstr ""
-#~ "Spotify kennt diese Client ID nicht. Kopiere sie erneut von der Seite "
-#~ "deiner App im Dashboard."
+#~ msgid "Spotify doesn't know this Client ID. Copy it again from your app's page in the dashboard."
+#~ msgstr "Spotify kennt diese Client ID nicht. Kopiere sie erneut von der Seite deiner App im Dashboard."
 
-#~ msgid ""
-#~ "Spotify didn't let this account use the app. Sign in with the Spotify "
-#~ "account that created it, which needs Premium."
-#~ msgstr ""
-#~ "Spotify hat diesem Konto die Nutzung der App nicht erlaubt. Melde dich "
-#~ "mit dem Spotify-Konto an, das sie erstellt hat. Es braucht Premium."
+#~ msgid "Spotify didn't let this account use the app. Sign in with the Spotify account that created it, which needs Premium."
+#~ msgstr "Spotify hat diesem Konto die Nutzung der App nicht erlaubt. Melde dich mit dem Spotify-Konto an, das sie erstellt hat. Es braucht Premium."
 
-#~ msgid ""
-#~ "Spotify no longer accepts the shared sign-in Spotifast used before. Set "
-#~ "up your own Spotify app to keep listening."
-#~ msgstr ""
-#~ "Spotify akzeptiert die gemeinsame Anmeldung, die Spotifast früher genutzt "
-#~ "hat, nicht mehr. Richte deine eigene Spotify-App ein, um weiterzuhören."
+#~ msgid "Spotify no longer accepts the shared sign-in Spotifast used before. Set up your own Spotify app to keep listening."
+#~ msgstr "Spotify akzeptiert die gemeinsame Anmeldung, die Spotifast früher genutzt hat, nicht mehr. Richte deine eigene Spotify-App ein, um weiterzuhören."
 
 #~ msgid "How to set up your Spotify app"
 #~ msgstr "So richtest du deine Spotify-App ein"
 
 #~ msgid "A Client ID is 32 letters and digits. Copy it from your app's page."
-#~ msgstr ""
-#~ "Eine Client ID besteht aus 32 Buchstaben und Ziffern. Kopiere sie von der "
-#~ "Seite deiner App."
+#~ msgstr "Eine Client ID besteht aus 32 Buchstaben und Ziffern. Kopiere sie von der Seite deiner App."
 
 #~ msgid "Set up your Spotify app"
 #~ msgstr "Deine Spotify-App einrichten"
 
-#~ msgid ""
-#~ "Spotifast signs in through your own free Spotify app. Spotify requires "
-#~ "its owner to have Premium."
-#~ msgstr ""
-#~ "Spotifast meldet dich über deine eigene kostenlose Spotify-App an. "
-#~ "Spotify verlangt, dass ihr Besitzer Premium hat."
+#~ msgid "Spotifast signs in through your own free Spotify app. Spotify requires its owner to have Premium."
+#~ msgstr "Spotifast meldet dich über deine eigene kostenlose Spotify-App an. Spotify verlangt, dass ihr Besitzer Premium hat."
 
 #~ msgid "Click Create app. Any name will do."
 #~ msgstr "Klicke auf „Create app“. Der Name ist egal."
@@ -4120,14 +4024,8 @@ msgstr ""
 #~ msgid "Spotify is being slow on the shared app."
 #~ msgstr "Spotify ist über die gemeinsame App gerade langsam."
 
-#~ msgid ""
-#~ "Spotifast no longer offers the shared app, and Spotify can stop accepting "
-#~ "it at any time. Set up your own free Spotify app and you won't have to "
-#~ "wait."
-#~ msgstr ""
-#~ "Spotifast bietet die gemeinsame App nicht mehr an, und Spotify kann sie "
-#~ "jederzeit ablehnen. Richte deine eigene kostenlose Spotify-App ein, dann "
-#~ "musst du nicht warten."
+#~ msgid "Spotifast no longer offers the shared app, and Spotify can stop accepting it at any time. Set up your own free Spotify app and you won't have to wait."
+#~ msgstr "Spotifast bietet die gemeinsame App nicht mehr an, und Spotify kann sie jederzeit ablehnen. Richte deine eigene kostenlose Spotify-App ein, dann musst du nicht warten."
 
 #~ msgid "Winamp skins"
 #~ msgstr "Winamp-Skins"
@@ -4135,21 +4033,11 @@ msgstr ""
 #~ msgid "Show Winamp in taskbar"
 #~ msgstr "Winamp in der Taskleiste anzeigen"
 
-#~ msgid ""
-#~ "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to "
-#~ "return. Drop a skin on either window to add it."
-#~ msgstr ""
-#~ "Klassische Winamp-Skins (.wsz) verwenden. Drücke Strg+M oder klicke auf "
-#~ "das Skin-Logo, um zurückzukehren. Ziehe einen Skin auf eines der Fenster, "
-#~ "um ihn hinzuzufügen."
+#~ msgid "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to return. Drop a skin on either window to add it."
+#~ msgstr "Klassische Winamp-Skins (.wsz) verwenden. Drücke Strg+M oder klicke auf das Skin-Logo, um zurückzukehren. Ziehe einen Skin auf eines der Fenster, um ihn hinzuzufügen."
 
-#~ msgid ""
-#~ "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo "
-#~ "to return. Drop a skin on either window to add it."
-#~ msgstr ""
-#~ "Klassische Winamp-Skins (.wsz) verwenden. Drücke Cmd+Umschalt+M oder "
-#~ "klicke auf das Skin-Logo, um zurückzukehren. Ziehe einen Skin auf eines "
-#~ "der Fenster, um ihn hinzuzufügen."
+#~ msgid "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to return. Drop a skin on either window to add it."
+#~ msgstr "Klassische Winamp-Skins (.wsz) verwenden. Drücke Cmd+Umschalt+M oder klicke auf das Skin-Logo, um zurückzukehren. Ziehe einen Skin auf eines der Fenster, um ihn hinzuzufügen."
 
 #~ msgid "Skin"
 #~ msgstr "Skin"
@@ -4166,79 +4054,35 @@ msgstr ""
 #~ msgid "Spotify's own player, with lossless support."
 #~ msgstr "Spotifys eigener Player mit verlustfreiem Audio."
 
-#~ msgid ""
-#~ "You'll need Spotify Premium, your personal Soloist key and one pairing in "
-#~ "Spotify. Spotifast handles the download and updates."
-#~ msgstr ""
-#~ "Du brauchst Spotify Premium, deinen persönlichen Soloist-Schlüssel und "
-#~ "eine einmalige Kopplung in Spotify. Spotifast übernimmt Download und "
-#~ "Updates."
+#~ msgid "You'll need Spotify Premium, your personal Soloist key and one pairing in Spotify. Spotifast handles the download and updates."
+#~ msgstr "Du brauchst Spotify Premium, deinen persönlichen Soloist-Schlüssel und eine einmalige Kopplung in Spotify. Spotifast übernimmt Download und Updates."
 
-#~ msgid ""
-#~ "For local files and full queue editing, use the built-in player. You can "
-#~ "switch later in Settings."
-#~ msgstr ""
-#~ "Für lokale Dateien und die vollständige Warteschlangenbearbeitung nutze "
-#~ "den integrierten Player. Du kannst später in den Einstellungen wechseln."
+#~ msgid "For local files and full queue editing, use the built-in player. You can switch later in Settings."
+#~ msgstr "Für lokale Dateien und die vollständige Warteschlangenbearbeitung nutze den integrierten Player. Du kannst später in den Einstellungen wechseln."
 
-#~ msgid ""
-#~ "Create a Soloist key in Spotify's developer dashboard. This is separate "
-#~ "from your Web API app's Client ID."
-#~ msgstr ""
-#~ "Erstelle einen Soloist-Schlüssel im Spotify-Entwicklerdashboard. Er ist "
-#~ "unabhängig von der Client-ID deiner Web-API-App."
+#~ msgid "Create a Soloist key in Spotify's developer dashboard. This is separate from your Web API app's Client ID."
+#~ msgstr "Erstelle einen Soloist-Schlüssel im Spotify-Entwicklerdashboard. Er ist unabhängig von der Client-ID deiner Web-API-App."
 
-#~ msgid ""
-#~ "Soloist makes its own Spotify connections. Spotifast's proxy settings do "
-#~ "not route its audio traffic."
-#~ msgstr ""
-#~ "Soloist baut eigene Verbindungen zu Spotify auf. Spotifasts Proxy-"
-#~ "Einstellungen leiten seinen Audioverkehr nicht um."
+#~ msgid "Soloist makes its own Spotify connections. Spotifast's proxy settings do not route its audio traffic."
+#~ msgstr "Soloist baut eigene Verbindungen zu Spotify auf. Spotifasts Proxy-Einstellungen leiten seinen Audioverkehr nicht um."
 
-#~ msgid ""
-#~ "Downloads directly from Spotify and saves your key in the system "
-#~ "credential store. By enabling Soloist, you use Spotify's separate "
-#~ "software under its terms."
-#~ msgstr ""
-#~ "Lädt direkt von Spotify herunter und speichert deinen Schlüssel im "
-#~ "Anmeldedatenspeicher des Systems. Mit Soloist verwendest du Spotifys "
-#~ "separate Software zu dessen Bedingungen."
+#~ msgid "Downloads directly from Spotify and saves your key in the system credential store. By enabling Soloist, you use Spotify's separate software under its terms."
+#~ msgstr "Lädt direkt von Spotify herunter und speichert deinen Schlüssel im Anmeldedatenspeicher des Systems. Mit Soloist verwendest du Spotifys separate Software zu dessen Bedingungen."
 
-#~ msgid ""
-#~ "Open Spotify on the same network, using the account signed in here. In "
-#~ "the device picker, choose:"
-#~ msgstr ""
-#~ "Öffne Spotify im selben Netzwerk mit dem hier angemeldeten Konto. Wähle "
-#~ "in der Geräteauswahl:"
+#~ msgid "Open Spotify on the same network, using the account signed in here. In the device picker, choose:"
+#~ msgstr "Öffne Spotify im selben Netzwerk mit dem hier angemeldeten Konto. Wähle in der Geräteauswahl:"
 
-#~ msgid ""
-#~ "Spotifast will notice when pairing finishes. Future starts reconnect "
-#~ "automatically."
-#~ msgstr ""
-#~ "Spotifast erkennt, wenn die Kopplung abgeschlossen ist. Bei künftigen "
-#~ "Starts wird die Verbindung automatisch wiederhergestellt."
+#~ msgid "Spotifast will notice when pairing finishes. Future starts reconnect automatically."
+#~ msgstr "Spotifast erkennt, wenn die Kopplung abgeschlossen ist. Bei künftigen Starts wird die Verbindung automatisch wiederhergestellt."
 
-#~ msgid ""
-#~ "If this takes a while, make sure Spotify is signed in to the same account "
-#~ "as Spotifast, then select this device there."
-#~ msgstr ""
-#~ "Falls dies länger dauert, prüfe, ob Spotify dasselbe Konto wie Spotifast "
-#~ "verwendet, und wähle dort dieses Gerät aus."
+#~ msgid "If this takes a while, make sure Spotify is signed in to the same account as Spotifast, then select this device there."
+#~ msgstr "Falls dies länger dauert, prüfe, ob Spotify dasselbe Konto wie Spotifast verwendet, und wähle dort dieses Gerät aus."
 
-#~ msgid ""
-#~ "For EQ, visualizers, local files and queue editing, use the built-in "
-#~ "player. You can switch later in Settings."
-#~ msgstr ""
-#~ "Für EQ, Visualisierungen, lokale Dateien und die Bearbeitung der "
-#~ "Warteschlange verwende den integrierten Player. Du kannst später in den "
-#~ "Einstellungen wechseln."
+#~ msgid "For EQ, visualizers, local files and queue editing, use the built-in player. You can switch later in Settings."
+#~ msgstr "Für EQ, Visualisierungen, lokale Dateien und die Bearbeitung der Warteschlange verwende den integrierten Player. Du kannst später in den Einstellungen wechseln."
 
-#~ msgid ""
-#~ "Spotify manages audio quality. EQ, visualizers and local files use the "
-#~ "built-in player."
-#~ msgstr ""
-#~ "Spotify verwaltet die Audioqualität. EQ, Visualisierungen und lokale "
-#~ "Dateien nutzen den integrierten Player."
+#~ msgid "Spotify manages audio quality. EQ, visualizers and local files use the built-in player."
+#~ msgstr "Spotify verwaltet die Audioqualität. EQ, Visualisierungen und lokale Dateien nutzen den integrierten Player."
 
 #~ msgid "Confirming your Spotify account…"
 #~ msgstr "Dein Spotify-Konto wird bestätigt…"
@@ -4246,71 +4090,35 @@ msgstr ""
 #~ msgid "Details"
 #~ msgstr "Details"
 
-#~ msgid ""
-#~ "Spotifast checks daily for a replacement during the last 30 days of each "
-#~ "build. Updates wait until Soloist is inactive."
-#~ msgstr ""
-#~ "In den letzten 30 Tagen jeder Version sucht Spotifast täglich nach einem "
-#~ "Ersatz. Updates warten, bis Soloist inaktiv ist."
+#~ msgid "Spotifast checks daily for a replacement during the last 30 days of each build. Updates wait until Soloist is inactive."
+#~ msgstr "In den letzten 30 Tagen jeder Version sucht Spotifast täglich nach einem Ersatz. Updates warten, bis Soloist inaktiv ist."
 
-#~ msgid ""
-#~ "Soloist uses your system audio output. Turn it off to use the built-in "
-#~ "player's EQ, visualizers, local files and queue editing."
-#~ msgstr ""
-#~ "Soloist verwendet die Audioausgabe des Systems. Schalte es aus, um den "
-#~ "Equalizer, die Visualisierungen, lokale Dateien und die "
-#~ "Warteschlangenbearbeitung des integrierten Players zu nutzen."
+#~ msgid "Soloist uses your system audio output. Turn it off to use the built-in player's EQ, visualizers, local files and queue editing."
+#~ msgstr "Soloist verwendet die Audioausgabe des Systems. Schalte es aus, um den Equalizer, die Visualisierungen, lokale Dateien und die Warteschlangenbearbeitung des integrierten Players zu nutzen."
 
-#~ msgid ""
-#~ "Spotify chooses playback quality. Soloist does not report the delivered "
-#~ "audio format yet."
-#~ msgstr ""
-#~ "Spotify bestimmt die Wiedergabequalität. Soloist meldet das tatsächlich "
-#~ "gelieferte Audioformat noch nicht."
+#~ msgid "Spotify chooses playback quality. Soloist does not report the delivered audio format yet."
+#~ msgstr "Spotify bestimmt die Wiedergabequalität. Soloist meldet das tatsächlich gelieferte Audioformat noch nicht."
 
-#~ msgid ""
-#~ "Audio quality, output, EQ and local-file settings below apply to the "
-#~ "built-in player."
-#~ msgstr ""
-#~ "Die folgenden Einstellungen für Audioqualität, Ausgabe, EQ und lokale "
-#~ "Dateien gelten für den integrierten Player."
+#~ msgid "Audio quality, output, EQ and local-file settings below apply to the built-in player."
+#~ msgstr "Die folgenden Einstellungen für Audioqualität, Ausgabe, EQ und lokale Dateien gelten für den integrierten Player."
 
-#~ msgid ""
-#~ "Spotify's own player, with support for lossless audio. Requires Premium, "
-#~ "your personal Soloist key, and one pairing in the Spotify app."
-#~ msgstr ""
-#~ "Spotifys eigener Player mit Unterstützung für verlustfreies Audio. "
-#~ "Erfordert Premium, deinen persönlichen Soloist-Schlüssel und eine "
-#~ "einmalige Kopplung in der Spotify-App."
+#~ msgid "Spotify's own player, with support for lossless audio. Requires Premium, your personal Soloist key, and one pairing in the Spotify app."
+#~ msgstr "Spotifys eigener Player mit Unterstützung für verlustfreies Audio. Erfordert Premium, deinen persönlichen Soloist-Schlüssel und eine einmalige Kopplung in der Spotify-App."
 
-#~ msgid ""
-#~ "Soloist plays through your system audio output. Spotifast's EQ, "
-#~ "visualizers, local files, and full queue editing are available with the "
-#~ "built-in player."
-#~ msgstr ""
-#~ "Soloist verwendet die Audioausgabe deines Systems. Spotifasts EQ, "
-#~ "Visualisierungen, lokale Dateien und die vollständige "
-#~ "Warteschlangenbearbeitung sind mit dem integrierten Player verfügbar."
+#~ msgid "Soloist plays through your system audio output. Spotifast's EQ, visualizers, local files, and full queue editing are available with the built-in player."
+#~ msgstr "Soloist verwendet die Audioausgabe deines Systems. Spotifasts EQ, Visualisierungen, lokale Dateien und die vollständige Warteschlangenbearbeitung sind mit dem integrierten Player verfügbar."
 
 #~ msgid "Soloist is ready"
 #~ msgstr "Soloist ist bereit"
 
-#~ msgid ""
-#~ "A fresh build is downloaded. It will be applied when Soloist is inactive "
-#~ "or Spotifast restarts."
-#~ msgstr ""
-#~ "Eine neue Version wurde heruntergeladen. Sie wird angewendet, wenn "
-#~ "Soloist inaktiv ist oder Spotifast neu startet."
+#~ msgid "A fresh build is downloaded. It will be applied when Soloist is inactive or Spotifast restarts."
+#~ msgstr "Eine neue Version wurde heruntergeladen. Sie wird angewendet, wenn Soloist inaktiv ist oder Spotifast neu startet."
 
 #~ msgid "Soloist setup, privacy and limitations"
 #~ msgstr "Soloist: Einrichtung, Datenschutz und Einschränkungen"
 
-#~ msgid ""
-#~ "Use a personal Development Mode app for a separate API quota. The shared "
-#~ "app stays active."
-#~ msgstr ""
-#~ "Nutze eine persönliche App im Development Mode für ein eigenes API-"
-#~ "Kontingent. Die gemeinsame App bleibt aktiv."
+#~ msgid "Use a personal Development Mode app for a separate API quota. The shared app stays active."
+#~ msgstr "Nutze eine persönliche App im Development Mode für ein eigenes API-Kontingent. Die gemeinsame App bleibt aktiv."
 
 #~ msgid "Remove personal app"
 #~ msgstr "Persönliche App entfernen"
@@ -4321,31 +4129,17 @@ msgstr ""
 #~ msgid "Spotify can be slow on the shared app"
 #~ msgstr "Spotify kann über die gemeinsame App langsam sein"
 
-#~ msgid ""
-#~ "Everyone using Spotifast shares one app, and Spotify slows it down when "
-#~ "it's busy. Set up your own personal Spotify app and you won't have to "
-#~ "wait. It's free and takes a few minutes."
-#~ msgstr ""
-#~ "Alle, die Spotifast nutzen, teilen sich eine App, und Spotify bremst sie "
-#~ "aus, wenn viel los ist. Richte deine eigene persönliche Spotify-App ein, "
-#~ "dann musst du nicht warten. Das ist kostenlos und dauert nur ein paar "
-#~ "Minuten."
+#~ msgid "Everyone using Spotifast shares one app, and Spotify slows it down when it's busy. Set up your own personal Spotify app and you won't have to wait. It's free and takes a few minutes."
+#~ msgstr "Alle, die Spotifast nutzen, teilen sich eine App, und Spotify bremst sie aus, wenn viel los ist. Richte deine eigene persönliche Spotify-App ein, dann musst du nicht warten. Das ist kostenlos und dauert nur ein paar Minuten."
 
 #~ msgid "Use the shared Spotify app instead"
 #~ msgstr "Stattdessen die gemeinsame Spotify-App verwenden"
 
-#~ msgid ""
-#~ "Set up your own personal Spotify app and you won't have to wait. It's "
-#~ "free and takes a few minutes."
-#~ msgstr ""
-#~ "Richte deine eigene persönliche Spotify-App ein, dann musst du nicht "
-#~ "warten. Das ist kostenlos und dauert nur ein paar Minuten."
+#~ msgid "Set up your own personal Spotify app and you won't have to wait. It's free and takes a few minutes."
+#~ msgstr "Richte deine eigene persönliche Spotify-App ein, dann musst du nicht warten. Das ist kostenlos und dauert nur ein paar Minuten."
 
-#~ msgid ""
-#~ "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
-#~ msgstr ""
-#~ "Spotifast wird im Infobereich ausgeblendet. Beende es über das Menü im "
-#~ "Infobereich oder mit Cmd+Q."
+#~ msgid "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
+#~ msgstr "Spotifast wird im Infobereich ausgeblendet. Beende es über das Menü im Infobereich oder mit Cmd+Q."
 
 #~ msgid "Your most-played tracks from the last four weeks."
 #~ msgstr "Deine meistgespielten Titel der letzten vier Wochen."
@@ -4353,41 +4147,20 @@ msgstr ""
 #~ msgid "Spend less time waiting for Spotify"
 #~ msgstr "Weniger auf Spotify warten"
 
-#~ msgid ""
-#~ "Spotifast's default connection shares Spotify's request limit with other "
-#~ "listeners. When it gets busy, loading music and using playback controls "
-#~ "can take longer."
-#~ msgstr ""
-#~ "Die Standardverbindung von Spotifast teilt sich das Anfragelimit von "
-#~ "Spotify mit anderen Hörern. Bei hoher Auslastung können das Laden von "
-#~ "Musik und die Wiedergabesteuerung länger dauern."
+#~ msgid "Spotifast's default connection shares Spotify's request limit with other listeners. When it gets busy, loading music and using playback controls can take longer."
+#~ msgstr "Die Standardverbindung von Spotifast teilt sich das Anfragelimit von Spotify mit anderen Hörern. Bei hoher Auslastung können das Laden von Musik und die Wiedergabesteuerung länger dauern."
 
-#~ msgid ""
-#~ "Your Premium account lets you create a free personal Spotify app. Connect "
-#~ "it here to give supported requests your own allowance. Some pages still "
-#~ "use the shared connection."
-#~ msgstr ""
-#~ "Mit deinem Premium-Konto kannst du kostenlos eine persönliche Spotify-App "
-#~ "erstellen. Verbinde sie hier, damit unterstützte Anfragen dein eigenes "
-#~ "Kontingent nutzen. Einige Seiten nutzen weiterhin die gemeinsame "
-#~ "Verbindung."
+#~ msgid "Your Premium account lets you create a free personal Spotify app. Connect it here to give supported requests your own allowance. Some pages still use the shared connection."
+#~ msgstr "Mit deinem Premium-Konto kannst du kostenlos eine persönliche Spotify-App erstellen. Verbinde sie hier, damit unterstützte Anfragen dein eigenes Kontingent nutzen. Einige Seiten nutzen weiterhin die gemeinsame Verbindung."
 
-#~ msgid ""
-#~ "Setup takes a few minutes. You can also find it later in Settings under "
-#~ "Personal Spotify app."
-#~ msgstr ""
-#~ "Die Einrichtung dauert ein paar Minuten. Du findest sie auch später in "
-#~ "den Einstellungen unter „Persönliche Spotify-App“."
+#~ msgid "Setup takes a few minutes. You can also find it later in Settings under Personal Spotify app."
+#~ msgstr "Die Einrichtung dauert ein paar Minuten. Du findest sie auch später in den Einstellungen unter „Persönliche Spotify-App“."
 
 #~ msgid "Keep shared app"
 #~ msgstr "Gemeinsame App behalten"
 
-#~ msgid ""
-#~ "Play the local files your playlists list from a folder on this computer. "
-#~ "Only 44.1 kHz files play."
-#~ msgstr ""
-#~ "Spiele die lokalen Dateien deiner Playlists aus einem Ordner auf diesem "
-#~ "Computer ab. Nur Dateien mit 44,1 kHz werden abgespielt."
+#~ msgid "Play the local files your playlists list from a folder on this computer. Only 44.1 kHz files play."
+#~ msgstr "Spiele die lokalen Dateien deiner Playlists aus einem Ordner auf diesem Computer ab. Nur Dateien mit 44,1 kHz werden abgespielt."
 
 #~ msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
 #~ msgstr "PulseAudio deckt auch PipeWire ab. Rodio spricht direkt mit ALSA."
@@ -4396,9 +4169,7 @@ msgstr ""
 #~ msgstr "Dieser Bereich konnte nicht geladen werden"
 
 #~ msgid "Spotify does not let apps remove one queued song."
-#~ msgstr ""
-#~ "Spotify erlaubt Apps nicht, einen einzelnen Song aus der Warteschlange zu "
-#~ "entfernen."
+#~ msgstr "Spotify erlaubt Apps nicht, einen einzelnen Song aus der Warteschlange zu entfernen."
 
 #~ msgid "MacBook notch interactive widget"
 #~ msgstr "Interaktives MacBook-Notch-Widget"
