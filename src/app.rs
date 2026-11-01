@@ -112,6 +112,8 @@ struct PendingRemoteVolume {
     /// Polls already sent when the write completed still describe the past.
     /// None while the write is waiting for Spotify.
     after_poll: Option<u64>,
+    /// When Spotify accepted the write.
+    written_at: Option<Instant>,
     mismatches: u8,
 }
 
@@ -8638,6 +8640,7 @@ impl App {
                     }
                     if result.is_ok() {
                         pending.after_poll = Some(self.remote_poll_seq);
+                        pending.written_at = Some(Instant::now());
                     }
                 }
                 if matches!(action, RemoteAction::Play | RemoteAction::Pause) {
@@ -9975,6 +9978,7 @@ impl App {
                     device_id: device_id.clone(),
                     request: self.remote_volume_request,
                     after_poll: None,
+                    written_at: None,
                     mismatches: 0,
                 });
                 self.backend.api(ApiRequest::Remote {
@@ -10024,14 +10028,20 @@ impl App {
         let Some(reported) = device.and_then(|device| device.volume_percent) else {
             return;
         };
-        if reported == pending.percent || pending.mismatches > 0 {
+        // Polls after a successful write can lag, a Sonos's by seconds.
+        // Check once more, and hold the chosen volume as long as play and
+        // pause are held, before accepting a volume set elsewhere.
+        let held = pending
+            .written_at
+            .is_some_and(|at| at.elapsed() < PLAYBACK_HOLD);
+        if reported == pending.percent || (pending.mismatches > 0 && !held) {
             self.pending_remote_volume = None;
         } else {
-            // Even the first poll after a successful write can lag. Check
-            // once more before accepting a volume set elsewhere, as for tracks.
-            pending.mismatches += 1;
+            if pending.mismatches == 0 {
+                self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
+            }
+            pending.mismatches = pending.mismatches.saturating_add(1);
             pending.after_poll = Some(seq);
-            self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
         }
     }
 
@@ -29490,9 +29500,39 @@ mod tests {
         report_remote_volume(&mut app, 2, Some(35));
         assert_eq!(app.now_playing().unwrap().volume_percent, 65);
         assert!(app.pending_remote_volume.is_some());
+        app.pending_remote_volume.as_mut().unwrap().written_at =
+            Some(Instant::now() - PLAYBACK_HOLD);
         report_remote_volume(&mut app, 3, Some(35));
         assert!(app.pending_remote_volume.is_none());
         assert_eq!(app.now_playing().unwrap().volume_percent, 35);
+        app.backend.shutdown();
+    }
+
+    /// A Sonos reports its old volume for seconds after a write Spotify
+    /// accepted. The slider stays where it was put instead of jumping back
+    /// and forth, and waiting asks Spotify no more often.
+    #[test]
+    fn remote_volume_holds_through_a_device_that_reports_it_late() {
+        let mut app = remote_volume_app();
+        app.set_volume(65, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        report_remote_volume(&mut app, 1, Some(35));
+        assert!(app.remote_recheck_at.is_some());
+        app.remote_recheck_at = None;
+        for seq in 2..5 {
+            report_remote_volume(&mut app, seq, Some(35));
+            assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+            assert!(app.pending_remote_volume.is_some());
+        }
+        assert!(app.remote_recheck_at.is_none());
+        report_remote_volume(&mut app, 5, Some(65));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 65);
         app.backend.shutdown();
     }
 
