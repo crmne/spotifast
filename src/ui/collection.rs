@@ -927,6 +927,33 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         }
     };
     app.keep_picked_rows_for(&table.page, &view);
+    // A song's link opened this page. Waiting out a load keeps the arriving
+    // rows from clearing the pick, and a long album loads until the song
+    // turns up.
+    if !table.loading
+        && let Some(uris) = app.linked_song(&table.page).cloned()
+    {
+        let row = (0..rows).find(|row| {
+            item_index(*row)
+                .and_then(|index| table.items.get(index))
+                .is_some_and(|(item, _, _)| uris.iter().any(|uri| uri == item.uri()))
+        });
+        if let Some(row) = row {
+            app.pick_rows(&table.page, &view, [row].into_iter().collect());
+            app.finish_linked_song();
+            ui.scroll_to_rect(
+                Rect::from_min_size(
+                    pos2(ui.max_rect().left(), list_top + row as f32 * row_height),
+                    vec2(ui.max_rect().width(), row_height),
+                ),
+                Some(egui::Align::Center),
+            );
+        } else if table.can_load_more && table.error.is_none() {
+            app.actions.push(Action::LoadMore(table.page.clone()));
+        } else {
+            app.finish_linked_song();
+        }
+    }
     let picked: std::collections::BTreeSet<usize> =
         app.picked_rows(&table.page).cloned().unwrap_or_default();
     // Keep complete rows for immediate optimistic playlist additions.
@@ -4186,6 +4213,72 @@ mod tests {
     /// Select all takes every song the list shows, Copy hands the picked
     /// songs on in the list's order, and Paste offers an editable playlist
     /// the clipboard's text. A focused text field keeps all three keys.
+    /// A song's link picks its row and brings it into view, however far down
+    /// the list it is, and leaves the pick alone afterwards (#1117).
+    #[test]
+    fn a_linked_song_is_picked_and_scrolled_to() {
+        // #given a list taller than the window, opened for its last song
+        let mut table = KeyboardTable::new();
+        table.items = (0..200)
+            .map(|i| {
+                let mut row = make_test_tracks().remove(0);
+                if let PlayableItem::Track(track) = &mut row.0 {
+                    track.uri = format!("spotify:track:t_{i}");
+                    track.name = format!("Track {i}");
+                }
+                row
+            })
+            .collect();
+        let page = Page::Playlist("test".into());
+        table.app.link_song_for_test(
+            page.clone(),
+            ["spotify:track:t_150".into(), "spotify:track:t_150".into()],
+        );
+
+        // #when the list is drawn
+        table.frame(Vec::new());
+        let tree = table.frame(Vec::new());
+
+        // #then the row is picked, drawn, and the link is spent
+        assert_eq!(
+            table.app.picked_rows(&page).cloned(),
+            Some(std::collections::BTreeSet::from([150]))
+        );
+        assert!(table.app.linked_song(&page).is_none());
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label().is_some_and(|name| name.contains("Track 150"))),
+            "the linked row is on screen"
+        );
+
+        // #when the user clears the pick
+        table.app.clear_picked_rows();
+        table.frame(Vec::new());
+
+        // #then the spent link does not pick it again
+        assert_eq!(table.app.picked_rows(&page), None);
+    }
+
+    /// A song the finished list does not hold is let go of, not waited for.
+    #[test]
+    fn a_linked_song_the_list_does_not_hold_is_let_go() {
+        // #given
+        let mut table = KeyboardTable::new();
+        let page = Page::Playlist("test".into());
+        let missing = "spotify:track:missing".to_string();
+        table
+            .app
+            .link_song_for_test(page.clone(), [missing.clone(), missing]);
+
+        // #when the whole list is there without the song
+        table.frame(Vec::new());
+
+        // #then nothing is picked and nothing waits
+        assert_eq!(table.app.picked_rows(&page), None);
+        assert!(table.app.linked_song(&page).is_none());
+    }
+
     #[test]
     fn select_all_copy_and_paste_act_on_the_song_list() {
         // The modifiers as the platform reports its command key.

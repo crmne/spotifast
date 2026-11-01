@@ -828,6 +828,9 @@ pub struct App {
     /// A Spotify link handed over from outside, waiting for the account
     /// to be signed in and, for a song, for its album to be known.
     pending_link: Option<String>,
+    /// The song a link opened its album for, as the link named it and as
+    /// Spotify plays it, until that page's list has picked its row.
+    linked_song: Option<(Page, [String; 2])>,
     prerelease_request: Option<u64>,
     prerelease_serial: u64,
     /// The songs behind the links last copied from a track table, so a
@@ -1392,6 +1395,7 @@ impl App {
             rootlist_wanted: false,
             editable_by_grant: std::collections::BTreeSet::new(),
             pending_link: None,
+            linked_song: None,
             prerelease_request: None,
             prerelease_serial: 0,
             copied_songs: Vec::new(),
@@ -9163,6 +9167,7 @@ impl App {
 
     pub fn open(&mut self, page: Page) {
         self.pending_link = None;
+        self.linked_song = None;
         self.prerelease_request = None;
         self.touch_page(&page);
         if *self.page() == page {
@@ -9190,13 +9195,19 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(crate) fn link_song_for_test(&mut self, page: Page, uris: [String; 2]) {
+        self.linked_song = Some((page, uris));
+    }
+
+    #[cfg(test)]
     pub(crate) fn pending_spotify_link(&self) -> Option<&str> {
         self.pending_link.as_deref()
     }
 
     /// Opens the page behind the pending link once the account is signed
     /// in. A song and an episode have no page of their own here, so the
-    /// album's and the podcast's open, once Spotify has said which.
+    /// album's and the podcast's open, once Spotify has said which, with a
+    /// song's row picked on its album.
     fn open_pending_link(&mut self) {
         let Some(uri) = self.pending_link.clone() else {
             return;
@@ -9236,7 +9247,11 @@ impl App {
                         .map(|album| album.id.clone())
                         .filter(|id| !id.is_empty());
                     match album {
-                        Some(album) => self.open(Page::Album(album)),
+                        Some(album) => {
+                            let page = Page::Album(album);
+                            self.open(page.clone());
+                            self.linked_song = Some((page, [uri, track.uri]));
+                        }
                         None => self.toast_error(gettext(
                             self.locale,
                             "This song's album is not on Spotify",
@@ -11683,6 +11698,7 @@ impl App {
             Action::Back => {
                 if self.can_go_back() {
                     self.pending_link = None;
+                    self.linked_song = None;
                     self.prerelease_request = None;
                     self.history_index -= 1;
                     let page = self.page().clone();
@@ -11695,6 +11711,7 @@ impl App {
             Action::Forward => {
                 if self.can_go_forward() {
                     self.pending_link = None;
+                    self.linked_song = None;
                     self.prerelease_request = None;
                     self.history_index += 1;
                     let page = self.page().clone();
@@ -13407,6 +13424,19 @@ impl App {
                 anchor: Some(first),
             },
         ));
+    }
+
+    /// The song `page`'s list should pick for the link that opened it.
+    pub fn linked_song(&self, page: &Page) -> Option<&[String; 2]> {
+        self.linked_song
+            .as_ref()
+            .filter(|(owner, _)| owner == page)
+            .map(|(_, uris)| uris)
+    }
+
+    /// The linked song is picked, or is not on the page after all.
+    pub fn finish_linked_song(&mut self) {
+        self.linked_song = None;
     }
 
     /// Clears the current row selection.
@@ -33550,9 +33580,13 @@ mod tests {
             .push(Action::OpenLink("spotify:track:t1".into()));
         app.apply_actions(&ctx);
 
-        // #then its album's page opens
+        // #then its album's page opens, waiting to pick the song
         assert_eq!(*app.page(), Page::Album("al1".into()));
         assert_eq!(app.pending_link, None);
+        assert!(
+            app.linked_song(app.page())
+                .is_some_and(|uris| uris.contains(&"spotify:track:t1".to_string()))
+        );
 
         // #when a song still unknown is linked
         app.actions
