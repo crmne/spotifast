@@ -5508,6 +5508,9 @@ async fn handle(
         }};
     }
 
+    // Spotify does not always flag a restricted device beforehand (a Sonos
+    // another app is steering, say), and then refuses its player commands.
+    let retry = command_device(&request).map(|device| (device.to_string(), request.clone()));
     let response = match request {
         ApiRequest::Me => ApiResponse::Me(routed!(me())),
         ApiRequest::Devices => ApiResponse::Devices(routed!(devices())),
@@ -5948,8 +5951,53 @@ async fn handle(
             }
         }
     };
+    if let Some((device, request)) = retry
+        && refused_as_restricted(&response)
+        && let Some(engine) = engine
+            .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
+    {
+        connect.mark_restricted(&device);
+        if let Some(response) = over_connect(engine, connect, &request).await {
+            log::debug!("Spotify route operation={operation:?} source=connect after refusal");
+            return (response, Vec::new());
+        }
+    }
     observe_playlists(api, &response);
     (response, expired.get().into_iter().collect())
+}
+
+/// The device a player command names, for those [`over_connect`] can send.
+fn command_device(request: &ApiRequest) -> Option<&str> {
+    match request {
+        ApiRequest::Remote { device_id, .. }
+        | ApiRequest::ShufflePlay { device_id, .. }
+        | ApiRequest::AddToQueue { device_id, .. }
+        | ApiRequest::AddManyToQueue { device_id, .. } => device_id.as_deref(),
+        ApiRequest::Transfer { device_id, .. } => Some(device_id),
+        _ => None,
+    }
+}
+
+/// Whether the Web API refused a player command because its device is
+/// restricted ("Restricted device"). "Restriction violated" says nothing
+/// about the device: Spotify also gives it for pausing while paused.
+fn refused_as_restricted(response: &ApiResponse) -> bool {
+    // A batch the Web API already queued part of is not sent again.
+    if matches!(response, ApiResponse::QueueBatchAdded { added, .. } if *added > 0) {
+        return false;
+    }
+    let (ApiResponse::Remote { result, .. }
+    | ApiResponse::Transferred { result, .. }
+    | ApiResponse::QueueAdded { result, .. }
+    | ApiResponse::QueueBatchAdded { result, .. }) = response
+    else {
+        return false;
+    };
+    matches!(
+        result,
+        Err(ApiError::Status { status: 403, message })
+            if message.to_ascii_lowercase().contains("restricted device")
+    )
 }
 
 /// Player commands for a device the Web API refuses (a Sonos, say) go over
@@ -7819,6 +7867,57 @@ mod authorization_tests {
         });
         assert_eq!(worker.waiting_for_proxy.len(), 1);
         assert_eq!(worker.engine_config.proxy, ProxyConfig::Off);
+    }
+
+    #[test]
+    fn a_refusal_for_a_restricted_device_sends_the_command_over_connect() {
+        let refused = |status, message: &str| ApiResponse::Remote {
+            action: RemoteAction::Pause,
+            result: Err(ApiError::Status {
+                status,
+                message: message.into(),
+            }),
+        };
+        assert!(!refused_as_restricted(&refused(
+            403,
+            "Player command failed: Restriction violated"
+        )));
+        assert!(refused_as_restricted(&refused(
+            403,
+            "Player command failed: Restricted device"
+        )));
+        assert!(!refused_as_restricted(&refused(
+            403,
+            "Player command failed: Premium required"
+        )));
+        assert!(!refused_as_restricted(&refused(404, "Restricted device")));
+        assert!(!refused_as_restricted(&ApiResponse::Remote {
+            action: RemoteAction::Pause,
+            result: Ok(()),
+        }));
+        let batch = |added| ApiResponse::QueueBatchAdded {
+            request: 1,
+            added,
+            result: Err(ApiError::Status {
+                status: 403,
+                message: "Restricted device".into(),
+            }),
+        };
+        assert!(refused_as_restricted(&batch(0)));
+        assert!(!refused_as_restricted(&batch(2)));
+
+        let pause = |device_id: Option<&str>| ApiRequest::Remote {
+            action: RemoteAction::Pause,
+            device_id: device_id.map(str::to_string),
+            play: None,
+            position_ms: 0,
+            percent: 0,
+            flag: false,
+            repeat: String::new(),
+        };
+        assert_eq!(command_device(&pause(Some("move"))), Some("move"));
+        assert_eq!(command_device(&pause(None)), None);
+        assert_eq!(command_device(&ApiRequest::Devices), None);
     }
 
     /// A session that drops on its own comes back at the level being heard,

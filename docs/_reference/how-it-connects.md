@@ -517,6 +517,12 @@ computer's Connect device to that one. This needs local playback enabled,
 because the session belongs to it. Playback state is still read from the Web
 API, which reports a restricted device while it plays.
 
+Spotify does not always report a restricted device as such, for example a
+Sonos that another app is already steering when Spotifast starts. When the Web
+API refuses a command for a named device as restricted, Spotifast remembers
+that device as restricted and sends the same command over the Connect route
+once, so later commands go there directly.
+
 Shuffle Play enables shuffle before starting the context, as it does for
 Web API devices. If enabling shuffle fails, playback does not start.
 
