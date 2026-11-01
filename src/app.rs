@@ -120,6 +120,17 @@ struct PendingRemoteVolume {
     mismatches: u8,
 }
 
+/// Quick looks at another device after it accepted Play, Next or Previous,
+/// until the song reports playing.
+struct RemoteStartChecks {
+    /// Polls already sent describe the past.
+    after_poll: u64,
+    left: u8,
+    /// The song shown before Next or Previous. While a poll still reports
+    /// it, the skip has not happened yet, even if it says playing.
+    from: Option<String>,
+}
+
 /// A context shown as playing before Spotify confirms it.
 struct AssumedContext {
     uri: String,
@@ -451,10 +462,8 @@ pub struct App {
     remote_end_polled_at: Option<Instant>,
     /// When another device last accepted a command or a switch from here.
     remote_command_at: Option<Instant>,
-    /// After Play, Next or Previous on another device: the last poll whose
-    /// answer no longer counts, and how many more looks are left while the
-    /// song has yet to report playing.
-    remote_start_checks: Option<(u64, u8)>,
+    /// After Play, Next or Previous on another device.
+    remote_start_checks: Option<RemoteStartChecks>,
     /// Serial of the newest playback poll sent; older answers are stale.
     remote_poll_seq: u64,
     /// The restorable session (sorts, recents, resume point) changed and
@@ -7192,20 +7201,23 @@ impl App {
                                 .map(|item| item.uri().to_string())
                         });
                         self.reconcile_remote_track_intent(seq, uri.as_deref());
-                        if let Some((before, left)) = self.remote_start_checks
-                            && seq > before
+                        if let Some(mut checks) = self
+                            .remote_start_checks
+                            .take_if(|checks| seq > checks.after_poll)
                         {
                             let playing = self.intent_track.is_none()
+                                && (checks.from.is_none() || checks.from != uri)
                                 && self
                                     .remote
                                     .as_ref()
                                     .is_some_and(|remote| remote.state.is_playing);
-                            self.remote_start_checks = None;
-                            if !playing && left > 0 {
+                            if !playing && checks.left > 0 {
                                 // Still loading: look again shortly so the
                                 // clock starts within a second, a few times
                                 // at most.
-                                self.remote_start_checks = Some((seq, left - 1));
+                                checks.after_poll = seq;
+                                checks.left -= 1;
+                                self.remote_start_checks = Some(checks);
                                 self.remote_recheck_at =
                                     Some(Instant::now() + REMOTE_START_RECHECK);
                             }
@@ -8643,8 +8655,18 @@ impl App {
                             action,
                             RemoteAction::Play | RemoteAction::Next | RemoteAction::Previous
                         ) {
-                            self.remote_start_checks =
-                                Some((self.remote_poll_seq, REMOTE_START_RECHECKS));
+                            let from = self.remote.as_ref().and_then(|remote| {
+                                remote
+                                    .state
+                                    .item
+                                    .as_ref()
+                                    .map(|item| item.uri().to_string())
+                            });
+                            self.remote_start_checks = Some(RemoteStartChecks {
+                                after_poll: self.remote_poll_seq,
+                                left: REMOTE_START_RECHECKS,
+                                from: from.filter(|_| action != RemoteAction::Play),
+                            });
                         }
                         if action == RemoteAction::Shuffle {
                             self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
@@ -25609,7 +25631,7 @@ mod tests {
     /// A song started on another device gets up to three looks a second
     /// apart while it has yet to report playing, and none once it plays. A
     /// poll sent before the command describes the old song and does not
-    /// count.
+    /// count, and neither does the song from before a skip still playing.
     #[test]
     fn a_remote_start_gets_a_few_looks_a_second_apart() {
         let mut app = headless_app();
@@ -25652,6 +25674,26 @@ mod tests {
             result: Ok(()),
         });
         assert_eq!(answer(&mut app, before + 4, true), None, "it plays");
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        assert!(
+            answer(&mut app, before + 5, true).is_some(),
+            "the old song still plays"
+        );
+        let mut skipped = state.clone();
+        if let Some(PlayableItem::Track(track)) = &mut skipped.item {
+            track.uri = "spotify:track:skipped-to".into();
+        }
+        app.remote_recheck_at = None;
+        app.remote_poll_seq = before + 6;
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: before + 6,
+            result: Ok(Some(skipped)),
+        });
+        assert_eq!(app.remote_recheck_at, None, "the next song plays");
         app.backend.shutdown();
     }
 
