@@ -236,7 +236,7 @@ fn hero_description(app: &mut App, ui: &mut egui::Ui, palette: &Palette, html: &
         .filter_map(|(range, href)| Some((range, link_action(&href)?)))
         .collect();
     let font = theme::regular(13.5);
-    if links.is_empty() || crate::bidi::is_rtl(&text) {
+    if links.is_empty() || crate::bidi::has_rtl(&text) {
         theme::text(ui, text, font, palette.secondary);
         return;
     }
