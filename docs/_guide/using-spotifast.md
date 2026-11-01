@@ -234,8 +234,9 @@ not queued after it.
 
 ## Opening a Spotify link
 
-A link to a song opens its album with the song selected and in view. Spotifast
-does not start playing it.
+Paste a link to a song, album, artist, playlist or podcast into the search box
+and press `Enter` to open it. A link to a song opens its album with the song
+selected and in view. Spotifast does not start playing it.
 
 ## Search from a launcher
 

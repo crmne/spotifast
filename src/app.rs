@@ -4363,7 +4363,11 @@ impl App {
             if typed.elapsed() >= SEARCH_DEBOUNCE {
                 self.search.typed_at = None;
                 let query = self.search.query.trim().to_string();
-                self.run_typed_search(query);
+                // A pasted link waits for Enter rather than being searched
+                // for as words.
+                if crate::link::parse(&query).is_none() {
+                    self.run_typed_search(query);
+                }
             } else {
                 ctx.request_repaint_after(SEARCH_DEBOUNCE - typed.elapsed());
             }
@@ -12386,6 +12390,11 @@ impl App {
                 let typed = query == self.search.query;
                 self.search.query = query.clone();
                 self.search.typed_at = None;
+                // A link pasted into the field opens what it points at.
+                if typed && let Some(uri) = crate::link::parse(&query) {
+                    self.actions.push(Action::OpenLink(uri));
+                    return;
+                }
                 self.open(Page::Search);
                 if typed {
                     self.submit_typed_search(query.trim().to_string());
@@ -21699,6 +21708,49 @@ mod tests {
         app.search.query = query.into();
         app.actions.push(Action::Search(query.into()));
         app.apply_actions(&egui::Context::default());
+    }
+
+    /// Enter on a Spotify link opens its page instead of searching for the
+    /// link's text, and the pause before Enter does not search for it either
+    /// (#1027).
+    #[test]
+    fn a_link_in_the_search_field_opens_its_page() {
+        let mut app = test_app("search-link");
+        app.user = Some(User {
+            id: "me".into(),
+            ..User::default()
+        });
+        app.settings.search_history = vec!["older".into()];
+        let link = "https://open.spotify.com/album/06fgi8E0RLEyzgh2c9IYbp?si=shared";
+
+        // #when the link is pasted and the debounce passes
+        app.search.query = link.into();
+        app.search.typed_at = Some(Instant::now() - SEARCH_DEBOUNCE);
+        app.tick(&egui::Context::default());
+
+        // #then it is not searched for
+        assert_eq!(app.search.committed, "");
+
+        // #when Enter is pressed
+        submit_search(&mut app, link);
+
+        // #then the album opens and the link is not a recent search
+        assert_eq!(*app.page(), Page::Album("06fgi8E0RLEyzgh2c9IYbp".into()));
+        assert_eq!(app.search.committed, "");
+        assert_eq!(app.search.typed_at, None);
+        assert_eq!(app.settings.search_history, ["older"]);
+    }
+
+    /// Text that only looks like a link is still a search.
+    #[test]
+    fn words_after_a_link_are_searched_for() {
+        let mut app = test_app("search-link-words");
+        let query = "https://open.spotify.com/album/06fgi8E0RLEyzgh2c9IYbp is great";
+
+        submit_search(&mut app, query);
+
+        assert_eq!(*app.page(), Page::Search);
+        assert_eq!(app.search.committed, query);
     }
 
     #[test]
