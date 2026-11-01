@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-01 17:28+0100\n"
+"POT-Creation-Date: 2026-11-01 19:07+0100\n"
 "PO-Revision-Date: 2026-10-06 18:00+0300\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Ukrainian\n"
@@ -29,12 +29,12 @@ msgstr "Призупинити {name}"
 msgid "Play {name}"
 msgstr "Відтворити {name}"
 
-#: src/ui/sidebar.rs:302 src/app.rs:3756 src/app.rs:24279
+#: src/ui/sidebar.rs:302 src/app.rs:3787 src/app.rs:24663
 #: src/ui/collection.rs:2326 src/ui/collection.rs:2555
 msgid "Playlist"
 msgstr "Плейліст"
 
-#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:3730 src/app.rs:24284
+#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:3761 src/app.rs:24668
 #: src/ui/collection.rs:2548 src/ui/home.rs:93 src/ui/keys.rs:354
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -80,7 +80,7 @@ msgstr "Плейліст • {owner}"
 msgid "Home"
 msgstr "Головна"
 
-#: src/ui/sidebar.rs:1056 src/app.rs:8714 src/ui/keys.rs:333
+#: src/ui/sidebar.rs:1056 src/app.rs:8759 src/ui/keys.rs:333
 msgid "Search"
 msgstr "Пошук"
 
@@ -112,11 +112,11 @@ msgstr "Пошук у бібліотеці"
 msgid "Library"
 msgstr "Бібліотека"
 
-#: src/ui/sidebar.rs:1172 src/app.rs:8688 src/model.rs:807 src/ui/search.rs:668
+#: src/ui/sidebar.rs:1172 src/app.rs:8733 src/model.rs:807 src/ui/search.rs:668
 msgid "Playlists"
 msgstr "Плейлісти"
 
-#: src/ui/sidebar.rs:1173 src/model.rs:806 src/model.rs:934
+#: src/ui/sidebar.rs:1173 src/model.rs:806 src/model.rs:940
 #: src/ui/library.rs:17 src/ui/search.rs:595
 msgid "Albums"
 msgstr "Альбоми"
@@ -140,7 +140,7 @@ msgstr "Створені вами"
 msgid "Search in Your Library"
 msgstr "Шукати в бібліотеці"
 
-#: src/ui/sidebar.rs:1320 src/ui/widgets.rs:1211 src/app.rs:3791
+#: src/ui/sidebar.rs:1320 src/ui/widgets.rs:1211 src/app.rs:3822
 #: src/ui/artist.rs:267 src/ui/artist.rs:462 src/ui/home.rs:791
 #: src/ui/library.rs:101 src/ui/search.rs:159 src/ui/search.rs:491
 #: src/ui/winamp/playlist.rs:746
@@ -235,7 +235,7 @@ msgstr "Натисніть, щоб змінити візуалізатор"
 msgid "Nothing playing"
 msgstr "Нічого не відтворюється"
 
-#: src/ui/player_bar.rs:446 src/app.rs:10262
+#: src/ui/player_bar.rs:446 src/app.rs:10330
 msgid "Pick a song, album, or playlist"
 msgstr "Виберіть пісню, альбом або плейліст"
 
@@ -263,7 +263,7 @@ msgid "Previous"
 msgstr "Попередній"
 
 #: src/ui/player_bar.rs:778 src/ui/lyrics.rs:462 src/ui/widgets.rs:2862
-#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:14154
+#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:14230
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "Завантаження…"
@@ -664,53 +664,53 @@ msgstr "ПРОСЛУХОВУВАННЯ"
 msgid "Sort by duration"
 msgstr "Сортувати за тривалістю"
 
-#: src/ui/widgets.rs:2975 src/app.rs:14363 src/app.rs:14377
+#: src/ui/widgets.rs:2975 src/app.rs:14439 src/app.rs:14453
 msgid "Network connection error. Check your connection."
 msgstr "Помилка мережевого підключення. Перевірте з’єднання."
 
-#: src/ui/widgets.rs:3233
+#: src/ui/widgets.rs:3277
 msgid "Cut"
 msgstr "Вирізати"
 
-#: src/ui/widgets.rs:3238 src/ui/login.rs:560
+#: src/ui/widgets.rs:3282 src/ui/login.rs:560
 msgid "Copy"
 msgstr "Копіювати"
 
-#: src/ui/widgets.rs:3243
+#: src/ui/widgets.rs:3287
 msgid "Paste"
 msgstr "Вставити"
 
-#: src/ui/widgets.rs:3260
+#: src/ui/widgets.rs:3304
 msgid "Select all"
 msgstr "Виділити все"
 
-#: src/ui/widgets.rs:3367
+#: src/ui/widgets.rs:3411
 msgid "Clear"
 msgstr "Очистити"
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
-#: src/ui/widgets.rs:3412
+#: src/ui/widgets.rs:3456
 #, rust-format
 msgid "Built with love by {name}"
 msgstr "Створено з любов’ю: {name}"
 
-#: src/ui/widgets.rs:3557
+#: src/ui/widgets.rs:3601
 msgid "Host"
 msgstr "Хост"
 
-#: src/ui/widgets.rs:3574
+#: src/ui/widgets.rs:3618
 msgid "Port"
 msgstr "Порт"
 
-#: src/ui/widgets.rs:3592
+#: src/ui/widgets.rs:3636
 msgid "Username"
 msgstr "Ім’я користувача"
 
-#: src/ui/widgets.rs:3603
+#: src/ui/widgets.rs:3647
 msgid "Password"
 msgstr "Пароль"
 
-#: src/ui/widgets.rs:3621
+#: src/ui/widgets.rs:3665
 msgid ""
 "Proxy login applies to Web requests. Local playback uses this proxy only "
 "without a login."
@@ -718,7 +718,7 @@ msgstr ""
 "Облікові дані проксі застосовуються до вебзапитів. Локальне відтворення "
 "використовує цей проксі, лише якщо облікові дані не вказано."
 
-#: src/ui/widgets.rs:3625
+#: src/ui/widgets.rs:3669
 msgid ""
 "Spotify hostnames are resolved by the proxy. Local playback connects "
 "directly."
@@ -726,42 +726,42 @@ msgstr ""
 "Імена хостів Spotify визначає проксі. Локальне відтворення під’єднується "
 "напряму."
 
-#: src/app.rs:1064
+#: src/app.rs:1067
 msgid "Restoring proxy settings"
 msgstr "Відновлення налаштувань проксі"
 
-#: src/app.rs:1611
+#: src/app.rs:1615
 msgid "Couldn't change how Spotifast starts with your computer."
 msgstr "Не вдалося змінити запуск Spotifast разом із комп’ютером."
 
-#: src/app.rs:1861 src/ui/soloist.rs:204 src/ui/soloist.rs:380
+#: src/app.rs:1865 src/ui/soloist.rs:204 src/ui/soloist.rs:380
 msgid "Starting Soloist…"
 msgstr "Запуск Soloist…"
 
-#: src/app.rs:1862 src/ui/soloist.rs:384
+#: src/app.rs:1866 src/ui/soloist.rs:384
 msgid "Downloading Soloist from Spotify…"
 msgstr "Завантаження Soloist зі Spotify…"
 
-#: src/app.rs:1863 src/ui/soloist.rs:406
+#: src/app.rs:1867 src/ui/soloist.rs:406
 msgid "Verifying Soloist…"
 msgstr "Перевірка Soloist…"
 
-#: src/app.rs:1864 src/ui/soloist.rs:388
+#: src/app.rs:1868 src/ui/soloist.rs:388
 msgid "3. Pair once in Spotify"
 msgstr "3. Виконайте сполучення в Spotify один раз"
 
-#: src/app.rs:1865
+#: src/app.rs:1869
 msgid "Soloist needs attention"
 msgstr "Soloist потребує уваги"
 
 #. Translators: {size} includes its unit, such as 12.5 MB.
-#: src/app.rs:2675
+#: src/app.rs:2706
 #, rust-format
 msgid "Cleared {size} of audio"
 msgstr "Очищено {size} аудіоданих"
 
 #. Translators: Files in the audio cache that Spotifast did not put there, such as .DS_Store. They were not deleted.
-#: src/app.rs:2685
+#: src/app.rs:2716
 #, rust-format
 msgid "{count} unrecognized file was left in place."
 msgid_plural "{count} unrecognized files were left in place."
@@ -769,29 +769,29 @@ msgstr[0] "Залишено на місці {count} нерозпізнаний �
 msgstr[1] "Залишено на місці {count} нерозпізнані файли."
 msgstr[2] "Залишено на місці {count} нерозпізнаних файлів."
 
-#: src/app.rs:2698
+#: src/app.rs:2729
 msgid "Playback is reconnecting. Try again once it is ready."
 msgstr ""
 "Відтворення перепідключається. Спробуйте ще раз, коли воно буде готове."
 
-#: src/app.rs:2703
+#: src/app.rs:2734
 msgid "The audio cache folder is a symbolic link."
 msgstr "Тека аудіокешу є символьним посиланням."
 
 #. Translators: {error} describes a filesystem or playback error.
-#: src/app.rs:2710
+#: src/app.rs:2741
 #, rust-format
 msgid "Couldn't clear audio cache: {error}"
 msgstr "Не вдалося очистити аудіокеш: {error}"
 
 #. Translators: {name} is the name of a speaker or other playback device.
-#: src/app.rs:2774
+#: src/app.rs:2805
 #, rust-format
 msgid "{name} is ready"
 msgstr "Пристрій {name} готовий"
 
 #. Translators: {error} is a sentence saying why the proxy password could not be stored.
-#: src/app.rs:2811
+#: src/app.rs:2842
 #, rust-format
 msgid ""
 "{error} The original settings file is kept intact; changed preferences are "
@@ -801,22 +801,22 @@ msgstr ""
 "збережено."
 
 #. Translators: {version} is a version number such as 1.4.0.
-#: src/app.rs:2968
+#: src/app.rs:2999
 #, rust-format
 msgid "Spotifast {version} is available"
 msgstr "Доступна версія Spotifast {version}"
 
-#: src/app.rs:2985
+#: src/app.rs:3016
 msgid "Spotifast is up to date"
 msgstr "У вас найновіша версія Spotifast"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:2993
+#: src/app.rs:3024
 #, rust-format
 msgid "Couldn't check for updates: {error}"
 msgstr "Не вдалося перевірити оновлення: {error}"
 
-#: src/app.rs:3053
+#: src/app.rs:3084
 msgid ""
 "Soloist could not download its renewal. It will retry tomorrow; the current "
 "build is still installed."
@@ -824,43 +824,43 @@ msgstr ""
 "Soloist не вдалося завантажити нову версію. Повторна спроба буде завтра; "
 "поточна версія залишається встановленою."
 
-#: src/app.rs:3215
+#: src/app.rs:3246
 #, rust-format
 msgid "Spotify connection: {error}"
 msgstr "Підключення до Spotify: {error}"
 
-#: src/app.rs:3217
+#: src/app.rs:3248
 #, rust-format
 msgid "Local playback: {error}"
 msgstr "Локальне відтворення: {error}"
 
-#: src/app.rs:3225
+#: src/app.rs:3256
 msgid "Opening your browser to connect Spotify"
 msgstr "Відкриваємо браузер для підключення Spotify"
 
-#: src/app.rs:3227
+#: src/app.rs:3258
 msgid "Opening your browser to set up local playback"
 msgstr "Відкриваємо браузер для налаштування локального відтворення"
 
-#: src/app.rs:3620
+#: src/app.rs:3651
 msgid "Spotify audio disconnected. Reconnecting local playback"
 msgstr "Звук Spotify від’єднано. Повторне під’єднання локального відтворення"
 
-#: src/app.rs:3738 src/app/radio.rs:191 src/ui/radio.rs:35 src/ui/radio.rs:77
+#: src/app.rs:3769 src/app/radio.rs:191 src/ui/radio.rs:35 src/ui/radio.rs:77
 msgid "Radio"
 msgstr "Радіо"
 
-#: src/app.rs:3772 src/api/models.rs:299 src/ui/artist.rs:379
+#: src/app.rs:3803 src/api/models.rs:299 src/ui/artist.rs:379
 #: src/ui/prerelease.rs:78
 msgid "Album"
 msgstr "Альбом"
 
-#: src/app.rs:3810 src/ui/show.rs:189
+#: src/app.rs:3841 src/ui/show.rs:189
 msgid "Podcast"
 msgstr "Подкаст"
 
 #. Translators: {count} is the number of visualizer presets added.
-#: src/app.rs:4382
+#: src/app.rs:4426
 #, rust-format
 msgid "Added {count} MilkDrop preset"
 msgid_plural "Added {count} MilkDrop presets"
@@ -869,33 +869,33 @@ msgstr[1] "Додано {count} пресети MilkDrop"
 msgstr[2] "Додано {count} пресетів MilkDrop"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:4398
+#: src/app.rs:4442
 #, rust-format
 msgid "Couldn't fetch presets: {error}"
 msgstr "Не вдалося отримати пресети: {error}"
 
 #. Translators: {folder} is a folder path and {error} is an error message.
-#: src/app.rs:4531
+#: src/app.rs:4575
 #, rust-format
 msgid "Couldn't open {folder}: {error}"
 msgstr "Не вдалося відкрити {folder}: {error}"
 
 #. Translators: {skin} is the name of a Winamp skin.
-#: src/app.rs:4547
+#: src/app.rs:4591
 #, rust-format
 msgid "Added {skin} skin"
 msgstr "Додано скін {skin}"
 
-#: src/app.rs:4648
+#: src/app.rs:4692
 msgid "Proxy applied. Restarting local playback."
 msgstr "Проксі застосовано. Перезапуск локального відтворення."
 
-#: src/app.rs:4650
+#: src/app.rs:4694
 msgid "Proxy settings applied"
 msgstr "Налаштування проксі застосовано"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:4657
+#: src/app.rs:4701
 #, rust-format
 msgid ""
 "Proxy could not be applied: {error}. Previous connection settings are still "
@@ -904,200 +904,200 @@ msgstr ""
 "Не вдалося застосувати проксі: {error}. Використовуються попередні "
 "налаштування з’єднання."
 
-#: src/app.rs:6237
+#: src/app.rs:6281
 msgid ""
 "Spotify hasn't confirmed your playlist changes yet. Try refreshing again."
 msgstr ""
 "Spotify ще не підтвердив зміни у ваших плейлістах. Спробуйте оновити ще раз."
 
-#: src/app.rs:6714
+#: src/app.rs:6759
 msgid "Queue cleared"
 msgstr "Чергу очищено"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:6744 src/app.rs:24269
+#: src/app.rs:6789 src/app.rs:24653
 #, rust-format
 msgid "Queue {date}"
 msgstr "Черга {date}"
 
-#: src/app.rs:7378 src/ui/login.rs:185
+#: src/app.rs:7423 src/ui/login.rs:185
 msgid "Your Spotify sign-in expired. Please sign in again."
 msgstr "Сеанс Spotify завершився. Увійдіть знову."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:7385
+#: src/app.rs:7430
 #, rust-format
 msgid "Couldn't load your profile: {error}"
 msgstr "Не вдалося завантажити ваш профіль: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:7447
+#: src/app.rs:7492
 #, rust-format
 msgid "Couldn't list devices: {error}"
 msgstr "Не вдалося отримати список пристроїв: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:7932
+#: src/app.rs:7977
 #, rust-format
 msgid "Couldn't load more playlists: {error}"
 msgstr "Не вдалося завантажити більше плейлістів: {error}"
 
 #. Translators: {name} is a playlist name.
-#: src/app.rs:8180
+#: src/app.rs:8225
 #, rust-format
 msgid "Created {name}"
 msgstr "Створено «{name}»"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8206
+#: src/app.rs:8251
 #, rust-format
 msgid "Couldn't create the playlist: {error}"
 msgstr "Не вдалося створити плейліст: {error}"
 
-#: src/app.rs:8260
+#: src/app.rs:8305
 msgid "Playlist cover updated"
 msgstr "Обкладинку плейліста оновлено"
 
-#: src/app.rs:8269
+#: src/app.rs:8314
 msgid "Playlist updated"
 msgstr "Плейліст оновлено"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8279 src/app.rs:8398
+#: src/app.rs:8324 src/app.rs:8443
 #, rust-format
 msgid "Couldn't update the playlist: {error}"
 msgstr "Не вдалося оновити плейліст: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8354
+#: src/app.rs:8399
 #, rust-format
 msgid "Playlist change failed: {error}"
 msgstr "Не вдалося змінити плейліст: {error}"
 
-#: src/app.rs:8382
+#: src/app.rs:8427
 msgid "Added to Your Library"
 msgstr "Додано до бібліотеки"
 
-#: src/app.rs:8384 src/app.rs:8592
+#: src/app.rs:8429 src/app.rs:8637
 msgid "Removed from Your Library"
 msgstr "Видалено з бібліотеки"
 
-#: src/app.rs:8585
+#: src/app.rs:8630
 msgid "Added to Liked Songs"
 msgstr "Додано до «Пісні, що сподобалися»"
 
-#: src/app.rs:8587
+#: src/app.rs:8632
 msgid "Removed from Liked Songs"
 msgstr "Видалено з «Пісні, що сподобалися»"
 
-#: src/app.rs:8589
+#: src/app.rs:8634
 msgid "Following artist"
 msgstr "Ви підписалися на виконавця"
 
-#: src/app.rs:8590
+#: src/app.rs:8635
 msgid "Unfollowed artist"
 msgstr "Ви відписалися від виконавця"
 
-#: src/app.rs:8591
+#: src/app.rs:8636
 msgid "Saved to Your Library"
 msgstr "Збережено в бібліотеці"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8606
+#: src/app.rs:8651
 #, rust-format
 msgid "Couldn't update your library: {error}"
 msgstr "Не вдалося оновити вашу бібліотеку: {error}"
 
 #. Translators: {query} is the words someone searched for.
-#: src/app.rs:8658
+#: src/app.rs:8703
 #, rust-format
 msgid "Nothing on Spotify matches “{query}”"
 msgstr "У Spotify нічого не знайдено за запитом «{query}»"
 
 #. Translators: {query} is the words someone searched for; {error} is an error message.
-#: src/app.rs:8666
+#: src/app.rs:8711
 #, rust-format
 msgid "Couldn't search for “{query}”: {error}"
 msgstr "Не вдалося виконати пошук «{query}»: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8942
+#: src/app.rs:8987
 #, rust-format
 msgid "Cannot open this song: {error}"
 msgstr "Не вдається відкрити цю пісню: {error}"
 
-#: src/app.rs:8956
+#: src/app.rs:9001
 msgid "This episode's podcast is not on Spotify"
 msgstr "Подкасту цього епізоду немає в Spotify"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8961
+#: src/app.rs:9006
 #, rust-format
 msgid "Cannot open this episode: {error}"
 msgstr "Не вдається відкрити цей епізод: {error}"
 
-#: src/app.rs:9014
+#: src/app.rs:9059
 msgid "Choose a device from the devices menu first."
 msgstr "Спершу виберіть пристрій у меню пристроїв."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9038
+#: src/app.rs:9083
 #, rust-format
 msgid "Couldn't switch device: {error}"
 msgstr "Не вдалося перемкнути пристрій: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9049 src/app.rs:9073
+#: src/app.rs:9094 src/app.rs:9118
 #, rust-format
 msgid "Couldn't add to queue: {error}"
 msgstr "Не вдалося додати до черги: {error}"
 
-#: src/app.rs:9216
+#: src/app.rs:9261
 msgid "This song's album is not on Spotify"
 msgstr "Альбому цієї пісні немає в Spotify"
 
-#: src/app.rs:9233
+#: src/app.rs:9278
 msgid "Spotifast cannot open this kind of Spotify link"
 msgstr "Spotifast не може відкрити таке посилання Spotify"
 
-#: src/app.rs:9481
+#: src/app.rs:9526
 msgid "Nothing is playing. Pick something first"
 msgstr "Нічого не відтворюється. Спершу виберіть, що слухати"
 
-#: src/app.rs:9883
+#: src/app.rs:9929
 msgid "Choose a device, or enable playback on this computer"
 msgstr "Виберіть пристрій або увімкніть відтворення на цьому комп’ютері"
 
-#: src/app.rs:10245 src/app.rs:10250
+#: src/app.rs:10313 src/app.rs:10318
 msgid "Pick something to play"
 msgstr "Виберіть, що відтворити"
 
 #. Translators: {name} is an album name.
-#: src/app.rs:10661
+#: src/app.rs:10730
 #, rust-format
 msgid "Loading {name} to queue…"
 msgstr "Додавання «{name}» до черги…"
 
-#: src/app.rs:10680
+#: src/app.rs:10749
 msgid "Playback device changed. Add the album to queue again"
 msgstr "Пристрій відтворення змінився. Додайте альбом до черги ще раз"
 
-#: src/app.rs:10689 src/app.rs:10707 src/app.rs:10716
+#: src/app.rs:10758 src/app.rs:10776 src/app.rs:10785
 msgid "Couldn't load the album's songs in order. Try again"
 msgstr "Не вдалося завантажити пісні альбому по порядку. Спробуйте ще раз"
 
 #. Translators: {name} is an album name and {error} is an error message.
-#: src/app.rs:10696
+#: src/app.rs:10765
 #, rust-format
 msgid "Couldn't add {name} to queue: {error}"
 msgstr "Не вдалося додати «{name}» до черги: {error}"
 
-#: src/app.rs:10754
+#: src/app.rs:10823
 msgid "This album has no playable songs to queue"
 msgstr "У цьому альбомі немає пісень, які можна додати до черги"
 
 #. Translators: {count} is a number of songs and {name} is an album name.
-#: src/app.rs:10763
+#: src/app.rs:10832
 #, rust-format
 msgid "{count} song from {name} added to queue"
 msgid_plural "{count} songs from {name} added to queue"
@@ -1106,7 +1106,7 @@ msgstr[1] "{count} пісні з «{name}» додано до черги"
 msgstr[2] "{count} пісень з «{name}» додано до черги"
 
 #. Translators: {count} is a number of songs.
-#: src/app.rs:10811
+#: src/app.rs:10880
 #, rust-format
 msgid "{count} song added to queue"
 msgid_plural "{count} songs added to queue"
@@ -1115,17 +1115,17 @@ msgstr[1] "{count} пісні додано до черги"
 msgstr[2] "{count} пісень додано до черги"
 
 #. Translators: {name} is a song, episode, album, or playlist name.
-#: src/app.rs:10851
+#: src/app.rs:10920
 #, rust-format
 msgid "{name} added to queue"
 msgstr "Додано до черги: {name}"
 
-#: src/app.rs:11401
+#: src/app.rs:11470
 msgid "The clipboard has no Spotify song links"
 msgstr "У буфері обміну немає посилань на пісні Spotify"
 
 #. Translators: {count} is the number of pasted links that failed.
-#: src/app.rs:11482
+#: src/app.rs:11551
 #, rust-format
 msgid "{count} pasted link could not be added"
 msgid_plural "{count} pasted links could not be added"
@@ -1133,22 +1133,22 @@ msgstr[0] "Не вдалося додати {count} вставлене поси�
 msgstr[1] "Не вдалося додати {count} вставлені посилання"
 msgstr[2] "Не вдалося додати {count} вставлених посилань"
 
-#: src/app.rs:12216
+#: src/app.rs:12287
 msgid "Spotify doesn't let apps remove a playlist description, so it was kept"
 msgstr ""
 "Spotify не дозволяє застосункам видаляти опис плейліста, тому його збережено"
 
-#: src/app.rs:12278 src/app.rs:12297
+#: src/app.rs:12349 src/app.rs:12368
 msgid "Link copied"
 msgstr "Посилання скопійовано"
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/app.rs:12284 src/ui/login.rs:558
+#: src/app.rs:12355 src/ui/login.rs:558
 msgid "Copied"
 msgstr "Скопійовано"
 
 #. Translators: {count} is a number of song links, always more than one.
-#: src/app.rs:12301
+#: src/app.rs:12372
 #, rust-format
 msgid "{count} link copied"
 msgid_plural "{count} links copied"
@@ -1156,7 +1156,7 @@ msgstr[0] "Скопійовано {count} посилання"
 msgstr[1] "Скопійовано {count} посилання"
 msgstr[2] "Скопійовано {count} посилань"
 
-#: src/app.rs:12600
+#: src/app.rs:12671
 msgid ""
 "Spotify doesn't let apps reorder your playlists, so this order is saved on "
 "this computer"
@@ -1164,77 +1164,77 @@ msgstr ""
 "Spotify не дозволяє застосункам змінювати порядок ваших плейлістів, тому цей "
 "порядок збережено на цьому комп’ютері"
 
-#: src/app.rs:12746
+#: src/app.rs:12817
 msgid "Restarting local playback"
 msgstr "Перезапуск локального відтворення"
 
-#: src/app.rs:12782
+#: src/app.rs:12853
 msgid "Local playback needs Spotify Premium"
 msgstr "Для локального відтворення потрібен Spotify Premium"
 
-#: src/app.rs:12834
+#: src/app.rs:12905
 msgid "Play history cleared"
 msgstr "Історію прослуховування очищено"
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:12853
+#: src/app.rs:12924
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr "Очищено {size} МБ обкладинок"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:12859
+#: src/app.rs:12930
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr "Не вдалося очистити обкладинки: {error}"
 
-#: src/app.rs:13091
+#: src/app.rs:13162
 msgid "Downloading MilkDrop preset packs"
 msgstr "Завантаження наборів пресетів MilkDrop"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:13125
+#: src/app.rs:13196
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "Завантаження пресетів {name}"
 
-#: src/app.rs:14297
+#: src/app.rs:14373
 msgid "Couldn't start playback"
 msgstr "Не вдалося почати відтворення"
 
-#: src/app.rs:14298
+#: src/app.rs:14374
 msgid "Couldn't pause"
 msgstr "Не вдалося поставити на паузу"
 
-#: src/app.rs:14299
+#: src/app.rs:14375
 msgid "Couldn't skip"
 msgstr "Не вдалося пропустити"
 
-#: src/app.rs:14300
+#: src/app.rs:14376
 msgid "Couldn't go back"
 msgstr "Не вдалося повернутися назад"
 
-#: src/app.rs:14301
+#: src/app.rs:14377
 msgid "Couldn't seek"
 msgstr "Не вдалося перемотати"
 
-#: src/app.rs:14302
+#: src/app.rs:14378
 msgid "Couldn't change the volume"
 msgstr "Не вдалося змінити гучність"
 
-#: src/app.rs:14303
+#: src/app.rs:14379
 msgid "Couldn't change shuffle"
 msgstr "Не вдалося змінити режим перемішування"
 
-#: src/app.rs:14304
+#: src/app.rs:14380
 msgid "Couldn't change repeat"
 msgstr "Не вдалося змінити режим повтору"
 
-#: src/app.rs:14347 src/ui/mod.rs:437
+#: src/app.rs:14423 src/ui/mod.rs:437
 msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify зараз не дає цьому комп’ютеру відтворити цю пісню."
 
-#: src/app.rs:14354
+#: src/app.rs:14430
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1242,18 +1242,18 @@ msgstr ""
 "Пристрій виведення звуку не знайдено. Під’єднайте або увімкніть його, а "
 "потім знову натисніть «Відтворити»."
 
-#: src/app.rs:14368
+#: src/app.rs:14444
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr "Spotify не надає пісні цього плейліста стороннім застосункам."
 
-#: src/app.rs:14499
+#: src/app.rs:14575
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "Сеанс Spotify завершився. Увійдіть знову, а потім повторіть завантаження "
 "обкладинки."
 
-#: src/app.rs:14504
+#: src/app.rs:14580
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If using a personal app, reconnect "
@@ -1264,19 +1264,19 @@ msgstr ""
 "використовуєте особистий застосунок, також під’єднайте його повторно в "
 "налаштуваннях."
 
-#: src/app.rs:14508
+#: src/app.rs:14584
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotify відхилив зображення через розмір. Виберіть менше зображення."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:14511
+#: src/app.rs:14587
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Не вдалося завантажити обкладинку: {error}. Спробуйте ще раз."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:24289 src/app/radio.rs:38
+#: src/app.rs:24673 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Радіо: {track}"
@@ -2418,7 +2418,7 @@ msgstr "Сингл"
 msgid "Compilation"
 msgstr "Збірка"
 
-#: src/api/models.rs:298 src/model.rs:936
+#: src/api/models.rs:298 src/model.rs:943
 msgid "Appears On"
 msgstr "За участю виконавця"
 
@@ -2456,7 +2456,7 @@ msgstr "Обчислено за вашими прослуховуваннями 
 msgid "Calculated from several years of listening history."
 msgstr "Обчислено за історією прослуховувань за кілька років."
 
-#: src/model.rs:803 src/model.rs:933
+#: src/model.rs:803 src/model.rs:939
 msgctxt "filter"
 msgid "All"
 msgstr "Усі"
@@ -2469,9 +2469,13 @@ msgstr "Пісні"
 msgid "Episodes"
 msgstr "Епізоди"
 
-#: src/model.rs:935
+#: src/model.rs:941
 msgid "Singles & EPs"
 msgstr "Сингли та EP"
+
+#: src/model.rs:942
+msgid "Compilations"
+msgstr "Збірки"
 
 #: src/settings.rs:172
 msgctxt "theme"
@@ -4038,13 +4042,6 @@ msgstr ""
 #~ msgid "Skin"
 #~ msgstr "Скін"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-#~ msgstr ""
-#~ "Установлені скіни зберігаються в {folder}. Більше можна знайти в Winamp "
-#~ "Skin Museum."
-
 #~ msgid "Keep the Winamp window above everything else."
 #~ msgstr "Тримати вікно Winamp поверх усіх інших."
 
@@ -4053,13 +4050,6 @@ msgstr ""
 
 #~ msgid "Random"
 #~ msgstr "Випадковий"
-
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr ""
-#~ "Зараз показано {skin}. Щоразу, коли відкривається мініплеєр, вибирається "
-#~ "інший."
 
 #~ msgid "Spotify's own player, with lossless support."
 #~ msgstr "Програвач Spotify із підтримкою звуку без втрат."
