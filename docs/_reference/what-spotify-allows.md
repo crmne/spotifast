@@ -176,7 +176,8 @@ EQ and visualizers, and Windows visualizers. The Mac route applies Spotifast’s
 output volume after the visualizers and hold Soloist's source at 100% once
 redirected. Spotify/phone volume events change that output level before the
 source is reset, so Spotify's indicator returns to 100%. Windows capture
-follows source volume and cannot provide an audible EQ route.
+comes after source volume, which the visualizers undo, and cannot provide an
+audible EQ route.
 
 ## librespot playback
 

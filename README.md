@@ -55,7 +55,7 @@ including MilkDrop. Windows Soloist playback does not support audible EQ.
 The Mac route keeps Soloist at full volume after redirecting its output,
 then applies Spotifast’s volume after the visualizers, including mute. Phone
 volume changes adjust that output level; Spotify’s indicator returns to 100%.
-Windows visuals follow Soloist’s source volume and stop when it is muted.
+Windows visuals keep their level as Soloist’s volume falls and stop only when it is muted.
 When enabled, Soloist appears as **This computer**; settings show the controls
 that apply to it. Turning it off restores the built-in player's preferences.
 While Soloist starts and its account is verified, the Spotify loading screen shows

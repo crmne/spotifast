@@ -1,9 +1,21 @@
 //! Native Soloist audio adapters. The Mac controller holds source volume at
-//! unity after redirecting; Windows observation follows the source volume.
+//! unity after redirecting; Windows observation undoes the source volume for
+//! the visualizers.
 //! The OS callbacks never run Rust DSP: a dedicated worker owns this state.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use super::{Bridge, State};
 use std::sync::Arc;
+
+/// The gain Soloist itself applies at a source volume percent: 0.5 dB per
+/// percent down to 10%, then a linear fade to silence.
+fn soloist_gain(volume: u8) -> f64 {
+    let volume = f64::from(volume.min(100));
+    if volume >= 10.0 {
+        10_f64.powf((volume - 100.0) / 40.0)
+    } else {
+        volume / 10.0 * 10_f64.powf(-90.0 / 40.0)
+    }
+}
 
 struct Audio {
     shared: crate::eq::SharedEq,
@@ -52,6 +64,16 @@ impl Audio {
         if self.process_output {
             self.eq.process(&mut output);
         }
+        // Windows captures after Soloist's volume, so the tap undoes it and
+        // the visualizers see the same pre-volume signal as on Mac.
+        let source = soloist_gain(volume);
+        let tap_gain = if self.process_output {
+            1.0
+        } else if source > 0.0 {
+            (1.0 / source) as f32
+        } else {
+            0.0
+        };
         // Only the visualization copy is resampled. The Mac output stays at
         // the tap's native rate. Windows never modifies the audible signal.
         if let Some(resampler) = &mut self.resampler {
@@ -61,9 +83,9 @@ impl Audio {
                 .into_iter()
                 .map(f64::from)
                 .collect();
-            self.tap.push(&copy, 1.0);
+            self.tap.push(&copy, tap_gain);
         } else {
-            self.tap.push(&output, 1.0);
+            self.tap.push(&output, tap_gain);
         }
         if self.process_output {
             self.limiter.process(&mut output, 1.0);
@@ -115,7 +137,7 @@ mod adapter {
             #[cfg(target_os = "macos")]
             let volume = context.state.output_volume.percent();
             #[cfg(not(target_os = "macos"))]
-            let volume = 100;
+            let volume = context.state.volume.load(Ordering::Relaxed);
             audio.process(samples, rate, volume)
         }))
         .is_err()
@@ -239,13 +261,38 @@ mod tests {
         }
     }
     #[test]
-    fn windows_observer_does_not_pretend_to_have_an_output_fader() {
+    fn soloist_volume_curve_matches_its_output() {
+        for (volume, db) in [
+            (100, 0.0),
+            (72, -14.0),
+            (40, -30.0),
+            (10, -45.0),
+            (5, -51.02),
+            (1, -65.0),
+        ] {
+            let measured = 20.0 * soloist_gain(volume).log10();
+            assert!((measured - db).abs() < 0.05, "{volume}%: {measured} dB");
+        }
+        assert_eq!(soloist_gain(0), 0.0);
+    }
+    #[test]
+    fn windows_observer_undoes_source_volume_only_for_the_visualizers() {
         let tap = crate::vis::AudioTap::new();
         let mut audio = Audio::new(crate::eq::shared(), tap.clone(), false);
+        for volume in [100, 50, 10, 5, 1] {
+            let heard = 0.1 * soloist_gain(volume) as f32;
+            let mut samples = vec![heard; 4410];
+            audio.process(&mut samples, 44_100, volume);
+            assert!(samples.iter().all(|v| *v == heard));
+            assert!(
+                tap.window(100, 0).iter().all(|v| (*v - 0.1).abs() < 0.0001),
+                "{volume}%"
+            );
+        }
         let mut samples = vec![0.1; 4410];
         audio.process(&mut samples, 44_100, 0);
         assert!(samples.iter().all(|v| *v == 0.1));
-        assert!(tap.window(100, 0).iter().all(|v| *v == 0.1));
+        assert!(tap.window(100, 0).iter().all(|v| *v == 0.0));
     }
     #[test]
     fn pause_and_format_changes_clear_old_audio() {
