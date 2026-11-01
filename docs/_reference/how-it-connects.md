@@ -683,6 +683,21 @@ wait. The song being loaded asks again after each wait, up to three times,
 before Spotifast reports the refusal; the next song's key is not prefetched
 during a wait.
 
+Spotify also pushes the Connect cluster to the session over its existing
+Dealer connection whenever playback changes anywhere. Spotifast reads the
+active device, song, play or pause, shuffle, repeat and the active device's
+volume from each push. A new volume alone is shown straight from the push,
+so a volume turned on the speaker itself follows as Spotify reports it and
+costs no request. When anything else changed for another device, Spotifast
+asks the Web API for playback instead of waiting for its next regular
+poll. If a playback read is already pending, it finishes first; changes
+received after it started are folded into one follow-up. Any read started
+after a push already covers that change. Pushes are ignored when this
+computer is the active device both before and after; position-only updates
+cause no request. Polls caused by pushes are at least a second apart. The
+regular poll continues unchanged as a fallback, and without playback enabled
+there is no session and nothing is pushed.
+
 Local playback has one output on every platform, fastframe-audio: CoreAudio on
 macOS, WASAPI on Windows, and on Linux PipeWire when it is running, otherwise a
 PulseAudio server, otherwise ALSA directly. It talks only to the local sound
