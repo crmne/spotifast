@@ -3968,13 +3968,6 @@ msgstr ""
 #~ msgid "Skin"
 #~ msgstr "スキン"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-#~ msgstr ""
-#~ "インストール済みのスキンは{folder}にあります。Winamp Skin Museumでさらに見"
-#~ "つけられます。"
-
 #~ msgid "Keep the Winamp window above everything else."
 #~ msgstr "Winampのウインドウを常にほかのウインドウより手前に表示します。"
 
@@ -3983,12 +3976,6 @@ msgstr ""
 
 #~ msgid "Random"
 #~ msgstr "ランダム"
-
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr ""
-#~ "現在のスキン: {skin}。ミニプレイヤーを開くたびに別のスキンが選ばれます。"
 
 #~ msgid "Spotify's own player, with lossless support."
 #~ msgstr "ロスレス音声に対応したSpotify公式プレーヤー。"

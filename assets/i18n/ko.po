@@ -3928,12 +3928,6 @@ msgstr ""
 #~ msgid "Skin"
 #~ msgstr "스킨"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-#~ msgstr ""
-#~ "설치된 스킨은 {folder}에 있습니다. Winamp Skin Museum에서 더 찾아보세요."
-
 #~ msgid "Keep the Winamp window above everything else."
 #~ msgstr "Winamp 창을 다른 모든 창 위에 유지합니다."
 
@@ -3942,13 +3936,6 @@ msgstr ""
 
 #~ msgid "Random"
 #~ msgstr "무작위"
-
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr ""
-#~ "현재 {skin}을(를) 표시 중입니다. 미니 플레이어를 열 때마다 다른 스킨이 선"
-#~ "택됩니다."
 
 #~ msgid "Spotify's own player, with lossless support."
 #~ msgstr "무손실 오디오를 지원하는 Spotify 공식 플레이어입니다."

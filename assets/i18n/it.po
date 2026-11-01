@@ -4012,12 +4012,6 @@ msgstr ""
 #~ msgid "Skin"
 #~ msgstr "Skin"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-#~ msgstr ""
-#~ "Le skin installate sono in {folder}. Trovane altre sul Winamp Skin Museum."
-
 #~ msgid "Keep the Winamp window above everything else."
 #~ msgstr "Mantiene la finestra di Winamp sopra tutto il resto."
 
@@ -4026,13 +4020,6 @@ msgstr ""
 
 #~ msgid "Random"
 #~ msgstr "Casuale"
-
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr ""
-#~ "Ora in uso: {skin}. Ne viene scelto un altro ogni volta che si apre il "
-#~ "mini lettore."
 
 #~ msgid "Spotify's own player, with lossless support."
 #~ msgstr "Il lettore di Spotify, con audio senza perdita di qualità."

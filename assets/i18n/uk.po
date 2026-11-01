@@ -4030,13 +4030,6 @@ msgstr ""
 #~ msgid "Skin"
 #~ msgstr "Скін"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-#~ msgstr ""
-#~ "Установлені скіни зберігаються в {folder}. Більше можна знайти в Winamp "
-#~ "Skin Museum."
-
 #~ msgid "Keep the Winamp window above everything else."
 #~ msgstr "Тримати вікно Winamp поверх усіх інших."
 
@@ -4045,13 +4038,6 @@ msgstr ""
 
 #~ msgid "Random"
 #~ msgstr "Випадковий"
-
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr ""
-#~ "Зараз показано {skin}. Щоразу, коли відкривається мініплеєр, вибирається "
-#~ "інший."
 
 #~ msgid "Spotify's own player, with lossless support."
 #~ msgstr "Програвач Spotify із підтримкою звуку без втрат."

@@ -3862,11 +3862,6 @@ msgstr ""
 #~ msgid "Skin"
 #~ msgstr "皮肤"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-#~ msgstr "已安装的皮肤位于 {folder}。可在 Winamp Skin Museum 中找到更多皮肤。"
-
 #~ msgid "Keep the Winamp window above everything else."
 #~ msgstr "让 Winamp 窗口始终位于其他窗口之上。"
 
@@ -3875,11 +3870,6 @@ msgstr ""
 
 #~ msgid "Random"
 #~ msgstr "随机"
-
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr "当前皮肤：{skin}。每次打开迷你播放器都会换一个。"
 
 #~ msgid "Spotify's own player, with lossless support."
 #~ msgstr "Spotify 官方播放器，支持无损音频。"
