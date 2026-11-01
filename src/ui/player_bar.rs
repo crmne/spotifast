@@ -770,7 +770,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
             36.0,
             palette.text,
             palette.window,
-            &gettext(app.locale, "Starting…"),
+            &gettext(app.locale, "Loading…"),
         );
     } else {
         let icon = if playing {
