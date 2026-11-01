@@ -9,6 +9,7 @@
 pub mod config;
 pub mod font;
 pub mod layout;
+pub mod script;
 pub mod sprites;
 pub mod wmp;
 pub mod zip;
