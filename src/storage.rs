@@ -130,7 +130,7 @@ fn measure(path: &Path, recursive: bool) -> io::Result<u64> {
 
 /// What clearing the audio cache did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct AudioCleared {
+pub struct AudioCleared {
     pub bytes: u64,
     /// Files the active cache does not own, left where they are.
     pub skipped: usize,
@@ -139,7 +139,7 @@ pub(crate) struct AudioCleared {
 /// Why the audio cache was not cleared. The app words each for the toast;
 /// `Failed` carries a path and the system's own message.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ClearAudioError {
+pub enum ClearAudioError {
     Reconnecting,
     FolderIsLink,
     Failed(String),
