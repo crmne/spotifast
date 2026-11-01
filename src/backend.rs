@@ -5979,8 +5979,13 @@ fn command_device(request: &ApiRequest) -> Option<&str> {
 }
 
 /// Whether the Web API refused a player command because its device is
-/// restricted ("Restricted device", "Restriction violated").
+/// restricted ("Restricted device"). "Restriction violated" says nothing
+/// about the device: Spotify also gives it for pausing while paused.
 fn refused_as_restricted(response: &ApiResponse) -> bool {
+    // A batch the Web API already queued part of is not sent again.
+    if matches!(response, ApiResponse::QueueBatchAdded { added, .. } if *added > 0) {
+        return false;
+    }
     let (ApiResponse::Remote { result, .. }
     | ApiResponse::Transferred { result, .. }
     | ApiResponse::QueueAdded { result, .. }
@@ -5991,7 +5996,7 @@ fn refused_as_restricted(response: &ApiResponse) -> bool {
     matches!(
         result,
         Err(ApiError::Status { status: 403, message })
-            if message.to_ascii_lowercase().contains("restrict")
+            if message.to_ascii_lowercase().contains("restricted device")
     )
 }
 
@@ -7873,11 +7878,14 @@ mod authorization_tests {
                 message: message.into(),
             }),
         };
-        assert!(refused_as_restricted(&refused(
+        assert!(!refused_as_restricted(&refused(
             403,
             "Player command failed: Restriction violated"
         )));
-        assert!(refused_as_restricted(&refused(403, "Restricted device")));
+        assert!(refused_as_restricted(&refused(
+            403,
+            "Player command failed: Restricted device"
+        )));
         assert!(!refused_as_restricted(&refused(
             403,
             "Player command failed: Premium required"
@@ -7887,6 +7895,16 @@ mod authorization_tests {
             action: RemoteAction::Pause,
             result: Ok(()),
         }));
+        let batch = |added| ApiResponse::QueueBatchAdded {
+            request: 1,
+            added,
+            result: Err(ApiError::Status {
+                status: 403,
+                message: "Restricted device".into(),
+            }),
+        };
+        assert!(refused_as_restricted(&batch(0)));
+        assert!(!refused_as_restricted(&batch(2)));
 
         let pause = |device_id: Option<&str>| ApiRequest::Remote {
             action: RemoteAction::Pause,
