@@ -30430,6 +30430,7 @@ mod tests {
             request: 1,
             after_poll: None,
             mismatches: 0,
+            written_at: None,
         });
         app.handle_remote_volume("sonos", percent_to_volume(60));
         assert_eq!(
