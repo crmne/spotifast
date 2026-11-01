@@ -13,7 +13,7 @@ Spotifast follows each platform's conventions. On Linux:
 | What | Where | Safe to delete? |
 | --- | --- | --- |
 | Settings | `~/.config/spotifast/settings.json` | Yes, you lose preferences |
-| Winamp skins | `~/.config/spotifast/skins/` | Yes, you add them again |
+| Winamp and Windows Media Player skins | `~/.config/spotifast/skins/` | Yes, you add them again |
 | MilkDrop presets | `~/.config/spotifast/milkdrop/` | Yes, you fetch them again |
 | Spotify grants (available since 0.8.0) | System credential store | Use Sign out in Settings |
 | Credential revocation markers (available since 0.8.0) | `~/.local/state/spotifast/credential-storage/` | Keep after a failed sign-out deletion |
