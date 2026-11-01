@@ -138,7 +138,9 @@ not consume a queue row or restore an older queue saved on this computer.
    promptly without waiting for the song to finish.
 
 9. **Closing the app keeps the queue.** Spotifast saves it locally. When you
-   resume the last song, it restores your queued songs and playlist position.
+   resume the last song, it restores your queued songs and playlist position,
+   and the playlist carries on after that song, even when it was paused or
+   playing from a sorted view when you closed the app.
 
 10. **Old answers from Spotify are ignored.** Queue responses can be a few
     seconds late. Spotifast ignores stale responses and asks again. Your
