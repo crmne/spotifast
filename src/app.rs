@@ -4607,6 +4607,7 @@ impl App {
         if let Some(loaded) = self.winamp.poll() {
             self.skin_loaded(loaded, ctx);
         }
+        self.run_wmp_skin(ctx);
         self.winamp.poll_choices();
         // Random needs the list before the mini player is first opened.
         if self.settings.random_skin && !self.winamp.choices_known() {
@@ -4776,10 +4777,237 @@ impl App {
         }
     }
 
+    /// Muting here is remembering the volume and setting it to zero.
+    fn volume_is_muted(&self) -> bool {
+        self.volume_before_mute.is_some()
+    }
+
+    /// What a Windows Media Player skin sees of the player right now.
+    fn wmp_deck(&self) -> crate::skin::wmp::deck::Deck {
+        use crate::skin::wmp::deck::{Deck, PlayState, Song};
+        let now = self.now_playing();
+        let song = now.as_ref().map(|now| Song {
+            title: now.title.clone(),
+            artist: now
+                .artists
+                .iter()
+                .map(|artist| artist.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            album: now.album_name.clone(),
+            uri: now.uri.clone(),
+            duration_s: f64::from(now.duration_ms) / 1000.0,
+        });
+        let state = match &now {
+            Some(now) if now.loading => PlayState::Buffering,
+            Some(now) if now.playing => PlayState::Playing,
+            Some(now) if now.position_ms > 0 && !now.resuming => PlayState::Paused,
+            _ => PlayState::Stopped,
+        };
+        let mut queue: Vec<Song> = song.iter().cloned().collect();
+        if let Some(fetched) = self.queue.get() {
+            queue.extend(fetched.queue.iter().map(|item| Song {
+                title: item.name().to_owned(),
+                artist: item.subtitle(),
+                album: String::new(),
+                uri: item.uri().to_owned(),
+                duration_s: f64::from(item.duration_ms()) / 1000.0,
+            }));
+        }
+        let presets = crate::eq::PRESETS
+            .iter()
+            .map(|preset| preset.name.to_owned())
+            .collect();
+        Deck {
+            state,
+            position_s: now
+                .as_ref()
+                .map_or(0.0, |now| f64::from(now.position_ms) / 1000.0),
+            bitrate: 320_000,
+            volume: now.as_ref().map_or_else(
+                || crate::app::volume_to_percent(self.local.volume),
+                |now| now.volume_percent,
+            ),
+            mute: self.volume_is_muted(),
+            balance: (self.settings.balance * 100.0).round() as i32,
+            shuffle: now.as_ref().is_some_and(|now| now.shuffle),
+            repeat: now
+                .as_ref()
+                .is_some_and(|now| now.repeat != crate::player::RepeatMode::Off),
+            can_control: now.as_ref().is_none_or(|now| now.can_control),
+            playing: song.as_ref().map(|_| 0),
+            song,
+            queue,
+            eq_on: self.settings.eq_on,
+            eq_bands: self.settings.eq_bands_db,
+            eq_presets: presets,
+            eq_preset: None,
+            effect: match self.settings.vis {
+                crate::settings::VisMode::Bars => 0,
+                crate::settings::VisMode::Scope => 1,
+                crate::settings::VisMode::Off => 2,
+            },
+        }
+    }
+
+    /// Runs the worn Windows Media Player skin for this frame: starts it,
+    /// or stops it if it came off, and does what it asks.
+    fn run_wmp_skin(&mut self, ctx: &egui::Context) {
+        let wearing = self.settings.winamp_window && self.winamp.skin.wmp.is_some();
+        if !wearing {
+            if let Some(mut runtime) = self.winamp.runtime.take() {
+                runtime.shut_down();
+                self.save_skin_preferences(&mut runtime);
+            }
+            return;
+        }
+        let deck = self.wmp_deck();
+        if self.winamp.runtime.is_none() {
+            let Some(wmp) = self.winamp.skin.wmp.clone() else {
+                return;
+            };
+            let context = ctx.clone();
+            let measure: std::sync::Arc<crate::skin::wmp::paint::Measure> =
+                std::sync::Arc::new(move |text: &str, size, bold, mono| {
+                    let font = if mono {
+                        egui::FontId::monospace(size)
+                    } else if bold {
+                        fastframe_fonts::Weight::Bold.font_id(size)
+                    } else {
+                        fastframe_fonts::Weight::Regular.font_id(size)
+                    };
+                    context.fonts_mut(|fonts| {
+                        fonts
+                            .layout_no_wrap(text.to_owned(), font, egui::Color32::WHITE)
+                            .size()
+                            .x
+                    })
+                });
+            let wake = ctx.clone();
+            let preferences = self.winamp.take_skin_preferences();
+            self.winamp.runtime = Some(crate::skin::wmp::runtime::Runtime::new(
+                wmp,
+                deck.clone(),
+                preferences,
+                measure,
+                move || wake.request_repaint(),
+            ));
+            #[cfg(feature = "demo")]
+            for script in std::mem::take(&mut self.winamp.demo_scripts) {
+                if let Some(runtime) = &mut self.winamp.runtime
+                    && let Some(at) = runtime.primary()
+                {
+                    let key = runtime.views[at].state.key;
+                    runtime.run_script(key, &script, std::time::Instant::now());
+                }
+            }
+        }
+        let Some(mut runtime) = self.winamp.runtime.take() else {
+            return;
+        };
+        let commands = runtime.tick(deck, std::time::Instant::now());
+        for command in commands {
+            self.wmp_command(command, &runtime.shared.deck);
+        }
+        self.save_skin_preferences(&mut runtime);
+        if let Some(wake) = runtime.next_wake(std::time::Instant::now()) {
+            ctx.request_repaint_after(wake);
+        }
+        self.winamp.runtime = Some(runtime);
+    }
+
+    /// Saves what the running skin stored with `theme.savePreference`.
+    fn save_skin_preferences(&mut self, runtime: &mut crate::skin::wmp::runtime::Runtime) {
+        if !std::mem::take(&mut runtime.shared.prefs_changed) {
+            return;
+        }
+        let Some(name) = self.winamp.worn.clone() else {
+            return;
+        };
+        let path = crate::winamp::skin_preferences_path(&self.dirs.skins_dir(), &name);
+        match serde_json::to_vec_pretty(&runtime.shared.prefs) {
+            Ok(bytes) => self.files.write(&path, bytes, fastframe_file::Access::Default),
+            Err(error) => log::warn!("could not encode the skin's preferences: {error}"),
+        }
+    }
+
+    /// Turns what a skin asks into what the rest of the app understands.
+    fn wmp_command(
+        &mut self,
+        command: crate::skin::wmp::deck::Command,
+        deck: &crate::skin::wmp::deck::Deck,
+    ) {
+        use crate::skin::wmp::deck::Command;
+        let playing = self.now_playing().is_some_and(|now| now.playing);
+        match command {
+            Command::Play if !playing => self.actions.push(Action::TogglePlay),
+            Command::Pause if playing => self.actions.push(Action::TogglePlay),
+            Command::Play | Command::Pause => {}
+            Command::Stop => {
+                if playing {
+                    self.actions.push(Action::TogglePlay);
+                }
+                self.actions.push(Action::Seek(0));
+            }
+            Command::Next => self.actions.push(Action::Next),
+            Command::Previous => self.actions.push(Action::Previous),
+            Command::Seek(position) => self.actions.push(Action::Seek(position)),
+            Command::SeekBy(by) => self.actions.push(Action::SeekBy(by)),
+            Command::SetVolume(volume) => self.actions.push(Action::SetVolume(volume)),
+            Command::SetMute(mute) => {
+                if self.volume_is_muted() != mute {
+                    self.actions.push(Action::ToggleMute);
+                }
+            }
+            Command::SetBalance(balance) => {
+                self.actions.push(Action::SetBalance(balance as f32 / 100.0));
+            }
+            Command::SetShuffle(on) => self.actions.push(Action::SetShuffle(on)),
+            Command::SetRepeat(on) => self.actions.push(Action::SetRepeat(if on {
+                crate::player::RepeatMode::Context
+            } else {
+                crate::player::RepeatMode::Off
+            })),
+            Command::PlayQueued(row) => {
+                // The first row is what is on already.
+                if row > 0
+                    && let Some(song) = deck.queue.get(row)
+                {
+                    self.actions.push(Action::PlayFromRow {
+                        context: crate::model::RowContext::Queue,
+                        uri: song.uri.clone(),
+                        index: (row - 1) as u32,
+                    });
+                }
+            }
+            Command::SetEqBand(band, gain) => {
+                self.actions.push(Action::SetEqBand(band, gain.clamp(-12.0, 12.0)));
+            }
+            Command::SetEqOn(on) => {
+                if self.settings.eq_on != on {
+                    self.actions.push(Action::ToggleEq);
+                }
+            }
+            Command::SetEqPreset(preset) => self.actions.push(Action::ApplyEqPreset(preset)),
+            Command::ResetEq => {
+                for band in 0..10 {
+                    self.actions.push(Action::SetEqBand(band, 0.0));
+                }
+            }
+            Command::Effect(_) => self.actions.push(Action::CycleVisualiser),
+            Command::BackToMain => {
+                if self.settings.winamp_window {
+                    self.actions.push(Action::ToggleWinampWindow);
+                }
+            }
+        }
+    }
+
     /// Applies a loaded skin. Installed files become the selected skin.
     fn skin_loaded(&mut self, loaded: crate::winamp::Loaded, ctx: &egui::Context) {
         match loaded.result {
             Ok(skin) => {
+                self.winamp.set_skin_preferences(loaded.preferences);
                 self.winamp
                     .wear(Some(loaded.name.clone()), std::sync::Arc::new(skin));
                 if loaded.installed {
@@ -13167,6 +13395,15 @@ impl App {
                         gettext(self.locale, "Couldn't clear artwork: {error}")
                             .replace("{error}", &error.to_string()),
                     ),
+                }
+            }
+            Action::WmpInput {
+                view,
+                input,
+                modifiers,
+            } => {
+                if let Some(runtime) = &mut self.winamp.runtime {
+                    runtime.input(view, input, modifiers, std::time::Instant::now());
                 }
             }
             Action::ToggleWinampWindow => {
@@ -34026,6 +34263,7 @@ mod tests {
                 name: "A.wsz".into(),
                 result: Ok(some_skin("A")),
                 installed: false,
+                preferences: std::collections::HashMap::new(),
             },
             &egui::Context::default(),
         );
@@ -34042,6 +34280,7 @@ mod tests {
                 name: "Dropped.wsz".into(),
                 result: Ok(some_skin("Dropped")),
                 installed: true,
+                preferences: std::collections::HashMap::new(),
             },
             &egui::Context::default(),
         );
@@ -34059,6 +34298,7 @@ mod tests {
                 name: "Gone.wsz".into(),
                 result: Err(crate::skin::SkinError::Empty),
                 installed: false,
+                preferences: std::collections::HashMap::new(),
             },
             &egui::Context::default(),
         );

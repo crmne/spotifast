@@ -1,0 +1,639 @@
+//! A skin run from end to end, with synthetic definitions and scripts.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use super::deck::{Command, Deck, PlayState, Song};
+use super::paint::Paint;
+use super::runtime::{Input, Modifiers, Runtime};
+use super::*;
+
+fn png(width: u32, height: u32, paint: impl Fn(u32, u32) -> [u8; 3]) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(width, height, |x, y| image::Rgb(paint(x, y)));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+fn playing() -> Deck {
+    let song = Song {
+        title: "Song".into(),
+        artist: "Band".into(),
+        album: "Album".into(),
+        uri: "spotify:track:1".into(),
+        duration_s: 200.0,
+    };
+    Deck {
+        state: PlayState::Playing,
+        song: Some(song.clone()),
+        queue: vec![song],
+        playing: Some(0),
+        ..Deck::default()
+    }
+}
+
+fn start_with(definition: &str, files: Vec<(&str, Vec<u8>)>, deck: Deck) -> Runtime {
+    let files: HashMap<String, Vec<u8>> = files
+        .into_iter()
+        .map(|(name, bytes)| (name.to_owned(), bytes))
+        .collect();
+    let wmp = Wmp::parse(definition, "skin", Arc::new(files)).expect("a view");
+    Runtime::new(
+        Arc::new(wmp),
+        deck,
+        HashMap::new(),
+        Arc::new(|text: &str, _, _, _| text.chars().count() as f32 * 6.0),
+        || {},
+    )
+}
+
+fn start(definition: &str, script: &str) -> Runtime {
+    start_with(
+        definition,
+        vec![("s.js", script.as_bytes().to_vec())],
+        playing(),
+    )
+}
+
+fn key_of(runtime: &Runtime) -> u32 {
+    let at = runtime.primary().expect("a window");
+    runtime.views[at].state.key
+}
+
+fn pointer(runtime: &mut Runtime, x: f32, y: f32, now: Instant) {
+    let key = key_of(runtime);
+    runtime.input(key, Input::Pointer { x, y }, Modifiers::default(), now);
+}
+
+fn click(runtime: &mut Runtime, x: f32, y: f32, now: Instant) {
+    let key = key_of(runtime);
+    pointer(runtime, x, y, now);
+    let none = Modifiers::default();
+    runtime.input(key, Input::Press { secondary: false }, none, now);
+    runtime.input(key, Input::Release { secondary: false }, none, now);
+}
+
+const VIEW: &str = r#"<THEME title="T"><VIEW id="main" width="100" height="50" scriptFile="s.js">"#;
+
+#[test]
+fn a_script_opens_a_drawer_and_hears_it_arrive() {
+    let definition = format!(
+        r#"{VIEW}
+        <BUTTON id="b" width="10" height="10" onClick="openDrawer();"/>
+        <SUBVIEW id="drawer" left="20" top="0" width="30" height="30" onEndMove="arrived();"/>
+        <TEXT id="flag" left="0" top="30" visible="false" value="x"/>
+        </VIEW></THEME>"#
+    );
+    let script = "function openDrawer(){drawer.moveTo(60,5,100);}\
+                  function arrived(){flag.visible=true;}";
+    let mut runtime = start(&definition, script);
+    let key = key_of(&runtime);
+    let now = Instant::now();
+    click(&mut runtime, 5.0, 5.0, now);
+    assert_eq!(runtime.next_wake(now), Some(Duration::from_millis(16)));
+    runtime.tick(playing(), now + Duration::from_millis(50));
+    let left = runtime.read(key, "drawer", "left");
+    assert!(left > 20.0 && left < 60.0, "{left}");
+    assert_eq!(runtime.read(key, "flag", "visible"), 0.0);
+    runtime.tick(playing(), now + Duration::from_millis(150));
+    assert_eq!(runtime.read(key, "drawer", "left"), 60.0);
+    assert_eq!(runtime.read(key, "drawer", "top"), 5.0);
+    assert_eq!(runtime.read(key, "flag", "visible"), 1.0);
+}
+
+#[test]
+fn a_bug_in_a_handler_stops_only_that_handler() {
+    let definition = format!(
+        r#"{VIEW}<TEXT id="t" value="a"/>
+        <BUTTON id="bad" left="0" width="10" height="10" onClick="nothingHere.go();"/>
+        <BUTTON id="good" left="20" width="10" height="10" onClick="t.value='b';"/>
+        </VIEW></THEME>"#
+    );
+    // A syntax error in the second file does not hurt the first.
+    let mut runtime = start(&definition, "var loaded = 1;");
+    let now = Instant::now();
+    click(&mut runtime, 5.0, 5.0, now);
+    click(&mut runtime, 25.0, 5.0, now);
+    let view = runtime.view(key_of(&runtime)).unwrap();
+    let id = view.state.ids["t"];
+    assert_eq!(view.state.elements[id].str("value").as_deref(), Some("b"));
+}
+
+#[test]
+fn scripts_may_get_the_case_of_a_name_wrong() {
+    let definition = format!(
+        r#"{VIEW}<TEXT id="tName" value=""/>
+        <BUTTON width="10" height="10" onClick="TNAME.Value = PLAYER.currentmedia.NAME; Startvideo();"/>
+        </VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "function StartVideo(){tName.value += '!';}");
+    click(&mut runtime, 5.0, 5.0, Instant::now());
+    let view = runtime.view(key_of(&runtime)).unwrap();
+    let id = view.state.ids["tname"];
+    assert_eq!(view.state.elements[id].str("value").as_deref(), Some("Song!"));
+}
+
+#[test]
+fn a_runaway_handler_is_stopped_then_switched_off() {
+    let definition = format!(
+        r#"{VIEW}<BUTTON width="10" height="10" onClick="spin();"/>
+        <BUTTON left="20" width="10" height="10" onClick="player.controls.pause();"/>
+        </VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "function spin(){while(true){}}");
+    let now = Instant::now();
+    for _ in 0..5 {
+        click(&mut runtime, 5.0, 5.0, now);
+    }
+    // The skin still works.
+    click(&mut runtime, 25.0, 5.0, now);
+    assert_eq!(runtime.tick(playing(), now), [Command::Pause]);
+}
+
+#[test]
+fn bindings_follow_the_player_and_fire_their_handlers() {
+    let definition = format!(
+        r#"{VIEW}
+        <PLAYER playstatechange="seen.value = 'state ' + NewState;" openstate_onchange="media.value = player.currentMedia.name;"/>
+        <TEXT id="seen" value=""/><TEXT id="media" value=""/>
+        <TEXT id="clock" value="wmpprop:player.controls.currentPositionString"/>
+        <SLIDER id="vol" value="wmpprop:player.settings.volume" value_onchange="echo.value=value;" width="50" height="10"/>
+        <TEXT id="echo" value=""/>
+        <PAUSEBUTTON id="p" width="9" height="9" visible="wmpenabled:player.controls.pause"/>
+        </VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    let key = key_of(&runtime);
+    let text = |runtime: &Runtime, id: &str| {
+        let view = runtime.view(key).unwrap();
+        view.state.elements[view.state.ids[id]].str("value")
+    };
+    assert_eq!(runtime.read(key, "p", "visible"), 1.0);
+    let mut deck = playing();
+    deck.state = PlayState::Paused;
+    deck.position_s = 83.0;
+    deck.volume = 40;
+    let mut other = deck.song.clone().unwrap();
+    other.title = "Next".into();
+    deck.song = Some(other);
+    runtime.tick(deck, Instant::now());
+    assert_eq!(text(&runtime, "seen").as_deref(), Some("state 2"));
+    assert_eq!(text(&runtime, "media").as_deref(), Some("Next"));
+    assert_eq!(text(&runtime, "clock").as_deref(), Some("01:23"));
+    assert_eq!(text(&runtime, "echo").as_deref(), Some("40"));
+    assert_eq!(runtime.read(key, "p", "visible"), 0.0, "pause goes when paused");
+}
+
+#[test]
+fn a_jscript_attribute_is_worked_out_once_and_sees_the_elements_size() {
+    let definition = format!(
+        r#"{VIEW}
+        <SUBVIEW id="a" left="10" width="30" height="5"/>
+        <TEXT id="t" left="jscript:a.left+a.width+2;" top="jscript:view.height-left;" value="x"/>
+        </VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    let key = key_of(&runtime);
+    assert_eq!(runtime.read(key, "t", "left"), 42.0);
+    assert_eq!(runtime.read(key, "t", "top"), 8.0);
+    runtime.run_script(key, "a.width = 90;", Instant::now());
+    assert_eq!(runtime.read(key, "t", "left"), 42.0);
+}
+
+#[test]
+fn a_resize_moves_what_follows_the_parents_edges() {
+    let definition = format!(
+        r#"{VIEW}
+        <SUBVIEW id="stretch" left="10" width="80" height="10" horizontalAlignment="stretch">
+          <SUBVIEW id="grip" left="70" width="10" height="10" horizontalAlignment="right"/>
+        </SUBVIEW>
+        <SUBVIEW id="corner" left="90" top="40" width="10" height="10"
+           horizontalAlignment="right" verticalAlignment="bottom"/>
+        <SUBVIEW id="still" left="5" top="5" width="10" height="10"/>
+        </VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    let key = key_of(&runtime);
+    runtime.run_script(key, "view.width = 200; view.height = 80;", Instant::now());
+    assert_eq!(runtime.read(key, "stretch", "width"), 180.0);
+    assert_eq!(runtime.read(key, "grip", "left"), 170.0);
+    assert_eq!(runtime.read(key, "corner", "left"), 190.0);
+    assert_eq!(runtime.read(key, "corner", "top"), 70.0);
+    assert_eq!(runtime.read(key, "still", "left"), 5.0);
+}
+
+#[test]
+fn a_centred_element_with_no_place_starts_in_the_middle() {
+    let definition = format!(
+        r#"{VIEW}
+        <SUBVIEW id="c" width="20" height="10" horizontalAlignment="center" verticalAlignment="center"/>
+        <SUBVIEW id="d" left="3" width="20" height="10" horizontalAlignment="center"/>
+        </VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    let key = key_of(&runtime);
+    assert_eq!(runtime.read(key, "c", "left"), 40.0);
+    assert_eq!(runtime.read(key, "c", "top"), 20.0);
+    assert_eq!(runtime.read(key, "d", "left"), 3.0);
+    runtime.run_script(key, "view.width = 140;", Instant::now());
+    assert_eq!(runtime.read(key, "c", "left"), 60.0, "and it stays there");
+}
+
+#[test]
+fn views_have_their_own_names_and_share_preferences() {
+    let definition = r#"<THEME>
+      <VIEW id="control" scriptFile="s.js" onLoad="startUp();"/>
+      <VIEW id="main" width="50" height="50" scriptFile="s.js" onLoad="shared = 2; theme.savePreference('k', shared);">
+        <BUTTON width="9" height="9" onClick="theme.openView('eq');"/>
+        <BUTTON left="20" width="9" height="9" onClick="view.close();"/>
+      </VIEW>
+      <VIEW id="eq" width="20" height="20" scriptFile="s.js" onLoad="t.value = shared + theme.loadPreference('k') + theme.loadPreference('none');">
+        <TEXT id="t" value=""/>
+      </VIEW></THEME>"#;
+    let script = "var shared = 1; function startUp(){ theme.openView('main'); }";
+    let mut runtime = start(definition, script);
+    let now = Instant::now();
+    assert_eq!(runtime.views.len(), 2, "the control view runs without a window");
+    assert_eq!(runtime.views[runtime.primary().unwrap()].state.id, "main");
+    click(&mut runtime, 4.0, 4.0, now);
+    assert_eq!(runtime.views.len(), 3);
+    let eq = runtime.views.iter().find(|view| view.state.id == "eq").unwrap();
+    let id = eq.state.ids["t"];
+    assert_eq!(eq.state.elements[id].str("value").as_deref(), Some("12--"));
+    // Opening it again does not make a second one.
+    click(&mut runtime, 4.0, 4.0, now);
+    assert_eq!(runtime.views.len(), 3);
+    // Closing the main one leaves the rest; closing the last window ends it.
+    click(&mut runtime, 24.0, 4.0, now);
+    assert_eq!(runtime.views[runtime.primary().unwrap()].state.id, "eq");
+    let key = key_of(&runtime);
+    runtime.run_script(key, "view.close();", now);
+    assert_eq!(runtime.tick(playing(), now), [Command::BackToMain]);
+}
+
+#[test]
+fn a_view_can_give_way_to_another_at_load() {
+    // Preview views do this: they empty themselves and name the real one.
+    let definition = r#"<THEME>
+      <VIEW id="preview" backgroundImage="p.png" scriptFile="s.js" onLoad="view.width=0; view.height=0; theme.currentViewID='real';"/>
+      <VIEW id="real" width="40" height="30" onLoad="theme.savePreference('b', true);"/>
+      </THEME>"#;
+    let runtime = start_with(
+        definition,
+        vec![("p.png", png(9, 9, |_, _| [1, 2, 3]))],
+        playing(),
+    );
+    assert_eq!(runtime.views.len(), 1);
+    assert_eq!(runtime.views[0].state.id, "real");
+    // A boolean reads back as COM wrote it.
+    assert_eq!(runtime.shared.prefs["b"], "True");
+}
+
+#[test]
+fn a_sticky_button_toggles_before_its_click_runs() {
+    let definition = format!(
+        r#"{VIEW}<MUTEBUTTON id="m" width="10" height="10"/></VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    let key = key_of(&runtime);
+    let now = Instant::now();
+    click(&mut runtime, 5.0, 5.0, now);
+    assert_eq!(runtime.tick(playing(), now), [Command::SetMute(true)]);
+    assert_eq!(runtime.read(key, "m", "down"), 1.0);
+}
+
+#[test]
+fn a_button_group_is_hit_by_its_map_and_drawn_only_where_mapped() {
+    let map = png(40, 20, |x, _| {
+        if x < 10 {
+            [0, 255, 0]
+        } else if (20..30).contains(&x) {
+            [255, 0, 0]
+        } else {
+            [0, 0, 0]
+        }
+    });
+    let definition = format!(
+        r##"{VIEW}<BUTTONGROUP left="5" top="6" image="up.png" mappingImage="map.png">
+          <PLAYELEMENT mappingColor="#00FF00"/>
+          <BUTTONELEMENT mappingColor="#FF0000" onClick="player.controls.next();"/>
+        </BUTTONGROUP></VIEW></THEME>"##
+    );
+    let mut deck = playing();
+    deck.state = PlayState::Paused;
+    let mut runtime = start_with(
+        &definition,
+        vec![
+            ("map.png", map),
+            ("up.png", png(40, 20, |_, _| [1, 1, 1])),
+            ("s.js", Vec::new()),
+        ],
+        deck.clone(),
+    );
+    let now = Instant::now();
+    click(&mut runtime, 8.0, 8.0, now);
+    assert_eq!(runtime.tick(deck.clone(), now), [Command::Play]);
+    click(&mut runtime, 30.0, 8.0, now);
+    assert_eq!(runtime.tick(deck.clone(), now), [Command::Next]);
+    // Between the colours there is no button.
+    click(&mut runtime, 20.0, 8.0, now);
+    assert_eq!(runtime.tick(deck, now), []);
+}
+
+#[test]
+fn dragging_a_seek_slider_holds_its_value_and_seeks_at_the_end() {
+    let definition = format!(
+        r#"{VIEW}<SEEKSLIDER id="s" width="100" height="10" thumbImage="t.png"/></VIEW></THEME>"#
+    );
+    let mut runtime = start_with(
+        &definition,
+        vec![("t.png", png(4, 10, |_, _| [9, 9, 9])), ("s.js", Vec::new())],
+        playing(),
+    );
+    let key = key_of(&runtime);
+    let none = Modifiers::default();
+    let now = Instant::now();
+    pointer(&mut runtime, 50.0, 5.0, now);
+    runtime.input(key, Input::Press { secondary: false }, none, now);
+    assert_eq!(runtime.read(key, "s", "value"), 100.0);
+    // The player's report does not fight the hand, and nothing is sought yet.
+    let mut deck = playing();
+    deck.position_s = 7.0;
+    assert_eq!(runtime.tick(deck.clone(), now), []);
+    assert_eq!(runtime.read(key, "s", "value"), 100.0);
+    pointer(&mut runtime, 25.0, 5.0, now);
+    runtime.input(key, Input::Release { secondary: false }, none, now);
+    assert_eq!(runtime.tick(deck, now), [Command::Seek(50_000)]);
+}
+
+#[test]
+fn moving_onto_a_child_does_not_leave_its_parent() {
+    let definition = format!(
+        r#"{VIEW}
+        <SUBVIEW id="panel" width="60" height="40" backgroundColor="black" onMouseOut="out.value = out.value + 'o';">
+          <BUTTON id="b" left="5" top="5" width="10" height="10" onClick="x=1;"/>
+        </SUBVIEW>
+        <TEXT id="out" top="42" value=""/></VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    let now = Instant::now();
+    pointer(&mut runtime, 30.0, 30.0, now);
+    pointer(&mut runtime, 8.0, 8.0, now);
+    let read = |runtime: &Runtime| {
+        let view = runtime.view(key_of(runtime)).unwrap();
+        view.state.elements[view.state.ids["out"]].str("value")
+    };
+    assert_eq!(read(&runtime).as_deref(), Some(""));
+    pointer(&mut runtime, 80.0, 30.0, now);
+    assert_eq!(read(&runtime).as_deref(), Some("o"));
+}
+
+#[test]
+fn a_skin_with_no_timer_asks_for_no_frames() {
+    let definition = format!(r#"{VIEW}<TEXT value="still"/></VIEW></THEME>"#);
+    let mut deck = playing();
+    deck.state = PlayState::Paused;
+    let mut runtime = start_with(&definition, vec![("s.js", Vec::new())], deck.clone());
+    let now = Instant::now();
+    runtime.tick(deck, now);
+    assert_eq!(runtime.next_wake(now), None);
+}
+
+#[test]
+fn a_timer_runs_at_its_interval_and_a_script_can_stop_it() {
+    let definition = r#"<THEME><VIEW width="20" height="20" scriptFile="s.js" timerInterval="100" onTimer="beat();">
+        <TEXT id="t" value=""/></VIEW></THEME>"#;
+    let script = "var n = 0; function beat(){ n++; t.value = n; if (n == 2) view.timerInterval = 0; }";
+    let mut runtime = start(definition, script);
+    let key = key_of(&runtime);
+    let start = runtime.views[0].state.timer_due.unwrap();
+    let mut deck = playing();
+    deck.state = PlayState::Paused;
+    runtime.tick(deck.clone(), start);
+    runtime.tick(deck.clone(), start + Duration::from_millis(100));
+    runtime.tick(deck.clone(), start + Duration::from_millis(5000));
+    assert_eq!(runtime.read(key, "t", "value"), 2.0);
+    assert_eq!(runtime.next_wake(start), None);
+}
+
+#[test]
+fn what_a_skin_cannot_touch_stays_untouched() {
+    let definition = format!(
+        r#"{VIEW}<BUTTON width="10" height="10" onClick="player.URL='file:///etc/passwd'; player.launchURL('http://x'); var f = theme.openDialog('FILE_OPEN','FILES_ALLMEDIA'); theme.savePreference('f', f);"/></VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    let now = Instant::now();
+    click(&mut runtime, 5.0, 5.0, now);
+    assert_eq!(runtime.tick(playing(), now), []);
+    assert_eq!(runtime.shared.prefs["f"], "");
+}
+
+#[test]
+fn a_view_with_no_size_takes_its_picture_or_what_is_in_it() {
+    let definition = r#"<THEME><VIEW backgroundImage="b.png"/></THEME>"#;
+    let runtime = start_with(
+        definition,
+        vec![("b.png", png(30, 20, |_, _| [1, 1, 1]))],
+        playing(),
+    );
+    assert_eq!(runtime.views[0].state.size(), (30.0, 20.0));
+    let definition = r#"<THEME><VIEW><SUBVIEW left="5" top="6" width="20" height="10"/></VIEW></THEME>"#;
+    let runtime = start_with(definition, Vec::new(), playing());
+    assert_eq!(runtime.views[0].state.size(), (25.0, 16.0));
+}
+
+#[test]
+fn a_definition_without_a_view_is_not_a_skin() {
+    assert!(Wmp::parse("<THEME/>", "s", Arc::default()).is_none());
+    assert!(Wmp::parse("just text", "s", Arc::default()).is_none());
+}
+
+#[test]
+fn crafted_numbers_do_not_overflow() {
+    let definition = r#"<THEME><VIEW width="2147483647" height="1e300">
+        <SUBVIEW left="-1e308" top="2147483647" width="1e308" height="1e308">
+          <BUTTON left="2147483647" top="2147483647" width="2147483647" height="2147483647" image="x"/>
+          <SLIDER min="1e308" max="-1e308" value="1e308" width="9" height="9" thumbImage="x"/>
+          <TEXT left="NaN" value="x" fontSize="1e9"/>
+        </SUBVIEW></VIEW></THEME>"#;
+    let mut runtime = start_with(definition, Vec::new(), playing());
+    let now = Instant::now();
+    let key = runtime.views[0].state.key;
+    let _ = runtime.paint(key, now);
+    runtime.input(key, Input::Pointer { x: 5.0, y: 5.0 }, Modifiers::default(), now);
+}
+
+/// Z order: a negative child under the picture, the rest over it.
+#[test]
+fn a_negative_z_child_sits_under_the_background() {
+    let definition = r##"<THEME><VIEW width="20" height="20" backgroundColor="none">
+        <SUBVIEW id="s" width="20" height="20" backgroundImage="b.png">
+          <EFFECTS id="under" zIndex="-1" width="20" height="20"/>
+          <TEXT id="over" value="x"/>
+        </SUBVIEW></VIEW></THEME>"##;
+    let mut runtime = start_with(
+        definition,
+        vec![("b.png", png(20, 20, |_, _| [1, 1, 1]))],
+        playing(),
+    );
+    let key = runtime.views[0].state.key;
+    let now = Instant::now();
+    // The picture needs a moment on the worker.
+    let mut paints = runtime.paint(key, now).0;
+    for _ in 0..1000 {
+        if paints.iter().any(|paint| matches!(paint, Paint::Picture { .. })) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+        runtime.images.poll();
+        paints = runtime.paint(key, now).0;
+    }
+    let order: Vec<u8> = paints
+        .iter()
+        .map(|paint| match paint {
+            Paint::Effects { .. } => 0,
+            Paint::Picture { .. } => 1,
+            Paint::Text { .. } => 2,
+            _ => 9,
+        })
+        .collect();
+    assert_eq!(order, [9, 0, 1, 2], "black ground, effects, picture, text");
+}
+
+/// Loads every `.wmz` in `$SPOTIFAST_SKIN_SAMPLES`, when set, and starts it,
+/// to check the engine against real files without shipping any. A skin may
+/// fail to load only because it is no skin; none may panic.
+#[test]
+fn sample_skins_run() {
+    let Ok(dir) = std::env::var("SPOTIFAST_SKIN_SAMPLES") else {
+        return;
+    };
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|extension| extension != "wmz") {
+            continue;
+        }
+        let Ok(skin) = crate::skin::Skin::load(&path) else {
+            continue;
+        };
+        let Some(wmp) = skin.wmp.clone() else {
+            continue;
+        };
+        let mut runtime = Runtime::new(
+            wmp,
+            playing(),
+            HashMap::new(),
+            Arc::new(|text: &str, _, _, _| text.chars().count() as f32 * 6.0),
+            || {},
+        );
+        let now = Instant::now();
+        for step in 0..20u64 {
+            let at = now + Duration::from_millis(step * 100);
+            runtime.tick(playing(), at);
+            let keys: Vec<u32> = runtime.views.iter().map(|view| view.state.key).collect();
+            for key in keys {
+                let _ = runtime.paint(key, at);
+                runtime.input(
+                    key,
+                    Input::Pointer {
+                        x: step as f32 * 15.0,
+                        y: step as f32 * 15.0,
+                    },
+                    Modifiers::default(),
+                    at,
+                );
+            }
+        }
+        runtime.shut_down();
+    }
+}
+
+/// TEMPORARY: not committed. Dumps errors and paints of $WMP_DUMP.
+#[test]
+fn zz_dump() {
+    let Ok(path) = std::env::var("WMP_DUMP") else { return; };
+    let skin = crate::skin::Skin::load(std::path::Path::new(&path)).unwrap();
+    let wmp = skin.wmp.clone().unwrap();
+    let mut runtime = Runtime::new(wmp, playing(), HashMap::new(),
+        Arc::new(|text: &str, _, _, _| text.chars().count() as f32 * 6.0), || {});
+    if let Ok(script) = std::env::var("WMP_RUN") {
+        let at = runtime.primary().unwrap();
+        let key = runtime.views[at].state.key;
+        runtime.run_script(key, &script, Instant::now());
+    }
+    let now = Instant::now();
+    for step in 0..30u64 {
+        std::thread::sleep(Duration::from_millis(100));
+        let at = now + Duration::from_millis(step * 100);
+        runtime.tick(playing(), at);
+        for key in runtime.views.iter().map(|v| v.state.key).collect::<Vec<_>>() { let _ = runtime.paint(key, at); }
+    }
+    for error in &runtime.logged_errors() { eprintln!("ERR {error}"); }
+    for view in &runtime.views {
+        eprintln!("VIEW {} {:?} windowed {}", view.state.id, view.state.size(), view.state.windowed());
+        fn walk(s: &crate::skin::wmp::live::ViewState, id: usize, depth: usize) {
+            let e = &s.elements[id];
+            if depth > 6 { return; }
+            eprintln!("{}{} {:?} l{} t{} w{} h{} vis{} z{} img {:?}", "  ".repeat(depth), e.tag, e.id, e.left, e.top, e.width, e.height, e.visible, e.z, e.str("backgroundimage").or(e.str("image")));
+            for child in s.in_order(id) { walk(s, child, depth + 1); }
+        }
+        if std::env::var("WMP_TREE").is_ok() { walk(&view.state, view.state.root, 0); }
+    }
+    let at = now + Duration::from_secs(3);
+    let keys: Vec<u32> = runtime.views.iter().map(|v| v.state.key).collect();
+    for key in keys {
+        for p in runtime.paint(key, at).0 {
+            match p {
+                Paint::Picture{x,y,part,clip,picture,..} => eprintln!("P {x},{y} {part:?} clip{} first{:?} size{:?}", clip.len(), clip.first(), picture.size),
+                Paint::Fill{area,color,clip,..} => eprintln!("F {area:?} {color:?} clip{}", clip.len()),
+                Paint::Text{text,..} => eprintln!("T {:?} {:?}", text.text, text.area),
+                Paint::Effects{area,clip} => eprintln!("E {area:?} clip{} {:?}", clip.len(), clip.first()),
+                Paint::Art{area,..} => eprintln!("A {area:?}"),
+            }
+        }
+    }
+}
+
+/// TEMPORARY: not committed. Error census over a corpus.
+#[test]
+fn zz_sweep() {
+    let Ok(dir) = std::env::var("WMP_SWEEP") else { return; };
+    let mut names: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+    names.sort();
+    let (mut ok, mut clean, mut failed) = (0, 0, 0);
+    let mut common: HashMap<String, usize> = HashMap::new();
+    for path in names {
+        let skin = match crate::skin::Skin::load(&path) { Ok(s) => s, Err(e) => { failed += 1; eprintln!("LOADFAIL {} {e}", path.display()); continue; } };
+        let Some(wmp) = skin.wmp.clone() else { eprintln!("NOTWMP {}", path.display()); continue; };
+        let mut runtime = Runtime::new(wmp, playing(), HashMap::new(),
+            Arc::new(|text: &str, _, _, _| text.chars().count() as f32 * 6.0), || {});
+        let now = Instant::now();
+        for step in 0..10u64 {
+            let at = now + Duration::from_millis(step * 100);
+            runtime.tick(playing(), at);
+            for key in runtime.views.iter().map(|v| v.state.key).collect::<Vec<_>>() {
+                let _ = runtime.paint(key, at);
+                let none = Modifiers::default();
+                for (x, y) in [(50.0, 50.0), (120.0, 90.0), (200.0, 150.0)] {
+                    runtime.input(key, Input::Pointer { x, y }, none, at);
+                    runtime.input(key, Input::Press { secondary: false }, none, at);
+                    runtime.input(key, Input::Release { secondary: false }, none, at);
+                }
+            }
+        }
+        ok += 1;
+        let errors = runtime.logged_errors();
+        if errors.is_empty() { clean += 1; }
+        let windows = runtime.views.iter().filter(|v| v.state.windowed()).count();
+        if windows == 0 { eprintln!("NOWINDOW {} closed={}", path.display(), runtime.closed); }
+        for error in errors {
+            let cut = error.split(": ").skip(1).collect::<Vec<_>>().join(": ");
+            *common.entry(cut.chars().take(70).collect()).or_insert(0) += 1;
+        }
+    }
+    let mut common: Vec<_> = common.into_iter().collect();
+    common.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    for (e, n) in common.iter().take(60) { eprintln!("{n:4} {e}"); }
+    eprintln!("ok {ok} clean {clean} failed {failed}");
+}

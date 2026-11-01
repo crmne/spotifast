@@ -109,7 +109,7 @@ pub struct Skin {
     pub regions: Regions,
     /// Set when this is a Windows Media Player skin: the mini player then
     /// draws it instead of the Winamp windows.
-    pub wmp: Option<wmp::Wmp>,
+    pub wmp: Option<Arc<wmp::Wmp>>,
 }
 
 impl Skin {
@@ -216,15 +216,16 @@ impl Skin {
     /// A Windows Media Player skin: the built-in Winamp sheets stand behind
     /// it, unused, so that every `Skin` can answer for every sheet.
     fn from_media_player(name: String, files: Files) -> Result<Self, SkinError> {
+        let files = Arc::new(files);
         let mut definitions: Vec<&String> =
             files.keys().filter(|file| file.ends_with(".wms")).collect();
         definitions.sort();
         let wmp = definitions
             .into_iter()
             .find_map(|file| {
-                let bytes = &files[file];
-                let text = decode_definition(bytes);
-                wmp::Wmp::parse(&text, &files)
+                let text = decode_definition(&files[file]);
+                let stem = file.strip_suffix(".wms").unwrap_or(file);
+                wmp::Wmp::parse(&text, stem, files.clone())
             })
             .ok_or(SkinError::NoView)?;
         Ok(Self {
@@ -233,7 +234,7 @@ impl Skin {
             playlist: PlaylistStyle::default(),
             vis_colors: config::DEFAULT_VIS_COLORS,
             regions: Regions::default(),
-            wmp: Some(wmp),
+            wmp: Some(Arc::new(wmp)),
         })
     }
 
@@ -349,7 +350,7 @@ pub(crate) fn is_media_player_skin<'a>(mut names: impl Iterator<Item = &'a str> 
 /// definition and the pictures it can name.
 fn wanted_by_media_player(file_name: &str) -> bool {
     file_name.rsplit_once('.').is_some_and(|(_, extension)| {
-        matches!(extension, "wms" | "bmp" | "png" | "gif" | "jpg" | "jpeg")
+        matches!(extension, "wms" | "js" | "bmp" | "png" | "gif" | "jpg" | "jpeg")
     })
 }
 
@@ -683,7 +684,7 @@ mod tests {
         let skin = Skin::from_archive("Chrome", &archive).unwrap();
         let wmp = skin.wmp.as_ref().expect("a Windows Media Player skin");
         assert_eq!((wmp.width, wmp.height), (120, 60));
-        assert_eq!(wmp.buttons.len(), 1);
+        assert_eq!(wmp.views.len(), 1);
         // The Winamp sheets still answer, from the built-in skin.
         assert_eq!(skin.sheet(Sheet::Main), Skin::builtin().sheet(Sheet::Main));
         assert!(Skin::builtin().wmp.is_none());
