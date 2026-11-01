@@ -1034,28 +1034,34 @@ mod pipewire {
         /// it counts and an unrelated one does not.
         #[test]
         fn helpers_are_told_apart_by_their_executable() {
-            let mut same = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["--list", "--format", "terse"])
-                .stdout(std::process::Stdio::piped())
-                .spawn()
-                .unwrap();
-            let mut other = std::process::Command::new("sleep")
-                .arg("30")
-                .spawn()
-                .unwrap();
-            let child = std::process::id();
+            let start = |program: &str| {
+                let child = std::process::Command::new(program)
+                    .arg("30")
+                    .spawn()
+                    .unwrap();
+                // A new process runs this test's executable until its exec.
+                let ours = std::env::current_exe().unwrap();
+                let exe = format!("/proc/{}/exe", child.id());
+                while std::fs::read_link(&exe).is_ok_and(|exe| exe == ours) {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                child
+            };
+            let mut child = start("sleep");
+            let mut same = start("sleep");
             let mut graph = Graph::default();
             graph.clients.insert(1, same.id());
-            graph.clients.insert(2, other.id());
-            graph.note_helpers(child);
+            // Nix's sleep and tail are one program, so compare with this one.
+            graph.clients.insert(2, std::process::id());
+            graph.note_helpers(child.id());
             let found = (
                 graph.helpers.contains(&same.id()),
-                graph.helpers.contains(&other.id()),
+                graph.helpers.contains(&std::process::id()),
             );
-            let _ = same.kill();
-            let _ = same.wait();
-            let _ = other.kill();
-            let _ = other.wait();
+            for process in [&mut child, &mut same] {
+                let _ = process.kill();
+                let _ = process.wait();
+            }
             assert_eq!(found, (true, false));
         }
 
