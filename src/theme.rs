@@ -137,6 +137,22 @@ impl fastframe_theme::Palette for Palette {
         }
         true
     }
+
+    /// Menus, tooltips and dialogs follow a file's window when it leaves
+    /// `overlay` out, as Omarchy's template and the shared palettes do:
+    /// otherwise they kept Spotifast's own blue-grey on every other theme.
+    /// The proportions are the built-in palettes': a step above the window
+    /// toward the text in dark ones, the panel in light ones.
+    fn derive(&mut self, given: &std::collections::BTreeSet<&str>) {
+        if given.contains("overlay") || !given.contains("window") {
+            return;
+        }
+        self.overlay = if self.dark {
+            self.window.lerp_to_gamma(self.text, 0.08)
+        } else {
+            self.panel
+        };
+    }
 }
 
 impl fastframe_theme::PaletteBase for Palette {
@@ -1068,6 +1084,33 @@ mod tests {
         assert!(!light.dark);
         assert_eq!(light.accent, Color32::from_rgb(140, 63, 165));
         assert_eq!(light.window, Palette::light().window);
+    }
+
+    /// Ristretto's brown window must not open blue-grey menus.
+    #[test]
+    fn menus_follow_a_palette_that_leaves_overlay_out() {
+        let shared: Palette = fastframe_theme::presets::themes()
+            .find(|theme: &CustomTheme| theme.filename == "Ristretto.json")
+            .unwrap()
+            .palette;
+        let [r, _, b, _] = shared.overlay.to_array();
+        assert!(r > b, "{:?}", shared.overlay);
+        assert_ne!(shared.overlay, Palette::dark().overlay);
+
+        let latte: Palette = fastframe_theme::parse_palette(
+            r##"{"base":"light","colors":{"window":"#eff1f5","panel":"#edeff3"}}"##,
+        )
+        .unwrap();
+        assert_eq!(latte.overlay, latte.panel);
+
+        let own: Palette = fastframe_theme::parse_palette(
+            r##"{"colors":{"window":"#2c2525","overlay":"#010203"}}"##,
+        )
+        .unwrap();
+        assert_eq!(own.overlay, Color32::from_rgb(1, 2, 3));
+        let accent_only: Palette =
+            fastframe_theme::parse_palette(r##"{"colors":{"accent":"#8c3fa5"}}"##).unwrap();
+        assert_eq!(accent_only.overlay, Palette::dark().overlay);
     }
 
     /// Compared line by line: a Windows checkout may turn the files' line

@@ -68,13 +68,14 @@ fn fold(character: char) -> char {
         '\u{c6}' | '\u{e6}' => 'A',
         '\u{c7}' | '\u{e7}' => 'C',
         '\u{c8}'..='\u{cb}' | '\u{e8}'..='\u{eb}' => 'E',
-        '\u{cc}'..='\u{cf}' | '\u{ec}'..='\u{ef}' => 'I',
+        '\u{011e}' | '\u{011f}' => 'G',
+        '\u{cc}'..='\u{cf}' | '\u{ec}'..='\u{ef}' | '\u{0130}' | '\u{0131}' => 'I',
         '\u{d0}' | '\u{f0}' => 'D',
         '\u{d1}' | '\u{f1}' => 'N',
         '\u{d2}'..='\u{d5}' | '\u{f2}'..='\u{f5}' | '\u{d8}' | '\u{f8}' => 'O',
         '\u{d9}'..='\u{dc}' | '\u{f9}'..='\u{fc}' => 'U',
         '\u{dd}' | '\u{fd}' | '\u{ff}' => 'Y',
-        '\u{df}' => 'S',
+        '\u{df}' | '\u{015e}' | '\u{015f}' => 'S',
         '\u{2018}' | '\u{2019}' | '`' => '\'',
         '\u{201c}' | '\u{201d}' => '"',
         '\u{2013}' | '\u{2014}' | '\u{2212}' => '-',
@@ -139,6 +140,33 @@ mod tests {
         );
         // Kana is still not in the font, and still falls back.
         assert!(!"\u{3042}".chars().all(covered));
+    }
+
+    #[test]
+    fn turkish_titles_keep_the_skin_font() {
+        let title = "Cihangir Eryıldız - Tokyo Manifesto (4:25)";
+        assert!(title.chars().all(covered));
+        assert_eq!(
+            title.chars().map(cell).collect::<Vec<_>>(),
+            "CIHANGIR ERYILDIZ - TOKYO MANIFESTO (4:25)"
+                .chars()
+                .map(cell)
+                .collect::<Vec<_>>()
+        );
+        for (letter, base) in [
+            ('ı', 'I'),
+            ('İ', 'I'),
+            ('ğ', 'G'),
+            ('Ğ', 'G'),
+            ('ş', 'S'),
+            ('Ş', 'S'),
+        ] {
+            assert!(
+                covered(letter),
+                "{letter} must not select the fallback font"
+            );
+            assert_eq!(cell(letter), cell(base));
+        }
     }
 
     #[test]

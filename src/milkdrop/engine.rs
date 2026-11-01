@@ -8,17 +8,11 @@
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
 
 use eframe::glow::{self, HasContext};
 use projectm_sys as pm;
 
 use super::CROSSFADE_SECONDS;
-
-/// What projectM asked for, as its callback left it.
-const NOTHING: u8 = 0;
-const FADE: u8 = 1;
-const CUT: u8 = 2;
 
 /// One running projectM and the framebuffer its frames are copied
 /// through.
@@ -26,11 +20,7 @@ pub struct Engine {
     handle: pm::projectm_handle,
     gl: Arc<glow::Context>,
     copy: Option<Copy>,
-    /// What projectM asked for from its callback: nothing, a fade to the
-    /// next preset, or a cut on the beat. Boxed so its address holds.
-    switch: Box<AtomicU8>,
     seconds: u32,
-    locked: bool,
 }
 
 /// A framebuffer the picture's size, with the texture it draws into.
@@ -44,13 +34,6 @@ struct Copy {
 // SAFETY: only ever touched from the thread that owns the window's context,
 // which is where the paint callback runs; the mutex it sits in wants Send.
 unsafe impl Send for Engine {}
-
-unsafe extern "C" fn switch_requested(is_hard_cut: bool, user_data: *mut c_void) {
-    // SAFETY: `user_data` is the engine's own flag, boxed so it outlives
-    // every callback, which projectM only makes while the engine exists.
-    let switch = unsafe { &*user_data.cast::<AtomicU8>() };
-    switch.store(if is_hard_cut { CUT } else { FADE }, Ordering::Relaxed);
-}
 
 unsafe extern "C" fn switch_failed(
     preset_filename: *const c_char,
@@ -102,20 +85,18 @@ impl Engine {
             log::warn!("projectM could not start: MilkDrop needs OpenGL 3.3");
             return None;
         }
-        let switch = Box::new(AtomicU8::new(NOTHING));
-        // SAFETY: a fresh handle, and the flag outlives it (see `Drop`).
+        // SAFETY: a fresh handle.
         unsafe {
-            pm::projectm_set_preset_switch_requested_event_callback(
-                handle,
-                Some(switch_requested),
-                (&raw const *switch).cast_mut().cast::<c_void>(),
-            );
             pm::projectm_set_preset_switch_failed_event_callback(
                 handle,
                 Some(switch_failed),
                 std::ptr::null_mut(),
             );
+            // `Presets::advance` decides when a preset ends. This is what
+            // a preset reads as its `progress`, kept exact: left alone,
+            // projectM varies each preset's length at random.
             pm::projectm_set_preset_duration(handle, f64::from(seconds));
+            pm::projectm_set_easter_egg(handle, 0.0);
             pm::projectm_set_soft_cut_duration(handle, CROSSFADE_SECONDS);
             // Beat-driven cuts are off, as MilkDrop shipped them.
             pm::projectm_set_hard_cut_enabled(handle, false);
@@ -128,9 +109,7 @@ impl Engine {
             handle,
             gl,
             copy: None,
-            switch,
             seconds,
-            locked: false,
         };
         engine.set_texture_dirs(texture_dirs);
         Some(engine)
@@ -160,14 +139,6 @@ impl Engine {
         }
     }
 
-    pub fn set_locked(&mut self, locked: bool) {
-        if self.locked != locked {
-            self.locked = locked;
-            // SAFETY: a live handle.
-            unsafe { pm::projectm_set_preset_locked(self.handle, locked) };
-        }
-    }
-
     /// Loads a preset, fading into it or cutting straight to it. One that
     /// cannot be read is reported through the failure callback and the
     /// one playing stays.
@@ -177,17 +148,6 @@ impl Engine {
         };
         // SAFETY: a live handle and a string that lives for the call.
         unsafe { pm::projectm_load_preset_file(self.handle, path.as_ptr(), smooth) };
-        self.switch.store(NOTHING, Ordering::Relaxed);
-    }
-
-    /// Whether projectM has asked for the next preset since last asked:
-    /// `Some(true)` for a cut on the beat, `Some(false)` for a fade.
-    pub fn switch_wanted(&self) -> Option<bool> {
-        match self.switch.swap(NOTHING, Ordering::Relaxed) {
-            FADE => Some(false),
-            CUT => Some(true),
-            _ => None,
-        }
     }
 
     /// Feeds projectM stereo frames (LRLR pairs), from the shared ring.
@@ -356,8 +316,7 @@ impl Engine {
 impl Drop for Engine {
     fn drop(&mut self) {
         // SAFETY: the context is current (see the module's note), the
-        // handle is live, and the objects are this engine's own. The flag
-        // outlives the handle: it is dropped after this.
+        // handle is live, and the objects are this engine's own.
         unsafe {
             pm::projectm_destroy(self.handle);
             if let Some(copy) = self.copy.take() {

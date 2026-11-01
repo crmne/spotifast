@@ -56,10 +56,11 @@ or the ARM version if your PC uses an ARM processor:
 - [Windows installer (ARM PCs)]({{ base }}/spotifast-v{{ v }}-aarch64-pc-windows-msvc{{ windows_installer }})
 {% if windows_installer == ".msi" %}
 The installer is a Windows Installer package (`.msi`). Spotifast installed
-with the earlier setup program (`-setup.exe`) moves to it through its own
-updates, or right away when you run the new installer, and keeps its settings,
-its folder and its Start menu entry. Windows then lists one Spotifast under
-installed apps.
+with the earlier setup program (`-setup.exe`) moves to it when you run the new
+installer, and keeps its settings, its folder and its Start menu entry.
+Windows then lists one Spotifast under installed apps. Versions 0.13.0 and
+later also move to it through their own updates; 0.12.x and earlier no longer
+find updates, so run the installer once by hand.
 {% endif %}
 To run Spotifast without an installer, download a ZIP file, extract it, and
 open `spotifast.exe`. Since 0.13.4, it keeps its settings, state and caches
@@ -69,9 +70,9 @@ in a `spotifast-data` folder next to it, so the folder carries everything
 - [Windows ZIP (most PCs)]({{ base }}/spotifast-v{{ v }}-x86_64-pc-windows-msvc.zip)
 - [Windows ZIP (ARM PCs)]({{ base }}/spotifast-v{{ v }}-aarch64-pc-windows-msvc.zip)
 
-Either way, SmartScreen may warn about an unknown publisher on first run;
-choose **More info**, then **Run anyway**. The Windows files are not signed
-with a publisher certificate, so Windows has no publisher name to show.
+The Windows executable and installer are signed as **PlentyLabs UG
+(haftungsbeschränkt) & Co. KG**. SmartScreen may still show a warning while
+the publisher builds reputation.
 
 Spotifast needs OpenGL 2.0 or newer, which every current Windows graphics
 driver provides. In a virtual machine or remote session that only has the
@@ -166,7 +167,8 @@ and earlier need one more manual download.
 Unpack, put `spotifast` on your PATH, and copy the desktop entry and icon
 from the bundled `packaging/` directory if you want it in your launcher and
 handling `spotify:` links.
-The binary needs ALSA, PulseAudio or PipeWire, and Wayland or X11.
+The binary needs the ALSA and PipeWire libraries, and Wayland or X11. It plays
+through PipeWire, a PulseAudio server, or ALSA, whichever is running.
 
 Or build from source: see the [build instructions](/getting-started/#build-from-source).
 

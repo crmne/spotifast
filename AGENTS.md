@@ -7,10 +7,11 @@ These instructions add implementation constraints for coding agents.
 
 - Keep Spotifast a small native Spotify client. Do not add a browser engine,
   telemetry, a hosted backend, or alternate sources for Spotify audio.
-- Playback capabilities come from librespot. Do not advertise or implement a
-  capability merely because its name appears in a protobuf or enum. In
-  particular, do not pursue Spotify Lossless or DRM circumvention unless
-  lawful support first lands upstream.
+- Built-in playback capabilities come from librespot. The explicitly approved
+  optional Soloist integration uses Spotify's own player and documented API.
+  Do not advertise a capability merely because its name appears in a protobuf
+  or enum. Do not bypass DRM or claim a delivered lossless format Soloist does
+  not report.
 - Do not broaden a task into adjacent features or a general refactor. Preserve
   existing user behaviour unless the task explicitly changes it.
 - Do not add a setting without the maintainer's approval in the issue first;
@@ -40,7 +41,7 @@ These instructions add implementation constraints for coding agents.
   fork or source (see Pull requests below):
   `.github/scripts/check-dependency-sources.py` fails CI on one.
 - egui and winit come from forks shared with ZapFast, RekordFlash and TonePush
-  (crmne/egui apps-0.36, crmne/winit apps-0.30); move all their crates to a
+  (crmne/egui apps-0.36.2, crmne/winit apps-0.30); move all their crates to a
   new revision together. On Wayland, eframe from that fork paces frames by
   the compositor's frame callbacks instead of a vsync swap, so a hidden window
   cannot freeze the app (#266). Do not add a vsync decision of our own.
@@ -215,9 +216,8 @@ A release is not the tag alone. Do these in order:
 
 1. Change the `Cargo.toml` version, add the matching release to the Flatpak
    metainfo, and update the lockfile with a build.
-   Refresh the `flake.nix` vendor hash when the lockfile changes, even when
-   only the package version changed. Verify `nix build .#default` locally or
-   in CI. Wait for every required CI job on the release commit before tagging.
+   The Nix package reads the lockfile itself, so it needs no hash. Verify
+   `nix build .#default` locally or in CI. Wait for every required CI job on the release commit before tagging.
    Commit and push this before the tag so the binaries report the right
    version. Include written notes in `packaging/release-notes/vVERSION.md`
    so the release publishes the real description immediately.

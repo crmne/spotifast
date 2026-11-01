@@ -1,4 +1,4 @@
-//! Lyrics for the playing track, from Spotify or LRCLIB.
+//! Lyrics for the playing track, from Spotify, a local file or LRCLIB.
 //!
 //! [LRCLIB](https://lrclib.net) provides plain and LRC-synced lyrics without an
 //! account or key. Spotifast tries Spotify's transcription first when the
@@ -25,6 +25,9 @@ const MAX_DRIFT_SECS: f64 = 30.0;
 /// LRCLIB answers about one request a second and says how long to wait.
 /// A search right after a missed exact lookup often lands in that second.
 const RATE_LIMIT_RETRIES: u32 = 3;
+const SERVICE_RETRIES: u32 = 1;
+const LOOKUP_TIMEOUT: Duration = Duration::from_secs(20);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 /// Any longer and the song may have moved on; the error shows instead,
 /// and a click on it asks again.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(5);
@@ -117,9 +120,24 @@ pub fn store(path: &Path, found: &Option<Lyrics>) {
     write_cache(path, found);
 }
 
+/// A previously found transcription still helps during an outage. An old
+/// negative answer must never turn a failed request into "no lyrics".
+pub fn previously_found(path: &Path) -> Option<Lyrics> {
+    read_cache_contents(path).flatten()
+}
+
 /// Fetches lyrics for `query`, using the disk cache when available.
 pub async fn fetch(
     http: &reqwest::Client,
+    cache_dir: &Path,
+    query: &Query,
+) -> Result<Option<Lyrics>> {
+    fetch_from(http, API, cache_dir, query).await
+}
+
+async fn fetch_from(
+    http: &reqwest::Client,
+    api: &str,
     cache_dir: &Path,
     query: &Query,
 ) -> Result<Option<Lyrics>> {
@@ -127,12 +145,19 @@ pub async fn fetch(
     if let Some(cached) = read_cache(&cache_path) {
         return Ok(cached);
     }
-    let found = lookup(http, query).await?;
+    let result = tokio::time::timeout(LOOKUP_TIMEOUT, lookup(http, api, query))
+        .await
+        .context("lyrics service did not respond in time")
+        .and_then(|result| result);
+    let found = match result {
+        Ok(found) => found,
+        Err(error) => return previously_found(&cache_path).map(Some).ok_or(error),
+    };
     write_cache(&cache_path, &found);
     Ok(found)
 }
 
-async fn lookup(http: &reqwest::Client, query: &Query) -> Result<Option<Lyrics>> {
+async fn lookup(http: &reqwest::Client, api: &str, query: &Query) -> Result<Option<Lyrics>> {
     let title = clean_title(&query.title);
     let artist = clean_artist(&query.artist);
     if title.is_empty() || artist.is_empty() {
@@ -149,13 +174,27 @@ async fn lookup(http: &reqwest::Client, query: &Query) -> Result<Option<Lyrics>>
     if query.duration_ms > 0 {
         exact.push(("duration", duration.as_str()));
     }
-    if let Some(record) = get::<Record>(http, "/get", &exact).await?
-        && let Some(lyrics) = record.lyrics()
-    {
-        return Ok(Some(lyrics));
-    }
-    let candidates = get::<Vec<Record>>(
+    let exact_error = match get_from::<Record>(http, api, "/get", &exact).await {
+        Ok(Some(record)) => {
+            if let Some(lyrics) = record.lyrics() {
+                return Ok(Some(lyrics));
+            }
+            None
+        }
+        Ok(None) => None,
+        Err(error) => {
+            // LRCLIB's exact lookup and search can fail independently. A
+            // transient exact failure is not proof that search has no lyrics.
+            let Some(wait) = search_after(&error) else {
+                return Err(error);
+            };
+            tokio::time::sleep(wait).await;
+            Some(error)
+        }
+    };
+    let candidates = get_from::<Vec<Record>>(
         http,
+        api,
         "/search",
         &[
             ("artist_name", artist.as_str()),
@@ -164,20 +203,58 @@ async fn lookup(http: &reqwest::Client, query: &Query) -> Result<Option<Lyrics>>
     )
     .await?
     .unwrap_or_default();
-    Ok(pick(candidates, query).and_then(|record| record.lyrics()))
+    let found = pick(candidates, query).and_then(|record| record.lyrics());
+    match (found, exact_error) {
+        (None, Some(error)) => Err(error),
+        (found, _) => Ok(found),
+    }
+}
+
+#[derive(Debug)]
+struct RequestFailure {
+    status: reqwest::StatusCode,
+    wait: Duration,
+}
+
+impl std::fmt::Display for RequestFailure {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(out, "LRCLIB answered {}", self.status)
+    }
+}
+
+impl std::error::Error for RequestFailure {}
+
+fn service_busy(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 502..=504)
+}
+
+fn search_after(error: &anyhow::Error) -> Option<Duration> {
+    if let Some(failure) = error.downcast_ref::<RequestFailure>() {
+        return (service_busy(failure.status) && failure.wait <= MAX_RETRY_AFTER)
+            .then_some(failure.wait);
+    }
+    error
+        .downcast_ref::<reqwest::Error>()
+        .filter(|error| error.is_connect() || error.is_timeout())
+        .map(|_| Duration::from_secs(1))
+}
+
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Duration {
+    headers
+        .get(reqwest::header::RETRY_AFTER)
+        .map_or(Duration::from_secs(1), |value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .map_or(Duration::MAX, Duration::from_secs)
+        })
 }
 
 /// One LRCLIB request. A 404 is "nobody has transcribed this" and a 400 is
 /// "that is not a question I can answer"; neither is a fault worth showing.
-/// A 429 waits as long as LRCLIB asks and tries again.
-async fn get<T: DeserializeOwned>(
-    http: &reqwest::Client,
-    path: &str,
-    params: &[(&str, &str)],
-) -> Result<Option<T>> {
-    get_from(http, API, path, params).await
-}
-
+/// Retry short overloads, but stop when the requested wait exceeds our
+/// budget. Never shorten Retry-After, including an unparsed HTTP date.
 async fn get_from<T: DeserializeOwned>(
     http: &reqwest::Client,
     api: &str,
@@ -190,21 +267,22 @@ async fn get_from<T: DeserializeOwned>(
             .get(format!("{api}{path}"))
             .query(params)
             .header("Accept", "application/json")
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await
+            .map_err(reqwest::Error::without_url)
             .context("cannot reach LRCLIB")?;
-        if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS
-            || attempt == RATE_LIMIT_RETRIES
-        {
+        let retries = if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            RATE_LIMIT_RETRIES
+        } else if service_busy(response.status()) {
+            SERVICE_RETRIES
+        } else {
+            0
+        };
+        let wait = retry_after(response.headers());
+        if attempt >= retries || wait > MAX_RETRY_AFTER {
             break response;
         }
-        let wait = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
-            .map_or(Duration::from_secs(1), Duration::from_secs)
-            .min(MAX_RETRY_AFTER);
         attempt += 1;
         tokio::time::sleep(wait).await;
     };
@@ -213,7 +291,11 @@ async fn get_from<T: DeserializeOwned>(
         return Ok(None);
     }
     if !status.is_success() {
-        anyhow::bail!("LRCLIB answered {status}");
+        return Err(RequestFailure {
+            status,
+            wait: retry_after(response.headers()),
+        }
+        .into());
     }
     Ok(Some(
         response
@@ -547,6 +629,34 @@ fn loose_match(left: &str, right: &str) -> bool {
     a == b || a.contains(&b) || b.contains(&a)
 }
 
+/// Lyrics from text a file holds: timed when its lines carry LRC stamps,
+/// plain lines otherwise. `None` for text without words.
+pub fn from_text(text: &str) -> Option<Lyrics> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    let timed = parse_lrc(text);
+    if !timed.is_empty() {
+        return Some(Lyrics {
+            lines: timed,
+            synced: true,
+            instrumental: false,
+        });
+    }
+    Some(Lyrics {
+        lines: text
+            .trim()
+            .lines()
+            .map(|line| Line {
+                at_ms: None,
+                text: line.trim_end().to_string(),
+            })
+            .collect(),
+        synced: false,
+        instrumental: false,
+    })
+}
+
 // ---- LRC ------------------------------------------------------------------
 
 /// Parses `[mm:ss.xx]` lines. A line may open with several stamps when the
@@ -622,6 +732,10 @@ fn read_cache(path: &PathBuf) -> Option<Option<Lyrics>> {
     if modified.elapsed().unwrap_or(CACHE_LIFETIME) >= CACHE_LIFETIME {
         return None;
     }
+    read_cache_contents(path)
+}
+
+fn read_cache_contents(path: &Path) -> Option<Option<Lyrics>> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str::<Cached>(&text)
         .ok()
@@ -644,22 +758,165 @@ mod tests {
     use super::*;
 
     /// A local LRCLIB that gives each request, in turn, one of `answers`.
-    async fn lrclib(answers: Vec<&'static str>) -> (String, tokio::task::JoinHandle<()>) {
+    async fn lrclib(
+        answers: Vec<impl Into<String>>,
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
+        let answers: Vec<String> = answers.into_iter().map(Into::into).collect();
         let server = tokio::spawn(async move {
+            let mut paths = Vec::new();
             for answer in answers {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut bytes = [0u8; 4096];
-                assert!(socket.read(&mut bytes).await.unwrap() > 0);
+                let len = socket.read(&mut bytes).await.unwrap();
+                assert!(len > 0);
+                paths.push(
+                    String::from_utf8_lossy(&bytes[..len])
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap()
+                        .split('?')
+                        .next()
+                        .unwrap()
+                        .to_owned(),
+                );
                 socket.write_all(answer.as_bytes()).await.unwrap();
             }
+            paths
         });
         (format!("http://{address}"), server)
     }
 
     const LIMITED: &str = "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    const UNAVAILABLE: &str = "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+    fn answer(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn outage_query() -> Query {
+        Query {
+            artist: "Artist".into(),
+            title: "Song".into(),
+            album: "Album".into(),
+            duration_ms: 120_000,
+        }
+    }
+
+    #[tokio::test]
+    async fn search_recovers_when_the_exact_lookup_stays_unavailable() {
+        let found = answer(
+            r#"[{"trackName":"Song","artistName":"Artist","duration":120,"syncedLyrics":"[00:01.00] A test line"}]"#,
+        );
+        let (api, server) =
+            lrclib(vec![UNAVAILABLE.to_owned(), UNAVAILABLE.to_owned(), found]).await;
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let lyrics = lookup(&http, &api, &outage_query()).await.unwrap().unwrap();
+        assert!(lyrics.synced);
+        assert_eq!(lyrics.lines[0].text, "A test line");
+        assert_eq!(server.await.unwrap(), ["/get", "/get", "/search"]);
+    }
+
+    #[tokio::test]
+    async fn a_short_503_is_retried_before_search() {
+        let found = answer(r#"{"plainLyrics":"A test line"}"#);
+        let (api, server) = lrclib(vec![UNAVAILABLE.to_owned(), found]).await;
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        assert!(
+            lookup(&http, &api, &outage_query())
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(server.await.unwrap(), ["/get", "/get"]);
+    }
+
+    #[tokio::test]
+    async fn an_empty_search_after_a_failed_exact_lookup_is_not_a_cached_miss() {
+        let (api, server) = lrclib(vec![
+            UNAVAILABLE.to_owned(),
+            UNAVAILABLE.to_owned(),
+            answer("[]"),
+        ])
+        .await;
+        let root =
+            std::env::temp_dir().join(format!("spotifast-lyrics-miss-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        assert!(
+            fetch_from(&http, &api, &root, &outage_query())
+                .await
+                .is_err()
+        );
+        assert!(
+            !root
+                .join(format!("{}.json", cache_key(&outage_query())))
+                .exists()
+        );
+        assert_eq!(server.await.unwrap(), ["/get", "/get", "/search"]);
+    }
+
+    #[tokio::test]
+    async fn outages_keep_old_lyrics_without_renewing_their_cache_or_reusing_old_misses() {
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let root =
+            std::env::temp_dir().join(format!("spotifast-lyrics-stale-{}", std::process::id()));
+        let path = root.join(format!("{}.json", cache_key(&outage_query())));
+        for found in [from_text("[00:01.00] A test line"), None] {
+            write_cache(&path, &found);
+            let stale = std::time::SystemTime::now() - CACHE_LIFETIME - Duration::from_secs(60);
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(stale))
+                .unwrap();
+            assert!(read_cache(&path).is_none());
+            let (api, server) = lrclib(vec![UNAVAILABLE; 4]).await;
+            let result = fetch_from(&http, &api, &root, &outage_query()).await;
+            if found.is_some() {
+                assert_eq!(result.unwrap().unwrap().lines[0].text, "A test line");
+            } else {
+                assert!(result.is_err());
+            }
+            assert!(
+                std::fs::metadata(&path)
+                    .unwrap()
+                    .modified()
+                    .unwrap()
+                    .elapsed()
+                    .unwrap()
+                    > CACHE_LIFETIME
+            );
+            assert_eq!(
+                server.await.unwrap(),
+                ["/get", "/get", "/search", "/search"]
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_long_retry_after_is_not_shortened_or_bypassed_by_search() {
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        for wait in ["60", "Thu, 29 Oct 2099 12:00:00 GMT"] {
+            let response = format!(
+                "HTTP/1.1 503 Service Unavailable\r\nRetry-After: {wait}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            let (api, server) = lrclib(vec![response]).await;
+            let result =
+                tokio::time::timeout(Duration::from_secs(1), lookup(&http, &api, &outage_query()))
+                    .await
+                    .unwrap();
+            assert!(result.unwrap_err().to_string().contains("503"));
+            assert_eq!(server.await.unwrap(), ["/get"]);
+        }
+    }
 
     #[tokio::test]
     async fn a_busy_lrclib_is_asked_again_when_it_says() {

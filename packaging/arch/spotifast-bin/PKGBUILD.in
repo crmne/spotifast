@@ -7,10 +7,10 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/crmne/spotifast"
 license=('MIT')
 install="${pkgname}.install"
-# alsa-lib and libpulse are linked directly; the rest are dlopened by winit
+# alsa-lib and libpipewire are linked directly; the rest are dlopened by winit
 # and glutin at startup, and this is a GUI-only application, so all of them
 # have to be there for it to run at all.
-depends=('dbus' 'alsa-lib' 'libpulse' 'libglvnd' 'libxkbcommon' 'wayland' 'libx11')
+depends=('dbus' 'alsa-lib' 'libpipewire' 'libglvnd' 'libxkbcommon' 'wayland' 'libx11')
 optdepends=('libxkbcommon-x11: keyboard handling in X11 sessions'
             'pipewire-pulse: PipeWire as the PulseAudio server')
 provides=("spotifast=$pkgver")

@@ -1,7 +1,8 @@
 # Contributing to Spotifast
 
 Spotifast is a native Spotify client. Changes should improve the
-desktop app without adding a browser, fallback services, or another backend.
+desktop app without adding a browser or fallback audio services. Playback uses
+Spotify Soloist through guided setup, with librespot as the built-in alternative.
 
 ## Before opening an issue
 
@@ -16,9 +17,9 @@ project.
 Some boundaries come from Spotify or from upstream libraries:
 
 - Local playback requires Spotify Premium because librespot requires it.
-- Spotify Lossless is not available through librespot. Spotifast will
-  reconsider it if librespot gains lawful upstream support; proposals that
-  depend on bypassing Spotify's DRM are out of scope.
+- Spotify Lossless is not available through librespot. The optional Soloist
+  integration uses Spotify's own player. Proposals that depend on bypassing
+  Spotify's DRM are out of scope.
 - Spotify tracks must come from Spotify. Substituting audio from YouTube,
   Piped, `yt-dlp`, or another catalogue is out of scope.
 - Spotifast will not embed a browser engine, add telemetry, or introduce a
@@ -69,7 +70,7 @@ implementation and regression tests live in the Copilot Triage repository.
    are product features. Keep the UI thread free of network and disk waits.
 2. **Focused.** Prefer a complete, coherent workflow over a collection of
    settings, modes, and speculative features.
-3. **Honest integrations.** Use Spotify's Web API and librespot for what they
+3. **Honest integrations.** Use Spotify's Web API, librespot and Soloist for what they
    support. Do not scrape, impersonate capabilities, bypass technical
    protections, or silently replace one service with another.
 4. **Cross-platform by default.** Linux, macOS, and Windows are supported
@@ -82,9 +83,59 @@ implementation and regression tests live in the Copilot Triage repository.
    should be respected, and credentials must never appear in logs. Network
    behaviour belongs in the documentation.
 
+## Settled decisions
+
+These are decided. Issues and pull requests that reopen them are closed with a
+link here.
+
+### Full screen
+
+Full screen is the lyrics view: the cover, the player bar, and the lyrics when
+a song has them. It gets no further buttons, queue toggles, hints or a
+separate full-screen player.
+
+### One look
+
+Spotifast has one appearance, tinted by the album's colours, in light and
+dark. It does not take alternative themes.
+
+### Player bar buttons
+
+The player bar's buttons stay. Buttons that do not fit hide when the window is
+narrow, so there are no settings to hide individual buttons.
+
+### Mini player skins
+
+Skins live in one Mini player section of Settings, where the skin is a Winamp
+skin or, once supported, another kind. Another kind of skin does not get a
+section of its own.
+
+### Local files
+
+Local files play from the folder chosen in Settings. A view to browse them,
+several folders and similar requests wait for a design from the maintainer;
+until then they are collected, not promised.
+
+### Other projects' Spotify apps
+
+Spotifast never signs in with another project's Spotify Client ID. Until
+0.14.2 it used ncspot's, which ncspot's developer had registered for ncspot
+alone on their own Spotify account; they closed it to other apps in October
+2026, as was their right. A Client ID belongs to whoever registered it and
+its quota to their users, so the Web API runs on each person's own app, and a
+pull request that adds someone else's Client ID or redirect path is closed.
+
+### Windowing fixes
+
+Spotifast uses a winit fork shared with other apps, so a fix to how the
+operating system treats the window goes to winit upstream first, and the
+maintainer carries it in the fork. Spotifast does not patch window procedures
+or other native window code itself.
+
 ## Pull requests
 
-Keep each pull request to one change. Explain why it belongs in Spotifast,
+Keep each pull request to one change. Unrelated fixes, even small ones, go in
+separate pull requests. Explain why it belongs in Spotifast,
 what changed, and how you tested it. Avoid unrelated formatting, refactors,
 generated prose, and large mechanical rewrites.
 
@@ -132,6 +183,12 @@ else. CI fails when `docs/assets/` holds a file no page uses, or when an image,
 video or HTML file is named for a review (review, compare, comparison, before,
 after). Only images the project itself uses, such as a figure a documentation
 page shows or an icon the app draws, belong in the repository.
+
+The `screenshots` check fails when a pull request changes interface code
+(`src/ui/`, the theme, the skins, the window) and neither its description nor
+its author's comments hold an image or a recording. Attach the captures and
+re-run it. When such a change shows nothing new, such as a crash fix, the
+maintainer adds the `no-visual-change` label instead.
 
 Use actual before-and-after captures, from demo mode where possible. Match the
 data, page, interaction state, zoom and window size so the difference shows the
@@ -220,8 +277,8 @@ redeploying; the previous hostname keeps working until that switch. Renamed
 guides use `jekyll-redirect-from` to preserve their old URLs.
 
 When changing `Cargo.lock` or `flake.nix`, also verify `nix build .#default`
-on a Nix host or wait for the Nix CI job. A package-version-only lockfile
-change can change the vendor hash. Releases must wait for all required CI
+on a Nix host or wait for the Nix CI job. The package reads `Cargo.lock`
+directly, so a dependency update needs no hash in `flake.nix`. Releases must wait for all required CI
 jobs on the version commit before the tag is pushed.
 
 By contributing, you agree that your contribution is licensed under the

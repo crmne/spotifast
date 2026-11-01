@@ -607,16 +607,93 @@ pub struct PlaylistEdit {
     pub settled_by: Option<u64>,
 }
 
+/// Time range for top tracks affinity rankings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TopPeriod {
+    #[default]
+    ShortTerm,
+    MediumTerm,
+    LongTerm,
+}
+
+impl TopPeriod {
+    pub const ALL: [TopPeriod; 3] = [Self::ShortTerm, Self::MediumTerm, Self::LongTerm];
+
+    pub fn as_spotify(self) -> &'static str {
+        match self {
+            Self::ShortTerm => "short_term",
+            Self::MediumTerm => "medium_term",
+            Self::LongTerm => "long_term",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            Self::ShortTerm => 0,
+            Self::MediumTerm => 1,
+            Self::LongTerm => 2,
+        }
+    }
+
+    pub fn from_index(index: usize) -> Self {
+        match index {
+            1 => Self::MediumTerm,
+            2 => Self::LongTerm,
+            _ => Self::ShortTerm,
+        }
+    }
+
+    pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
+        use crate::i18n::gettext;
+        match self {
+            Self::ShortTerm => gettext(locale, "Last 4 weeks"),
+            Self::MediumTerm => gettext(locale, "Last 6 months"),
+            Self::LongTerm => gettext(locale, "Past year"),
+        }
+    }
+
+    pub fn subtitle(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
+        use crate::i18n::gettext;
+        match self {
+            Self::ShortTerm => gettext(
+                locale,
+                "Calculated from your listening over approximately the last 4 weeks.",
+            ),
+            Self::MediumTerm => gettext(
+                locale,
+                "Calculated from your listening over approximately the last 6 months.",
+            ),
+            Self::LongTerm => gettext(
+                locale,
+                "Calculated from several years of listening history.",
+            ),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct HomeData {
     pub recently_played: Loadable<Vec<PlayHistory>>,
     pub top_artists: Loadable<Vec<Artist>>,
-    /// The 20-track preview shown on Home.
+    /// Active period selected for top songs.
+    pub top_period: TopPeriod,
+    /// Whether the user has chosen a period during this session, preventing
+    /// late cache restoration from overriding their selection.
+    pub top_period_selected: bool,
+    /// The 20-track preview shown on Home for the active period.
     pub top_tracks: Loadable<Vec<Track>>,
-    /// The separately loaded, complete ranking shown by the Top Songs page.
+    /// Cached 20-track previews for each period.
+    pub top_tracks_by_period: [Loadable<Vec<Track>>; 3],
+    /// Generations for each period's Home top tracks requests.
+    pub top_tracks_generations: [u64; 3],
+    /// The separately loaded, complete ranking shown by the Top Songs page for the active period.
     pub top_songs: Loadable<Vec<Track>>,
+    /// Cached complete rankings for each period.
+    pub top_songs_by_period: [Loadable<Vec<Track>>; 3],
     pub top_songs_loading: bool,
     pub top_songs_complete: bool,
+    pub top_songs_by_period_loading: [bool; 3],
+    pub top_songs_by_period_complete: [bool; 3],
     pub recommendations: Loadable<Vec<Track>>,
     pub made_for_you: Loadable<Vec<Playlist>>,
     /// Whether the displayed cards came from the personalized session route.
@@ -645,6 +722,7 @@ pub struct HomeData {
     pub podcasts_generation: u64,
     pub generation: u64,
     pub top_songs_generation: u64,
+    pub top_songs_generations: [u64; 3],
     pub requested: bool,
     pub loaded_at: Option<Instant>,
     /// Answers the current refresh still waits for.
@@ -677,7 +755,14 @@ pub struct HomeSnapshot {
     /// at the next start instead of showing as empty.
     pub recently_played: Option<Vec<PlayHistory>>,
     pub top_artists: Option<Vec<Artist>>,
+    /// Last 4 weeks top tracks preview (retained for backward compatibility).
     pub top_tracks: Option<Vec<Track>>,
+    /// Last 6 months top tracks preview.
+    pub top_tracks_medium: Option<Vec<Track>>,
+    /// Past year top tracks preview.
+    pub top_tracks_long: Option<Vec<Track>>,
+    /// Active period selected for top songs.
+    pub top_period: TopPeriod,
     /// The ordered shelf and its origin, retained across restarts.
     pub made_for_you: Option<Vec<Playlist>>,
     pub made_for_you_personalized: bool,
@@ -793,9 +878,12 @@ pub struct PlaylistPage {
     /// A manual refresh waiting for pending writes and their snapshot to be
     /// confirmed before requesting replacement rows.
     pub refresh_after_write: bool,
-    /// Number of immediate metadata reads made while Spotify still reported
-    /// the pre-write snapshot.
+    /// Number of metadata reads made while Spotify still reported the
+    /// pre-write snapshot.
     pub snapshot_rechecks: u8,
+    /// When to read the metadata again while Spotify still reports the
+    /// pre-write snapshot.
+    pub snapshot_recheck_at: Option<Instant>,
 }
 
 /// A contiguous playlist prefix on disk, valid for exactly one snapshot.
@@ -832,12 +920,18 @@ pub enum DiscographyFilter {
     All,
     Albums,
     Singles,
+    Compilations,
     AppearsOn,
 }
 
 impl DiscographyFilter {
-    pub const ALL: [DiscographyFilter; 4] =
-        [Self::All, Self::Albums, Self::Singles, Self::AppearsOn];
+    pub const ALL: [DiscographyFilter; 5] = [
+        Self::All,
+        Self::Albums,
+        Self::Singles,
+        Self::Compilations,
+        Self::AppearsOn,
+    ];
 
     pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
         use crate::i18n::{gettext, pgettext};
@@ -845,6 +939,7 @@ impl DiscographyFilter {
             Self::All => pgettext(locale, "filter", "All"),
             Self::Albums => gettext(locale, "Albums"),
             Self::Singles => gettext(locale, "Singles & EPs"),
+            Self::Compilations => gettext(locale, "Compilations"),
             Self::AppearsOn => gettext(locale, "Appears On"),
         }
     }
@@ -854,6 +949,7 @@ impl DiscographyFilter {
             Self::All => "album,single,compilation",
             Self::Albums => "album",
             Self::Singles => "single",
+            Self::Compilations => "compilation",
             Self::AppearsOn => "appears_on",
         }
     }
@@ -863,6 +959,10 @@ impl DiscographyFilter {
 pub struct ArtistPage {
     pub artist: Loadable<Artist>,
     pub top_tracks: Loadable<Vec<Track>>,
+    /// The pending or failed read can be retried once the session is ready.
+    pub top_tracks_without_session: bool,
+    /// Identity of the current request, allocated outside the page.
+    pub top_tracks_generation: u64,
     pub albums: HashMap<String, PagedList<Album>>,
     pub related: Loadable<Vec<Artist>>,
     pub filter: DiscographyFilter,
@@ -904,6 +1004,8 @@ pub enum SortColumn {
     Added,
     Duration,
     AddedBy,
+    /// Spotify's play count, where the list shows one.
+    Plays,
     /// The list's own order, for playing it reversed from the # heading.
     Index,
 }
@@ -1197,6 +1299,8 @@ pub enum Action {
     },
     RefreshQueue,
     CopyLink(String),
+    /// Copy plain text, such as a song title or its artists.
+    CopyText(String),
     /// Copy picked songs' links, one per line, and remember the songs so a
     /// paste of the same links can show their rows at once.
     CopySongs(Vec<PlayableItem>),
@@ -1207,6 +1311,8 @@ pub enum Action {
     },
     /// Open a web page in the browser.
     OpenUrl(String),
+    /// Read page metadata after drawing, with the existing per-URI retry guard.
+    RequestPlayCounts(String),
     SetPrereleaseSaved {
         uri: String,
         saved: bool,
@@ -1218,6 +1324,7 @@ pub enum Action {
     EndSearchRun,
     ForgetSearch(String),
     SetSearchFilter(SearchFilter),
+    SetTopPeriod(TopPeriod),
     FocusSearch,
     LoadMore(Page),
     LoadWindow {
@@ -1241,6 +1348,14 @@ pub enum Action {
     /// Add, replace, or remove the optional personal Web API app.
     ConfigurePersonalWebApp,
     OpenPersonalAppSetup,
+    /// The listener closed the "Spotify is being slow" banner.
+    CloseSlowBanner,
+    /// The listener closed the banner saying Spotify refused a song's
+    /// audio key.
+    CloseAudioKeyBanner,
+    /// Opens the device picker, to play on a device that fetches its own
+    /// audio. Unlike [`Action::ToggleDevicesPopup`] it never closes it.
+    PlayOnAnotherDevice,
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,
@@ -1279,6 +1394,11 @@ pub enum Action {
         /// A drag outside the pin block selects this local playlist order.
         playlist_order: Option<Vec<String>>,
     },
+    SetSoloist(bool),
+    RetrySoloist,
+    StartSoloistSetup,
+    FinishSoloistSetup,
+    UseBuiltInPlayer,
     RestartEngine,
     /// Rebuild the HTTP client with the proxy in settings. Local playback
     /// restarts only when its HTTP proxy changed.
@@ -1288,6 +1408,7 @@ pub enum Action {
     ShowWindow,
     HideWindow,
     ClearArtCache,
+    ClearAudioCache,
     /// Clear local play history.
     ClearPlayHistory,
     /// Open or close the Winamp window.

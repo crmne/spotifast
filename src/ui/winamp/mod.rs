@@ -30,6 +30,7 @@ use super::widgets::{SliderEvent, wheel_notches};
 mod equalizer;
 mod pixel_text;
 mod playlist;
+mod wmp;
 
 pub use pixel_text::PixelText;
 
@@ -68,8 +69,12 @@ pub fn window_size(settings: &crate::settings::Settings, unit: f32) -> Vec2 {
 
 /// A first guess at the window's size, before the display's scale is
 /// known; the first frame corrects it.
-pub fn initial_size(settings: &crate::settings::Settings) -> Vec2 {
-    window_size(settings, WinampState::scale(settings, 1.0) as f32)
+pub fn initial_size(settings: &crate::settings::Settings, skin: &Skin) -> Vec2 {
+    let unit = WinampState::scale(settings, 1.0, skin) as f32;
+    match &skin.wmp {
+        Some(wmp) => vec2(wmp.width as f32, wmp.height as f32) * unit,
+        None => window_size(settings, unit),
+    }
 }
 
 /// Skin files dropped on the window this frame.
@@ -88,12 +93,11 @@ pub fn dropped_skins(ctx: &egui::Context) -> Vec<PathBuf> {
 /// Logical points per skin pixel: a whole number of screen pixels.
 fn unit(app: &App, ctx: &egui::Context) -> f32 {
     let pixels_per_point = ctx.pixels_per_point();
-    WinampState::scale(&app.settings, pixels_per_point) as f32 / pixels_per_point
+    WinampState::scale(&app.settings, pixels_per_point, &app.winamp.skin) as f32 / pixels_per_point
 }
 
 /// Fits the window to the skin after the display scale is known.
-fn fit_window(ctx: &egui::Context, settings: &crate::settings::Settings, unit: f32) {
-    let wanted = window_size(settings, unit);
+fn fit_window(ctx: &egui::Context, wanted: Vec2) {
     // Not `inner_rect`: Wayland reports no window positions, so that is
     // `None` there; the screen rect is the window's size on every desktop.
     let current = ctx.viewport_rect().size();
@@ -335,8 +339,12 @@ impl View<'_> {
 /// The whole window, drawn into the root.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
+    if app.winamp.skin.wmp.is_some() {
+        wmp::show(app, ui);
+        return;
+    }
     let unit = unit(app, &ctx);
-    fit_window(&ctx, &app.settings, unit);
+    fit_window(&ctx, window_size(&app.settings, unit));
     let origin = ui.max_rect().min;
     let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
     super::keys::handle(app, &ctx);
@@ -363,8 +371,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         mask,
     };
     let vis_moving = if shaded {
-        shade_bar(app, &mut view, &ctx, focused, now.as_ref());
-        false
+        shade_bar(app, &mut view, &ctx, focused, now.as_ref())
     } else {
         full_window(app, &mut view, &ctx, focused, now.as_ref(), time)
     };
@@ -433,7 +440,7 @@ fn full_window(
     clutter_bar(app, view, now);
     status(app, view, now);
     time_display(app, view, now, time);
-    let vis_moving = visualiser(app, view, now);
+    let vis_moving = visualiser(app, view, now, layout::VISUALIZER);
     marquee(app, view, now);
     rates(app, view, now);
     sliders(app, view, now);
@@ -455,14 +462,15 @@ fn full_window(
 }
 
 /// The main window rolled up: the bar with the time in the small font,
-/// a little transport, and a little seek bar, as Winamp's shade mode had.
+/// a little visualiser, transport and seek bar. Returns whether the
+/// visualiser is still moving, just as the full window does.
 fn shade_bar(
     app: &mut App,
     view: &mut View,
     ctx: &egui::Context,
     focused: bool,
     now: Option<&NowPlaying>,
-) {
+) -> bool {
     let bar = if focused {
         sprites::SHADE_BAR_ACTIVE
     } else {
@@ -567,6 +575,8 @@ fn shade_bar(
         view.text(&text, layout::SHADE_TIME);
     }
 
+    let vis_moving = visualiser(app, view, now, layout::SHADE_VISUALIZER);
+
     // The little transport: painted into the bar, so these only listen.
     let mini: [(&str, Area); 6] = [
         ("previous", layout::SHADE_PREVIOUS),
@@ -604,7 +614,7 @@ fn shade_bar(
     // The little seek bar.
     view.sprite(sprites::SHADE_POSITION_TRACK, layout::SHADE_POSITION);
     let Some(now) = now.filter(|now| now.duration_ms > 0 && !stopped(Some(now))) else {
-        return;
+        return vis_moving;
     };
     let (response, event) = view.slider(layout::SHADE_POSITION, "shade-position", 3);
     match event {
@@ -631,6 +641,7 @@ fn shade_bar(
         layout::SHADE_POSITION.x + (fraction * travel as f32).round() as u32,
         layout::SHADE_POSITION.y,
     );
+    vis_moving
 }
 
 fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool) {
@@ -714,7 +725,7 @@ fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
     let locale = app.locale;
     let font = menu_font(unit);
     ui.set_min_width(font * 11.0);
-    let scale = WinampState::scale(&app.settings, ui.ctx().pixels_per_point());
+    let scale = WinampState::scale(&app.settings, ui.ctx().pixels_per_point(), &app.winamp.skin);
     ui.horizontal(|ui| {
         ui.label(gettext(locale, "Size").as_ref());
         for candidate in 1..=MAX_SCALE {
@@ -905,9 +916,13 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         }
         app.actions.push(Action::ToggleWinampWindow);
     }
-    // D goes round the sizes worth having on today's displays, 2x to 4x;
-    // 1x is in the menu for whoever wants it.
-    let scale = WinampState::scale(&app.settings, view.ui.ctx().pixels_per_point());
+    // D goes round every size, 1x to 4x: 1x is the skin pixel for pixel
+    // on a display without scaling.
+    let scale = WinampState::scale(
+        &app.settings,
+        view.ui.ctx().pixels_per_point(),
+        &app.winamp.skin,
+    );
     if view
         .lamp_button(
             layout::CLUTTER_D,
@@ -915,14 +930,10 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
             scale >= 2,
             "clutter-d",
         )
-        .on_hover_text(gettext(app.locale, "Size: 2x, 3x, 4x").as_ref())
+        .on_hover_text(gettext(app.locale, "Size: 1x, 2x, 3x, 4x").as_ref())
         .clicked()
     {
-        let next = if scale >= MAX_SCALE {
-            2
-        } else {
-            scale.max(1) + 1
-        };
+        let next = if scale >= MAX_SCALE { 1 } else { scale + 1 };
         app.actions.push(Action::SetSkinScale(next as u8));
     }
     // V opened Winamp's visualisation menu; this one has the display's
@@ -962,12 +973,11 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     });
 }
 
-/// The display's left box: the spectrum analyser, the oscilloscope, or
-/// nothing, in the skin's own colours. A click, or V, goes to the next.
+/// The full or rolled-up display: the spectrum analyser, the oscilloscope,
+/// or nothing, in the skin's own colours. A click goes to the next.
 /// Only sound from this computer passes the tap; a device across the room
 /// leaves the bars flat. Returns whether anything is still moving.
-fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool {
-    let area = layout::VISUALIZER;
+fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>, area: Area) -> bool {
     if view.interact(area, "visualiser", Sense::click()).clicked() {
         app.actions.push(Action::CycleVisualiser);
     }
@@ -979,55 +989,67 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
     let color =
         |index: usize| Color32::from_rgb(palette[index][0], palette[index][1], palette[index][2]);
     view.fill(area.x, area.y, area.width, area.height, color(0));
-    for y in (0..area.height).step_by(2) {
-        for x in (0..area.width).step_by(2) {
-            view.fill(area.x + x, area.y + y, 1, 1, color(1));
+    let compact = area == layout::SHADE_VISUALIZER;
+    if !compact {
+        for y in (0..area.height).step_by(2) {
+            for x in (0..area.width).step_by(2) {
+                view.fill(area.x + x, area.y + y, 1, 1, color(1));
+            }
         }
     }
-    let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
+    let row_at = |row: u8| u32::from(row) * area.height / u32::from(vis::ROWS);
+    let sounding = app.visualizer_sounding(now);
     match mode {
         VisMode::Bars => {
             let samples = if sounding {
-                app.winamp.tap.window(vis::FFT_SAMPLES, vis::LAG)
+                app.winamp
+                    .tap
+                    .window(vis::FFT_SAMPLES, app.visualizer_lag())
             } else {
                 vec![0.0; vis::FFT_SAMPLES]
             };
             let bars = app.winamp.analyser.step(&samples, Instant::now());
+            let stride = area.width / vis::BARS as u32;
             for (index, bar) in bars.iter().enumerate() {
-                let x = area.x + 4 * index as u32;
-                for row in (vis::ROWS - bar.height)..vis::ROWS {
-                    view.fill(
-                        x,
-                        area.y + u32::from(row),
-                        3,
-                        1,
-                        color(2 + usize::from(row)),
-                    );
+                let x = area.x + stride * index as u32;
+                for row in row_at(vis::ROWS - bar.height)..area.height {
+                    let shade = if compact {
+                        // Sample the skin's gradient across the five rows.
+                        [4, 8, 11, 14, 17][row as usize]
+                    } else {
+                        2 + row as usize
+                    };
+                    view.fill(x, area.y + row, stride - 1, 1, color(shade));
                 }
                 if let Some(peak) = bar.peak {
-                    let row = vis::ROWS - peak;
-                    view.fill(x, area.y + u32::from(row), 3, 1, color(23));
+                    let row = row_at(vis::ROWS - peak);
+                    view.fill(x, area.y + row, stride - 1, 1, color(23));
                 }
             }
             sounding || !app.winamp.analyser.settled()
         }
         VisMode::Scope => {
             let samples = if sounding {
-                app.winamp.tap.window(vis::SCOPE_SAMPLES, vis::LAG)
+                app.winamp
+                    .tap
+                    .window(vis::SCOPE_SAMPLES, app.visualizer_lag())
             } else {
                 vec![0.0; vis::SCOPE_SAMPLES]
             };
             let rows = vis::scope(&samples);
-            let mut last = rows[0];
-            for (x, &y) in rows.iter().enumerate() {
+            let columns = area.width.min(vis::COLUMNS as u32);
+            let mut last = row_at(rows[0]);
+            for x in 0..columns {
+                let source = rows[(x * vis::COLUMNS as u32 / columns) as usize];
+                let y = row_at(source);
                 let (mut top, mut bottom) = (y, last);
                 if bottom < top {
                     (top, bottom) = (bottom + 1, top);
                 }
                 last = y;
-                let shade = color(18 + vis::scope_shade(y));
+                let shade = color(18 + if compact { 0 } else { vis::scope_shade(source) });
                 for row in top..=bottom {
-                    view.fill(area.x + x as u32, area.y + u32::from(row), 1, 1, shade);
+                    view.fill(area.x + x, area.y + row, 1, 1, shade);
                 }
             }
             sounding
@@ -1347,10 +1369,8 @@ fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     match event {
         SliderEvent::Dragging(value) => {
             app.volume_preview = Some(value);
-            if now.is_none_or(|now| now.local) {
-                app.actions
-                    .push(Action::PreviewVolume((value * 100.0).round() as u8));
-            }
+            app.actions
+                .push(Action::PreviewVolume((value * 100.0).round() as u8));
         }
         SliderEvent::Committed(value) => {
             app.volume_preview = None;
@@ -1725,15 +1745,16 @@ mod tests {
 
     #[test]
     fn the_first_size_is_a_whole_multiple_of_the_skin() {
+        let skin = Skin::builtin();
         let mut settings = crate::settings::Settings::default();
-        assert_eq!(initial_size(&settings), vec2(550.0, 232.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(550.0, 232.0));
         settings.skin_scale = Some(1);
-        assert_eq!(initial_size(&settings), vec2(275.0, 116.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(275.0, 116.0));
         settings.playlist_open = true;
-        assert_eq!(initial_size(&settings), vec2(275.0, 290.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(275.0, 290.0));
         settings.eq_open = true;
-        assert_eq!(initial_size(&settings), vec2(275.0, 406.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(275.0, 406.0));
         settings.eq_shaded = true;
-        assert_eq!(initial_size(&settings), vec2(275.0, 304.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(275.0, 304.0));
     }
 }

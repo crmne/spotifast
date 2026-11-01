@@ -14,6 +14,16 @@ labels:
   out-of-scope: The exact request conflicts with a documented product boundary.
   question: One specific missing technical fact prevents investigation.
   wontfix: The exact request is explicitly ruled out by repository documentation.
+pull_requests:
+  visual_paths:
+    - src/ui/**
+    - src/theme.rs
+    - src/appearance.rs
+    - src/skin/**
+    - src/winamp.rs
+    - src/vis.rs
+    - src/window.rs
+    - src/window/**
 sources:
 - README.md
 - CONTRIBUTING.md
@@ -56,9 +66,11 @@ instructions: |
   plans, headings, and em dashes.
 
   For Spotify capabilities, select docs/_reference/what-spotify-allows.md. For
-  Web API slowness or throttling, select docs/_guide/make-it-even-faster.md. A
-  personal Client ID provides a separate quota, not caching; it does not fix a
-  librespot session or audio-key refusal. Do not dismiss a valid caching
+  Web API slowness or throttling, select docs/_guide/make-it-even-faster.md.
+  Since 0.14.2 every person signs in with their own Spotify app; there is no
+  shared app to fall back to. Users still on the old shared sign-in can switch
+  in Settings. Their own app gives a separate quota, not caching; it does not
+  fix a librespot session or audio-key refusal. Do not dismiss a valid caching
   request or repeat setup advice already tried. Local playback needs Premium.
   No alternate audio sources, DRM bypass, embedded browser, telemetry, or
   hosted Spotifast service. Use wontfix only for an exactly documented
@@ -99,9 +111,36 @@ instructions: |
   one: new settings need the maintainer's review and the default answer is
   no, so leave the decision to the maintainer.
 
+  CONTRIBUTING.md "Settled decisions" lists closed questions; cite its
+  section instead of leaving them to the maintainer. A pull request or issue
+  that adds buttons, a queue, hints or a separate player to full screen is out
+  of scope (CONTRIBUTING.md#full-screen). Alternative themes or opt-in looks
+  are out of scope (#one-look). A setting that only hides a player bar button
+  is out of scope (#player-bar-buttons). A new kind of mini player skin goes in
+  the one Mini player section, never a section of its own
+  (#mini-player-skins). Requests to browse local files or add folders are
+  collected for the maintainer's design; link the related issues and promise
+  nothing (#local-files). A pull request that patches native window code goes
+  to winit upstream first (#windowing). A pull request that signs in with
+  another project's Spotify Client ID or redirect path is closed
+  (#other-projects-spotify-apps). Before welcoming a feature pull
+  request, check the guides for the feature: the queue's "Playing from" line
+  already opens the page that is playing.
+
+  The maintainer waives visual evidence for an interface change that shows
+  nothing new with the no-visual-change label; name it in next_step.
+
+  "Spotify refused the audio key" reports: link #283 and
+  https://spotifast.rocks/troubleshooting/#audio-key. Rate limits and
+  slowness: link https://spotifast.rocks/troubleshooting/#rate-limits.
+  "redirect_uri: Not matching configuration" or other sign-in failures: link
+  https://spotifast.rocks/troubleshooting/#sign-in and #1057; on 0.14.1 or
+  older, the fix is updating to 0.14.2. Do not open a new investigation for
+  any of these.
+
   For opening Spotify links, login setup, and proxies, select
   docs/_guide/getting-started.md. Distinguish released features from support
-  documented only on main; do not imply development features are in 0.8.0.
+  documented only on main; do not imply that features only on main are in the latest release.
 
   Address the latest human update and account for checks already tried. Do not
   repeat an answered question or a completed diagnostic step. If a bot replied

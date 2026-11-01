@@ -1,0 +1,25 @@
+SPOTIFAST SOLOIST PREVIEW
+
+A test build, before release. Keep your usual Spotifast app installed.
+
+Mac: quit Spotifast, then open Spotifast Preview. It uses your saved setup.
+Allow System Audio Recording when macOS asks. Start a song through Soloist;
+the equalizer, spectrum, oscilloscope and MilkDrop become available once
+Spotifast receives its audio. Requires macOS 14.2 or newer.
+
+Windows: open spotifast.exe in this folder. This portable copy keeps its own
+settings in spotifast-data and copies your installed app's setup the first
+time. Start a song through Soloist to enable the visualizers and MilkDrop.
+Soloist EQ is not available on Windows. This preview executable is unsigned.
+
+Mac: once capture is ready, Soloist's source is set to 100%. Spotifast's
+slider controls the redirected output, so visuals keep moving even at zero.
+Phone volume changes adjust this output level, then Spotify's indicator
+returns to 100%. Use Spotifast's slider for predictable volume control.
+Before capture is ready, including briefly after reconnecting, Soloist uses
+its ordinary output and source volume.
+
+Windows: capture follows Soloist's volume, including mute.
+Only Spotifast's own player is captured; no audio is saved.
+A Mac output-device or format change currently requires reconnecting Soloist.
+Use Settings to turn Soloist off and return to the built-in player.

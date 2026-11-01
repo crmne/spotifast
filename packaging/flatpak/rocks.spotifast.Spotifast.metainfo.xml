@@ -50,6 +50,21 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.16.0" date="2026-11-01">
+      <url>https://github.com/crmne/spotifast/releases/tag/v0.16.0</url>
+    </release>
+    <release version="0.15.0" date="2026-10-31">
+      <url>https://github.com/crmne/spotifast/releases/tag/v0.15.0</url>
+    </release>
+    <release version="0.14.2" date="2026-10-26">
+      <url>https://github.com/crmne/spotifast/releases/tag/v0.14.2</url>
+    </release>
+    <release version="0.14.1" date="2026-10-20">
+      <url>https://github.com/crmne/spotifast/releases/tag/v0.14.1</url>
+    </release>
+    <release version="0.14.0" date="2026-10-20">
+      <url>https://github.com/crmne/spotifast/releases/tag/v0.14.0</url>
+    </release>
     <release version="0.13.3" date="2026-10-15">
       <url>https://github.com/crmne/spotifast/releases/tag/v0.13.3</url>
     </release>

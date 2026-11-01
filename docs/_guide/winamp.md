@@ -28,11 +28,38 @@ into one folder.
 
 Right-click the title bar, or click **O**, to choose a size from 1x to 4x.
 Each size keeps the classic pixels sharp. The same menu can keep the player
-above other windows. **D** toggles double size and **A** toggles always-on-top.
+above other windows. **D** steps through the sizes, 1x to 4x, and **A**
+toggles always-on-top.
 Spotifast remembers the window position where your desktop allows it.
 
 Skins can have transparent areas and shapes other than rectangles. Modern
 Winamp 3 and 5 skin formats are not supported; choose classic Winamp 2 skins.
+
+## Windows Media Player skins
+
+The mini player also wears Windows Media Player skins. Drop a `.wmz` file (or
+an unpacked skin folder with a `.wms` file in it) on either window, exactly as
+with a Winamp skin, and pick it in Settings.
+
+Spotifast draws the skin's pictures, buttons, seek and volume sliders, and
+text showing the song, its artist, and the time. Where a skin has a
+visualisation window, the same bars or sound wave as the Winamp display play
+there (click it to change them). Buttons are recognised by their name or
+script (play, pause, stop, next, previous, mute, shuffle, repeat, minimize,
+close). Close takes you back to the big window.
+
+It does not run a skin's scripts, so panels a script opens (drawers for the
+equalizer or playlist), video, and layouts that stretch with the window do not
+work; skins that depend on them may look incomplete. A Windows Media Player
+skin is drawn at one pixel per screen pixel unless you choose a size, either
+in Settings under **Mini player** or from the right-click menu. Both kinds of
+skin share that one size. Drag anywhere that is not a control to move the
+window, and press **Ctrl+M** (**Cmd+Shift+M** on macOS) to go back to the big
+window, since these skins have no logo to click.
+
+In Settings, the **Mini player** section lists Winamp skins and Windows Media
+Player skins under their own titles. A `.zip` file is listed under the kind of
+skin it holds.
 
 ## Main controls
 
@@ -49,8 +76,10 @@ Click the time to switch between elapsed and remaining time. The balance and
 MONO/STEREO controls affect playback on this computer. Quit from the
 right-click menu or with Ctrl+Q.
 
-The shade button, or a double-click on the title bar, rolls the player up. The
-playlist and equalizer have their own shade buttons.
+The shade button, or a double-click on the title bar, rolls the player up. Its
+tiny spectrum analyser or oscilloscope keeps moving in the collapsed bar;
+click the display to cycle through bars, waveform and off, just like the full
+player. The playlist and equalizer have their own shade buttons.
 
 Switching to the main window and back keeps the shade modes and restores the
 mini player's own position. It does not inherit the main window's fullscreen
@@ -78,6 +107,8 @@ drag the lower-right corner to resize the window. Use X or **PL** to close it.
   this computer is playing. Songs from the playing album or playlist stay.
 
 Notices from the main window scroll through the mini player's text display.
+The skin's capital-letter font folds accented Latin letters, including Turkish
+letters, to its available shapes. Other scripts use a fallback font.
 
 ## Equalizer
 

@@ -1,0 +1,27 @@
+name: Review media
+
+# Runs on the base branch's copy of the script and reads the pull request
+# through the API, so it never checks out or runs the contributor's code.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: review-media-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Interface changes show captures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/check-review-media.py --repo "$GITHUB_REPOSITORY" --pr "${{ github.event.pull_request.number }}"

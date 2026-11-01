@@ -1,0 +1,79 @@
+name: Soloist preview
+
+# Audition builds only. No release, tag, package feed or website is changed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Preview (${{ matrix.os }})
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    env:
+      CMAKE_GENERATOR: Ninja
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: GLEW for MilkDrop
+        if: runner.os == 'Windows'
+        run: vcpkg install glew:x64-windows-static
+      - name: MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Mark the audition build
+        shell: python
+        run: |
+          import os, pathlib, re
+          manifest = pathlib.Path('Cargo.toml')
+          text = manifest.read_text()
+          base = re.search(r'^version = "([^"]+)"', text, re.M).group(1)
+          major, minor, patch = map(int, base.split('-')[0].split('.'))
+          version = f'{major}.{minor}.{patch + 1}-soloist.' + os.environ['GITHUB_RUN_NUMBER']
+          manifest.write_text(text.replace('version = "' + base + '"', 'version = "' + version + '"', 1))
+          lock = pathlib.Path('Cargo.lock')
+          lock.write_text(lock.read_text().replace('name = "spotifast"\nversion = "' + base + '"', 'name = "spotifast"\nversion = "' + version + '"', 1))
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write('PREVIEW_VERSION=' + version + '\n')
+      - name: Build with native Soloist audio and MilkDrop
+        run: cargo build --locked --release --features soloist-preview
+      - name: Verify Windows runtime and package portable preview
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binary = 'target\release\spotifast.exe'
+          $imports = & dumpbin /dependents $binary | Out-String
+          if ($imports -match 'MSVCP[0-9_]*\.dll|VCRUNTIME[0-9_]*\.dll') { throw 'Preview must have a static runtime' }
+          & $binary --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force 'dist\Spotifast Preview' | Out-Null
+          Copy-Item $binary, README.md, LICENSE, packaging\spotifast-portable.txt 'dist\Spotifast Preview'
+          Copy-Item packaging\soloist-preview.txt 'dist\Spotifast Preview\READ ME.txt'
+          Compress-Archive 'dist\Spotifast Preview' 'dist\Spotifast-Preview-Windows.zip'
+      - name: Package, sign and notarize Mac preview
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: bash packaging/macos/soloist-preview.sh
+      - name: Upload audition build
+        uses: actions/upload-artifact@v7
+        with:
+          name: soloist-preview-${{ runner.os }}
+          path: dist/Spotifast-Preview-*.zip
+          if-no-files-found: error
+          retention-days: 14

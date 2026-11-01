@@ -57,7 +57,7 @@
             ++ lib.optionals stdenv.hostPlatform.isLinux [
               dbus
               alsa-lib
-              libpulseaudio
+              pipewire
               libxkbcommon
               wayland
               libGL
@@ -114,17 +114,16 @@
               version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
               src = self;
 
-              # The lock file contains git dependencies. fetchCargoVendor includes
-              # them in the fixed-output dependency tree, unlike cargoLock alone.
-              cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-                pname = "spotifast";
-                version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
-                src = self;
-                hash = "sha256-Zl7eufVaXpmWUMnZOGZXN4eZJaN/BLFifWvgIBBkhBY=";
+              # Read straight from the lock file, so a dependency update needs
+              # no vendor hash. Git dependencies are fetched by their pinned
+              # commit, which needs no hash either.
+              cargoLock = {
+                lockFile = ./Cargo.lock;
+                allowBuiltinFetchGit = true;
               };
               # projectm-sys only searches lib, while CMake may otherwise install to lib64.
               postPatch = ''
-                substituteInPlace "$cargoDepsCopy"/source-git-*/projectm-sys-*/build.rs \
+                substituteInPlace "$cargoDepsCopy"/projectm-sys-*/build.rs \
                   --replace-fail \
                   '.define("BUILD_SHARED_LIBS", build_shared_libs)' \
                   '.define("CMAKE_INSTALL_LIBDIR", "lib").define("BUILD_SHARED_LIBS", build_shared_libs)'
@@ -147,12 +146,15 @@
               # The command-alias regression starts its own bus, isolated from
               # the listener's desktop and running application.
               nativeCheckInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
+              # It starts an orphan process from a copied binary, which never
+              # comes up in the build sandbox. CI runs it outside Nix.
+              checkFlags = [ "--skip=soloist::tests::reclaims_a_leftover_soloist_from_this_installation" ];
               buildInputs =
                 pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (
                   with pkgs;
                   [
                     alsa-lib
-                    libpulseaudio
+                    pipewire
                     # libprojectM links OpenGL directly and its GL loader needs
                     # X11 headers while it is built.
                     libGL

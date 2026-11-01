@@ -93,6 +93,12 @@ impl Controller {
         }
     }
 
+    /// Notes a device the Web API refused as restricted without having
+    /// reported it as such.
+    pub fn mark_restricted(&self, device_id: &str) {
+        self.known().restricted.insert(device_id.to_string());
+    }
+
     /// Updates the active restricted device, ignoring older playback polls.
     pub fn observe_playing(&self, seq: u64, device: Option<&Device>) {
         let mut known = self.known();
@@ -167,7 +173,7 @@ pub fn command_body(
             "repeating_track": repeat == "track",
         }),
         // Volume has its own endpoint, see `set_volume`.
-        RemoteAction::Volume => return None,
+        RemoteAction::Volume { .. } => return None,
     };
     Some(json!({ "command": command }))
 }
@@ -380,7 +386,18 @@ mod tests {
     fn play_without_a_request_resumes() {
         let body = command_body(RemoteAction::Play, None, 0, false, "").unwrap();
         assert_eq!(body["command"]["endpoint"], "resume");
-        assert!(command_body(RemoteAction::Volume, None, 0, false, "").is_none());
+        assert!(command_body(RemoteAction::Volume { request: 1 }, None, 0, false, "").is_none());
+    }
+
+    #[test]
+    fn a_device_the_web_api_refused_takes_the_connect_route() {
+        let controller = Controller::default();
+        assert_eq!(controller.restricted_target(Some("move")), None);
+        controller.mark_restricted("move");
+        assert_eq!(
+            controller.restricted_target(Some("move")).as_deref(),
+            Some("move")
+        );
     }
 
     #[test]

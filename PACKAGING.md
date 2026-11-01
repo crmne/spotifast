@@ -30,7 +30,7 @@ Linux desktop assets beside its binaries and packages the signed macOS
 desktop hooks.
 
 ```sh
-gem install native-packages --version 0.10.0
+gem install native-packages --version 0.11.0
 native-packages validate
 native-packages doctor --target linux-amd64 --target linux-arm64
 native-packages build --release v1.2.3 --target linux-amd64 --target linux-arm64
@@ -103,7 +103,7 @@ Homebrew automation needs `PUBLISH_HOMEBREW=true` and
 The macOS and Windows targets and the Flatpak build step remain responsible
 for their native artifacts. Additional nFPM formats require suitable platform
 inputs and dependencies; adding a format does not port the application.
-See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.10.0)
+See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.11.0)
 for commands and supported formats.
 
 The manual **Flatpak from release** workflow can rebuild a missing Flatpak from
@@ -144,7 +144,7 @@ secrets, which the job exposes as environment variables:
 A complete set enables notarization automatically. An incomplete set fails;
 no values retain local builds without Developer ID signing. Application inputs
 and the user's normal keychains remain unchanged. See the shared
-[Apple setup and phase contract](https://github.com/crmne/native-packages/blob/v0.10.0/docs/apple-notarization.md).
+[Apple setup and phase contract](https://github.com/crmne/native-packages/blob/v0.11.0/docs/apple-notarization.md).
 
 After preparing `dist/macos-input` on a Mac, test packaging without publishing:
 
@@ -156,23 +156,67 @@ native-packages build \
 Secret configuration applies to future builds. Existing published DMGs retain
 their original signatures; this setup does not replace release assets.
 
+## Windows signing
+
+Tag releases sign `spotifast.exe` and the MSI with Azure Artifact Signing, as
+**PlentyLabs UG (haftungsbeschränkt) & Co. KG**, through native-packages:
+`windows.signing` in `native-packages.yaml` turns it on,
+`native-packages sign-windows` signs `spotifast.exe` before the zip and the MSI
+pack it, and `native-packages build` signs the MSI before recording its
+checksum. Each
+signature is SHA-256 Authenticode with Microsoft's RFC 3161 timestamp,
+checked to be `Valid` and PlentyLabs' before the Windows job uploads the
+release's Windows downloads (see native-packages'
+[Windows code signing](https://github.com/crmne/native-packages/blob/v0.11.0/docs/_guides/windows-signing.md)).
+The account, `plentylabs` in West Europe, is shared by Carmine's Windows apps
+and managed in `crmne/terraform` (`azure/signing.tf`, its README's "Code
+signing").
+
+Azure Artifact Signing doesn't run on Arm runners, so the arm64 binary is
+built, checked and started on `windows-11-arm` as before, then handed to the
+release workflow's `windows` job on x64, which signs and packages both
+architectures and replaces the binary's artifact with the packages.
+
+No secret is involved. The `windows` jobs run in this repository's
+`windows-signing` environment, which deploys only from `v*` tags, and sign in
+through GitHub's OIDC token as the Entra app `GitHub spotifast Windows signing`.
+That app trusts only `repo:crmne@106617/spotifast@1348483831:environment:windows-signing` (GitHub's immutable subject, with the owner's and repository's ids) and holds
+the "Artifact Signing Certificate Profile Signer" role on the account. The
+environment's variables, none of them secret, are `AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_SIGNING_ENDPOINT`,
+`AZURE_SIGNING_ACCOUNT` and `AZURE_SIGNING_PROFILE`.
+
+`AZURE_SIGNING_PROFILE` names the Public Trust certificate profile
+`plentylabs`, created once PlentyLabs' identity validation completed
+(2026-10-26), so every tag release signs. Without the environment's signing
+variables releases build unsigned; with only some of them, the Windows build
+fails rather than ship unsigned.
+
+A signature doesn't silence SmartScreen at once: reputation builds as people
+download releases signed by the same publisher, so keep signing every release
+with this identity.
+
 ## Windows Installer package
 
-Each Windows release job builds the Inno Setup program
-(`packaging/windows/spotifast.iss`) and the Windows Installer package from the
-same binary. The package comes from `packaging/windows/spotifast.wxs` (WiX
+The release workflow's `windows` job, on x64 for both architectures, signs the
+binary each Windows build job checked and builds the Windows Installer package
+from it; releases up to 0.14.2 also shipped an Inno Setup program
+(`-setup.exe`, `packaging/windows/spotifast.iss`). The package comes from `packaging/windows/spotifast.wxs` (WiX
 Toolset 5): native-packages selects `windows-amd64` or `windows-arm64` with
 `--defer-recipes` and runs `packaging/windows/build-msi.py`. That script
 compiles the package's custom actions (`running-copy.c`,
-`update-leftovers.c`) with the job's MSVC tools, refuses an executable whose
+`update-leftovers.c`) with the job's MSVC tools (cross-compiled for arm64), refuses an executable whose
 version resource does not carry the release version, and runs WiX with
 `-pdbtype none`, so the package is the only output.
 
-Windows installs move to the package over two releases. The next release
-ships both `-setup.exe` and `.msi`: earlier versions only know the setup
-program and update through it, and that release's updater prefers the package.
-Later releases can drop the setup program, `spotifast.iss` and
-`test-uninstall.py`.
+Windows installs moved to the package while 0.13.0 to 0.14.2 shipped both
+`-setup.exe` and `.msi`: those versions' updater prefers the package. Releases
+after 0.14.2 ship only the package. 0.12.x and earlier look only for a
+`-setup.exe`, so they no longer find updates; their users run the `.msi` once
+(the download page says so), and it takes over their install.
+`spotifast.iss` stays so `test-msi.py` can make a setup program install to
+take over; `test-uninstall.py` and CI's Inno syntax check can go when nobody
+needs them.
 
 The updater (fastframe-update) runs `msiexec /i PACKAGE /qn /norestart /l*v LOG
 INSTALLFOLDER="<the app's folder>"` and accepts exit codes 0 and 3010. The package:

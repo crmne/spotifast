@@ -1,6 +1,7 @@
 //! Playlist, album, and Liked Songs pages: a hero, actions, and a track table.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui::{Align, Layout, Rect, Sense, Vec2, pos2, vec2};
@@ -10,7 +11,7 @@ use crate::app::App;
 use crate::i18n::{Locale, gettext, ngettext};
 use crate::model::{
     Action, Dialog, DragTrack, Loadable, Page, PagedList, RowContext, RowPick, SortColumn,
-    TableItem, TableRowsCache, TableSort,
+    TableItem, TableRowsCache, TableSort, TopPeriod,
 };
 use crate::theme::{self, Icon, Palette};
 use crate::util;
@@ -28,8 +29,11 @@ pub(super) struct Hero<'a> {
     pub liked: bool,
     pub kind: Cow<'a, str>,
     pub title: &'a str,
+    /// Spotify's description, HTML whose links stay clickable.
     pub description: Option<String>,
     pub byline: Vec<(String, Option<Page>)>,
+    /// A tooltip for the byline entry at an index
+    pub byline_tooltip: Option<(usize, String)>,
     /// The owner's picture, drawn before the byline's first entry. A hero
     /// without an owner, an album or an artist say, draws nothing.
     pub avatar: Option<Avatar>,
@@ -176,12 +180,7 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             if let Some(description) = &hero.description
                 && !description.is_empty()
             {
-                theme::text(
-                    ui,
-                    description.as_str(),
-                    theme::regular(13.5),
-                    palette.secondary,
-                );
+                hero_description(app, ui, &palette, description);
             }
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
@@ -206,22 +205,101 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
                     if index > 0 {
                         theme::text(ui, "•", theme::regular(13.5), palette.secondary);
                     }
-                    match page {
+                    let response = match page {
                         Some(page) => {
-                            if theme::link(ui, text, theme::semibold(13.5), palette.text).clicked()
-                            {
+                            let response =
+                                theme::link(ui, text, theme::semibold(13.5), palette.text);
+                            if response.clicked() {
                                 app.actions.push(Action::Open(page.clone()));
                             }
+                            response
                         }
-                        None => {
-                            theme::text(ui, text, theme::regular(13.5), palette.secondary);
-                        }
+                        None => theme::text(ui, text, theme::regular(13.5), palette.secondary),
+                    };
+                    if let Some((at, tooltip)) = &hero.byline_tooltip
+                        && *at == index
+                    {
+                        response.on_hover_text(tooltip);
                     }
                 }
             });
         });
     });
     ui.add_space(20.0);
+}
+
+/// A description on one line, its links clickable as in Spotify: a Spotify
+/// link opens here, a web link in the browser.
+fn hero_description(app: &mut App, ui: &mut egui::Ui, palette: &Palette, html: &str) {
+    let (text, links) = util::html_links(html);
+    let links: Vec<_> = links
+        .into_iter()
+        .filter_map(|(range, href)| Some((range, link_action(&href)?)))
+        .collect();
+    let font = theme::regular(13.5);
+    if links.is_empty() || crate::bidi::has_rtl(&text) {
+        theme::text(ui, text, font, palette.secondary);
+        return;
+    }
+    let mut job = egui::text::LayoutJob::default();
+    let mut at = 0;
+    for (range, _) in &links {
+        let plain = egui::TextFormat::simple(font.clone(), palette.secondary);
+        job.append(&text[at..range.start], 0.0, plain);
+        let link = egui::TextFormat::simple(font.clone(), palette.text);
+        job.append(&text[range.clone()], 0.0, link);
+        at = range.end;
+    }
+    job.append(
+        &text[at..],
+        0.0,
+        egui::TextFormat::simple(font, palette.secondary),
+    );
+    job.wrap = egui::text::TextWrapping::truncate_at_width(ui.available_width());
+    let galley = ui.painter().layout_job(job);
+    let response = ui.add(
+        egui::Label::new(galley.clone())
+            .selectable(false)
+            .sense(Sense::click()),
+    );
+    let Some(pointer) = response.hover_pos() else {
+        return;
+    };
+    // The character under the pointer, not the nearest gap between two.
+    let origin = response.rect.left_top();
+    let cursor = galley.cursor_from_pos(pointer - origin);
+    let mut index = cursor.index.0;
+    if index > 0 && pointer.x < origin.x + galley.pos_from_cursor(cursor).min.x {
+        index -= 1;
+    }
+    let Some((byte, _)) = text.char_indices().nth(index) else {
+        return;
+    };
+    let Some((range, action)) = links.iter().find(|(range, _)| range.contains(&byte)) else {
+        return;
+    };
+    let edge = |byte: usize| {
+        let cursor = egui::text::CCursor::new(text[..byte].chars().count());
+        origin.x + galley.pos_from_cursor(cursor).min.x
+    };
+    ui.painter().hline(
+        edge(range.start)..=edge(range.end),
+        response.rect.bottom() - 1.0,
+        egui::Stroke::new(1.0, palette.text),
+    );
+    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    if response.clicked() {
+        app.actions.push(action.clone());
+    }
+}
+
+/// What clicking a description's link does, if it goes anywhere.
+fn link_action(href: &str) -> Option<Action> {
+    if let Some(uri) = crate::link::parse(href) {
+        return Some(Action::OpenLink(uri));
+    }
+    (href.starts_with("https://") || href.starts_with("http://"))
+        .then(|| Action::OpenUrl(href.to_string()))
 }
 
 pub struct Actions<'a> {
@@ -510,10 +588,15 @@ pub struct TableCache {
     pub user_names_revision: u64,
     /// Which scan of the local files folder decided the playable rows.
     pub local_files: usize,
+    /// The play counts a plays sort ordered by, from `plays_order`, so it
+    /// redoes itself as counts arrive or change.
+    pub plays_order: u64,
     pub visible: Arc<[usize]>,
     pub view_uris: Option<Arc<[String]>>,
     pub plays_shown_rows: bool,
-    /// Playback positions for visible rows; unavailable rows have no position.
+    /// Playback positions in `view_uris`, by item index: a finite table's
+    /// rows are server slots, not view rows. Unplayable and filtered-out
+    /// items have no position.
     pub view_positions: Arc<[Option<usize>]>,
 }
 
@@ -605,6 +688,9 @@ fn local_files_scan(app: &App) -> usize {
         .map_or(0, |(_, uris)| Arc::as_ptr(uris) as usize)
 }
 
+/// The page's rows as `view` shows them, cached per page and rebuilt only
+/// when the sort, filter, items, user names, local files, or the play
+/// counts a plays sort depends on change.
 pub fn prepare_table_view(
     ui: &mut egui::Ui,
     app: &App,
@@ -620,6 +706,7 @@ pub fn prepare_table_view(
     } = view;
     let cache_id = egui::Id::new("table-view-cache").with(page);
     let cached = ui.data(|d| d.get_temp::<Arc<TableCache>>(cache_id));
+    let order = plays_order(app, items, sort);
 
     let is_valid = cached.as_ref().is_some_and(|c| {
         c.sort == sort
@@ -628,22 +715,24 @@ pub fn prepare_table_view(
             && c.items_revision == items_revision
             && c.user_names_revision == app.user_names_revision
             && c.local_files == local_files_scan(app)
+            && c.plays_order == order
     });
 
     if let Some(entry) = cached.filter(|_| is_valid) {
         entry
     } else {
-        let visible = view_indices(items, needle, sort);
+        let visible = view_indices(items, &app.play_counts, needle, sort);
         let mut view_positions = Vec::new();
         let view_uris = (sort.is_some() || !needle.is_empty() || plays_shown_rows).then(|| {
             let mut uris = Vec::new();
+            view_positions.resize(items.len(), None);
             for &index in &visible {
                 let item = &items[index].0;
-                view_positions.push(app.row_playable(item).then(|| {
+                view_positions[index] = app.row_playable(item).then(|| {
                     let position = uris.len();
                     uris.push(item.uri().to_string());
                     position
-                }));
+                });
             }
             Arc::<[String]>::from(uris)
         });
@@ -653,6 +742,7 @@ pub fn prepare_table_view(
             items_revision,
             user_names_revision: app.user_names_revision,
             local_files: local_files_scan(app),
+            plays_order: order,
             visible: visible.into(),
             view_uris,
             plays_shown_rows,
@@ -707,6 +797,8 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     }
 }
 
+/// Draws the song table: its header, whose headings change the page's
+/// sort, and the rows in the order the view presents them.
 fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     let palette = app.palette;
     let locale = app.locale;
@@ -749,23 +841,7 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             sort,
         )
     {
-        // Ascending, descending, back to the list's own order.
-        let next = match sort {
-            Some(sort) if sort.column == column && sort.ascending => Some(TableSort {
-                column,
-                ascending: false,
-            }),
-            Some(sort) if sort.column == column => None,
-            // The # stands for the list's own order: from any other sort
-            // it returns there rather than layering a sort of its own.
-            Some(_) if column == SortColumn::Index => None,
-            // Ascending by # is the list's own order, a click that would
-            // change nothing; the first click on # reverses instead.
-            _ => Some(TableSort {
-                column,
-                ascending: column != SortColumn::Index,
-            }),
-        };
+        let next = next_sort(sort, column);
         match next {
             Some(sort) => {
                 app.table_sorts.insert(table.page.clone(), sort);
@@ -828,11 +904,13 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     });
     // Selection uses display indices. Clear it when the view or items change,
     // including a refresh that replaces songs without changing the row count.
+    // Arriving play counts reorder a plays sort, so they count too.
     let view = format!(
-        "{sort:?}|{needle}|{}|{}|{}",
+        "{sort:?}|{needle}|{}|{}|{}|{}",
         entry.visible.len(),
         table.row_offset,
-        table.items_revision
+        table.items_revision,
+        entry.plays_order
     );
     let item_index = |row: usize| -> Option<usize> {
         if let Some(page) = finite {
@@ -849,6 +927,33 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         }
     };
     app.keep_picked_rows_for(&table.page, &view);
+    // A song's link opened this page. Waiting out a load keeps the arriving
+    // rows from clearing the pick, and a long album loads until the song
+    // turns up.
+    if !table.loading
+        && let Some(uris) = app.linked_song(&table.page).cloned()
+    {
+        let row = (0..rows).find(|row| {
+            item_index(*row)
+                .and_then(|index| table.items.get(index))
+                .is_some_and(|(item, _, _)| uris.iter().any(|uri| uri == item.uri()))
+        });
+        if let Some(row) = row {
+            app.pick_rows(&table.page, &view, [row].into_iter().collect());
+            app.finish_linked_song();
+            ui.scroll_to_rect(
+                Rect::from_min_size(
+                    pos2(ui.max_rect().left(), list_top + row as f32 * row_height),
+                    vec2(ui.max_rect().width(), row_height),
+                ),
+                Some(egui::Align::Center),
+            );
+        } else if table.can_load_more && table.error.is_none() {
+            app.actions.push(Action::LoadMore(table.page.clone()));
+        } else {
+            app.finish_linked_song();
+        }
+    }
     let picked: std::collections::BTreeSet<usize> =
         app.picked_rows(&table.page).cloned().unwrap_or_default();
     // Keep complete rows for immediate optimistic playlist additions.
@@ -928,7 +1033,7 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             app,
             TrackRow {
                 index: if entry.view_uris.is_some() {
-                    entry.view_positions[row].unwrap_or(row)
+                    entry.view_positions[index].unwrap_or(row)
                 } else {
                     actual_index
                 },
@@ -1063,8 +1168,9 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     }
 }
 
-/// Select all, Cut, Copy, Paste and Delete on a song list. Cut copies the picked
-/// songs and removes them from a playlist the account can edit. A focused
+/// Select all, Cut, Copy, Paste, Delete, and the queue keys on a song list. Cut
+/// copies the picked songs and removes them from a playlist the account can
+/// edit. A focused
 /// text field keeps these keys for its own text, and an open dialog keeps
 /// them from the list behind it.
 fn list_shortcuts(
@@ -1097,7 +1203,8 @@ fn list_shortcuts(
     let can_delete = editable.is_some()
         && app.picked_rows(&table.page).is_some()
         && !egui::Popup::is_any_open(ui.ctx());
-    let (select_all, cut, copy, pasted, delete) = ui.input_mut(|input| {
+    let queue_keys = !picked_songs.is_empty() && !egui::Popup::is_any_open(ui.ctx());
+    let (select_all, cut, copy, pasted, delete, queue, play_next) = ui.input_mut(|input| {
         // The platform's Cut, Copy and Paste keys arrive as these events,
         // not as key presses.
         let cut = editable.is_some()
@@ -1125,8 +1232,26 @@ fn list_shortcuts(
                 && (input.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
                     || (cfg!(target_os = "macos")
                         && input.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))),
+            queue_keys && first_shift_press(input, egui::Key::Q),
+            queue_keys && first_shift_press(input, egui::Key::N),
         )
     });
+    // As the selection's menu: local files queue only on this computer's
+    // player, and the others in the selection still go.
+    let queueable = picked_songs.iter().any(|song| app.can_queue(song.uri()));
+    if queue && queueable {
+        app.actions.push(Action::QueueMany {
+            songs: picked_songs
+                .iter()
+                .map(|song| (song.uri().to_string(), song.name().to_string()))
+                .collect(),
+        });
+    }
+    if play_next && queueable && app.queue_locally_reorderable() {
+        app.actions.push(Action::PlayNext {
+            items: picked_songs.clone(),
+        });
+    }
     if select_all {
         let all = (0..rows)
             .filter(|row| {
@@ -1170,6 +1295,16 @@ fn list_shortcuts(
     if let (Some(playlist_id), Some(text)) = (editable, pasted) {
         app.actions.push(Action::PasteSongs { playlist_id, text });
     }
+}
+
+/// Whether Shift+`key` was pressed, taking its presses. The repeats of a held
+/// key count for nothing, so holding it does not queue the songs over and over.
+fn first_shift_press(input: &mut egui::InputState, key: egui::Key) -> bool {
+    let first = input.events.iter().any(|event| {
+        matches!(event, egui::Event::Key { key: pressed, pressed: true, repeat: false, modifiers, .. }
+            if *pressed == key && modifiers.shift_only())
+    });
+    input.consume_key(egui::Modifiers::SHIFT, key) && first
 }
 
 /// Arrow keys follow display order, independent of the positions of the
@@ -1349,9 +1484,53 @@ fn sort_by_album(visible: &mut [usize], ascending: bool, items: &[TableItem]) {
     }
 }
 
+/// A fingerprint of the play counts a view's order depends on: those of
+/// its own songs when it sorts by plays, else nothing. Counts that arrive
+/// or change for these songs reorder the view; counts for other songs leave
+/// it and its selection alone.
+fn plays_order(app: &App, items: &[TableItem], sort: Option<TableSort>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    if !sort.is_some_and(|sort| sort.column == SortColumn::Plays) {
+        return 0;
+    }
+    let mut hasher = std::hash::DefaultHasher::new();
+    for (item, _, _) in items {
+        app.play_counts.get(item.uri()).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// The sort after a click on `column`'s heading: ascending, descending,
+/// then back to the list's own order. Plays start with the most played.
+fn next_sort(sort: Option<TableSort>, column: SortColumn) -> Option<TableSort> {
+    let first_ascending = column != SortColumn::Plays;
+    match sort {
+        Some(sort) if sort.column == column && sort.ascending != first_ascending => None,
+        Some(sort) if sort.column == column => Some(TableSort {
+            column,
+            ascending: !sort.ascending,
+        }),
+        // The # stands for the list's own order: from any other sort
+        // it returns there rather than layering a sort of its own.
+        Some(_) if column == SortColumn::Index => None,
+        // Ascending by # is the list's own order, a click that would
+        // change nothing; the first click on # reverses instead.
+        _ => Some(TableSort {
+            column,
+            ascending: first_ascending && column != SortColumn::Index,
+        }),
+    }
+}
+
 /// The indices of `items` as a view presents them: filtered by `needle`
-/// (already lowercased), then ordered by `sort`.
-fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> Vec<usize> {
+/// (already lowercased), then ordered by `sort`. Sorting by plays reads
+/// `play_counts`; a song without a count sorts after every counted one.
+fn view_indices(
+    items: &[TableItem],
+    play_counts: &HashMap<String, u64>,
+    needle: &str,
+    sort: Option<TableSort>,
+) -> Vec<usize> {
     let mut visible: Vec<usize> = items
         .iter()
         .enumerate()
@@ -1388,6 +1567,18 @@ fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> V
             SortColumn::AddedBy => sort_by_text_key(&mut visible, sort.ascending, |index| {
                 items[index].2.as_deref().unwrap_or_default().to_lowercase()
             }),
+            SortColumn::Plays => visible.sort_by_key(|&index| {
+                let count = play_counts.get(items[index].0.uri()).copied();
+                let count_key = count.unwrap_or_default();
+                (
+                    count.is_none(),
+                    if sort.ascending {
+                        count_key
+                    } else {
+                        u64::MAX - count_key
+                    },
+                )
+            }),
             SortColumn::Added | SortColumn::Index | SortColumn::Duration => {
                 visible.sort_by(|a, b| {
                     let ordering = match sort.column {
@@ -1396,7 +1587,7 @@ fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> V
                         SortColumn::Duration => {
                             items[*a].0.duration_ms().cmp(&items[*b].0.duration_ms())
                         }
-                        _ => unreachable!("text columns are handled above"),
+                        _ => unreachable!("text and plays columns are handled above"),
                     };
                     if sort.ascending {
                         ordering
@@ -1455,20 +1646,23 @@ fn playlist_rows(
 }
 
 /// A playlist's rows with the songs hidden in it marked unplayable, kept
-/// until the rows or the hidden songs change.
+/// until the rows, the list or the hidden songs change.
 fn hidden_rows(
     ui: &egui::Ui,
     app: &App,
     id: &str,
     playlist_uri: &str,
     items: &Arc<Vec<TableItem>>,
+    items_revision: u64,
 ) -> Arc<Vec<TableItem>> {
-    type Marked = (usize, u64, Arc<Vec<TableItem>>);
+    type Marked = (usize, u64, u64, Arc<Vec<TableItem>>);
     let key = egui::Id::new("hidden-rows").with(id);
     let source = Arc::as_ptr(items) as usize;
     let revision = app.hidden_songs_revision;
-    if let Some((cached_source, cached_revision, rows)) = ui.data(|d| d.get_temp::<Marked>(key))
+    if let Some((cached_source, cached_items_revision, cached_revision, rows)) =
+        ui.data(|d| d.get_temp::<Marked>(key))
         && cached_source == source
+        && cached_items_revision == items_revision
         && cached_revision == revision
     {
         return rows;
@@ -1490,7 +1684,9 @@ fn hidden_rows(
             })
             .collect(),
     );
-    ui.data_mut(|d| d.insert_temp::<Marked>(key, (source, revision, Arc::clone(&rows))));
+    ui.data_mut(|d| {
+        d.insert_temp::<Marked>(key, (source, items_revision, revision, Arc::clone(&rows)));
+    });
     rows
 }
 
@@ -1590,13 +1786,23 @@ pub fn top_songs(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(4.0);
     theme::text(
         ui,
-        gettext(
-            app.locale,
-            "Your most-played tracks from the last four weeks.",
-        ),
+        app.home.top_period.subtitle(app.locale),
         theme::regular(13.5),
         palette.secondary,
     );
+    ui.add_space(12.0);
+
+    let labels: Vec<_> = TopPeriod::ALL
+        .iter()
+        .map(|p| (*p, p.label(app.locale)))
+        .collect();
+    let options: Vec<(TopPeriod, &str)> = labels
+        .iter()
+        .map(|(period, label)| (*period, label.as_ref()))
+        .collect();
+    if let Some(period) = widgets::chips(ui, &palette, &options, app.home.top_period) {
+        app.actions.push(Action::SetTopPeriod(period));
+    }
     ui.add_space(18.0);
 
     let tracks = match &app.home.top_songs {
@@ -1681,7 +1887,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 .get(&playlist.uri)
                 .is_some_and(|songs| !songs.is_empty());
             let items = if hides {
-                hidden_rows(ui, app, id, &playlist.uri, &items)
+                hidden_rows(ui, app, id, &playlist.uri, &items, page.items.revision)
             } else {
                 items
             };
@@ -1925,7 +2131,8 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 );
                 return;
             }
-            app.request_play_counts(&album.uri);
+            app.actions
+                .push(Action::RequestPlayCounts(album.uri.clone()));
             let show_plays = app.has_play_counts(&album.uri);
             album_hero(app, ui, album, &page.tracks, preview.as_deref());
             let saved = app.is_saved(&album.uri).unwrap_or(false);
@@ -2119,8 +2326,9 @@ fn playlist_hero<'a>(
                 gettext(app.locale, "Playlist")
             },
             title: &playlist.name,
-            description: playlist.description.as_deref().map(util::strip_html),
+            description: playlist.description.clone(),
             byline,
+            byline_tooltip: None,
             avatar,
             round: false,
         },
@@ -2219,7 +2427,17 @@ fn album_hero(
         .iter()
         .map(|artist| (artist.name.clone(), artist.id.clone().map(Page::Artist)))
         .collect();
+    let mut byline_tooltip = None;
     if let Some(year) = album.year() {
+        // Populate tooltip: If we know the full release
+        // date, YYYY-MM-DD (10 chars/bytes), show formatted date,
+        // otherwise just show year.
+        let date = album
+            .release_date
+            .as_deref()
+            .filter(|date| date.len() >= 10)
+            .unwrap_or(year);
+        byline_tooltip = Some((byline.len(), util::format_date(app.locale, date)));
         byline.push((year.to_string(), None));
     }
     let count = album.total_tracks.unwrap_or(tracks.items.len() as u32);
@@ -2250,6 +2468,7 @@ fn album_hero(
             title: &album.name,
             description: None,
             byline,
+            byline_tooltip,
             avatar: None,
             round: false,
         },
@@ -2337,6 +2556,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             title: &liked_title,
             description: None,
             byline: vec![(user, None), (count_text, None)],
+            byline_tooltip: None,
             avatar: None,
             round: false,
         },
@@ -2388,11 +2608,11 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         .collect::<Vec<_>>()
         .into();
     let context = match collection_uri {
-        Some(uri) if app.library.liked.is_complete() => RowContext::Context {
+        Some(uri) => RowContext::Context {
             uri,
             editable_playlist: None,
         },
-        _ => RowContext::Uris(uris),
+        None => RowContext::Uris(uris),
     };
     let loading = app.library.liked.loading;
     let error = app.library.liked.error.clone();
@@ -2610,6 +2830,182 @@ mod tests {
         assert_eq!(owner_name(&app, &playlist), "Alice Smith");
     }
 
+    /// Hovering an album's year, shows the whole date it
+    /// was released, or the year when Spotify knows no day.
+    #[test]
+    fn an_albums_year_shows_its_release_date_on_hover() {
+        fn texts(shape: &egui::epaint::Shape, found: &mut Vec<(String, egui::Pos2)>) {
+            match shape {
+                egui::epaint::Shape::Text(text) => found.push((
+                    text.galley.text().to_string(),
+                    text.pos + text.galley.rect.center().to_vec2(),
+                )),
+                egui::epaint::Shape::Vec(shapes) => {
+                    shapes.iter().for_each(|shape| texts(shape, found));
+                }
+                _ => {}
+            }
+        }
+        /// The text on screen while the pointer rests on the year.
+        fn hovering_the_year(release_date: &str) -> Vec<String> {
+            let mut app = test_app();
+            let single = Album {
+                name: "Lead Single".into(),
+                uri: "spotify:album:single".into(),
+                album_type: Some("single".into()),
+                release_date: Some(release_date.into()),
+                artists: vec![ArtistRef {
+                    name: "Artist".into(),
+                    ..Default::default()
+                }],
+                ..Album::default()
+            };
+            let tracks = PagedList::default();
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+            let mut time = 0.0;
+            let mut draw = |app: &mut App, events: Vec<egui::Event>| {
+                time += 1.0;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(1000.0, 600.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| album_hero(app, ui, &single, &tracks, None),
+                );
+                output.textures_delta.clear();
+                let mut found = Vec::new();
+                output
+                    .shapes
+                    .iter()
+                    .for_each(|clipped| texts(&clipped.shape, &mut found));
+                found
+            };
+            let year = draw(&mut app, Vec::new())
+                .into_iter()
+                .find_map(|(text, pos)| (text == "2026").then_some(pos))
+                .expect("the byline shows the year");
+            for _ in 0..3 {
+                draw(&mut app, vec![egui::Event::PointerMoved(year)]);
+            }
+            let shown = draw(&mut app, vec![egui::Event::PointerMoved(year)]);
+            app.backend.shutdown();
+            shown.into_iter().map(|(text, _)| text).collect()
+        }
+
+        let shown = hovering_the_year("2026-10-05");
+        assert!(shown.iter().any(|text| text == "Oct 5, 2026"), "{shown:?}");
+        // Known only to the month or the year: the tooltip gives the year.
+        for date in ["2026-10", "2026"] {
+            let shown = hovering_the_year(date);
+            assert_eq!(
+                shown.iter().filter(|text| *text == "2026").count(),
+                2,
+                "{date}: {shown:?}"
+            );
+        }
+    }
+
+    /// A link in a playlist's description opens what it points to, and
+    /// the text around it does nothing.
+    #[test]
+    fn a_link_in_the_description_opens_where_it_points() {
+        fn find(shape: &egui::epaint::Shape, text: &str) -> Option<egui::epaint::TextShape> {
+            match shape {
+                egui::epaint::Shape::Text(shape) if shape.galley.text() == text => {
+                    Some(shape.clone())
+                }
+                egui::epaint::Shape::Vec(shapes) => {
+                    shapes.iter().find_map(|shape| find(shape, text))
+                }
+                _ => None,
+            }
+        }
+        /// The links opened by clicking the description's character at
+        /// `index`.
+        fn clicking(index: usize) -> Vec<String> {
+            let mut app = test_app();
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            let mut time = 0.0;
+            let mut draw = |app: &mut App, events: Vec<egui::Event>| {
+                time += 1.0 / 60.0;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(1000.0, 600.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let description = "Mood: <a href=spotify:playlist:pl1>Chill</a> vibes";
+                        hero(
+                            app,
+                            ui,
+                            Hero {
+                                images: HeroImages::default(),
+                                liked: false,
+                                kind: Cow::Borrowed("Playlist"),
+                                title: "Mix",
+                                description: Some(description.into()),
+                                byline: Vec::new(),
+                                byline_tooltip: None,
+                                avatar: None,
+                                round: false,
+                            },
+                        );
+                    },
+                );
+                output.textures_delta.clear();
+                output.shapes
+            };
+            let shape = draw(&mut app, Vec::new())
+                .iter()
+                .find_map(|clipped| find(&clipped.shape, "Mood: Chill vibes"))
+                .expect("the hero shows the description");
+            let edge = |index: usize| {
+                let cursor = egui::text::CCursor::new(index);
+                shape.pos.x + shape.galley.pos_from_cursor(cursor).min.x
+            };
+            let pos = pos2(
+                (edge(index) + edge(index + 1)) / 2.0,
+                shape.pos.y + shape.galley.rect.center().y,
+            );
+            let press = |pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::default(),
+            };
+            draw(&mut app, vec![egui::Event::PointerMoved(pos)]);
+            draw(&mut app, vec![press(true)]);
+            draw(&mut app, vec![press(false)]);
+            app.backend.shutdown();
+            app.actions
+                .iter()
+                .filter_map(|action| match action {
+                    Action::OpenLink(uri) => Some(uri.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        // "Mood: Chill vibes": the "i" of Chill, the "o" of Mood and the
+        // "i" of vibes.
+        assert_eq!(clicking(8), ["spotify:playlist:pl1"]);
+        assert!(clicking(1).is_empty());
+        assert!(clicking(13).is_empty());
+    }
+
     #[test]
     fn saves_read_as_the_playlist_view_counts_them() {
         assert_eq!(saves_text(Locale::English, 1_845_680), "1,845,680 saves");
@@ -2772,6 +3168,224 @@ mod tests {
         )), "a jump must request the distant rows, not the next sequential page");
     }
 
+    /// A playlist with hidden songs plays the rows on screen, so each row
+    /// looks up its place in that list. An empty slot and a song without a
+    /// URI both show as Unavailable and play nothing; the rows below them
+    /// must still play their own song, the last one without running off
+    /// the list (#1041).
+    #[test]
+    fn rows_below_unavailable_entries_play_their_own_song() {
+        let mut app = test_app();
+        let songs = make_large_tracks(3);
+        app.hidden_songs.insert(
+            "spotify:playlist:hiding".into(),
+            std::iter::once(songs[0].0.uri().to_string()).collect(),
+        );
+        let entries = [None, Some(PlayableItem::Track(Track::default()))]
+            .into_iter()
+            .chain(songs.into_iter().map(|(item, _, _)| Some(item)))
+            .map(|item| crate::api::models::PlaylistItem {
+                item,
+                ..Default::default()
+            })
+            .collect();
+        app.playlist_pages.insert(
+            "hiding".into(),
+            PlaylistPage {
+                playlist: Loadable::Loaded(Playlist {
+                    id: "hiding".into(),
+                    name: "Hiding".into(),
+                    uri: "spotify:playlist:hiding".into(),
+                    tracks: Some(crate::api::models::TrackCount { total: 5 }),
+                    ..Default::default()
+                }),
+                items: PagedList {
+                    items: entries,
+                    total: Some(5),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let frame = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 1000.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .animated(false)
+                        .show(ui, |ui| playlist(app, ui, "hiding"));
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        frame(&mut app, vec![]);
+        let tree = frame(&mut app, vec![]);
+        let last = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.label().is_some_and(|label| {
+                    label.starts_with("Play Nested metadata song 2 with a longer title,")
+                })
+            })
+            .expect("the last song's row")
+            .0;
+        app.actions.clear();
+        frame(
+            &mut app,
+            vec![egui::Event::AccessKitActionRequest(
+                egui::accesskit::ActionRequest {
+                    action: egui::accesskit::Action::Click,
+                    target_tree: egui::accesskit::TreeId::ROOT,
+                    target_node: last,
+                    data: None,
+                },
+            )],
+        );
+        let (uris, index) = app
+            .actions
+            .iter()
+            .find_map(|action| match action {
+                Action::PlayFromRow {
+                    context: RowContext::View { uris, .. },
+                    index,
+                    ..
+                } => Some((Arc::clone(uris), *index)),
+                _ => None,
+            })
+            .expect("the click plays the shown rows");
+        assert_eq!(
+            uris.get(index as usize).map(String::as_str),
+            Some("spotify:track:large-2"),
+            "the played index must point at the clicked song"
+        );
+    }
+
+    /// A playlist that grows while songs are hidden must remark the rows:
+    /// the append extends the cached vec in place, so the marked copy can
+    /// no longer be told apart by its Arc pointer alone (#1049).
+    #[test]
+    fn hidden_rows_follow_pages_that_extend_the_cached_rows() {
+        let mut app = test_app();
+        app.backend.set_offline(true);
+        let songs = make_large_tracks(100);
+        app.hidden_songs.insert(
+            "spotify:playlist:hiding".into(),
+            std::iter::once(songs[0].0.uri().to_string()).collect(),
+        );
+        let playlist_item = |item: &TableItem| crate::api::models::PlaylistItem {
+            item: Some(item.0.clone()),
+            ..Default::default()
+        };
+        app.playlist_pages.insert(
+            "hiding".into(),
+            PlaylistPage {
+                playlist: Loadable::Loaded(Playlist {
+                    id: "hiding".into(),
+                    name: "Hiding".into(),
+                    uri: "spotify:playlist:hiding".into(),
+                    tracks: Some(crate::api::models::TrackCount { total: 100 }),
+                    ..Default::default()
+                }),
+                items: PagedList {
+                    items: songs[..50].iter().map(playlist_item).collect(),
+                    total: Some(100),
+                    next_offset: Some(50),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let frame = |app: &mut App, scroll: f32| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 1000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .animated(false)
+                        .vertical_scroll_offset(scroll)
+                        .show(ui, |ui| playlist(app, ui, "hiding"));
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        frame(&mut app, 0.0);
+        frame(&mut app, 0.0);
+        // The second page lands the way the backend delivers it: the
+        // handler absorbs it into the page and flags the table cache for
+        // an in-place append, which keeps the rows' Arc pointer.
+        {
+            let page = app.playlist_pages.get_mut("hiding").unwrap();
+            page.items.absorb(
+                50,
+                crate::api::models::Page {
+                    items: songs[50..].iter().map(playlist_item).collect(),
+                    total: 100,
+                    limit: 50,
+                    offset: 50,
+                    next: None,
+                },
+            );
+            let revision = page.items.revision;
+            app.table_rows
+                .get_mut(&Page::Playlist("hiding".into()))
+                .expect("the rendered table cache")
+                .playlist_append_revision = Some(revision);
+        }
+        fn find_row<'t>(
+            tree: &'t egui::accesskit::TreeUpdate,
+            name: &str,
+        ) -> Option<&'t egui::accesskit::Node> {
+            tree.nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.label()
+                        .is_some_and(|label| label.starts_with(&format!("Play {name},")))
+                })
+                .map(|(_, node)| node)
+        }
+        let tree = frame(&mut app, 0.0);
+        let hidden = find_row(&tree, "Nested metadata song 0 with a longer title")
+            .expect("the hidden song's row");
+        assert!(hidden.is_disabled(), "a hidden song is an unplayable row");
+        let tree = frame(&mut app, 100_000.0);
+        assert!(
+            find_row(&tree, "Nested metadata song 99 with a longer title").is_some(),
+            "the last row is laid out after the second page loads"
+        );
+
+        // A sorted table draws every loaded row; it must see the appended
+        // ones too.
+        app.table_sorts.insert(
+            Page::Playlist("hiding".into()),
+            TableSort {
+                column: SortColumn::Title,
+                ascending: true,
+            },
+        );
+        let tree = frame(&mut app, 100_000.0);
+        assert!(
+            find_row(&tree, "Nested metadata song 99 with a longer title").is_some(),
+            "the last row is laid out in the sorted table"
+        );
+    }
+
     #[test]
     fn null_album_slots_are_not_sorted_playback_entries() {
         let items = vec![
@@ -2788,6 +3402,7 @@ mod tests {
         assert_eq!(
             view_indices(
                 &items,
+                &HashMap::new(),
                 "",
                 Some(TableSort {
                     column: SortColumn::Title,
@@ -3083,19 +3698,19 @@ mod tests {
         let items = make_test_tracks();
 
         // 1. Unfiltered and unsorted: natural order
-        let visible = view_indices(&items, "", None);
+        let visible = view_indices(&items, &HashMap::new(), "", None);
         assert_eq!(visible, vec![0, 1, 2, 3]);
 
         // 2. Filter by track name
-        let visible = view_indices(&items, "bohemian", None);
+        let visible = view_indices(&items, &HashMap::new(), "bohemian", None);
         assert_eq!(visible, vec![0]);
 
         // 3. Filter by artist name
-        let visible = view_indices(&items, "soda", None);
+        let visible = view_indices(&items, &HashMap::new(), "soda", None);
         assert_eq!(visible, vec![1]);
 
         // 4. Filter by album name
-        let visible = view_indices(&items, "mutter", None);
+        let visible = view_indices(&items, &HashMap::new(), "mutter", None);
         assert_eq!(visible, vec![3]);
 
         // 5. Sort descending by title
@@ -3103,8 +3718,58 @@ mod tests {
             column: SortColumn::Title,
             ascending: false,
         });
-        let visible = view_indices(&items, "", sort);
+        let visible = view_indices(&items, &HashMap::new(), "", sort);
         assert_eq!(visible, vec![3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn heading_clicks_cycle_sorts_and_plays_start_with_the_most_played() {
+        let cycle = |column| {
+            let mut sort = None;
+            let mut seen = Vec::new();
+            for _ in 0..3 {
+                sort = next_sort(sort, column);
+                seen.push(sort.map(|sort| sort.ascending));
+            }
+            seen
+        };
+        assert_eq!(cycle(SortColumn::Title), [Some(true), Some(false), None]);
+        assert_eq!(cycle(SortColumn::Plays), [Some(false), Some(true), None]);
+        assert_eq!(cycle(SortColumn::Index), [Some(false), None, Some(false)]);
+        let by_title = Some(TableSort {
+            column: SortColumn::Title,
+            ascending: true,
+        });
+        assert_eq!(
+            next_sort(by_title, SortColumn::Plays),
+            Some(TableSort {
+                column: SortColumn::Plays,
+                ascending: false,
+            })
+        );
+        assert_eq!(next_sort(by_title, SortColumn::Index), None);
+    }
+
+    #[test]
+    fn plays_sort_orders_by_count_and_puts_uncounted_songs_last() {
+        let items = make_test_tracks();
+        let plays: HashMap<String, u64> = [("t_0", 5), ("t_1", 900), ("t_3", 40)]
+            .into_iter()
+            .map(|(id, count)| (format!("spotify:track:{id}"), count))
+            .collect();
+        let sorted = |ascending| {
+            view_indices(
+                &items,
+                &plays,
+                "",
+                Some(TableSort {
+                    column: SortColumn::Plays,
+                    ascending,
+                }),
+            )
+        };
+        assert_eq!(sorted(false), vec![1, 3, 0, 2]);
+        assert_eq!(sorted(true), vec![0, 3, 1, 2]);
     }
 
     #[test]
@@ -3123,6 +3788,7 @@ mod tests {
             assert_eq!(
                 view_indices(
                     &items,
+                    &HashMap::new(),
                     "",
                     Some(TableSort {
                         column,
@@ -3135,6 +3801,7 @@ mod tests {
             assert_eq!(
                 view_indices(
                     &items,
+                    &HashMap::new(),
                     "",
                     Some(TableSort {
                         column,
@@ -3174,6 +3841,7 @@ mod tests {
         let sorted = |ascending| {
             view_indices(
                 &items,
+                &HashMap::new(),
                 "",
                 Some(TableSort {
                     column: SortColumn::Album,
@@ -3219,6 +3887,7 @@ mod tests {
                 assert_eq!(
                     view_indices(
                         &items,
+                        &HashMap::new(),
                         "",
                         Some(TableSort {
                             column: SortColumn::Album,
@@ -3260,6 +3929,7 @@ mod tests {
             items_revision: 5,
             user_names_revision: 2,
             local_files: 0,
+            plays_order: 0,
             visible: Arc::new([2]),
             view_uris: Some(Arc::new(["spotify:track:t_2".to_string()])),
             plays_shown_rows: false,
@@ -3500,9 +4170,238 @@ mod tests {
         }
     }
 
+    /// Selection is kept by display row, so a plays sort drops it when its
+    /// own songs' counts arrive or change and move rows, and keeps it when
+    /// counts arrive for songs elsewhere. Other sorts ignore counts.
+    #[test]
+    fn a_plays_sort_drops_its_selection_only_when_its_own_counts_change() {
+        let command = if cfg!(target_os = "macos") {
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND
+        } else {
+            egui::Modifiers::CTRL | egui::Modifiers::COMMAND
+        };
+        let select_all = || {
+            vec![egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: command,
+            }]
+        };
+        let page = Page::Playlist("test".into());
+        for (column, cleared) in [(SortColumn::Plays, true), (SortColumn::Title, false)] {
+            // #given a sorted list with every row selected, before counts
+            let mut table = KeyboardTable::new();
+            table.app.table_sorts.insert(
+                page.clone(),
+                TableSort {
+                    column,
+                    ascending: false,
+                },
+            );
+            table.frame(vec![]);
+            table.frame(select_all());
+            assert!(table.app.picked_rows(&page).is_some(), "{column:?}");
+
+            // #when counts arrive for a song on another page
+            table
+                .app
+                .play_counts
+                .insert("spotify:track:other".into(), 3);
+            table.frame(vec![]);
+
+            // #then the selection stays
+            assert!(table.app.picked_rows(&page).is_some(), "{column:?}");
+
+            // #when counts arrive for a song in this list
+            table.app.play_counts.insert("spotify:track:t_3".into(), 7);
+            table.frame(vec![]);
+
+            // #then only the plays sort, whose rows moved, drops the
+            // selection made by position
+            assert_eq!(
+                table.app.picked_rows(&page).is_none(),
+                cleared,
+                "{column:?}"
+            );
+
+            // #when a later answer replaces a count without adding one
+            table.frame(select_all());
+            table.app.play_counts.insert("spotify:track:t_3".into(), 8);
+            table.frame(vec![]);
+
+            // #then a plays sort still notices
+            assert_eq!(
+                table.app.picked_rows(&page).is_none(),
+                cleared,
+                "{column:?} replaced"
+            );
+        }
+    }
+
     /// Select all takes every song the list shows, Copy hands the picked
     /// songs on in the list's order, and Paste offers an editable playlist
     /// the clipboard's text. A focused text field keeps all three keys.
+    /// A song's link picks its row and brings it into view, however far down
+    /// the list it is, and leaves the pick alone afterwards (#1117).
+    #[test]
+    fn a_linked_song_is_picked_and_scrolled_to() {
+        // #given a list taller than the window, opened for its last song
+        let mut table = KeyboardTable::new();
+        table.items = (0..200)
+            .map(|i| {
+                let mut row = make_test_tracks().remove(0);
+                if let PlayableItem::Track(track) = &mut row.0 {
+                    track.uri = format!("spotify:track:t_{i}");
+                    track.name = format!("Track {i}");
+                }
+                row
+            })
+            .collect();
+        let page = Page::Playlist("test".into());
+        table.app.link_song_for_test(
+            page.clone(),
+            ["spotify:track:t_150".into(), "spotify:track:t_150".into()],
+        );
+
+        // #when the list is drawn
+        table.frame(Vec::new());
+        let tree = table.frame(Vec::new());
+
+        // #then the row is picked, drawn, and the link is spent
+        assert_eq!(
+            table.app.picked_rows(&page).cloned(),
+            Some(std::collections::BTreeSet::from([150]))
+        );
+        assert!(table.app.linked_song(&page).is_none());
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label().is_some_and(|name| name.contains("Track 150"))),
+            "the linked row is on screen"
+        );
+
+        // #when the user clears the pick
+        table.app.clear_picked_rows();
+        table.frame(Vec::new());
+
+        // #then the spent link does not pick it again
+        assert_eq!(table.app.picked_rows(&page), None);
+    }
+
+    /// A song the finished list does not hold is let go of, not waited for.
+    #[test]
+    fn a_linked_song_the_list_does_not_hold_is_let_go() {
+        // #given
+        let mut table = KeyboardTable::new();
+        let page = Page::Playlist("test".into());
+        let missing = "spotify:track:missing".to_string();
+        table
+            .app
+            .link_song_for_test(page.clone(), [missing.clone(), missing]);
+
+        // #when the whole list is there without the song
+        table.frame(Vec::new());
+
+        // #then nothing is picked and nothing waits
+        assert_eq!(table.app.picked_rows(&page), None);
+        assert!(table.app.linked_song(&page).is_none());
+    }
+
+    /// Shift+Q queues the picked songs in list order, once however long the
+    /// key is held, and does nothing without a pick (#1110).
+    #[test]
+    fn shift_q_queues_the_picked_songs() {
+        // #given
+        let mut table = KeyboardTable::new();
+        let shift_q = |pressed| egui::Event::Key {
+            key: egui::Key::Q,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::SHIFT,
+        };
+
+        // #when nothing is picked
+        table.frame(vec![shift_q(true), shift_q(false)]);
+
+        // #then
+        assert!(table.app.actions.is_empty());
+
+        // #when two songs are picked
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowDown);
+        table.modified_key(egui::Key::ArrowDown, egui::Modifiers::SHIFT);
+        table.frame(vec![shift_q(true)]);
+        let [Action::QueueMany { songs }] = table.app.actions.as_slice() else {
+            panic!("expected one queue action: {:?}", table.app.actions);
+        };
+
+        // #then
+        assert_eq!(
+            songs.iter().map(|song| song.0.as_str()).collect::<Vec<_>>(),
+            ["spotify:track:t_1", "spotify:track:t_2"]
+        );
+        table.app.actions.clear();
+
+        // #when the key is held
+        table.frame(vec![shift_q(true), shift_q(true)]);
+
+        // #then egui reports repeats, and they queue nothing
+        assert!(table.app.actions.is_empty());
+        table.frame(vec![shift_q(false)]);
+
+        // #when a text field has focus
+        table
+            .ctx
+            .memory_mut(|memory| memory.request_focus(egui::Id::new("keyboard-filter")));
+        table.frame(Vec::new());
+        table.frame(vec![shift_q(true), shift_q(false)]);
+
+        // #then the field keeps the key
+        assert!(table.app.actions.is_empty());
+    }
+
+    /// Shift+N plays the picked songs next where the queue can be rewritten,
+    /// and is off elsewhere, like the menu item (#1110).
+    #[test]
+    fn shift_n_plays_the_picked_songs_next_on_this_computer() {
+        // #given a picked song with no local player
+        let mut table = KeyboardTable::new();
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowDown);
+
+        // #when
+        table.modified_key(egui::Key::N, egui::Modifiers::SHIFT);
+
+        // #then
+        assert!(table.app.actions.is_empty());
+
+        // #when this computer is playing
+        table.frame(vec![egui::Event::Key {
+            key: egui::Key::N,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: egui::Modifiers::SHIFT,
+        }]);
+        table.app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:playing".into(),
+            ..Default::default()
+        });
+        table.app.local.playback = crate::player::Playback::Playing;
+        table.app.local_ready = true;
+        table.modified_key(egui::Key::N, egui::Modifiers::SHIFT);
+
+        // #then
+        let [Action::PlayNext { items }] = table.app.actions.as_slice() else {
+            panic!("expected play next: {:?}", table.app.actions);
+        };
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].uri(), "spotify:track:t_1");
+    }
+
     #[test]
     fn select_all_copy_and_paste_act_on_the_song_list() {
         // The modifiers as the platform reports its command key.

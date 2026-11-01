@@ -55,7 +55,9 @@ struct Cli {
     /// `windows-taskbar`, `start-in-tray`, `german`, `lyrics`, `lyrics-fullscreen`, `collection-loading`,
     /// `shuffle-selected`, `shuffle-started`, `undated-mix`, `signed-out`, `connecting`, `library-list`,
     /// `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
-    /// or `library-grid-wide`.
+    /// `library-grid-wide`, `waiting-for-browser`, `sign-in-returning`, `sign-in-malformed`,
+    /// `sign-in-shared-retired`, `sign-in-unknown-client`, `sign-in-not-allowed`,
+    /// `shared-grant`, or `own-app`.
     #[cfg(feature = "demo")]
     #[arg(long)]
     demo_show: Option<String>,
@@ -298,34 +300,6 @@ fn desktop_entry() -> String {
     fastframe_now_playing::desktop_entry("spotifast")
 }
 
-#[cfg(target_os = "linux")]
-const PULSEAUDIO_PROPERTIES: [(&str, &str); 2] = [
-    ("PULSE_PROP_application.name", "Spotifast"),
-    ("PULSE_PROP_stream.description", "Spotify playback"),
-];
-
-#[cfg(target_os = "linux")]
-fn missing_pulseaudio_properties(
-    mut is_set: impl FnMut(&str) -> bool,
-) -> impl Iterator<Item = (&'static str, &'static str)> {
-    PULSEAUDIO_PROPERTIES
-        .into_iter()
-        .filter(move |(key, _)| !is_set(key))
-}
-
-/// Gives the librespot PulseAudio backend useful stream metadata.
-///
-/// That backend leaves both names empty unless its caller provides them. An
-/// unnamed stream cannot be identified reliably by mixers and audio processors.
-#[cfg(target_os = "linux")]
-fn configure_pulseaudio_properties() {
-    for (key, value) in missing_pulseaudio_properties(|key| std::env::var_os(key).is_some()) {
-        // SAFETY: run calls this at process startup, before it creates any
-        // threads. Keep explicit values supplied by the launcher or user.
-        unsafe { std::env::set_var(key, value) };
-    }
-}
-
 /// The `nowplaying` snapshot as one human-readable line.
 fn format_now_playing(snapshot: &str) -> String {
     let mut fields = snapshot.split('\t');
@@ -376,12 +350,12 @@ fn format_devices(snapshot: &str) -> String {
 }
 
 pub(crate) fn run() -> eframe::Result<()> {
-    #[cfg(target_os = "linux")]
-    configure_pulseaudio_properties();
     // First of all: `--apply-update <job>` makes this process the update
     // helper, which installs and exits; otherwise the receipt and error an
     // update relaunch carries are taken out of the arguments.
     let launch = fastframe_update::intercept(&spotifast::updates::CONFIG);
+    // Before any output is listed or opened.
+    spotifast::sink::name_in_mixers();
     // A MilkDrop child launch is a bare visualiser window, not the app: it has
     // its own event loop and OpenGL context, reads the sound from a shared
     // buffer, and never touches the app's state. Handle it before anything
@@ -476,6 +450,7 @@ pub(crate) fn run() -> eframe::Result<()> {
         None => paths::AppDirs::discover(),
     };
     let dirs = folders.dirs.clone();
+    let window_file = folders.window_file();
     let dirs_ready = dirs.ensure();
     // Launched from a desktop, stderr goes nowhere; keep the run's log where
     // a bug report can find it, and a line per panic in the panic log (with
@@ -645,7 +620,6 @@ pub(crate) fn run() -> eframe::Result<()> {
         let creator_shot = shot.clone();
         let mini = lease.peek(MiniWindow::wanted);
         let geometry = lease.peek(main_geometry);
-        #[cfg(windows)]
         let locale = lease.peek(|app| app.locale);
         #[cfg(feature = "demo")]
         let options = {
@@ -663,106 +637,103 @@ pub(crate) fn run() -> eframe::Result<()> {
         };
         #[cfg(not(feature = "demo"))]
         let options = native_options(false, mini, None, geometry);
-        let options = profile_options(options);
+        let options = profile_options(options, window_file.clone());
         #[cfg(windows)]
         let thumbbar_enabled = desktop_surfaces && options.viewport.taskbar != Some(false);
         #[cfg(target_os = "linux")]
         let hide_from_taskbar = options.viewport.taskbar == Some(false);
-        eframe::run_native(
-            "Spotifast",
-            options,
-            Box::new(move |cc| {
-                if let Some(gl) = &cc.gl {
-                    use eframe::glow::HasContext;
-                    // eframe has made this window's GL context current
-                    // before calling the app creator. These identify the
-                    // renderer actually selected, which may differ from
-                    // the listed GPU.
-                    unsafe {
-                        log::info!(
-                            "OpenGL renderer: {}; vendor: {}; version: {}",
-                            gl.get_parameter_string(eframe::glow::RENDERER),
-                            gl.get_parameter_string(eframe::glow::VENDOR),
-                            gl.get_parameter_string(eframe::glow::VERSION)
-                        );
-                    }
+        // Without the wgpu feature OpenGL is the only renderer, so there is
+        // one try and each of these is asked for once. When it cannot draw,
+        // fastframe-graphics says why in a native dialog rather than letting
+        // the app quit without a word.
+        let mut options = Some(options);
+        let mut creator: Option<eframe::AppCreator<'_>> = Some(Box::new(move |cc| {
+            if let Some(gl) = &cc.gl {
+                use eframe::glow::HasContext;
+                // eframe has made this window's GL context current
+                // before calling the app creator. These identify the
+                // renderer actually selected, which may differ from
+                // the listed GPU.
+                unsafe {
+                    log::info!(
+                        "OpenGL renderer: {}; vendor: {}; version: {}",
+                        gl.get_parameter_string(eframe::glow::RENDERER),
+                        gl.get_parameter_string(eframe::glow::VENDOR),
+                        gl.get_parameter_string(eframe::glow::VERSION)
+                    );
                 }
-                let mut app = lease.take(&cc.egui_ctx);
-                // Built once per window, before the first frame; the
-                // handler wakes the loop so a menu pick is not held until
-                // the next repaint.
-                #[cfg(target_os = "macos")]
-                {
-                    spotifast::mac_touchbar_crash_guard::install();
-                    spotifast::mac_menu::init();
-                    let ctx = cc.egui_ctx.clone();
-                    spotifast::mac_menu::set_waker(move || ctx.request_repaint());
-
-                    spotifast::notch::init();
-                    let ctx_notch = cc.egui_ctx.clone();
-                    spotifast::notch::set_waker(move || ctx_notch.request_repaint());
-                }
-                {
-                    use raw_window_handle::HasDisplayHandle;
-                    if let Ok(display) = cc.display_handle() {
-                        app.window_level_supported =
-                            spotifast::window::supports_window_level(display.as_raw());
-                        app.taskbar_hiding_supported =
-                            spotifast::window::supports_hiding_from_taskbar(display.as_raw());
-                    }
-                }
-                // winit hides a taskbar button on Windows only; X11 is
-                // asked here, while the window is still unmapped.
-                #[cfg(target_os = "linux")]
-                if hide_from_taskbar {
-                    use raw_window_handle::HasWindowHandle;
-                    if let Ok(handle) = cc.window_handle() {
-                        spotifast::window::skip_x11_taskbar(handle.as_raw());
-                    }
-                }
-                app.attach(&cc.egui_ctx);
-                #[cfg(windows)]
-                let thumbbar = {
-                    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-                    let mut toolbar = spotifast::thumbbar::ThumbBar::new();
-                    if thumbbar_enabled
-                        && let Ok(handle) = cc.window_handle()
-                        && let RawWindowHandle::Win32(window) = handle.as_raw()
-                    {
-                        let wake = creator_waker.clone();
-                        // The shell and toolbar share this window's thread
-                        // and lifetime; the toolbar is detached on shell
-                        // drop.
-                        unsafe { toolbar.attach(window.hwnd.get(), move || wake.wake()) };
-                    }
-                    toolbar
-                };
-                Ok(Box::new(Shell {
-                    app,
-                    recovery_checked: false,
-                    #[cfg(windows)]
-                    thumbbar,
-                    #[cfg(feature = "demo")]
-                    shot: creator_shot.clone(),
-                    #[cfg(feature = "demo")]
-                    drag: demo_drag,
-                    stalls: fastframe_shell::StallWatch::default(),
-                    screen_asked: None,
-                }))
-            }),
-        )
-        .inspect_err(|error| {
-            log::error!("Native window failed: {error}");
-            #[cfg(windows)]
-            if matches!(
-                error,
-                eframe::Error::Glutin(_)
-                    | eframe::Error::NoGlutinConfigs(..)
-                    | eframe::Error::OpenGL(_)
-            ) {
-                spotifast::window::report_missing_opengl(locale);
             }
-        })
+            let mut app = lease.take(&cc.egui_ctx);
+            // Built once per window, before the first frame; the
+            // handler wakes the loop so a menu pick is not held until
+            // the next repaint.
+            #[cfg(target_os = "macos")]
+            {
+                spotifast::mac_touchbar_crash_guard::install();
+                spotifast::mac_menu::init();
+                let ctx = cc.egui_ctx.clone();
+                spotifast::mac_menu::set_waker(move || ctx.request_repaint());
+
+                spotifast::notch::init();
+                let ctx_notch = cc.egui_ctx.clone();
+                spotifast::notch::set_waker(move || ctx_notch.request_repaint());
+            }
+            {
+                use raw_window_handle::HasDisplayHandle;
+                if let Ok(display) = cc.display_handle() {
+                    app.window_level_supported =
+                        spotifast::window::supports_window_level(display.as_raw());
+                    app.taskbar_hiding_supported =
+                        spotifast::window::supports_hiding_from_taskbar(display.as_raw());
+                }
+            }
+            // winit hides a taskbar button on Windows only; X11 is
+            // asked here, while the window is still unmapped.
+            #[cfg(target_os = "linux")]
+            if hide_from_taskbar {
+                use raw_window_handle::HasWindowHandle;
+                if let Ok(handle) = cc.window_handle() {
+                    spotifast::window::skip_x11_taskbar(handle.as_raw());
+                }
+            }
+            app.attach(&cc.egui_ctx);
+            #[cfg(windows)]
+            let thumbbar = {
+                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                let mut toolbar = spotifast::thumbbar::ThumbBar::new();
+                if thumbbar_enabled
+                    && let Ok(handle) = cc.window_handle()
+                    && let RawWindowHandle::Win32(window) = handle.as_raw()
+                {
+                    let wake = creator_waker.clone();
+                    // The shell and toolbar share this window's thread
+                    // and lifetime; the toolbar is detached on shell
+                    // drop.
+                    unsafe { toolbar.attach(window.hwnd.get(), move || wake.wake()) };
+                }
+                toolbar
+            };
+            Ok(Box::new(Shell {
+                app,
+                recovery_checked: false,
+                #[cfg(windows)]
+                thumbbar,
+                #[cfg(feature = "demo")]
+                shot: creator_shot.clone(),
+                #[cfg(feature = "demo")]
+                drag: demo_drag,
+                stalls: fastframe_shell::StallWatch::default(),
+                screen_asked: None,
+            }))
+        }));
+        fastframe_graphics::Graphics::new("Spotifast")
+            .help(spotifast::window::DOWNLOAD_PAGE)
+            .dialog(move |trouble| spotifast::window::no_window_dialog(locale, trouble))
+            .run_native(
+                || options.take().expect("one try opens the window"),
+                || creator.take().expect("one try opens the window"),
+            )
+            .inspect_err(|error| log::error!("Native window failed: {error}"))
     })
 }
 
@@ -781,7 +752,7 @@ struct MiniWindow {
 impl MiniWindow {
     fn wanted(app: &app::App) -> Option<Self> {
         app.settings.winamp_window.then(|| Self {
-            size: spotifast::ui::winamp::initial_size(&app.settings),
+            size: spotifast::ui::winamp::initial_size(&app.settings, &app.winamp.skin),
             geometry: Geometry {
                 position: app.winamp.geometry.position,
                 ..Geometry::default()
@@ -873,10 +844,8 @@ fn native_options(
     // so it neither reads the main window's geometry nor creates a state file.
     let persistence_path = mini.as_ref().map(|mini| mini.storage_path.clone());
     #[cfg(target_os = "linux")]
-    let persistence_path = persistence_path.or_else(|| {
-        // Keep the native profile path even when Flatpak supplies its app ID.
-        eframe::storage_dir("spotifast").map(|dir| dir.join("app.ron"))
-    });
+    // Keep the native profile path even when Flatpak supplies its app ID.
+    let persistence_path = persistence_path.or_else(paths::installed_window_file);
     #[cfg(target_os = "linux")]
     let app_id = desktop_entry();
     #[cfg(not(target_os = "linux"))]
@@ -955,9 +924,14 @@ fn native_options(
     }
 }
 
-fn profile_options(mut options: eframe::NativeOptions) -> eframe::NativeOptions {
+/// Points the main window at `window_file`, which a portable copy keeps in
+/// its own folder.
+fn profile_options(
+    mut options: eframe::NativeOptions,
+    window_file: Option<std::path::PathBuf>,
+) -> eframe::NativeOptions {
     if options.persist_window {
-        options.persistence_path = eframe::storage_dir("spotifast").map(|dir| dir.join("app.ron"));
+        options.persistence_path = window_file;
     }
     options
 }
@@ -998,16 +972,20 @@ mod native_window_tests {
 
     #[test]
     fn window_geometry_is_kept_without_touching_demo_storage() {
-        let main = profile_options(native_options(false, None, None, Geometry::default()));
-        assert_eq!(
-            main.persistence_path,
-            eframe::storage_dir("spotifast").map(|dir| dir.join("app.ron"))
-        );
-        let demo_path = std::path::PathBuf::from("temporary/demo.ron");
-        let demo = profile_options(demo_native_options(
+        let window_file = std::path::PathBuf::from("spotifast-data/state/app.ron");
+        let main = profile_options(
             native_options(false, None, None, Geometry::default()),
-            demo_path.clone(),
-        ));
+            Some(window_file.clone()),
+        );
+        assert_eq!(main.persistence_path, Some(window_file.clone()));
+        let demo_path = std::path::PathBuf::from("temporary/demo.ron");
+        let demo = profile_options(
+            demo_native_options(
+                native_options(false, None, None, Geometry::default()),
+                demo_path.clone(),
+            ),
+            Some(window_file),
+        );
         assert_eq!(demo.persistence_path, Some(demo_path));
     }
 
@@ -1032,10 +1010,7 @@ mod native_window_tests {
             let id = desktop_entry();
             assert_eq!(main.viewport.app_id.as_deref(), Some(id.as_str()));
             assert_eq!(mini.viewport.app_id, main.viewport.app_id);
-            assert_eq!(
-                main.persistence_path,
-                eframe::storage_dir("spotifast").map(|dir| dir.join("app.ron"))
-            );
+            assert_eq!(main.persistence_path, paths::installed_window_file());
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -1103,7 +1078,8 @@ mod native_window_tests {
                 skin_scale: Some(2),
                 ..Default::default()
             };
-            let size = spotifast::ui::winamp::initial_size(&settings);
+            let size =
+                spotifast::ui::winamp::initial_size(&settings, &spotifast::skin::Skin::builtin());
             let options = native_options(
                 false,
                 Some(MiniWindow {
@@ -1627,22 +1603,6 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn pulse_metadata_defaults_preserve_existing_properties() {
-        let defaults = missing_pulseaudio_properties(|_| false).collect::<Vec<_>>();
-        assert_eq!(defaults, PULSEAUDIO_PROPERTIES);
-
-        let defaults = missing_pulseaudio_properties(|key| key == "PULSE_PROP_application.name")
-            .collect::<Vec<_>>();
-        assert_eq!(
-            defaults,
-            [("PULSE_PROP_stream.description", "Spotify playback")]
-        );
-
-        assert_eq!(missing_pulseaudio_properties(|_| true).count(), 0);
-    }
 
     /// The login entry's `--start-hidden` starts in the tray, unless the
     /// launch has something to show.

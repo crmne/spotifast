@@ -327,6 +327,11 @@ pub fn paint_shadow(ui: &Ui, palette: &Palette, rect: Rect, radius: f32) {
 
 /// Fills `rect` with a vertical gradient from `top` to `bottom`.
 pub fn paint_vertical_gradient(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {
+    ui.painter().add(vertical_gradient(rect, top, bottom));
+}
+
+/// A gradient shape whose bounds can be set after laying out its content.
+pub fn vertical_gradient(rect: Rect, top: Color32, bottom: Color32) -> egui::Shape {
     let mut mesh = egui::Mesh::default();
     mesh.colored_vertex(rect.left_top(), top);
     mesh.colored_vertex(rect.right_top(), top);
@@ -334,7 +339,7 @@ pub fn paint_vertical_gradient(ui: &Ui, rect: Rect, top: Color32, bottom: Color3
     mesh.colored_vertex(rect.left_bottom(), bottom);
     mesh.add_triangle(0, 1, 2);
     mesh.add_triangle(0, 2, 3);
-    ui.painter().add(egui::Shape::mesh(mesh));
+    egui::Shape::mesh(mesh)
 }
 
 /// Lays out only the rows that intersect the visible area of the enclosing
@@ -711,22 +716,26 @@ pub fn picked_menu(
     });
     ui.add_space(4.0);
     menu_separator(ui, &palette);
+    // Local files queue only on this computer's player (#1002); the
+    // others in the selection still go.
+    let queueable = songs.iter().any(|item| app.can_queue(item.uri()));
     if menu_item_enabled(
         ui,
         &palette,
         Some(Icon::SkipForward),
         &gettext(locale, "Play next"),
-        app.queue_locally_reorderable(),
+        app.queue_locally_reorderable() && queueable,
     ) {
         app.actions.push(Action::PlayNext {
             items: songs.to_vec(),
         });
     }
-    if menu_item(
+    if menu_item_enabled(
         ui,
         &palette,
         Some(Icon::ListEnd),
         &gettext(locale, "Add to queue"),
+        queueable,
     ) {
         app.actions.push(Action::QueueMany {
             songs: songs
@@ -969,22 +978,25 @@ fn item_menu_at(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
+    // A local file queues only on this computer's player (#1002).
+    let queueable = app.can_queue(&uri);
     if menu_item_enabled(
         ui,
         &palette,
         Some(Icon::SkipForward),
         &gettext(locale, "Play next"),
-        app.queue_locally_reorderable(),
+        app.queue_locally_reorderable() && queueable,
     ) {
         app.actions.push(Action::PlayNext {
             items: vec![item.clone()],
         });
     }
-    if menu_item(
+    if menu_item_enabled(
         ui,
         &palette,
         Some(Icon::ListEnd),
         &gettext(locale, "Add to queue"),
+        queueable,
     ) {
         app.actions.push(Action::AddToQueue {
             uri: uri.clone(),
@@ -1185,6 +1197,41 @@ fn item_menu_at(
         &gettext(locale, "Copy link"),
     ) {
         app.actions.push(Action::CopyLink(uri.clone()));
+    }
+    if let PlayableItem::Track(track) = item {
+        let artists = track.artist_names();
+        let has_title = !track.name.is_empty();
+        let has_artists = !artists.is_empty();
+        if has_title || has_artists {
+            menu_submenu(
+                ui,
+                &palette,
+                Some(Icon::Copy),
+                &gettext(locale, "Copy details"),
+                |ui| {
+                    ui.set_min_width(200.0);
+                    ui.set_max_width(300.0);
+                    if has_title && menu_item(ui, &palette, None, &gettext(locale, "Song title")) {
+                        app.actions.push(Action::CopyText(track.name.clone()));
+                    }
+                    if has_artists && menu_item(ui, &palette, None, &gettext(locale, "Artist")) {
+                        app.actions.push(Action::CopyText(artists.clone()));
+                    }
+                    if has_title
+                        && has_artists
+                        && menu_item(
+                            ui,
+                            &palette,
+                            None,
+                            &gettext(locale, "Artist and song title"),
+                        )
+                    {
+                        app.actions
+                            .push(Action::CopyText(format!("{artists} - {}", track.name)));
+                    }
+                },
+            );
+        }
     }
     if menu_item(
         ui,
@@ -1554,7 +1601,7 @@ fn track_row_contents(
             ui.ctx(),
             DragTrack {
                 title: preview.name().to_string(),
-                image: preview.image(64).map(str::to_string),
+                image: app.item_image(preview, 64),
                 items,
                 from,
                 source_playlist,
@@ -1646,7 +1693,7 @@ fn track_row_contents(
         paint_cover(
             ui,
             &palette,
-            row.item.image(app.art_px(size)),
+            app.item_image(row.item, app.art_px(size)).as_deref(),
             cover_rect,
             4.0,
             if row.item.is_track() {
@@ -1745,8 +1792,8 @@ fn track_row_contents(
                 if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
                     && cols.added == 0.0
                 {
-                    let label =
-                        util::format_relative_date(app.locale, added, jiff::Timestamp::now());
+                    let now = jiff::Timestamp::now();
+                    let label = util::format_relative_date(app.locale, added, now);
                     theme::text(
                         &mut child,
                         "•",
@@ -1754,7 +1801,7 @@ fn track_row_contents(
                         palette.secondary.gamma_multiply(0.6),
                     );
                     theme::text(&mut child, &label, theme::regular(12.0), palette.secondary);
-                    if label.ends_with(" ago") {
+                    if util::is_relative_date(added, now) {
                         ui.ctx()
                             .request_repaint_after(std::time::Duration::from_secs(1));
                     }
@@ -1791,10 +1838,10 @@ fn track_row_contents(
                         theme::regular(12.0),
                         palette.secondary.gamma_multiply(0.6),
                     );
-                    let label =
-                        util::format_relative_date(app.locale, added, jiff::Timestamp::now());
+                    let now = jiff::Timestamp::now();
+                    let label = util::format_relative_date(app.locale, added, now);
                     theme::text(&mut child, &label, theme::regular(12.0), palette.secondary);
-                    if label.ends_with(" ago") {
+                    if util::is_relative_date(added, now) {
                         ui.ctx()
                             .request_repaint_after(std::time::Duration::from_secs(1));
                     }
@@ -1839,10 +1886,10 @@ fn track_row_contents(
                             theme::regular(12.0),
                             palette.secondary.gamma_multiply(0.6),
                         );
-                        let label =
-                            util::format_relative_date(app.locale, added, jiff::Timestamp::now());
+                        let now = jiff::Timestamp::now();
+                        let label = util::format_relative_date(app.locale, added, now);
                         theme::text(ui, &label, theme::regular(12.0), palette.secondary);
-                        if label.ends_with(" ago") {
+                        if util::is_relative_date(added, now) {
                             ui.ctx()
                                 .request_repaint_after(std::time::Duration::from_secs(1));
                         }
@@ -1870,10 +1917,10 @@ fn track_row_contents(
                             theme::regular(12.0),
                             palette.secondary.gamma_multiply(0.6),
                         );
-                        let label =
-                            util::format_relative_date(app.locale, added, jiff::Timestamp::now());
+                        let now = jiff::Timestamp::now();
+                        let label = util::format_relative_date(app.locale, added, now);
                         theme::text(ui, &label, theme::regular(12.0), palette.secondary);
-                        if label.ends_with(" ago") {
+                        if util::is_relative_date(added, now) {
                             ui.ctx()
                                 .request_repaint_after(std::time::Duration::from_secs(1));
                         }
@@ -1941,7 +1988,8 @@ fn track_row_contents(
             .filter(|added| !added.starts_with("1970-01-01"))
         {
             let cell = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.added, row_height));
-            let label = util::format_relative_date(app.locale, added, jiff::Timestamp::now());
+            let now = jiff::Timestamp::now();
+            let label = util::format_relative_date(app.locale, added, now);
             painter.text(
                 pos2(cell.left(), cell.center().y),
                 egui::Align2::LEFT_CENTER,
@@ -1951,7 +1999,7 @@ fn track_row_contents(
             );
             // Relative labels cross a boundary while the table is idle, so
             // keep the visible value in step with the clock.
-            if label.ends_with(" ago") {
+            if util::is_relative_date(added, now) {
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_secs(1));
             }
@@ -2465,14 +2513,12 @@ pub fn table_header(
         );
         cx += added_width;
     }
-    // Spotify's own lists do not sort by plays, and neither does this one.
     if plays_width > 0.0 {
-        ui.painter().text(
-            pos2(cx, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            pgettext(locale, "column heading", "PLAYS"),
-            font.clone(),
-            color,
+        heading(
+            ui,
+            cx,
+            &pgettext(locale, "column heading", "PLAYS"),
+            SortColumn::Plays,
         );
     }
     if number_clicked {
@@ -2858,9 +2904,43 @@ pub fn skeleton_rows(ui: &mut Ui, palette: &Palette, locale: Locale, count: usiz
 /// Placeholder cards for a shelf that is loading, the size of the cards it
 /// will show, round for artists. Like [`skeleton_rows`], they do not move.
 pub fn skeleton_cards(ui: &mut Ui, palette: &Palette, locale: Locale, count: usize, round: bool) {
-    let fill = skeleton_fill(palette);
     const PAD: f32 = 12.0;
     let height = PAD + CARD_ART + 10.0 + 14.0 + 6.0 + 10.0 + PAD;
+    skeleton_cards_sized(ui, palette, locale, count, round, height);
+}
+
+/// Fills a previous card grid's height with placeholders. Each row uses at
+/// least the loaded card height, including its two subtitle lines, and shares
+/// any extra room (such as the old Load more button) across the rows.
+pub fn skeleton_cards_filling(
+    ui: &mut Ui,
+    palette: &Palette,
+    locale: Locale,
+    count: usize,
+    round: bool,
+    min_height: f32,
+) {
+    let spacing = CARD_GAP / 2.0;
+    let columns = ((ui.available_width() + spacing) / (CARD_WIDTH + spacing))
+        .floor()
+        .max(1.0) as usize;
+    let rows = count.max(1).div_ceil(columns);
+    let height = ((min_height - CARD_GAP * rows.saturating_sub(1) as f32) / rows as f32)
+        .max(card_row_height(ui));
+    skeleton_cards_sized(ui, palette, locale, count, round, height);
+}
+
+/// Draws skeleton covers and text at an explicitly chosen row height.
+fn skeleton_cards_sized(
+    ui: &mut Ui,
+    palette: &Palette,
+    locale: Locale,
+    count: usize,
+    round: bool,
+    height: f32,
+) {
+    let fill = skeleton_fill(palette);
+    const PAD: f32 = 12.0;
     for index in 0..count {
         let (rect, response) = ui.allocate_exact_size(vec2(CARD_WIDTH, height), Sense::hover());
         if index == 0 {
@@ -3131,6 +3211,29 @@ pub fn chips<T: PartialEq + Copy>(
     current: T,
 ) -> Option<T> {
     let mut selected = None;
+    let id = ui.next_auto_id();
+    chip_row(ui, id, palette.window, |ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        for (value, label) in options {
+            let chip = theme::soft_button(ui, palette, None, label, *value == current);
+            if chip.clicked() {
+                chip.scroll_to_me(None);
+                selected = Some(*value);
+            }
+        }
+    });
+    selected
+}
+
+/// Chips for a list of any length, such as installed skins: they wrap onto as
+/// many rows as they need, so every choice is in sight.
+pub fn wrapped_chips<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    palette: &Palette,
+    options: &[(T, &str)],
+    current: T,
+) -> Option<T> {
+    let mut selected = None;
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         for (value, label) in options {
@@ -3140,6 +3243,47 @@ pub fn chips<T: PartialEq + Copy>(
         }
     });
     selected
+}
+
+/// How wide the fade over a chip row's clipped edge is.
+const CHIP_FADE: f32 = 24.0;
+
+/// One row of chips that scrolls when it overflows. It draws no scroll bar,
+/// which has no room of its own and would lie over the chips: the clipped
+/// chip and a fade into `fill` say there is more. A plain mouse wheel scrolls
+/// the row, since most mice have no sideways wheel.
+pub fn chip_row(
+    ui: &mut Ui,
+    id: egui::Id,
+    fill: egui::Color32,
+    add_contents: impl FnOnce(&mut Ui),
+) {
+    let row = ui
+        .scope(|ui| {
+            ui.style_mut().always_scroll_the_only_direction = true;
+            egui::ScrollArea::horizontal()
+                .id_salt(id)
+                .animated(false)
+                .auto_shrink([false, true])
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                .show(ui, |ui| {
+                    ui.horizontal(add_contents);
+                })
+        })
+        .inner;
+    let rect = row.inner_rect;
+    let hidden = row.content_size.x - row.state.offset.x - rect.width();
+    if hidden > 0.5 {
+        let fade = Rect::from_min_max(pos2(rect.right() - CHIP_FADE, rect.top()), rect.max);
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(fade.left_top(), egui::Color32::TRANSPARENT);
+        mesh.colored_vertex(fade.right_top(), fill);
+        mesh.colored_vertex(fade.right_bottom(), fill);
+        mesh.colored_vertex(fade.left_bottom(), egui::Color32::TRANSPARENT);
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        ui.painter().add(egui::Shape::mesh(mesh));
+    }
 }
 
 /// A text input with the native clipboard actions and a selection-aware menu.

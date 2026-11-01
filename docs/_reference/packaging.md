@@ -6,7 +6,7 @@ nav_order: 20
 
 Spotifast keeps release asset definitions, nFPM configuration and native AUR and
 Homebrew templates in `native-packages.yaml` and `packaging/`. Common automation comes from the pinned
-[native-packages](https://github.com/crmne/native-packages) gem, installed with `gem install native-packages --version 0.10.0`.
+[native-packages](https://github.com/crmne/native-packages) gem, installed with `gem install native-packages --version 0.11.0`.
 
 Stable releases build the existing Linux, macOS and Windows artifacts first.
 The Linux build jobs also build the AppImages (`appimage-amd64`,
@@ -35,9 +35,9 @@ and Windows installer sources. nFPM does not replace these platform tools.
 
 Releases after 0.12.0 install on Windows through a per-user Windows Installer
 package (`.msi`, built with the WiX Toolset from `packaging/windows/spotifast.wxs`)
-that needs no administrator password. The first of them also ships the earlier
-Inno Setup program (`-setup.exe`), which older versions update through. The
-package takes over a copy the setup program installed: the same folder, links
+that needs no administrator password. 0.13.0 to 0.14.2 also shipped the
+earlier Inno Setup program (`-setup.exe`), which older versions updated
+through; later releases ship only the package. The package takes over a copy the setup program installed: the same folder, links
 and Start menu entry, with one entry under installed apps and settings kept.
 
 If the installed `spotifast.exe` is running, uninstalling removes nothing until

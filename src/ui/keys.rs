@@ -18,12 +18,33 @@ pub(super) const WINAMP_SHORTCUT: &str = platform_shortcut("Ctrl+M", "Cmd+Shift+
 pub(super) const MILKDROP_SHORTCUT: &str = platform_shortcut("Ctrl+Shift+K", "Cmd+Shift+K");
 
 pub fn handle(app: &mut App, ctx: &egui::Context) {
-    let typing = ctx.memory(|memory| memory.focused().is_some());
-    // A focused song row still takes Ctrl+arrow to change songs; a text
-    // field uses those keys to move its caret.
+    if app.show_soloist_onboarding() || app.soloist_waiting() {
+        // Setup owns navigation, but the window must still close and quit.
+        // Consume shifted variants first so Cmd+Shift+Q never becomes Quit.
+        ctx.input_mut(|input| {
+            for (key, action) in [(Key::Q, Action::Quit), (Key::W, Action::CloseWindow)] {
+                if !input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, key)
+                    && input.consume_key(Modifiers::COMMAND, key)
+                {
+                    app.actions.push(action);
+                }
+            }
+        });
+        return;
+    }
+    // A focused song row still takes Ctrl+arrow and plain shortcuts to
+    // control playback; a text field uses those keys for typing and moving
+    // its caret.
     let editing_text = ctx.text_edit_focused();
+    let songs_picked = app.picked_rows(app.page()).is_some();
     let mut actions = Vec::new();
     ctx.input_mut(|input| {
+        // With songs picked, Shift+Q is the song list's: it queues them.
+        let queue_key_is_the_lists = songs_picked
+            && input.events.iter().any(|event| {
+                matches!(event, egui::Event::Key { key: Key::Q, pressed: true, modifiers, .. }
+                    if modifiers.shift_only())
+            });
         let mut key = |modifiers: Modifiers, key: Key, action: Action| {
             if input.consume_key(modifiers, key) {
                 actions.push(action);
@@ -107,7 +128,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::COMMAND, Key::ArrowUp, Action::VolumeBy(5));
             key(Modifiers::COMMAND, Key::ArrowDown, Action::VolumeBy(-5));
         }
-        if !typing {
+        if !editing_text && app.dialog.is_none() {
             key(
                 Modifiers::NONE,
                 Key::Questionmark,
@@ -123,7 +144,9 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::NONE, Key::M, Action::ToggleMute);
             key(Modifiers::NONE, Key::S, Action::ToggleShuffle);
             key(Modifiers::NONE, Key::R, Action::CycleRepeat);
-            key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
+            if !queue_key_is_the_lists {
+                key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
+            }
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
             key(
@@ -133,7 +156,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             );
         }
     });
-    if !typing
+    if !editing_text
+        && app.dialog.is_none()
         && ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::B))
         && let Some(now) = app.now_playing().filter(|now| !now.is_episode)
     {
@@ -186,6 +210,56 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+/// Scroll the main page by a viewport, or to either end. Call after laying
+/// out its contents so virtual lists contribute their full height.
+pub(super) fn scroll_page(ui: &egui::Ui) {
+    if !ui.is_enabled() || ui.ctx().text_edit_focused() || egui::Popup::is_any_open(ui.ctx()) {
+        return;
+    }
+    let visible = ui.clip_rect();
+    let content = ui.min_rect();
+    let first = content.top();
+    let last = (content.bottom() - visible.height()).max(first);
+    let mut top = visible.top().clamp(first, last);
+    let mut handled = false;
+    // The events are walked rather than taken with consume_key: consume_key
+    // ignores an extra Shift, drops the count of repeated presses, and cannot
+    // keep the order of interleaved Home and Page keys.
+    ui.input_mut(|input| {
+        input.events.retain(|event| {
+            let egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } = event
+            else {
+                return true;
+            };
+            if *modifiers != Modifiers::NONE {
+                return true;
+            }
+            top = match key {
+                Key::PageUp => (top - visible.height()).max(first),
+                Key::PageDown => (top + visible.height()).min(last),
+                Key::Home => first,
+                Key::End => last,
+                _ => return true,
+            };
+            handled = true;
+            false
+        });
+    });
+    if handled {
+        // Center alignment avoids adding item spacing to the page step.
+        let target = egui::Rect::from_min_size(
+            egui::pos2(content.left(), top),
+            egui::vec2(content.width(), visible.height()),
+        );
+        ui.scroll_to_rect(target, Some(egui::Align::Center));
+    }
+}
+
 /// The rows of the keyboard shortcuts dialog: the keys, then what they do.
 /// Key names stay as the keyboard prints them; words around them, and
 /// every description, are translated.
@@ -223,6 +297,14 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
             keys("Shift+↑  /  Shift+↓"),
             gettext(locale, "Song list: extend or shrink the selection"),
         ),
+        (
+            keys("Shift+Q"),
+            gettext(locale, "Song list: add the selected songs to the queue"),
+        ),
+        (
+            keys("Shift+N"),
+            gettext(locale, "Song list: play the selected songs next"),
+        ),
         (keys("Delete"), gettext(locale, "Remove from this playlist")),
         (
             keys(platform_shortcut("Ctrl+A", "Cmd+A")),
@@ -256,6 +338,14 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
         ),
         (keys("Alt+←  /  Alt+→"), gettext(locale, "Back or forward")),
         (
+            keys("Page Up  /  Page Down"),
+            gettext(locale, "Scroll the page"),
+        ),
+        (
+            keys("Home  /  End"),
+            gettext(locale, "Top or bottom of the page"),
+        ),
+        (
             keys(platform_shortcut("Ctrl+H", "Cmd+Shift+H")),
             gettext(locale, "Home"),
         ),
@@ -271,7 +361,7 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
             keys(platform_shortcut("Ctrl+Shift+B", "Cmd+Shift+B")),
             gettext(locale, "Go to the playing album"),
         ),
-        (keys(WINAMP_SHORTCUT), gettext(locale, "Winamp mini player")),
+        (keys(WINAMP_SHORTCUT), gettext(locale, "Mini player")),
         (
             keys(MILKDROP_SHORTCUT),
             gettext(locale, "MilkDrop, under the mini player"),
@@ -478,6 +568,45 @@ mod tests {
             frame(&mut app, &mut text, press(Key::ArrowRight, command)),
             format!("{:?}", [Action::Next])
         );
+        for (plain_key, modifiers, expected) in [
+            (Key::M, Modifiers::NONE, Action::ToggleMute),
+            (Key::S, Modifiers::NONE, Action::ToggleShuffle),
+            (Key::R, Modifiers::NONE, Action::CycleRepeat),
+            (Key::Q, Modifiers::NONE, Action::ToggleQueuePanel),
+            (Key::L, Modifiers::NONE, Action::ToggleLyricsPanel),
+            (Key::Slash, Modifiers::NONE, Action::FocusSearch),
+            (Key::F, Modifiers::NONE, Action::SetLyricsFullscreen(true)),
+            (
+                Key::Questionmark,
+                Modifiers::NONE,
+                Action::ShowDialog(Dialog::Shortcuts),
+            ),
+            (Key::ArrowLeft, Modifiers::SHIFT, Action::SeekBy(-10_000)),
+            (Key::ArrowRight, Modifiers::SHIFT, Action::SeekBy(10_000)),
+            (
+                Key::B,
+                Modifiers::NONE,
+                Action::ToggleSaved("spotify:track:trk0".into()),
+            ),
+        ] {
+            assert_eq!(
+                frame(&mut app, &mut text, press(plain_key, modifiers)),
+                format!("{:?}", [expected]),
+                "a focused row must not block plain shortcut {plain_key:?}"
+            );
+        }
+        app.dialog = Some(Dialog::Shortcuts);
+        assert_eq!(
+            frame(&mut app, &mut text, press(Key::Q, Modifiers::NONE)),
+            "[]",
+            "an open dialog blocks plain single-key shortcuts"
+        );
+        assert_eq!(
+            frame(&mut app, &mut text, press(Key::B, Modifiers::NONE)),
+            "[]",
+            "an open dialog blocks the like shortcut"
+        );
+        app.dialog = None;
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }
@@ -523,10 +652,10 @@ mod tests {
         };
         if cfg!(target_os = "macos") {
             assert_eq!(label("Home"), "Cmd+Shift+H");
-            assert_eq!(label("Winamp mini player"), "Cmd+Shift+M");
+            assert_eq!(label("Mini player"), "Cmd+Shift+M");
         } else {
             assert_eq!(label("Home"), "Ctrl+H");
-            assert_eq!(label("Winamp mini player"), "Ctrl+M");
+            assert_eq!(label("Mini player"), "Ctrl+M");
         }
     }
 
@@ -644,6 +773,24 @@ mod tests {
             "the quit shortcut still quits"
         );
         assert_eq!(
+            press(&mut app, Key::Q, Modifiers::SHIFT),
+            format!("{:?}", [Action::ToggleQueuePanel]),
+            "with no songs picked Shift+Q shows the queue, as it did"
+        );
+        let page = app.page().clone();
+        app.pick_rows(&page, "view", [0].into_iter().collect());
+        assert_eq!(
+            press(&mut app, Key::Q, Modifiers::SHIFT),
+            "[]",
+            "with songs picked Shift+Q is left to the song list"
+        );
+        assert_eq!(
+            press(&mut app, Key::Q, Modifiers::NONE),
+            format!("{:?}", [Action::ToggleQueuePanel]),
+            "Q still shows the queue with songs picked"
+        );
+        app.clear_picked_rows();
+        assert_eq!(
             press(&mut app, Key::B, shift),
             format!("{:?}", [Action::Open(Page::Album(album.unwrap()))]),
             "the album shortcut goes to the album"
@@ -669,7 +816,328 @@ mod tests {
             format!("{:?}", [Action::SetLyricsFullscreen(false)]),
             "F leaves lyrics full screen"
         );
+        if crate::soloist::install::supported() {
+            app.soloist_onboarding = crate::settings::SoloistOnboarding::Welcome;
+            assert_eq!(
+                press(&mut app, Key::Q, command),
+                format!("{:?}", [Action::Quit])
+            );
+            assert_eq!(
+                press(&mut app, Key::W, command),
+                format!("{:?}", [Action::CloseWindow])
+            );
+            assert_eq!(press(&mut app, Key::Q, shift), "[]");
+            assert_eq!(press(&mut app, Key::F, command), "[]");
+            assert_eq!(press(&mut app, Key::Space, Modifiers::NONE), "[]");
+        }
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A page of `content_height` points in a 600x320 window's vertical
+    /// scroll area, as `central` draws the main page. Each frame returns
+    /// the scroll offset, the visible height and the key presses the frame
+    /// still carries afterwards.
+    struct PageHarness {
+        ctx: egui::Context,
+        time: f64,
+    }
+
+    impl PageHarness {
+        fn new() -> Self {
+            PageHarness {
+                ctx: egui::Context::default(),
+                time: 0.0,
+            }
+        }
+
+        fn frame(
+            &mut self,
+            content_height: f32,
+            events: Vec<egui::Event>,
+            fill: &mut dyn FnMut(&mut egui::Ui),
+        ) -> (f32, f32, Vec<egui::Event>) {
+            self.time += 1.0 / 60.0;
+            let mut offset = 0.0;
+            let mut height = 0.0;
+            let mut output = self.ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(600.0, 320.0),
+                    )),
+                    time: Some(self.time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let scroll = egui::ScrollArea::vertical().animated(false).show(ui, |ui| {
+                        fill(ui);
+                        ui.allocate_space(egui::vec2(400.0, content_height));
+                        scroll_page(ui);
+                    });
+                    offset = scroll.state.offset.y;
+                    height = scroll.inner_rect.height();
+                },
+            );
+            output.textures_delta.clear();
+            let keys = self.ctx.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter(|event| matches!(event, egui::Event::Key { pressed: true, .. }))
+                    .cloned()
+                    .collect()
+            });
+            (offset, height, keys)
+        }
+    }
+
+    fn key_press(key: Key, modifiers: Modifiers) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    /// Page Down steps by a viewport, Page Up steps back, Home and End
+    /// jump, and both ends clamp; a page shorter than its viewport never
+    /// scrolls.
+    #[test]
+    fn page_keys_scroll_the_main_page_by_a_viewport() {
+        let mut page = PageHarness::new();
+        let mut tall = |_: &mut egui::Ui| {};
+        let (offset, height, _) = page.frame(2000.0, vec![], &mut tall);
+        assert_eq!(offset, 0.0);
+        let maximum = 2000.0 - height;
+
+        let (down, _, _) = page.frame(
+            2000.0,
+            vec![key_press(Key::PageDown, Modifiers::NONE)],
+            &mut tall,
+        );
+        assert!(
+            (down - height).abs() < 1.0,
+            "Page Down moves one viewport ({height}), got {down}"
+        );
+        let step = down;
+        let (more, _, _) = page.frame(
+            2000.0,
+            vec![key_press(Key::PageDown, Modifiers::NONE)],
+            &mut tall,
+        );
+        assert!(
+            (more - 2.0 * height).abs() < 1.0,
+            "a second Page Down moves another viewport, got {more}"
+        );
+
+        let (back, _, _) = page.frame(
+            2000.0,
+            vec![key_press(Key::PageUp, Modifiers::NONE)],
+            &mut tall,
+        );
+        assert!(
+            (back - step).abs() < 1.0,
+            "Page Up reverses one step, got {back} from {more}"
+        );
+
+        let (bottom, _, _) = page.frame(
+            2000.0,
+            vec![key_press(Key::End, Modifiers::NONE)],
+            &mut tall,
+        );
+        assert!(
+            (bottom - maximum).abs() < 1.0,
+            "End reaches the bottom {maximum}, got {bottom}"
+        );
+        let (clamped, _, _) = page.frame(
+            2000.0,
+            vec![key_press(Key::PageDown, Modifiers::NONE)],
+            &mut tall,
+        );
+        assert!(
+            (clamped - maximum).abs() < 1.0,
+            "Page Down past the bottom clamps, got {clamped}"
+        );
+
+        let (top, _, _) = page.frame(
+            2000.0,
+            vec![key_press(Key::Home, Modifiers::NONE)],
+            &mut tall,
+        );
+        assert!(top.abs() < 1.0, "Home returns to the top, got {top}");
+        let (clamped, _, _) = page.frame(
+            2000.0,
+            vec![key_press(Key::PageUp, Modifiers::NONE)],
+            &mut tall,
+        );
+        assert!(
+            clamped.abs() < 1.0,
+            "Page Up past the top clamps, got {clamped}"
+        );
+
+        let (short, _, _) = page.frame(
+            100.0,
+            vec![key_press(Key::PageDown, Modifiers::NONE)],
+            &mut |_: &mut egui::Ui| {},
+        );
+        assert!(
+            short.abs() < 1.0,
+            "a short page does not scroll, got {short}"
+        );
+    }
+
+    /// Several key events in one frame apply in order, a held key's
+    /// repeats scroll again, and releases do nothing.
+    #[test]
+    fn page_keys_apply_events_in_order() {
+        let mut page = PageHarness::new();
+        let mut tall = |_: &mut egui::Ui| {};
+        let (_, height, _) = page.frame(2000.0, vec![], &mut tall);
+        let maximum = 2000.0 - height;
+
+        let (offset, _, _) = page.frame(
+            2000.0,
+            vec![
+                key_press(Key::Home, Modifiers::NONE),
+                key_press(Key::PageDown, Modifiers::NONE),
+            ],
+            &mut tall,
+        );
+        assert!(offset > 0.0, "Home then Page Down lands one page in");
+        let first = offset;
+
+        let (offset, _, _) = page.frame(
+            2000.0,
+            vec![
+                key_press(Key::End, Modifiers::NONE),
+                key_press(Key::PageUp, Modifiers::NONE),
+            ],
+            &mut tall,
+        );
+        assert!(
+            (offset - (maximum - first)).abs() < 1.0,
+            "End then Page Up lands a page above the bottom, got {offset}"
+        );
+
+        let before_repeat = offset;
+        let mut held = key_press(Key::PageDown, Modifiers::NONE);
+        let egui::Event::Key { repeat, .. } = &mut held else {
+            unreachable!()
+        };
+        *repeat = true;
+        let (offset, _, _) = page.frame(2000.0, vec![held], &mut tall);
+        assert!(offset > before_repeat, "a held key's repeat still scrolls");
+        assert!(
+            (offset - maximum).abs() < 1.0,
+            "the repeat reaches the bottom {maximum}, got {offset}"
+        );
+
+        let before = offset;
+        let release = egui::Event::Key {
+            key: Key::PageDown,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        let (offset, _, _) = page.frame(2000.0, vec![release], &mut tall);
+        assert_eq!(offset, before, "a key release never scrolls");
+    }
+
+    /// A modified Page or End key belongs to the widget or system: it is
+    /// neither scrolled by nor consumed.
+    #[test]
+    fn modified_page_keys_are_left_alone() {
+        let mut page = PageHarness::new();
+        let mut tall = |_: &mut egui::Ui| {};
+        page.frame(2000.0, vec![], &mut tall);
+        for modifiers in [
+            Modifiers::SHIFT,
+            Modifiers::CTRL,
+            Modifiers::ALT,
+            Modifiers::MAC_CMD,
+            Modifiers::COMMAND,
+        ] {
+            let (offset, _, keys) =
+                page.frame(2000.0, vec![key_press(Key::PageDown, modifiers)], &mut tall);
+            assert_eq!(offset, 0.0, "{modifiers:?}+Page Down must not scroll");
+            assert!(
+                keys.iter().any(|event| matches!(
+                    event,
+                    egui::Event::Key {
+                        key: Key::PageDown,
+                        ..
+                    }
+                )),
+                "{modifiers:?}+Page Down must be left for its widget"
+            );
+        }
+    }
+
+    /// Text fields, open popups and disabled interfaces keep the page
+    /// keys for themselves.
+    #[test]
+    fn page_keys_yield_to_text_fields_popups_and_disabled_views() {
+        let mut page = PageHarness::new();
+        let field = egui::Id::new("page-scroll-field");
+        let mut text = String::from("find this song");
+        let mut tall_with_field = |ui: &mut egui::Ui, enabled: bool| {
+            if !enabled {
+                ui.disable();
+            }
+            ui.add(egui::TextEdit::singleline(&mut text).id(field));
+        };
+        page.frame(2000.0, vec![], &mut |ui| tall_with_field(ui, true));
+        page.ctx.memory_mut(|memory| memory.request_focus(field));
+        page.frame(2000.0, vec![], &mut |ui| tall_with_field(ui, true));
+        assert!(page.ctx.text_edit_focused());
+        let (offset, _, keys) = page.frame(
+            2000.0,
+            vec![key_press(Key::PageDown, Modifiers::NONE)],
+            &mut |ui| tall_with_field(ui, true),
+        );
+        assert_eq!(offset, 0.0, "a focused field keeps Page Down");
+        assert!(
+            keys.iter().any(|event| matches!(
+                event,
+                egui::Event::Key {
+                    key: Key::PageDown,
+                    ..
+                }
+            )),
+            "the field did not take Page Down, so it must remain"
+        );
+
+        page.ctx.memory_mut(|memory| memory.surrender_focus(field));
+        let popup = egui::Id::new("page-scroll-popup");
+        egui::Popup::open_id(&page.ctx, popup);
+        let (offset, _, _) = page.frame(
+            2000.0,
+            vec![key_press(Key::PageDown, Modifiers::NONE)],
+            &mut |ui| tall_with_field(ui, true),
+        );
+        assert_eq!(offset, 0.0, "an open popup keeps Page Down");
+        egui::Popup::close_id(&page.ctx, popup);
+
+        let (offset, _, keys) = page.frame(
+            2000.0,
+            vec![key_press(Key::PageDown, Modifiers::NONE)],
+            &mut |ui| tall_with_field(ui, false),
+        );
+        assert_eq!(offset, 0.0, "a disabled page keeps Page Down");
+        assert!(
+            keys.iter().any(|event| matches!(
+                event,
+                egui::Event::Key {
+                    key: Key::PageDown,
+                    ..
+                }
+            )),
+            "a disabled page must not swallow Page Down"
+        );
     }
 }

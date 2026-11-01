@@ -48,15 +48,19 @@ Spotifast connects only to the services below.
   the playback session's Login5 bearer and client token. The resulting cards
   are cached in memory for ten minutes and saved in the account-scoped Home
   cache for the next start. Both caches are cleared on sign-out. If the Made
-  for you request fails, the shared Web API receives playlist-name searches
+  for you request fails, the Web API receives playlist-name searches
   for approximate suggestions. Home's **New releases** request sends the
   playback session's Login5 bearer and client token to Spotify's Pathfinder
   service, which answers with the account's feed of new releases; when it
   cannot, the Web API is asked for the followed artists and their latest
   albums. The shelf is saved in the same Home cache.
-- **LRCLIB.** When the lyrics panel is open and Spotify has no lyrics for the
-  song, Spotifast sends its artist, title, album and length to
-  [lrclib.net](https://lrclib.net). Nothing identifying you is included.
+- **LRCLIB.** When the lyrics panel is open and neither Spotify nor, for a
+  local file, the file itself has lyrics for the song, Spotifast sends its
+  artist, title, album and length to [lrclib.net](https://lrclib.net).
+  Nothing identifying you is included. Short overloads are retried within a
+  20-second lookup budget, respecting `Retry-After`; search can recover when
+  the exact lookup is temporarily unavailable. A failed lookup can use older
+  cached lyrics, but never caches an outage as a missing transcription.
 - **GitHub.** Once a day, Spotifast asks GitHub for the latest release. You
   can turn automatic checks off in Settings. Downloading an update, and the
   first opening of MilkDrop, also fetch files from GitHub. No Spotify data is
@@ -76,3 +80,15 @@ no analytics.
 ## Questions
 
 Ask on [GitHub](https://github.com/crmne/spotifast/issues).
+
+## Optional Spotify Soloist
+
+Enabling [Soloist](/soloist/) downloads Spotify's separate software from
+`soloist-builds.spotifycdn.com`. It makes its own Spotify connections under
+Spotify's privacy policy, including any diagnostics its binary implements.
+Spotifast's proxy does not configure those streaming connections. The personal
+key is saved in the system credential store, but Soloist requires it in the
+running process's arguments. Spotifast does not log those arguments or the
+child's output. Pairing state is stored in Spotifast's private state folder
+and removed at sign-out. Its unauthenticated local control socket is bound
+to loopback only, never to the LAN. See the setup page for details and limits.

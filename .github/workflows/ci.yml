@@ -55,8 +55,37 @@ jobs:
           if grep -qx setting-approved <<< "$labels"; then approved=(--approved); fi
           python3 .github/scripts/check-new-settings.py --base "$BASE" "${approved[@]}"
 
+  # Every repository on the account shares the hosted runners, so a pull
+  # request tests on Linux and Windows, and macOS and Windows on ARM join on
+  # main and when ci-scope.py says the change needs them. A change to the
+  # docs alone skips the Rust lints and the Nix package. This job is not a
+  # required check, so a skipped one never blocks a merge. After adding the
+  # all-platforms label to a pull request, re-run all its jobs.
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+      platforms: ${{ steps.scope.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .github/scripts/ci-scope.py --repo "$GITHUB_REPOSITORY"
+          --event "${{ github.event_name }}"
+          --pr "${{ github.event.pull_request.number }}"
+          --before "${{ github.event.before }}" --after "${{ github.sha }}"
+
   quality:
     name: quality
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -67,7 +96,7 @@ jobs:
       - name: GUI build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev ruby
       # After the toolchain, so the cache key follows the pinned rustc. The
       # key carries no job name, so each job sets its own generation. Only
@@ -97,6 +126,7 @@ jobs:
 
   test:
     name: test (${{ matrix.os }})
+    needs: scope
     runs-on: ${{ matrix.os }}
     env:
       CMAKE_GENERATOR: Ninja
@@ -107,8 +137,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows-11-arm is the only place the Windows on ARM build is tested.
-        os: [ubuntu-latest, macos-latest, windows-latest, windows-11-arm]
+        # windows-11-arm is the only place the Windows on ARM build is
+        # tested, so it runs on every push to main.
+        os: ${{ fromJSON(needs.scope.outputs.platforms) }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -116,7 +147,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
       # libprojectM reads OpenGL through GLEW on Windows; projectm-sys builds
       # against vcpkg's static-CRT triplet, matching .cargo/config.toml.
@@ -146,7 +177,8 @@ jobs:
         run: mbx test --locked --all-targets --all-features
       - name: Native credential store (dummy grants)
         if: runner.os == 'Windows' || runner.os == 'macOS'
-        timeout-minutes: 2
+        # Switching feature sets can relink the test binary on a cold runner.
+        timeout-minutes: 5
         run: mbx test --locked --lib credentials::tests::native_store_round_trip -- --ignored --exact
       - name: Documentation tests
         run: mbx test --locked --all-features --doc
@@ -189,7 +221,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "$env:RUNNER_TEMP\wix" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
           $env:PATH = "$env:RUNNER_TEMP\wix;$env:PATH"
-          gem install native-packages --version 0.10.0 --no-document
+          gem install native-packages --version 0.11.0 --no-document
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
           $target, $id = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64-pc-windows-msvc', 'windows-arm64' } else { 'x86_64-pc-windows-msvc', 'windows-amd64' }
@@ -231,6 +263,8 @@ jobs:
 
   nix:
     name: Nix package
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

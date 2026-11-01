@@ -16,6 +16,8 @@ def load(name):
 sources = load("check-dependency-sources")
 evidence = load("check-review-evidence")
 settings = load("check-new-settings")
+media = load("check-review-media")
+ci_scope = load("ci-scope")
 
 LOCK = """
 version = 4
@@ -225,6 +227,54 @@ class NewSettingsTest(unittest.TestCase):
         base = settings_source("")
         head = base.replace("pub device_name:", "pub connect_name:").replace("pub queue:", "pub history:")
         self.assertEqual(settings.added(base, head), [("Settings", "connect_name")])
+
+
+class ReviewMediaTest(unittest.TestCase):
+    ATTACHMENT = "![sidebar](https://github.com/user-attachments/assets/0f1e2d3c)"
+
+    def test_an_interface_change_without_media_fails(self):
+        found = media.problem(["src/ui/sidebar.rs", "src/app.rs"], ["Narrows the sidebar."], set())
+        self.assertIn("src/ui/sidebar.rs", found)
+        self.assertNotIn("src/app.rs", found)
+
+    def test_media_in_the_description_or_an_author_comment_passes(self):
+        self.assertIsNone(media.problem(["src/ui/sidebar.rs"], [self.ATTACHMENT], set()))
+        self.assertIsNone(media.problem(["src/skin/wsz.rs"], [None, '<img src="x.png" width="400">'], set()))
+
+    def test_changes_that_draw_nothing_pass(self):
+        self.assertIsNone(media.problem(["src/player.rs", "docs/_guide/winamp.md"], [""], set()))
+
+    def test_the_maintainer_label_passes_a_change_with_nothing_to_show(self):
+        self.assertIsNone(media.problem(["src/ui/queue.rs"], ["Fixes a crash."], {"no-visual-change"}))
+
+    def test_a_plain_link_is_not_media(self):
+        self.assertIsNotNone(media.problem(["src/ui/home.rs"], ["See https://example.com/shot.png"], set()))
+
+
+class CiScopeTest(unittest.TestCase):
+    def test_a_pull_request_tests_on_linux_and_windows(self):
+        self.assertEqual(ci_scope.scope("pull_request", ["src/player.rs"], set()), (True, ci_scope.PULL_REQUEST))
+
+    def test_main_and_the_label_test_everywhere(self):
+        self.assertEqual(ci_scope.scope("push", ["src/player.rs"], set()), (True, ci_scope.EVERYTHING))
+        self.assertEqual(ci_scope.scope("pull_request", ["src/player.rs"], {"all-platforms"}), (True, ci_scope.EVERYTHING))
+
+    def test_dependencies_and_ci_test_everywhere(self):
+        for path in ["Cargo.lock", ".cargo/config.toml", ".github/workflows/ci.yml"]:
+            self.assertEqual(ci_scope.scope("pull_request", [path], set())[1], ci_scope.EVERYTHING)
+
+    def test_macos_code_adds_macos(self):
+        _code, systems = ci_scope.scope("pull_request", ["src/platform/macos.rs"], set())
+        self.assertIn("macos-latest", systems)
+        self.assertNotIn("windows-11-arm", systems)
+
+    def test_documentation_alone_tests_on_linux(self):
+        self.assertEqual(ci_scope.scope("push", ["docs/_guide/winamp.md", "README.md"], set()), (False, [ci_scope.LINUX]))
+        self.assertEqual(ci_scope.scope("push", [".github/triage.yml"], set()), (False, [ci_scope.LINUX]))
+        self.assertTrue(ci_scope.scope("pull_request", ["docs/_guide/winamp.md", "src/app.rs"], set())[0])
+
+    def test_an_unreadable_change_runs_everything(self):
+        self.assertEqual(ci_scope.scope("pull_request", None, set()), (True, ci_scope.EVERYTHING))
 
 
 if __name__ == "__main__":

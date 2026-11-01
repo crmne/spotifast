@@ -21,6 +21,7 @@ use librespot_core::{
     authentication::Credentials,
     cache::Cache,
     config::{DeviceType, SessionConfig},
+    dealer::{manager::BoxedStreamResult, protocol::Message},
     error::ErrorKind,
     session::Session,
     spotify_id::SpotifyId,
@@ -31,15 +32,16 @@ use librespot_metadata::{
     audio::{AudioItem, UniqueFields},
 };
 use librespot_playback::{
-    audio_backend::{self, Sink},
-    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
+    audio_backend::Sink,
+    config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
     mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
+use librespot_protocol::connect::{Cluster, ClusterUpdate};
 use sha1::{Digest, Sha1};
 
 use crate::api::models::ArtistRef;
-use crate::sink::{AudioControl, ErrorHook, RodioSink};
+use crate::sink::{AudioControl, DeviceHook, ErrorHook, RodioSink};
 use crate::vis::{AudioTap, Tapped};
 
 #[derive(Clone, Debug)]
@@ -49,7 +51,7 @@ pub struct EngineConfig {
     pub normalisation: bool,
     pub autoplay: bool,
     pub gapless: bool,
-    pub backend: Option<String>,
+    /// The saved output, an id or an older build's name (`crate::sink::Saved`).
     pub audio_device: Option<String>,
     pub initial_volume: u16,
     pub volume_dir: PathBuf,
@@ -162,6 +164,11 @@ impl LocalTrack {
         crate::api::models::join_names(self.artists.iter().map(|artist| artist.name.as_str()))
     }
 }
+
+/// The engine error for a song whose decryption key Spotify refused. The app
+/// answers it with a banner explaining what still works, rather than the
+/// text itself.
+pub const AUDIO_KEY_REFUSED: &str = "Spotify refused the audio key. Try again later";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LocalState {
@@ -285,7 +292,7 @@ pub enum PlayerCommand {
     Previous,
     /// Remove manually queued tracks and keep context tracks.
     ClearQueue,
-    /// Queue a track or episode after the ones already queued.
+    /// Queue a track, episode or local file after the ones already queued.
     AddToQueue(String),
     Seek(u32),
     /// The volume to keep: applied at once and told to Spotify Connect.
@@ -305,6 +312,105 @@ pub enum PlayerCommand {
 pub enum EngineEvent {
     State(LocalState),
     SessionEnded,
+    /// The output opened on the device an older build saved by `name`;
+    /// the setting holds its `id` from now on.
+    AudioDevice {
+        name: String,
+        id: String,
+    },
+    /// Spotify pushed a change to playback on another device: a switch,
+    /// play or pause, another song or collection, shuffle or repeat.
+    RemoteChanged,
+    /// Spotify pushed a new volume for the device playing elsewhere, and
+    /// nothing else changed. It carries the value, so no poll is needed.
+    RemoteVolume {
+        device_id: String,
+        volume: u16,
+    },
+}
+
+/// The parts of a Connect cluster push that the interface shows for
+/// another device. Spotify pushes the whole cluster on every change
+/// anywhere, including position heartbeats and this device's own updates,
+/// so only a difference here is worth asking the Web API about.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ClusterView {
+    active_device: String,
+    context: String,
+    track: String,
+    playing: bool,
+    shuffle: bool,
+    repeat_context: bool,
+    repeat_track: bool,
+    volume: Option<u32>,
+}
+
+impl ClusterView {
+    fn of(cluster: &Cluster) -> Self {
+        let state = &cluster.player_state;
+        Self {
+            active_device: cluster.active_device_id.clone(),
+            context: state.context_uri.clone(),
+            track: state.track.uri.clone(),
+            playing: state.is_playing && !state.is_paused,
+            shuffle: state.options.shuffling_context,
+            repeat_context: state.options.repeating_context,
+            repeat_track: state.options.repeating_track,
+            volume: cluster
+                .device
+                .get(&cluster.active_device_id)
+                .map(|device| device.volume),
+        }
+    }
+
+    /// Whether going from `self` to `next` changed what the interface shows
+    /// for another device. While this device plays before and after, the
+    /// engine's own events already carry every change.
+    fn changed_elsewhere(&self, next: &Self, own_device: &str) -> bool {
+        let ours = self.active_device == own_device && next.active_device == own_device;
+        self != next && !ours
+    }
+
+    /// The new volume, when it is all that changed on the same device.
+    fn volume_only(&self, next: &Self) -> Option<u16> {
+        let volume = next.volume?;
+        let same_otherwise = Self {
+            volume: next.volume,
+            ..self.clone()
+        } == *next;
+        same_otherwise.then(|| volume.min(u32::from(u16::MAX)) as u16)
+    }
+}
+
+/// Forwards cluster pushes that change another device's playback, so the
+/// interface shows them at once instead of on its next poll: a new volume
+/// as it is, anything else as a reason to poll. Spotify pushes no cluster
+/// back for this device's own announcement, so the first push often is the
+/// next change on another device, and it counts as one: at most one extra
+/// poll per connect.
+async fn watch_cluster(
+    mut updates: BoxedStreamResult<ClusterUpdate>,
+    own_device: String,
+    notify: Notify,
+) {
+    use futures_util::StreamExt as _;
+    let mut shown = ClusterView::default();
+    while let Some(update) = updates.next().await {
+        let Some(cluster) = update.ok().and_then(|update| update.cluster.into_option()) else {
+            continue;
+        };
+        let view = ClusterView::of(&cluster);
+        if shown.changed_elsewhere(&view, &own_device) {
+            notify(match shown.volume_only(&view) {
+                Some(volume) => EngineEvent::RemoteVolume {
+                    device_id: view.active_device.clone(),
+                    volume,
+                },
+                None => EngineEvent::RemoteChanged,
+            });
+        }
+        shown = view;
+    }
 }
 
 pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -436,6 +542,23 @@ impl Engine {
             // the new session. The song already playing keeps fetching the
             // rest of its file as it did.
             player.set_session(session.clone());
+        }
+
+        // Subscribed before the Spirc task starts the dealer, while its
+        // builder still takes subscriptions. Without it the interface still
+        // polls; it only learns of other devices' changes later.
+        match session
+            .dealer()
+            .listen_for("hm://connect-state/v1/cluster", Message::from_raw)
+        {
+            Ok(updates) => {
+                tokio::spawn(watch_cluster(
+                    updates,
+                    config.device_id(),
+                    Arc::clone(&notify),
+                ));
+            }
+            Err(error) => log::warn!("cluster updates unavailable: {error}"),
         }
 
         {
@@ -819,25 +942,11 @@ fn command_interrupts_audio(state: &LocalState, command: &PlayerCommand) -> bool
         )
 }
 
-/// The librespot backend a saved setting names, when this build has it.
-///
-/// Spotifast's own output has always been saved as "rodio". librespot's
-/// rodio backend is no longer built in, so that name, an empty setting and
-/// any backend this build lacks all play through Spotifast's own output.
-fn librespot_backend(name: Option<&str>) -> Option<audio_backend::SinkBuilder> {
-    let name = name.filter(|name| *name != crate::sink::NAME)?;
-    let builder = audio_backend::find(Some(name.to_string()));
-    if builder.is_none() {
-        log::warn!("audio backend {name:?} is unavailable; using the default");
-    }
-    builder
-}
-
 /// Builds the audio sink and chooses where volume is applied.
 ///
 /// The default sink opens the device on playback and reports errors instead
 /// of panicking. It applies volume at output so changes affect queued audio.
-/// Other librespot backends remain available through Settings.
+/// It is the only sink: librespot's own backends are not built in.
 type SinkAndVolume = (
     Box<dyn FnOnce() -> Box<dyn Sink> + Send>,
     Box<dyn VolumeGetter + Send>,
@@ -855,6 +964,7 @@ fn sink_builder(
     let buffer_ms = config.buffer_ms;
     let tap = Arc::clone(&config.tap);
     let eq = Arc::clone(&config.eq);
+    let notify_device = Arc::clone(&notify);
     let report: ErrorHook = Arc::new(move |message: String| {
         let snapshot = {
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
@@ -863,40 +973,22 @@ fn sink_builder(
         };
         notify(EngineEvent::State(snapshot));
     });
-    if let Some(builder) = librespot_backend(config.backend.as_deref()) {
-        // Apply volume after the tap so visualizers are independent of
-        // volume, including at zero.
-        let applied = mixer.get_soft_volume();
-        let normalisation = Arc::clone(&normalisation);
-        return (
-            Box::new(move || {
-                let sink = builder(device, AudioFormat::S16);
-                Box::new(Tapped::new(
-                    sink,
-                    audio,
-                    tap,
-                    applied,
-                    true,
-                    eq,
-                    normalisation,
-                )) as Box<dyn Sink>
-            }),
-            Box::new(NoOpVolume),
-        );
-    }
+    let saved: DeviceHook = Arc::new(move |name, id| {
+        notify_device(EngineEvent::AudioDevice {
+            name,
+            id: id.as_str().to_string(),
+        });
+    });
     let volume = mixer.get_soft_volume();
     // The output applies volume to queued audio. The wrapper reads the same
     // value to calculate the pre-volume limiter ceiling.
     let ceiling = mixer.get_soft_volume();
     (
         Box::new(move || {
-            let sink = Box::new(RodioSink::new(
-                device,
-                report,
-                volume,
-                buffer_ms,
-                Arc::clone(&audio),
-            ));
+            let sink = Box::new(
+                RodioSink::new(device, report, volume, buffer_ms, Arc::clone(&audio))
+                    .on_device(saved),
+            );
             Box::new(Tapped::new(
                 sink,
                 audio,
@@ -1070,10 +1162,7 @@ fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
             changed
         }
         PlayerEvent::AudioKeyUnavailable { .. } => {
-            let mut changed = set(
-                &mut state.error,
-                Some("Spotify refused the audio key. Try again later".into()),
-            );
+            let mut changed = set(&mut state.error, Some(AUDIO_KEY_REFUSED.into()));
             changed |= set(&mut state.loading, false);
             changed
         }
@@ -1473,23 +1562,6 @@ mod tests {
     use super::*;
     use librespot_core::SpotifyUri;
 
-    /// Settings saved before librespot's rodio backend left the build name
-    /// "rodio", which has always meant Spotifast's own output; that and any
-    /// backend this build lacks still play, through that output.
-    #[test]
-    fn an_old_rodio_setting_plays_through_spotifasts_own_output() {
-        assert!(librespot_backend(Some("rodio")).is_none());
-        assert!(librespot_backend(None).is_none());
-        assert!(librespot_backend(Some("no-such-backend")).is_none());
-        assert!(
-            audio_backend::find(Some("rodio".into())).is_none(),
-            "librespot's rodio backend is not built in"
-        );
-        if cfg!(target_os = "linux") {
-            assert!(librespot_backend(Some("pulseaudio")).is_some());
-        }
-    }
-
     /// #268: a dropped session leaves the song playing or paused where it
     /// is, for the next session to pick up; a shutdown stops it.
     #[test]
@@ -1862,10 +1934,8 @@ mod tests {
                 track_id: uri(),
             },
         ));
-        assert_eq!(
-            state.error.as_deref(),
-            Some("Spotify refused the audio key. Try again later")
-        );
+        assert_eq!(state.error.as_deref(), Some(AUDIO_KEY_REFUSED));
+        assert!(!state.loading);
     }
 
     #[test]
@@ -1887,7 +1957,6 @@ mod tests {
             normalisation: false,
             autoplay: true,
             gapless: true,
-            backend: None,
             audio_device: None,
             initial_volume: 1,
             volume_dir: PathBuf::new(),
@@ -1934,5 +2003,97 @@ mod tests {
     fn an_engine_is_heard_at_the_level_set_last() {
         let set_here = 3276;
         assert_eq!(Heard::at(set_here).level(), set_here);
+    }
+    fn cluster(active: &str, track: &str, playing: bool, volume: u32) -> Cluster {
+        let mut cluster = Cluster::new();
+        cluster.active_device_id = active.into();
+        let state = cluster.player_state.mut_or_insert_default();
+        state.track.mut_or_insert_default().uri = track.into();
+        state.is_playing = playing;
+        let mut device = librespot_protocol::connect::DeviceInfo::new();
+        device.volume = volume;
+        cluster.device.insert(active.into(), device);
+        cluster
+    }
+
+    /// A knob turned on the speaker that plays is news; the position
+    /// heartbeats Spotify pushes in between are not.
+    #[test]
+    fn another_devices_volume_is_news_and_its_heartbeat_is_not() {
+        let before = cluster("sonos", "spotify:track:a", true, 30_000);
+        let shown = ClusterView::of(&before);
+
+        let mut heartbeat = before.clone();
+        let state = heartbeat.player_state.mut_or_insert_default();
+        state.timestamp = 1_000;
+        state.position_as_of_timestamp = 61_000;
+        assert!(!shown.changed_elsewhere(&ClusterView::of(&heartbeat), "this"));
+
+        let louder = cluster("sonos", "spotify:track:a", true, 32_000);
+        assert!(shown.changed_elsewhere(&ClusterView::of(&louder), "this"));
+        assert_eq!(shown.volume_only(&ClusterView::of(&louder)), Some(32_000));
+    }
+
+    /// A new volume alone is shown as pushed; with anything else it waits
+    /// for the poll, which brings both.
+    #[test]
+    fn a_volume_alone_is_carried_and_with_more_it_is_polled() {
+        let shown = ClusterView::of(&cluster("sonos", "spotify:track:a", true, 30_000));
+        for next in [
+            cluster("phone", "spotify:track:a", true, 32_000),
+            cluster("sonos", "spotify:track:b", true, 32_000),
+            cluster("sonos", "spotify:track:a", false, 32_000),
+        ] {
+            assert_eq!(shown.volume_only(&ClusterView::of(&next)), None);
+        }
+        let mut gone = cluster("sonos", "spotify:track:a", true, 30_000);
+        gone.device.clear();
+        assert_eq!(shown.volume_only(&ClusterView::of(&gone)), None);
+    }
+
+    #[test]
+    fn a_switch_pause_or_new_song_elsewhere_is_news() {
+        let shown = ClusterView::of(&cluster("sonos", "spotify:track:a", true, 30_000));
+        for next in [
+            cluster("phone", "spotify:track:a", true, 30_000),
+            cluster("sonos", "spotify:track:a", false, 30_000),
+            cluster("sonos", "spotify:track:b", true, 30_000),
+        ] {
+            assert!(shown.changed_elsewhere(&ClusterView::of(&next), "this"));
+        }
+        let mut shuffled = cluster("sonos", "spotify:track:a", true, 30_000);
+        shuffled
+            .player_state
+            .mut_or_insert_default()
+            .options
+            .mut_or_insert_default()
+            .shuffling_context = true;
+        assert!(shown.changed_elsewhere(&ClusterView::of(&shuffled), "this"));
+        // Another collection started at the same song changes Playing from.
+        let mut playlist = cluster("sonos", "spotify:track:a", true, 30_000);
+        playlist.player_state.mut_or_insert_default().context_uri = "spotify:playlist:b".into();
+        assert!(shown.changed_elsewhere(&ClusterView::of(&playlist), "this"));
+    }
+
+    /// The first push after connecting is often already a change on another
+    /// device, such as a pause on the phone, so it is news and polls.
+    #[test]
+    fn the_first_push_after_connecting_is_news() {
+        let first = ClusterView::of(&cluster("sonos", "spotify:track:a", false, 30_000));
+        assert!(ClusterView::default().changed_elsewhere(&first, "this"));
+        assert_eq!(ClusterView::default().volume_only(&first), None);
+    }
+
+    /// While this device plays, its own events carry every change, so its
+    /// pushes ask for no poll. Playback leaving it, or arriving, does.
+    #[test]
+    fn this_devices_own_playback_is_not_news_but_leaving_it_is() {
+        let ours = ClusterView::of(&cluster("this", "spotify:track:a", true, 30_000));
+        let next_song = ClusterView::of(&cluster("this", "spotify:track:b", true, 20_000));
+        assert!(!ours.changed_elsewhere(&next_song, "this"));
+
+        let elsewhere = ClusterView::of(&cluster("sonos", "spotify:track:b", true, 20_000));
+        assert!(ours.changed_elsewhere(&elsewhere, "this"));
+        assert!(elsewhere.changed_elsewhere(&ours, "this"));
     }
 }

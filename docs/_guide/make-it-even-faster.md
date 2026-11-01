@@ -19,72 +19,50 @@ MilkDrop frame-rate setting applies to its separate visualizer window.
 
 ## API rate limits
 
-Spotify limits how often apps can ask for information. Spotifast normally
-shares this allowance with other listeners and several other music players.
-When that shared connection is busy, your library and search results can take
-longer to load. The top bar shows a spinner while you wait; hover over it to
-see whether Spotifast is updating your library, checking for updates, or
-waiting for Spotify. Your playlists and Home show what they showed last time
-until the update arrives.
+If you got here from "Spotify is being slow on the shared sign-in", the short
+version is in [Spotify is being slow](/troubleshooting/#rate-limits).
 
-You can reduce those delays by creating a **personal Spotify app**. This is
-a connection registered to your account on Spotify's developer website.
-You do not need to write code or install another player.
-
-Spotifast offers this setup once after you sign in with Premium. Choose
-**Set up personal app** to open Settings, or **Keep shared app** to continue
-as you are. You can set it up later in Settings.
-
-A personal app gives many of your searches and library requests a separate
-allowance. Creating one is free and takes a few minutes, and Spotify requires
-a Premium account. If you create several personal apps, they share your
-account's allowance, following Spotify's
+Spotify limits how often each Client ID can ask for information. The one you
+[registered](/getting-started/#make-a-spotify-app) has an allowance that is
+yours alone. If you register several, they share your account's allowance, following Spotify's
 [July 2026 quota update](https://developer.spotify.com/blog/2026-07-23-web-api-quota-updates).
-Some features still use the shared connection, and your personal connection
-has limits too.
+When it runs out for a while, Spotify asks Spotifast to wait. The top bar
+shows a spinner while you wait; hover over it to see whether Spotifast is
+updating your library, checking for updates, or waiting for Spotify. Your
+playlists and Home show what they showed last time until the update arrives.
 
-## Shared coverage stays active
+Setting up playback on this computer spends less of that allowance. Spotifast
+then reads your playlist list, other people's playlists, popular songs and
+related artists through its music connection, which uses none of it, and
+which can read the playlists Spotify keeps from registrations like yours, its
+own among them. [How it connects](/how-it-connects/) explains which connection
+each feature uses.
 
-Your personal connection searches songs, artists, albums, podcasts, and
-episodes. The shared connection finds playlists and supplies features Spotify
-does not make available to personal apps, such as recommendations and related
-artists. Search results appear as each part is ready, so a delayed playlist
-search does not hold up the songs.
+Spotify allows a registration like yours ten search results at a time for each type.
 
-Spotify allows personal apps ten search results at a time for each type,
-compared with twenty on the shared connection.
+## If you signed in before 0.14.2 {#shared-app}
 
-Setting up playback on this computer also helps playlists load faster.
-Spotifast can load playlists that would otherwise use the shared allowance
-through its music connection instead, and while the shared connection is
-busy, your playlist list comes through it too.
-[How it connects](/how-it-connects/) explains which connection each feature uses.
+Earlier versions signed everyone in through one shared sign-in, which the
+ncspot project registered. It stopped taking new sign-ins in October 2026
+([#1057](https://github.com/crmne/spotifast/issues/1057)), and Spotify no
+longer gives a project like this one a registration everyone can share. Spotify's
+own client, which playback uses, can't stand in either: Spotify turns its
+requests for your library and the catalogue away as too many.
 
-## Make a Spotify app
+If you were signed in that way, you stay signed in until Spotify stops
+accepting it. Then the sign-in screen tells you so and shows how to register
+Spotifast. You can switch sooner in **Settings**, under **Spotify
+registration**: paste your Client ID and choose **Authorize**. With Premium,
+Spotifast suggests this once, and again with a banner when Spotify slows the
+shared sign-in down, at most once a day and not again after you close it three
+times.
 
-1. Open the [Spotify developer dashboard](https://developer.spotify.com/dashboard)
-   and sign in with your Spotify account. Spotify asks that it be a
-   Premium account.
-2. Click **Create app**. Any name and description will do; nobody else
-   sees them.
-3. Under **Redirect URIs**, add exactly:
+While both are signed in, your Client ID answers what it can, and the shared
+sign-in still lists your playlists and finds playlists in a search, which
+Spotify keeps from registrations like yours.
 
-   ```
-   http://127.0.0.1:8989/login
-   ```
+## Register Spotifast with Spotify {#make-a-spotify-app}
 
-4. Tick **Web API**, accept the terms, and save.
-5. The app's page shows its **Client ID**. Copy it.
+The steps are in [Getting Started](/getting-started/#make-a-spotify-app).
 
-![Settings, with a personal Spotify app in use](/assets/images/make-it-even-faster.png)
-
-## Use it in Spotifast
-
-1. Open **Settings**, find **Personal Spotify app**, and paste the
-   Client ID.
-2. Click **Authorize**. Your browser opens Spotify's sign-in for your app.
-   Spotifast verifies that it belongs to the same Spotify account, then shows
-   **Personal app ready**.
-
-Your playback setup stays the same. Select **Remove** to stop using your
-personal connection and return to shared access.
+![Settings, with Spotifast registered](/assets/images/make-it-even-faster.png)

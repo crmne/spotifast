@@ -242,9 +242,27 @@ fn proxy_mode_is_system(mode: &ProxyMode) -> bool {
     *mode == ProxyMode::System
 }
 
+/// How often the banner suggesting a personal app has appeared. It shows at
+/// most once a day, and never again after the listener closed it
+/// [`SlowAppBanner::MAX_DISMISSALS`] times.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SlowAppBanner {
+    /// When it last appeared, as an RFC 3339 timestamp.
+    pub shown_at: Option<String>,
+    /// How many times the listener closed it.
+    pub dismissals: u8,
+}
+
+impl SlowAppBanner {
+    pub const MAX_DISMISSALS: u8 = 3;
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Run the optional, separately downloaded Spotify Soloist player.
+    pub soloist_enabled: bool,
     /// The Spotify Connect name other devices see.
     pub device_name: String,
     /// 96, 160, or 320 kbps.
@@ -252,8 +270,11 @@ pub struct Settings {
     pub normalisation: bool,
     pub autoplay: bool,
     pub gapless: bool,
-    /// librespot backend name; `None` picks the platform default.
-    pub audio_backend: Option<String>,
+    /// The output local playback uses: the id of a device
+    /// `fastframe_audio::output_devices` lists, or `None` for the system
+    /// default. Files from 0.13.3 and earlier may hold a device's name instead; see
+    /// `crate::sink::Saved`. The `audio_backend` they may also hold is
+    /// ignored: fastframe-audio is the only output.
     pub audio_device: Option<String>,
     /// Windows output buffer in milliseconds. Smaller values may click under
     /// load; larger values delay playback controls.
@@ -327,6 +348,9 @@ pub struct Settings {
     pub personal_app_nudge_at: Option<String>,
     /// The listener has dismissed or followed the personal-app introduction.
     pub personal_app_intro_seen: bool,
+    /// When the "Spotify is being slow" banner last appeared and how often
+    /// the listener closed it. Kept by the app, not chosen in Settings.
+    pub slow_app_banner: SlowAppBanner,
     /// Local playback has been authorized at least once on this machine, so
     /// the app can resume it silently instead of prompting.
     pub playback_authorized: bool,
@@ -460,12 +484,12 @@ impl Default for Settings {
     /// settings files, including an inactive playlist ownership filter.
     fn default() -> Self {
         Self {
+            soloist_enabled: false,
             device_name: "Spotifast".to_string(),
             bitrate: 320,
             normalisation: false,
             autoplay: true,
             gapless: true,
-            audio_backend: None,
             audio_device: None,
             local_files_folder: None,
             audio_buffer_ms: default_buffer_ms(),
@@ -497,6 +521,7 @@ impl Default for Settings {
             web_client_id: None,
             personal_app_nudge_at: None,
             personal_app_intro_seen: false,
+            slow_app_banner: SlowAppBanner::default(),
             playback_authorized: false,
             keep_playing_in_background: true,
             tray_icon: TrayIcon::Colour,
@@ -674,24 +699,6 @@ impl Settings {
         if let Err(error) = fastframe_file::write(path, text) {
             log::warn!("unable to save settings to {}: {error}", path.display());
         }
-    }
-
-    /// Whether local playback plays through Spotifast's own output, whose
-    /// device `audio_device` names, rather than a librespot backend such as
-    /// PulseAudio, where the desktop's sound settings choose the output.
-    pub fn uses_own_output(&self) -> bool {
-        self.platform_backend()
-            .is_none_or(|backend| backend == crate::sink::NAME)
-    }
-
-    pub fn platform_backend(&self) -> Option<String> {
-        self.audio_backend.clone().or_else(|| {
-            if cfg!(target_os = "linux") {
-                Some("pulseaudio".to_string())
-            } else {
-                None
-            }
-        })
     }
 
     pub fn remember_search(&mut self, query: &str) {
@@ -1019,6 +1026,31 @@ mod tests {
         assert!(settings.system_theme_cache.is_none());
         assert_eq!(settings.theme, ThemeChoice::Dark);
         assert_eq!(settings.volume, 37);
+    }
+
+    /// Files from before fastframe-audio was the only output name a
+    /// librespot backend. It is read and ignored, the rest of the file still
+    /// loads, and the key is not written back, which older builds read as
+    /// their own default.
+    #[test]
+    fn an_old_audio_backend_is_read_and_ignored() {
+        for backend in ["pulseaudio", "rodio", "alsa", "no-such-backend"] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({
+                "audio_backend": backend,
+                "audio_device": "PipeWire Sound Server",
+                "volume": 37,
+            }))
+            .unwrap();
+            assert_eq!(settings.volume, 37);
+            assert_eq!(
+                settings.audio_device.as_deref(),
+                Some("PipeWire Sound Server")
+            );
+            let saved: serde_json::Value =
+                serde_json::from_str(&settings.encode().unwrap()).unwrap();
+            assert!(saved.get("audio_backend").is_none());
+            assert_eq!(saved["audio_device"], "PipeWire Sound Server");
+        }
     }
 
     #[test]
@@ -1768,6 +1800,28 @@ mod tests {
         );
         assert!(restored.personal_app_intro_seen);
     }
+
+    #[test]
+    fn slow_app_banner_state_is_backward_compatible_and_round_trips() {
+        let older: Settings = serde_json::from_str(r#"{"personal_app_intro_seen":true}"#).unwrap();
+        assert_eq!(older.slow_app_banner, super::SlowAppBanner::default());
+        assert_eq!(older.slow_app_banner.dismissals, 0);
+        let partial: Settings =
+            serde_json::from_str(r#"{"slow_app_banner":{"dismissals":2}}"#).unwrap();
+        assert_eq!(partial.slow_app_banner.dismissals, 2);
+        assert_eq!(partial.slow_app_banner.shown_at, None);
+
+        let settings = Settings {
+            slow_app_banner: super::SlowAppBanner {
+                shown_at: Some("2026-10-21T09:00:00Z".into()),
+                dismissals: 1,
+            },
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.slow_app_banner, settings.slow_app_banner);
+    }
 }
 
 /// The last playlist tree received for one account.
@@ -1784,6 +1838,11 @@ pub struct CachedRootlist {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SessionState {
+    /// One-time player setup, including for installations upgraded from before Soloist.
+    pub soloist_onboarding: SoloistOnboarding,
+    /// Separate Mac output fader. Absent in older sessions means unity gain.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub soloist_output_volume: Option<u8>,
     /// Recent explicit output choices, scoped to the verified Spotify account.
     pub device_history: crate::device_history::DeviceHistory,
     pub last_page: Option<String>,
@@ -1838,6 +1897,27 @@ pub struct SessionState {
     pub lyrics_fullscreen_from: Option<WindowMode>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoloistOnboarding {
+    #[default]
+    Welcome,
+    Setup,
+    Complete,
+}
+
+impl SoloistOnboarding {
+    /// Existing Soloist listeners have already chosen. An interrupted setup
+    /// resumes even if its download enabled the player before the app closed.
+    pub fn restore(self, enabled: bool) -> Self {
+        if enabled && self == Self::Welcome {
+            Self::Complete
+        } else {
+            self
+        }
+    }
+}
+
 /// Whether a window was full screen, and whether it was maximized.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -1873,8 +1953,44 @@ impl SessionState {
 
 #[cfg(test)]
 mod session_tests {
-    use super::{CachedRootlist, SessionState};
+    use super::{CachedRootlist, SessionState, SoloistOnboarding};
     use crate::player::RootlistEntry;
+
+    #[test]
+    fn soloist_output_volume_restores_without_changing_old_sessions() {
+        let old: SessionState = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.soloist_output_volume, None);
+        for volume in [0, 25, 100] {
+            let session = SessionState {
+                soloist_output_volume: Some(volume),
+                ..old.clone()
+            };
+            let saved: SessionState = serde_json::from_str(&session.encode().unwrap()).unwrap();
+            assert_eq!(saved.soloist_output_volume, Some(volume));
+        }
+    }
+
+    #[test]
+    fn player_setup_migrates_old_sessions_and_resumes_an_interrupted_setup() {
+        let old: SessionState = serde_json::from_str(r#"{"last_page":"home"}"#).unwrap();
+        assert_eq!(
+            old.soloist_onboarding.restore(false),
+            SoloistOnboarding::Welcome
+        );
+        assert_eq!(
+            old.soloist_onboarding.restore(true),
+            SoloistOnboarding::Complete
+        );
+        for state in [SoloistOnboarding::Setup, SoloistOnboarding::Complete] {
+            let session = SessionState {
+                soloist_onboarding: state,
+                ..old.clone()
+            };
+            let saved: SessionState = serde_json::from_str(&session.encode().unwrap()).unwrap();
+            assert_eq!(saved.soloist_onboarding.restore(true), state);
+            assert_eq!(saved.soloist_onboarding.restore(false), state);
+        }
+    }
 
     /// A session saved before the maximized state was remembered keeps its
     /// window size and positions, and reads as an ordinary window.

@@ -45,7 +45,7 @@ fill the rest.
 your account, in Spotify's order, when local playback and a current Web API
 Home grant for that playback account are available. If local playback is
 unavailable, the session read fails, or the grant check fails, the same shelf
-shows approximate matches found through the shared Web API. Shared access can
+shows approximate matches found through a Web API playlist search, which can
 be rate-limited. If a refresh fails, cards already on screen remain available;
 **Retry** is shown when the first load fails. Spotify DJ is left out because
 Spotifast cannot play its special context.
@@ -139,6 +139,10 @@ another playlist moves them there.
 These keys edit the text instead while a search, filter or other text field
 has focus.
 
+To copy a song's title or artists instead of its link, right-click it and open
+**Copy details**. It offers the song title, the artists, or both as
+"Artist - Title".
+
 Clear any playlist filter or sort before placing songs between rows, so the
 visible positions match Spotify's order. A duplicate confirmation keeps the
 chosen position when you select **Add anyway**. Dragging near the top or bottom
@@ -173,6 +177,10 @@ When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.
 
+Local songs show readable titles, artists, and albums, including spaces and
+accented characters. Names saved in older playlist caches are corrected
+automatically when the cache is read.
+
 Sorted and filtered views omit unavailable songs and local files from playback.
 The rows stay visible, and selecting a repeated song starts that occurrence. Filtering a playlist or Liked Songs plays only the matching songs,
 including repeated entries. Play is disabled when the view has no playable
@@ -191,6 +199,18 @@ while it plays from a playlist you can edit.
 Click the cover at the top of a playlist, album, artist, or podcast page to
 see it enlarged, at the largest size Spotify has. Click anywhere or press
 `Esc` to return to the page.
+
+## Links in playlist descriptions
+
+Links in a playlist's description stand out from the rest of it and can be
+clicked: a link to a Spotify playlist, artist or other page opens it here, and
+a web link opens in your browser.
+
+## Release dates
+
+Hover over the year at the top of an album, single or EP page to see its full release
+date, like "Oct 5, 2026". Spotify knows some releases only to the year, for 
+those, hovering will just show the year.
 
 ## Refreshing a playlist
 
@@ -218,6 +238,12 @@ sidebar is not in compact mode.
 A song picked from the search results plays on its own, and, with Autoplay on,
 Spotify continues with songs it suggests after it, as in the Spotify apps. The other results are
 not queued after it.
+
+## Opening a Spotify link
+
+Paste a link to a song, album, artist, playlist or podcast into the search box
+and press `Enter` to open it. A link to a song opens its album with the song
+selected and in view. Spotifast does not start playing it.
 
 ## Search from a launcher
 
@@ -269,8 +295,14 @@ this playlist**. On macOS, both `Delete` and `Fn+Delete` work. Text fields,
 dialogs and open menus keep Delete from acting on the list.
 
 Press and hold the player bar's volume slider to update local volume without
-moving the pointer. Remote volume is sent on release. The seek slider previews
-on press and seeks on release.
+moving the pointer. Spotifast's own Soloist follows a drag as you go; other
+remote volume is sent on release. Both keep your chosen
+level while Spotify updates, including during rate limits. Fresh updates
+can confirm the level or show a change made on another device. Some speakers,
+Sonos among them, report the old level for a few seconds after a change, so
+for six seconds the slider keeps your level over such a report. If the volume
+request fails, an error appears and the slider returns to the reported level.
+The seek slider previews on press and seeks on release.
 
 The default local output smooths volume and mute changes over 30 ms. Explicit
 track changes and play/pause/stop use nominal 50 ms fades. Stopping can shorten
@@ -303,12 +335,16 @@ Winamp skins do not yet have equivalent accessibility coverage.
 | `Ctrl+F` or `/` | Search |
 | `Ctrl+B` | Show or hide the sidebar |
 | `Alt+←` / `Alt+→` | Back or forward |
+| `Page Up` / `Page Down` | Scroll the main page one page |
+| `Home` / `End` | Top or bottom of the main page |
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
 | `Ctrl+A` | Select every song in a playlist, album or Liked Songs |
 | `Ctrl+C` / `Ctrl+V` | Copy the selected songs' links / add copied song links to your playlist |
 | `Ctrl+X` | Copy the selected songs' links and remove the songs from your playlist |
-| `Ctrl+M` | Winamp mini player |
+| `Shift+Q` | Add the selected songs to the queue, or show the queue if none are selected |
+| `Shift+N` | Play the selected songs next, on this computer |
+| `Ctrl+M` | Mini player |
 | `Ctrl+Shift+K` | MilkDrop |
 | `Ctrl+,` | Settings |
 | `Ctrl+/` or `?` | All shortcuts |
@@ -316,6 +352,11 @@ Winamp skins do not yet have equivalent accessibility coverage.
 
 On macOS, `Cmd` replaces `Ctrl`. A focused text field keeps its usual keys
 for its own text.
+
+Repeat cycles through off, the whole list, and one song. As in Spotify's own
+apps, choosing another song while one song repeats (Next, Previous, or playing
+a song) turns Repeat One back into repeating the whole list. Previous that
+restarts the song keeps it repeating.
 
 ## Controlling it from the command line
 
@@ -397,9 +438,11 @@ Gear Lever work as well, from the update information inside it.
 
 Select **By You** under Playlists to show only playlists owned by your signed-in
 account, alongside Liked Songs. Followed playlists and collaborative playlists
-owned by someone else are hidden, including pinned ones. Search and the selected
-sort still apply. Matching playlists appear in a flat list, including those in
-collapsed folders. Turn By You off to restore the full list and folder view.
+owned by someone else are hidden, including pinned ones. The selected sort still
+applies. In text search and sorts that do not support folders, the playlists are shown 
+in a flat list. In sorts that do support folders, folders stay in place with only your
+playlists inside: folders left empty are hidden, counts show your playlists,
+and collapsed folders stay collapsed. Turn By You off to restore the full list.
 The choice is remembered on this computer and only affects the Playlists shelf.
 It uses the ownership information already loaded with your library and makes no
 additional Spotify requests.
@@ -413,7 +456,7 @@ dates come last.
 
 **Name** keeps your Spotify playlist folders, as Spotify does: playlists sort
 by name inside each folder, and folders sort by name among the playlists
-beside them. A search or **By You** still lists matching playlists flat.
+beside them. A search still lists matching playlists flat.
 
 **Spotify custom order** follows your playlist order and folders from Spotify.
 Set up playback on this computer to load that order. Your playlists stay
@@ -481,7 +524,7 @@ bullet; each artist name remains a separate link.
 **Settings > Playback on this computer > Start with your computer** opens
 Spotifast when you log in. **With the window** opens it as you would;
 **In the tray** starts it without a window, ready for media keys and the tray
-icon. **Off** leaves your login alone.
+icon; on macOS it reads **In the menu bar**. **Off** leaves your login alone.
 
 The setting is your system's own list of what starts at login, read back each
 time Settings opens, so turning Spotifast off there (System Settings on macOS,
@@ -518,7 +561,7 @@ keys and the system's now-playing controls continue working while the window
 is closed.
 
 For the Winamp mini player, turn off **Show in taskbar** under
-**Settings > Winamp skins**, or **Show in taskbar** in its options menu.
+**Settings > Mini player**, or **Show in taskbar** in its options menu.
 The choice survives restarts. The mini player stays visible; the tray icon,
 **Ctrl+M**, the skin logo, and launching Spotifast again remain ways to reach
 the app. Returning to the main window always restores its taskbar button.
@@ -606,6 +649,12 @@ resume playback directly from the notch.
 To turn on the notch overlay, check **MacBook notch widget** in
 Settings under **Playback on this computer**.
 
+## Where the music is playing from
+
+Above the current song, the queue panel says what it is playing from: the
+playlist, album, artist or other page. Click the name to open that page. A
+radio has no page, so its name is plain text.
+
 ## Recent
 
 The queue panel's second tab combines Spotify's history with tracks played
@@ -629,20 +678,35 @@ On Windows, the main window's minimize, maximize, and close buttons share the
 top bar with Spotifast's controls. Drag an empty part of that bar to move or
 snap the window, and drag a window edge or corner to resize it.
 
+## When Spotify won't play a song here {#audio-key}
+
+If a song shows up as playing but nothing plays, and a banner says Spotify
+won't let this computer play this song right now, see
+[Spotify refused the audio key](/troubleshooting/#audio-key).
+
 ## Choosing the audio output
 
 **Audio output**, at the bottom of the device picker, chooses where music
 played on this computer goes: the system's default output, or a sound card,
 headset, HDMI output, or virtual device such as VoiceMeeter. Click it to list
 this computer's outputs, then pick one; local playback restarts on it at the
-same place in the song. **System default** follows the system again. The
-choice is saved as `audio_device` in `settings.json`. While a saved output is
-unplugged, music plays through the system default, and the output stays
-listed so you can see and change the choice.
+same place in the song. **System default** follows the system again, and moves
+with it when the default output changes. The choice is saved as `audio_device`
+in `settings.json`, by the device's own id, so it survives renames and
+reordering. While a saved output is unplugged, music plays through the system
+default, and the output stays listed so you can see and change the choice.
 
-On Linux, Spotifast plays through PulseAudio (or PipeWire's PulseAudio
-service) by default, and the desktop's sound settings choose its output, so
-the picker shows **Audio output** only when `audio_backend` is `rodio`.
+On Linux, Spotifast plays through PipeWire when it is running, otherwise
+through a PulseAudio server, and otherwise straight to ALSA. The picker lists
+that sound system's outputs. Spotifast 0.13.3 and earlier saved an output by
+its name: a name an output still has is kept, and saved by its id the next
+time music plays there. One that no output has any more, such as ALSA's
+**PipeWire Sound Server**, plays through the system default until you choose
+again.
+
+Volume mixers show the stream as **Spotifast**, with its icon, playing
+**Spotify playback**, on PipeWire and PulseAudio. The mixer remembers its
+volume for Spotifast alone.
 
 ## Listening activity
 
@@ -688,6 +752,10 @@ of songs Spotify picks to go with it, without starting playback. Playlist,
 album, and artist menus have **Go to playlist radio**, **Go to album radio**,
 and **Go to artist radio**.
 
+A song radio starts its list with the song it is based on, once, followed by
+the rest of Spotify's mix in its order. Shuffle still decides what plays
+first. If Spotify will not provide the seed song, the radio leaves it out.
+
 Spotify mixes a radio afresh each time it is asked, so the page keeps the
 songs it shows: **Play**, **Shuffle**, and a double-clicked row play those
 songs, and the queue names the radio. Choose **Refresh** in the page's **…**
@@ -703,9 +771,30 @@ Album pages have a **Plays** column, and an artist's popular songs show
 how often each was played, as Spotify counts them. The counts come from
 Spotify's playback service, so they need playback on this computer to be
 set up. Without it, or when Spotify does not answer, the lists leave the
-counts out. The column needs a window wide enough for it.
+counts out. The column needs a window wide enough for it. Click the
+**Plays** heading to sort the album's songs from most to least played, again
+for least to most, and a third time to return to album order. Songs without a
+count sort last.
+
+The same answer gives an artist's monthly listeners, which the top of the
+artist page then shows first.
+
+## Discography
+
+An artist's discography can be narrowed to Albums, Singles & EPs, Compilations
+or Appears On.
 
 ## Upcoming albums
+
+Artist pages show a **Release countdown** section between Popular and Discography
+when Spotify supplies a countdown page. Select its album row to open the artwork,
+countdown, track preview and Pre-save button. The preview shows play counts when
+Spotify supplies them and the window has room for the extra column.
+Discovery needs both a ready same-account Spotify access (local playback)
+connection and a verified Web API sign-in, including when Soloist handles
+playback. Until both are ready, a fresh artist visit may show no countdown card.
+Visiting the artist never pre-saves an album. Refresh the artist
+page to check for a newly announced release; cards disappear after release time.
 
 Open a `spotify:prerelease:` URI or an `open.spotify.com/prerelease/` link
 with Spotifast to see the artwork, release countdown and track-list preview.
@@ -729,11 +818,14 @@ let apps remove a description, so clearing the field keeps the current one.
 You can replace it with other text instead.
 
 If Spotify refuses permission, sign in again and approve image uploads. If you
-use a personal Spotify app, reconnect it in Settings as well.
+use your own Client ID, authorize it again in Settings as well.
 
 ## Lyrics
 
 Choose the microphone button in the player bar, or press **L**, to open lyrics.
+A local file from a playlist shows the words in a `.lrc` file of the same name
+beside it, or in its own tags, and the cover in its tags; otherwise lyrics come
+from LRCLIB by its artist, title, album and length.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
 

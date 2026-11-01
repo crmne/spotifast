@@ -1,12 +1,16 @@
 //! Spotify sign-in with the Authorization Code + PKCE flow.
 //!
-//! Three independent grants may exist because Spotify treats them differently:
+//! Independent grants exist because Spotify treats them differently:
 //!
-//! - The shared and optional personal **Web API grants** use separate
-//!   registered application identities, protected entries, and request sessions.
+//! - The **Web API grant** comes from the listener's own Spotify app, its
+//!   personal app. A shared grant from before 0.14.2, issued to an app
+//!   another project registered, keeps working until Spotify refuses it,
+//!   but no new one is ever made: that app was not ours to hand out.
 //! - The **playback grant** uses Spotify's desktop client identity, the one
 //!   librespot streams with. Its access token is exchanged once for a
-//!   reusable credential kept in the platform credential store.
+//!   reusable credential kept in the platform credential store. Spotify
+//!   answers that identity's Web API requests with "too many requests"
+//!   from the first one, so it cannot stand in for the personal app.
 //!
 //! The browser does the password entry; this process only ever sees the
 //! one-time authorization code that Spotify sends back to a loopback
@@ -30,9 +34,8 @@ use tokio::sync::watch;
 pub const PLAYBACK_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 pub const PLAYBACK_REDIRECT_PORT: u16 = 8898;
 
-/// The public Web API application shared by spotify-player, ncspot, and
-/// Omarchy Spotify.
-pub const DEFAULT_WEB_CLIENT_ID: &str = "d420a117a32841c2b3474932e49fb54b";
+/// The port of the personal app's redirect URI, which the listener
+/// registers with their app exactly as [`personal_redirect_uri`] spells it.
 pub const WEB_REDIRECT_PORT: u16 = 8989;
 
 pub const REDIRECT_PATH: &str = "/login";
@@ -88,18 +91,10 @@ impl Grant {
         }
     }
 
-    pub fn shared_web_api() -> Self {
-        Self {
-            client_id: DEFAULT_WEB_CLIENT_ID.to_string(),
-            redirect_port: WEB_REDIRECT_PORT,
-            scopes: WEB_SCOPES,
-        }
-    }
-
     pub fn personal_web_api(client_id: &str) -> Result<Self> {
         let client_id = client_id.trim();
         if client_id.is_empty() {
-            bail!("a personal Spotify Client ID is required");
+            bail!("a Spotify Client ID is required");
         }
         Ok(Self {
             client_id: client_id.to_string(),
@@ -110,6 +105,53 @@ impl Grant {
 
     pub fn redirect_uri(&self) -> String {
         format!("http://127.0.0.1:{}{REDIRECT_PATH}", self.redirect_port)
+    }
+}
+
+/// The redirect URI a personal app must list, to the character.
+pub fn personal_redirect_uri() -> String {
+    format!("http://127.0.0.1:{WEB_REDIRECT_PORT}{REDIRECT_PATH}")
+}
+
+/// Whether `id` has the shape of a Spotify Client ID: 32 hexadecimal
+/// digits. Anything else cannot be one, so it is caught before the browser.
+pub fn looks_like_client_id(id: &str) -> bool {
+    let id = id.trim();
+    id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Asks Spotify whether it knows a Client ID, without a sign-in: a token
+/// request with a code that cannot be valid is refused as an unknown
+/// client for an ID Spotify has never issued, and as a bad code for one it
+/// has. `None` when the answer says neither, or Spotify cannot be reached:
+/// the browser then finds out.
+pub async fn client_known(http: &reqwest::Client, client_id: &str) -> Option<bool> {
+    let response = http
+        .post(TOKEN_URL)
+        .form(&[
+            ("client_id", client_id),
+            ("grant_type", "authorization_code"),
+            ("code", "spotifast-client-check"),
+            ("redirect_uri", personal_redirect_uri().as_str()),
+            ("code_verifier", random_token(48).as_str()),
+        ])
+        .send()
+        .await
+        .ok()?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    client_known_from(status, &text)
+}
+
+fn client_known_from(status: reqwest::StatusCode, text: &str) -> Option<bool> {
+    if !status.is_client_error() {
+        return None;
+    }
+    let value = serde_json::from_str::<serde_json::Value>(text).ok()?;
+    match value["error"].as_str()? {
+        "invalid_client" => Some(false),
+        "invalid_grant" => Some(true),
+        _ => None,
     }
 }
 
@@ -415,28 +457,6 @@ impl StoredToken {
     pub fn remove(path: &Path) {
         let _ = std::fs::remove_file(path);
     }
-
-    // Legacy file fixtures only. Production persistence lives in credentials.rs.
-    #[cfg(test)]
-    pub fn migrate_legacy(legacy: &Path, shared: &Path, personal: &Path) -> Result<()> {
-        let Some(token) = Self::load(legacy) else {
-            return Ok(());
-        };
-        let target = if token.client_id == DEFAULT_WEB_CLIENT_ID {
-            shared
-        } else {
-            personal
-        };
-        if let Some(existing) = Self::load(target) {
-            if existing != token {
-                return Ok(());
-            }
-        } else {
-            token.save(target)?;
-        }
-        Self::remove(legacy);
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -606,15 +626,18 @@ mod tests {
 
     #[test]
     fn begin_produces_valid_pkce_material() {
-        let flow = begin(Grant::shared_web_api());
+        let flow = begin(Grant::personal_web_api("0123456789abcdef0123456789abcdef").unwrap());
         assert!(flow.verifier.len() >= 43);
         assert!(flow.url.contains("code_challenge_method=S256"));
         assert!(flow.url.contains(&format!("state={}", flow.state)));
         assert!(
             flow.url
-                .contains(&format!("client_id={DEFAULT_WEB_CLIENT_ID}"))
+                .contains("client_id=0123456789abcdef0123456789abcdef")
         );
-        assert!(flow.url.contains("8989"));
+        assert!(flow.url.contains(&format!(
+            "redirect_uri={}",
+            urlencoding::encode(&personal_redirect_uri())
+        )));
         assert!(!flow.url.contains("show_dialog=true"));
         let playback = begin(Grant::playback());
         assert!(
@@ -679,32 +702,52 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The redirect URI the sign-in screen tells listeners to register is
+    /// the one the personal app's sign-in sends.
     #[test]
-    fn legacy_tokens_move_to_the_matching_session() {
-        let dir = std::env::temp_dir().join(format!(
-            "spotifast-token-migration-{}-{}",
-            std::process::id(),
-            now_secs()
+    fn the_redirect_uri_to_register_is_the_one_sign_in_uses() {
+        assert_eq!(personal_redirect_uri(), "http://127.0.0.1:8989/login");
+        assert_eq!(
+            Grant::personal_web_api("id").unwrap().redirect_uri(),
+            personal_redirect_uri()
+        );
+    }
+
+    #[test]
+    fn client_ids_are_32_hexadecimal_digits() {
+        assert!(looks_like_client_id("0123456789abcdef0123456789ABCDEF"));
+        assert!(looks_like_client_id(" 0123456789abcdef0123456789abcdef\n"));
+        assert!(!looks_like_client_id(""));
+        assert!(!looks_like_client_id("0123456789abcdef0123456789abcde"));
+        assert!(!looks_like_client_id("0123456789abcdef0123456789abcdeg"));
+        assert!(!looks_like_client_id(
+            "https://developer.spotify.com/dashboard"
         ));
-        let legacy = dir.join("legacy.json");
-        let shared = dir.join("shared.json");
-        let personal = dir.join("personal.json");
-        for (client_id, target) in [
-            (DEFAULT_WEB_CLIENT_ID, &shared),
-            ("personal-client", &personal),
-        ] {
-            let token = StoredToken {
-                client_id: client_id.into(),
-                access_token: "access".into(),
-                refresh_token: "refresh".into(),
-                expires_at: now_secs() + 3600,
-                ..StoredToken::default()
-            };
-            token.save(&legacy).unwrap();
-            StoredToken::migrate_legacy(&legacy, &shared, &personal).unwrap();
-            assert!(StoredToken::load(target) == Some(token));
-            assert!(!legacy.exists());
-        }
-        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// What Spotify's token endpoint answered for a made-up code, with an
+    /// unknown client ID and with a real one (2026-10-25).
+    #[test]
+    fn an_unknown_client_is_told_apart_from_a_bad_code() {
+        let bad = reqwest::StatusCode::BAD_REQUEST;
+        assert_eq!(
+            client_known_from(
+                bad,
+                r#"{"error":"invalid_client","error_description":"Failed to get client"}"#
+            ),
+            Some(false)
+        );
+        assert_eq!(
+            client_known_from(
+                bad,
+                r#"{"error":"invalid_grant","error_description":"Invalid authorization code"}"#
+            ),
+            Some(true)
+        );
+        assert_eq!(client_known_from(bad, "not json"), None);
+        assert_eq!(
+            client_known_from(reqwest::StatusCode::SERVICE_UNAVAILABLE, "{}"),
+            None
+        );
     }
 }

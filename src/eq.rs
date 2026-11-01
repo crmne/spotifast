@@ -120,6 +120,10 @@ fn band_widths() -> [f64; 10] {
 /// Builds filters whose combined response matches each slider at its centre.
 /// Adjacent filters overlap, so their individual gains are solved together.
 fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
+    chain_at_rate(bands_db, f64::from(SAMPLE_RATE))
+}
+
+fn chain_at_rate(bands_db: &[f32; 10], sample_rate: f64) -> Vec<Biquad> {
     let widths = band_widths();
     let target: [f64; 10] = bands_db.map(f64::from);
     if target.iter().all(|gain| gain.abs() <= f64::from(FLAT)) {
@@ -128,14 +132,14 @@ fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
     // How much each band moves every centre, per decibel it is given.
     let mut unit = [[0.0; 10]; 10];
     for (j, (hz, width)) in BANDS.iter().zip(widths).enumerate() {
-        let filter = Biquad::peaking(f64::from(*hz), width, 1.0);
+        let filter = Biquad::peaking(f64::from(*hz), width, 1.0, sample_rate);
         for (i, centre) in BANDS.iter().enumerate() {
             unit[i][j] = filter.gain_db_at(f64::from(*centre));
         }
     }
     let mut gains = target;
     for _ in 0..6 {
-        let filters: Vec<(usize, Biquad)> = filters_for(&gains, &widths);
+        let filters: Vec<(usize, Biquad)> = filters_for(&gains, &widths, sample_rate);
         let mut residual = [0.0; 10];
         for (i, centre) in BANDS.iter().enumerate() {
             let played: f64 = filters
@@ -152,21 +156,26 @@ fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
             *gain = (*gain - step).clamp(-SOLVED_LIMIT, SOLVED_LIMIT);
         }
     }
-    filters_for(&gains, &widths)
+    filters_for(&gains, &widths, sample_rate)
         .into_iter()
         .map(|(_, filter)| filter)
         .collect()
 }
 
 /// The bands worth running, with the filter for each.
-fn filters_for(gains: &[f64; 10], widths: &[f64; 10]) -> Vec<(usize, Biquad)> {
+fn filters_for(gains: &[f64; 10], widths: &[f64; 10], sample_rate: f64) -> Vec<(usize, Biquad)> {
     BANDS
         .iter()
         .zip(widths)
         .zip(gains)
         .enumerate()
         .filter(|(_, (_, gain))| gain.abs() > f64::from(FLAT))
-        .map(|(index, ((hz, width), gain))| (index, Biquad::peaking(f64::from(*hz), *width, *gain)))
+        .map(|(index, ((hz, width), gain))| {
+            (
+                index,
+                Biquad::peaking(f64::from(*hz), *width, *gain, sample_rate),
+            )
+        })
         .collect()
 }
 
@@ -342,6 +351,7 @@ pub fn shared() -> SharedEq {
 /// A second-order section in direct form I, one per band and channel.
 #[derive(Clone, Copy, Debug, Default)]
 struct Biquad {
+    sample_rate: f64,
     b0: f64,
     b1: f64,
     b2: f64,
@@ -359,13 +369,14 @@ impl Biquad {
     /// taken the cookbook's digital way, with its `w0 / sin(w0)` term: near
     /// the top of the band the plain analog Q would have come out three
     /// times too narrow, which is what rippled the treble.
-    fn peaking(hz: f64, width: f64, gain_db: f64) -> Self {
+    fn peaking(hz: f64, width: f64, gain_db: f64, sample_rate: f64) -> Self {
         let a = 10f64.powf(gain_db / 40.0);
-        let w0 = std::f64::consts::TAU * hz / f64::from(SAMPLE_RATE);
+        let w0 = std::f64::consts::TAU * hz / sample_rate;
         let (sin, cos) = w0.sin_cos();
         let alpha = sin * ((std::f64::consts::LN_2 / 2.0) * width * w0 / sin).sinh();
         let a0 = 1.0 + alpha / a;
         Self {
+            sample_rate,
             b0: (1.0 + alpha * a) / a0,
             b1: (-2.0 * cos) / a0,
             b2: (1.0 - alpha * a) / a0,
@@ -379,7 +390,7 @@ impl Biquad {
     /// function on the unit circle: what is played, including the bend
     /// the bilinear transform puts near the top of the band.
     fn gain_db_at(&self, hz: f64) -> f64 {
-        let w = std::f64::consts::TAU * hz / f64::from(SAMPLE_RATE);
+        let w = std::f64::consts::TAU * hz / self.sample_rate;
         let (sin1, cos1) = w.sin_cos();
         let (sin2, cos2) = (2.0 * w).sin_cos();
         let numerator = (self.b0 + self.b1 * cos1 + self.b2 * cos2).powi(2)
@@ -404,6 +415,7 @@ impl Biquad {
 
 /// The filters on the player's thread, rebuilt when the settings change.
 pub struct Processor {
+    sample_rate: f64,
     shared: SharedEq,
     applied: EqSettings,
     /// One chain per channel; a band at flat is left out of the chain.
@@ -413,7 +425,13 @@ pub struct Processor {
 
 impl Processor {
     pub fn new(shared: SharedEq) -> Self {
+        Self::at_rate(shared, SAMPLE_RATE)
+    }
+
+    /// Process native-rate audio without resampling it for the equalizer.
+    pub fn at_rate(shared: SharedEq, sample_rate: u32) -> Self {
         let mut processor = Self {
+            sample_rate: f64::from(sample_rate.max(1)),
             shared,
             applied: EqSettings::default(),
             chains: vec![Vec::new(); NUM_CHANNELS as usize],
@@ -426,7 +444,8 @@ impl Processor {
     fn rebuild(&mut self) {
         let settings = self.applied;
         self.gain = 10f64.powf(f64::from(settings.preamp_db) / 20.0);
-        self.chains = vec![chain(&settings.bands_db); NUM_CHANNELS as usize];
+        self.chains =
+            vec![chain_at_rate(&settings.bands_db, self.sample_rate); NUM_CHANNELS as usize];
     }
 
     /// Discards the previous signal without changing the filter settings.

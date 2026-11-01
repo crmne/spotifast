@@ -15,6 +15,7 @@
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
     <key>NSLocalNetworkUsageDescription</key><string>Find Spotify Connect and Google Cast speakers on your local network.</string>
+    <key>NSAudioCaptureUsageDescription</key><string>Process Spotifast's Soloist player for the equalizer and music visualizers. Audio is not recorded or saved.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_spotify-connect._tcp</string>

@@ -24,11 +24,92 @@ use protobuf::{EnumOrUnknown, Message as _};
 
 use crate::api::ApiError;
 use crate::api::models::{
-    Album, ArtistRef, Episode, Image, Owner, Page, PlayableItem, Playlist, PlaylistItem, Show,
-    Track, TrackCount, UserRef,
+    Album, Artist, ArtistRef, Episode, Image, Owner, Page, PlayableItem, Playlist, PlaylistItem,
+    Show, Track, TrackCount, UserRef,
 };
 
 const IMAGE_HOST: &str = "https://i.scdn.co/image/";
+
+/// Related artist cards from Spotify's session-backed Pathfinder request.
+pub async fn related_artists(
+    session: &Session,
+    web: &crate::api::ApiClient,
+    id: &str,
+) -> Result<Vec<Artist>, Failure> {
+    let login = session.login5().auth_token().await?;
+    let client_token = session.spclient().client_token().await?;
+    let query = serde_json::json!({
+        "operationName": "queryArtistRelated",
+        "variables": {"uri": format!("spotify:artist:{id}")},
+        "extensions": {"persistedQuery": {
+            "version": 1,
+            "sha256Hash": "3d031d6cb22a2aa7c8d203d49b49df731f58b1e2799cc38d9876d58771aa66f3"
+        }}
+    });
+    let body = web
+        .partner_request(&login.access_token, &client_token, &query)
+        .await
+        .map_err(|error| Failure::Retry(error.into()))?;
+    related_artist_headers(&body)
+}
+
+fn related_artist_headers(body: &serde_json::Value) -> Result<Vec<Artist>, Failure> {
+    let entries = body
+        .pointer("/data/artistUnion/relatedContent/relatedArtists/items")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            Failure::Retry(anyhow::anyhow!("Spotify related artists are unavailable"))
+        })?;
+    let mut found = Vec::new();
+    for data in entries {
+        let Some(uri) = data.get("uri").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Ok(SpotifyUri::Artist { id }) = SpotifyUri::from_uri(uri) else {
+            continue;
+        };
+        let id = id.to_base62();
+        let Some(name) = data
+            .pointer("/profile/name")
+            .and_then(serde_json::Value::as_str)
+            .filter(|name| !name.trim().is_empty())
+        else {
+            continue;
+        };
+        let images = data
+            .pointer("/visuals/avatarImage/sources")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|source| {
+                Some(Image {
+                    url: source.get("url")?.as_str()?.to_string(),
+                    width: source
+                        .get("width")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|size| u32::try_from(size).ok()),
+                    height: source
+                        .get("height")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|size| u32::try_from(size).ok()),
+                })
+            })
+            .collect();
+        found.push(Artist {
+            id,
+            uri: uri.to_string(),
+            name: name.to_string(),
+            images,
+            ..Default::default()
+        });
+    }
+    if !entries.is_empty() && found.is_empty() {
+        return Err(Failure::Retry(anyhow::anyhow!(
+            "Spotify related artist cards could not be decoded"
+        )));
+    }
+    Ok(found)
+}
 
 /// Popular tracks in the playback account's market, retaining Spotify's ranking.
 pub async fn artist_top_tracks(session: &Session, id: &str) -> Result<Vec<Track>, Failure> {
@@ -300,18 +381,27 @@ const PLAY_COUNT_PAGE: usize = 50;
 /// No album runs longer; a page that never ends stops here.
 const MAX_PLAY_COUNT_ROWS: usize = 1000;
 
-/// Spotify's play count for each song of an album, or of an artist's
-/// popular songs, by track URI. Only the Pathfinder queries Spotify's own
-/// apps make carry them: the Web API has none. A song Spotify gives no
-/// count is left out, and the caller shows nothing for it.
-pub async fn play_counts(
+/// Supplementary album or artist data returned by Spotify's Pathfinder queries.
+#[derive(Debug, Default)]
+pub struct PageMetadata {
+    /// Songs' play counts by track URI, and an artist's monthly listeners
+    /// under the artist's own URI.
+    pub play_counts: HashMap<String, u64>,
+    pub upcoming: Option<crate::prerelease::UpcomingRelease>,
+}
+
+/// Read song play counts and, for artists, monthly listeners and the
+/// upcoming release. None of them is available through the Web API. Songs
+/// without counts are left out.
+pub async fn page_metadata(
     session: &Session,
     web: &crate::api::ApiClient,
     uri: &str,
-) -> anyhow::Result<HashMap<String, u64>> {
+) -> anyhow::Result<PageMetadata> {
     let login = session.login5().auth_token().await?;
     let client_token = session.spclient().client_token().await?;
     let mut counts = HashMap::new();
+    let mut upcoming = None;
     match crate::util::uri_kind(uri) {
         Some("album") => {
             let mut offset = 0;
@@ -345,7 +435,7 @@ pub async fn play_counts(
         Some("artist") => {
             let query = serde_json::json!({
                 "operationName": "queryArtistOverview",
-                "variables": {"uri": uri, "locale": "", "includePrerelease": false},
+                "variables": {"uri": uri, "locale": "", "includePrerelease": true},
                 "extensions": {
                     "persistedQuery": {"version": 1, "sha256Hash": ARTIST_OVERVIEW_HASH}
                 }
@@ -353,14 +443,39 @@ pub async fn play_counts(
             let body = web
                 .partner_request(&login.access_token, &client_token, &query)
                 .await?;
+            anyhow::ensure!(
+                body.get("errors").is_none_or(
+                    |errors| errors.is_null() || errors.as_array().is_some_and(Vec::is_empty)
+                ),
+                "Spotify could not return this artist overview"
+            );
+            upcoming = upcoming_release(
+                body.pointer("/data/artistUnion")
+                    .ok_or_else(|| anyhow::anyhow!("missing artist overview"))?,
+            );
             let top = body
                 .pointer("/data/artistUnion/discography/topTracks")
                 .ok_or_else(|| anyhow::anyhow!("Spotify answered without the popular songs"))?;
             play_counts_from(top, &mut counts);
+            if let Some(listeners) = monthly_listeners(&body) {
+                counts.insert(uri.to_string(), listeners);
+            }
         }
         _ => anyhow::bail!("Spotify counts plays only for album and artist songs"),
     }
-    Ok(counts)
+    Ok(PageMetadata {
+        play_counts: counts,
+        upcoming,
+    })
+}
+
+/// An artist's upcoming release. One this app cannot read is logged and left
+/// out: the play counts in the same answer still stand.
+fn upcoming_release(artist: &serde_json::Value) -> Option<crate::prerelease::UpcomingRelease> {
+    crate::prerelease::UpcomingRelease::from_artist(artist).unwrap_or_else(|error| {
+        log::warn!("leaving out an unreadable upcoming release: {error}");
+        None
+    })
 }
 
 /// Adds the counts of a Pathfinder list of `{track: {uri, playcount}}`
@@ -377,10 +492,7 @@ fn play_counts_from(list: &serde_json::Value, counts: &mut HashMap<String, u64>)
             continue;
         };
         let uri = track.get("uri").and_then(|uri| uri.as_str());
-        let count = track.get("playcount").and_then(|count| match count {
-            serde_json::Value::String(text) => text.parse::<u64>().ok(),
-            other => other.as_u64(),
-        });
+        let count = track.get("playcount").and_then(pathfinder_count);
         if let (Some(uri), Some(count)) = (uri, count)
             && uri.starts_with("spotify:track:")
         {
@@ -388,6 +500,20 @@ fn play_counts_from(list: &serde_json::Value, counts: &mut HashMap<String, u64>)
         }
     }
     rows.len()
+}
+
+/// An artist's monthly listeners in its `queryArtistOverview` answer.
+fn monthly_listeners(body: &serde_json::Value) -> Option<u64> {
+    body.pointer("/data/artistUnion/stats/monthlyListeners")
+        .and_then(pathfinder_count)
+}
+
+/// A Pathfinder count, a string of digits or a number.
+fn pathfinder_count(count: &serde_json::Value) -> Option<u64> {
+    match count {
+        serde_json::Value::String(text) => text.parse::<u64>().ok(),
+        other => other.as_u64(),
+    }
 }
 
 /// Whether this account has already pre-saved the album resolved from the countdown page.
@@ -855,27 +981,70 @@ fn library_row(item: &Item, meta: &MetaItem) -> Option<Playlist> {
     })
 }
 
-/// The songs of Spotify's radio `station`, in Spotify's order, with their
-/// details from one batched request. Spotify mixes a station afresh each
-/// time it is resolved, so the list returned here is the one to play.
+/// The songs of Spotify's radio `station`, with a song seed first and the
+/// rest in Spotify's order, their details from one batched request. Spotify
+/// mixes a station afresh each time it is resolved, so the list returned
+/// here is the one to play.
 pub async fn station(session: &Session, station: &str) -> anyhow::Result<Vec<Track>> {
     let context = session.spclient().get_context(station).await?;
-    let uris = station_songs(&context);
-    anyhow::ensure!(!uris.is_empty(), "Spotify has no songs for this radio");
-    let found = metadata(session, uris.iter())
+    let uris = station_uris(station, &context)?;
+    let tolerated: BTreeSet<String> = track_seed(station)
+        .map(|seed| seed.to_uri())
+        .into_iter()
+        .collect();
+    let found = metadata_tolerating(session, uris.iter(), &tolerated)
         .await
         .map_err(|failure| match failure {
             Failure::Definitive(error) => anyhow::anyhow!("{error}"),
             Failure::Retry(error) => error,
         })?;
-    Ok(uris
-        .iter()
+    Ok(resolved_station(&uris, &found))
+}
+
+/// The station's songs, with its song seed first, or an error when Spotify
+/// resolved no songs at all.
+fn station_uris(
+    station: &str,
+    context: &librespot_protocol::context::Context,
+) -> anyhow::Result<Vec<SpotifyUri>> {
+    let uris = station_songs(context);
+    anyhow::ensure!(!uris.is_empty(), "Spotify has no songs for this radio");
+    Ok(seed_first(station, uris))
+}
+
+/// A station seeded by a song starts with that song, exactly once, followed
+/// by its other songs in Spotify's order. Other kinds of station keep the
+/// order Spotify returned.
+pub(crate) fn seed_first(station: &str, uris: Vec<SpotifyUri>) -> Vec<SpotifyUri> {
+    let Some(seed) = track_seed(station) else {
+        return uris;
+    };
+    let seed_uri = seed.to_uri();
+    let mut ordered = Vec::with_capacity(uris.len() + 1);
+    ordered.push(seed);
+    ordered.extend(uris.into_iter().filter(|uri| uri.to_uri() != seed_uri));
+    ordered
+}
+
+/// The song a station is seeded by, when the seed is a song Spotify can name.
+fn track_seed(station: &str) -> Option<SpotifyUri> {
+    let seed = crate::util::station_seed(station)?;
+    match SpotifyUri::from_uri(&seed).ok()? {
+        seed @ SpotifyUri::Track { .. } => Some(seed),
+        _ => None,
+    }
+}
+
+/// The station's usable songs in resolved order. A song Spotify has no
+/// details for, such as a seed which is gone or withheld, is left out.
+fn resolved_station(uris: &[SpotifyUri], found: &HashMap<String, PlayableItem>) -> Vec<Track> {
+    uris.iter()
         .map(SpotifyUri::to_uri)
         .filter_map(|uri| match found.get(&uri) {
             Some(PlayableItem::Track(track)) => Some(track.clone()),
             _ => None,
         })
-        .collect())
+        .collect()
 }
 
 /// Each song of a resolved station once, named by URI or by raw id.
@@ -1472,7 +1641,7 @@ fn local_track(id: &SpotifyUri, uri: String) -> Option<PlayableItem> {
     else {
         return None;
     };
-    Some(PlayableItem::Track(Track {
+    let mut track = Track {
         uri,
         name: track_title.clone(),
         duration_ms: u32::try_from(duration.as_millis()).unwrap_or(u32::MAX),
@@ -1489,7 +1658,43 @@ fn local_track(id: &SpotifyUri, uri: String) -> Option<PlayableItem> {
         }),
         is_local: true,
         ..Default::default()
-    }))
+    };
+    normalize_local_track_labels(&mut track);
+    Some(PlayableItem::Track(track))
+}
+
+/// Repair URI-derived labels, including old cached ones. Compare with the raw
+/// component first so custom names and already-decoded labels stay unchanged.
+pub(crate) fn normalize_local_track_labels(track: &mut Track) {
+    if !track.uri.starts_with("spotify:local:") {
+        return;
+    }
+    let Ok(SpotifyUri::Local {
+        artist,
+        album_title,
+        track_title,
+        ..
+    }) = SpotifyUri::from_uri(&track.uri)
+    else {
+        return;
+    };
+    let decode = |name: &mut String, encoded: &str| {
+        if name != encoded || !encoded.contains(['+', '%']) {
+            return;
+        }
+        // Replace spaces before unescaping, so %2B stays a literal plus.
+        let spaced = encoded.replace('+', " ");
+        if let Ok(decoded) = percent_encoding::percent_decode_str(&spaced).decode_utf8() {
+            *name = decoded.into_owned();
+        }
+    };
+    decode(&mut track.name, &track_title);
+    if let [artist_ref] = track.artists.as_mut_slice() {
+        decode(&mut artist_ref.name, &artist);
+    }
+    if let Some(album) = &mut track.album {
+        decode(&mut album.name, &album_title);
+    }
 }
 
 /// Track and episode details for the given URIs, in one batched request.
@@ -1500,12 +1705,23 @@ async fn metadata(
     session: &Session,
     uris: impl Iterator<Item = &SpotifyUri>,
 ) -> Result<HashMap<String, PlayableItem>, Failure> {
+    metadata_tolerating(session, uris, &BTreeSet::new()).await
+}
+
+/// As `metadata`, but a URI in `tolerated` may be left unanswered, refused,
+/// or carry unreadable details without failing the whole batch. A provider
+/// error over the batch still fails it.
+async fn metadata_tolerating(
+    session: &Session,
+    uris: impl Iterator<Item = &SpotifyUri>,
+    tolerated: &BTreeSet<String>,
+) -> Result<HashMap<String, PlayableItem>, Failure> {
     let (request, asked) = batch(uris);
     if asked.is_empty() {
         return Ok(HashMap::new());
     }
     let response = session.spclient().get_extended_metadata(request).await?;
-    answers(&asked, response)
+    answers_tolerating(&asked, tolerated, response)
 }
 
 /// Every song of `albums`, album by album in the order given and each in its
@@ -1621,15 +1837,17 @@ fn batch<'a>(
     (request, asked)
 }
 
-/// The details Spotify answered with for the URIs `asked`, by URI. Spotify marks each
-/// answer: a 404 is a song it no longer has, a 451 one it withholds for
-/// legal reasons, and the Web API shows both as a row without one. Any
-/// other refusal, a provider error over the whole batch, bytes that do not
-/// read as a song, or a URI left unanswered is a retry, since a page cached
-/// without those songs would stay wrong. Kinds the request never asked for
-/// are passed over.
-fn answers(
+/// The details Spotify answered with for the URIs `asked`, by URI. Spotify
+/// marks each answer: a 404 is a song it no longer has, a 451 one it
+/// withholds for legal reasons, and the Web API shows both as a row without
+/// one. Any other refusal, a provider error over the whole batch, bytes that
+/// do not read as a song, or a URI left unanswered is a retry, since a page
+/// cached without those songs would stay wrong. A URI in `tolerated` may be
+/// unanswered, refused, or unreadable without failing the page. Kinds the
+/// request never asked for are passed over.
+fn answers_tolerating(
     asked: &BTreeSet<String>,
+    tolerated: &BTreeSet<String>,
     response: BatchedExtensionResponse,
 ) -> Result<HashMap<String, PlayableItem>, Failure> {
     let retry = |reason: String| Failure::Retry(anyhow::anyhow!(reason));
@@ -1646,21 +1864,29 @@ fn answers(
             _ => continue,
         };
         for data in array.extension_data {
-            unanswered.remove(data.entity_uri.as_str());
+            let uri = data.entity_uri;
+            let optional = tolerated.contains(&uri);
+            unanswered.remove(uri.as_str());
             match data.header.status_code {
                 0 | 200 => {}
                 404 | 451 => continue,
-                code => return Err(retry(format!("{} answered {code}", data.entity_uri))),
+                _ if optional => continue,
+                code => return Err(retry(format!("{uri} answered {code}"))),
             }
-            let item = data
+            let Some(item) = data
                 .extension_data
                 .as_ref()
                 .and_then(|any| playable(kind, &any.value))
-                .ok_or_else(|| retry(format!("unreadable metadata for {}", data.entity_uri)))?;
-            playables.insert(data.entity_uri, item);
+            else {
+                if optional {
+                    continue;
+                }
+                return Err(retry(format!("unreadable metadata for {uri}")));
+            };
+            playables.insert(uri, item);
         }
     }
-    if let Some(uri) = unanswered.first() {
+    if let Some(uri) = unanswered.iter().find(|uri| !tolerated.contains(**uri)) {
         return Err(retry(format!("no metadata answer for {uri}")));
     }
     Ok(playables)
@@ -1799,6 +2025,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_malformed_upcoming_release_is_left_out() {
+        let artist = serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+        assert!(super::upcoming_release(&artist).is_some());
+        assert!(super::upcoming_release(&serde_json::json!({"preRelease": "odd"})).is_none());
+        assert!(super::upcoming_release(&serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn an_artist_overview_carries_its_monthly_listeners() {
+        let body = serde_json::json!({"data": {"artistUnion": {
+            "stats": {"followers": 52, "monthlyListeners": 8_123_456}
+        }}});
+        assert_eq!(super::monthly_listeners(&body), Some(8_123_456));
+        assert_eq!(super::monthly_listeners(&serde_json::json!({})), None);
+    }
+
     /// A lost reply is uncertain, including when the server accepted the write.
     /// HTTP errors and redirect responses must never resend the mutation either.
     #[tokio::test]
@@ -1850,6 +2093,51 @@ mod tests {
     use librespot_metadata::Metadata as _;
 
     use super::*;
+
+    #[test]
+    fn related_artist_cards_keep_order_identity_and_images() {
+        let body = serde_json::json!({"data":{"artistUnion":{"relatedContent":{"relatedArtists":{"items":[
+            {"uri":"spotify:artist:0000000000000000000002", "profile":{"name":"Second artist"},
+             "visuals":{"avatarImage":{"sources":[{"url":"https://example.invalid/avatar.jpg","width":640,"height":640}]}}},
+            {"uri":"spotify:track:0000000000000000000003", "profile":{"name":"Not an artist"}},
+            {"uri":"spotify:artist:0000000000000000000001", "profile":{"name":"First artist"}}
+        ]}}}}});
+        let artists = related_artist_headers(&body).unwrap();
+        assert_eq!(
+            artists
+                .iter()
+                .map(|artist| artist.id.as_str())
+                .collect::<Vec<_>>(),
+            ["0000000000000000000002", "0000000000000000000001"]
+        );
+        assert_eq!(artists[0].uri, "spotify:artist:0000000000000000000002");
+        assert_eq!(artists[0].name, "Second artist");
+        assert_eq!(
+            artists[0].images[0].url,
+            "https://example.invalid/avatar.jpg"
+        );
+        assert_eq!(artists[0].images[0].width, Some(640));
+        assert_eq!(artists[0].images[0].height, Some(640));
+        assert!(artists[1].images.is_empty());
+    }
+
+    #[test]
+    fn related_artists_keep_explicit_empty_but_retry_unknown_payloads() {
+        let empty = serde_json::json!({"data":{"artistUnion":{"relatedContent":{"relatedArtists":{"items":[]}}}}});
+        assert!(related_artist_headers(&empty).unwrap().is_empty());
+        for body in [
+            serde_json::json!({}),
+            serde_json::json!({"data":{"artistUnion":{"relatedContent":{"relatedArtists":{"items":[
+                {"uri":"spotify:artist:0000000000000000000001"},
+                {"uri":"spotify:artist:0000000000000000000002", "profile":{"name":" "}}
+            ]}}}}}),
+        ] {
+            assert!(matches!(
+                related_artist_headers(&body),
+                Err(Failure::Retry(_))
+            ));
+        }
+    }
 
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const EPISODE: &str = "spotify:episode:7GhIk7Il098yCjg4BQjzvb";
@@ -2220,6 +2508,78 @@ mod tests {
         );
         assert_eq!(track.duration_ms, 180_000);
         assert_eq!(track.uri, "spotify:local:Artist:Album:Song:180");
+    }
+
+    #[test]
+    fn local_track_labels_decode_uri_components_without_changing_the_uri() {
+        let uri = "spotify:local:Tan+Bi%C3%B3nica:Boquitas+Pintadas:Tel%C3%A9fonos:180";
+        let local = item(&row(uri, "", 0), &HashMap::new());
+        let Some(PlayableItem::Track(track)) = local.item else {
+            panic!("a local file is a track");
+        };
+        assert_eq!(track.name, "Teléfonos");
+        assert_eq!(track.artist_names(), "Tan Biónica");
+        assert_eq!(track.album.unwrap().name, "Boquitas Pintadas");
+        assert_eq!(track.uri, uri);
+        assert_eq!(track.duration_ms, 180_000);
+    }
+
+    #[test]
+    fn local_track_labels_decode_once_and_preserve_invalid_utf8() {
+        for (encoded, expected) in [
+            ("A+B", "A B"),
+            ("C%2B%2B", "C++"),
+            ("100%25+Pure", "100% Pure"),
+            ("%252B", "%2B"),
+            ("%FF+Name", "%FF+Name"),
+            ("%C3%28", "%C3%28"),
+            ("Already decoded", "Already decoded"),
+            ("", ""),
+        ] {
+            let uri = format!("spotify:local:{encoded}:{encoded}:{encoded}:180");
+            let local = item(&row(&uri, "", 0), &HashMap::new());
+            let Some(PlayableItem::Track(track)) = local.item else {
+                panic!("a local file is a track");
+            };
+            assert_eq!(track.name, expected);
+            assert_eq!(track.artist_names(), expected);
+            assert_eq!(
+                track.album.as_ref().map_or("", |album| &album.name),
+                expected
+            );
+            assert_eq!(track.uri, uri);
+            // A corrected row can be cached and restored repeatedly.
+            let mut restored: Track =
+                serde_json::from_str(&serde_json::to_string(&track).unwrap()).unwrap();
+            normalize_local_track_labels(&mut restored);
+            normalize_local_track_labels(&mut restored);
+            assert_eq!(restored, track);
+        }
+    }
+
+    #[test]
+    fn local_track_labels_preserve_custom_names_and_nonlocal_tracks() {
+        let local = item(
+            &row("spotify:local:A+B:C%2BD:%252B:180", "", 0),
+            &HashMap::new(),
+        );
+        let Some(PlayableItem::Track(mut track)) = local.item else {
+            panic!("a local file is a track");
+        };
+        track.name = "Custom %2B+title".into();
+        track.artists[0].name = "Custom+artist".into();
+        track.album.as_mut().unwrap().name = "Custom%25album".into();
+        let custom = track.clone();
+        normalize_local_track_labels(&mut track);
+        assert_eq!(track, custom);
+
+        for uri in [TRACK, "spotify:local:malformed"] {
+            track.uri = uri.into();
+            track.name = "A+B".into();
+            let unchanged = track.clone();
+            normalize_local_track_labels(&mut track);
+            assert_eq!(track, unchanged);
+        }
     }
 
     #[test]
@@ -2598,6 +2958,13 @@ mod tests {
         response
     }
 
+    fn answers(
+        asked: &BTreeSet<String>,
+        response: BatchedExtensionResponse,
+    ) -> Result<HashMap<String, PlayableItem>, Failure> {
+        answers_tolerating(asked, &BTreeSet::new(), response)
+    }
+
     /// Spotify's answer is read by URI and kind, whether it marks the batch
     /// and each answer with 200 or leaves them unmarked; a kind this does
     /// not read is passed over.
@@ -2775,6 +3142,259 @@ mod tests {
                 "spotify:track:0000000000000000000000",
                 "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
             ]
+        );
+    }
+
+    const STATION_SEED_ID: &str = "3JA9Jsuxr4xgHXEawAdCp4";
+    const STATION_SEED: &str = "spotify:track:3JA9Jsuxr4xgHXEawAdCp4";
+    const STATION_OTHER: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
+    const STATION_THIRD: &str = "spotify:track:7GhIk7Il098yCjg4BQjzvb";
+
+    fn station_context(uris: &[&str]) -> librespot_protocol::context::Context {
+        use librespot_protocol::context::Context;
+        use librespot_protocol::context_page::ContextPage;
+        use librespot_protocol::context_track::ContextTrack;
+        Context {
+            pages: vec![ContextPage {
+                tracks: uris
+                    .iter()
+                    .map(|uri| ContextTrack {
+                        uri: Some((*uri).into()),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn normalized_station(station: &str, raw: &[&str]) -> Vec<String> {
+        station_uris(station, &station_context(raw))
+            .unwrap()
+            .iter()
+            .map(SpotifyUri::to_uri)
+            .collect()
+    }
+
+    #[test]
+    fn a_song_station_puts_its_seed_first_and_keeps_the_other_order() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        assert_eq!(
+            normalized_station(&station, &[STATION_OTHER, STATION_THIRD]),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+        assert_eq!(
+            normalized_station(&station, &[STATION_SEED, STATION_OTHER, STATION_THIRD]),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD],
+            "a seed already first stays there, exactly once"
+        );
+        assert_eq!(
+            normalized_station(
+                &station,
+                &[STATION_OTHER, STATION_SEED, STATION_THIRD, STATION_SEED]
+            ),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD],
+            "a seed later in the mix moves to the front, exactly once"
+        );
+    }
+
+    #[test]
+    fn a_song_station_still_lists_repeated_other_songs_once() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        assert_eq!(
+            normalized_station(
+                &station,
+                &[STATION_OTHER, STATION_SEED, STATION_OTHER, STATION_THIRD]
+            ),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+    }
+
+    #[test]
+    fn other_station_kinds_keep_spotifys_order() {
+        for station in [
+            "spotify:station:playlist:37i9dQZF1DXbIbVYph0Zr5",
+            "spotify:station:album:4uLU6hMCjMI75M1A2tKUQC",
+            "spotify:station:artist:4uLU6hMCjMI75M1A2tKUQC",
+        ] {
+            assert_eq!(
+                normalized_station(station, &[STATION_OTHER, STATION_THIRD]),
+                [STATION_OTHER, STATION_THIRD],
+                "{station}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_invalid_song_seed_adds_nothing_and_panics_not() {
+        let raw = [STATION_OTHER, STATION_THIRD];
+        for station in [
+            "spotify:station:track:xyz",
+            "spotify:station:track:",
+            "spotify:station:",
+            "spotify:station:show:4uLU6hMCjMI75M1A2tKUQC",
+            "not-a-station",
+        ] {
+            assert_eq!(normalized_station(station, &raw), raw, "{station}");
+        }
+    }
+
+    #[test]
+    fn an_empty_station_remains_an_error_even_for_a_song_seed() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        let error = station_uris(&station, &station_context(&[])).unwrap_err();
+        assert_eq!(error.to_string(), "Spotify has no songs for this radio");
+    }
+
+    #[test]
+    fn a_seed_without_metadata_leaves_the_usable_station_songs() {
+        let station = format!("spotify:station:track:{STATION_SEED_ID}");
+        let uris = station_uris(
+            &station,
+            &station_context(&[STATION_OTHER, STATION_SEED, STATION_THIRD]),
+        )
+        .unwrap();
+        let mut found = HashMap::from([
+            (
+                STATION_OTHER.to_string(),
+                PlayableItem::Track(Track {
+                    uri: STATION_OTHER.into(),
+                    name: "Other".into(),
+                    ..Default::default()
+                }),
+            ),
+            (
+                STATION_THIRD.to_string(),
+                PlayableItem::Track(Track {
+                    uri: STATION_THIRD.into(),
+                    name: "Third".into(),
+                    ..Default::default()
+                }),
+            ),
+        ]);
+        assert_eq!(
+            resolved_station(&uris, &found)
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect::<Vec<_>>(),
+            [STATION_OTHER, STATION_THIRD],
+            "an unavailable seed is left out, not fabricated"
+        );
+
+        found.insert(
+            STATION_SEED.to_string(),
+            PlayableItem::Track(Track {
+                uri: STATION_SEED.into(),
+                name: "Seed".into(),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(
+            resolved_station(&uris, &found)
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect::<Vec<_>>(),
+            [STATION_SEED, STATION_OTHER, STATION_THIRD]
+        );
+    }
+
+    /// The seed joins the station's one metadata batch, but an answer Spotify
+    /// cannot use for it leaves the rest of the mix usable rather than
+    /// failing the page.
+    #[test]
+    fn an_unusable_seed_does_not_fail_the_rest_of_the_station() {
+        let asked = asked(&[STATION_SEED, STATION_OTHER, STATION_THIRD]);
+        let tolerated = BTreeSet::from([STATION_SEED.to_string()]);
+        let other = || {
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_OTHER,
+                200,
+                Some(track_bytes()),
+            )
+        };
+        let third = || {
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_THIRD,
+                200,
+                Some(track_bytes()),
+            )
+        };
+        for seed_answer in [
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_SEED,
+                200,
+                Some(b"not a track".to_vec()),
+            ),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 404, None),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 451, None),
+            answer(ExtensionKind::TRACK_V4, STATION_SEED, 500, None),
+        ] {
+            let found = answers_tolerating(
+                &asked,
+                &tolerated,
+                response([seed_answer, other(), third()]),
+            )
+            .expect("the usable station songs remain");
+            assert_eq!(
+                found.keys().cloned().collect::<BTreeSet<_>>(),
+                BTreeSet::from([STATION_OTHER.to_string(), STATION_THIRD.to_string()]),
+                "the seed is left out, not fabricated"
+            );
+        }
+
+        // An unanswered seed is tolerated the same way.
+        let found = answers_tolerating(&asked, &tolerated, response([other(), third()])).unwrap();
+        assert_eq!(found.len(), 2);
+    }
+
+    /// Only the seed is tolerated. Another song's refusal, unreadable
+    /// details, or missing answer still fails the station, as does a
+    /// provider error over the whole batch.
+    #[test]
+    fn unusable_other_station_songs_and_batch_failures_still_fail() {
+        let asked = asked(&[STATION_SEED, STATION_OTHER]);
+        let tolerated = BTreeSet::from([STATION_SEED.to_string()]);
+        let seed_answer = answer(ExtensionKind::TRACK_V4, STATION_SEED, 404, None);
+        for other_answer in [
+            answer(ExtensionKind::TRACK_V4, STATION_OTHER, 500, None),
+            answer(
+                ExtensionKind::TRACK_V4,
+                STATION_OTHER,
+                200,
+                Some(b"not a track".to_vec()),
+            ),
+        ] {
+            assert!(
+                answers_tolerating(
+                    &asked,
+                    &tolerated,
+                    response([seed_answer.clone(), other_answer]),
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            answers_tolerating(&asked, &tolerated, response([seed_answer])).is_err(),
+            "an unanswered other song"
+        );
+
+        let mut failed_batch = answer(
+            ExtensionKind::TRACK_V4,
+            STATION_OTHER,
+            200,
+            Some(track_bytes()),
+        );
+        failed_batch
+            .header
+            .mut_or_insert_default()
+            .provider_error_status = 500;
+        assert!(
+            answers_tolerating(&asked, &tolerated, response([failed_batch])).is_err(),
+            "a provider error over the batch"
         );
     }
 

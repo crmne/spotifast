@@ -290,6 +290,9 @@ pub struct NetActivity {
     in_flight: AtomicUsize,
     /// Milliseconds since `started_at` when the oldest current burst began.
     busy_since_ms: AtomicU64,
+    /// How many times Spotify answered the shared app with "too many
+    /// requests", so the interface can suggest a personal app.
+    shared_rate_limits: AtomicU64,
 }
 
 impl Default for NetActivity {
@@ -298,6 +301,7 @@ impl Default for NetActivity {
             started_at: Instant::now(),
             in_flight: AtomicUsize::new(0),
             busy_since_ms: AtomicU64::new(0),
+            shared_rate_limits: AtomicU64::new(0),
         }
     }
 }
@@ -315,6 +319,18 @@ impl NetActivity {
 
     fn end(&self) {
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// How many "too many requests" answers the shared app has had. It only
+    /// grows: compare it with an earlier reading to see a new one.
+    pub fn shared_rate_limits(&self) -> u64 {
+        self.shared_rate_limits.load(Ordering::SeqCst)
+    }
+
+    fn note_rate_limit(&self, source: ApiSource) {
+        if source == ApiSource::Shared {
+            self.shared_rate_limits.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
     /// Requests have been in flight continuously for at least `for_at_least`.
@@ -603,6 +619,7 @@ impl ApiClient {
                     wait.min(MAX_RETRY_AFTER)
                 };
                 log::warn!("Spotify rate limit source={} wait={wait:?}", self.source);
+                self.activity.note_rate_limit(self.source);
                 log::info!(
                     "Spotify cooldown source={} duration_ms={}",
                     self.source,
@@ -1344,6 +1361,56 @@ mod tests {
         assert_eq!(second.unwrap().unwrap()["ok"], true);
     }
 
+    /// Only the shared app's "too many requests" counts towards suggesting a
+    /// personal app; the personal app's own limit says nothing about it.
+    #[tokio::test]
+    async fn only_the_shared_apps_rate_limits_are_counted() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for source in [ApiSource::Shared, ApiSource::Personal] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                for reply in [
+                    "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                ] {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut bytes = [0u8; 4096];
+                    assert!(socket.read(&mut bytes).await.unwrap() > 0);
+                    socket.write_all(reply.as_bytes()).await.unwrap();
+                }
+            });
+            let http = reqwest::Client::builder().no_proxy().build().unwrap();
+            let activity = Arc::new(NetActivity::default());
+            let mut client = ApiClient::new(http.clone(), activity.clone(), 20, 50, source);
+            client.base_url = Some(format!("http://{address}"));
+            client.set_token_provider(Some(TokenProvider::Web(WebTokens::new(
+                http,
+                crate::auth::StoredToken {
+                    access_token: "test-only".into(),
+                    expires_at: u64::MAX,
+                    ..Default::default()
+                },
+                crate::credentials::Store::in_memory(crate::paths::AppDirs {
+                    config: std::env::temp_dir().join("unused-rate-limit-token/config"),
+                    state: std::env::temp_dir().join("unused-rate-limit-token/state"),
+                    cache: std::env::temp_dir().join("unused-rate-limit-token/cache"),
+                })
+                .lease(crate::credentials::Slot::Shared),
+                source,
+                Arc::new(|_| {}),
+            ))));
+            assert_eq!(activity.shared_rate_limits(), 0);
+            client.me().await.unwrap();
+            server.await.unwrap();
+            assert_eq!(
+                activity.shared_rate_limits(),
+                u64::from(source == ApiSource::Shared),
+                "{source}"
+            );
+        }
+    }
+
     /// An extreme server header cannot turn a short recovery into a day-long wait.
     #[tokio::test]
     async fn partner_extreme_retry_after_is_bounded() {
@@ -1547,7 +1614,7 @@ mod tests {
         let tokens = WebTokens::new(
             reqwest::Client::new(),
             crate::auth::StoredToken {
-                client_id: crate::auth::DEFAULT_WEB_CLIENT_ID.into(),
+                client_id: "dummy-shared-client".into(),
                 access_token: "dummy-access".into(),
                 refresh_token: "dummy-refresh".into(),
                 expires_at: u64::MAX,
