@@ -2460,14 +2460,12 @@ pub fn table_header(
         );
         cx += added_width;
     }
-    // Spotify's own lists do not sort by plays, and neither does this one.
     if plays_width > 0.0 {
-        ui.painter().text(
-            pos2(cx, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            pgettext(locale, "column heading", "PLAYS"),
-            font.clone(),
-            color,
+        heading(
+            ui,
+            cx,
+            &pgettext(locale, "column heading", "PLAYS"),
+            SortColumn::Plays,
         );
     }
     if number_clicked {
