@@ -143,7 +143,7 @@ mod adapter {
         .is_err()
         {
             samples.fill(0.0);
-            context.state.failed.store(true, Ordering::Release);
+            context.state.fail("native capture stopped");
         }
     }
     extern "C" fn event(context: *mut c_void, event: u32) {
@@ -159,7 +159,7 @@ mod adapter {
                 audio.reset(audio.rate);
             }
             3 => {
-                context.state.failed.store(true, Ordering::Release);
+                context.state.fail("native capture stopped");
             }
             _ => {}
         }

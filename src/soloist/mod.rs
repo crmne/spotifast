@@ -497,6 +497,8 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         }));
         let mut audio_tick = tokio::time::interval(Duration::from_millis(250));
         let mut audio_routed = false;
+        let mut repairs = audio::Repairs::default();
+        let mut rebuilt_at: Option<Instant> = None;
         let mut source_volume = volume::SourceVolume::default();
         let mut idle = false;
         let mut active = true;
@@ -519,7 +521,25 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                 _ = stopped.changed() => return Ok(Outcome::Stopped),
                 _ = audio_tick.tick(), if bridge.is_some() => {
                     let bridge = bridge.as_ref().expect("audio bridge");
-                    if bridge.failed() { bail!(Failure::AudioLost); }
+                    if bridge.failed() {
+                        if !cfg!(target_os = "linux") { bail!(Failure::AudioLost); }
+                        match repairs.next(Instant::now()) {
+                            audio::Repair::Wait => {}
+                            audio::Repair::Rebuild => {
+                                log::warn!("Rebuilding Soloist's audio route after: {}", bridge.fault().unwrap_or_default());
+                                if bridge.rebuild().await { rebuilt_at = Some(Instant::now()); }
+                            }
+                            audio::Repair::GiveUp => bail!(Failure::AudioLost),
+                        }
+                        continue;
+                    }
+                    // A rebuilt route Soloist never came back to is a player
+                    // playing into nothing: only starting it again helps.
+                    if bridge.routed() { rebuilt_at = None; }
+                    if rebuilt_at.is_some_and(|at| at.elapsed() >= REROUTE_LIMIT) && bridge.playing() {
+                        log::warn!("Soloist did not return to its rebuilt audio route");
+                        bail!(Failure::AudioLost);
+                    }
                     if source_volume.maintain(logged_in && bridge.owns_output_volume(), Instant::now())? {
                         reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"set_volume", "volume":100})).await?;
                         reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"get_state"})).await?;
@@ -689,6 +709,9 @@ async fn keep_output(path: &std::path::Path, key: &str, child: &mut tokio::proce
 }
 
 const OUTPUT_LIMIT: usize = 1 << 20;
+
+/// How long a playing Soloist has to find its rebuilt audio route.
+const REROUTE_LIMIT: Duration = Duration::from_secs(5);
 
 /// A second dropped event socket this soon after the last ends the player.
 const RECONNECT_WINDOW: Duration = Duration::from_secs(30);
