@@ -12,6 +12,7 @@ mod keys;
 pub mod library;
 pub mod login;
 mod lyrics;
+mod lyrics_controls;
 pub mod new_releases;
 pub mod player_bar;
 mod prerelease;

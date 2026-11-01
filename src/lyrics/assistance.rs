@@ -39,9 +39,27 @@ pub enum Translation {
     Failed(Failure),
 }
 
+/// The production review candidate is the toolbar. The alternative is only
+/// selectable by demo fixtures and tests until the maintainer chooses a design.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ControlsPresentation {
+    #[default]
+    Toolbar,
+    #[cfg(any(test, feature = "demo"))]
+    Separate,
+}
+
+impl ControlsPresentation {
+    pub(crate) fn grouped(self) -> bool {
+        self == Self::Toolbar
+    }
+}
+
 /// View state only. Nothing is added to the persistent Settings file.
 #[derive(Default)]
 pub struct Assistance {
+    #[cfg(any(test, feature = "demo"))]
+    pub(crate) controls_presentation: ControlsPresentation,
     pub show_translation: bool,
     pub show_pronunciation: bool,
     pub translation: Translation,
@@ -51,6 +69,17 @@ pub struct Assistance {
 }
 
 impl Assistance {
+    pub(crate) fn controls_presentation(&self) -> ControlsPresentation {
+        #[cfg(any(test, feature = "demo"))]
+        {
+            self.controls_presentation
+        }
+        #[cfg(not(any(test, feature = "demo")))]
+        {
+            ControlsPresentation::Toolbar
+        }
+    }
+
     pub fn reset(&mut self, lyrics: Option<&Lyrics>) {
         self.generation = self.generation.wrapping_add(1);
         self.translation = Translation::Idle;

@@ -328,26 +328,55 @@ fn assistance_controls(
     let state = &app.lyrics_assistance;
     let language_known = crate::lyrics::assistance::language(lyrics).is_some();
     let pronunciation_available = state.pronunciation.iter().any(Option::is_some);
-    ui.horizontal_wrapped(|ui| {
-        let translation = ui.add_enabled_ui(language_known || state.show_translation, |ui| {
-            theme::pill_button(ui, palette, &gettext(app.locale, "Translation"), state.show_translation)
-        }).inner.on_hover_text(
-            gettext(app.locale,
-                // Translators: Keep {language}. It is the translation's target language.
-                "Translate into {language} with MyMemory. While enabled, lyric text is sent to MyMemory. Quality and daily limits vary.")
-                .replace("{language}", app.locale.native_name())
-        );
-        if translation.clicked() {
-            // Apply after drawing, like the rest of the lyrics controls.
-            app.actions.push(Action::SetLyricsTranslation(!state.show_translation));
-        }
-        let pronunciation = ui.add_enabled_ui(pronunciation_available || state.show_pronunciation, |ui| {
-            theme::pill_button(ui, palette, &gettext(app.locale, "Pronunciation"), state.show_pronunciation)
-        }).inner.on_hover_text(gettext(app.locale, "Approximate romanization, computed on this device. Some scripts and readings are not supported."));
-        if pronunciation.clicked() {
-            app.actions.push(Action::SetLyricsPronunciation(!state.show_pronunciation));
-        }
-    });
+    let labels = [
+        gettext(app.locale, "Translation"),
+        gettext(app.locale, "Pronunciation"),
+    ];
+    let [translation, pronunciation] = super::lyrics_controls::show(
+        ui,
+        palette,
+        state.controls_presentation(),
+        [
+            super::lyrics_controls::Toggle {
+                label: &labels[0],
+                selected: state.show_translation,
+                enabled: language_known || state.show_translation,
+            },
+            super::lyrics_controls::Toggle {
+                label: &labels[1],
+                selected: state.show_pronunciation,
+                enabled: pronunciation_available || state.show_pronunciation,
+            },
+        ],
+    );
+    let translation_hint = gettext(
+        app.locale,
+        // Translators: Keep {language}. It is the translation's target language.
+        "Translate into {language} with MyMemory. While enabled, lyric text is sent to MyMemory. Quality and daily limits vary.",
+    ).replace("{language}", app.locale.native_name());
+    if translation
+        .on_hover_text(translation_hint)
+        .on_disabled_hover_text(gettext(
+            app.locale,
+            "The lyrics source did not provide a language for translation.",
+        ))
+        .clicked()
+    {
+        app.actions
+            .push(Action::SetLyricsTranslation(!state.show_translation));
+    }
+    let pronunciation_hint = gettext(
+        app.locale,
+        "Approximate romanization, computed on this device. Some scripts and readings are not supported.",
+    );
+    if pronunciation
+        .on_hover_text(&*pronunciation_hint)
+        .on_disabled_hover_text(&*pronunciation_hint)
+        .clicked()
+    {
+        app.actions
+            .push(Action::SetLyricsPronunciation(!state.show_pronunciation));
+    }
     if state.show_translation {
         let message = match &state.translation {
             Translation::Loading => Some(gettext(app.locale, "Translating with MyMemory…")),

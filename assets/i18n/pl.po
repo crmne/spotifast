@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-01 14:25+0100\n"
+"POT-Creation-Date: 2026-11-01 15:30+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Polish\n"
@@ -17,15 +17,13 @@ msgstr ""
 "Plural-Forms: nplurals=3; plural=(n == 1 ? 0 : n % 10 >= 2 && n % 10 <= 4 && "
 "(n % 100 < 12 || n % 100 > 14) ? 1 : 2);\n"
 
-#. Translators: The play button on a Library card. {name} is the playlist,
-#. album, artist, or podcast.
+#. Translators: The play button on a Library card. {name} is the playlist, album, artist, or podcast.
 #: src/ui/sidebar.rs:174
 #, rust-format
 msgid "Pause {name}"
 msgstr "Wstrzymaj {name}"
 
-#. Translators: The play button on a Library card. {name} is the playlist,
-#. album, artist, or podcast.
+#. Translators: The play button on a Library card. {name} is the playlist, album, artist, or podcast.
 #: src/ui/sidebar.rs:177
 #, rust-format
 msgid "Play {name}"
@@ -181,8 +179,7 @@ msgstr "Odepnij"
 msgid "Pin to top"
 msgstr "Przypnij na górze"
 
-#. Translators: Keep {count} exactly as written. It becomes the number of
-#. liked songs.
+#. Translators: Keep {count} exactly as written. It becomes the number of liked songs.
 #: src/i18n.rs:190
 #, rust-format
 msgid "Playlist • {count} song"
@@ -192,8 +189,7 @@ msgstr[1] "Playlista • {count} utwory"
 msgstr[2] "Playlista • {count} utworów"
 
 #. Translators: Keep {count} exactly as written. It becomes a number of songs.
-#. Translators: Keep {count} exactly as written. It becomes the number of
-#. selected songs.
+#. Translators: Keep {count} exactly as written. It becomes the number of selected songs.
 #. Translators: {count} is a number of songs.
 #: src/i18n.rs:201 src/ui/widgets.rs:701 src/ui/collection.rs:2593
 #, rust-format
@@ -203,8 +199,7 @@ msgstr[0] "{count} utwór"
 msgstr[1] "{count} utwory"
 msgstr[2] "{count} utworów"
 
-#. Translators: Keep {count} exactly as written. It becomes a number of
-#. playlists.
+#. Translators: Keep {count} exactly as written. It becomes a number of playlists.
 #: src/i18n.rs:212
 #, rust-format
 msgid "{count} playlist"
@@ -213,8 +208,7 @@ msgstr[0] "{count} playlista"
 msgstr[1] "{count} playlisty"
 msgstr[2] "{count} playlist"
 
-#. Translators: Keep {count} exactly as written. It becomes the number of
-#. playlists a folder holds.
+#. Translators: Keep {count} exactly as written. It becomes the number of playlists a folder holds.
 #: src/i18n.rs:223
 #, rust-format
 msgid "Folder • {count} playlist"
@@ -237,7 +231,7 @@ msgstr "{name}, folder, rozwinięty"
 msgid "Click to change the visualizer"
 msgstr "Kliknij, aby zmienić wizualizację"
 
-#: src/ui/player_bar.rs:440 src/ui/lyrics.rs:131 src/ui/lyrics.rs:816
+#: src/ui/player_bar.rs:440 src/ui/lyrics.rs:131 src/ui/lyrics.rs:845
 msgid "Nothing playing"
 msgstr "Nic nie jest odtwarzane"
 
@@ -268,7 +262,7 @@ msgstr "Odtwarzanie losowe"
 msgid "Previous"
 msgstr "Poprzedni"
 
-#: src/ui/player_bar.rs:778 src/ui/lyrics.rs:601 src/ui/widgets.rs:2862
+#: src/ui/player_bar.rs:778 src/ui/lyrics.rs:630 src/ui/widgets.rs:2862
 #: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:14193
 #: src/ui/collection.rs:970
 msgid "Loading…"
@@ -323,7 +317,7 @@ msgstr "Połącz z urządzeniem"
 msgid "Queue"
 msgstr "Kolejka"
 
-#: src/ui/player_bar.rs:1055 src/ui/lyrics.rs:67 src/ui/lyrics.rs:739
+#: src/ui/player_bar.rs:1055 src/ui/lyrics.rs:67 src/ui/lyrics.rs:768
 msgid "Lyrics"
 msgstr "Tekst"
 
@@ -336,7 +330,7 @@ msgid "Recent"
 msgstr "Ostatnie"
 
 #: src/ui/queue.rs:92 src/ui/queue.rs:241 src/ui/lyrics.rs:78
-#: src/ui/friends.rs:65 src/ui/mod.rs:670 src/window.rs:35
+#: src/ui/friends.rs:65 src/ui/mod.rs:671 src/window.rs:35
 msgid "Close"
 msgstr "Zamknij"
 
@@ -364,14 +358,12 @@ msgstr "Kolejka jest pusta"
 msgid "Queued songs appear here."
 msgstr "Tutaj pojawią się utwory dodane do kolejki."
 
-#. Translators: Songs added manually, before the current playlist or album
-#. continues.
+#. Translators: Songs added manually, before the current playlist or album continues.
 #: src/ui/queue.rs:477
 msgid "Playing next"
 msgstr "Następne z kolejki"
 
-#. Translators: Upcoming songs from the current playlist or album, after
-#. manually queued songs.
+#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
 #: src/ui/queue.rs:584
 msgid "Next up"
 msgstr "Dalej"
@@ -397,12 +389,12 @@ msgstr "Wczytaj więcej"
 msgid "Full screen lyrics"
 msgstr "Tekst na pełnym ekranie"
 
-#: src/ui/lyrics.rs:102 src/ui/lyrics.rs:762
+#: src/ui/lyrics.rs:102 src/ui/lyrics.rs:791
 msgctxt "lyrics"
 msgid "Follow"
 msgstr "Śledź"
 
-#: src/ui/lyrics.rs:132 src/ui/lyrics.rs:817
+#: src/ui/lyrics.rs:132 src/ui/lyrics.rs:846
 msgid "Play a song to see its lyrics."
 msgstr "Odtwórz utwór, aby zobaczyć jego tekst."
 
@@ -428,38 +420,42 @@ msgstr ""
 "Spotifast automatycznie połączy się ponownie po przywróceniu połączenia."
 
 #. Translators: Keep {error} unchanged. It is the original failure detail.
-#: src/ui/lyrics.rs:171 src/ui/lyrics.rs:594 src/ui/lyrics.rs:830
+#: src/ui/lyrics.rs:171 src/ui/lyrics.rs:623 src/ui/lyrics.rs:859
 #, rust-format
 msgid "Couldn't fetch the lyrics: {error}"
 msgstr "Nie udało się pobrać tekstu: {error}"
 
-#: src/ui/lyrics.rs:177 src/ui/lyrics.rs:397 src/ui/lyrics.rs:621
-#: src/ui/lyrics.rs:836 src/ui/settings.rs:416 src/ui/settings.rs:709
+#: src/ui/lyrics.rs:177 src/ui/lyrics.rs:426 src/ui/lyrics.rs:650
+#: src/ui/lyrics.rs:865 src/ui/settings.rs:416 src/ui/settings.rs:709
 msgid "Try again"
 msgstr "Spróbuj ponownie"
 
-#: src/ui/lyrics.rs:188 src/ui/lyrics.rs:587 src/ui/lyrics.rs:847
+#: src/ui/lyrics.rs:188 src/ui/lyrics.rs:616 src/ui/lyrics.rs:876
 msgid "No lyrics"
 msgstr "Brak tekstu"
 
-#: src/ui/lyrics.rs:189 src/ui/lyrics.rs:588 src/ui/lyrics.rs:848
+#: src/ui/lyrics.rs:189 src/ui/lyrics.rs:617 src/ui/lyrics.rs:877
 msgid "No lyrics found for this track."
 msgstr "Nie znaleziono tekstu tego utworu."
 
-#: src/ui/lyrics.rs:198 src/ui/lyrics.rs:583 src/ui/lyrics.rs:857
+#: src/ui/lyrics.rs:198 src/ui/lyrics.rs:612 src/ui/lyrics.rs:886
 msgid "Instrumental"
 msgstr "Instrumentalny"
 
-#: src/ui/lyrics.rs:199 src/ui/lyrics.rs:584 src/ui/lyrics.rs:858
+#: src/ui/lyrics.rs:199 src/ui/lyrics.rs:613 src/ui/lyrics.rs:887
 msgid "No timed lyrics for this track."
 msgstr "Brak zsynchronizowanego tekstu tego utworu."
 
-#: src/ui/lyrics.rs:333
+#: src/ui/lyrics.rs:332
 msgid "Translation"
 msgstr "Tłumaczenie"
 
+#: src/ui/lyrics.rs:333
+msgid "Pronunciation"
+msgstr "Wymowa"
+
 #. Translators: Keep {language}. It is the translation's target language.
-#: src/ui/lyrics.rs:337
+#: src/ui/lyrics.rs:355
 #, rust-format
 msgid ""
 "Translate into {language} with MyMemory. While enabled, lyric text is sent "
@@ -468,11 +464,11 @@ msgstr ""
 "Tłumacz na {language} przez MyMemory. Po włączeniu tekst jest wysyłany do "
 "MyMemory. Jakość i dzienne limity mogą się różnić."
 
-#: src/ui/lyrics.rs:345
-msgid "Pronunciation"
-msgstr "Wymowa"
+#: src/ui/lyrics.rs:361 src/ui/lyrics.rs:399
+msgid "The lyrics source did not provide a language for translation."
+msgstr "Źródło tekstu nie podało języka do tłumaczenia."
 
-#: src/ui/lyrics.rs:346
+#: src/ui/lyrics.rs:370
 msgid ""
 "Approximate romanization, computed on this device. Some scripts and readings "
 "are not supported."
@@ -480,32 +476,28 @@ msgstr ""
 "Przybliżony zapis alfabetem łacińskim, obliczany na tym urządzeniu. Niektóre "
 "pisma i odczyty nie są obsługiwane."
 
-#: src/ui/lyrics.rs:353
+#: src/ui/lyrics.rs:382
 msgid "Translating with MyMemory…"
 msgstr "Tłumaczenie przez MyMemory…"
 
-#: src/ui/lyrics.rs:355
+#: src/ui/lyrics.rs:384
 #, rust-format
 msgid "MyMemory translation · {language}"
 msgstr "Tłumaczenie MyMemory · {language}"
 
-#: src/ui/lyrics.rs:362
+#: src/ui/lyrics.rs:391
 msgid "MyMemory's free limit was reached. Try again later."
 msgstr "Osiągnięto bezpłatny limit MyMemory. Spróbuj ponownie później."
 
-#: src/ui/lyrics.rs:366
+#: src/ui/lyrics.rs:395
 msgid "A lyric line exceeds MyMemory's 500-byte limit."
 msgstr "Wiersz tekstu przekracza limit 500 bajtów MyMemory."
 
-#: src/ui/lyrics.rs:370
-msgid "The lyrics source did not provide a language for translation."
-msgstr "Źródło tekstu nie podało języka do tłumaczenia."
-
-#: src/ui/lyrics.rs:374
+#: src/ui/lyrics.rs:403
 msgid "Translation is unavailable. Your original lyrics are still here."
 msgstr "Tłumaczenie jest niedostępne. Oryginalny tekst pozostaje widoczny."
 
-#: src/ui/lyrics.rs:750
+#: src/ui/lyrics.rs:779
 msgid "Leave full screen (Esc)"
 msgstr "Wyjdź z pełnego ekranu (Esc)"
 
@@ -661,8 +653,7 @@ msgstr "Przejdź do radia albumu"
 msgid "Go to artist radio"
 msgstr "Przejdź do radia wykonawcy"
 
-#. Translators: {title} is a song or episode name, {subtitle} its artists or
-#. podcast.
+#. Translators: {title} is a song or episode name, {subtitle} its artists or podcast.
 #: src/ui/widgets.rs:1547
 #, rust-format
 msgid "Play {title}, {subtitle}"
@@ -673,9 +664,7 @@ msgstr "Odtwórz {title}, {subtitle}"
 msgid "More"
 msgstr "Więcej"
 
-#. Translators: The label beside the pointer while songs are dragged. {name}
-#. is the first song's name and {count} how many more songs are dragged with
-#. it.
+#. Translators: The label beside the pointer while songs are dragged. {name} is the first song's name and {count} how many more songs are dragged with it.
 #: src/ui/widgets.rs:2235
 #, rust-format
 msgid "{name} + {count} more"
@@ -823,8 +812,7 @@ msgstr "Soloist wymaga uwagi"
 msgid "Cleared {size} of audio"
 msgstr "Wyczyszczono {size} danych audio"
 
-#. Translators: Files in the audio cache that Spotifast did not put there,
-#. such as .DS_Store. They were not deleted.
+#. Translators: Files in the audio cache that Spotifast did not put there, such as .DS_Store. They were not deleted.
 #: src/app.rs:2683
 #, rust-format
 msgid "{count} unrecognized file was left in place."
@@ -854,8 +842,7 @@ msgstr "Nie udało się wyczyścić pamięci podręcznej audio: {error}"
 msgid "{name} is ready"
 msgstr "Urządzenie {name} jest gotowe"
 
-#. Translators: {error} is a sentence saying why the proxy password could not
-#. be stored.
+#. Translators: {error} is a sentence saying why the proxy password could not be stored.
 #: src/app.rs:2809
 #, rust-format
 msgid ""
@@ -1079,8 +1066,7 @@ msgstr "Nie udało się zaktualizować Twojej biblioteki: {error}"
 msgid "Nothing on Spotify matches “{query}”"
 msgstr "Nic na Spotify nie pasuje do „{query}”"
 
-#. Translators: {query} is the words someone searched for; {error} is an error
-#. message.
+#. Translators: {query} is the words someone searched for; {error} is an error message.
 #: src/app.rs:8719
 #, rust-format
 msgid "Couldn't search for “{query}”: {error}"
@@ -1296,7 +1282,7 @@ msgstr "Nie udało się zmienić odtwarzania losowego"
 msgid "Couldn't change repeat"
 msgstr "Nie udało się zmienić powtarzania"
 
-#: src/app.rs:14386 src/ui/mod.rs:437
+#: src/app.rs:14386 src/ui/mod.rs:438
 msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify nie pozwala teraz odtworzyć tego utworu na tym komputerze."
 
@@ -1366,8 +1352,7 @@ msgid ""
 "Play the local files your playlists list from a folder on this computer."
 msgstr "Odtwarzaj pliki lokalne z playlist z folderu na tym komputerze."
 
-#. Translators: {count} is a number of songs, {folder} a folder on this
-#. computer.
+#. Translators: {count} is a number of songs, {folder} a folder on this computer.
 #: src/ui/settings.rs:389
 #, rust-format
 msgid "{count} song in {folder}"
@@ -2101,8 +2086,7 @@ msgstr ""
 "Jeden preset w {folder}. Dodaj tu pliki .milk. Spotifast pobiera presety, "
 "gdy MilkDrop po raz pierwszy otworzy się z pustym folderem."
 
-#. Translators: {count} is the number of presets, {folder} the path of the
-#. MilkDrop presets folder.
+#. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2074
 #, rust-format
 msgid ""
@@ -2842,7 +2826,7 @@ msgstr ""
 "akceptować. Skonfiguruj własną, darmową aplikację Spotify, aby nic nie "
 "przerwało Twojej muzyki. To zajmie kilka minut."
 
-#: src/ui/dialogs.rs:50 src/ui/mod.rs:412
+#: src/ui/dialogs.rs:50 src/ui/mod.rs:413
 msgid "Set up personal app"
 msgstr "Skonfiguruj osobistą aplikację"
 
@@ -2934,8 +2918,7 @@ msgid "“{first}” and “{second}” are already in “{playlist}”. Add the
 msgstr ""
 "„{first}” i „{second}” już są na playliście „{playlist}”. Dodać je mimo to?"
 
-#. Translators: {first} and {second} are song names, {count} is how many more
-#. songs are already in the playlist, and {playlist} is a playlist name.
+#. Translators: {first} and {second} are song names, {count} is how many more songs are already in the playlist, and {playlist} is a playlist name.
 #: src/ui/dialogs.rs:301
 #, rust-format
 msgid ""
@@ -3038,8 +3021,7 @@ msgstr "Autor: {owner}"
 msgid "Your podcasts"
 msgstr "Twoje podcasty"
 
-#. Translators: {time} is the time left in an episode, such as 12 min; {show}
-#. is the podcast's name.
+#. Translators: {time} is the time left in an episode, such as 12 min; {show} is the podcast's name.
 #: src/ui/home.rs:697
 #, rust-format
 msgid "{time} left • {show}"
@@ -3377,11 +3359,11 @@ msgstr "Zaznacz „Web API”, zaakceptuj warunki i zapisz."
 msgid "Paste the app's Client ID into the field and sign in."
 msgstr "Wklej Client ID aplikacji w pole i zaloguj się."
 
-#: src/ui/mod.rs:405
+#: src/ui/mod.rs:406
 msgid "Spotify is being slow on the shared app."
 msgstr "Spotify działa wolno we wspólnej aplikacji."
 
-#: src/ui/mod.rs:408
+#: src/ui/mod.rs:409
 msgid ""
 "Spotifast no longer offers the shared app, and Spotify can stop accepting it "
 "at any time. Set up your own free Spotify app and you won't have to wait."
@@ -3392,11 +3374,11 @@ msgstr ""
 
 #. Translators: a button that opens a page explaining why
 #. the banner it sits in appeared.
-#: src/ui/mod.rs:418 src/ui/mod.rs:449
+#: src/ui/mod.rs:419 src/ui/mod.rs:450
 msgid "Why?"
 msgstr "Dlaczego?"
 
-#: src/ui/mod.rs:441
+#: src/ui/mod.rs:442
 msgid ""
 "Spotify refused the key that unlocks the audio. Spotifast can't fix that, "
 "but it sometimes clears up on its own. You can still play on your phone or "
@@ -3406,23 +3388,23 @@ msgstr ""
 "naprawić, ale czasem samo przechodzi. Nadal możesz słuchać na telefonie lub "
 "innym urządzeniu ze Spotify."
 
-#: src/ui/mod.rs:445
+#: src/ui/mod.rs:446
 msgid "Play on another device"
 msgstr "Odtwórz na innym urządzeniu"
 
-#: src/ui/mod.rs:496
+#: src/ui/mod.rs:497
 msgid "Close banner"
 msgstr "Zamknij baner"
 
-#: src/ui/mod.rs:667
+#: src/ui/mod.rs:668
 msgid "Minimize"
 msgstr "Minimalizuj"
 
-#: src/ui/mod.rs:668
+#: src/ui/mod.rs:669
 msgid "Maximize"
 msgstr "Maksymalizuj"
 
-#: src/ui/mod.rs:669
+#: src/ui/mod.rs:670
 msgid "Restore"
 msgstr "Przywróć"
 
@@ -3798,15 +3780,13 @@ msgstr "Odtwarzaj w mono"
 msgid "Play in stereo"
 msgstr "Odtwarzaj w stereo"
 
-#. Translators: {percent} is a number from 0 to 100, followed by a percent
-#. sign.
+#. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
 #: src/ui/winamp/mod.rs:1184
 #, rust-format
 msgid "Balance: {percent}% left"
 msgstr "Balans: {percent}% w lewo"
 
-#. Translators: {percent} is a number from 0 to 100, followed by a percent
-#. sign.
+#. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
 #: src/ui/winamp/mod.rs:1189
 #, rust-format
 msgid "Balance: {percent}% right"
@@ -3816,15 +3796,13 @@ msgstr "Balans: {percent}% w prawo"
 msgid "Balance: center"
 msgstr "Balans: środek"
 
-#. Translators: {percent} is a number from 0 to 100, followed by a percent
-#. sign.
+#. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
 #: src/ui/winamp/mod.rs:1197
 #, rust-format
 msgid "Volume: {percent}%"
 msgstr "Głośność: {percent}%"
 
-#. Translators: {position} and {duration} are times such as 2:12, {percent} a
-#. number from 0 to 100.
+#. Translators: {position} and {duration} are times such as 2:12, {percent} a number from 0 to 100.
 #: src/ui/winamp/mod.rs:1213
 #, rust-format
 msgid "Seek to: {position}/{duration} ({percent}%)"
@@ -3968,8 +3946,7 @@ msgctxt "month"
 msgid "Dec"
 msgstr "gru"
 
-#. Translators: A date. {month} is an abbreviated month name; reorder as your
-#. language writes dates.
+#. Translators: A date. {month} is an abbreviated month name; reorder as your language writes dates.
 #: src/util.rs:94
 #, rust-format
 msgid "{month} {day}, {year}"

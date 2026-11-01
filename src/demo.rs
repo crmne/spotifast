@@ -1727,6 +1727,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     },
                 );
             }
+            "lyrics-controls-toolbar" => {
+                app.lyrics_assistance.controls_presentation =
+                    crate::lyrics::assistance::ControlsPresentation::Toolbar;
+            }
+            "lyrics-controls-separate" => {
+                app.lyrics_assistance.controls_presentation =
+                    crate::lyrics::assistance::ControlsPresentation::Separate;
+            }
+            "lyrics-controls-narrow" => {
+                app.settings.lyrics_width = 280.0;
+            }
             "lyrics-korean" => {
                 // Invented words, shared by before/after captures. No service is contacted.
                 app.lyrics_uri = app.now_playing().map(|now| now.uri);
@@ -2833,31 +2844,40 @@ mod tests {
     #[cfg(feature = "demo")]
     #[test]
     fn clicking_a_translation_seeks_to_the_original_line() {
-        let (ctx, mut app) = accessible_app("lyrics-translation-seek");
-        apply_flags(&mut app, None, Some("lyrics-korean,lyrics-assistance"));
-        app.lyrics_following = false;
-        view_frame(&ctx, &mut app, vec![], App::frame_ui);
-        let text = view_frame(&ctx, &mut app, vec![], App::frame_ui);
-        let line = text
-            .iter()
-            .find(|(text, _)| text == "We walk beneath the stars in the night sky")
-            .expect("translation is drawn")
-            .1;
-        app.actions.clear();
-        view_frame(
-            &ctx,
-            &mut app,
-            pointer_click(line.center(), egui::PointerButton::Primary),
-            App::frame_ui,
-        );
-        // frame_ui applies actions after drawing; inspect the optimistic
-        // playback position rather than its already-drained action queue.
-        let position = app.now_playing().unwrap().position_ms;
-        assert!(
-            position.abs_diff(40_000) < 1000,
-            "seek landed at {position}"
-        );
-        app.backend.shutdown();
+        for presentation in ["lyrics-controls-toolbar", "lyrics-controls-separate"] {
+            for fullscreen in [false, true] {
+                let (ctx, mut app) = accessible_app("lyrics-translation-seek");
+                apply_flags(
+                    &mut app,
+                    None,
+                    Some(&format!("lyrics-korean,lyrics-assistance,{presentation}")),
+                );
+                app.lyrics_fullscreen = fullscreen.then_some(false);
+                app.lyrics_following = false;
+                view_frame(&ctx, &mut app, vec![], App::frame_ui);
+                let text = view_frame(&ctx, &mut app, vec![], App::frame_ui);
+                let line = text
+                    .iter()
+                    .find(|(text, _)| text == "We walk beneath the stars in the night sky")
+                    .expect("translation is drawn")
+                    .1;
+                app.actions.clear();
+                view_frame(
+                    &ctx,
+                    &mut app,
+                    pointer_click(line.center(), egui::PointerButton::Primary),
+                    App::frame_ui,
+                );
+                // frame_ui applies actions after drawing; inspect playback,
+                // not the already-drained action queue.
+                let position = app.now_playing().unwrap().position_ms;
+                assert!(
+                    position.abs_diff(40_000) < 1000,
+                    "{presentation}, full screen {fullscreen}: seek landed at {position}"
+                );
+                app.backend.shutdown();
+            }
+        }
     }
 
     #[cfg(feature = "demo")]
@@ -2865,73 +2885,56 @@ mod tests {
     fn lyric_assistance_toggles_keep_originals_and_share_state_across_views() {
         use crate::lyrics::assistance::Translation;
         use egui::accesskit::{Action as AccessibleAction, Role};
-        let (ctx, mut app) = accessible_app("lyrics-assistance");
-        apply_flags(&mut app, None, Some("lyrics-korean,lyrics-assistance"));
-        app.lyrics_following = false;
-        for fullscreen in [false, true] {
-            app.lyrics_fullscreen = fullscreen.then_some(false);
-            accessible_frame(&ctx, &mut app, vec![]);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let pronunciation = accessible_node(&tree, "Pronunciation", Role::Button);
+        fn activate(ctx: &egui::Context, app: &mut App, label: &str) {
+            let tree = accessible_frame(ctx, app, vec![]);
+            let button = accessible_node(&tree, label, Role::Button);
             accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(
-                    pronunciation,
-                    AccessibleAction::Click,
-                    None,
-                )],
+                ctx,
+                app,
+                vec![accessible_action(button, AccessibleAction::Click, None)],
             );
-            assert!(!app.lyrics_assistance.show_pronunciation);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let pronunciation = accessible_node(&tree, "Pronunciation", Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(
-                    pronunciation,
-                    AccessibleAction::Click,
-                    None,
-                )],
-            );
-            assert!(app.lyrics_assistance.show_pronunciation);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let translation = accessible_node(&tree, "Translation", Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(
-                    translation,
-                    AccessibleAction::Click,
-                    None,
-                )],
-            );
-            assert!(!app.lyrics_assistance.show_translation);
-            assert!(app.lyrics_assistance.show_pronunciation);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let translation = accessible_node(&tree, "Translation", Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(
-                    translation,
-                    AccessibleAction::Click,
-                    None,
-                )],
-            );
-            assert!(app.lyrics_assistance.show_translation);
-            assert!(matches!(
-                app.lyrics_assistance.translation,
-                Translation::Ready(_)
-            ));
-            let original = match &app.lyrics {
-                Loadable::Loaded(Some(lyrics)) => &lyrics.lines[0],
-                _ => panic!("original lyrics disappeared"),
-            };
-            assert_eq!(original.text, "밤하늘의 별을 따라 걸어요");
-            assert_eq!(original.at_ms, Some(40_000));
         }
-        app.backend.shutdown();
+        for presentation in ["lyrics-controls-toolbar", "lyrics-controls-separate"] {
+            let (ctx, mut app) = accessible_app("lyrics-assistance");
+            apply_flags(
+                &mut app,
+                None,
+                Some(&format!("lyrics-korean,lyrics-assistance,{presentation}")),
+            );
+            app.lyrics_following = false;
+            for fullscreen in [false, true] {
+                app.lyrics_fullscreen = fullscreen.then_some(false);
+                accessible_frame(&ctx, &mut app, vec![]);
+                for (label, expected) in [
+                    ("Pronunciation", [true, false]),
+                    ("Pronunciation", [true, true]),
+                    ("Translation", [false, true]),
+                    ("Pronunciation", [false, false]),
+                    ("Translation", [true, false]),
+                    ("Pronunciation", [true, true]),
+                ] {
+                    activate(&ctx, &mut app, label);
+                    assert_eq!(
+                        [
+                            app.lyrics_assistance.show_translation,
+                            app.lyrics_assistance.show_pronunciation
+                        ],
+                        expected
+                    );
+                    assert!(matches!(
+                        app.lyrics_assistance.translation,
+                        Translation::Ready(_)
+                    ));
+                    let original = match &app.lyrics {
+                        Loadable::Loaded(Some(lyrics)) => &lyrics.lines[0],
+                        _ => panic!("original lyrics disappeared"),
+                    };
+                    assert_eq!(original.text, "밤하늘의 별을 따라 걸어요");
+                    assert_eq!(original.at_ms, Some(40_000));
+                }
+            }
+            app.backend.shutdown();
+        }
     }
 
     #[test]
@@ -2940,77 +2943,83 @@ mod tests {
         use clap::ValueEnum;
         use egui::accesskit::{Action as AccessibleAction, Role};
 
-        for &locale in Locale::value_variants() {
-            let (ctx, mut app) = accessible_app(&format!("translated-lyrics-{locale:?}"));
-            app.locale = locale;
-            app.show_lyrics_panel = true;
-            app.lyrics_uri = app.now_playing().map(|now| now.uri);
-            app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
-            app.lyrics_following = false;
-            accessible_frame(&ctx, &mut app, vec![]);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let follow =
-                accessible_node(&tree, &pgettext(locale, "lyrics", "Follow"), Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(follow, AccessibleAction::Click, None)],
-            );
-            assert!(app.lyrics_following);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let expand =
-                accessible_node(&tree, &gettext(locale, "Full screen lyrics"), Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(expand, AccessibleAction::Click, None)],
-            );
-            assert!(app.lyrics_fullscreen.is_some());
-            app.lyrics_following = false;
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let follow =
-                accessible_node(&tree, &pgettext(locale, "lyrics", "Follow"), Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(follow, AccessibleAction::Click, None)],
-            );
-            assert!(app.lyrics_following);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let leave = accessible_node(
-                &tree,
-                &gettext(locale, "Leave full screen (Esc)"),
-                Role::Button,
-            );
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(leave, AccessibleAction::Click, None)],
-            );
-            assert!(app.lyrics_fullscreen.is_none());
-            for fullscreen in [false, true] {
-                app.lyrics_fullscreen = fullscreen.then_some(false);
-                app.lyrics = Loadable::Failed("fixture failure".into());
+        for presentation in [
+            crate::lyrics::assistance::ControlsPresentation::Toolbar,
+            crate::lyrics::assistance::ControlsPresentation::Separate,
+        ] {
+            for &locale in Locale::value_variants() {
+                let (ctx, mut app) = accessible_app(&format!("translated-lyrics-{locale:?}"));
+                app.lyrics_assistance.controls_presentation = presentation;
+                app.locale = locale;
+                app.show_lyrics_panel = true;
+                app.lyrics_uri = app.now_playing().map(|now| now.uri);
+                app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+                app.lyrics_following = false;
+                accessible_frame(&ctx, &mut app, vec![]);
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
-                let retry = accessible_node(&tree, &gettext(locale, "Try again"), Role::Button);
+                let follow =
+                    accessible_node(&tree, &pgettext(locale, "lyrics", "Follow"), Role::Button);
                 accessible_frame(
                     &ctx,
                     &mut app,
-                    vec![accessible_action(retry, AccessibleAction::Click, None)],
+                    vec![accessible_action(follow, AccessibleAction::Click, None)],
                 );
-                // Offline retries finish without contacting a lyrics provider.
-                assert!(matches!(app.lyrics, Loadable::Loaded(None)));
+                assert!(app.lyrics_following);
+                let tree = accessible_frame(&ctx, &mut app, vec![]);
+                let expand =
+                    accessible_node(&tree, &gettext(locale, "Full screen lyrics"), Role::Button);
+                accessible_frame(
+                    &ctx,
+                    &mut app,
+                    vec![accessible_action(expand, AccessibleAction::Click, None)],
+                );
+                assert!(app.lyrics_fullscreen.is_some());
+                app.lyrics_following = false;
+                let tree = accessible_frame(&ctx, &mut app, vec![]);
+                let follow =
+                    accessible_node(&tree, &pgettext(locale, "lyrics", "Follow"), Role::Button);
+                accessible_frame(
+                    &ctx,
+                    &mut app,
+                    vec![accessible_action(follow, AccessibleAction::Click, None)],
+                );
+                assert!(app.lyrics_following);
+                let tree = accessible_frame(&ctx, &mut app, vec![]);
+                let leave = accessible_node(
+                    &tree,
+                    &gettext(locale, "Leave full screen (Esc)"),
+                    Role::Button,
+                );
+                accessible_frame(
+                    &ctx,
+                    &mut app,
+                    vec![accessible_action(leave, AccessibleAction::Click, None)],
+                );
+                assert!(app.lyrics_fullscreen.is_none());
+                for fullscreen in [false, true] {
+                    app.lyrics_fullscreen = fullscreen.then_some(false);
+                    app.lyrics = Loadable::Failed("fixture failure".into());
+                    let tree = accessible_frame(&ctx, &mut app, vec![]);
+                    let retry = accessible_node(&tree, &gettext(locale, "Try again"), Role::Button);
+                    accessible_frame(
+                        &ctx,
+                        &mut app,
+                        vec![accessible_action(retry, AccessibleAction::Click, None)],
+                    );
+                    // Offline retries finish without contacting a lyrics provider.
+                    assert!(matches!(app.lyrics, Loadable::Loaded(None)));
+                }
+                app.lyrics_fullscreen = None;
+                let tree = accessible_frame(&ctx, &mut app, vec![]);
+                let close = accessible_node(&tree, &gettext(locale, "Close"), Role::Button);
+                accessible_frame(
+                    &ctx,
+                    &mut app,
+                    vec![accessible_action(close, AccessibleAction::Click, None)],
+                );
+                assert!(!app.show_lyrics_panel);
+                app.backend.shutdown();
             }
-            app.lyrics_fullscreen = None;
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let close = accessible_node(&tree, &gettext(locale, "Close"), Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(close, AccessibleAction::Click, None)],
-            );
-            assert!(!app.show_lyrics_panel);
-            app.backend.shutdown();
         }
     }
 
@@ -8500,44 +8509,50 @@ mod tests {
     /// the view.
     #[test]
     fn the_sung_line_sits_high_in_the_lyrics() {
-        for fullscreen in [false, true] {
-            let (ctx, mut app) = accessible_app(&format!("sung-line-{fullscreen}"));
-            app.show_lyrics_panel = true;
-            app.lyrics_fullscreen = Some(fullscreen);
-            app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
-            app.lyrics_following = true;
-            let remote = app.remote.as_mut().unwrap();
-            remote.state.is_playing = false;
-            remote.state.progress_ms = Some(106_000);
-            let mut centre = None;
-            for frame in 0..60 {
-                let mut output = ctx.run_ui(
-                    egui::RawInput {
-                        time: Some(f64::from(frame) / 30.0),
-                        screen_rect: Some(egui::Rect::from_min_size(
-                            egui::Pos2::ZERO,
-                            egui::vec2(1280.0, 800.0),
-                        )),
-                        ..Default::default()
-                    },
-                    |ui| app.frame_ui(ui),
+        for presentation in [
+            crate::lyrics::assistance::ControlsPresentation::Toolbar,
+            crate::lyrics::assistance::ControlsPresentation::Separate,
+        ] {
+            for fullscreen in [false, true] {
+                let (ctx, mut app) = accessible_app(&format!("sung-line-{fullscreen}"));
+                app.lyrics_assistance.controls_presentation = presentation;
+                app.show_lyrics_panel = true;
+                app.lyrics_fullscreen = fullscreen.then_some(false);
+                app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+                app.lyrics_following = true;
+                let remote = app.remote.as_mut().unwrap();
+                remote.state.is_playing = false;
+                remote.state.progress_ms = Some(106_000);
+                let mut centre = None;
+                for frame in 0..60 {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            time: Some(f64::from(frame) / 30.0),
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(1280.0, 800.0),
+                            )),
+                            ..Default::default()
+                        },
+                        |ui| app.frame_ui(ui),
+                    );
+                    output.textures_delta.clear();
+                    centre = output.shapes.iter().find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text)
+                            if text.galley.job.text == "Somewhere past the county line" =>
+                        {
+                            Some(text.pos.y + text.galley.size().y / 2.0)
+                        }
+                        _ => None,
+                    });
+                }
+                let centre = centre.expect("the sung line is drawn");
+                assert!(
+                    (60.0..320.0).contains(&centre),
+                    "fullscreen {fullscreen}: the sung line is at {centre} of 800"
                 );
-                output.textures_delta.clear();
-                centre = output.shapes.iter().find_map(|shape| match &shape.shape {
-                    egui::Shape::Text(text)
-                        if text.galley.job.text == "Somewhere past the county line" =>
-                    {
-                        Some(text.pos.y + text.galley.size().y / 2.0)
-                    }
-                    _ => None,
-                });
+                app.backend.shutdown();
             }
-            let centre = centre.expect("the sung line is drawn");
-            assert!(
-                (60.0..320.0).contains(&centre),
-                "fullscreen {fullscreen}: the sung line is at {centre} of 800"
-            );
-            app.backend.shutdown();
         }
     }
 

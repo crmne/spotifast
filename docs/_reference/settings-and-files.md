@@ -520,7 +520,13 @@ lyrics, with words or without, at the window's own size.
 `lyrics-assistance`, `lyrics-translation-loading` or `lyrics-translation-error`
 for deterministic translation and pronunciation states without contacting a
 translation service. Combine these with `lyrics-fullscreen-view` first for
-full-screen captures.
+full-screen captures. `lyrics-controls-toolbar` (the default review candidate)
+and `lyrics-controls-separate` show the two proposed control designs. The latter
+is a demo-only alternative for maintainer review, not a user setting.
+`lyrics-controls-narrow` fixes the panel to its 280-pixel minimum; combine it
+with either design and any `--demo-language` locale to check long labels.
+Both designs keep translated labels visible and stack the buttons when they
+would not fit side by side.
 
 `eq-user-presets` saves a sample equalizer preset and puts it in use.
 `start-in-tray` shows **Start with your computer** set to **In the tray**;
