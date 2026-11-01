@@ -660,11 +660,22 @@ impl ViewState {
             let Some(parent) = self.elements[id].parent else {
                 continue;
             };
+            let (parent_width, parent_height) =
+                (self.elements[parent].width, self.elements[parent].height);
+            // A tiled frame edge says only that it stretches: its picture is
+            // one tile, and its run ends at the far side, under the corners.
+            let element = &mut self.elements[id];
+            if kind == Kind::SubView && element.flag("backgroundtiled", false) {
+                if element.auto_width && element.across == Anchor::Stretch {
+                    element.width = (parent_width - element.left).max(0.0);
+                }
+                if element.auto_height && element.down == Anchor::Stretch {
+                    element.height = (parent_height - element.top).max(0.0);
+                }
+            }
             if matches!(kind, Kind::SubView | Kind::Effects | Kind::Video)
                 && self.picture_size(id).is_none()
             {
-                let (parent_width, parent_height) =
-                    (self.elements[parent].width, self.elements[parent].height);
                 let element = &mut self.elements[id];
                 if element.auto_width {
                     element.width = (parent_width - element.left).max(0.0);
