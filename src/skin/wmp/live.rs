@@ -295,6 +295,8 @@ pub struct ViewState {
     pub closing: bool,
     /// Anything changed since the last frame was drawn.
     pub changed: bool,
+    /// An attribute changed that a `wmpprop:` may be reading.
+    pub bindings_stale: bool,
     pub now: Instant,
     /// `jscript:` attributes to work out once the scripts are in.
     pub deferred: Vec<(ElementId, String, Arc<str>)>,
@@ -327,6 +329,7 @@ impl ViewState {
             resizing: false,
             closing: false,
             changed: true,
+            bindings_stale: false,
             now,
             deferred: Vec::new(),
             dropped_events: 0,
@@ -528,6 +531,7 @@ impl ViewState {
         }
         self.store(id, key, value);
         self.changed = true;
+        self.bindings_stale = true;
         if matches!(
             key,
             "image" | "backgroundimage" | "positionimage" | "mappingimage"
@@ -604,6 +608,7 @@ impl ViewState {
         }
         self.fire(id, "onresize", Vec::new());
         self.changed = true;
+        self.bindings_stale = true;
     }
 
     /// The picture an element's own size comes from.
@@ -660,22 +665,11 @@ impl ViewState {
             let Some(parent) = self.elements[id].parent else {
                 continue;
             };
-            let (parent_width, parent_height) =
-                (self.elements[parent].width, self.elements[parent].height);
-            // A tiled frame edge says only that it stretches: its picture is
-            // one tile, and its run ends at the far side, under the corners.
-            let element = &mut self.elements[id];
-            if kind == Kind::SubView && element.flag("backgroundtiled", false) {
-                if element.auto_width && element.across == Anchor::Stretch {
-                    element.width = (parent_width - element.left).max(0.0);
-                }
-                if element.auto_height && element.down == Anchor::Stretch {
-                    element.height = (parent_height - element.top).max(0.0);
-                }
-            }
             if matches!(kind, Kind::SubView | Kind::Effects | Kind::Video)
                 && self.picture_size(id).is_none()
             {
+                let (parent_width, parent_height) =
+                    (self.elements[parent].width, self.elements[parent].height);
                 let element = &mut self.elements[id];
                 if element.auto_width {
                     element.width = (parent_width - element.left).max(0.0);

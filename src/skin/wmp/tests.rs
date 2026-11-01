@@ -611,19 +611,58 @@ fn sample_skins_run() {
 }
 
 #[test]
-fn a_tiled_edge_that_stretches_runs_to_the_far_side() {
-    let definition = format!(
-        r#"{VIEW}
-        <SUBVIEW id="edge" top="20" verticalAlignment="stretch" backgroundImage="tile.png" backgroundTiled="true"/>
-        <SUBVIEW id="plain" top="20" backgroundImage="tile.png" backgroundTiled="true"/>
-        </VIEW></THEME>"#
-    );
-    let runtime = start_with(
-        &definition,
-        vec![("tile.png", png(8, 5, |_, _| [9, 9, 9]))],
+fn a_tiled_edge_is_its_pictures_size_until_the_view_grows() {
+    // A frame: the edge's picture fills the gap between its corners exactly
+    // at the size the view was drawn for. Running it to the parent's far
+    // side would lay a second tile over the right-hand corner.
+    let definition = r#"<THEME><VIEW id="main" width="30" height="50">
+        <SUBVIEW id="right" left="20" width="10" height="10" zIndex="4"
+            horizontalAlignment="right"/>
+        <SUBVIEW id="edge" left="5" backgroundImage="tile.png" backgroundTiled="true"
+            zIndex="4" horizontalAlignment="stretch" verticalAlignment="stretch"/>
+        </VIEW></THEME>"#;
+    let mut runtime = start_with(
+        definition,
+        vec![("tile.png", png(15, 40, |_, _| [9, 9, 9]))],
         playing(),
     );
     let key = key_of(&runtime);
-    assert_eq!(runtime.read(key, "edge", "height"), 30.0);
-    assert_eq!(runtime.read(key, "plain", "height"), 5.0);
+    assert_eq!(runtime.read(key, "edge", "width"), 15.0);
+    assert_eq!(runtime.read(key, "edge", "height"), 40.0);
+    // Growing keeps both distances to the edges.
+    runtime.run_script(key, "view.width = 50; view.height = 70;", Instant::now());
+    assert_eq!(runtime.read(key, "edge", "width"), 35.0);
+    assert_eq!(runtime.read(key, "edge", "height"), 60.0);
+    assert_eq!(runtime.read(key, "right", "left"), 40.0);
+}
+
+#[test]
+fn a_view_is_told_its_size_once_as_it_opens() {
+    let definition = r#"<THEME><VIEW id="main" width="100" height="50" scriptFile="s.js" onResize="fit();">
+        <SUBVIEW id="half" width="10" height="5"/></VIEW></THEME>"#;
+    let runtime = start(
+        definition,
+        "function fit(){ half.height = view.height / 2; }",
+    );
+    assert_eq!(runtime.read(key_of(&runtime), "half", "height"), 25.0);
+}
+
+#[test]
+fn a_binding_follows_an_element_a_handler_moved() {
+    let definition = format!(
+        r#"{VIEW}
+        <SUBVIEW id="a" top="5" width="10" height="10"/>
+        <SUBVIEW id="b" top="wmpprop:a.top" width="10" height="10"/>
+        <BUTTON left="50" width="10" height="10" onClick="a.top = 30;"/>
+        </VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    let key = key_of(&runtime);
+    let now = Instant::now();
+    assert_eq!(runtime.read(key, "b", "top"), 5.0);
+    click(&mut runtime, 55.0, 5.0, now);
+    // The player has not changed: this must not wait for it to.
+    assert_eq!(runtime.next_wake(now), Some(Duration::ZERO));
+    runtime.tick(playing(), now);
+    assert_eq!(runtime.read(key, "b", "top"), 30.0);
 }
