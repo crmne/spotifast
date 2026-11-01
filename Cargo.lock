@@ -6210,6 +6210,7 @@ dependencies = [
  "image",
  "jiff",
  "keyring-core",
+ "libc",
  "librespot-connect",
  "librespot-core",
  "librespot-metadata",

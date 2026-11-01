@@ -612,17 +612,39 @@ fn reclaim(builds: &std::path::Path, data: &std::path::Path) {
         return;
     }
     log::info!("Stopped a Soloist left running by an earlier Spotifast");
-    // A dying process can vanish from the process table before it has exited
-    // and released its lock. `wait` has no timeout, so the start waits for it
-    // in a helper thread for at most two seconds.
-    let (exited, done) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        if let Some(process) = system.process(pid) {
-            process.wait();
-        }
-        let _ = exited.send(());
-    });
-    let _ = done.recv_timeout(Duration::from_secs(2));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !exited(&mut system, pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Whether a stopped process has released what it held: it is gone, or only
+/// a zombie is left for a parent that may never reap it.
+fn exited(system: &mut sysinfo::System, pid: sysinfo::Pid) -> bool {
+    use sysinfo::{ProcessRefreshKind, ProcessStatus, ProcessesToUpdate};
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing(),
+    );
+    if system
+        .process(pid)
+        .is_some_and(|process| process.status() == ProcessStatus::Zombie)
+    {
+        return true;
+    }
+    // A dying process can drop out of sysinfo's view before it has exited and
+    // released its lock; the kernel still knows it until it is reaped.
+    #[cfg(unix)]
+    {
+        // SAFETY: signal 0 sends nothing; it only asks whether the PID exists.
+        let alive = unsafe { libc::kill(pid.as_u32() as libc::pid_t, 0) } == 0;
+        !alive && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+    }
+    #[cfg(not(unix))]
+    {
+        system.process(pid).is_none()
+    }
 }
 
 #[cfg(test)]
@@ -738,14 +760,40 @@ mod tests {
         panic!("the orphan never started {}", program.display());
     }
 
+    /// A zombie no longer runs, even if nothing has reaped it yet.
     #[cfg(unix)]
     fn running(pid: &str) -> bool {
-        std::process::Command::new("kill")
-            .args(["-0", pid])
-            .stderr(std::process::Stdio::null())
-            .status()
-            .unwrap()
-            .success()
+        let state = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", pid])
+            .output()
+            .unwrap();
+        let state = String::from_utf8_lossy(&state.stdout);
+        !state.trim().is_empty() && !state.trim().starts_with('Z')
+    }
+
+    /// A stopped Soloist whose parent never reaps it stays a zombie, as under
+    /// a Linux PID 1 that does not reap orphans. It has already released its
+    /// lock, so the start must not wait on it. On macOS launchd always reaps,
+    /// and the wait is bounded either way.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_stopped_process_left_as_a_zombie_counts_as_exited() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = sysinfo::Pid::from_u32(child.id());
+        // Kill without reaping, so only a zombie is left.
+        child.kill().unwrap();
+        let mut system = sysinfo::System::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut gone = exited(&mut system, pid);
+        while !gone && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            gone = exited(&mut system, pid);
+        }
+        let _ = child.wait();
+        assert!(gone, "a zombie was taken for a running process");
     }
 
     /// The recorded PID may now belong to an unrelated program.

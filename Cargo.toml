@@ -200,6 +200,11 @@ pbkdf2 = "0.12"
 aes = "0.8"
 ctr = "0.9"
 
+[target.'cfg(unix)'.dependencies]
+# Tells a Soloist that has fully exited from one still dying (`soloist/mod.rs`).
+# Already in the tree through sysinfo and many others.
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # The packaged Dock artwork also identifies unbundled Cargo runs.
 fastframe-dock = { git = "https://github.com/crmne/fastframe", tag = "v0.15.2" }
