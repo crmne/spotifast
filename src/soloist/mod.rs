@@ -707,7 +707,7 @@ mod tests {
         std::fs::create_dir_all(builds.join("digest")).unwrap();
         std::fs::create_dir_all(&data).unwrap();
         let player = builds.join("digest").join("soloist");
-        std::fs::copy("/bin/sleep", &player).unwrap();
+        std::fs::copy(on_path("sleep"), &player).unwrap();
         // macOS kills a copied system binary at launch unless it is re-signed.
         #[cfg(target_os = "macos")]
         assert!(
@@ -733,11 +733,20 @@ mod tests {
         assert!(!survived, "the leftover Soloist is still running");
     }
 
+    /// Finds a tool on `PATH`: the Nix build sandbox has no `/bin/sleep`.
+    #[cfg(unix)]
+    fn on_path(tool: &str) -> PathBuf {
+        std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|dir| dir.join(tool))
+            .find(|path| path.is_file())
+            .unwrap_or_else(|| panic!("{tool} is not on PATH"))
+    }
+
     /// Starts `program` the way a leftover Soloist runs: its parent is gone.
     /// Returns its PID once it is running `program` itself.
     #[cfg(unix)]
     fn orphan(program: &std::path::Path) -> String {
-        let output = std::process::Command::new("/bin/sh")
+        let output = std::process::Command::new("sh")
             .args(["-c", "\"$0\" 30 >/dev/null 2>&1 & echo $!"])
             .arg(program)
             .output()
@@ -778,7 +787,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn a_stopped_process_left_as_a_zombie_counts_as_exited() {
-        let mut child = std::process::Command::new("/bin/sleep")
+        let mut child = std::process::Command::new("sleep")
             .arg("30")
             .spawn()
             .unwrap();
@@ -808,7 +817,7 @@ mod tests {
         std::fs::create_dir_all(&data).unwrap();
         // Nothing recorded yet: nothing to do.
         reclaim(&builds, &data);
-        let mut other = std::process::Command::new("/bin/sleep")
+        let mut other = std::process::Command::new("sleep")
             .arg("30")
             .spawn()
             .unwrap();
