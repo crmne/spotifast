@@ -33,6 +33,10 @@ use std::sync::Arc;
 use super::Bitmap;
 use xml::Node;
 
+/// The largest script file read, in bytes. The largest in the 175 skins of
+/// the Internet Archive's collection is under a tenth of this.
+const MAX_SCRIPT: usize = 2 * 1024 * 1024;
+
 /// A rectangle in the skin, in skin pixels. Skins place things with
 /// negative or large offsets, so these are signed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -130,7 +134,7 @@ impl Wmp {
         let mut wanted = Vec::new();
         for view in &wmp.views {
             view.walk(&mut |node| {
-                for attr in ["mappingimage", "positionimage", "imagemap"] {
+                for attr in ["mappingimage", "positionimage", "imagemap", "clippingimage"] {
                     if let Some(name) = node.attr(attr) {
                         wanted.push(file_name(name));
                     }
@@ -169,9 +173,12 @@ impl Wmp {
     }
 
     /// A script file as text. Script files are encoded as definitions are.
+    /// One bigger than any real skin's is not read: scripts are parsed on the
+    /// window's thread as a view opens.
     pub fn script(&self, name: &str) -> Option<String> {
         self.files
             .get(&file_name(name))
+            .filter(|bytes| bytes.len() <= MAX_SCRIPT)
             .map(|bytes| super::decode_definition(bytes))
     }
 

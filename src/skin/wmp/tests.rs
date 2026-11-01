@@ -40,6 +40,7 @@ fn start_with(definition: &str, files: Vec<(&str, Vec<u8>)>, deck: Deck) -> Runt
         .collect();
     let wmp = Wmp::parse(definition, "skin", Arc::new(files)).expect("a view");
     Runtime::new(
+        "skin".into(),
         Arc::new(wmp),
         deck,
         HashMap::new(),
@@ -417,6 +418,39 @@ fn a_skin_with_no_timer_asks_for_no_frames() {
 }
 
 #[test]
+fn only_a_clock_or_a_seek_bar_wants_frames_while_playing() {
+    let definition = format!(r#"{VIEW}<TEXT value="still"/></VIEW></THEME>"#);
+    let mut runtime = start(&definition, "");
+    let now = Instant::now();
+    runtime.tick(playing(), now);
+    assert_eq!(runtime.next_wake(now), None);
+    let definition = format!(
+        r#"{VIEW}<TEXT value="wmpprop:player.controls.currentPositionString"/></VIEW></THEME>"#
+    );
+    let mut runtime = start(&definition, "");
+    runtime.tick(playing(), now);
+    assert_eq!(runtime.next_wake(now), Some(Duration::from_millis(500)));
+}
+
+#[test]
+fn a_clipping_picture_takes_clicks_away_too() {
+    let definition = format!(
+        r##"{VIEW}<BUTTON width="20" height="10" clippingImage="c.png" clippingColor="#FF0000" onClick="player.controls.next();"/></VIEW></THEME>"##
+    );
+    let clip = png(20, 10, |x, _| if x < 10 { [255, 0, 0] } else { [0, 0, 0] });
+    let mut runtime = start_with(
+        &definition,
+        vec![("c.png", clip), ("s.js", Vec::new())],
+        playing(),
+    );
+    let now = Instant::now();
+    click(&mut runtime, 5.0, 5.0, now);
+    assert_eq!(runtime.tick(playing(), now), []);
+    click(&mut runtime, 15.0, 5.0, now);
+    assert_eq!(runtime.tick(playing(), now), [Command::Next]);
+}
+
+#[test]
 fn a_timer_runs_at_its_interval_and_a_script_can_stop_it() {
     let definition = r#"<THEME><VIEW width="20" height="20" scriptFile="s.js" timerInterval="100" onTimer="beat();">
         <TEXT id="t" value=""/></VIEW></THEME>"#;
@@ -547,6 +581,7 @@ fn sample_skins_run() {
             continue;
         };
         let mut runtime = Runtime::new(
+            "sample".into(),
             wmp,
             playing(),
             HashMap::new(),

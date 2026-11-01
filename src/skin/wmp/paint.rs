@@ -426,6 +426,9 @@ impl Painter<'_> {
                 key.clear.push(color);
             }
         }
+        if let Some(clip) = element.image_name("clippingimage") {
+            key.cut = Some((super::file_name(&clip), element.color("clippingcolor")));
+        }
         key
     }
 
@@ -1395,6 +1398,7 @@ fn hit_in(
         Kind::Player | Kind::Equalizer | Kind::VideoSettings | Kind::Other => None,
         Kind::Slider if element.image_name("thumbimage").is_none() => None,
         _ if !inside || element.flag("passthrough", false) => None,
+        _ if clipped_at(view, id, x - left, y - top) => None,
         Kind::Button if !element.behaves() => {
             solid_at(view, images, id, x - left, y - top).then_some(id)
         }
@@ -1407,6 +1411,23 @@ fn hit_in(
         }
         _ => Some(id),
     }
+}
+
+/// Whether a clipping picture takes this place out of the element: not just
+/// unseen there, but not clickable.
+fn clipped_at(view: &ViewState, id: ElementId, x: f64, y: f64) -> bool {
+    let element = &view.elements[id];
+    let Some(map) = element
+        .image_name("clippingimage")
+        .and_then(|name| view.wmp.maps.get(&super::file_name(&name)).cloned())
+    else {
+        return false;
+    };
+    let cut = element
+        .color("clippingcolor")
+        .or_else(|| map.pixel(0, 0).map(|pixel| [pixel[0], pixel[1], pixel[2]]));
+    map.pixel(x as u32, y as u32)
+        .is_some_and(|pixel| Some([pixel[0], pixel[1], pixel[2]]) == cut)
 }
 
 /// Whether this element's own picture has a pixel at a place in it. An
