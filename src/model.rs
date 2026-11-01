@@ -920,12 +920,18 @@ pub enum DiscographyFilter {
     All,
     Albums,
     Singles,
+    Compilations,
     AppearsOn,
 }
 
 impl DiscographyFilter {
-    pub const ALL: [DiscographyFilter; 4] =
-        [Self::All, Self::Albums, Self::Singles, Self::AppearsOn];
+    pub const ALL: [DiscographyFilter; 5] = [
+        Self::All,
+        Self::Albums,
+        Self::Singles,
+        Self::Compilations,
+        Self::AppearsOn,
+    ];
 
     pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
         use crate::i18n::{gettext, pgettext};
@@ -933,6 +939,7 @@ impl DiscographyFilter {
             Self::All => pgettext(locale, "filter", "All"),
             Self::Albums => gettext(locale, "Albums"),
             Self::Singles => gettext(locale, "Singles & EPs"),
+            Self::Compilations => gettext(locale, "Compilations"),
             Self::AppearsOn => gettext(locale, "Appears On"),
         }
     }
@@ -942,6 +949,7 @@ impl DiscographyFilter {
             Self::All => "album,single,compilation",
             Self::Albums => "album",
             Self::Singles => "single",
+            Self::Compilations => "compilation",
             Self::AppearsOn => "appears_on",
         }
     }

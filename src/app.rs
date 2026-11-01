@@ -15361,6 +15361,27 @@ mod tests {
         );
     }
 
+    /// #1069: an artist's compilations have a category of their own, which
+    /// asks Spotify for exactly those releases.
+    #[test]
+    fn compilations_load_under_their_own_discography_category() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.artist_pages
+            .insert("art".into(), crate::model::ArtistPage::default());
+        app.apply(
+            Action::SetDiscographyFilter {
+                artist_id: "art".into(),
+                filter: DiscographyFilter::Compilations,
+            },
+            &ctx,
+        );
+        let page = &app.artist_pages["art"];
+        assert_eq!(page.filter, DiscographyFilter::Compilations);
+        assert!(page.albums["compilation"].loading);
+        assert!(DiscographyFilter::ALL.contains(&DiscographyFilter::Compilations));
+    }
+
     /// #856: a resumed song its context no longer holds plays by itself at
     /// its saved place, with the saved queue after it, instead of the
     /// context's first song at that position.
