@@ -1250,7 +1250,7 @@ pub enum Action {
     /// goes into each of `add` (id and name) and out of each of `remove`.
     /// Playlists that may hold it already ask in turn, one after another.
     UpdatePlaylists {
-        item: PlayableItem,
+        item: Box<PlayableItem>,
         add: Vec<(String, String)>,
         remove: Vec<String>,
     },

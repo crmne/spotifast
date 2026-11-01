@@ -12901,6 +12901,7 @@ impl App {
                 self.add_to_playlist_now(playlist_id, playlist_name, items, position);
             }
             Action::UpdatePlaylists { item, add, remove } => {
+                let item = *item;
                 let uris = vec![item.uri().to_string()];
                 for playlist_id in remove {
                     let removal = Action::RemoveFromPlaylist {
@@ -30480,7 +30481,7 @@ mod tests {
 
         app.apply(
             Action::UpdatePlaylists {
-                item: item.clone(),
+                item: Box::new(item.clone()),
                 add: playlists
                     .iter()
                     .map(|(id, name)| (id.to_string(), name.to_string()))

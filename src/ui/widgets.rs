@@ -884,7 +884,7 @@ impl PlaylistChecks {
             return None;
         }
         Some(Action::UpdatePlaylists {
-            item: item.clone(),
+            item: Box::new(item.clone()),
             add,
             remove,
         })
