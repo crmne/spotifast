@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::api::models::{Artist, PlayableItem, pick_image};
 use crate::app::App;
-use crate::i18n::{gettext, ngettext, pgettext};
+use crate::i18n::{Locale, gettext, ngettext, pgettext};
 use crate::model::{Action, DiscographyFilter, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 use crate::util;
@@ -323,7 +323,52 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
 
 fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Option<&Artist>) {
     let locale = app.locale;
+    let byline = artist_byline(locale, artist, app.play_counts.get(&artist.uri).copied());
+    let images = hero_images(
+        &artist.images,
+        preview.map(|artist| artist.images.as_slice()),
+        false,
+        HeroArt::of(app),
+    );
+    hero(
+        app,
+        ui,
+        Hero {
+            images,
+            liked: false,
+            kind: gettext(locale, "Artist"),
+            title: &artist.name,
+            description: None,
+            byline,
+            byline_tooltip: None,
+            avatar: None,
+            round: true,
+        },
+    );
+}
+
+/// Monthly listeners, which Spotify's playback session reads with the
+/// popular songs' play counts, then followers and genres.
+fn artist_byline(
+    locale: Locale,
+    artist: &Artist,
+    monthly_listeners: Option<u64>,
+) -> Vec<(String, Option<Page>)> {
     let mut byline = Vec::new();
+    if let Some(listeners) = monthly_listeners {
+        byline.push((
+            ngettext(
+                locale,
+                // Translators: {count} is the number of people who listened
+                // to an artist in the last 28 days, as Spotify counts them.
+                "{count} monthly listener",
+                "{count} monthly listeners",
+                u32::try_from(listeners).unwrap_or(u32::MAX),
+            )
+            .replace("{count}", &util::format_count(listeners)),
+            None,
+        ));
+    }
     if let Some(followers) = &artist.followers {
         byline.push((
             ngettext(
@@ -349,27 +394,7 @@ fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Optio
             None,
         ));
     }
-    let images = hero_images(
-        &artist.images,
-        preview.map(|artist| artist.images.as_slice()),
-        false,
-        HeroArt::of(app),
-    );
-    hero(
-        app,
-        ui,
-        Hero {
-            images,
-            liked: false,
-            kind: gettext(locale, "Artist"),
-            title: &artist.name,
-            description: None,
-            byline,
-            byline_tooltip: None,
-            avatar: None,
-            round: true,
-        },
-    );
+    byline
 }
 
 fn artist_actions(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
@@ -430,4 +455,30 @@ fn artist_actions(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
             .show(|ui| widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None));
     });
     ui.add_space(20.0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::models::Followers;
+
+    #[test]
+    fn the_byline_leads_with_monthly_listeners_once_spotify_gives_them() {
+        let artist = Artist {
+            followers: Some(Followers { total: 1_200 }),
+            genres: vec!["indie".into()],
+            ..Artist::default()
+        };
+        let texts = |listeners| {
+            artist_byline(Locale::English, &artist, listeners)
+                .into_iter()
+                .map(|(text, _)| text)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            texts(Some(8_123_456)),
+            ["8,123,456 monthly listeners", "1,200 followers", "indie"]
+        );
+        assert_eq!(texts(None), ["1,200 followers", "indie"]);
+    }
 }

@@ -743,6 +743,9 @@ Spotify's playback service, so they need playback on this computer to be
 set up. Without it, or when Spotify does not answer, the lists leave the
 counts out. The column needs a window wide enough for it.
 
+The same answer gives an artist's monthly listeners, which the top of the
+artist page then shows before the followers.
+
 ## Upcoming albums
 
 Open a `spotify:prerelease:` URI or an `open.spotify.com/prerelease/` link

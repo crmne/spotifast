@@ -725,7 +725,8 @@ pub struct App {
     pub user_names: HashMap<String, Option<String>>,
     pub user_names_revision: u64,
     /// How often Spotify says each song was played, by track URI, for the
-    /// albums and artists in `play_count_reads`.
+    /// albums and artists in `play_count_reads`, and each of those artists'
+    /// monthly listeners by artist URI.
     pub play_counts: HashMap<String, u64>,
     /// Albums and artists whose play counts were asked for, by URI.
     pub play_count_reads: HashMap<String, PlayCountRead>,
