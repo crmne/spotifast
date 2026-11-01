@@ -30588,10 +30588,13 @@ mod tests {
                 },
             ],
         );
+        // The press itself previews the volume, so let the pace pass and see
+        // the move reach Soloist too.
+        app.soloist_volume_preview = None;
         draw(&ctx, &mut app, 3, vec![egui::Event::PointerMoved(at(0.8))]);
         let pending = app.pending_remote_volume.as_ref().map(|p| p.percent);
         assert!(
-            pending.is_some_and(|percent| percent > 40),
+            pending.is_some_and(|percent| (75..=85).contains(&percent)),
             "the held slider reached Soloist: {pending:?}"
         );
         app.backend.shutdown();
