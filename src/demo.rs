@@ -1677,6 +1677,29 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     app.winamp.tap.push(&demo_sound(), 1.0);
                 }
             }
+            surface if surface.starts_with("wmp-run=") => {
+                // `|` stands for the comma that separates surfaces.
+                let script = surface["wmp-run=".len()..].replace('|', ",");
+                app.winamp.demo_scripts.push(script);
+            }
+            surface if surface.starts_with("wmp-skin=") => {
+                // Through the skins folder, as the real load path reads it.
+                let path = std::path::Path::new(&surface["wmp-skin=".len()..]);
+                let folder = app.dirs.skins_dir();
+                let name = path.file_name().map(|name| name.to_string_lossy().into_owned());
+                if let Some(name) = name
+                    && std::fs::create_dir_all(&folder).is_ok()
+                    && std::fs::copy(path, folder.join(&name)).is_ok()
+                {
+                    app.settings.winamp_window = true;
+                    app.settings.skin = Some(name);
+                    app.settings.skin_scale = Some(1);
+                    app.settings.vis = crate::settings::VisMode::Bars;
+                    play_here(app);
+                    app.local.playback = crate::player::Playback::Playing;
+                    app.winamp.tap.push(&demo_sound(), 1.0);
+                }
+            }
             "playlist" => app.settings.playlist_open = true,
             "shade" => app.settings.winamp_shaded = true,
             "playlist-shade" => app.settings.playlist_shaded = true,

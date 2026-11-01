@@ -50,6 +50,22 @@ pub struct Entry {
     header_offset: usize,
 }
 
+/// Where the local header of the entry named `name` is, by looking.
+fn find_local_header(data: &[u8], name: &str) -> Option<usize> {
+    let signature = LOCAL_HEADER.to_le_bytes();
+    let named = |at: usize| {
+        data.get(at + 26..at + 28)
+            .map(|bytes| usize::from(u16::from_le_bytes([bytes[0], bytes[1]])))
+            .and_then(|length| data.get(at + 30..at + 30 + length))
+            .is_some_and(|stored| stored == name.as_bytes())
+    };
+    // The first entry of some archives has only its signature damaged.
+    if named(0) {
+        return Some(0);
+    }
+    (0..data.len().saturating_sub(30)).find(|at| data[*at..].starts_with(&signature) && named(*at))
+}
+
 impl Entry {
     /// The final path component in lower case, which is how skin files are
     /// looked up: Winamp ran on a case-insensitive file system, and skins
@@ -119,9 +135,11 @@ impl<'a> Archive<'a> {
             return Err(ZipError::TooLarge(entry.name.clone()));
         }
         let data = self.data;
-        let at = entry.header_offset;
-        if u32_at(data, at)? != LOCAL_HEADER {
-            return Err(ZipError::NotAnArchive);
+        let mut at = entry.header_offset;
+        if u32_at(data, at).ok() != Some(LOCAL_HEADER) {
+            // Some tools wrote wrong offsets into the central directory;
+            // the entry is still in the file, under its own name.
+            at = find_local_header(data, &entry.name).ok_or(ZipError::NotAnArchive)?;
         }
         let name_len = usize::from(u16_at(data, at + 26)?);
         let extra_len = usize::from(u16_at(data, at + 28)?);
