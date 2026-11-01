@@ -558,9 +558,14 @@ impl Runtime {
             }
             if !self.views[index].state.queue.is_empty() {
                 self.pump(index);
-                self.refresh_bindings(index);
+                self.views[index].state.bindings_stale = true;
             } else if self.views[index].state.timer_due.is_none() {
                 self.schedule_timer(index, now);
+            }
+            // A binding may read any element; what it sets may start
+            // another round, which ends when nothing changes.
+            if std::mem::take(&mut self.views[index].state.bindings_stale) {
+                self.refresh_bindings(index);
             }
         }
         self.settle(now);
@@ -627,7 +632,7 @@ impl Runtime {
             if !state.motions.is_empty() {
                 soonest(Duration::from_millis(16));
             }
-            if !state.queue.is_empty() {
+            if !state.queue.is_empty() || state.bindings_stale {
                 soonest(Duration::ZERO);
             }
             if let Some(due) = state.timer_due {
