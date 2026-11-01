@@ -433,6 +433,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         changes.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut pending_change = false;
         let mut pending_queue = false;
+        let mut last_reconnect = None;
         loop {
             let mut reconnected = false;
             tokio::select! {
@@ -532,6 +533,14 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                 }
             }
             if reconnected {
+                // One drop is a hiccup; dropping again at once is a player
+                // that won't hold a connection, and retrying would spin.
+                if last_reconnect.is_some_and(|at: Instant| at.elapsed() < RECONNECT_WINDOW) {
+                    bail!(
+                        "Soloist keeps dropping its connection. Retry in Settings to restart it."
+                    );
+                }
+                last_reconnect = Some(Instant::now());
                 notify(Update::Changed { queue: true });
             }
             if idle && let Some(next) = pending.take() {
@@ -603,6 +612,9 @@ async fn keep_output(path: &std::path::Path, key: &str, child: &mut tokio::proce
 }
 
 const OUTPUT_LIMIT: usize = 1 << 20;
+
+/// A second dropped event socket this soon after the last ends the player.
+const RECONNECT_WINDOW: Duration = Duration::from_secs(30);
 
 /// Drains one of the child's streams to the end, as a full pipe would stall it.
 async fn copy_output(

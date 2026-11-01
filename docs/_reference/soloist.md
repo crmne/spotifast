@@ -114,7 +114,7 @@ yet expose those as Soloist preferences.
 Library browsing, search and playlist management keep using Spotifast's
 existing Spotify connections. Soloist's loopback API handles basic playback
 controls, state and queue reads. If its event connection drops while Soloist
-is still available, Spotifast reconnects it once before showing an error.
+is still available, Spotifast reconnects it. A second drop within 30 seconds shows an error.
 Starting a collection at a chosen row goes
 through the existing Spotify playback request, retaining its context and
 position; it does not skip through earlier songs or shorten the playlist.
