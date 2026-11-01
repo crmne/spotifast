@@ -507,7 +507,22 @@ impl Parser<'_> {
             _ => return Ok(target),
         };
         if !is_place(&target) {
-            return self.fail("cannot assign to this expression");
+            let Expr::Chain(head, mut links) = target else {
+                return self.fail("cannot assign to this expression");
+            };
+            // `eq.gainLevels(band) = value` sets a COM property that takes
+            // an argument. The host gets it as a call to `set:name`.
+            let Some(Link::Call(mut arguments)) = links.pop() else {
+                return self.fail("cannot assign to this expression");
+            };
+            let Some(Link::Member(name)) = links.pop() else {
+                return self.fail("cannot assign to this expression");
+            };
+            self.advance()?;
+            arguments.push(self.assign()?);
+            links.push(Link::Member(format!("set:{name}").as_str().into()));
+            links.push(Link::Call(arguments));
+            return Ok(Expr::Chain(head, links));
         }
         self.advance()?;
         let value = self.assign()?;
