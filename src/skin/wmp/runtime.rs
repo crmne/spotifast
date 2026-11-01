@@ -67,6 +67,8 @@ pub struct LiveView {
 }
 
 pub struct Runtime {
+    /// The name the settings hold for this skin, for its preferences.
+    pub name: String,
     pub wmp: Arc<Wmp>,
     pub views: Vec<LiveView>,
     pub shared: Shared,
@@ -82,6 +84,7 @@ pub struct Runtime {
 impl Runtime {
     /// Starts a skin: opens the view it starts with, runs its scripts.
     pub fn new(
+        name: String,
         wmp: Arc<Wmp>,
         deck: Deck,
         prefs: HashMap<String, String>,
@@ -104,6 +107,7 @@ impl Runtime {
             current_view: String::new(),
         };
         let mut runtime = Self {
+            name,
             wmp,
             views: Vec::new(),
             shared,
@@ -528,6 +532,7 @@ impl Runtime {
                 self.last_deck = Some(if moved { deck } else { old });
                 if moved {
                     for index in 0..self.views.len() {
+                        self.player_event(index, "currentposition_onchange", &[]);
                         self.refresh_bindings(index);
                     }
                 }
@@ -632,8 +637,15 @@ impl Runtime {
         if self.images.loading() {
             soonest(Duration::from_millis(50));
         }
-        if self.shared.deck.state == super::deck::PlayState::Playing {
-            // Clocks and seek bars.
+        // Clocks and seek bars; a skin with neither has no need of frames.
+        if self.shared.deck.state == super::deck::PlayState::Playing
+            && self.views.iter().any(|view| {
+                view.state
+                    .bindings
+                    .iter()
+                    .any(|binding| binding.code.to_ascii_lowercase().contains("position"))
+            })
+        {
             soonest(Duration::from_millis(500));
         }
         wake

@@ -35,6 +35,9 @@ pub struct ImageKey {
     /// Keep only the pixels where this mapping picture has this colour: one
     /// button of a button group.
     pub mask: Option<(String, Rgb)>,
+    /// Remove the pixels where this clipping picture has this colour, or
+    /// its own top-left pixel's colour when none is given.
+    pub cut: Option<(String, Option<Rgb>)>,
 }
 
 pub struct Frame {
@@ -258,6 +261,30 @@ fn decode_frames(
         if !clear.is_empty() {
             for pixel in frame.bitmap.rgba.as_chunks_mut::<4>().0 {
                 if clear.iter().any(|clear| pixel[..3] == *clear) {
+                    *pixel = [0, 0, 0, 0];
+                }
+            }
+        }
+    }
+    if let Some((clip_file, color)) = &key.cut
+        && let Some(clip) = files.get(clip_file).and_then(|bytes| Bitmap::decode(bytes))
+    {
+        let color = color.or_else(|| clip.pixel(0, 0).map(|pixel| [pixel[0], pixel[1], pixel[2]]));
+        for frame in &mut frames {
+            let width = frame.bitmap.width as usize;
+            for (at, pixel) in frame
+                .bitmap
+                .rgba
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
+                let (x, y) = ((at % width.max(1)) as u32, (at / width.max(1)) as u32);
+                if clip
+                    .pixel(x, y)
+                    .is_some_and(|mask| Some([mask[0], mask[1], mask[2]]) == color)
+                {
                     *pixel = [0, 0, 0, 0];
                 }
             }
@@ -503,6 +530,26 @@ mod tests {
         assert_eq!(picture.frame_at(0).0, 0);
         assert_eq!(picture.frame_at(150), (1, Some(250)));
         assert_eq!(picture.frame_at(400), (1, None), "no loop block: once");
+    }
+
+    #[test]
+    fn a_clipping_picture_cuts_its_colour_out() {
+        let files = files(vec![
+            ("b.png", png(2, 1, |_, _| [5, 5, 5])),
+            (
+                "c.png",
+                png(2, 1, |x, _| if x == 0 { [9, 9, 9] } else { [1, 1, 1] }),
+            ),
+        ]);
+        // No colour named: the clipping picture's own corner.
+        let key = ImageKey {
+            file: "b.png".into(),
+            cut: Some(("c.png".into(), None)),
+            ..ImageKey::default()
+        };
+        let picture = decode(&files, &key).unwrap();
+        assert_eq!(picture.frames[0].bitmap.pixel(0, 0), Some([0, 0, 0, 0]));
+        assert_eq!(picture.frames[0].bitmap.pixel(1, 0), Some([5, 5, 5, 255]));
     }
 
     #[test]

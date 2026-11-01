@@ -4853,19 +4853,29 @@ impl App {
     /// Runs the worn Windows Media Player skin for this frame: starts it,
     /// or stops it if it came off, and does what it asks.
     fn run_wmp_skin(&mut self, ctx: &egui::Context) {
-        let wearing = self.settings.winamp_window && self.winamp.skin.wmp.is_some();
-        if !wearing {
-            if let Some(mut runtime) = self.winamp.runtime.take() {
-                runtime.shut_down();
-                self.save_skin_preferences(&mut runtime);
-            }
-            return;
+        let wearing = self
+            .settings
+            .winamp_window
+            .then(|| self.winamp.skin.wmp.clone())
+            .flatten();
+        // Off, or a different skin on: this one's views get to save their
+        // state under its own name.
+        let same = |runtime: &crate::skin::wmp::runtime::Runtime| {
+            wearing
+                .as_ref()
+                .is_some_and(|wmp| std::sync::Arc::ptr_eq(wmp, &runtime.wmp))
+        };
+        if !self.winamp.runtime.as_ref().is_none_or(same)
+            && let Some(mut runtime) = self.winamp.runtime.take()
+        {
+            runtime.shut_down();
+            self.save_skin_preferences(&mut runtime);
         }
+        let Some(wmp) = wearing else {
+            return;
+        };
         let deck = self.wmp_deck();
         if self.winamp.runtime.is_none() {
-            let Some(wmp) = self.winamp.skin.wmp.clone() else {
-                return;
-            };
             let context = ctx.clone();
             let measure: std::sync::Arc<crate::skin::wmp::paint::Measure> =
                 std::sync::Arc::new(move |text: &str, size, bold, mono| {
@@ -4886,6 +4896,7 @@ impl App {
             let wake = ctx.clone();
             let preferences = self.winamp.take_skin_preferences();
             self.winamp.runtime = Some(crate::skin::wmp::runtime::Runtime::new(
+                self.winamp.worn.clone().unwrap_or_default(),
                 wmp,
                 deck.clone(),
                 preferences,
@@ -4921,10 +4932,7 @@ impl App {
         if !std::mem::take(&mut runtime.shared.prefs_changed) {
             return;
         }
-        let Some(name) = self.winamp.worn.clone() else {
-            return;
-        };
-        let path = crate::winamp::skin_preferences_path(&self.dirs.skins_dir(), &name);
+        let path = crate::winamp::skin_preferences_path(&self.dirs.skins_dir(), &runtime.name);
         match serde_json::to_vec_pretty(&runtime.shared.prefs) {
             Ok(bytes) => self
                 .files
