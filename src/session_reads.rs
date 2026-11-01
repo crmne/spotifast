@@ -381,20 +381,27 @@ const PLAY_COUNT_PAGE: usize = 50;
 /// No album runs longer; a page that never ends stops here.
 const MAX_PLAY_COUNT_ROWS: usize = 1000;
 
-/// Spotify's play count for each song of an album, or of an artist's
-/// popular songs, by track URI. Only the Pathfinder queries Spotify's own
-/// apps make carry them: the Web API has none. A song Spotify gives no
-/// count is left out, and the caller shows nothing for it. An artist's
-/// monthly listeners, which the same answer carries, are kept under the
-/// artist's own URI.
-pub async fn play_counts(
+/// Supplementary album or artist data returned by Spotify's Pathfinder queries.
+#[derive(Debug, Default)]
+pub struct PageMetadata {
+    /// Songs' play counts by track URI, and an artist's monthly listeners
+    /// under the artist's own URI.
+    pub play_counts: HashMap<String, u64>,
+    pub upcoming: Option<crate::prerelease::UpcomingRelease>,
+}
+
+/// Read song play counts and, for artists, monthly listeners and the
+/// upcoming release. None of them is available through the Web API. Songs
+/// without counts are left out.
+pub async fn page_metadata(
     session: &Session,
     web: &crate::api::ApiClient,
     uri: &str,
-) -> anyhow::Result<HashMap<String, u64>> {
+) -> anyhow::Result<PageMetadata> {
     let login = session.login5().auth_token().await?;
     let client_token = session.spclient().client_token().await?;
     let mut counts = HashMap::new();
+    let mut upcoming = None;
     match crate::util::uri_kind(uri) {
         Some("album") => {
             let mut offset = 0;
@@ -428,7 +435,7 @@ pub async fn play_counts(
         Some("artist") => {
             let query = serde_json::json!({
                 "operationName": "queryArtistOverview",
-                "variables": {"uri": uri, "locale": "", "includePrerelease": false},
+                "variables": {"uri": uri, "locale": "", "includePrerelease": true},
                 "extensions": {
                     "persistedQuery": {"version": 1, "sha256Hash": ARTIST_OVERVIEW_HASH}
                 }
@@ -436,6 +443,16 @@ pub async fn play_counts(
             let body = web
                 .partner_request(&login.access_token, &client_token, &query)
                 .await?;
+            anyhow::ensure!(
+                body.get("errors").is_none_or(
+                    |errors| errors.is_null() || errors.as_array().is_some_and(Vec::is_empty)
+                ),
+                "Spotify could not return this artist overview"
+            );
+            upcoming = upcoming_release(
+                body.pointer("/data/artistUnion")
+                    .ok_or_else(|| anyhow::anyhow!("missing artist overview"))?,
+            );
             let top = body
                 .pointer("/data/artistUnion/discography/topTracks")
                 .ok_or_else(|| anyhow::anyhow!("Spotify answered without the popular songs"))?;
@@ -446,7 +463,19 @@ pub async fn play_counts(
         }
         _ => anyhow::bail!("Spotify counts plays only for album and artist songs"),
     }
-    Ok(counts)
+    Ok(PageMetadata {
+        play_counts: counts,
+        upcoming,
+    })
+}
+
+/// An artist's upcoming release. One this app cannot read is logged and left
+/// out: the play counts in the same answer still stand.
+fn upcoming_release(artist: &serde_json::Value) -> Option<crate::prerelease::UpcomingRelease> {
+    crate::prerelease::UpcomingRelease::from_artist(artist).unwrap_or_else(|error| {
+        log::warn!("leaving out an unreadable upcoming release: {error}");
+        None
+    })
 }
 
 /// Adds the counts of a Pathfinder list of `{track: {uri, playcount}}`
@@ -1994,6 +2023,14 @@ mod tests {
             super::play_counts_from(&serde_json::json!({}), &mut counts),
             0
         );
+    }
+
+    #[test]
+    fn a_malformed_upcoming_release_is_left_out() {
+        let artist = serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+        assert!(super::upcoming_release(&artist).is_some());
+        assert!(super::upcoming_release(&serde_json::json!({"preRelease": "odd"})).is_none());
+        assert!(super::upcoming_release(&serde_json::json!({})).is_none());
     }
 
     #[test]

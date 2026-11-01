@@ -317,12 +317,25 @@ struct Listening {
 pub enum PlayCountRead {
     Asked,
     Answered,
+    /// An artist's valid overview with no counts at all; it may still have a
+    /// prerelease, and is revalidated with it. An album with no counts, or an
+    /// artist with listeners but no songs' counts, counts as `Failed`.
+    Empty,
     /// The read failed then; it is asked again after `PLAY_COUNT_RETRY`.
     Failed(Instant),
 }
 
 /// How long a failed play count read waits before a visit asks again.
 const PLAY_COUNT_RETRY: Duration = Duration::from_secs(60);
+
+/// Successful artist overviews are revalidated while viewed, at most every ten minutes.
+const ARTIST_METADATA_REFRESH: Duration = Duration::from_secs(10 * 60);
+
+/// Last successful artist overview, retained while a refresh is pending or fails.
+struct ArtistMetadataRead {
+    received_at: Instant,
+    has_counts: bool,
+}
 
 pub struct App {
     pub dirs: AppDirs,
@@ -760,6 +773,10 @@ pub struct App {
     pub play_counts: HashMap<String, u64>,
     /// Albums and artists whose play counts were asked for, by URI.
     pub play_count_reads: HashMap<String, PlayCountRead>,
+    artist_metadata_reads: HashMap<String, ArtistMetadataRead>,
+    /// Upcoming releases read with artist play counts, kept only for this account.
+    pub artist_prereleases: HashMap<String, crate::prerelease::UpcomingRelease>,
+    play_count_generation: u64,
     /// User ids resolved to avatar picture urls, asked for alongside the
     /// names; `None` while unknown or when Spotify gives no picture.
     pub user_images: HashMap<String, Option<String>>,
@@ -1345,6 +1362,9 @@ impl App {
             user_names: HashMap::new(),
             play_counts: HashMap::new(),
             play_count_reads: HashMap::new(),
+            artist_prereleases: HashMap::new(),
+            artist_metadata_reads: HashMap::new(),
+            play_count_generation: 0,
             user_names_revision: 0,
             user_images: HashMap::new(),
             recent_contexts: session.recent_contexts.clone(),
@@ -2872,7 +2892,11 @@ impl App {
                     self.set_user_name(id.clone(), name);
                     self.set_user_image(id, image);
                 }
-                Event::PlayCounts { uri, result } => self.receive_play_counts(uri, result),
+                Event::PlayCounts {
+                    uri,
+                    generation,
+                    result,
+                } => self.receive_play_counts(uri, generation, result),
                 Event::AudiobookShows(uris) => {
                     self.audiobook_shows.extend(uris);
                 }
@@ -3423,6 +3447,11 @@ impl App {
         self.hidden_songs_requested = false;
         self.prerelease_request = None;
         self.artist_pages.clear();
+        self.artist_prereleases.clear();
+        self.artist_metadata_reads.clear();
+        self.play_counts.clear();
+        self.play_count_reads.clear();
+        self.play_count_generation = self.play_count_generation.wrapping_add(1);
         self.show_pages.clear();
         self.album_types_requested.clear();
         self.audiobook_shows.clear();
@@ -6372,6 +6401,10 @@ impl App {
             }
             Page::Artist(id) => {
                 self.artist_pages.remove(id);
+                let uri = format!("spotify:artist:{id}");
+                if self.play_count_reads.get(&uri) != Some(&PlayCountRead::Asked) {
+                    self.play_count_reads.remove(&uri);
+                }
             }
             Page::Show(id) => {
                 // Refresh keeps the podcast and its episodes on screen; the
@@ -6977,9 +7010,10 @@ impl App {
         self.backend.send(Command::UserNames(unknown));
     }
 
-    /// Asks once for the play counts of the album or artist `uri`, while
+    /// Asks for the play counts of the album or artist `uri`, while
     /// the playback session can read them. A read that failed is asked
-    /// again on a visit a minute later.
+    /// again on a visit a minute later. Successful artist overviews are
+    /// revalidated after ten minutes to discover newly announced countdowns.
     pub fn request_play_counts(&mut self, uri: &str) {
         if !self.local_ready || !self.network_reachable {
             return;
@@ -6987,12 +7021,19 @@ impl App {
         let due = match self.play_count_reads.get(uri) {
             None => true,
             Some(PlayCountRead::Failed(at)) => at.elapsed() >= PLAY_COUNT_RETRY,
-            Some(PlayCountRead::Asked | PlayCountRead::Answered) => false,
+            Some(PlayCountRead::Answered | PlayCountRead::Empty) => self
+                .artist_metadata_reads
+                .get(uri)
+                .is_some_and(|read| read.received_at.elapsed() >= ARTIST_METADATA_REFRESH),
+            Some(PlayCountRead::Asked) => false,
         };
         if due {
             self.play_count_reads
                 .insert(uri.to_string(), PlayCountRead::Asked);
-            self.backend.send(Command::PlayCounts(uri.to_string()));
+            self.backend.send(Command::PlayCounts {
+                uri: uri.to_string(),
+                generation: self.play_count_generation,
+            });
         }
     }
 
@@ -7000,19 +7041,57 @@ impl App {
     /// so its list shows them.
     pub fn has_play_counts(&self, uri: &str) -> bool {
         self.play_count_reads.get(uri) == Some(&PlayCountRead::Answered)
+            || self
+                .artist_metadata_reads
+                .get(uri)
+                .is_some_and(|read| read.has_counts)
     }
 
-    fn receive_play_counts(&mut self, uri: String, result: Result<HashMap<String, u64>, String>) {
+    fn receive_play_counts(
+        &mut self,
+        uri: String,
+        generation: u64,
+        result: Result<crate::session_reads::PageMetadata, String>,
+    ) {
+        if generation != self.play_count_generation {
+            return;
+        }
+        let artist = uri.starts_with("spotify:artist:");
+        // Monthly listeners share the map, under the artist's URI, but only a
+        // song's count gives the plays column anything to show.
+        let songs = result.as_ref().is_ok_and(|data| {
+            data.play_counts
+                .keys()
+                .any(|uri| uri.starts_with("spotify:track:"))
+        });
+        if let Ok(data) = &result
+            && artist
+        {
+            self.artist_metadata_reads.insert(
+                uri.clone(),
+                ArtistMetadataRead {
+                    received_at: Instant::now(),
+                    has_counts: songs,
+                },
+            );
+            if let Some(upcoming) = &data.upcoming {
+                self.artist_prereleases
+                    .insert(uri.clone(), upcoming.clone());
+            } else {
+                self.artist_prereleases.remove(&uri);
+            }
+        }
         let read = match result {
-            // An answer without a single song's count has nothing to show in
-            // the plays column, even with the artist's monthly listeners, so
-            // it is asked again later.
-            Ok(counts) => {
-                let songs = counts.keys().any(|uri| uri.starts_with("spotify:track:"));
-                self.play_counts.extend(counts);
+            Ok(data) => {
+                let nothing = data.play_counts.is_empty();
+                self.play_counts.extend(data.play_counts);
                 if songs {
                     PlayCountRead::Answered
+                } else if artist && nothing {
+                    PlayCountRead::Empty
                 } else {
+                    // Songs' counts are missing, even if an artist's monthly
+                    // listeners came: asked again on a visit a minute later.
                     PlayCountRead::Failed(Instant::now())
                 }
             }
@@ -9063,6 +9142,11 @@ impl App {
     /// page opens once the account is signed in.
     pub fn open_link(&mut self, uri: String) {
         self.actions.push(Action::OpenLink(uri));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_spotify_link(&self) -> Option<&str> {
+        self.pending_link.as_deref()
     }
 
     /// Opens the page behind the pending link once the account is signed
@@ -12685,6 +12769,7 @@ impl App {
                     self.backend.send(Command::AuthorizePlayback);
                 }
             }
+            Action::RequestPlayCounts(uri) => self.request_play_counts(&uri),
             Action::SetPrereleaseSaved { uri, saved } => {
                 if self.local_ready {
                     for page in self.album_pages.values_mut() {
@@ -26467,16 +26552,25 @@ mod tests {
         let album = "spotify:album:a";
         app.network_reachable = true;
         app.local_ready = false;
-        app.request_play_counts(album);
+        app.apply(
+            Action::RequestPlayCounts(album.into()),
+            &egui::Context::default(),
+        );
         assert_eq!(app.play_count_reads.get(album), None);
 
         app.local_ready = true;
-        app.request_play_counts(album);
+        app.apply(
+            Action::RequestPlayCounts(album.into()),
+            &egui::Context::default(),
+        );
         assert_eq!(app.play_count_reads.get(album), Some(&PlayCountRead::Asked));
         assert!(!app.has_play_counts(album));
 
-        app.receive_play_counts(album.into(), Err("unavailable".into()));
-        app.request_play_counts(album);
+        app.receive_play_counts(album.into(), 0, Err("unavailable".into()));
+        app.apply(
+            Action::RequestPlayCounts(album.into()),
+            &egui::Context::default(),
+        );
         assert!(matches!(
             app.play_count_reads.get(album),
             Some(PlayCountRead::Failed(_))
@@ -26485,20 +26579,27 @@ mod tests {
 
         app.receive_play_counts(
             album.into(),
-            Ok(HashMap::from([("spotify:track:t".to_string(), 5)])),
+            0,
+            Ok(crate::session_reads::PageMetadata {
+                play_counts: HashMap::from([("spotify:track:t".to_string(), 5)]),
+                ..Default::default()
+            }),
         );
         assert!(app.has_play_counts(album));
         assert_eq!(app.play_counts.get("spotify:track:t"), Some(&5));
 
         // An answer with no counts shows no column.
-        app.receive_play_counts("spotify:artist:b".into(), Ok(HashMap::new()));
+        app.receive_play_counts("spotify:artist:b".into(), 0, Ok(Default::default()));
         assert!(!app.has_play_counts("spotify:artist:b"));
 
         // Monthly listeners alone are shown, but the songs' counts are still
         // missing and asked for again.
         let artist = "spotify:artist:c";
-        let listeners = HashMap::from([(artist.to_string(), 9)]);
-        app.receive_play_counts(artist.into(), Ok(listeners));
+        let listeners = crate::session_reads::PageMetadata {
+            play_counts: HashMap::from([(artist.to_string(), 9)]),
+            ..Default::default()
+        };
+        app.receive_play_counts(artist.into(), 0, Ok(listeners));
         assert_eq!(app.play_counts.get(artist), Some(&9));
         assert!(!app.has_play_counts(artist));
         assert!(matches!(
@@ -26683,6 +26784,128 @@ mod tests {
         };
         app.offline = true;
         assert_eq!(app.remote_push_due(), None);
+    }
+
+    #[test]
+    fn an_album_without_counts_is_asked_again() {
+        let mut app = headless_app();
+        app.local_ready = true;
+        app.network_reachable = true;
+        let album = "spotify:album:a";
+        app.receive_play_counts(album.into(), 0, Ok(Default::default()));
+        assert!(matches!(
+            app.play_count_reads[album],
+            PlayCountRead::Failed(_)
+        ));
+        app.play_count_reads.insert(
+            album.into(),
+            PlayCountRead::Failed(Instant::now() - PLAY_COUNT_RETRY),
+        );
+        app.request_play_counts(album);
+        assert_eq!(app.play_count_reads[album], PlayCountRead::Asked);
+    }
+
+    /// Both empty and populated artist overviews expire without request storms;
+    /// existing counts and countdowns stay visible during a failed refresh.
+    #[test]
+    fn artist_metadata_revalidates_after_a_bounded_interval() {
+        for has_counts in [false, true] {
+            let mut app = headless_app();
+            let uri = "spotify:artist:test";
+            app.local_ready = true;
+            app.network_reachable = true;
+            let data = || crate::session_reads::PageMetadata {
+                play_counts: if has_counts {
+                    HashMap::from([("spotify:track:t".to_string(), 5)])
+                } else {
+                    HashMap::new()
+                },
+                ..Default::default()
+            };
+            app.receive_play_counts(uri.into(), 0, Ok(data()));
+            let completed = app.play_count_reads[uri];
+            app.request_play_counts(uri);
+            assert_eq!(app.play_count_reads[uri], completed);
+            app.artist_metadata_reads.get_mut(uri).unwrap().received_at =
+                Instant::now() - ARTIST_METADATA_REFRESH;
+            app.network_reachable = false;
+            app.request_play_counts(uri);
+            assert_eq!(app.play_count_reads[uri], completed);
+            app.network_reachable = true;
+            app.request_play_counts(uri);
+            assert_eq!(app.play_count_reads[uri], PlayCountRead::Asked);
+            assert_eq!(app.has_play_counts(uri), has_counts);
+            app.request_play_counts(uri);
+            assert_eq!(app.play_count_reads[uri], PlayCountRead::Asked);
+            app.receive_play_counts(uri.into(), 0, Err("offline".into()));
+            app.request_play_counts(uri);
+            assert!(matches!(
+                app.play_count_reads[uri],
+                PlayCountRead::Failed(_)
+            ));
+            assert_eq!(app.has_play_counts(uri), has_counts);
+            app.play_count_reads.insert(
+                uri.into(),
+                PlayCountRead::Failed(Instant::now() - PLAY_COUNT_RETRY),
+            );
+            app.request_play_counts(uri);
+            assert_eq!(app.play_count_reads[uri], PlayCountRead::Asked);
+            let artist =
+                serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+            let mut replacement = data();
+            replacement.upcoming =
+                crate::prerelease::UpcomingRelease::from_artist(&artist).unwrap();
+            app.receive_play_counts(uri.into(), 0, Ok(replacement));
+            assert_eq!(app.artist_prereleases[uri].name, "Hollowbody");
+            app.request_play_counts(uri);
+            assert_eq!(app.play_count_reads[uri], completed);
+            app.artist_metadata_reads.get_mut(uri).unwrap().received_at =
+                Instant::now() - ARTIST_METADATA_REFRESH;
+            app.request_play_counts(uri);
+            assert_eq!(app.play_count_reads[uri], PlayCountRead::Asked);
+            assert_eq!(app.artist_prereleases[uri].name, "Hollowbody");
+            let mut next = data();
+            let mut upcoming = app.artist_prereleases[uri].clone();
+            upcoming.name = "Next announcement".into();
+            next.upcoming = Some(upcoming);
+            app.receive_play_counts(uri.into(), 0, Ok(next));
+            assert_eq!(app.artist_prereleases[uri].name, "Next announcement");
+            app.reset_data();
+            assert!(app.artist_metadata_reads.is_empty());
+        }
+    }
+
+    #[test]
+    fn artist_prerelease_survives_failure_but_not_absence_or_sign_out() {
+        let mut app = headless_app();
+        let uri = "spotify:artist:04GCjO1r1hPelibCUq9S8H";
+        let artist = serde_json::from_str(include_str!("testdata/artist-prerelease.json")).unwrap();
+        let data = || crate::session_reads::PageMetadata {
+            upcoming: crate::prerelease::UpcomingRelease::from_artist(&artist).unwrap(),
+            ..Default::default()
+        };
+        app.receive_play_counts(uri.into(), 0, Ok(data()));
+        assert_eq!(app.artist_prereleases[uri].name, "Hollowbody");
+        assert!(
+            !app.has_play_counts(uri),
+            "a prerelease does not invent play counts"
+        );
+        assert_eq!(app.play_count_reads[uri], PlayCountRead::Empty);
+        app.receive_play_counts(uri.into(), 0, Err("temporary failure".into()));
+        assert!(app.artist_prereleases.contains_key(uri));
+        app.receive_play_counts(uri.into(), 0, Ok(Default::default()));
+        assert!(!app.artist_prereleases.contains_key(uri));
+        app.receive_play_counts(uri.into(), 0, Ok(data()));
+        app.reset_data();
+        assert!(app.artist_prereleases.is_empty());
+        assert!(app.play_count_reads.is_empty());
+        app.receive_play_counts(uri.into(), 0, Ok(data()));
+        assert!(
+            app.artist_prereleases.is_empty(),
+            "ignore the signed-out session's answer"
+        );
+        app.receive_play_counts(uri.into(), app.play_count_generation, Ok(data()));
+        assert_eq!(app.artist_prereleases[uri].name, "Hollowbody");
     }
 
     #[test]

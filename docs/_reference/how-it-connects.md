@@ -71,9 +71,11 @@ Spotifast uses separate credentials for Web API access and local playback:
    station and reads its songs' details in one batched request.
    Play counts on album pages and an artist's popular songs come from the
    same Pathfinder queries Spotify's own album and artist pages make, with the
-   session's token and an already verified Web API grant. Each album or artist
-   is read once per run, and a read that fails leaves the column out. The
-   artist query also carries the monthly listeners shown on the artist page.
+   session's token and an already verified Web API grant. Albums are read once
+   per run; artist overviews are revalidated after ten minutes while viewed. A
+   failed first read leaves the column out; an artist refresh keeps previously
+   received counts visible. The artist query also carries the monthly listeners
+   shown on the artist page.
 
    The **Listening activity** panel also needs this session. While the panel
    is open, and only then, the session reads Spotify's private
@@ -779,6 +781,21 @@ shutdown. The password belongs to its host, port, and username; editing any of
 these fields clears it. See [password storage and migration](/settings-and-files/).
 
 ## Upcoming albums and countdown links
+
+Artist discovery reuses the `queryArtistOverview` request for play counts with
+`includePrerelease: true`. Discovery waits for the same-account local playback
+session to be ready and requires an already verified Web API grant. This also
+applies when Soloist handles playback: its player connection alone does not
+supply the overview. Without both prerequisites, a fresh artist visit can omit
+the countdown card. Its optional `preRelease` supplies the countdown URI,
+title, artwork and release instant. The card is kept in memory per signed-in
+account and cleared on sign-out. Successful overviews, including those without
+a countdown, are revalidated after ten minutes while the artist is viewed. This
+allows newly announced or replacement countdowns to appear without restarting.
+Refreshing the artist asks again; a failed read
+keeps the previous card, and a card past its release instant is not drawn.
+Artists with no popular tracks still request the overview. No library write is
+sent until the listener opens the countdown page and presses Pre-save.
 
 `spotify:prerelease:` and Spotify prerelease share links require the same-account
 local playback session. The session's extended metadata kind 138 resolves the
