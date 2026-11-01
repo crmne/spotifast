@@ -488,7 +488,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                         }
                     }
                 }
-                message = protocol::receive(&mut socket) => {
+                message = protocol::receive_reconnecting(&mut socket, port) => {
                     let message = message?;
                     if let Some(bridge) = &bridge { bridge.update(&message); }
                     if source_volume.observe(&message, output_volume) { notify(Update::OutputVolume); }

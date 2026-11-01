@@ -45,6 +45,18 @@ pub async fn receive(socket: &mut Socket) -> Result<Value> {
     }
 }
 
+pub async fn receive_reconnecting(socket: &mut Socket, port: u16) -> Result<Value> {
+    match receive(socket).await {
+        Ok(message) => Ok(message),
+        Err(_) => {
+            *socket = tokio::time::timeout(Duration::from_secs(5), connect(port))
+                .await
+                .context("Soloist's local API did not reconnect in time")??;
+            receive(socket).await
+        }
+    }
+}
+
 #[derive(Default)]
 struct Endpoint {
     port: Option<u16>,
@@ -467,6 +479,34 @@ mod tests {
             }
             server.await.unwrap();
         }
+    }
+    #[tokio::test]
+    async fn event_connection_recovers_after_soloist_drops_it() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            tokio_tungstenite::accept_async(stream)
+                .await
+                .unwrap()
+                .close(None)
+                .await
+                .unwrap();
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            socket
+                .send(Message::Text(
+                    json!({"type":"auth_state","logged_in":false})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+        });
+        let mut socket = connect(port).await.unwrap();
+        let message = receive_reconnecting(&mut socket, port).await.unwrap();
+        assert_eq!(message["type"], "auth_state");
+        server.await.unwrap();
     }
     #[tokio::test]
     async fn playlist_offsets_and_other_devices_keep_the_existing_route() {
