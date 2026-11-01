@@ -380,18 +380,37 @@ pub fn html_links(text: &str) -> (String, Vec<(std::ops::Range<usize>, String)>)
     (out, links)
 }
 
-/// Where an opening `<a>` tag points: its `href`, quoted or not.
+/// Where an opening `<a>` tag points: its `href`, quoted or not. The
+/// attributes are read one by one, so a `data-href`, or an `href` inside
+/// another attribute's value, is not taken for it.
 fn link_target(tag: &str) -> Option<String> {
-    let attributes = tag.strip_prefix(['a', 'A'])?;
-    if !attributes.starts_with(char::is_whitespace) {
+    let mut rest = tag.strip_prefix(['a', 'A'])?;
+    if !rest.starts_with(char::is_whitespace) {
         return None;
     }
-    let value = &attributes[attributes.to_ascii_lowercase().find("href=")? + 5..];
-    let value = match value.chars().next()? {
-        quote @ ('"' | '\'') => value[1..].split(quote).next()?,
-        _ => value.split(char::is_whitespace).next()?,
-    };
-    Some(decode_entities(value)).filter(|href| !href.is_empty())
+    loop {
+        rest = rest.trim_start();
+        let end = rest
+            .find(|c: char| c == '=' || c.is_whitespace())
+            .unwrap_or(rest.len());
+        if end == 0 {
+            return None;
+        }
+        let (name, after) = rest.split_at(end);
+        let Some(after) = after.trim_start().strip_prefix('=') else {
+            rest = after;
+            continue;
+        };
+        let after = after.trim_start();
+        let (value, next) = match after.chars().next() {
+            Some(quote @ ('"' | '\'')) => after[1..].split_once(quote)?,
+            _ => after.split_once(char::is_whitespace).unwrap_or((after, "")),
+        };
+        if name.eq_ignore_ascii_case("href") {
+            return Some(decode_entities(value)).filter(|href| !href.is_empty());
+        }
+        rest = next;
+    }
 }
 
 fn decode_entities(text: &str) -> String {
@@ -672,5 +691,12 @@ mod tests {
         );
         // An anchor without a target, or never closed, is plain text.
         assert!(html_links("<a name=x>x</a> <a href='y'>y").1.is_empty());
+        // Only the attribute named href counts, spaced or not.
+        let spoofed = "<a data-href=\"https://spoof.example\" title='href=x' \
+                       HREF = \"spotify:playlist:pl1\">x</a>";
+        assert_eq!(
+            html_links(spoofed).1,
+            [(0..1, "spotify:playlist:pl1".to_string())]
+        );
     }
 }
