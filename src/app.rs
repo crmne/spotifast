@@ -649,6 +649,9 @@ pub struct App {
     accent_pending: HashSet<String>,
 
     pub dialog: Option<Dialog>,
+    /// Duplicate confirmations waiting for the open one to be answered, as
+    /// the heart's Done can raise one for each playlist it adds to.
+    duplicate_prompts: std::collections::VecDeque<Dialog>,
     cover_request: u64,
     cover_uploads: HashMap<String, u64>,
     /// Successful uploads stay visible while Spotify propagates the new image.
@@ -1374,6 +1377,7 @@ impl App {
             art_palettes: HashMap::new(),
             accent_pending: HashSet::new(),
             dialog: None,
+            duplicate_prompts: Default::default(),
             cover_request: 0,
             cover_uploads: HashMap::new(),
             uploaded_covers: Default::default(),
@@ -1828,7 +1832,7 @@ impl App {
         }
     }
 
-    pub(crate) fn library_entry(&self, id: &str) -> Option<&Playlist> {
+    fn library_entry(&self, id: &str) -> Option<&Playlist> {
         self.library
             .playlists
             .get()?
@@ -9085,7 +9089,7 @@ impl App {
                 }
                 Ok(duplicate_uris) => {
                     self.playlist_busy = false;
-                    self.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
+                    self.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
                         playlist_id,
                         playlist_name,
                         items,
@@ -12112,7 +12116,7 @@ impl App {
                 self.add_to_playlist_now(playlist_id, playlist_name, items, position);
             }
             Some(duplicate_uris) => {
-                self.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
+                self.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
                     playlist_id,
                     playlist_name,
                     items,
@@ -12132,6 +12136,16 @@ impl App {
         }
     }
 
+    /// Asks before adding songs a playlist already holds. A question still
+    /// open is answered first; this one follows it.
+    fn confirm_duplicates(&mut self, prompt: Dialog) {
+        if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
+            self.duplicate_prompts.push_back(prompt);
+        } else {
+            self.dialog = Some(prompt);
+        }
+    }
+
     fn add_to_playlist_now(
         &mut self,
         playlist_id: String,
@@ -12142,7 +12156,6 @@ impl App {
         if items.is_empty() {
             return;
         }
-        self.dialog = None;
         self.playlist_busy = true;
         for item in &items {
             if let PlayableItem::Track(track) = item {
@@ -12882,7 +12895,24 @@ impl App {
                 items,
                 position,
             } => {
+                // Answering one question opens the next. An add that needed
+                // none leaves whatever dialog is open alone.
+                self.dialog = self.duplicate_prompts.pop_front();
                 self.add_to_playlist_now(playlist_id, playlist_name, items, position);
+            }
+            Action::UpdatePlaylists { item, add, remove } => {
+                let uris = vec![item.uri().to_string()];
+                for playlist_id in remove {
+                    let removal = Action::RemoveFromPlaylist {
+                        playlist_id,
+                        uris: uris.clone(),
+                        positions: Vec::new(),
+                    };
+                    self.apply(removal, ctx);
+                }
+                for (playlist_id, playlist_name) in add {
+                    self.request_playlist_add(playlist_id, playlist_name, vec![item.clone()], None);
+                }
             }
             Action::RemoveFromPlaylist {
                 playlist_id,
@@ -13028,7 +13058,7 @@ impl App {
                 if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
                     self.intro_answered(jiff::Timestamp::now());
                 }
-                self.dialog = None;
+                self.dialog = self.duplicate_prompts.pop_front();
             }
             Action::CloseAudioKeyBanner => {
                 self.audio_key_banner = false;
@@ -30412,6 +30442,88 @@ mod tests {
 
         assert!(app.dialog.is_none());
         assert!(app.playlist_busy, "the playlist write follows the check");
+    }
+
+    /// Done in the heart's checklist can add to several playlists that were
+    /// never read in full. Each one that already holds the song asks in
+    /// turn rather than replacing the question before it, and one without
+    /// it gets the song without closing the open question.
+    #[test]
+    fn duplicate_questions_for_several_playlists_follow_one_another() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let ctx = egui::Context::default();
+        let item = cached_playlist_row("spotify:track:again")
+            .playable()
+            .unwrap()
+            .clone();
+        let playlists = [("mix", "Mix"), ("day", "Daylight"), ("run", "Run")];
+        let sent = |app: &App| -> Vec<String> {
+            app.backend
+                .take_playlist_add_requests()
+                .into_iter()
+                .map(|request| match request {
+                    ApiRequest::CheckPlaylistDuplicates { playlist_id, .. } => {
+                        format!("check {playlist_id}")
+                    }
+                    ApiRequest::AddToPlaylist { playlist_id, .. } => format!("add {playlist_id}"),
+                    _ => "other".into(),
+                })
+                .collect()
+        };
+        let asking = |app: &App| match &app.dialog {
+            Some(Dialog::ConfirmPlaylistDuplicates { playlist_id, .. }) => {
+                Some(playlist_id.clone())
+            }
+            _ => None,
+        };
+
+        app.apply(
+            Action::UpdatePlaylists {
+                item: item.clone(),
+                add: playlists
+                    .iter()
+                    .map(|(id, name)| (id.to_string(), name.to_string()))
+                    .collect(),
+                remove: Vec::new(),
+            },
+            &ctx,
+        );
+        assert_eq!(sent(&app), ["check mix", "check day", "check run"]);
+
+        // Spotify finds the song in all but one of them.
+        for (id, name) in playlists {
+            let duplicates = if id == "day" {
+                Vec::new()
+            } else {
+                vec![item.uri().to_string()]
+            };
+            app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
+                position: None,
+                playlist_id: id.into(),
+                playlist_name: name.into(),
+                items: vec![item.clone()],
+                result: Ok(duplicates),
+            });
+        }
+        assert_eq!(asking(&app).as_deref(), Some("mix"));
+        assert_eq!(sent(&app), ["add day"]);
+
+        app.apply(Action::CloseDialog, &ctx);
+        assert_eq!(asking(&app).as_deref(), Some("run"));
+        assert!(sent(&app).is_empty(), "declining adds nothing");
+
+        app.apply(
+            Action::ConfirmAddToPlaylist {
+                position: None,
+                playlist_id: "run".into(),
+                playlist_name: "Run".into(),
+                items: vec![item.clone()],
+            },
+            &ctx,
+        );
+        assert!(app.dialog.is_none());
+        assert_eq!(sent(&app), ["add run"]);
     }
 
     #[test]

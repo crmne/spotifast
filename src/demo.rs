@@ -5903,11 +5903,11 @@ mod tests {
 
         let changes = checks.changes(&app, &item);
         assert!(matches!(
-            changes.as_slice(),
-            [
-                crate::model::Action::AddToPlaylist { playlist_id: added, .. },
-                crate::model::Action::RemoveFromPlaylist { playlist_id: removed, uris, .. },
-            ] if added == "drive" && removed == "day" && uris == &[item.uri().to_string()]
+            changes,
+            Some(crate::model::Action::UpdatePlaylists { item: changed, add, remove })
+                if changed.uri() == item.uri()
+                    && add == [("drive".to_string(), "Night drive".to_string())]
+                    && remove == ["day"]
         ));
 
         app.playlist_pages.insert(
@@ -5923,6 +5923,78 @@ mod tests {
         );
         let checks = crate::ui::widgets::PlaylistChecks::new(&app, &item);
         assert_eq!(checks.mark("drive"), Mark::Unchecked, "all rows read");
+        app.backend.shutdown();
+    }
+
+    /// The player bar's heart applies its checks on Done, asking about each
+    /// playlist it adds to, and a click outside drops them unapplied.
+    #[test]
+    fn the_hearts_done_applies_its_checks_and_a_click_outside_drops_them() {
+        use crate::backend::ApiRequest;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+
+        let (ctx, mut app) = accessible_app("heart-checklist-done");
+        app.backend.set_offline(true);
+        let owner = app.user_id().unwrap().to_string();
+        let make = |id: &str, name: &str| Playlist {
+            id: id.into(),
+            uri: format!("spotify:playlist:{id}"),
+            name: name.into(),
+            owner: crate::api::models::Owner {
+                id: Some(owner.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.library.playlists =
+            Loadable::Loaded(vec![make("drive", "Night drive"), make("day", "Daylight")]);
+        let click = |app: &mut App, label: &str, role: Role| {
+            let tree = accessible_frame(&ctx, app, vec![]);
+            let node = accessible_node(&tree, label, role);
+            accessible_frame(
+                &ctx,
+                app,
+                vec![accessible_action(node, AccessibleAction::Click, None)],
+            );
+            // A menu's first frame only measures it.
+            accessible_frame(&ctx, app, vec![]);
+        };
+        // Neither playlist was read in full, so both are checks to make.
+        let check_both = |app: &mut App| {
+            click(app, "Add to playlist", Role::Button);
+            click(app, "Night drive", Role::CheckBox);
+            click(app, "Daylight", Role::CheckBox);
+        };
+        let asked = |app: &App| -> Vec<String> {
+            app.backend
+                .take_playlist_add_requests()
+                .into_iter()
+                .filter_map(|request| match request {
+                    ApiRequest::CheckPlaylistDuplicates { playlist_id, .. } => Some(playlist_id),
+                    _ => None,
+                })
+                .collect()
+        };
+        accessible_frame(&ctx, &mut app, vec![]);
+        let now = app.now_playing().unwrap().uri;
+        assert_eq!(app.is_saved(&now), Some(true));
+
+        check_both(&mut app);
+        // The margin at the bar's left edge, beside the cover.
+        let outside = egui::pos2(6.0, 796.0);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(outside, egui::PointerButton::Primary),
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(asked(&app).is_empty(), "a click outside changes nothing");
+
+        // Kept checks would uncheck both here, and Done would ask nothing.
+        check_both(&mut app);
+        click(&mut app, "Done", Role::Button);
+        assert_eq!(asked(&app), ["drive", "day"]);
+        assert_eq!(app.is_saved(&now), Some(true), "it stays liked");
         app.backend.shutdown();
     }
 

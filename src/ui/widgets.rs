@@ -867,28 +867,27 @@ impl PlaylistChecks {
         }
     }
 
-    /// What Done asks of the playlists: `item` added to each newly checked
-    /// one and taken out of each unchecked one that held it.
-    pub(crate) fn changes(&self, app: &App, item: &PlayableItem) -> Vec<Action> {
-        app.editable_playlists()
-            .into_iter()
-            .filter_map(|(id, name)| {
-                let held = self.holding.contains(&id);
-                match (held, self.chosen.contains(&id)) {
-                    (false, true) => Some(Action::AddToPlaylist {
-                        playlist_id: id,
-                        playlist_name: name,
-                        items: vec![item.clone()],
-                    }),
-                    (true, false) => Some(Action::RemoveFromPlaylist {
-                        playlist_id: id,
-                        uris: vec![item.uri().to_string()],
-                        positions: Vec::new(),
-                    }),
-                    _ => None,
-                }
-            })
-            .collect()
+    /// What Done asks of the playlists, as one action: `item` added to each
+    /// newly checked one and taken out of each unchecked one that held it.
+    /// None when no playlist changes.
+    pub(crate) fn changes(&self, app: &App, item: &PlayableItem) -> Option<Action> {
+        let mut add = Vec::new();
+        let mut remove = Vec::new();
+        for (id, name) in app.editable_playlists() {
+            match (self.holding.contains(&id), self.chosen.contains(&id)) {
+                (false, true) => add.push((id, name)),
+                (true, false) => remove.push(id),
+                _ => {}
+            }
+        }
+        if add.is_empty() && remove.is_empty() {
+            return None;
+        }
+        Some(Action::UpdatePlaylists {
+            item: item.clone(),
+            add,
+            remove,
+        })
     }
 }
 
@@ -1032,6 +1031,18 @@ pub(crate) fn playlist_picker(
     // the full height lets it grow back; it still shrinks to fit its rows.
     let list_height = 320.0;
     let art = app.backend.art().clone();
+    // Every row's cover, read in one pass over the library.
+    let covers: std::collections::HashMap<String, String> = app
+        .library
+        .playlists
+        .get()
+        .into_iter()
+        .flatten()
+        .filter_map(|playlist| {
+            let image = pick_image(&playlist.images, 64)?;
+            Some((playlist.id.clone(), image.to_string()))
+        })
+        .collect();
     crate::autoscroll::show(
         ui,
         egui::ScrollArea::vertical()
@@ -1043,23 +1054,12 @@ pub(crate) fn playlist_picker(
             for (index, (id, name)) in matches.into_iter().enumerate() {
                 ui.push_id(id, |ui| {
                     let chosen = highlighted == Some(index);
-                    let image = app
-                        .library_entry(id)
-                        .and_then(|playlist| pick_image(&playlist.images, 64))
-                        .map(str::to_string);
+                    let image = covers.get(id).map(String::as_str);
                     let (row, clicked) = picker_row(
                         ui,
                         &palette,
                         |ui, rect| {
-                            paint_cover(
-                                ui,
-                                &palette,
-                                image.as_deref(),
-                                rect,
-                                4.0,
-                                Icon::Music,
-                                Some(&art),
-                            )
+                            paint_cover(ui, &palette, image, rect, 4.0, Icon::Music, Some(&art))
                         },
                         name,
                         chosen,
