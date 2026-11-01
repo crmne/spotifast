@@ -1465,20 +1465,23 @@ fn playlist_rows(
 }
 
 /// A playlist's rows with the songs hidden in it marked unplayable, kept
-/// until the rows or the hidden songs change.
+/// until the rows, the list or the hidden songs change.
 fn hidden_rows(
     ui: &egui::Ui,
     app: &App,
     id: &str,
     playlist_uri: &str,
     items: &Arc<Vec<TableItem>>,
+    items_revision: u64,
 ) -> Arc<Vec<TableItem>> {
-    type Marked = (usize, u64, Arc<Vec<TableItem>>);
+    type Marked = (usize, u64, u64, Arc<Vec<TableItem>>);
     let key = egui::Id::new("hidden-rows").with(id);
     let source = Arc::as_ptr(items) as usize;
     let revision = app.hidden_songs_revision;
-    if let Some((cached_source, cached_revision, rows)) = ui.data(|d| d.get_temp::<Marked>(key))
+    if let Some((cached_source, cached_items_revision, cached_revision, rows)) =
+        ui.data(|d| d.get_temp::<Marked>(key))
         && cached_source == source
+        && cached_items_revision == items_revision
         && cached_revision == revision
     {
         return rows;
@@ -1500,7 +1503,9 @@ fn hidden_rows(
             })
             .collect(),
     );
-    ui.data_mut(|d| d.insert_temp::<Marked>(key, (source, revision, Arc::clone(&rows))));
+    ui.data_mut(|d| {
+        d.insert_temp::<Marked>(key, (source, items_revision, revision, Arc::clone(&rows)));
+    });
     rows
 }
 
@@ -1701,7 +1706,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 .get(&playlist.uri)
                 .is_some_and(|songs| !songs.is_empty());
             let items = if hides {
-                hidden_rows(ui, app, id, &playlist.uri, &items)
+                hidden_rows(ui, app, id, &playlist.uri, &items, page.items.revision)
             } else {
                 items
             };
@@ -2986,6 +2991,122 @@ mod tests {
             uris.get(index as usize).map(String::as_str),
             Some("spotify:track:large-2"),
             "the played index must point at the clicked song"
+        );
+    }
+
+    /// A playlist that grows while songs are hidden must remark the rows:
+    /// the append extends the cached vec in place, so the marked copy can
+    /// no longer be told apart by its Arc pointer alone (#1049).
+    #[test]
+    fn hidden_rows_follow_pages_that_extend_the_cached_rows() {
+        let mut app = test_app();
+        app.backend.set_offline(true);
+        let songs = make_large_tracks(100);
+        app.hidden_songs.insert(
+            "spotify:playlist:hiding".into(),
+            std::iter::once(songs[0].0.uri().to_string()).collect(),
+        );
+        let playlist_item = |item: &TableItem| crate::api::models::PlaylistItem {
+            item: Some(item.0.clone()),
+            ..Default::default()
+        };
+        app.playlist_pages.insert(
+            "hiding".into(),
+            PlaylistPage {
+                playlist: Loadable::Loaded(Playlist {
+                    id: "hiding".into(),
+                    name: "Hiding".into(),
+                    uri: "spotify:playlist:hiding".into(),
+                    tracks: Some(crate::api::models::TrackCount { total: 100 }),
+                    ..Default::default()
+                }),
+                items: PagedList {
+                    items: songs[..50].iter().map(playlist_item).collect(),
+                    total: Some(100),
+                    next_offset: Some(50),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let frame = |app: &mut App, scroll: f32| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 1000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .animated(false)
+                        .vertical_scroll_offset(scroll)
+                        .show(ui, |ui| playlist(app, ui, "hiding"));
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        frame(&mut app, 0.0);
+        frame(&mut app, 0.0);
+        // The second page lands the way the backend delivers it: the
+        // handler absorbs it into the page and flags the table cache for
+        // an in-place append, which keeps the rows' Arc pointer.
+        {
+            let page = app.playlist_pages.get_mut("hiding").unwrap();
+            page.items.absorb(
+                50,
+                crate::api::models::Page {
+                    items: songs[50..].iter().map(playlist_item).collect(),
+                    total: 100,
+                    limit: 50,
+                    offset: 50,
+                    next: None,
+                },
+            );
+            let revision = page.items.revision;
+            app.table_rows
+                .get_mut(&Page::Playlist("hiding".into()))
+                .expect("the rendered table cache")
+                .playlist_append_revision = Some(revision);
+        }
+        fn find_row<'t>(
+            tree: &'t egui::accesskit::TreeUpdate,
+            name: &str,
+        ) -> Option<&'t egui::accesskit::Node> {
+            tree.nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.label()
+                        .is_some_and(|label| label.starts_with(&format!("Play {name},")))
+                })
+                .map(|(_, node)| node)
+        }
+        let tree = frame(&mut app, 0.0);
+        let hidden = find_row(&tree, "Nested metadata song 0 with a longer title")
+            .expect("the hidden song's row");
+        assert!(hidden.is_disabled(), "a hidden song is an unplayable row");
+        let tree = frame(&mut app, 100_000.0);
+        assert!(
+            find_row(&tree, "Nested metadata song 99 with a longer title").is_some(),
+            "the last row is laid out after the second page loads"
+        );
+
+        // A sorted table draws every loaded row; it must see the appended
+        // ones too.
+        app.table_sorts.insert(
+            Page::Playlist("hiding".into()),
+            TableSort {
+                column: SortColumn::Title,
+                ascending: true,
+            },
+        );
+        let tree = frame(&mut app, 100_000.0);
+        assert!(
+            find_row(&tree, "Nested metadata song 99 with a longer title").is_some(),
+            "the last row is laid out in the sorted table"
         );
     }
 
