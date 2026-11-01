@@ -659,7 +659,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                         let mut checks = ui
                             .data(|data| data.get_temp::<PlaylistChecks>(checks_id))
                             .filter(|checks| checks.uri == item.uri())
-                            .unwrap_or_else(|| PlaylistChecks::new(app, item.uri()));
+                            .unwrap_or_else(|| PlaylistChecks::new(app, item));
                         let before = app.actions.len();
                         let field = super::widgets::playlist_picker(
                             ui,

@@ -11908,23 +11908,14 @@ impl App {
         }
     }
 
-    /// Whether the rows held locally show the playlist holding `uri`.
-    pub(crate) fn playlist_holds(&self, id: &str, uri: &str) -> bool {
-        self.playlist_pages.get(id).is_some_and(|page| {
-            page.local_additions.contains(uri)
-                || page
-                    .items
-                    .items
-                    .iter()
-                    .filter_map(PlaylistItem::playable)
-                    .any(|item| item.uri() == uri)
-        })
-    }
-
     /// Answer from the rows already held locally. A found duplicate is
     /// definitive even for a partial playlist; an empty answer is definitive
     /// only when the whole playlist is present.
-    fn local_playlist_duplicates(&self, id: &str, items: &[PlayableItem]) -> Option<Vec<String>> {
+    pub(crate) fn local_playlist_duplicates(
+        &self,
+        id: &str,
+        items: &[PlayableItem],
+    ) -> Option<Vec<String>> {
         let page = self.playlist_pages.get(id)?;
         let existing: HashSet<&str> = page
             .items

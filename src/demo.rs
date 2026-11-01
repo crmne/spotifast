@@ -5821,10 +5821,12 @@ mod tests {
     }
 
     /// In the heart's checklist a click checks a playlist instead of adding
-    /// to it, a playlist holding the song starts checked, and Done adds to
+    /// to it, a playlist holding the song starts checked, one not read in
+    /// full is marked as unknown rather than lacking it, and Done adds to
     /// the newly checked and takes the song out of the unchecked.
     #[test]
     fn the_heart_checklist_adds_and_removes_only_on_done() {
+        use crate::ui::widgets::Mark;
         use egui::accesskit::{Action as AccessibleAction, Role};
 
         let (ctx, mut app) = accessible_app("playlist-checklist");
@@ -5851,7 +5853,8 @@ mod tests {
             },
         );
         let items = vec![item.clone()];
-        let mut checks = crate::ui::widgets::PlaylistChecks::new(&app, item.uri());
+        let mut checks = crate::ui::widgets::PlaylistChecks::new(&app, &item);
+        assert_eq!(checks.mark("drive"), Mark::Unknown, "never read");
         let mut query = String::new();
         let mut draw = |app: &mut App, events| {
             let mut output = ctx.run_ui(
@@ -5906,6 +5909,20 @@ mod tests {
                 crate::model::Action::RemoveFromPlaylist { playlist_id: removed, uris, .. },
             ] if added == "drive" && removed == "day" && uris == &[item.uri().to_string()]
         ));
+
+        app.playlist_pages.insert(
+            "drive".into(),
+            PlaylistPage {
+                items: PagedList {
+                    loaded_once: true,
+                    next_offset: None,
+                    ..Default::default()
+                },
+                ..PlaylistPage::default()
+            },
+        );
+        let checks = crate::ui::widgets::PlaylistChecks::new(&app, &item);
+        assert_eq!(checks.mark("drive"), Mark::Unchecked, "all rows read");
         app.backend.shutdown();
     }
 

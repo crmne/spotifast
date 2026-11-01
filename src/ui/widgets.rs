@@ -811,23 +811,53 @@ pub(crate) struct PlaylistChecks {
     pub liked: bool,
     /// The playlists known to hold the song when the menu opened.
     holding: std::collections::BTreeSet<String>,
+    /// The playlists not read far enough to tell. Done never takes the song
+    /// out of one, and adding to one first looks for it there.
+    unread: std::collections::BTreeSet<String>,
     chosen: std::collections::BTreeSet<String>,
+}
+
+/// The mark at the end of a checklist row.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Mark {
+    Checked,
+    Unchecked,
+    /// Unchecked, though the playlist may already hold the song.
+    Unknown,
 }
 
 impl PlaylistChecks {
     /// A liked song, with a check on each playlist known to hold it.
-    pub(crate) fn new(app: &App, uri: &str) -> Self {
-        let holding: std::collections::BTreeSet<String> = app
-            .editable_playlists()
-            .into_iter()
-            .map(|(id, _)| id)
-            .filter(|id| app.playlist_holds(id, uri))
-            .collect();
+    pub(crate) fn new(app: &App, item: &PlayableItem) -> Self {
+        let mut holding = std::collections::BTreeSet::new();
+        let mut unread = std::collections::BTreeSet::new();
+        for (id, _) in app.editable_playlists() {
+            match app.local_playlist_duplicates(&id, std::slice::from_ref(item)) {
+                Some(found) if found.is_empty() => {}
+                Some(_) => {
+                    holding.insert(id);
+                }
+                None => {
+                    unread.insert(id);
+                }
+            }
+        }
         Self {
-            uri: uri.to_string(),
+            uri: item.uri().to_string(),
             liked: true,
             chosen: holding.clone(),
             holding,
+            unread,
+        }
+    }
+
+    pub(crate) fn mark(&self, id: &str) -> Mark {
+        if self.chosen.contains(id) {
+            Mark::Checked
+        } else if self.unread.contains(id) {
+            Mark::Unknown
+        } else {
+            Mark::Unchecked
         }
     }
 
@@ -976,7 +1006,11 @@ pub(crate) fn playlist_picker(
             |ui, rect| super::sidebar::liked_cover(ui, rect, 4.0),
             &gettext(locale, "Liked Songs"),
             false,
-            Some(checks.liked),
+            Some(if checks.liked {
+                Mark::Checked
+            } else {
+                Mark::Unchecked
+            }),
         );
         if clicked {
             checks.liked = !checks.liked;
@@ -1029,7 +1063,7 @@ pub(crate) fn playlist_picker(
                         },
                         name,
                         chosen,
-                        checks.as_deref().map(|checks| checks.chosen.contains(id)),
+                        checks.as_deref().map(|checks| checks.mark(id)),
                     );
                     if chosen && moved {
                         row.scroll_to_me(None);
@@ -1052,16 +1086,16 @@ pub(crate) fn playlist_picker(
     field
 }
 
-/// A playlist in the picker, with its cover. A `checked` row shows a check
-/// that a click turns on or off, leaving the menu open; otherwise a click
-/// closes the menu.
+/// A playlist in the picker, with its cover. A row with a `mark` shows a
+/// check that a click turns on or off, leaving the menu open; otherwise a
+/// click closes the menu.
 fn picker_row(
     ui: &mut Ui,
     palette: &Palette,
     cover: impl FnOnce(&Ui, Rect),
     label: &str,
     highlighted: bool,
-    checked: Option<bool>,
+    mark: Option<Mark>,
 ) -> (egui::Response, bool) {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, 36.0), Sense::click());
@@ -1074,7 +1108,7 @@ fn picker_row(
             Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), Vec2::splat(28.0));
         cover(ui, cover_rect);
         let x = cover_rect.right() + 10.0;
-        let right = rect.right() - if checked.is_some() { 36.0 } else { 10.0 };
+        let right = rect.right() - if mark.is_some() { 36.0 } else { 10.0 };
         let galley = crate::bidi::layout(
             ui.painter(),
             label,
@@ -1093,21 +1127,30 @@ fn picker_row(
             galley,
             palette.text,
         );
-        if let Some(checked) = checked {
+        if let Some(mark) = mark {
             let center = pos2(rect.right() - 20.0, rect.center().y);
-            if checked {
-                ui.painter().circle_filled(center, 9.0, palette.accent);
-                Icon::Check
-                    .image(palette.on_accent, 12.0)
-                    .paint_at(ui, Rect::from_center_size(center, Vec2::splat(12.0)));
-            } else {
-                ui.painter()
-                    .circle_stroke(center, 8.5, Stroke::new(1.5, palette.secondary));
+            match mark {
+                Mark::Checked => {
+                    ui.painter().circle_filled(center, 9.0, palette.accent);
+                    Icon::Check
+                        .image(palette.on_accent, 12.0)
+                        .paint_at(ui, Rect::from_center_size(center, Vec2::splat(12.0)));
+                }
+                Mark::Unchecked => {
+                    ui.painter()
+                        .circle_stroke(center, 8.5, Stroke::new(1.5, palette.secondary));
+                }
+                Mark::Unknown => {
+                    let faint = palette.secondary.gamma_multiply(0.4);
+                    ui.painter()
+                        .circle_stroke(center, 8.5, Stroke::new(1.5, faint));
+                }
             }
         }
     }
-    response.widget_info(|| match checked {
-        Some(checked) => {
+    response.widget_info(|| match mark {
+        Some(mark) => {
+            let checked = mark == Mark::Checked;
             egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), checked, label)
         }
         None => {
@@ -1122,7 +1165,7 @@ fn picker_row(
     theme::focus_ring(ui, &response);
     crate::autoscroll::row(ui, &response);
     let clicked = response.clicked();
-    if clicked && checked.is_none() {
+    if clicked && mark.is_none() {
         ui.close();
     }
     (response, clicked)
