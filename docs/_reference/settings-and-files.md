@@ -66,7 +66,9 @@ history and playback settings. The button shows Clearing while it works and
 the size refreshes when it finishes, including after an error. During an engine
 reconnection, retry once playback is ready. An active cache removes files
 through librespot so its size accounting stays correct; unrecognized files are
-left in place and reported. Files still open for playback may keep disk space
+left in place, the rest is still cleared, and a message says how many stayed.
+Playback keeps responding during a clear, and a connection that starts during
+one waits for it to finish. Files still open for playback may keep disk space
 until closed, and ongoing playback can populate the cache again.
 
 Clearing caches never signs you out. Sign-out from Settings covers the shared

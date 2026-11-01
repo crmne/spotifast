@@ -2645,16 +2645,48 @@ impl App {
                     self.clearing_audio_cache = false;
                     self.storage_usage.invalidate();
                     match result {
-                        Ok(bytes) => self.toast(
-                            // Translators: {size} includes its unit, such as 12.5 MB.
-                            gettext(self.locale, "Cleared {size} of audio")
-                                .replace("{size}", &crate::storage::format_bytes(bytes)),
-                        ),
-                        Err(error) => self.toast_error(
-                            // Translators: {error} describes a filesystem or playback error.
-                            gettext(self.locale, "Couldn't clear audio cache: {error}")
-                                .replace("{error}", &error),
-                        ),
+                        Ok(cleared) => {
+                            self.toast(
+                                // Translators: {size} includes its unit, such as 12.5 MB.
+                                gettext(self.locale, "Cleared {size} of audio").replace(
+                                    "{size}",
+                                    &crate::storage::format_bytes(cleared.bytes),
+                                ),
+                            );
+                            if cleared.skipped > 0 {
+                                self.toast(
+                                    ngettext(
+                                        self.locale,
+                                        // Translators: Files in the audio cache that Spotifast did not put there, such as .DS_Store. They were not deleted.
+                                        "{count} unrecognized file was left in place.",
+                                        "{count} unrecognized files were left in place.",
+                                        cleared.skipped as u32,
+                                    )
+                                    .replace("{count}", &cleared.skipped.to_string()),
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            use crate::storage::ClearAudioError;
+                            let error = match error {
+                                ClearAudioError::Reconnecting => gettext(
+                                    self.locale,
+                                    "Playback is reconnecting. Try again once it is ready.",
+                                )
+                                .into_owned(),
+                                ClearAudioError::FolderIsLink => gettext(
+                                    self.locale,
+                                    "The audio cache folder is a symbolic link.",
+                                )
+                                .into_owned(),
+                                ClearAudioError::Failed(error) => error,
+                            };
+                            self.toast_error(
+                                // Translators: {error} describes a filesystem or playback error.
+                                gettext(self.locale, "Couldn't clear audio cache: {error}")
+                                    .replace("{error}", &error),
+                            );
+                        }
                     }
                 }
                 Event::PlaylistCoverChecked {
@@ -25138,14 +25170,34 @@ mod tests {
         app.offline = true;
         app.clearing_audio_cache = true;
         app.storage_usage.sizes = [crate::storage::Size::Bytes(100); 3];
-        app.handle_backend_events(vec![Event::AudioCacheCleared(
-            Err("fixture failure".into()),
-        )]);
+        app.handle_backend_events(vec![Event::AudioCacheCleared(Err(
+            crate::storage::ClearAudioError::Failed("fixture failure".into()),
+        ))]);
         assert!(!app.clearing_audio_cache);
         assert_eq!(app.storage_usage.sizes, [crate::storage::Size::Checking; 3]);
         assert_eq!(
             app.toasts.last().unwrap().message,
             "Couldn't clear audio cache: fixture failure"
+        );
+    }
+
+    #[test]
+    fn a_clear_that_left_files_says_so_and_its_refusals_are_worded_here() {
+        let mut app = headless_app();
+        app.handle_backend_events(vec![Event::AudioCacheCleared(Ok(
+            crate::storage::AudioCleared {
+                bytes: 2_000,
+                skipped: 2,
+            },
+        ))]);
+        let shown = |app: &App| app.toasts.last().unwrap().message.clone();
+        assert_eq!(shown(&app), "2 unrecognized files were left in place.");
+        app.handle_backend_events(vec![Event::AudioCacheCleared(Err(
+            crate::storage::ClearAudioError::Reconnecting,
+        ))]);
+        assert_eq!(
+            shown(&app),
+            "Couldn't clear audio cache: Playback is reconnecting. Try again once it is ready."
         );
     }
 
