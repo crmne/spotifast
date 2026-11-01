@@ -3190,15 +3190,59 @@ pub fn chips<T: PartialEq + Copy>(
     current: T,
 ) -> Option<T> {
     let mut selected = None;
-    ui.horizontal_wrapped(|ui| {
+    let id = ui.next_auto_id();
+    chip_row(ui, id, palette.window, |ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         for (value, label) in options {
-            if theme::soft_button(ui, palette, None, label, *value == current).clicked() {
+            let chip = theme::soft_button(ui, palette, None, label, *value == current);
+            if chip.clicked() {
+                chip.scroll_to_me(None);
                 selected = Some(*value);
             }
         }
     });
     selected
+}
+
+/// How wide the fade over a chip row's clipped edge is.
+const CHIP_FADE: f32 = 24.0;
+
+/// One row of chips that scrolls when it overflows. It draws no scroll bar,
+/// which has no room of its own and would lie over the chips: the clipped
+/// chip and a fade into `fill` say there is more. A plain mouse wheel scrolls
+/// the row, since most mice have no sideways wheel.
+pub fn chip_row(
+    ui: &mut Ui,
+    id: egui::Id,
+    fill: egui::Color32,
+    add_contents: impl FnOnce(&mut Ui),
+) {
+    let row = ui
+        .scope(|ui| {
+            ui.style_mut().always_scroll_the_only_direction = true;
+            egui::ScrollArea::horizontal()
+                .id_salt(id)
+                .animated(false)
+                .auto_shrink([false, true])
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                .show(ui, |ui| {
+                    ui.horizontal(add_contents);
+                })
+        })
+        .inner;
+    let rect = row.inner_rect;
+    let hidden = row.content_size.x - row.state.offset.x - rect.width();
+    if hidden > 0.5 {
+        let fade = Rect::from_min_max(pos2(rect.right() - CHIP_FADE, rect.top()), rect.max);
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(fade.left_top(), egui::Color32::TRANSPARENT);
+        mesh.colored_vertex(fade.right_top(), fill);
+        mesh.colored_vertex(fade.right_bottom(), fill);
+        mesh.colored_vertex(fade.left_bottom(), egui::Color32::TRANSPARENT);
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        ui.painter().add(egui::Shape::mesh(mesh));
+    }
 }
 
 /// A text input with the native clipboard actions and a selection-aware menu.
