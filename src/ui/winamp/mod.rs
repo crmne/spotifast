@@ -406,7 +406,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     if vis_moving {
         crate::theme::visualiser_frame(&ctx, app.visualiser_fps());
-    } else if now.is_some() {
+    } else if now.is_some() || app.winamp.marquee_scrolling() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }
 }

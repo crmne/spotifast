@@ -490,7 +490,8 @@ Appearance** sets how often it and the mini player's analyser draw: 30, 60
 which follows the display. They draw at half that rate while Spotifast's
 window is out of focus, at most 30 frames a second while the system saves
 energy, and not at all while nobody can see the window: minimised, in the
-tray, with the display off or the screen locked. MilkDrop has its own frame
+tray, with the display off or the screen locked. Toasts fade at the same
+rate, and ask for no frames between their fades. MilkDrop has its own frame
 rate. Disable **Click player bar to change
 visualizer** in **Settings > Appearance** to prevent accidental changes.
 
