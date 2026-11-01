@@ -319,7 +319,7 @@ pub enum EngineEvent {
         id: String,
     },
     /// Spotify pushed a change to playback on another device: a switch,
-    /// play or pause, another song, shuffle or repeat.
+    /// play or pause, another song or collection, shuffle or repeat.
     RemoteChanged,
     /// Spotify pushed a new volume for the device playing elsewhere, and
     /// nothing else changed. It carries the value, so no poll is needed.
@@ -336,6 +336,7 @@ pub enum EngineEvent {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ClusterView {
     active_device: String,
+    context: String,
     track: String,
     playing: bool,
     shuffle: bool,
@@ -349,6 +350,7 @@ impl ClusterView {
         let state = &cluster.player_state;
         Self {
             active_device: cluster.active_device_id.clone(),
+            context: state.context_uri.clone(),
             track: state.track.uri.clone(),
             playing: state.is_playing && !state.is_paused,
             shuffle: state.options.shuffling_context,
@@ -2067,6 +2069,10 @@ mod tests {
             .mut_or_insert_default()
             .shuffling_context = true;
         assert!(shown.changed_elsewhere(&ClusterView::of(&shuffled), "this"));
+        // Another collection started at the same song changes Playing from.
+        let mut playlist = cluster("sonos", "spotify:track:a", true, 30_000);
+        playlist.player_state.mut_or_insert_default().context_uri = "spotify:playlist:b".into();
+        assert!(shown.changed_elsewhere(&ClusterView::of(&playlist), "this"));
     }
 
     /// The first push after connecting is often already a change on another
