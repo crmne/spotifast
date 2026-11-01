@@ -2003,11 +2003,34 @@ impl App {
         if let Some(track) = now.id.as_deref().and_then(|id| self.track_cache.get(id)) {
             return Some(PlayableItem::Track(track.clone()));
         }
+        // The album and art go along, so a playlist row added from the
+        // player bar shows them before Spotify returns the song.
+        let images = [(&now.art_small, 64), (&now.art_url, 640)]
+            .into_iter()
+            .filter_map(|(url, width)| {
+                Some(crate::api::models::Image {
+                    url: url.clone()?,
+                    width: Some(width),
+                    height: Some(width),
+                })
+            })
+            .collect();
         Some(PlayableItem::Track(Track {
             id: now.id.clone(),
             uri: now.uri.clone(),
             name: now.title.clone(),
             artists: now.artists.clone(),
+            album: Some(Album {
+                uri: now
+                    .album_id
+                    .as_ref()
+                    .map(|id| format!("spotify:album:{id}"))
+                    .unwrap_or_default(),
+                id: now.album_id.clone().unwrap_or_default(),
+                name: now.album_name.clone(),
+                images,
+                ..Album::default()
+            }),
             duration_ms: now.duration_ms,
             ..Track::default()
         }))
@@ -29640,6 +29663,28 @@ mod tests {
             crate::ui::devices::device_icon(now.device_kind.as_deref().unwrap()),
             crate::theme::Icon::Smartphone
         ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn the_playing_song_keeps_its_album_and_art_without_cached_details() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local_ready = false;
+        app.frame_now = None;
+        app.track_cache.clear();
+
+        let now = app.now_playing().unwrap();
+        assert!(!now.album_name.is_empty());
+        assert!(now.art_small.is_some());
+        let Some(PlayableItem::Track(track)) = app.now_playing_item() else {
+            panic!("the demo plays a song");
+        };
+        let album = track.album.as_ref().expect("the album goes along");
+        assert_eq!(album.name, now.album_name);
+        assert_eq!(Some(&album.id), now.album_id.as_ref());
+        assert_eq!(track.image(64), now.art_small.as_deref());
+        assert_eq!(track.image(640), now.art_url.as_deref());
         app.backend.shutdown();
     }
 
