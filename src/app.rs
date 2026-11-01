@@ -6106,6 +6106,7 @@ impl App {
             page.local_additions.clear();
             page.optimistic_snapshot = None;
             page.snapshot_rechecks = 0;
+            page.snapshot_recheck_at = None;
             page.refresh_after_write = false;
             page.generation
         };
@@ -6143,6 +6144,7 @@ impl App {
                         // metadata confirmation before asking for rows.
                         playlist.refresh_after_write = true;
                         playlist.snapshot_rechecks = 0;
+                        playlist.snapshot_recheck_at = None;
                         if playlist.pending_writes == 0 {
                             self.backend.api(ApiRequest::Playlist {
                                 id: id.clone(),
@@ -6162,6 +6164,7 @@ impl App {
                     playlist.local_additions.clear();
                     playlist.optimistic_snapshot = None;
                     playlist.snapshot_rechecks = 0;
+                    playlist.snapshot_recheck_at = None;
                     self.backend.api(ApiRequest::Playlist {
                         id: id.clone(),
                         generation: playlist.generation,
@@ -7630,6 +7633,7 @@ impl App {
                     if reported == Some(expected) {
                         page.optimistic_snapshot = None;
                         page.snapshot_rechecks = 0;
+                        page.snapshot_recheck_at = None;
                         false
                     } else if result.is_ok() {
                         page.snapshot_rechecks = page.snapshot_rechecks.saturating_add(1);
@@ -8002,6 +8006,7 @@ impl App {
                             if snapshot.is_some() {
                                 page.optimistic_snapshot = snapshot.clone();
                                 page.snapshot_rechecks = 0;
+                                page.snapshot_recheck_at = None;
                             }
                             generation = Some(page.generation);
                         }
@@ -8027,6 +8032,7 @@ impl App {
                         if let Some(page) = self.playlist_pages.get_mut(&id) {
                             page.optimistic_snapshot = None;
                             page.snapshot_rechecks = 0;
+                            page.snapshot_recheck_at = None;
                         }
                         self.load_playlist_items_at(&id, 0);
                         if let Some(page) = self.playlist_pages.get(&id) {
@@ -27354,6 +27360,7 @@ mod tests {
         assert_eq!(page.items.total, Some(2));
         assert_eq!(page.items.items.len(), 2);
         assert_eq!(page.snapshot_rechecks, 1);
+        assert!(page.snapshot_recheck_at.is_some());
 
         app.handle_api(ApiResponse::Playlist {
             id: "best".into(),
@@ -27369,6 +27376,7 @@ mod tests {
         let page = &app.playlist_pages["best"];
         assert_eq!(page.optimistic_snapshot, None);
         assert_eq!(page.snapshot_rechecks, 0);
+        assert_eq!(page.snapshot_recheck_at, None, "nothing left to ask again");
         assert_eq!(page.items.total, Some(2));
     }
 
