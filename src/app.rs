@@ -655,6 +655,7 @@ pub struct App {
     pub shared_grant: bool,
     pending_remote_position: Option<(u32, Instant)>,
     pending_remote_volume: Option<PendingRemoteVolume>,
+    soloist_volume_preview: Option<Instant>,
     remote_volume_request: u64,
     /// A local volume set here that the engine has not echoed back yet. It
     /// reports `VolumeChanged` asynchronously while position snapshots land
@@ -896,6 +897,9 @@ impl fastframe_shell::Resident for App {
 /// opens the window. GNOME's AppIndicator extension, for one, loads after
 /// the session's autostart apps.
 const TRAY_WAIT: Duration = Duration::from_secs(30);
+
+/// How often a volume drag updates our own Soloist.
+const SOLOIST_VOLUME_PACE: Duration = Duration::from_millis(100);
 
 /// The tray menu's Play or Pause entry, for what is playing.
 fn play_pause_label(playing: bool) -> &'static str {
@@ -1264,6 +1268,7 @@ impl App {
             shared_grant: false,
             pending_remote_position: None,
             pending_remote_volume: None,
+            soloist_volume_preview: None,
             remote_volume_request: 0,
             pending_local_volume: None,
             pending_local_position: None,
@@ -9929,8 +9934,10 @@ impl App {
                     PlayerCommand::VolumePreview(volume)
                 });
             }
-            Target::Remote(_) if !settle || !self.can_set_volume() => {}
+            Target::Remote(_) if !self.can_set_volume() => {}
+            Target::Remote(_) if !settle && !self.previews_remote_volume() => {}
             Target::Remote(device_id) => {
+                self.soloist_volume_preview = Some(Instant::now());
                 self.remote_volume_request += 1;
                 self.pending_remote_volume = Some(PendingRemoteVolume {
                     percent,
@@ -9952,6 +9959,16 @@ impl App {
                 });
             }
         }
+    }
+
+    /// Whether a volume drag may reach the device before the release. Our own
+    /// Soloist takes it over its local socket, so unlike a Web API write it
+    /// spends no request budget; the pace only keeps the commands in order.
+    fn previews_remote_volume(&self) -> bool {
+        self.targets_own_soloist()
+            && self
+                .soloist_volume_preview
+                .is_none_or(|sent| sent.elapsed() >= SOLOIST_VOLUME_PACE)
     }
 
     fn reconcile_remote_volume(&mut self, seq: u64, state: Option<&PlaybackState>) {
@@ -29316,15 +29333,13 @@ mod tests {
         app.soloist_audio = true;
         let native_mac = cfg!(all(target_os = "macos", feature = "soloist-native-audio"));
         let builtin = app.settings.volume;
-        // Slider motion changes the local fader at once, with no Spotify write.
+        // Slider motion changes the volume at once: the local fader on a Mac,
+        // otherwise a command over Soloist's own socket.
         app.set_volume(25, false);
-        assert_eq!(
-            app.now_playing().unwrap().volume_percent,
-            if native_mac { 25 } else { 40 }
-        );
+        assert_eq!(app.now_playing().unwrap().volume_percent, 25);
         app.set_volume(0, true);
         assert_eq!(app.now_playing().unwrap().volume_percent, 0);
-        assert_eq!(app.remote_volume_request, u64::from(!native_mac));
+        assert_eq!(app.remote_volume_request, if native_mac { 0 } else { 2 });
         assert_eq!(app.settings.volume, builtin);
         if native_mac {
             assert!(app.pending_remote_volume.is_none());
@@ -29354,6 +29369,34 @@ mod tests {
             assert_eq!(app.backend.soloist_output_volume.percent(), 5);
         }
         app.backend.shutdown();
+    }
+
+    /// Dragging moves Soloist's volume as you go (#1136): it costs no Web API
+    /// request. Any other device still gets one write, on release.
+    #[test]
+    fn a_volume_drag_reaches_our_own_soloist_before_the_release() {
+        let mut app = remote_volume_app();
+        app.set_volume(40, false);
+        assert!(app.pending_remote_volume.is_none());
+
+        app.soloist_device_id = app
+            .remote
+            .as_ref()
+            .unwrap()
+            .state
+            .device
+            .as_ref()
+            .unwrap()
+            .id
+            .clone();
+        app.set_volume(41, false);
+        assert_eq!(app.pending_remote_volume.as_ref().unwrap().percent, 41);
+
+        // Inside the pace the drag waits, but the release always goes out.
+        app.set_volume(42, false);
+        assert_eq!(app.pending_remote_volume.as_ref().unwrap().percent, 41);
+        app.set_volume(43, true);
+        assert_eq!(app.pending_remote_volume.as_ref().unwrap().percent, 43);
     }
 
     #[test]
