@@ -433,15 +433,17 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         changes.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut pending_change = false;
         let mut pending_queue = false;
+        let mut last_reconnect = None;
         loop {
+            let mut reconnected = false;
             tokio::select! {
                 _ = stopped.changed() => return Ok(Outcome::Stopped),
                 _ = audio_tick.tick(), if bridge.is_some() => {
                     let bridge = bridge.as_ref().expect("audio bridge");
                     if bridge.failed() { bail!("Soloist's audio output stopped. Retry in Settings to reconnect it."); }
                     if source_volume.maintain(logged_in && bridge.owns_output_volume(), Instant::now())? {
-                        protocol::send(&mut socket, json!({"command":"set_volume", "volume":100})).await?;
-                        protocol::send(&mut socket, json!({"command":"get_state"})).await?;
+                        reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"set_volume", "volume":100})).await?;
+                        reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"get_state"})).await?;
                     }
                     if bridge.routed() != audio_routed { audio_routed = bridge.routed(); notify(Update::Audio(audio_routed)); }
                 }
@@ -457,8 +459,8 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                     notify(Update::Changed { queue: std::mem::take(&mut pending_queue) });
                 }
                 _ = tick.tick() => {
-                    protocol::send(&mut socket, json!({"command":"get_auth_state"})).await?;
-                    if logged_in { protocol::send(&mut socket, json!({"command":"get_state"})).await?; }
+                    reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"get_auth_state"})).await?;
+                    if logged_in { reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"get_state"})).await?; }
                     let mut current = build.clone();
                     current.checked = checked;
                     if current.due(install::now()) && downloading.is_none() && pending.is_none() {
@@ -488,44 +490,58 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                         }
                     }
                 }
-                message = protocol::receive(&mut socket) => {
-                    let message = message?;
-                    if let Some(bridge) = &bridge { bridge.update(&message); }
-                    if source_volume.observe(&message, output_volume) { notify(Update::OutputVolume); }
-                    if source_volume.maintain(logged_in && message["logged_in"] != false && bridge.as_ref().is_some_and(|bridge| bridge.owns_output_volume()), Instant::now())? {
-                        protocol::send(&mut socket, json!({"command":"set_volume", "volume":100})).await?;
-                        protocol::send(&mut socket, json!({"command":"get_state"})).await?;
-                    }
-                    let kind = message["type"].as_str().unwrap_or_default();
-                    if let Some(value) = message["is_active"].as_bool() { active = value; client.active(active); }
-                    if kind == "auth_state" {
-                        let authenticated = message["logged_in"].as_bool().unwrap_or(false);
-                        if authenticated != logged_in {
-                            logged_in = authenticated;
-                            if logged_in {
-                                notify(Update::Status(Status::Ready { name: name.into(), version: build.version.clone(), expires: build.built + 90 * install::DAY }));
-                                if let Some(bridge) = &bridge { notify(Update::Audio(bridge.routed())); }
-                                protocol::send(&mut socket, json!({"command":"get_state"})).await?;
+                message = protocol::receive_reconnecting(&mut socket, port) => {
+                    let (message, received_after_reconnect) = message?;
+                    reconnected |= received_after_reconnect;
+                    if let Some(message) = message {
+                        if let Some(bridge) = &bridge { bridge.update(&message); }
+                        if source_volume.observe(&message, output_volume) { notify(Update::OutputVolume); }
+                        if source_volume.maintain(logged_in && message["logged_in"] != false && bridge.as_ref().is_some_and(|bridge| bridge.owns_output_volume()), Instant::now())? {
+                            reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"set_volume", "volume":100})).await?;
+                            reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"get_state"})).await?;
+                        }
+                        let kind = message["type"].as_str().unwrap_or_default();
+                        if let Some(value) = message["is_active"].as_bool() { active = value; client.active(active); }
+                        if kind == "auth_state" {
+                            let authenticated = message["logged_in"].as_bool().unwrap_or(false);
+                            if authenticated != logged_in {
+                                logged_in = authenticated;
+                                if logged_in {
+                                    notify(Update::Status(Status::Ready { name: name.into(), version: build.version.clone(), expires: build.built + 90 * install::DAY }));
+                                    if let Some(bridge) = &bridge { notify(Update::Audio(bridge.routed())); }
+                                    reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"get_state"})).await?;
+                                }
+                                else { client.bind(None); notify(Update::Status(Status::Pairing { name: name.into(), version: build.version.clone() })); }
                             }
-                            else { client.bind(None); notify(Update::Status(Status::Pairing { name: name.into(), version: build.version.clone() })); }
+                        }
+                        // Pausing retains the queue and context in the live child.
+                        // Only an inactive device or an idle player may restart.
+                        if matches!(kind, "playback_state" | "playback_changed") {
+                            if message["status"] == "idle" { player_idle = true; }
+                            else if matches!(message["status"].as_str(), Some("playing" | "buffering" | "paused")) { player_idle = false; }
+                        }
+                        idle = !active || player_idle;
+                        if matches!(kind, "track_changed" | "playback_changed" | "device_changed" | "context_changed" | "options_changed" | "queue_changed" | "position_sync" | "volume_changed") {
+                            pending_queue |= matches!(kind, "queue_changed" | "track_changed" | "options_changed");
+                            if changed.elapsed() >= Duration::from_millis(400) {
+                                changed = Instant::now();
+                                pending_change = false;
+                                notify(Update::Changed { queue: std::mem::take(&mut pending_queue) });
+                            } else { pending_change = true; }
                         }
                     }
-                    // Pausing retains the queue and context in the live child.
-                    // Only an inactive device or an idle player may restart.
-                    if matches!(kind, "playback_state" | "playback_changed") {
-                        if message["status"] == "idle" { player_idle = true; }
-                        else if matches!(message["status"].as_str(), Some("playing" | "buffering" | "paused")) { player_idle = false; }
-                    }
-                    idle = !active || player_idle;
-                    if matches!(kind, "track_changed" | "playback_changed" | "device_changed" | "context_changed" | "options_changed" | "queue_changed" | "position_sync" | "volume_changed") {
-                        pending_queue |= matches!(kind, "queue_changed" | "track_changed" | "options_changed");
-                        if changed.elapsed() >= Duration::from_millis(400) {
-                            changed = Instant::now();
-                            pending_change = false;
-                            notify(Update::Changed { queue: std::mem::take(&mut pending_queue) });
-                        } else { pending_change = true; }
-                    }
                 }
+            }
+            if reconnected {
+                // One drop is a hiccup; dropping again at once is a player
+                // that won't hold a connection, and retrying would spin.
+                if last_reconnect.is_some_and(|at: Instant| at.elapsed() < RECONNECT_WINDOW) {
+                    bail!(
+                        "Soloist keeps dropping its connection. Retry in Settings to restart it."
+                    );
+                }
+                last_reconnect = Some(Instant::now());
+                notify(Update::Changed { queue: true });
             }
             if idle && let Some(next) = pending.take() {
                 return Ok(Outcome::Update(next));
@@ -596,6 +612,9 @@ async fn keep_output(path: &std::path::Path, key: &str, child: &mut tokio::proce
 }
 
 const OUTPUT_LIMIT: usize = 1 << 20;
+
+/// A second dropped event socket this soon after the last ends the player.
+const RECONNECT_WINDOW: Duration = Duration::from_secs(30);
 
 /// Drains one of the child's streams to the end, as a full pipe would stall it.
 async fn copy_output(
