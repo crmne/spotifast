@@ -94,6 +94,9 @@ const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
 const REMOTE_PUSH_SPACING: Duration = Duration::from_secs(1);
 /// Delay before checking the queue after a local change.
 const QUEUE_RECHECK: Duration = Duration::from_millis(700);
+/// Delay before reading a playlist's metadata again while Spotify still
+/// reports the snapshot from before a write.
+const PLAYLIST_SNAPSHOT_RECHECK: Duration = Duration::from_secs(1);
 /// Number of stale queue responses accepted before trusting Spotify's state.
 const QUEUE_STALE_RETRIES: u8 = 6;
 /// Duplicate queue requests within this window count as one click.
@@ -4211,6 +4214,20 @@ impl App {
                     );
                 }
             }
+            for (id, page) in &mut self.playlist_pages {
+                let Some(due) = page.snapshot_recheck_at else {
+                    continue;
+                };
+                if Instant::now() >= due {
+                    page.snapshot_recheck_at = None;
+                    self.backend.api(ApiRequest::Playlist {
+                        id: id.clone(),
+                        generation: page.generation,
+                    });
+                } else {
+                    ctx.request_repaint_after(due - Instant::now());
+                }
+            }
         }
 
         if let Some(typed) = self.search.typed_at {
@@ -6029,6 +6046,7 @@ impl App {
                 }
             }
             Page::Playlist(id) => {
+                self.report_lagging_snapshot(&id);
                 if self.playlist_pages.get(&id).is_some_and(|page| {
                     page.pending_writes > 0
                         || page.optimistic_snapshot.is_some()
@@ -6109,9 +6127,30 @@ impl App {
         }
     }
 
+    /// Scrolling for rows that can't be read until Spotify's snapshot catches
+    /// up, after the rechecks gave up, says so rather than just stopping.
+    fn report_lagging_snapshot(&mut self, id: &str) {
+        let locale = self.locale;
+        if let Some(page) = self.playlist_pages.get_mut(id)
+            && page.optimistic_snapshot.is_some()
+            && page.pending_writes == 0
+            && page.snapshot_rechecks > 3
+            && page.items.error.is_none()
+        {
+            page.items.fail(
+                gettext(
+                    locale,
+                    "Spotify hasn't confirmed your playlist changes yet. Try refreshing again.",
+                )
+                .into_owned(),
+            );
+        }
+    }
+
     fn load_window(&mut self, page: Page, position: u32) {
         match page {
             Page::Playlist(id) => {
+                self.report_lagging_snapshot(&id);
                 let Some(page) = self.playlist_pages.get_mut(&id) else {
                     return;
                 };
@@ -6200,6 +6239,7 @@ impl App {
             page.local_additions.clear();
             page.optimistic_snapshot = None;
             page.snapshot_rechecks = 0;
+            page.snapshot_recheck_at = None;
             page.refresh_after_write = false;
             page.generation
         };
@@ -6237,6 +6277,7 @@ impl App {
                         // metadata confirmation before asking for rows.
                         playlist.refresh_after_write = true;
                         playlist.snapshot_rechecks = 0;
+                        playlist.snapshot_recheck_at = None;
                         if playlist.pending_writes == 0 {
                             self.backend.api(ApiRequest::Playlist {
                                 id: id.clone(),
@@ -6256,6 +6297,7 @@ impl App {
                     playlist.local_additions.clear();
                     playlist.optimistic_snapshot = None;
                     playlist.snapshot_rechecks = 0;
+                    playlist.snapshot_recheck_at = None;
                     self.backend.api(ApiRequest::Playlist {
                         id: id.clone(),
                         generation: playlist.generation,
@@ -7772,6 +7814,7 @@ impl App {
                     if reported == Some(expected) {
                         page.optimistic_snapshot = None;
                         page.snapshot_rechecks = 0;
+                        page.snapshot_recheck_at = None;
                         false
                     } else if result.is_ok() {
                         page.snapshot_rechecks = page.snapshot_rechecks.saturating_add(1);
@@ -7783,16 +7826,13 @@ impl App {
                 if stale_write_snapshot {
                     let page = self.playlist_pages.get_mut(&id).unwrap();
                     if page.snapshot_rechecks <= 3 {
-                        self.backend.api(ApiRequest::Playlist { id, generation });
+                        // Spotify's metadata lags a write by a moment: ask
+                        // again shortly rather than at once.
+                        page.snapshot_recheck_at = Some(Instant::now() + PLAYLIST_SNAPSHOT_RECHECK);
                     } else {
+                        // Still lagging: keep the rows the write shows.
                         page.refresh_after_write = false;
-                        page.items.fail(
-                            gettext(
-                                self.locale,
-                                "Spotify hasn't confirmed your playlist changes yet. Try refreshing again.",
-                            )
-                            .into_owned(),
-                        );
+                        page.items.loading = false;
                     }
                     return;
                 }
@@ -8147,6 +8187,7 @@ impl App {
                             if snapshot.is_some() {
                                 page.optimistic_snapshot = snapshot.clone();
                                 page.snapshot_rechecks = 0;
+                                page.snapshot_recheck_at = None;
                             }
                             generation = Some(page.generation);
                         }
@@ -8172,6 +8213,7 @@ impl App {
                         if let Some(page) = self.playlist_pages.get_mut(&id) {
                             page.optimistic_snapshot = None;
                             page.snapshot_rechecks = 0;
+                            page.snapshot_recheck_at = None;
                         }
                         self.load_playlist_items_at(&id, 0);
                         if let Some(page) = self.playlist_pages.get(&id) {
@@ -27902,7 +27944,8 @@ mod tests {
             }
             let page = &app.playlist_pages["edited"];
             assert!(!page.items.loading, "failed refresh must stop spinning");
-            assert!(page.items.error.is_some());
+            // A lagging snapshot is waited out without an error.
+            assert_eq!(page.items.error.is_some(), network_failure);
             assert_eq!(page.items.items.len(), 1);
             assert!(page.local_additions.contains("spotify:track:new"));
             assert_eq!(page.optimistic_snapshot.as_deref(), Some("written"));
@@ -27924,6 +27967,66 @@ mod tests {
             app.handle_api(metadata("written"));
             assert_eq!(app.backend.take_playlist_item_requests().len(), 1);
         }
+    }
+
+    #[test]
+    fn scrolling_past_a_snapshot_that_never_caught_up_says_why_it_stopped() {
+        let mut app = headless_app();
+        let id = "lagging";
+        let page = app.playlist_pages.entry(id.to_string()).or_default();
+        page.optimistic_snapshot = Some("written".into());
+        page.snapshot_rechecks = 4;
+        app.load_more(Page::Playlist(id.into()));
+        assert!(app.playlist_pages[id].items.error.is_some());
+    }
+
+    #[test]
+    fn a_lagging_playlist_snapshot_is_asked_again_later_without_an_error() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.playlist_pages.insert(
+            "best".into(),
+            PlaylistPage {
+                generation: 4,
+                optimistic_snapshot: Some("after".into()),
+                refresh_after_write: true,
+                items: PagedList {
+                    items: vec![cached_playlist_row("spotify:track:one")],
+                    total: Some(1),
+                    loaded_once: true,
+                    loading: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let stale = || ApiResponse::Playlist {
+            id: "best".into(),
+            generation: 4,
+            result: Ok(Playlist {
+                id: "best".into(),
+                snapshot_id: Some("before".into()),
+                ..Default::default()
+            }),
+        };
+
+        app.handle_api(stale());
+        let due = app.playlist_pages["best"]
+            .snapshot_recheck_at
+            .expect("asked again");
+        assert!(
+            due > Instant::now() + PLAYLIST_SNAPSHOT_RECHECK / 2,
+            "not at once"
+        );
+
+        for _ in 0..4 {
+            app.handle_api(stale());
+        }
+        let page = &app.playlist_pages["best"];
+        assert!(page.items.error.is_none());
+        assert!(!page.items.loading);
+        assert!(!page.refresh_after_write);
+        assert_eq!(page.items.items.len(), 1, "the written rows stay");
     }
 
     #[test]
@@ -27980,6 +28083,7 @@ mod tests {
         assert_eq!(page.items.total, Some(2));
         assert_eq!(page.items.items.len(), 2);
         assert_eq!(page.snapshot_rechecks, 1);
+        assert!(page.snapshot_recheck_at.is_some());
 
         app.handle_api(ApiResponse::Playlist {
             id: "best".into(),
@@ -27995,6 +28099,7 @@ mod tests {
         let page = &app.playlist_pages["best"];
         assert_eq!(page.optimistic_snapshot, None);
         assert_eq!(page.snapshot_rechecks, 0);
+        assert_eq!(page.snapshot_recheck_at, None, "nothing left to ask again");
         assert_eq!(page.items.total, Some(2));
     }
 

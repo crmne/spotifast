@@ -393,9 +393,11 @@ Since 0.8.0, manually reloading an edited playlist waits for all
 pending writes and confirmation of the returned Spotify revision before
 requesting replacement rows. Current rows, filtering, sorting, and selection
 stay visible while it loads. Automatic paging also waits for those edits.
-If metadata still reports an older revision after three immediate rechecks,
-or the request fails, the page keeps the edits and offers a retry. Refreshing
-again retries confirmation without losing the local changes. This uses the
+If metadata still reports an older revision, Spotifast reads it again a
+second later, up to three times, and keeps loading meanwhile; if it still lags
+after that, the page keeps the edits and stops loading without an error. If the
+request fails, the page keeps the edits and offers a retry. Refreshing again
+retries confirmation without losing the local changes. This uses the
 existing playlist requests and adds no periodic polling.
 
 ## New releases on Home

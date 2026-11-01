@@ -878,9 +878,12 @@ pub struct PlaylistPage {
     /// A manual refresh waiting for pending writes and their snapshot to be
     /// confirmed before requesting replacement rows.
     pub refresh_after_write: bool,
-    /// Number of immediate metadata reads made while Spotify still reported
-    /// the pre-write snapshot.
+    /// Number of metadata reads made while Spotify still reported the
+    /// pre-write snapshot.
     pub snapshot_rechecks: u8,
+    /// When to read the metadata again while Spotify still reports the
+    /// pre-write snapshot.
+    pub snapshot_recheck_at: Option<Instant>,
 }
 
 /// A contiguous playlist prefix on disk, valid for exactly one snapshot.
