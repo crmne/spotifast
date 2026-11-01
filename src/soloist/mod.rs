@@ -762,7 +762,8 @@ mod tests {
         let data = root.join("account");
         std::fs::create_dir_all(builds.join("digest")).unwrap();
         std::fs::create_dir_all(&data).unwrap();
-        let player = builds.join("digest").join("soloist");
+        // Keeps its name: Nix's coreutils is one program that goes by it.
+        let player = builds.join("digest").join("sleep");
         std::fs::copy(on_path("sleep"), &player).unwrap();
         // macOS kills a copied system binary at launch unless it is re-signed.
         #[cfg(target_os = "macos")]
@@ -816,7 +817,7 @@ mod tests {
                 .unwrap();
             if String::from_utf8_lossy(&command.stdout)
                 .trim()
-                .ends_with("soloist")
+                .ends_with("sleep")
             {
                 return pid;
             }
