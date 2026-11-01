@@ -88,6 +88,11 @@ const ASSUMED_CONTEXT_HOLD: Duration = Duration::from_secs(8);
 const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// Delay before checking playback again after a command.
 const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
+/// How many more looks, a second apart, a song started on another device
+/// gets after the first while it has yet to report playing. Each one
+/// spends a playback poll from the Web API quota.
+const REMOTE_START_RECHECKS: u8 = 2;
+const REMOTE_START_RECHECK: Duration = Duration::from_secs(1);
 /// Delay before checking the queue after a local change.
 const QUEUE_RECHECK: Duration = Duration::from_millis(700);
 /// Number of stale queue responses accepted before trusting Spotify's state.
@@ -446,6 +451,10 @@ pub struct App {
     remote_end_polled_at: Option<Instant>,
     /// When another device last accepted a command or a switch from here.
     remote_command_at: Option<Instant>,
+    /// After Play, Next or Previous on another device: the last poll whose
+    /// answer no longer counts, and how many more looks are left while the
+    /// song has yet to report playing.
+    remote_start_checks: Option<(u64, u8)>,
     /// Serial of the newest playback poll sent; older answers are stale.
     remote_poll_seq: u64,
     /// The restorable session (sorts, recents, resume point) changed and
@@ -1132,6 +1141,7 @@ impl App {
             remote_poll_pending: false,
             remote_end_polled_at: None,
             remote_command_at: None,
+            remote_start_checks: None,
             remote_poll_seq: 0,
             session_dirty: false,
             last_session_save: Instant::now(),
@@ -7182,6 +7192,24 @@ impl App {
                                 .map(|item| item.uri().to_string())
                         });
                         self.reconcile_remote_track_intent(seq, uri.as_deref());
+                        if let Some((before, left)) = self.remote_start_checks
+                            && seq > before
+                        {
+                            let playing = self.intent_track.is_none()
+                                && self
+                                    .remote
+                                    .as_ref()
+                                    .is_some_and(|remote| remote.state.is_playing);
+                            self.remote_start_checks = None;
+                            if !playing && left > 0 {
+                                // Still loading: look again shortly so the
+                                // clock starts within a second, a few times
+                                // at most.
+                                self.remote_start_checks = Some((seq, left - 1));
+                                self.remote_recheck_at =
+                                    Some(Instant::now() + REMOTE_START_RECHECK);
+                            }
+                        }
                         if let Some(remote) = &self.remote
                             && let Some(device) = &remote.state.device
                             && device.id.is_some()
@@ -8611,6 +8639,13 @@ impl App {
                     Ok(()) => {
                         self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
                         self.remote_command_at = Some(Instant::now());
+                        if matches!(
+                            action,
+                            RemoteAction::Play | RemoteAction::Next | RemoteAction::Previous
+                        ) {
+                            self.remote_start_checks =
+                                Some((self.remote_poll_seq, REMOTE_START_RECHECKS));
+                        }
                         if action == RemoteAction::Shuffle {
                             self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
                             if let Some(pending) = &mut self.queue_shuffle_pending {
@@ -25569,6 +25604,55 @@ mod tests {
             "a hidden window's logic must wake again within 250 ms while playing, \
              without spinning; asked for {soonest:?}"
         );
+    }
+
+    /// A song started on another device gets up to three looks a second
+    /// apart while it has yet to report playing, and none once it plays. A
+    /// poll sent before the command describes the old song and does not
+    /// count.
+    #[test]
+    fn a_remote_start_gets_a_few_looks_a_second_apart() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local_ready = false;
+        let state = app.remote.as_ref().unwrap().state.clone();
+        // Answers poll `seq` and returns when the next look is due.
+        let answer = |app: &mut App, seq: u64, playing: bool| {
+            app.remote_recheck_at = None;
+            app.remote_poll_seq = seq;
+            let mut state = state.clone();
+            state.is_playing = playing;
+            app.handle_api(ApiResponse::PlaybackState {
+                seq,
+                result: Ok(Some(state)),
+            });
+            app.remote_recheck_at
+        };
+
+        let before = app.remote_poll_seq;
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        assert!(app.remote_recheck_at.is_some(), "the first look");
+        assert_eq!(answer(&mut app, before, false), None, "a stale answer");
+        let due = answer(&mut app, before + 1, false).expect("a second look");
+        assert!(
+            due > Instant::now() + REMOTE_START_RECHECK / 2,
+            "not at once"
+        );
+        assert!(
+            answer(&mut app, before + 2, false).is_some(),
+            "a third look"
+        );
+        assert_eq!(answer(&mut app, before + 3, false), None, "no fourth look");
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Play,
+            result: Ok(()),
+        });
+        assert_eq!(answer(&mut app, before + 4, true), None, "it plays");
+        app.backend.shutdown();
     }
 
     #[test]

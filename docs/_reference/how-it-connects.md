@@ -160,7 +160,10 @@ seconds, every 20 while this computer's player is active, every 30 while the
 window cannot be seen and nothing plays, every 4 while the window is visible
 for ten seconds after a command or a switch to another device, once more
 just after a song on another device should end, and as soon as this computer's
-player stops. See
+player stops. After Play, Next or Previous on another device, it is checked
+about a second later, and up to twice more a second apart while the song has
+yet to report playing, so the progress clock starts without waiting for the
+next regular check. See
 [Make It Even Faster](/make-it-even-faster/#api-rate-limits).
 
 Since 0.8.0, a search runs as two requests when a
