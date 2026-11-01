@@ -578,7 +578,8 @@ async fn copy_output(
             let _ = file.0.flush().await;
         }
     }
-||||||| parent of 9fcb9e7 (fix(soloist): stop a leftover Soloist before starting a new one)
+}
+
 /// Stops a Soloist that an earlier Spotifast left running. It still holds the
 /// data directory's lock, so a new player would exit before it is ready
 /// (#1140). Only a process started from one of our own builds is stopped: the
