@@ -132,6 +132,10 @@ another playlist moves them there.
 These keys edit the text instead while a search, filter or other text field
 has focus.
 
+To copy a song's title or artists instead of its link, right-click it and open
+**Copy details**. It offers the song title, the artists, or both as
+"Artist - Title".
+
 Clear any playlist filter or sort before placing songs between rows, so the
 visible positions match Spotify's order. A duplicate confirmation keeps the
 chosen position when you select **Add anyway**. Dragging near the top or bottom
