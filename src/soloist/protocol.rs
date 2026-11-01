@@ -34,6 +34,16 @@ pub async fn send(socket: &mut Socket, mut body: Value) -> Result<()> {
     socket.send(Message::Text(body.to_string().into())).await?;
     Ok(())
 }
+pub async fn send_reconnecting(socket: &mut Socket, port: u16, body: Value) -> Result<bool> {
+    if send(socket, body.clone()).await.is_ok() {
+        return Ok(false);
+    }
+    *socket = tokio::time::timeout(Duration::from_secs(5), connect(port))
+        .await
+        .context("Soloist's local API did not reconnect in time")??;
+    send(socket, body).await?;
+    Ok(true)
+}
 pub async fn receive(socket: &mut Socket) -> Result<Value> {
     loop {
         match socket.next().await.context("Soloist disconnected")?? {
@@ -45,14 +55,14 @@ pub async fn receive(socket: &mut Socket) -> Result<Value> {
     }
 }
 
-pub async fn receive_reconnecting(socket: &mut Socket, port: u16) -> Result<Value> {
+pub async fn receive_reconnecting(socket: &mut Socket, port: u16) -> Result<(Option<Value>, bool)> {
     match receive(socket).await {
-        Ok(message) => Ok(message),
+        Ok(message) => Ok((Some(message), false)),
         Err(_) => {
             *socket = tokio::time::timeout(Duration::from_secs(5), connect(port))
                 .await
                 .context("Soloist's local API did not reconnect in time")??;
-            receive(socket).await
+            Ok((None, true))
         }
     }
 }
@@ -504,8 +514,36 @@ mod tests {
                 .unwrap();
         });
         let mut socket = connect(port).await.unwrap();
-        let message = receive_reconnecting(&mut socket, port).await.unwrap();
+        let (message, reconnected) = receive_reconnecting(&mut socket, port).await.unwrap();
+        assert!(message.is_none());
+        assert!(reconnected);
+        let (message, reconnected) = receive_reconnecting(&mut socket, port).await.unwrap();
+        let message = message.unwrap();
         assert_eq!(message["type"], "auth_state");
+        assert!(!reconnected);
+        server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn command_connection_recovers_after_soloist_drops_it() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            socket.next().await.unwrap().unwrap();
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let message = socket.next().await.unwrap().unwrap();
+            let command: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            assert_eq!(command["command"], "get_state");
+        });
+        let mut socket = connect(port).await.unwrap();
+        socket.close(None).await.unwrap();
+        assert!(
+            send_reconnecting(&mut socket, port, json!({"command":"get_state"}))
+                .await
+                .unwrap()
+        );
         server.await.unwrap();
     }
     #[tokio::test]
