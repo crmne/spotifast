@@ -18,6 +18,16 @@ playing from somewhere Spotify reports.
 These are the rules the app follows. The queue tests in `src/app.rs`
 check every one of them.
 
+The Library's **Local Files** page plays the indexed songs in its displayed
+order. Local-file **Add to queue** and **Play next** mix them with Spotify songs
+in **Playing next** while this computer is the active player, including when
+paused. An available local file follows the same queue rules whether it comes
+from this page or a playlist; remote-device selections queue only Spotify songs.
+Local files only play on this computer;
+they cannot be sent to another Connect device or added to a Spotify playlist
+from Spotifast. Playback still needs Spotify Premium and playback on this
+computer to be set up. See [Local files](/using-spotifast/#local-files).
+
 Starting and resuming are separate actions. With Shuffle off, a playlist's
 **Play** button starts at its first available song in the selected order.
 Double-clicking a row starts there, including with Shuffle on. **Play** in
@@ -38,7 +48,7 @@ the app does not replace it with a shortened list of loaded songs. A request
 waiting for local playback to reconnect keeps the song chosen at the click.
 
 Sorted and filtered views omit unavailable songs, and local files the local
-files folder does not hold, from their playback requests. The displayed rows keep their positions, and selecting a
+source folders do not hold, from their playback requests. The displayed rows keep their positions, and selecting a
 repeated song starts that occurrence. In a playlist's original order, a song
 that appears more than once among the loaded rows starts at the chosen copy's
 playlist position, provided the rows load from the beginning and no missing
