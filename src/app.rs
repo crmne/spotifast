@@ -22954,6 +22954,10 @@ mod tests {
     /// listener on the setup page, with its key field, and nothing came back.
     #[test]
     fn a_stopped_soloist_never_returns_a_finished_listener_to_setup() {
+        // Windows ARM has no Soloist, so no setup to show.
+        if !crate::soloist::install::supported() {
+            return;
+        }
         use crate::soloist::{Failure, Status, Update};
         let (ctx, mut app) = listening_on_soloist("soloist-stops");
         for failure in [
@@ -23020,6 +23024,10 @@ mod tests {
     /// still verifying: that passes by itself (#1137).
     #[test]
     fn setup_waits_out_an_unverified_sign_in_but_not_other_failures() {
+        // Windows ARM has no Soloist, so no setup to show.
+        if !crate::soloist::install::supported() {
+            return;
+        }
         use crate::soloist::{Failure, Status, Update};
         let (ctx, mut app) = listening_on_soloist("soloist-setup-failure");
         app.apply(Action::StartSoloistSetup, &ctx);
@@ -23128,6 +23136,10 @@ mod tests {
     /// Setup opened from the banner is a visit, not a way to lose the app.
     #[test]
     fn a_finished_listener_can_leave_setup_and_keep_soloist() {
+        // Windows ARM has no Soloist, so no setup to show.
+        if !crate::soloist::install::supported() {
+            return;
+        }
         use crate::settings::SoloistOnboarding;
         let (ctx, mut app) = listening_on_soloist("soloist-leave-setup");
         app.on_soloist(crate::soloist::Update::Status(
