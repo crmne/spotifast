@@ -108,7 +108,9 @@ drag the lower-right corner to resize the window. Use X or **PL** to close it.
 
 Notices from the main window scroll through the mini player's text display.
 The skin's capital-letter font folds accented Latin letters, including Turkish
-letters, to its available shapes. Other scripts use a fallback font.
+letters, to its available shapes. Other scripts use a fallback font; Arabic
+letters join, and a title that reads right to left is drawn in that order and
+hugs the right edge of its row.
 
 ## Equalizer
 

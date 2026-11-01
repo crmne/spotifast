@@ -474,8 +474,15 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
             color,
         );
         let title_line = text.line(&ctx, &title);
+        // A title that reads right to left hugs the right edge of its room,
+        // the way every other view places one, rather than starting at the
+        // left and leaving the gap a left-to-right title fills.
         let title_at = Area::new(
-            line.x + pad,
+            if crate::bidi::is_rtl(&row.label) {
+                line.x + pad + title_room - title_line.width.min(title_room)
+            } else {
+                line.x + pad
+            },
             line.y + (line.height.saturating_sub(title_line.height)) / 2,
             title_line.width.min(title_room),
             title_line.height,
