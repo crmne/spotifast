@@ -342,7 +342,60 @@ pub fn strip_html(text: &str) -> String {
             _ => {}
         }
     }
-    out.replace("&amp;", "&")
+    decode_entities(&out)
+}
+
+/// The text [`strip_html`] gives, with the byte range of each `<a>` link in
+/// it and where the link points.
+pub fn html_links(text: &str) -> (String, Vec<(std::ops::Range<usize>, String)>) {
+    let mut out = String::with_capacity(text.len());
+    let mut links = Vec::new();
+    let mut open: Option<(usize, String)> = None;
+    let mut run = String::new();
+    let mut tag: Option<String> = None;
+    for character in text.chars() {
+        match character {
+            '<' => {
+                out.push_str(&decode_entities(&std::mem::take(&mut run)));
+                tag = Some(String::new());
+            }
+            '>' => {
+                let Some(tag) = tag.take() else { continue };
+                if let Some(href) = link_target(&tag) {
+                    open = Some((out.len(), href));
+                } else if tag.trim().eq_ignore_ascii_case("/a")
+                    && let Some((start, href)) = open.take()
+                    && start < out.len()
+                {
+                    links.push((start..out.len(), href));
+                }
+            }
+            _ => match &mut tag {
+                Some(tag) => tag.push(character),
+                None => run.push(character),
+            },
+        }
+    }
+    out.push_str(&decode_entities(&run));
+    (out, links)
+}
+
+/// Where an opening `<a>` tag points: its `href`, quoted or not.
+fn link_target(tag: &str) -> Option<String> {
+    let attributes = tag.strip_prefix(['a', 'A'])?;
+    if !attributes.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let value = &attributes[attributes.to_ascii_lowercase().find("href=")? + 5..];
+    let value = match value.chars().next()? {
+        quote @ ('"' | '\'') => value[1..].split(quote).next()?,
+        _ => value.split(char::is_whitespace).next()?,
+    };
+    Some(decode_entities(value)).filter(|href| !href.is_empty())
+}
+
+fn decode_entities(text: &str) -> String {
+    text.replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&#x27;", "'")
         .replace("&#39;", "'")
@@ -597,5 +650,27 @@ mod tests {
             "Hi there & you"
         );
         assert_eq!(strip_html("ONE&#x2F;TWO&#x2F;THREE"), "ONE/TWO/THREE");
+    }
+
+    #[test]
+    fn html_links_keep_where_each_link_points() {
+        let html = "Mood: <a href=spotify:playlist:pl1>Chill &amp; Co</a>, more at \
+                    <a href=\"https://example.com/?a=1&amp;b=2\">example</a>. <b>Enjoy</b>";
+        let (text, links) = html_links(html);
+        assert_eq!(text, strip_html(html));
+        assert_eq!(text, "Mood: Chill & Co, more at example. Enjoy");
+        let found: Vec<_> = links
+            .iter()
+            .map(|(range, href)| (&text[range.clone()], href.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Chill & Co", "spotify:playlist:pl1"),
+                ("example", "https://example.com/?a=1&b=2"),
+            ]
+        );
+        // An anchor without a target, or never closed, is plain text.
+        assert!(html_links("<a name=x>x</a> <a href='y'>y").1.is_empty());
     }
 }

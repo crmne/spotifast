@@ -189,6 +189,12 @@ Click the cover at the top of a playlist, album, artist, or podcast page to
 see it enlarged, at the largest size Spotify has. Click anywhere or press
 `Esc` to return to the page.
 
+## Links in playlist descriptions
+
+Links in a playlist's description stand out from the rest of it and can be
+clicked: a link to a Spotify playlist, artist or other page opens it here, and
+a web link opens in your browser.
+
 ## Release dates
 
 Hover over the year at the top of an album, single or EP page to see its full release
