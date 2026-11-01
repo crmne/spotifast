@@ -1627,7 +1627,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                             super::widgets::paint_cover(
                                 ui,
                                 &palette,
-                                entry.image.as_deref().or(entry.grid_image.as_deref()),
+                                entry.image.as_deref(),
                                 cover_rect,
                                 if entry.round { 22.0 } else { 6.0 },
                                 if entry.round { Icon::User } else { Icon::Music },
@@ -1701,7 +1701,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     entry,
                     cover_took_click,
                     custom_order,
-                    pointer.is_some(),
+                    true,
                 );
             });
             if let Some(slot) = reorder_slot {
