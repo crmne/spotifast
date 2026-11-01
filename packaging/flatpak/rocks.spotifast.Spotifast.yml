@@ -26,6 +26,8 @@ finish-args:
   - --device=dri
   # Sound: PulseAudio, which PipeWire also answers.
   - --socket=pulseaudio
+  # Soloist's private audio route, for its equalizer and visualizers.
+  - --filesystem=xdg-run/pipewire-0
   # Spotify's API, the streaming session, the sign-in's local redirect, and
   # mDNS for receivers on the network.
   - --share=network

@@ -12,6 +12,8 @@ finish-args:
   - --share=ipc
   - --device=dri
   - --socket=pulseaudio
+  # Soloist's private audio route, for its equalizer and visualizers.
+  - --filesystem=xdg-run/pipewire-0
   - --share=network
   # Platform storage for this application's Spotify grants.
   - --talk-name=org.freedesktop.secrets
