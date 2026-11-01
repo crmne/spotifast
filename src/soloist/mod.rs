@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
+    borrow::Cow,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -37,6 +38,77 @@ impl Key {
     }
 }
 
+/// Why the player stopped or could not start. The interface says it in the
+/// listener's language, and decides from it whether to try again unasked.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Failure {
+    Unsupported,
+    NotSignedIn,
+    InvalidKey,
+    KeyStore,
+    Download,
+    NotReady,
+    SlowStart,
+    Stopped,
+    Unstable,
+    AudioLost,
+    Expired,
+    Other(String),
+}
+impl Failure {
+    /// Whether starting again could work without the listener doing anything.
+    pub fn retries(&self) -> bool {
+        !matches!(
+            self,
+            Self::Unsupported | Self::InvalidKey | Self::KeyStore | Self::Expired
+        )
+    }
+    pub fn message(&self, locale: crate::i18n::Locale) -> Cow<'static, str> {
+        use crate::i18n::gettext;
+        match self {
+            Self::Unsupported => gettext(
+                locale,
+                "Spotify has not published Soloist for this platform. The built-in player remains available.",
+            ),
+            Self::NotSignedIn => gettext(
+                locale,
+                "Spotify hasn't confirmed your sign-in yet. Try again in a moment.",
+            ),
+            Self::InvalidKey => gettext(locale, "That doesn't look like a Soloist key."),
+            Self::KeyStore => gettext(
+                locale,
+                "Spotifast couldn't reach your saved key. Unlock the system credential store and try again.",
+            ),
+            Self::Download => gettext(
+                locale,
+                "Spotifast couldn't download Soloist. Check your connection and try again.",
+            ),
+            Self::NotReady => gettext(
+                locale,
+                "Soloist stopped while starting. Check your key and this computer's audio service.",
+            ),
+            Self::SlowStart => gettext(locale, "Soloist took too long to start."),
+            Self::Stopped => gettext(locale, "Soloist stopped unexpectedly."),
+            Self::Unstable => gettext(locale, "Soloist keeps losing its connection."),
+            Self::AudioLost => gettext(locale, "Soloist lost its audio output."),
+            Self::Expired => gettext(
+                locale,
+                "This Soloist build has expired, and Spotify hasn't published a new one yet.",
+            ),
+            Self::Other(error) => error.clone().into(),
+        }
+    }
+}
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Other(error) => f.write_str(error),
+            other => write!(f, "{other:?}"),
+        }
+    }
+}
+impl std::error::Error for Failure {}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Status {
     #[default]
@@ -56,7 +128,7 @@ pub enum Status {
         version: String,
         expires: u64,
     },
-    Failed(String),
+    Failed(Failure),
 }
 impl Status {
     pub fn name(&self) -> Option<&str> {
@@ -94,7 +166,12 @@ impl Handle {
             let result = run(config, running.clone(), stopped).await;
             running.clear();
             if let Err(error) = result {
-                notify(Update::Status(Status::Failed(error.to_string())));
+                log::warn!("Soloist failed: {error:#}");
+                let failure = error
+                    .downcast_ref::<Failure>()
+                    .cloned()
+                    .unwrap_or_else(|| Failure::Other(error.to_string()));
+                notify(Update::Status(Status::Failed(failure)));
             }
         });
         Self {
@@ -159,10 +236,7 @@ async fn run(args: Config, client: Client, mut stopped: watch::Receiver<bool>) -
         audio_config,
         output_volume,
     } = args;
-    ensure!(
-        install::supported(),
-        "Spotify does not publish Soloist for this platform yet."
-    );
+    ensure!(install::supported(), Failure::Unsupported);
     notify(Update::Status(Status::Starting));
     let prepare = async {
         let key = match key {
@@ -171,16 +245,14 @@ async fn run(args: Config, client: Client, mut stopped: watch::Receiver<bool>) -
                     account: account.clone(),
                     value: value.trim().into(),
                 };
-                ensure!(
-                    key.valid(),
-                    "Enter a valid personal Soloist key from Spotify."
-                );
-                lease.save(Grant::Soloist(key.clone())).await.context(
-                "Could not save the Soloist key. Unlock the system credential store and try again.",
-            )?;
+                ensure!(key.valid(), Failure::InvalidKey);
+                lease
+                    .save(Grant::Soloist(key.clone()))
+                    .await
+                    .context(Failure::KeyStore)?;
                 key
             }
-            None => match lease.load().await?.grant {
+            None => match lease.load().await.context(Failure::KeyStore)?.grant {
                 Some(Grant::Soloist(key)) if key.account == account => key,
                 _ => {
                     notify(Update::Status(Status::NeedsKey));
@@ -218,7 +290,8 @@ async fn run(args: Config, client: Client, mut stopped: watch::Receiver<bool>) -
             install::download(&root, &http, &|received, total| {
                 notify(Update::Status(Status::Downloading { received, total }))
             })
-            .await?
+            .await
+            .context(Failure::Download)?
         };
         Ok::<_, anyhow::Error>(Some((key, root, data, name, build)))
     };
@@ -284,12 +357,10 @@ async fn run(args: Config, client: Client, mut stopped: watch::Receiver<bool>) -
                 };
                 build = tokio::select! {
                     _ = stopped.changed() => return Ok(()),
-                    result = install::download(&root, &http, &progress) => result?,
+                    result = install::download(&root, &http, &progress) => result.context(Failure::Download)?,
                 };
             }
-            Outcome::Expired => bail!(
-                "Spotify's current Soloist build has expired. Try again when Spotify publishes its replacement."
-            ),
+            Outcome::Expired => bail!(Failure::Expired),
         }
     }
 }
@@ -377,9 +448,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     // Soloist currently requires the key in argv. Never log this command or
     // the child's output: it stays in the private data directory, without the
     // key. See the documented upstream limitation.
-    let mut child = command.spawn().context(
-        "Soloist could not start. Check that this operating system supports Spotify's build.",
-    )?;
+    let mut child = command.spawn().context(Failure::NotReady)?;
     keep_output(&data.join("soloist-output.log"), &key.value, &mut child).await;
     #[cfg(target_os = "macos")]
     exit_guard::watch(child.id());
@@ -392,23 +461,33 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
             loop {
                 if let Some(exit) = child.try_wait()? {
                     log::warn!("Soloist exited before it was ready: {exit}");
-                    if exit.code() == Some(10) { return Ok(None); }
-                    bail!("Soloist stopped before it was ready. Check your key and this computer's audio service, then retry.");
+                    if exit.code() == Some(10) {
+                        return Ok(None);
+                    }
+                    bail!(Failure::NotReady);
                 }
                 if let Ok(text) = tokio::fs::read_to_string(data.join("ws.port")).await
-                    && let Ok(port) = text.trim().parse::<u16>() && port != 0 {
+                    && let Ok(port) = text.trim().parse::<u16>()
+                    && port != 0
+                {
                     let address = tokio::fs::read_to_string(data.join("ws.addr")).await?;
-                    ensure!(address.trim() == "127.0.0.1", "Soloist did not bind its API to this computer");
+                    ensure!(
+                        address.trim() == "127.0.0.1",
+                        "Soloist did not bind its API to this computer"
+                    );
                     break Ok(Some(port));
                 }
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
-        }).await.context("Soloist took too long to start. Retry after checking the audio service.")??;
+        })
+        .await
+        .context(Failure::SlowStart)??;
         let Some(port) = port else {
             return Ok(Outcome::Expired);
         };
-        let mut socket =
-            tokio::time::timeout(Duration::from_secs(5), protocol::connect(port)).await??;
+        let mut socket = tokio::time::timeout(Duration::from_secs(5), protocol::connect(port))
+            .await
+            .context(Failure::SlowStart)??;
         install::remember(root, "current.json", build).await?;
         let _ = tokio::fs::remove_file(root.join("pending.json")).await;
         client.listening(Some(port));
@@ -440,7 +519,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                 _ = stopped.changed() => return Ok(Outcome::Stopped),
                 _ = audio_tick.tick(), if bridge.is_some() => {
                     let bridge = bridge.as_ref().expect("audio bridge");
-                    if bridge.failed() { bail!("Soloist's audio output stopped. Retry in Settings to reconnect it."); }
+                    if bridge.failed() { bail!(Failure::AudioLost); }
                     if source_volume.maintain(logged_in && bridge.owns_output_volume(), Instant::now())? {
                         reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"set_volume", "volume":100})).await?;
                         reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"get_state"})).await?;
@@ -451,7 +530,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                     let exit = exit?;
                     log::warn!("Soloist exited: {exit}");
                     if exit.code() == Some(10) { return Ok(Outcome::Expired); }
-                    bail!("Soloist stopped. Retry in Settings to start it again.");
+                    bail!(Failure::Stopped);
                 }
                 _ = changes.tick(), if pending_change => {
                     changed = Instant::now();
@@ -536,9 +615,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                 // One drop is a hiccup; dropping again at once is a player
                 // that won't hold a connection, and retrying would spin.
                 if last_reconnect.is_some_and(|at: Instant| at.elapsed() < RECONNECT_WINDOW) {
-                    bail!(
-                        "Soloist keeps dropping its connection. Retry in Settings to restart it."
-                    );
+                    bail!(Failure::Unstable);
                 }
                 last_reconnect = Some(Instant::now());
                 notify(Update::Changed { queue: true });
@@ -726,6 +803,19 @@ mod tests {
         let kept = tokio::fs::read_to_string(&path).await.unwrap();
         tokio::fs::remove_file(&path).await.unwrap();
         assert_eq!(kept, "started with <key>\n");
+    }
+    /// `run` wraps its failures in context; the interface has to see through it.
+    #[test]
+    fn failures_survive_the_error_chain_and_say_whether_to_retry() {
+        let error = Err::<(), _>(anyhow::anyhow!("connection reset"))
+            .context(Failure::Download)
+            .unwrap_err();
+        assert_eq!(error.downcast_ref::<Failure>(), Some(&Failure::Download));
+        assert!(Failure::Stopped.retries());
+        assert!(Failure::NotSignedIn.retries());
+        for failure in [Failure::InvalidKey, Failure::KeyStore, Failure::Expired] {
+            assert!(!failure.retries(), "{failure:?} needs the listener");
+        }
     }
     #[test]
     fn keys_are_account_scoped_and_reject_control_characters() {
@@ -931,7 +1021,7 @@ mod tests {
                         println!("Official Soloist {version} started and exposed its loopback API");
                         return Ok(());
                     }
-                    Update::Status(Status::Failed(error)) => return Err(error),
+                    Update::Status(Status::Failed(error)) => return Err(error.to_string()),
                     _ => {}
                 }
             }

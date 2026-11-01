@@ -1247,9 +1247,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                                 + 75 * crate::soloist::install::DAY,
                         }
                     }
-                    "soloist-error" => Status::Failed(
-                        "Soloist could not start. Check your key and try again.".into(),
-                    ),
+                    "soloist-error" => Status::Failed(crate::soloist::Failure::NotReady),
                     _ => Status::Off,
                 };
             }
@@ -9168,7 +9166,7 @@ mod tests {
                     version: "1.3".into(),
                     expires: crate::soloist::install::now() + 86400,
                 },
-                crate::soloist::Status::Failed("Could not connect".into()),
+                crate::soloist::Status::Failed(crate::soloist::Failure::Stopped),
             ] {
                 app.soloist_status = status;
                 frame(&ctx, &mut app);
