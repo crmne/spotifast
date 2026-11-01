@@ -381,6 +381,8 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         "Soloist could not start. Check that this operating system supports Spotify's build.",
     )?;
     keep_output(&data.join("soloist-output.log"), &key.value, &mut child).await;
+    #[cfg(target_os = "macos")]
+    exit_guard::watch(child.id());
     if let Some(bridge) = &bridge {
         bridge.child(child.id().context("Missing Soloist process")?);
     }
@@ -538,9 +540,43 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     // Always reap our own child before another launch or sign-out cleanup.
     let _ = child.kill().await;
     let _ = child.wait().await;
+    #[cfg(target_os = "macos")]
+    exit_guard::watch(None);
     drop(bridge);
     notify(Update::Audio(false));
     result
+}
+
+/// Cmd+Q ends the process inside AppKit's `terminate:`, so the event loop
+/// never returns, `App::shutdown` never runs, and this task never gets to stop
+/// its child (#1157). `exit` still runs its handlers, so one stops it there.
+#[cfg(target_os = "macos")]
+mod exit_guard {
+    use std::sync::{
+        Once,
+        atomic::{AtomicI32, Ordering},
+    };
+
+    static CHILD: AtomicI32 = AtomicI32::new(0);
+
+    extern "C" fn stop_child() {
+        let child = CHILD.swap(0, Ordering::SeqCst);
+        if child > 0 {
+            // SAFETY: sends a signal to the child this process still owns.
+            unsafe { libc::kill(child, libc::SIGKILL) };
+        }
+    }
+
+    /// Records the running child, or that none is running any more.
+    pub fn watch(child: Option<u32>) {
+        static REGISTER: Once = Once::new();
+        // SAFETY: registers a handler that only reads an atomic and signals.
+        REGISTER.call_once(|| unsafe {
+            libc::atexit(stop_child);
+        });
+        let child = child.and_then(|id| i32::try_from(id).ok()).unwrap_or(0);
+        CHILD.store(child, Ordering::SeqCst);
+    }
 }
 
 /// Soloist's own account of why it stopped goes to a file beside its data.
