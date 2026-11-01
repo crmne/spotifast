@@ -266,7 +266,17 @@ out, or a reconnection that gives up stops it.
 - Spotifast has no telemetry, analytics, or hosted service. When the lyrics
   panel is open and neither Spotify nor a local file has lyrics, it sends
   the track's artist, title, album, and length to
-  [lrclib.net](https://lrclib.net). It also checks
+  [lrclib.net](https://lrclib.net). Optional lyric translation sends lyric text
+  and source/target languages to MyMemory's documented `/get` API, only after
+  **Translation** is enabled in Lyrics. It needs no account or API key. The
+  shared HTTP client keeps the configured proxy; Spotify credentials are never
+  included. A song has a 90-second translation budget, each request has ten
+  seconds, repeated lines are requested once, and 32 completed songs are kept
+  in memory for the run. Turning translation off or changing songs cancels
+  pending work. HTTP 429 pauses requests for `Retry-After`; a daily quota
+  response pauses them for an hour, without discarding completed songs.
+  Errors leave originals visible and can be retried explicitly.
+  Pronunciation guides are computed locally. It also checks
   api.github.com once a day for updates. You can turn off automatic checks in
   Settings, or request one there at any time. On macOS, **Check for Updates**
   is also in the application menu. On a connection the system reports as

@@ -436,6 +436,20 @@ main fields are:
 | `proxy_port` | none | Port of a manual HTTP or SOCKS5 proxy |
 | `proxy_username` | none | Optional proxy login for Web requests; authenticated local playback proxying is not supported |
 
+## Lyrics translations and pronunciation
+
+Lyrics offers **Translation** and **Pronunciation** in both views. They are
+session choices, initially off, and share state between the panel and full
+screen. Originals stay visible; each secondary line seeks to its original's
+time. Translation uses MyMemory and the interface language as target. It needs
+Spotify's source-language metadata, or Korean text in LRCLIB/local lyrics.
+MyMemory allows 500 UTF-8 bytes per line and has a free daily quota. Its public
+memory and machine translations vary in quality. Blank lines retain their timing.
+Pronunciation uses approximate local romanization for Korean, Cyrillic, Greek,
+Arabic/Persian, Hebrew, Devanagari and Japanese kana. Japanese kanji and Chinese
+readings need a dictionary and are not offered; unsupported lines have no
+pronunciation guide. Romanization is a reading aid, not a phonetic transcription.
+
 ## Command line
 
 ```
@@ -502,6 +516,12 @@ explicit `--demo-data` directory, its `config/settings.json` and
 sound on this computer with that player bar visualizer on.
 `lyrics-fullscreen-view` and `lyrics-fullscreen-instrumental` draw full-screen
 lyrics, with words or without, at the window's own size.
+`lyrics-korean` supplies invented Korean lyrics. Follow it with
+`lyrics-assistance`, `lyrics-translation-loading` or `lyrics-translation-error`
+for deterministic translation and pronunciation states without contacting a
+translation service. Combine these with `lyrics-fullscreen-view` first for
+full-screen captures.
+
 `eq-user-presets` saves a sample equalizer preset and puts it in use.
 `start-in-tray` shows **Start with your computer** set to **In the tray**;
 demo mode never reads or changes the real login entry.

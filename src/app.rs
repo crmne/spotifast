@@ -637,6 +637,7 @@ pub struct App {
     pub lyrics_uri: Option<String>,
     /// `Loaded(None)` when no lyrics are available.
     pub lyrics: Loadable<Option<crate::lyrics::Lyrics>>,
+    pub lyrics_assistance: crate::lyrics::assistance::Assistance,
     /// Whether the panel follows the current line. Manual scrolling disables
     /// it until Follow is used or the track changes.
     pub lyrics_following: bool,
@@ -1293,6 +1294,7 @@ impl App {
             softened_covers: Default::default(),
             lyrics_uri: None,
             lyrics: Loadable::NotLoaded,
+            lyrics_assistance: Default::default(),
             lyrics_following: true,
             lyrics_line_shown: None,
             show_devices: false,
@@ -2845,6 +2847,22 @@ impl App {
                             Ok(found) => Loadable::Loaded(found),
                             Err(error) => Loadable::Failed(error),
                         };
+                        self.lyrics_assistance.reset(match &self.lyrics {
+                            Loadable::Loaded(Some(lyrics)) => Some(lyrics),
+                            _ => None,
+                        });
+                        self.request_lyrics_translation();
+                    }
+                }
+                Event::LyricsTranslation {
+                    uri,
+                    generation,
+                    result,
+                } => {
+                    if self.lyrics_uri.as_deref() == Some(uri.as_str())
+                        && self.lyrics_assistance.receive(generation, result)
+                    {
+                        self.lyrics_line_shown = None;
                     }
                 }
                 Event::PlaylistCache {
@@ -4074,6 +4092,47 @@ impl App {
         }
     }
 
+    fn request_lyrics_translation(&mut self) {
+        use crate::lyrics::assistance::{Failure, Translation};
+        if !self.lyrics_assistance.show_translation {
+            return;
+        }
+        if self.lyrics_assistance.target != self.locale.tag() {
+            self.lyrics_assistance.generation = self.lyrics_assistance.generation.wrapping_add(1);
+            self.lyrics_assistance.translation = Translation::Idle;
+            self.lyrics_assistance.target = self.locale.tag().to_string();
+        }
+        if !matches!(
+            self.lyrics_assistance.translation,
+            Translation::Idle | Translation::Failed(_)
+        ) {
+            return;
+        }
+        let (Some(uri), Loadable::Loaded(Some(lyrics))) = (&self.lyrics_uri, &self.lyrics) else {
+            return;
+        };
+        if lyrics.instrumental {
+            return;
+        }
+        if crate::lyrics::assistance::language(lyrics).is_none() {
+            self.lyrics_assistance.translation = Translation::Failed(Failure::UnknownLanguage);
+            return;
+        }
+        if self.offline || !self.network_reachable {
+            self.lyrics_assistance.translation = Translation::Failed(Failure::Unavailable);
+            return;
+        }
+        self.lyrics_assistance.translation = Translation::Loading;
+        self.backend.send(Command::TranslateLyrics(Some(Box::new(
+            crate::backend::TranslationRequest {
+                uri: uri.clone(),
+                generation: self.lyrics_assistance.generation,
+                lyrics: lyrics.clone(),
+                target: self.locale.tag().to_string(),
+            },
+        ))));
+    }
+
     /// Asks for the playing track's lyrics unless they are here or on the
     /// way. Podcasts have no lyrics to ask for.
     pub fn request_lyrics(&mut self) {
@@ -4085,6 +4144,8 @@ impl App {
         {
             return;
         }
+        self.lyrics_assistance.reset(None);
+        self.backend.send(Command::TranslateLyrics(None));
         self.lyrics_uri = Some(now.uri.clone());
         self.lyrics_following = true;
         self.lyrics_line_shown = None;
@@ -12479,6 +12540,23 @@ impl App {
             }
             Action::PauseLyricsFollow => self.lyrics_following = false,
             Action::RetryLyrics => self.request_lyrics(),
+            Action::SetLyricsTranslation(show) => {
+                use crate::lyrics::assistance::Translation;
+                self.lyrics_assistance.show_translation = show;
+                if !show && matches!(self.lyrics_assistance.translation, Translation::Loading) {
+                    self.backend.send(Command::TranslateLyrics(None));
+                    self.lyrics_assistance.generation =
+                        self.lyrics_assistance.generation.wrapping_add(1);
+                    self.lyrics_assistance.translation = Translation::Idle;
+                }
+                self.request_lyrics_translation();
+                self.lyrics_line_shown = None;
+            }
+            Action::SetLyricsPronunciation(show) => {
+                self.lyrics_assistance.show_pronunciation = show;
+                self.lyrics_line_shown = None;
+            }
+            Action::RetryLyricsTranslation => self.request_lyrics_translation(),
             Action::ToggleDevicesPopup => {
                 self.show_devices = !self.show_devices;
                 if self.show_devices {
@@ -15023,6 +15101,7 @@ mod tests {
                     .collect(),
                 synced: true,
                 instrumental: false,
+                language: None,
             }));
             if let Some(remote) = &mut app.remote {
                 remote.state.is_playing = false;

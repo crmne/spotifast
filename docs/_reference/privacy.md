@@ -61,6 +61,18 @@ Spotifast connects only to the services below.
   20-second lookup budget, respecting `Retry-After`; search can recover when
   the exact lookup is temporarily unavailable. A failed lookup can use older
   cached lyrics, but never caches an outage as a missing transcription.
+- **MyMemory (optional).** **Translation** in Lyrics is off at each launch.
+  Enabling it sends each distinct lyric line, its source language and the app's
+  language to `api.mymemory.translated.net`, including for subsequent songs
+  opened in Lyrics while it stays enabled. The service sees your IP address.
+  No Spotify grant, account ID or track metadata is included. Requests use the
+  configured proxy. Translations are held in memory for up to 32 songs, not
+  written to disk. [MyMemory's terms](https://mymemory.translated.net/terms-and-conditions)
+  apply. MyMemory states that submitted text may be stored long term and
+  processed by external translation providers. Its public translation memory
+  and machine translation can be inaccurate;
+  free daily limits apply. **Pronunciation** uses local letter tables and sends
+  nothing over the network.
 - **GitHub.** Once a day, Spotifast asks GitHub for the latest release. You
   can turn automatic checks off in Settings. Downloading an update, and the
   first opening of MilkDrop, also fetch files from GitHub. No Spotify data is

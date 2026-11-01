@@ -203,6 +203,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         Loadable::Loaded(Some(lyrics)) => lyrics.clone(),
     };
 
+    assistance_controls(app, ui, &lyrics, &palette);
     let active = lyrics.active_line(now.position_ms);
     let follow = app.lyrics_following && app.lyrics_line_shown != Some(active);
     // The line being sung is bold and in the accent colour; every other
@@ -267,6 +268,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                             .sense(sense),
                     )
                 };
+                let response = match assistance_line(app, ui, index, LINE_SIZE * 0.74, color, sense)
+                {
+                    Some(extra) => response.union(extra),
+                    None => response,
+                };
                 crate::autoscroll::row(ui, &response);
                 let rect = response.rect;
                 if lyrics.synced
@@ -309,6 +315,139 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         app.lyrics_following = false;
     }
     app.lyrics_line_shown = Some(active);
+}
+
+/// Both views share the same session choices; neither changes Settings.
+fn assistance_controls(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    lyrics: &crate::lyrics::Lyrics,
+    palette: &theme::Palette,
+) {
+    use crate::lyrics::assistance::{Failure, Translation};
+    let state = &app.lyrics_assistance;
+    let language_known = crate::lyrics::assistance::language(lyrics).is_some();
+    let pronunciation_available = state.pronunciation.iter().any(Option::is_some);
+    ui.horizontal_wrapped(|ui| {
+        let translation = ui.add_enabled_ui(language_known || state.show_translation, |ui| {
+            theme::pill_button(ui, palette, &gettext(app.locale, "Translation"), state.show_translation)
+        }).inner.on_hover_text(
+            gettext(app.locale,
+                // Translators: Keep {language}. It is the translation's target language.
+                "Translate into {language} with MyMemory. While enabled, lyric text is sent to MyMemory. Quality and daily limits vary.")
+                .replace("{language}", app.locale.native_name())
+        );
+        if translation.clicked() {
+            // Apply after drawing, like the rest of the lyrics controls.
+            app.actions.push(Action::SetLyricsTranslation(!state.show_translation));
+        }
+        let pronunciation = ui.add_enabled_ui(pronunciation_available || state.show_pronunciation, |ui| {
+            theme::pill_button(ui, palette, &gettext(app.locale, "Pronunciation"), state.show_pronunciation)
+        }).inner.on_hover_text(gettext(app.locale, "Approximate romanization, computed on this device. Some scripts and readings are not supported."));
+        if pronunciation.clicked() {
+            app.actions.push(Action::SetLyricsPronunciation(!state.show_pronunciation));
+        }
+    });
+    if state.show_translation {
+        let message = match &state.translation {
+            Translation::Loading => Some(gettext(app.locale, "Translating with MyMemory…")),
+            Translation::Ready(_) => Some(
+                gettext(app.locale, "MyMemory translation · {language}")
+                    .replace("{language}", &state.target)
+                    .into(),
+            ),
+            Translation::Failed(error) => Some(match error {
+                Failure::DailyLimit | Failure::RateLimited(_) => gettext(
+                    app.locale,
+                    "MyMemory's free limit was reached. Try again later.",
+                ),
+                Failure::LineTooLong => gettext(
+                    app.locale,
+                    "A lyric line exceeds MyMemory's 500-byte limit.",
+                ),
+                Failure::UnknownLanguage => gettext(
+                    app.locale,
+                    "The lyrics source did not provide a language for translation.",
+                ),
+                Failure::Unavailable | Failure::InvalidResponse => gettext(
+                    app.locale,
+                    "Translation is unavailable. Your original lyrics are still here.",
+                ),
+            }),
+            Translation::Idle => None,
+        };
+        if let Some(message) = message {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(message)
+                        .font(theme::regular(11.0))
+                        .color(palette.secondary),
+                )
+                .wrap(),
+            );
+        }
+        if matches!(
+            state.translation,
+            Translation::Failed(
+                Failure::Unavailable
+                    | Failure::InvalidResponse
+                    | Failure::DailyLimit
+                    | Failure::RateLimited(_)
+            )
+        ) && theme::pill_button(ui, palette, &gettext(app.locale, "Try again"), false).clicked()
+        {
+            app.actions.push(Action::RetryLyricsTranslation);
+        }
+    }
+    ui.add_space(8.0);
+}
+
+/// Secondary text belongs to the original timed row, including its seek target.
+fn assistance_line(
+    app: &App,
+    ui: &mut egui::Ui,
+    index: usize,
+    size: f32,
+    color: Color32,
+    sense: Sense,
+) -> Option<egui::Response> {
+    use crate::lyrics::assistance::Translation;
+    let state = &app.lyrics_assistance;
+    let pronunciation = state
+        .show_pronunciation
+        .then(|| state.pronunciation.get(index).and_then(Option::as_deref))
+        .flatten();
+    let translation = if state.show_translation {
+        match &state.translation {
+            Translation::Ready(lines) => lines.get(index).map(String::as_str),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let mut response: Option<egui::Response> = None;
+    for text in [pronunciation, translation]
+        .into_iter()
+        .flatten()
+        .filter(|text| !text.is_empty())
+    {
+        ui.add_space(3.0);
+        let galley = crate::bidi::layout(
+            ui.painter(),
+            text,
+            theme::regular(size),
+            color,
+            ui.available_width(),
+            usize::MAX,
+            None,
+        );
+        let next = ui.add(egui::Label::new(galley).sense(sense));
+        response = Some(match response {
+            Some(held) => held.union(next),
+            None => next,
+        });
+    }
+    response
 }
 
 pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
@@ -723,14 +862,18 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
         Loadable::Loaded(Some(lyrics)) => lyrics.clone(),
     };
 
+    assistance_controls(app, ui, &lyrics, &palette);
     let active = lyrics.active_line(now.position_ms);
     // A Follow click resets the remembered line after drawing. Other frames
     // record the shown line before any line-click action restores following.
-    if !app
-        .actions
-        .iter()
-        .any(|action| matches!(action, Action::FollowLyrics))
-    {
+    if !app.actions.iter().any(|action| {
+        matches!(
+            action,
+            Action::FollowLyrics
+                | Action::SetLyricsTranslation(_)
+                | Action::SetLyricsPronunciation(_)
+        )
+    }) {
         app.actions.push(Action::LyricsLineShown(active));
     }
     let viewport = ui.available_rect_before_wrap();
@@ -813,7 +956,11 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 let response = ui
                     .scope(|ui| {
                         ui.multiply_opacity(edge * edge * (3.0 - 2.0 * edge));
-                        ui.add(egui::Label::new(galley).sense(sense))
+                        let response = ui.add(egui::Label::new(galley).sense(sense));
+                        match assistance_line(app, ui, index, size * 0.55, color, sense) {
+                            Some(extra) => response.union(extra),
+                            None => response,
+                        }
                     })
                     .inner;
                 let rect = response.rect;

@@ -8,6 +8,8 @@
 //! length is the strongest signal for distinguishing versions with the same
 //! title.
 
+pub mod assistance;
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -50,6 +52,9 @@ pub struct Line {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lyrics {
+    /// Source language when supplied by Spotify. Older caches and LRCLIB omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
     pub lines: Vec<Line>,
     /// Every line has a time, so the panel can follow the song.
     pub synced: bool,
@@ -104,6 +109,10 @@ pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
     }
     let synced = synced && lines.iter().all(|line| line.at_ms.is_some());
     Some(Lyrics {
+        language: lyrics
+            .get("language")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
         lines,
         synced,
         instrumental: false,
@@ -343,6 +352,7 @@ impl Record {
                     lines,
                     synced: true,
                     instrumental: false,
+                    language: None,
                 });
             }
         }
@@ -357,6 +367,7 @@ impl Record {
                 .collect(),
             synced: false,
             instrumental: false,
+            language: None,
         })
     }
 }
@@ -641,6 +652,7 @@ pub fn from_text(text: &str) -> Option<Lyrics> {
             lines: timed,
             synced: true,
             instrumental: false,
+            language: None,
         });
     }
     Some(Lyrics {
@@ -654,6 +666,7 @@ pub fn from_text(text: &str) -> Option<Lyrics> {
             .collect(),
         synced: false,
         instrumental: false,
+        language: None,
     })
 }
 
@@ -1047,6 +1060,7 @@ mod tests {
             lines: parse_lrc("[00:05]a\n[00:10]b\n[00:15]c"),
             synced: true,
             instrumental: false,
+            language: None,
         };
         assert_eq!(lyrics.active_line(0), None);
         assert_eq!(lyrics.active_line(5_000), Some(0));
@@ -1056,6 +1070,7 @@ mod tests {
             lines: vec![Line::default()],
             synced: false,
             instrumental: false,
+            language: None,
         };
         assert_eq!(plain.active_line(5_000), None);
     }

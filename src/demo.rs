@@ -881,6 +881,7 @@ fn sample_lyrics() -> crate::lyrics::Lyrics {
             .collect(),
         synced: true,
         instrumental: false,
+        language: None,
     }
 }
 
@@ -1725,6 +1726,49 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                         ascending: false,
                     },
                 );
+            }
+            "lyrics-korean" => {
+                // Invented words, shared by before/after captures. No service is contacted.
+                app.lyrics_uri = app.now_playing().map(|now| now.uri);
+                app.lyrics = Loadable::Loaded(crate::lyrics::from_text(
+                    "[00:40]밤하늘의 별을 따라 걸어요\n[00:46.50]우리 함께 노래해요\n[00:53]바람이 조용히 불어요\n[00:59.50]오늘도 너와 함께해\n[01:06]새로운 길을 찾아가요\n[01:12.50]우리 함께 노래해요\n[01:19]밤하늘의 별을 따라 걸어요\n[01:25.50]오늘도 너와 함께해",
+                ));
+                app.lyrics_assistance.reset(match &app.lyrics {
+                    Loadable::Loaded(Some(lyrics)) => Some(lyrics),
+                    _ => None,
+                });
+                app.lyrics_following = true;
+                app.show_lyrics_panel = true;
+            }
+            "lyrics-assistance" | "lyrics-translation-loading" | "lyrics-translation-error" => {
+                use crate::lyrics::assistance::{Failure, Translation};
+                let lyrics = match &app.lyrics {
+                    Loadable::Loaded(Some(lyrics)) => Some(lyrics),
+                    _ => None,
+                };
+                app.lyrics_assistance.reset(lyrics);
+                app.lyrics_assistance.show_pronunciation = true;
+                app.lyrics_assistance.show_translation = true;
+                app.lyrics_assistance.target = "en".into();
+                app.lyrics_assistance.translation = match surface {
+                    "lyrics-translation-loading" => Translation::Loading,
+                    "lyrics-translation-error" => Translation::Failed(Failure::DailyLimit),
+                    _ => Translation::Ready(
+                        [
+                            "We walk beneath the stars in the night sky",
+                            "Let us sing together",
+                            "The wind blows softly",
+                            "Today I am with you again",
+                            "We look for a new path",
+                            "Let us sing together",
+                            "We walk beneath the stars in the night sky",
+                            "Today I am with you again",
+                        ]
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect(),
+                    ),
+                };
             }
             "lyrics" | "lyrics-fullscreen" => {
                 app.lyrics_uri = app.now_playing().map(|now| now.uri);
@@ -2784,6 +2828,110 @@ mod tests {
             assert!(!app.show_queue_panel);
             app.backend.shutdown();
         }
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn clicking_a_translation_seeks_to_the_original_line() {
+        let (ctx, mut app) = accessible_app("lyrics-translation-seek");
+        apply_flags(&mut app, None, Some("lyrics-korean,lyrics-assistance"));
+        app.lyrics_following = false;
+        view_frame(&ctx, &mut app, vec![], App::frame_ui);
+        let text = view_frame(&ctx, &mut app, vec![], App::frame_ui);
+        let line = text
+            .iter()
+            .find(|(text, _)| text == "We walk beneath the stars in the night sky")
+            .expect("translation is drawn")
+            .1;
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(line.center(), egui::PointerButton::Primary),
+            App::frame_ui,
+        );
+        // frame_ui applies actions after drawing; inspect the optimistic
+        // playback position rather than its already-drained action queue.
+        let position = app.now_playing().unwrap().position_ms;
+        assert!(
+            position.abs_diff(40_000) < 1000,
+            "seek landed at {position}"
+        );
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn lyric_assistance_toggles_keep_originals_and_share_state_across_views() {
+        use crate::lyrics::assistance::Translation;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("lyrics-assistance");
+        apply_flags(&mut app, None, Some("lyrics-korean,lyrics-assistance"));
+        app.lyrics_following = false;
+        for fullscreen in [false, true] {
+            app.lyrics_fullscreen = fullscreen.then_some(false);
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let pronunciation = accessible_node(&tree, "Pronunciation", Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(
+                    pronunciation,
+                    AccessibleAction::Click,
+                    None,
+                )],
+            );
+            assert!(!app.lyrics_assistance.show_pronunciation);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let pronunciation = accessible_node(&tree, "Pronunciation", Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(
+                    pronunciation,
+                    AccessibleAction::Click,
+                    None,
+                )],
+            );
+            assert!(app.lyrics_assistance.show_pronunciation);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let translation = accessible_node(&tree, "Translation", Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(
+                    translation,
+                    AccessibleAction::Click,
+                    None,
+                )],
+            );
+            assert!(!app.lyrics_assistance.show_translation);
+            assert!(app.lyrics_assistance.show_pronunciation);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let translation = accessible_node(&tree, "Translation", Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(
+                    translation,
+                    AccessibleAction::Click,
+                    None,
+                )],
+            );
+            assert!(app.lyrics_assistance.show_translation);
+            assert!(matches!(
+                app.lyrics_assistance.translation,
+                Translation::Ready(_)
+            ));
+            let original = match &app.lyrics {
+                Loadable::Loaded(Some(lyrics)) => &lyrics.lines[0],
+                _ => panic!("original lyrics disappeared"),
+            };
+            assert_eq!(original.text, "밤하늘의 별을 따라 걸어요");
+            assert_eq!(original.at_ms, Some(40_000));
+        }
+        app.backend.shutdown();
     }
 
     #[test]
