@@ -748,6 +748,9 @@ counts out. The column needs a window wide enough for it. Click the
 for least to most, and a third time to return to album order. Songs without a
 count sort last.
 
+The same answer gives an artist's monthly listeners, which the top of the
+artist page then shows first.
+
 ## Upcoming albums
 
 Open a `spotify:prerelease:` URI or an `open.spotify.com/prerelease/` link

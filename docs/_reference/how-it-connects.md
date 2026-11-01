@@ -72,7 +72,8 @@ Spotifast uses separate credentials for Web API access and local playback:
    Play counts on album pages and an artist's popular songs come from the
    same Pathfinder queries Spotify's own album and artist pages make, with the
    session's token and an already verified Web API grant. Each album or artist
-   is read once per run, and a read that fails leaves the column out.
+   is read once per run, and a read that fails leaves the column out. The
+   artist query also carries the monthly listeners shown on the artist page.
 
    The **Listening activity** panel also needs this session. While the panel
    is open, and only then, the session reads Spotify's private
