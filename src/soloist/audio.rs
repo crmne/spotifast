@@ -1,10 +1,56 @@
 //! Private OS audio routing for the managed Soloist process. No system mix is
 //! recorded. Linux uses PipeWire; the default native-audio feature adds
 //! process capture on macOS and Windows.
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering},
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering},
+    },
+    time::{Duration, Instant},
 };
+
+/// The waits before each rebuild of a failed route. Soloist keeps running
+/// meanwhile, so the first follows at once.
+const REPAIR_WAITS: [Duration; 3] = [
+    Duration::ZERO,
+    Duration::from_secs(2),
+    Duration::from_secs(5),
+];
+/// A route that lasted this long has spent none of its rebuilds.
+const REPAIR_STABLE: Duration = Duration::from_secs(60);
+
+/// What to do about a failed route.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Repair {
+    Wait,
+    Rebuild,
+    GiveUp,
+}
+
+/// How many times a failed route may be rebuilt before the player itself is
+/// restarted.
+#[derive(Default)]
+pub struct Repairs {
+    used: usize,
+    last: Option<Instant>,
+}
+impl Repairs {
+    pub fn next(&mut self, now: Instant) -> Repair {
+        let since = self.last.map(|last| now.duration_since(last));
+        if since.is_some_and(|since| since >= REPAIR_STABLE) {
+            self.used = 0;
+        }
+        let Some(wait) = REPAIR_WAITS.get(self.used) else {
+            return Repair::GiveUp;
+        };
+        if since.is_some_and(|since| since < *wait) {
+            return Repair::Wait;
+        }
+        self.used += 1;
+        self.last = Some(now);
+        Repair::Rebuild
+    }
+}
 
 /// A separate output fader. Spotify's source volume never writes this value.
 /// Clones share one control across the UI, child restarts and the audio worker.
@@ -29,6 +75,8 @@ struct State {
     routed: AtomicBool,
     stop: AtomicBool,
     failed: AtomicBool,
+    /// Why the route failed, for the log and for nothing else.
+    fault: Mutex<Option<String>>,
     playing: AtomicBool,
     volume: AtomicU8,
     #[cfg(all(feature = "soloist-native-audio", target_os = "macos"))]
@@ -49,11 +97,22 @@ impl State {
             routed: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            fault: Mutex::new(None),
             playing: AtomicBool::new(false),
             volume: AtomicU8::new(0),
             #[cfg(all(feature = "soloist-native-audio", target_os = "macos"))]
             output_volume: OutputVolume::default(),
         }
+    }
+
+    /// Records why the route can't go on. Not for the audio callbacks.
+    fn fail(&self, reason: impl Into<String>) {
+        let reason = reason.into();
+        log::warn!("Soloist audio route failed: {reason}");
+        if let Ok(mut fault) = self.fault.lock() {
+            *fault = Some(reason);
+        }
+        self.failed.store(true, Ordering::Release);
     }
 }
 
@@ -68,6 +127,12 @@ pub struct Bridge {
     #[cfg(target_os = "linux")]
     pub name: String,
     state: Arc<State>,
+    #[cfg(target_os = "linux")]
+    config: crate::player::EngineConfig,
+    #[cfg(target_os = "linux")]
+    output: Option<String>,
+    #[cfg(target_os = "linux")]
+    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 impl Drop for Bridge {
     fn drop(&mut self) {
@@ -113,22 +178,70 @@ impl Bridge {
         let bridge = Self {
             name: format!("spotifast.soloist.{:016x}", rand::random::<u64>()),
             state: Arc::new(State::new()),
+            config,
+            output,
+            worker: Mutex::new(None),
         };
-        let state = bridge.state.clone();
-        let name = bridge.name.clone();
+        bridge.start().await.then_some(bridge)
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn start(&self) -> bool {
+        let state = self.state.clone();
+        let name = self.name.clone();
+        let config = self.config.clone();
+        let output = self.output.clone();
         let (ready, receive) = tokio::sync::oneshot::channel();
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("soloist-audio".into())
             .spawn(move || {
-                if pipewire::run(&name, config, state.clone(), ready, output.as_deref()).is_err() {
-                    state.failed.store(true, Ordering::Release);
+                if let Err(error) =
+                    pipewire::run(&name, config, state.clone(), ready, output.as_deref())
+                {
+                    state.fail(format!("could not set up PipeWire: {error:#}"));
                 }
-            })
-            .ok()?;
-        match tokio::time::timeout(std::time::Duration::from_secs(5), receive).await {
-            Ok(Ok(())) if !bridge.failed() => Some(bridge),
-            _ => None,
+            });
+        let Ok(worker) = worker else {
+            self.state.fail("could not start the audio thread");
+            return false;
+        };
+        if let Ok(mut slot) = self.worker.lock() {
+            *slot = Some(worker);
         }
+        match tokio::time::timeout(Duration::from_secs(5), receive).await {
+            Ok(Ok(())) if !self.failed() => true,
+            _ => {
+                self.state.fail("PipeWire did not bring the route up");
+                false
+            }
+        }
+    }
+
+    /// Builds the failed route again. The same name lets the running Soloist,
+    /// which was told it once at launch, find its output again.
+    #[cfg(target_os = "linux")]
+    pub async fn rebuild(&self) -> bool {
+        let worker = self.worker.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(worker) = worker {
+            let _ = tokio::task::spawn_blocking(move || worker.join()).await;
+        }
+        self.state.routed.store(false, Ordering::Release);
+        self.state.failed.store(false, Ordering::Release);
+        self.start().await
+    }
+
+    /// Other platforms' capture has nothing to build again.
+    #[cfg(not(target_os = "linux"))]
+    pub async fn rebuild(&self) -> bool {
+        false
+    }
+
+    pub fn fault(&self) -> Option<String> {
+        self.state.fault.lock().ok().and_then(|fault| fault.clone())
+    }
+
+    pub fn playing(&self) -> bool {
+        self.state.playing.load(Ordering::Acquire)
     }
     pub fn child(&self, pid: u32) {
         self.state.child.store(pid, Ordering::Release);
@@ -177,12 +290,77 @@ impl Bridge {
 ))]
 mod tests {
     use super::*;
+
+    /// One bad moment rebuilds at once, a few more wait, and a route that
+    /// keeps failing stops using up the audio thread.
+    #[test]
+    fn a_failing_route_is_rebuilt_a_few_times_then_given_up() {
+        let start = Instant::now();
+        let at = |seconds| start + Duration::from_secs(seconds);
+        let mut repairs = Repairs::default();
+        assert_eq!(repairs.next(at(0)), Repair::Rebuild);
+        assert_eq!(repairs.next(at(1)), Repair::Wait);
+        assert_eq!(repairs.next(at(2)), Repair::Rebuild);
+        assert_eq!(repairs.next(at(3)), Repair::Wait);
+        assert_eq!(repairs.next(at(7)), Repair::Rebuild);
+        assert_eq!(repairs.next(at(8)), Repair::GiveUp);
+    }
+
+    /// Weeks of playback must not be one fault from a restarted player.
+    #[test]
+    fn a_route_that_lasted_has_all_its_rebuilds_again() {
+        let start = Instant::now();
+        let mut repairs = Repairs::default();
+        for seconds in [0, 2, 7] {
+            assert_eq!(
+                repairs.next(start + Duration::from_secs(seconds)),
+                Repair::Rebuild
+            );
+        }
+        assert_eq!(
+            repairs.next(start + Duration::from_secs(67)),
+            Repair::Rebuild
+        );
+    }
+
+    #[test]
+    fn a_failed_route_says_why() {
+        let state = State::new();
+        state.fail("the output stream reported an error");
+        assert!(state.failed.load(Ordering::Acquire));
+        assert_eq!(
+            state.fault.lock().unwrap().as_deref(),
+            Some("the output stream reported an error")
+        );
+    }
+
     #[test]
     fn only_a_confirmed_healthy_mac_output_allows_full_source_volume() {
+        #[cfg(target_os = "linux")]
+        let config = {
+            let dirs = crate::paths::AppDirs {
+                config: std::path::PathBuf::new(),
+                state: std::path::PathBuf::new(),
+                cache: std::path::PathBuf::new(),
+            };
+            crate::app::engine_config(
+                &dirs,
+                &crate::settings::Settings::default(),
+                crate::settings::ProxyConfig::Off,
+                crate::vis::AudioTap::new(),
+                crate::eq::shared(),
+            )
+        };
         let bridge = Bridge {
             #[cfg(target_os = "linux")]
             name: "test".into(),
             state: Arc::new(State::new()),
+            #[cfg(target_os = "linux")]
+            config,
+            #[cfg(target_os = "linux")]
+            output: None,
+            #[cfg(target_os = "linux")]
+            worker: Mutex::new(None),
         };
         assert!(!bridge.owns_output_volume());
         bridge.state.routed.store(true, Ordering::Release);
@@ -202,18 +380,26 @@ mod pipewire {
     use pw::{properties::properties, spa};
     use std::{
         cell::{Cell, RefCell},
-        collections::{HashMap, VecDeque},
+        collections::{HashMap, HashSet, VecDeque},
         rc::Rc,
-        time::Duration,
     };
     const RATE: usize = 44_100;
     const MAX_SAMPLES: usize = RATE / 2; // A quarter-second of stereo, always bounded.
+    /// How long the input may stay silent behind a link that won't go away.
+    const FOREIGN_LIMIT: Duration = Duration::from_secs(10);
+    /// How many timer ticks the streams may refuse to change state.
+    const ACTIVATE_TRIES: u32 = 20;
 
     #[derive(Default)]
     struct Graph {
         clients: HashMap<u32, u32>,
         nodes: HashMap<u32, u32>,
+        names: HashMap<u32, String>,
         links: HashMap<u32, (u32, u32)>,
+        /// Other processes running the child's own program: Soloist starts
+        /// one, in a session of its own, so it is not the child by PID.
+        helpers: HashSet<u32>,
+        checked: HashSet<u32>,
     }
     #[derive(Debug, PartialEq, Eq)]
     enum Route {
@@ -235,12 +421,48 @@ mod pipewire {
                 else {
                     return Route::Waiting;
                 };
-                if *owner != pid {
+                if *owner != pid && !self.helpers.contains(owner) {
                     return Route::Foreign;
                 }
                 any = true;
             }
             if any { Route::Owned } else { Route::Waiting }
+        }
+
+        /// The links into `input` from anything but the child.
+        fn foreign_links(&self, input: u32, pid: u32) -> Vec<u32> {
+            self.links
+                .iter()
+                .filter(|(_, (from, to))| {
+                    *to == input
+                        && self
+                            .nodes
+                            .get(from)
+                            .and_then(|client| self.clients.get(client))
+                            .is_some_and(|owner| *owner != pid && !self.helpers.contains(owner))
+                })
+                .map(|(link, _)| *link)
+                .collect()
+        }
+
+        fn link_source(&self, link: u32) -> &str {
+            self.links
+                .get(&link)
+                .and_then(|(from, _)| self.names.get(from))
+                .map_or("an unnamed node", String::as_str)
+        }
+
+        /// Sorts out which clients run the child's program, by its executable
+        /// rather than a name any client could claim. Each process once.
+        fn note_helpers(&mut self, child: u32) {
+            let program = |pid: u32| std::fs::read_link(format!("/proc/{pid}/exe")).ok();
+            let Some(own) = program(child) else { return };
+            let pids: Vec<u32> = self.clients.values().copied().collect();
+            for pid in pids {
+                if pid != child && self.checked.insert(pid) && program(pid).as_ref() == Some(&own) {
+                    self.helpers.insert(pid);
+                }
+            }
         }
     }
 
@@ -371,9 +593,9 @@ mod pipewire {
         let core_loop = mainloop.clone();
         let _core_listener = core
             .add_listener_local()
-            .error(move |id, _, _, _| {
+            .error(move |id, _, _, message| {
                 if id == 0 {
-                    core_state.failed.store(true, Ordering::Release);
+                    core_state.fail(format!("lost the PipeWire connection: {message}"));
                     core_loop.quit();
                 }
             })
@@ -420,6 +642,9 @@ mod pipewire {
                         if let Some(client) = number("client.id") {
                             graph.nodes.insert(global.id, client);
                         }
+                        if let Some(name) = props.get("node.name") {
+                            graph.names.insert(global.id, name.to_owned());
+                        }
                     }
                     pw::types::ObjectType::Link => {
                         if let (Some(from), Some(to)) =
@@ -435,6 +660,7 @@ mod pipewire {
                 let mut graph = removed.borrow_mut();
                 graph.clients.remove(&id);
                 graph.nodes.remove(&id);
+                graph.names.remove(&id);
                 graph.links.remove(&id);
                 removed_clients.borrow_mut().remove(&id);
             })
@@ -481,8 +707,8 @@ mod pipewire {
         let _input_listener = input
             .add_local_listener::<()>()
             .state_changed(move |_, _, _, new| {
-                if matches!(new, pw::stream::StreamState::Error(_)) {
-                    input_state.failed.store(true, Ordering::Release);
+                if let pw::stream::StreamState::Error(error) = &new {
+                    input_state.fail(format!("input stream error: {error}"));
                 }
                 if matches!(
                     new,
@@ -507,7 +733,11 @@ mod pipewire {
                     {
                         in_format.borrow_mut().rates(Some(info.rate()), None);
                     } else {
-                        in_fail.failed.store(true, Ordering::Release);
+                        in_fail.fail(format!(
+                            "unusable input format: {} channels at {} Hz",
+                            info.channels(),
+                            info.rate()
+                        ));
                     }
                 }
             })
@@ -520,11 +750,10 @@ mod pipewire {
                     .route(stream.node_id(), in_state.child.load(Ordering::Acquire))
                 {
                     Route::Owned => in_state.routed.store(true, Ordering::Release),
-                    route => {
+                    // A mix is never processed: while anything else is linked
+                    // in, the input is dropped and the timer deals with it.
+                    _ => {
                         in_audio.borrow_mut().clear();
-                        if route == Route::Foreign {
-                            in_state.failed.store(true, Ordering::Release);
-                        }
                         return;
                     }
                 }
@@ -549,8 +778,8 @@ mod pipewire {
         let _output_listener = output
             .add_local_listener::<()>()
             .state_changed(move |_, _, _, new| {
-                if matches!(new, pw::stream::StreamState::Error(_)) {
-                    output_state.failed.store(true, Ordering::Release);
+                if let pw::stream::StreamState::Error(error) = &new {
+                    output_state.fail(format!("output stream error: {error}"));
                 }
                 if matches!(
                     new,
@@ -575,7 +804,11 @@ mod pipewire {
                     {
                         out_format.borrow_mut().rates(None, Some(info.rate()));
                     } else {
-                        out_fail.failed.store(true, Ordering::Release);
+                        out_fail.fail(format!(
+                            "unusable output format: {} channels at {} Hz",
+                            info.channels(),
+                            info.rate()
+                        ));
                     }
                 }
             })
@@ -648,6 +881,9 @@ mod pipewire {
         let active_input = input.clone();
         let active_output = output.clone();
         let timer_audio = audio.clone();
+        let foreign_since = Cell::new(None);
+        let unlinked = RefCell::new(HashSet::new());
+        let refused = Cell::new(0u32);
         let timer = mainloop.loop_().add_timer(move |_| {
             if state.stop.load(Ordering::Acquire) || state.failed.load(Ordering::Acquire) {
                 done.quit();
@@ -655,28 +891,62 @@ mod pipewire {
             }
             // Linking does not require playback. Show EQ and visualizers as
             // soon as the owned child is routed, including while paused.
-            match graph
-                .borrow()
-                .route(active_input.node_id(), state.child.load(Ordering::Acquire))
-            {
+            let input_id = active_input.node_id();
+            let child = state.child.load(Ordering::Acquire);
+            let mut route = graph.borrow().route(input_id, child);
+            if route == Route::Foreign {
+                graph.borrow_mut().note_helpers(child);
+                route = graph.borrow().route(input_id, child);
+            }
+            match route {
                 Route::Owned => state.routed.store(true, Ordering::Release),
                 Route::Foreign => {
+                    // Silent until it goes: only Soloist reaches the tap and
+                    // the output. Soloist's own link is left alone.
                     timer_audio.borrow_mut().clear();
-                    state.failed.store(true, Ordering::Release);
-                    done.quit();
-                    return;
+                    let graph = graph.borrow();
+                    for link in graph.foreign_links(input_id, child) {
+                        if unlinked.borrow_mut().insert(link) {
+                            log::warn!(
+                                "Removing a link into Soloist's private input from {}",
+                                graph.link_source(link)
+                            );
+                            if let Err(error) = registry.destroy_global(link).into_result() {
+                                log::warn!("PipeWire refused to remove the link: {error}");
+                            }
+                        }
+                    }
+                    let since = foreign_since.get().unwrap_or_else(std::time::Instant::now);
+                    foreign_since.set(Some(since));
+                    if since.elapsed() >= FOREIGN_LIMIT {
+                        state.fail(format!(
+                            "a link from {} would not go away",
+                            graph
+                                .foreign_links(input_id, child)
+                                .first()
+                                .map_or("another node", |link| graph.link_source(*link))
+                        ));
+                        done.quit();
+                        return;
+                    }
                 }
                 Route::Waiting => {}
             }
+            if route != Route::Foreign {
+                foreign_since.set(None);
+            }
             let playing = state.playing.load(Ordering::Acquire);
-            if was_playing.replace(playing) != playing {
+            if was_playing.get() != playing {
                 if !playing {
                     timer_audio.borrow_mut().clear();
                 }
-                if active_input.set_active(playing).is_err()
-                    || active_output.set_active(playing).is_err()
+                if active_input.set_active(playing).is_ok()
+                    && active_output.set_active(playing).is_ok()
                 {
-                    state.failed.store(true, Ordering::Release);
+                    was_playing.set(playing);
+                    refused.set(0);
+                } else if refused.replace(refused.get() + 1) >= ACTIVATE_TRIES {
+                    state.fail("the streams would not change state");
                     done.quit();
                 }
             }
@@ -733,6 +1003,7 @@ mod pipewire {
                 Route::Foreign,
                 "a mixed input cannot be processed"
             );
+            assert_eq!(graph.foreign_links(10, 100), vec![6]);
             graph.links.remove(&6);
             graph.clients.remove(&1);
             assert_eq!(
@@ -740,6 +1011,63 @@ mod pipewire {
                 Route::Waiting,
                 "client removal revokes ownership"
             );
+        }
+
+        /// Soloist starts a second process of its own program, in another
+        /// session. By PID alone it looked like someone else's audio.
+        #[test]
+        fn soloist_s_own_helper_process_is_not_foreign() {
+            let mut graph = Graph::default();
+            graph.clients.insert(1, 100);
+            graph.clients.insert(2, 101);
+            graph.nodes.insert(3, 1);
+            graph.nodes.insert(4, 2);
+            graph.links.insert(5, (3, 10));
+            graph.links.insert(6, (4, 10));
+            assert_eq!(graph.route(10, 100), Route::Foreign);
+            graph.helpers.insert(101);
+            assert_eq!(graph.route(10, 100), Route::Owned);
+            assert!(graph.foreign_links(10, 100).is_empty());
+        }
+
+        /// This test's own process runs one program, so another process of
+        /// it counts and an unrelated one does not.
+        #[test]
+        fn helpers_are_told_apart_by_their_executable() {
+            let mut same = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--list", "--format", "terse"])
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut other = std::process::Command::new("sleep")
+                .arg("30")
+                .spawn()
+                .unwrap();
+            let child = std::process::id();
+            let mut graph = Graph::default();
+            graph.clients.insert(1, same.id());
+            graph.clients.insert(2, other.id());
+            graph.note_helpers(child);
+            let found = (
+                graph.helpers.contains(&same.id()),
+                graph.helpers.contains(&other.id()),
+            );
+            let _ = same.kill();
+            let _ = same.wait();
+            let _ = other.kill();
+            let _ = other.wait();
+            assert_eq!(found, (true, false));
+        }
+
+        #[test]
+        fn a_foreign_source_is_named_for_the_log() {
+            let mut graph = Graph::default();
+            graph.clients.insert(2, 200);
+            graph.nodes.insert(4, 2);
+            graph.names.insert(4, "other-app".into());
+            graph.links.insert(6, (4, 10));
+            assert_eq!(graph.link_source(6), "other-app");
+            assert_eq!(graph.link_source(7), "an unnamed node");
         }
 
         #[test]
@@ -1015,9 +1343,16 @@ mod pipewire {
             foreign_input.write_all(&tone(48_000, 512)).await.unwrap();
             tokio::time::sleep(Duration::from_millis(300)).await;
             assert!(
-                bridge.failed(),
-                "a foreign source must stop the route instead of being mixed in"
+                !bridge.failed(),
+                "a foreign source is removed, and costs the route nothing"
             );
+            let peak_after = tap
+                .window(512, 0)
+                .iter()
+                .copied()
+                .map(f32::abs)
+                .fold(0.0, f32::max);
+            assert!(peak_after <= 0.25, "nothing foreign was mixed in");
             let _ = foreign.kill().await;
             foreign.wait().await.unwrap();
             source.kill().await.unwrap();

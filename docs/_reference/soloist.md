@@ -175,7 +175,11 @@ filter. No microphone or system mix is captured, and samples are never saved
 to disk. Pausing clears buffered samples; closing Soloist removes the route.
 If PipeWire is unavailable at startup, Soloist uses its ordinary output and
 EQ and visualizer controls stay hidden. A route that fails during playback
-stops the player, and Spotifast restarts it as described under Setup.
+does not stop the player: Spotifast rebuilds the route up to three times while
+Soloist keeps running, and restarts the player as described under Setup only
+if that does not work. Only Soloist's own audio reaches the EQ, the visualizers
+and the output: if PipeWire links anything else into the private input,
+Spotifast removes the link, and the input is silent until it has gone.
 
 Linux without PipeWire keeps Soloist's direct output, without EQ or visualizers.
 The Mac and Windows routes are described below. Local files and full queue
