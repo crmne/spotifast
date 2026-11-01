@@ -36,6 +36,12 @@ a lossless indicator or offer an unsupported quality selector.
    in your signed-in account's device list before controlling it. Choose
    **Start listening** once setup confirms the account.
 
+If the device never appears, try the Spotify desktop app first: some people find
+that the phone and web apps do not list it until it has been chosen once. A
+firewall can also hide it, because Spotify's apps find Soloist over the local
+network. On Linux with UFW, allow Soloist's TCP port (`sudo ss -tlnp | grep
+soloist` shows it) from your local network.
+
 You can choose **Use the built-in player** at any setup step, including after
 a failed download or while waiting for pairing. This stops Soloist if setup
 started it. The built-in player's separate browser approval is requested only
