@@ -77,7 +77,8 @@ Spotifast. Version, quality and other background details remain in Settings;
 **Use the built-in player** stays available as a small link below each setup card.
 The saved key and pairing are retained for **Enable with saved key** next time; signing out of Spotifast
 removes them. Closing Spotifast completely stops the child player. Closing to
-the tray leaves both running.
+the tray leaves both running. If an earlier Spotifast left its player running,
+the next start stops that player first, so it cannot block the new one.
 
 Spotify publishes Linux x86_64, ARM64 and ARM32 builds, Apple Silicon builds
 for macOS 13 or newer, and Windows x86_64 builds. Intel Macs and native

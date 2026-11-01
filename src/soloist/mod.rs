@@ -333,6 +333,8 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     for file in ["ws.addr", "ws.port"] {
         let _ = tokio::fs::remove_file(data.join(file)).await;
     }
+    let (builds, account) = (root.to_owned(), data.to_owned());
+    let _ = tokio::task::spawn_blocking(move || reclaim(&builds, &account)).await;
     let bridge = audio::Bridge::open(audio_config.clone(), output_volume.clone()).await;
     let mut command = tokio::process::Command::new(build.path(root));
     #[cfg(target_os = "linux")]
@@ -578,6 +580,74 @@ async fn copy_output(
     }
 }
 
+/// Stops a Soloist that an earlier Spotifast left running. It still holds the
+/// data directory's lock, so a new player would exit before it is ready
+/// (#1140). Only a process started from one of our own builds is stopped: the
+/// recorded PID may since belong to an unrelated program.
+fn reclaim(builds: &std::path::Path, data: &std::path::Path) {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let Some(pid) = std::fs::read_to_string(data.join("soloist.pid"))
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .map(Pid::from_u32)
+    else {
+        return;
+    };
+    let Ok(builds) = builds.canonicalize() else {
+        return;
+    };
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
+    );
+    let Some(process) = system.process(pid) else {
+        return;
+    };
+    let ours = process
+        .exe()
+        .and_then(|exe| exe.canonicalize().ok())
+        .is_some_and(|exe| exe.starts_with(&builds));
+    if !ours || !process.kill() {
+        return;
+    }
+    log::info!("Stopped a Soloist left running by an earlier Spotifast");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !exited(&mut system, pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Whether a stopped process has released what it held: it is gone, or only
+/// a zombie is left for a parent that may never reap it.
+fn exited(system: &mut sysinfo::System, pid: sysinfo::Pid) -> bool {
+    use sysinfo::{ProcessRefreshKind, ProcessStatus, ProcessesToUpdate};
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing(),
+    );
+    if system
+        .process(pid)
+        .is_some_and(|process| process.status() == ProcessStatus::Zombie)
+    {
+        return true;
+    }
+    // A dying process can drop out of sysinfo's view before it has exited and
+    // released its lock; the kernel still knows it until it is reaped.
+    #[cfg(unix)]
+    {
+        // SAFETY: signal 0 sends nothing; it only asks whether the PID exists.
+        let alive = unsafe { libc::kill(pid.as_u32() as libc::pid_t, 0) } == 0;
+        !alive && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+    }
+    #[cfg(not(unix))]
+    {
+        system.process(pid).is_none()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,6 +696,143 @@ mod tests {
             .valid()
         );
     }
+    /// A Soloist from an earlier run holds the data directory's lock, so a
+    /// new one would exit before it is ready (#1140).
+    #[cfg(unix)]
+    #[test]
+    fn reclaims_a_leftover_soloist_from_this_installation() {
+        let root =
+            std::env::temp_dir().join(format!("soloist-reclaim-test-{}", rand::random::<u64>()));
+        let builds = root.join("builds");
+        let data = root.join("account");
+        std::fs::create_dir_all(builds.join("digest")).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        let player = builds.join("digest").join("soloist");
+        std::fs::copy(on_path("sleep"), &player).unwrap();
+        // macOS kills a copied system binary at launch unless it is re-signed.
+        #[cfg(target_os = "macos")]
+        assert!(
+            std::process::Command::new("codesign")
+                .args(["--force", "--sign", "-"])
+                .arg(&player)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let pid = orphan(&player);
+        std::fs::write(data.join("soloist.pid"), &pid).unwrap();
+
+        reclaim(&builds, &data);
+
+        let survived = running(&pid);
+        if survived {
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid])
+                .status();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(!survived, "the leftover Soloist is still running");
+    }
+
+    /// Finds a tool on `PATH`: the Nix build sandbox has no `/bin/sleep`.
+    #[cfg(unix)]
+    fn on_path(tool: &str) -> PathBuf {
+        std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|dir| dir.join(tool))
+            .find(|path| path.is_file())
+            .unwrap_or_else(|| panic!("{tool} is not on PATH"))
+    }
+
+    /// Starts `program` the way a leftover Soloist runs: its parent is gone.
+    /// Returns its PID once it is running `program` itself.
+    #[cfg(unix)]
+    fn orphan(program: &std::path::Path) -> String {
+        let output = std::process::Command::new("sh")
+            .args(["-c", "\"$0\" 30 >/dev/null 2>&1 & echo $!"])
+            .arg(program)
+            .output()
+            .unwrap();
+        let pid = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            let command = std::process::Command::new("ps")
+                .args(["-o", "comm=", "-p", &pid])
+                .output()
+                .unwrap();
+            if String::from_utf8_lossy(&command.stdout)
+                .trim()
+                .ends_with("soloist")
+            {
+                return pid;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("the orphan never started {}", program.display());
+    }
+
+    /// A zombie no longer runs, even if nothing has reaped it yet.
+    #[cfg(unix)]
+    fn running(pid: &str) -> bool {
+        let state = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", pid])
+            .output()
+            .unwrap();
+        let state = String::from_utf8_lossy(&state.stdout);
+        !state.trim().is_empty() && !state.trim().starts_with('Z')
+    }
+
+    /// A stopped Soloist whose parent never reaps it stays a zombie, as under
+    /// a Linux PID 1 that does not reap orphans. It has already released its
+    /// lock, so the start must not wait on it. On macOS launchd always reaps,
+    /// and the wait is bounded either way.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_stopped_process_left_as_a_zombie_counts_as_exited() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = sysinfo::Pid::from_u32(child.id());
+        // Kill without reaping, so only a zombie is left.
+        child.kill().unwrap();
+        let mut system = sysinfo::System::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut gone = exited(&mut system, pid);
+        while !gone && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            gone = exited(&mut system, pid);
+        }
+        let _ = child.wait();
+        assert!(gone, "a zombie was taken for a running process");
+    }
+
+    /// The recorded PID may now belong to an unrelated program.
+    #[cfg(unix)]
+    #[test]
+    fn leaves_processes_outside_the_soloist_builds_alone() {
+        let root =
+            std::env::temp_dir().join(format!("soloist-reclaim-test-{}", rand::random::<u64>()));
+        let builds = root.join("builds");
+        let data = root.join("account");
+        std::fs::create_dir_all(&builds).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        // Nothing recorded yet: nothing to do.
+        reclaim(&builds, &data);
+        let mut other = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        std::fs::write(data.join("soloist.pid"), other.id().to_string()).unwrap();
+
+        reclaim(&builds, &data);
+
+        let stopped = other.try_wait().unwrap();
+        let _ = other.kill();
+        let _ = other.wait();
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(stopped.is_none(), "an unrelated process was stopped");
+    }
+
     /// Explicit live smoke test, never run by normal tests or CI. The caller
     /// provides a personal key via a secret manager. No playback is started.
     #[tokio::test]

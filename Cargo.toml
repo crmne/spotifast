@@ -171,6 +171,9 @@ tar = { version = "0.4", default-features = false }
 zip = { version = "9.1.3", default-features = false, features = ["deflate-flate2"] }
 sha1 = "0.10"
 sha2 = "0.10"
+# Stops a Soloist that an earlier run left holding its data directory
+# (`soloist/mod.rs`). Already in the tree through librespot, same features.
+sysinfo = { version = "0.36", default-features = false, features = ["system"] }
 # Spotify names a Cast device by the MD5 of its friendly name (`cast.rs`).
 md-5 = "0.10"
 # Cast v2 runs over TLS with a certificate from Google's device CA, which
@@ -196,6 +199,11 @@ hmac = "0.12"
 pbkdf2 = "0.12"
 aes = "0.8"
 ctr = "0.9"
+
+[target.'cfg(unix)'.dependencies]
+# Tells a Soloist that has fully exited from one still dying (`soloist/mod.rs`).
+# Already in the tree through sysinfo and many others.
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The packaged Dock artwork also identifies unbundled Cargo runs.
