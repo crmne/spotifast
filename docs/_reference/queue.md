@@ -142,6 +142,10 @@ not consume a queue row or restore an older queue saved on this computer.
    and the playlist carries on after that song, even when it was paused or
    playing from a sorted view when you closed the app.
 
+   A song the playlist no longer holds, such as a recommendation that followed
+   its end, plays on its own at its saved position, followed by your queued
+   songs and, with Autoplay on, Spotify's recommendations for that song.
+
 10. **Old answers from Spotify are ignored.** Queue responses can be a few
     seconds late. Spotifast ignores stale responses and asks again. Your
     changes stay visible while it waits for confirmation.

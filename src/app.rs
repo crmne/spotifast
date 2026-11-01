@@ -787,6 +787,9 @@ pub struct App {
     pub resume_context: Option<String>,
     pub resume_track: Option<String>,
     pub resume_position_ms: u32,
+    /// The song and position a resume asked its context to start at, until
+    /// the player reports what it started.
+    resume_load: Option<(String, u32)>,
     /// Manually queued songs restored with the remembered track.
     pub resume_queue: Vec<String>,
     /// Manually queued songs from this session, oldest first.
@@ -1371,6 +1374,7 @@ impl App {
             resume_context: session.last_context.clone(),
             resume_track: session.last_track.clone(),
             resume_position_ms: session.last_position_ms,
+            resume_load: None,
             resume_queue: session.last_added_queue.clone(),
             manual_queue: Vec::new(),
             pending_queue_adds: Vec::new(),
@@ -3976,6 +3980,19 @@ impl App {
         let Some(now) = self.now_playing_live() else {
             return;
         };
+        // A context no longer holding the resumed song, as a playlist does
+        // not hold the recommendation that followed it, starts at its first
+        // song instead. Replace that with the song itself, before the saved
+        // queue or the saved song learn of the detour (#856).
+        if now.local
+            && let Some((uri, position_ms)) = self.resume_load.take()
+            && now.uri != uri
+        {
+            let mut request = PlayRequest::tracks(vec![uri]);
+            request.position_ms = position_ms;
+            self.play_request(request, false);
+            return;
+        }
         let same_uri = self.last_now_playing_uri.as_deref() == Some(now.uri.as_str());
         let new_occurrence =
             now.local && self.last_now_playing_sequence != self.local.track_sequence;
@@ -6512,6 +6529,7 @@ impl App {
     /// rows as a fresh list instead used to take seconds, threw the
     /// context away, and left Spotify's copy of the queue to reappear.
     fn play_queue_item(&mut self, index: usize, uri: String) {
+        self.resume_load = None;
         if self.resume_only() {
             // Nothing is playing anywhere, so there is no live queue to
             // consume: play the shown rows as a plain list.
@@ -9735,6 +9753,7 @@ impl App {
         self.supersede_play_search();
         // A play from a row names its row again after this.
         self.played_row = None;
+        self.resume_load = None;
         self.start_play(request, shuffle_first);
     }
 
@@ -10220,8 +10239,19 @@ impl App {
             None => PlayRequest::tracks(vec![track]),
         };
         request.position_ms = self.resume_position_ms;
-        self.play_request(request, false);
+        self.play_resumed(request);
         true
+    }
+
+    /// Plays a song at its old place, watching that its context can start it.
+    fn play_resumed(&mut self, request: PlayRequest) {
+        let expected = request
+            .context_uri
+            .as_ref()
+            .and(request.offset_uri.clone())
+            .map(|uri| (uri, request.position_ms));
+        self.play_request(request, false);
+        self.resume_load = expected;
     }
 
     fn toggle_play(&mut self) {
@@ -10257,7 +10287,7 @@ impl App {
                             None => PlayRequest::tracks(vec![uri]),
                         };
                         request.position_ms = position;
-                        self.play_request(request, false);
+                        self.play_resumed(request);
                         return;
                     }
                     if !self.resume_last() {
@@ -10598,6 +10628,7 @@ impl App {
                 // Connect transfers the active device's full playback state.
                 // A Web API snapshot may be stale and cannot recreate its queue.
                 self.queue_start_pending = Some(Target::Local);
+                self.resume_load = None;
                 self.local_transfer_sequence = Some(self.local.track_sequence);
                 self.local_list = None;
                 self.resume_queue.clear();
@@ -11808,6 +11839,7 @@ impl App {
                 self.step_resume(true);
             }
             Action::Next => {
+                self.resume_load = None;
                 // Move the queue head to the playing row immediately. Do not
                 // pop when there is no active playback target.
                 let target = self.target();
@@ -11830,6 +11862,7 @@ impl App {
                 }
             }
             Action::Previous => {
+                self.resume_load = None;
                 // Next names its expected destination so the row moves before
                 // the engine does. Previous has no forward queue row to name;
                 // discard that expectation or a quick Next, Previous leaves
@@ -15325,6 +15358,109 @@ mod tests {
         assert_eq!(
             app.playing_context_uri().as_deref(),
             Some("spotify:playlist:phone")
+        );
+    }
+
+    /// #856: a resumed song its context no longer holds plays by itself at
+    /// its saved place, with the saved queue after it, instead of the
+    /// context's first song at that position.
+    #[test]
+    fn a_resumed_song_outside_its_context_plays_on_its_own() {
+        let local = |uri: &str| LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: uri.into(),
+                duration_ms: 240_000,
+                ..Default::default()
+            }),
+            track_sequence: 1,
+            ..Default::default()
+        };
+        // #given an app restarted on a recommendation after a playlist
+        let mut app = headless_app();
+        app.local_ready = true;
+        app.local = LocalState {
+            connected: true,
+            ..Default::default()
+        };
+        app.resume_context = Some("spotify:playlist:finished".into());
+        app.resume_track = Some("spotify:track:recommended".into());
+        app.resume_position_ms = 83_456;
+        app.resume_queue = vec!["spotify:track:queued".into()];
+
+        // #when Play falls back to the playlist's first song
+        app.toggle_play();
+        app.handle_local(local("spotify:track:first"));
+
+        // #then the song alone loads at its saved place
+        let loads: Vec<_> = app
+            .backend
+            .take_player_commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                PlayerCommand::Load(spec) => Some(spec),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(loads.len(), 2, "the context, then the song");
+        assert_eq!(
+            loads[0].offset_uri.as_deref(),
+            Some("spotify:track:recommended")
+        );
+        assert_eq!(
+            loads[1].context_uri.as_deref(),
+            Some("spotify:track:recommended")
+        );
+        assert_eq!(loads[1].position_ms, 83_456);
+        assert_eq!(app.playing_context_uri(), None);
+        assert_eq!(
+            app.resume_track.as_deref(),
+            Some("spotify:track:recommended")
+        );
+        assert_eq!(app.resume_queue, ["spotify:track:queued"]);
+
+        // #and the saved queue follows the song once it starts
+        app.handle_local(local("spotify:track:recommended"));
+        assert_eq!(app.manual_queue, ["spotify:track:queued"]);
+        assert!(app.backend.take_player_commands().is_empty());
+    }
+
+    /// Next, pressed while a resume loads, is not a detour to undo.
+    #[test]
+    fn next_during_a_resume_keeps_the_song_it_moves_to() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.local_ready = true;
+        app.local = LocalState {
+            connected: true,
+            ..Default::default()
+        };
+        app.resume_context = Some("spotify:playlist:pl1".into());
+        app.resume_track = Some("spotify:track:saved".into());
+        app.toggle_play();
+        app.backend.take_player_commands();
+        app.local.playback = Playback::Loading;
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:saved".into(),
+            ..Default::default()
+        });
+        app.apply(Action::Next, &ctx);
+        app.handle_local(LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:after".into(),
+                ..Default::default()
+            }),
+            track_sequence: 2,
+            ..Default::default()
+        });
+        assert!(
+            !app.backend
+                .take_player_commands()
+                .iter()
+                .any(|command| matches!(command, PlayerCommand::Load(_)))
         );
     }
 
