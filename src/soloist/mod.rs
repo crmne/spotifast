@@ -367,16 +367,18 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         .arg("--cache-dir")
         .arg(data.join("cache"))
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x08000000);
     // Soloist currently requires the key in argv. Never log this command or
-    // the child's output. See the documented upstream limitation.
+    // the child's output: it stays in the private data directory, without the
+    // key. See the documented upstream limitation.
     let mut child = command.spawn().context(
         "Soloist could not start. Check that this operating system supports Spotify's build.",
     )?;
+    keep_output(&data.join("soloist-output.log"), &key.value, &mut child).await;
     if let Some(bridge) = &bridge {
         bridge.child(child.id().context("Missing Soloist process")?);
     }
@@ -385,6 +387,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         let port = tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 if let Some(exit) = child.try_wait()? {
+                    log::warn!("Soloist exited before it was ready: {exit}");
                     if exit.code() == Some(10) { return Ok(None); }
                     bail!("Soloist stopped before it was ready. Check your key and this computer's audio service, then retry.");
                 }
@@ -439,7 +442,9 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                     if bridge.routed() != audio_routed { audio_routed = bridge.routed(); notify(Update::Audio(audio_routed)); }
                 }
                 exit = child.wait() => {
-                    if exit?.code() == Some(10) { return Ok(Outcome::Expired); }
+                    let exit = exit?;
+                    log::warn!("Soloist exited: {exit}");
+                    if exit.code() == Some(10) { return Ok(Outcome::Expired); }
                     bail!("Soloist stopped. Retry in Settings to start it again.");
                 }
                 _ = changes.tick(), if pending_change => {
@@ -536,9 +541,67 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     result
 }
 
+/// Soloist's own account of why it stopped goes to a file beside its data.
+/// Each start replaces the file, and a long run stops at `OUTPUT_LIMIT`, so
+/// what led to an early exit is what stays.
+async fn keep_output(path: &std::path::Path, key: &str, child: &mut tokio::process::Child) {
+    let Ok(file) = tokio::fs::File::create(path).await else {
+        return;
+    };
+    let file = Arc::new(tokio::sync::Mutex::new((file, 0)));
+    if let Some(stdout) = child.stdout.take() {
+        tokio::spawn(copy_output(stdout, key.to_owned(), file.clone()));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(copy_output(stderr, key.to_owned(), file));
+    }
+}
+
+const OUTPUT_LIMIT: usize = 1 << 20;
+
+/// Drains one of the child's streams to the end, as a full pipe would stall it.
+async fn copy_output(
+    stream: impl tokio::io::AsyncRead + Unpin,
+    key: String,
+    file: Arc<tokio::sync::Mutex<(tokio::fs::File, usize)>>,
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let mut lines = tokio::io::BufReader::new(stream).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let line = format!("{}\n", line.replace(&key, "<key>"));
+        let mut file = file.lock().await;
+        if file.1 + line.len() <= OUTPUT_LIMIT {
+            file.1 += line.len();
+            let _ = file.0.write_all(line.as_bytes()).await;
+            let _ = file.0.flush().await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn soloist_output_is_kept_without_the_key() {
+        use tokio::io::AsyncWriteExt;
+        let path = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join(format!("soloist-output-{}", rand::random::<u64>()));
+        let file = tokio::fs::File::create(&path).await.unwrap();
+        let (mut child, stream) = tokio::io::duplex(64);
+        let copy = tokio::spawn(copy_output(
+            stream,
+            "secret".into(),
+            Arc::new(tokio::sync::Mutex::new((file, 0))),
+        ));
+        child.write_all(b"started with secret\n").await.unwrap();
+        drop(child);
+        copy.await.unwrap();
+        let kept = tokio::fs::read_to_string(&path).await.unwrap();
+        tokio::fs::remove_file(&path).await.unwrap();
+        assert_eq!(kept, "started with <key>\n");
+    }
     #[test]
     fn keys_are_account_scoped_and_reject_control_characters() {
         assert!(

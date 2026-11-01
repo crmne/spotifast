@@ -211,6 +211,11 @@ those names alone do not establish an integration.
 
 ## Credentials, privacy and terms
 
+What Soloist prints goes to `soloist-output.log` in its private folder for your
+account, with your key removed, and each start replaces the file. It is not
+part of `spotifast.log`. Read it before sharing it: it comes from Spotify's
+program, and Spotifast cannot say what else it contains.
+
 The key belongs to your Spotify account and is stored with Spotifast's other
 protected credentials. Soloist currently accepts it only as a command-line
 argument, so software permitted to inspect your processes can read it while
