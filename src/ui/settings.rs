@@ -1767,7 +1767,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 
     let skins_folder = app.dirs.skins_dir();
-    app.winamp.refresh_choices(&skins_folder);
+    app.winamp.poll_choices();
+    app.winamp.refresh_choices(&skins_folder, ui.ctx());
     let mini_player = gettext(locale, "Mini player");
     let always_on_top = gettext(locale, "Always on top");
     let show_in_taskbar = gettext(locale, "Show the mini player in taskbar");

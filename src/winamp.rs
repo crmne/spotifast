@@ -88,6 +88,10 @@ pub struct WinampState {
     /// The skins folder's contents, as last listed.
     pub choices: Vec<SkinChoice>,
     choices_listed: Option<Instant>,
+    /// A listing still being made on its own thread.
+    listing: Option<mpsc::Receiver<Vec<SkinChoice>>>,
+    /// Whether `choices` holds a finished listing yet.
+    choices_known: bool,
     /// Count down instead of up; clicking the time toggles it.
     pub time_remaining: bool,
     /// The balance while its thumb is held, for the marquee to report.
@@ -131,6 +135,8 @@ impl WinampState {
             loading: None,
             choices: Vec::new(),
             choices_listed: None,
+            listing: None,
+            choices_known: false,
             time_remaining: false,
             balance_preview: None,
             open_presets: false,
@@ -307,19 +313,55 @@ impl WinampState {
     }
 
     /// Lists the folder again if the listing is old.
-    pub fn refresh_choices(&mut self, folder: &Path) {
-        if self
-            .choices_listed
-            .is_none_or(|at| at.elapsed() > CHOICES_FRESH)
+    pub fn refresh_choices(&mut self, folder: &Path, ctx: &egui::Context) {
+        if self.listing.is_none()
+            && self
+                .choices_listed
+                .is_none_or(|at| at.elapsed() > CHOICES_FRESH)
         {
-            self.list_choices(folder);
+            self.list_choices(folder, ctx);
         }
     }
 
-    /// Lists the folder: `.wsz` files and folders with a `main.bmp`.
-    pub fn list_choices(&mut self, folder: &Path) {
+    /// Lists the folder on another thread, since telling the kinds of skin
+    /// apart opens every archive: [`Self::poll_choices`] takes the answer.
+    /// One already running is left to finish unheard.
+    pub fn list_choices(&mut self, folder: &Path, ctx: &egui::Context) {
         self.choices_listed = Some(Instant::now());
-        self.choices = list_skins(folder);
+        let (sender, receiver) = mpsc::channel();
+        let folder = folder.to_path_buf();
+        let ctx = ctx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("skin-lister".into())
+            .spawn(move || {
+                let _ = sender.send(list_skins(&folder));
+                ctx.request_repaint();
+            });
+        match spawned {
+            Ok(_) => self.listing = Some(receiver),
+            Err(error) => log::warn!("could not start listing the skins: {error}"),
+        }
+    }
+
+    /// Takes a finished listing, if there is one.
+    pub fn poll_choices(&mut self) {
+        let Some(receiver) = self.listing.as_ref() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(choices) => {
+                self.choices = choices;
+                self.choices_known = true;
+                self.listing = None;
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => self.listing = None,
+        }
+    }
+
+    /// Whether a listing has come back since the app started.
+    pub fn choices_known(&self) -> bool {
+        self.choices_known
     }
 
     /// The characters the marquee shows now: the text itself when it

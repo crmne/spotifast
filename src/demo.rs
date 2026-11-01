@@ -4074,7 +4074,17 @@ mod tests {
         )]);
         std::fs::write(folder.join("chrome.zip"), archive).unwrap();
         let caveat = "This skin has no equalizer or playlist window, and its scripts do not run.";
-        let text = settings_text(&ctx, &mut app, "Mini player");
+        // The folder is listed on another thread.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut text = settings_text(&ctx, &mut app, "Mini player");
+        while !text.iter().any(|text| text == "chrome") {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the skins were not listed: {text:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            text = settings_text(&ctx, &mut app, "Mini player");
+        }
         assert!(text.iter().any(|text| text == "Windows Media Player"));
         assert!(text.iter().any(|text| text == "chrome"));
         assert!(!text.iter().any(|text| text == caveat));
