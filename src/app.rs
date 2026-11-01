@@ -3708,6 +3708,11 @@ impl App {
         self.last_album_queue = None;
         self.cover_uploads.clear();
         self.uploaded_covers.clear();
+        // Questions about the signed-out account's playlists go with it.
+        self.duplicate_prompts.clear();
+        if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
+            self.dialog = None;
+        }
         // Pages still on their way belong to the signed-out account's load.
         self.library = Library {
             playlists_generation: self.library.playlists_generation,
@@ -30525,6 +30530,28 @@ mod tests {
         );
         assert!(app.dialog.is_none());
         assert_eq!(sent(&app), ["add run"]);
+    }
+
+    /// Signing out drops the duplicate questions, the open one and those
+    /// waiting, so none of them adds to the old account's playlists later.
+    #[test]
+    fn reset_data_drops_duplicate_questions() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        for playlist_id in ["mix", "run"] {
+            app.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
+                playlist_id: playlist_id.into(),
+                playlist_name: playlist_id.into(),
+                items: Vec::new(),
+                position: None,
+                duplicate_uris: Vec::new(),
+            });
+        }
+
+        app.reset_data();
+        assert!(app.dialog.is_none());
+        app.apply(Action::CloseDialog, &ctx);
+        assert!(app.dialog.is_none(), "no question from before follows");
     }
 
     #[test]
