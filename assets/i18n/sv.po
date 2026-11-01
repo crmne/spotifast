@@ -3952,6 +3952,22 @@ msgstr "Winamp-minispelare (Ctrl+M)"
 msgid "Winamp mini player (Cmd+Shift+M)"
 msgstr "Winamp-minispelare (Cmd+Shift+M)"
 
+#: src/ui/settings.rs:1819 src/ui/settings.rs:1938
+msgid "Windows Media Player .wmz skins. Find more in the Internet Archive's collection."
+msgstr "Windows Media Player-skal i .wmz-format. Hitta fler i Internet Archives samling."
+
+#: src/ui/settings.rs:1849
+msgid "Skins folder"
+msgstr "Mapp för skal"
+
+#: src/ui/settings.rs:1852
+msgid "Winamp and Windows Media Player skins are both kept here."
+msgstr "Både Winamp- och Windows Media Player-skal sparas här."
+
+#: src/ui/settings.rs:1946
+msgid "Windows Media Player Skins Collection"
+msgstr "Windows Media Player-skalsamling"
+
 #~ msgid "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If using a personal app, reconnect it in Settings too."
 #~ msgstr "Spotify avvisade omslaget. Kontrollera att du äger spellistan och logga sedan in igen för att ge behörighet att ladda upp bilder. Om du använder en personlig app, anslut den också igen i Inställningar."
 

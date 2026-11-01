@@ -3978,6 +3978,22 @@ msgstr "Мини-плеер Winamp (Ctrl+M)"
 msgid "Winamp mini player (Cmd+Shift+M)"
 msgstr "Мини-плеер Winamp (Cmd+Shift+M)"
 
+#: src/ui/settings.rs:1819 src/ui/settings.rs:1938
+msgid "Windows Media Player .wmz skins. Find more in the Internet Archive's collection."
+msgstr "Обложки .wmz для Windows Media Player. Больше — в коллекции Internet Archive."
+
+#: src/ui/settings.rs:1849
+msgid "Skins folder"
+msgstr "Папка обложек"
+
+#: src/ui/settings.rs:1852
+msgid "Winamp and Windows Media Player skins are both kept here."
+msgstr "Обложки Winamp и Windows Media Player хранятся здесь."
+
+#: src/ui/settings.rs:1946
+msgid "Windows Media Player Skins Collection"
+msgstr "Коллекция обложек Windows Media Player"
+
 #~ msgid "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If using a personal app, reconnect it in Settings too."
 #~ msgstr "Spotify отклонил эту обложку. Убедись, что плейлист принадлежит тебе, и войди снова, чтобы разрешить загрузку изображений. Если используешь личное приложение, переподключи его и в настройках."
 

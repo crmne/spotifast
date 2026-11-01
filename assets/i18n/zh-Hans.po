@@ -3926,6 +3926,22 @@ msgstr "Winamp 迷你播放器 (Ctrl+M)"
 msgid "Winamp mini player (Cmd+Shift+M)"
 msgstr "Winamp 迷你播放器 (Cmd+Shift+M)"
 
+#: src/ui/settings.rs:1819 src/ui/settings.rs:1938
+msgid "Windows Media Player .wmz skins. Find more in the Internet Archive's collection."
+msgstr "Windows Media Player .wmz 皮肤。可在 Internet Archive 的收藏中找到更多。"
+
+#: src/ui/settings.rs:1849
+msgid "Skins folder"
+msgstr "皮肤文件夹"
+
+#: src/ui/settings.rs:1852
+msgid "Winamp and Windows Media Player skins are both kept here."
+msgstr "Winamp 和 Windows Media Player 皮肤都保存在这里。"
+
+#: src/ui/settings.rs:1946
+msgid "Windows Media Player Skins Collection"
+msgstr "Windows Media Player 皮肤合集"
+
 #~ msgid "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If using a personal app, reconnect it in Settings too."
 #~ msgstr "Spotify 拒绝了此封面。请确认你是歌单的所有者，然后重新登录以授予上传图片的权限。如果使用个人应用，也请在设置中重新连接它。"
 
