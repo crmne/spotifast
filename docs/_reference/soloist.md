@@ -7,6 +7,8 @@ permalink: /soloist/
 
 Available since Spotifast 0.15.
 
+![Soloist setup, asking you to choose Soloist in the Spotify desktop app](/assets/images/soloist-setup.png)
+
 Spotifast can run [Spotify Soloist](https://developer.spotify.com/documentation/soloist)
 as its first setup choice. New listeners and people updating see **Set up
 Soloist** after sign-in on supported platforms with a Premium account.
