@@ -1686,7 +1686,9 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 // Through the skins folder, as the real load path reads it.
                 let path = std::path::Path::new(&surface["wmp-skin=".len()..]);
                 let folder = app.dirs.skins_dir();
-                let name = path.file_name().map(|name| name.to_string_lossy().into_owned());
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned());
                 if let Some(name) = name
                     && std::fs::create_dir_all(&folder).is_ok()
                     && std::fs::copy(path, folder.join(&name)).is_ok()

@@ -15,9 +15,7 @@ use super::super::script::{Engine, Limits, ScriptError, Value};
 use super::Wmp;
 use super::deck::{Command, Deck, OPEN_MEDIA_CHANGING};
 use super::host::{Bridge, EventInfo, Shared, ViewRequest};
-use super::live::{
-    Element, ElementId, Handler, Kind, Motion, ViewState, WindowCommand, number_of, text_of,
-};
+use super::live::{Element, ElementId, Handler, Kind, Motion, ViewState, WindowCommand, text_of};
 use super::paint::{self, Measure, Paint, Painter};
 use super::picture::Images;
 
@@ -32,12 +30,22 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Input {
-    Pointer { x: f32, y: f32 },
+    Pointer {
+        x: f32,
+        y: f32,
+    },
     Left,
-    Press { secondary: bool },
-    Release { secondary: bool },
+    Press {
+        secondary: bool,
+    },
+    Release {
+        secondary: bool,
+    },
     Wheel(f32),
-    Key { code: u32, pressed: bool },
+    Key {
+        code: u32,
+        pressed: bool,
+    },
     Character(char),
     /// The user dragged the window to this size in skin pixels.
     Resized(f32, f32),
@@ -67,7 +75,6 @@ pub struct Runtime {
     last_deck: Option<Deck>,
     /// Errors already logged.
     logged: HashSet<String>,
-    started: Instant,
     /// The whole skin closed.
     pub closed: bool,
 }
@@ -104,7 +111,6 @@ impl Runtime {
             next_key: 0,
             last_deck: Some(deck),
             logged: HashSet::new(),
-            started: now,
             closed: false,
         };
         let start = runtime.wmp.start_view();
@@ -265,10 +271,15 @@ impl Runtime {
         let started = Instant::now();
         while let Some(queued) = self.views[index].state.queue.pop_front() {
             self.run_one(index, queued);
+            self.collect_if_full(index);
             if started.elapsed() > FRAME_SHARE {
                 break;
             }
         }
+    }
+
+    /// Frees what scripts no longer reach, between handlers.
+    fn collect_if_full(&mut self, index: usize) {
         let live = &mut self.views[index];
         if live.engine.heap_bytes() > 4 * 1024 * 1024 {
             let roots: Vec<Value> = live
@@ -276,12 +287,19 @@ impl Runtime {
                 .elements
                 .iter()
                 .flat_map(|element| {
-                    element.props.values().cloned().chain(
-                        element.handlers.values().filter_map(|handler| match handler {
-                            Handler::Function(value) => Some(value.clone()),
-                            Handler::Source(_) => None,
-                        }),
-                    )
+                    element
+                        .props
+                        .values()
+                        .cloned()
+                        .chain(
+                            element
+                                .handlers
+                                .values()
+                                .filter_map(|handler| match handler {
+                                    Handler::Function(value) => Some(value.clone()),
+                                    Handler::Source(_) => None,
+                                }),
+                        )
                 })
                 .collect();
             live.engine.collect(&roots);
@@ -310,10 +328,10 @@ impl Runtime {
                 if live.disabled.contains(&source) {
                     return;
                 }
-                let outcome = live
-                    .engine
-                    .compile(&source)
-                    .and_then(|code| live.engine.run(code, Some(queued.scope), &args, &mut bridge));
+                let outcome = live.engine.compile(&source).and_then(|code| {
+                    live.engine
+                        .run(code, Some(queued.scope), &args, &mut bridge)
+                });
                 (source, outcome)
             }
         };
@@ -373,16 +391,11 @@ impl Runtime {
                 }
             }
         }
-        if !self.views.is_empty() && self.primary().is_none() && self.has_opened_a_window() {
-            self.finish();
-        } else if self.views.is_empty() {
+        // A control view runs on without a window of its own only while
+        // there is one to control.
+        if self.primary().is_none() {
             self.finish();
         }
-    }
-
-    fn has_opened_a_window(&self) -> bool {
-        // A control view can run alone only while a window is on its way.
-        self.shared.requests.is_empty()
     }
 
     fn finish(&mut self) {
@@ -448,7 +461,11 @@ impl Runtime {
                 );
                 self.player_event(index, "openstate_onchange", &[]);
                 self.player_event(index, "mediachange", &[("Item", Value::Host(4))]);
-                self.player_event(index, "currentitemchange", &[("pdispMedia", Value::Host(4))]);
+                self.player_event(
+                    index,
+                    "currentitemchange",
+                    &[("pdispMedia", Value::Host(4))],
+                );
                 self.player_event(index, "currentmedia_onchange", &[]);
                 self.player_event(index, "currentplaylist_onchange", &[]);
             }
@@ -482,7 +499,11 @@ impl Runtime {
             }
             if old.queue != new.queue {
                 self.player_event(index, "playlistchange", &[("change", Value::Number(0.0))]);
-                self.player_event(index, "currentplaylistchange", &[("change", Value::Number(0.0))]);
+                self.player_event(
+                    index,
+                    "currentplaylistchange",
+                    &[("change", Value::Number(0.0))],
+                );
             }
         }
     }
@@ -770,7 +791,9 @@ impl Runtime {
             && self.views[index].state.elements[target].enabled
         {
             self.event_at(index, target);
-            self.views[index].state.fire(target, "onmousemove", Vec::new());
+            self.views[index]
+                .state
+                .fire(target, "onmousemove", Vec::new());
         }
     }
 
@@ -838,7 +861,9 @@ impl Runtime {
         let behaves = element.behaves();
         let kind = element.kind;
         self.event_at(index, target);
-        self.views[index].state.fire(target, "onmousedown", Vec::new());
+        self.views[index]
+            .state
+            .fire(target, "onmousedown", Vec::new());
         if secondary {
             return;
         }
@@ -975,16 +1000,16 @@ impl Runtime {
         let target = state.focus.unwrap_or(state.root);
         let name = if pressed { "onkeydown" } else { "onkeyup" };
         state.fire(target, name, Vec::new());
-        if pressed && code == 8 {
-            if let Some(element) = state.focus.and_then(|id| state.elements.get(id))
-                && element.kind == Kind::EditBox
-                && !element.flag("readonly", false)
-            {
-                let id = state.focus.unwrap_or(target);
-                let mut text = element.props.get("value").map(text_of).unwrap_or_default();
-                text.pop();
-                state.set(id, "value", Value::Str(text.as_str().into()));
-            }
+        if pressed
+            && code == 8
+            && let Some(element) = state.focus.and_then(|id| state.elements.get(id))
+            && element.kind == Kind::EditBox
+            && !element.flag("readonly", false)
+        {
+            let id = state.focus.unwrap_or(target);
+            let mut text = element.props.get("value").map(text_of).unwrap_or_default();
+            text.pop();
+            state.set(id, "value", Value::Str(text.as_str().into()));
         }
     }
 
@@ -1005,7 +1030,12 @@ impl Runtime {
         if (limit > 0.0 && text.chars().count() as f64 >= limit) || text.len() >= 4096 {
             return;
         }
-        match element.str("editstyle").unwrap_or_default().to_ascii_lowercase().as_str() {
+        match element
+            .str("editstyle")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "uppercase" => text.extend(character.to_uppercase()),
             "lowercase" => text.extend(character.to_lowercase()),
             "number" if !character.is_ascii_digit() => return,
@@ -1030,15 +1060,6 @@ impl Runtime {
         }
     }
 
-    #[cfg(test)]
-    pub fn logged_errors(&self) -> Vec<String> {
-        self.logged.iter().cloned().collect()
-    }
-
-    pub fn uptime_ms(&self, now: Instant) -> u64 {
-        now.saturating_duration_since(self.started).as_millis() as u64
-    }
-
     /// The numbers a test or demo wants from a view: an element's attribute.
     #[cfg(any(test, feature = "demo"))]
     pub fn read(&self, key: u32, id: &str, name: &str) -> f64 {
@@ -1054,7 +1075,10 @@ impl Runtime {
                         "width" => element.width,
                         "height" => element.height,
                         "visible" => f64::from(u8::from(element.visible)),
-                        other => element.props.get(other).map_or(f64::NAN, number_of),
+                        other => element
+                            .props
+                            .get(other)
+                            .map_or(f64::NAN, super::live::number_of),
                     }
                 })
         })
@@ -1076,7 +1100,13 @@ impl ViewState {
             element: id,
             start: self.now,
             ms: ms.max(0.0),
-            from: [element.left, element.top, element.width, element.height, 0.0],
+            from: [
+                element.left,
+                element.top,
+                element.width,
+                element.height,
+                0.0,
+            ],
             to: [to.0, to.1, width, height, 0.0],
             eased,
             fade: false,

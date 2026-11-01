@@ -129,7 +129,7 @@ impl Skin {
     /// Reads a `.wsz` archive. File names are matched without regard to
     /// case or folder, and when a name repeats the last copy wins, which
     /// is what unpacking onto Winamp's file system produced. A `.wmz`
-    /// (a zip with a `.wms` definition and no `main.bmp`) is a Windows
+    /// (a zip with a `.wms` definition and not Winamp's sheets) is a Windows
     /// Media Player skin.
     pub fn from_archive(name: impl Into<String>, bytes: &[u8]) -> Result<Self, SkinError> {
         let name = name.into();
@@ -343,14 +343,25 @@ impl Skin {
 /// and no Winamp main window.
 pub(crate) fn is_media_player_skin<'a>(mut names: impl Iterator<Item = &'a str> + Clone) -> bool {
     names.clone().any(|name| name.ends_with(".wms"))
-        && !names.any(|name| matches!(name, "main.bmp" | "main.png"))
+        && !(names
+            .clone()
+            .any(|name| matches!(name, "main.bmp" | "main.png"))
+            && names.any(|name| {
+                matches!(
+                    name,
+                    "cbuttons.bmp" | "cbuttons.png" | "titlebar.bmp" | "titlebar.png"
+                )
+            }))
 }
 
 /// Whether a file inside a Windows Media Player skin is read: the
 /// definition and the pictures it can name.
 fn wanted_by_media_player(file_name: &str) -> bool {
     file_name.rsplit_once('.').is_some_and(|(_, extension)| {
-        matches!(extension, "wms" | "js" | "bmp" | "png" | "gif" | "jpg" | "jpeg")
+        matches!(
+            extension,
+            "wms" | "js" | "bmp" | "png" | "gif" | "jpg" | "jpeg"
+        )
     })
 }
 
@@ -706,6 +717,19 @@ mod tests {
         // A Winamp main window wins over a stray definition.
         let both = zip::write(&[
             ("main.bmp", &png(275, 116, [1, 1, 1]), false),
+            ("titlebar.bmp", &png(344, 87, [1, 1, 1]), false),
+            ("old.wms", definition, false),
+        ]);
+        assert!(Skin::from_archive("both", &both).unwrap().wmp.is_none());
+        // A player skin may well have a picture called main.bmp.
+        let named = zip::write(&[
+            ("main.bmp", &png(120, 60, [1, 1, 1]), false),
+            ("skin.wms", definition, false),
+        ]);
+        assert!(Skin::from_archive("named", &named).unwrap().wmp.is_some());
+        let both = zip::write(&[
+            ("main.bmp", &png(275, 116, [1, 1, 1]), false),
+            ("cbuttons.bmp", &png(136, 36, [1, 1, 1]), false),
             ("old.wms", definition, false),
         ]);
         assert!(Skin::from_archive("both", &both).unwrap().wmp.is_none());

@@ -4926,7 +4926,9 @@ impl App {
         };
         let path = crate::winamp::skin_preferences_path(&self.dirs.skins_dir(), &name);
         match serde_json::to_vec_pretty(&runtime.shared.prefs) {
-            Ok(bytes) => self.files.write(&path, bytes, fastframe_file::Access::Default),
+            Ok(bytes) => self
+                .files
+                .write(&path, bytes, fastframe_file::Access::Default),
             Err(error) => log::warn!("could not encode the skin's preferences: {error}"),
         }
     }
@@ -4960,7 +4962,8 @@ impl App {
                 }
             }
             Command::SetBalance(balance) => {
-                self.actions.push(Action::SetBalance(balance as f32 / 100.0));
+                self.actions
+                    .push(Action::SetBalance(balance as f32 / 100.0));
             }
             Command::SetShuffle(on) => self.actions.push(Action::SetShuffle(on)),
             Command::SetRepeat(on) => self.actions.push(Action::SetRepeat(if on {
@@ -4981,7 +4984,8 @@ impl App {
                 }
             }
             Command::SetEqBand(band, gain) => {
-                self.actions.push(Action::SetEqBand(band, gain.clamp(-12.0, 12.0)));
+                self.actions
+                    .push(Action::SetEqBand(band, gain.clamp(-12.0, 12.0)));
             }
             Command::SetEqOn(on) => {
                 if self.settings.eq_on != on {

@@ -131,7 +131,10 @@ fn scripts_may_get_the_case_of_a_name_wrong() {
     click(&mut runtime, 5.0, 5.0, Instant::now());
     let view = runtime.view(key_of(&runtime)).unwrap();
     let id = view.state.ids["tname"];
-    assert_eq!(view.state.elements[id].str("value").as_deref(), Some("Song!"));
+    assert_eq!(
+        view.state.elements[id].str("value").as_deref(),
+        Some("Song!")
+    );
 }
 
 #[test]
@@ -182,7 +185,11 @@ fn bindings_follow_the_player_and_fire_their_handlers() {
     assert_eq!(text(&runtime, "media").as_deref(), Some("Next"));
     assert_eq!(text(&runtime, "clock").as_deref(), Some("01:23"));
     assert_eq!(text(&runtime, "echo").as_deref(), Some("40"));
-    assert_eq!(runtime.read(key, "p", "visible"), 0.0, "pause goes when paused");
+    assert_eq!(
+        runtime.read(key, "p", "visible"),
+        0.0,
+        "pause goes when paused"
+    );
 }
 
 #[test]
@@ -254,11 +261,19 @@ fn views_have_their_own_names_and_share_preferences() {
     let script = "var shared = 1; function startUp(){ theme.openView('main'); }";
     let mut runtime = start(definition, script);
     let now = Instant::now();
-    assert_eq!(runtime.views.len(), 2, "the control view runs without a window");
+    assert_eq!(
+        runtime.views.len(),
+        2,
+        "the control view runs without a window"
+    );
     assert_eq!(runtime.views[runtime.primary().unwrap()].state.id, "main");
     click(&mut runtime, 4.0, 4.0, now);
     assert_eq!(runtime.views.len(), 3);
-    let eq = runtime.views.iter().find(|view| view.state.id == "eq").unwrap();
+    let eq = runtime
+        .views
+        .iter()
+        .find(|view| view.state.id == "eq")
+        .unwrap();
     let id = eq.state.ids["t"];
     assert_eq!(eq.state.elements[id].str("value").as_deref(), Some("12--"));
     // Opening it again does not make a second one.
@@ -292,9 +307,7 @@ fn a_view_can_give_way_to_another_at_load() {
 
 #[test]
 fn a_sticky_button_toggles_before_its_click_runs() {
-    let definition = format!(
-        r#"{VIEW}<MUTEBUTTON id="m" width="10" height="10"/></VIEW></THEME>"#
-    );
+    let definition = format!(r#"{VIEW}<MUTEBUTTON id="m" width="10" height="10"/></VIEW></THEME>"#);
     let mut runtime = start(&definition, "");
     let key = key_of(&runtime);
     let now = Instant::now();
@@ -348,7 +361,10 @@ fn dragging_a_seek_slider_holds_its_value_and_seeks_at_the_end() {
     );
     let mut runtime = start_with(
         &definition,
-        vec![("t.png", png(4, 10, |_, _| [9, 9, 9])), ("s.js", Vec::new())],
+        vec![
+            ("t.png", png(4, 10, |_, _| [9, 9, 9])),
+            ("s.js", Vec::new()),
+        ],
         playing(),
     );
     let key = key_of(&runtime);
@@ -404,7 +420,8 @@ fn a_skin_with_no_timer_asks_for_no_frames() {
 fn a_timer_runs_at_its_interval_and_a_script_can_stop_it() {
     let definition = r#"<THEME><VIEW width="20" height="20" scriptFile="s.js" timerInterval="100" onTimer="beat();">
         <TEXT id="t" value=""/></VIEW></THEME>"#;
-    let script = "var n = 0; function beat(){ n++; t.value = n; if (n == 2) view.timerInterval = 0; }";
+    let script =
+        "var n = 0; function beat(){ n++; t.value = n; if (n == 2) view.timerInterval = 0; }";
     let mut runtime = start(definition, script);
     let key = key_of(&runtime);
     let start = runtime.views[0].state.timer_due.unwrap();
@@ -438,7 +455,8 @@ fn a_view_with_no_size_takes_its_picture_or_what_is_in_it() {
         playing(),
     );
     assert_eq!(runtime.views[0].state.size(), (30.0, 20.0));
-    let definition = r#"<THEME><VIEW><SUBVIEW left="5" top="6" width="20" height="10"/></VIEW></THEME>"#;
+    let definition =
+        r#"<THEME><VIEW><SUBVIEW left="5" top="6" width="20" height="10"/></VIEW></THEME>"#;
     let runtime = start_with(definition, Vec::new(), playing());
     assert_eq!(runtime.views[0].state.size(), (25.0, 16.0));
 }
@@ -461,7 +479,12 @@ fn crafted_numbers_do_not_overflow() {
     let now = Instant::now();
     let key = runtime.views[0].state.key;
     let _ = runtime.paint(key, now);
-    runtime.input(key, Input::Pointer { x: 5.0, y: 5.0 }, Modifiers::default(), now);
+    runtime.input(
+        key,
+        Input::Pointer { x: 5.0, y: 5.0 },
+        Modifiers::default(),
+        now,
+    );
 }
 
 /// Z order: a negative child under the picture, the rest over it.
@@ -482,7 +505,10 @@ fn a_negative_z_child_sits_under_the_background() {
     // The picture needs a moment on the worker.
     let mut paints = runtime.paint(key, now).0;
     for _ in 0..1000 {
-        if paints.iter().any(|paint| matches!(paint, Paint::Picture { .. })) {
+        if paints
+            .iter()
+            .any(|paint| matches!(paint, Paint::Picture { .. }))
+        {
             break;
         }
         std::thread::sleep(Duration::from_millis(1));
@@ -547,93 +573,4 @@ fn sample_skins_run() {
         }
         runtime.shut_down();
     }
-}
-
-/// TEMPORARY: not committed. Dumps errors and paints of $WMP_DUMP.
-#[test]
-fn zz_dump() {
-    let Ok(path) = std::env::var("WMP_DUMP") else { return; };
-    let skin = crate::skin::Skin::load(std::path::Path::new(&path)).unwrap();
-    let wmp = skin.wmp.clone().unwrap();
-    let mut runtime = Runtime::new(wmp, playing(), HashMap::new(),
-        Arc::new(|text: &str, _, _, _| text.chars().count() as f32 * 6.0), || {});
-    if let Ok(script) = std::env::var("WMP_RUN") {
-        let at = runtime.primary().unwrap();
-        let key = runtime.views[at].state.key;
-        runtime.run_script(key, &script, Instant::now());
-    }
-    let now = Instant::now();
-    for step in 0..30u64 {
-        std::thread::sleep(Duration::from_millis(100));
-        let at = now + Duration::from_millis(step * 100);
-        runtime.tick(playing(), at);
-        for key in runtime.views.iter().map(|v| v.state.key).collect::<Vec<_>>() { let _ = runtime.paint(key, at); }
-    }
-    for error in &runtime.logged_errors() { eprintln!("ERR {error}"); }
-    for view in &runtime.views {
-        eprintln!("VIEW {} {:?} windowed {}", view.state.id, view.state.size(), view.state.windowed());
-        fn walk(s: &crate::skin::wmp::live::ViewState, id: usize, depth: usize) {
-            let e = &s.elements[id];
-            if depth > 6 { return; }
-            eprintln!("{}{} {:?} l{} t{} w{} h{} vis{} z{} img {:?}", "  ".repeat(depth), e.tag, e.id, e.left, e.top, e.width, e.height, e.visible, e.z, e.str("backgroundimage").or(e.str("image")));
-            for child in s.in_order(id) { walk(s, child, depth + 1); }
-        }
-        if std::env::var("WMP_TREE").is_ok() { walk(&view.state, view.state.root, 0); }
-    }
-    let at = now + Duration::from_secs(3);
-    let keys: Vec<u32> = runtime.views.iter().map(|v| v.state.key).collect();
-    for key in keys {
-        for p in runtime.paint(key, at).0 {
-            match p {
-                Paint::Picture{x,y,part,clip,picture,..} => eprintln!("P {x},{y} {part:?} clip{} first{:?} size{:?}", clip.len(), clip.first(), picture.size),
-                Paint::Fill{area,color,clip,..} => eprintln!("F {area:?} {color:?} clip{}", clip.len()),
-                Paint::Text{text,..} => eprintln!("T {:?} {:?}", text.text, text.area),
-                Paint::Effects{area,clip} => eprintln!("E {area:?} clip{} {:?}", clip.len(), clip.first()),
-                Paint::Art{area,..} => eprintln!("A {area:?}"),
-            }
-        }
-    }
-}
-
-/// TEMPORARY: not committed. Error census over a corpus.
-#[test]
-fn zz_sweep() {
-    let Ok(dir) = std::env::var("WMP_SWEEP") else { return; };
-    let mut names: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
-    names.sort();
-    let (mut ok, mut clean, mut failed) = (0, 0, 0);
-    let mut common: HashMap<String, usize> = HashMap::new();
-    for path in names {
-        let skin = match crate::skin::Skin::load(&path) { Ok(s) => s, Err(e) => { failed += 1; eprintln!("LOADFAIL {} {e}", path.display()); continue; } };
-        let Some(wmp) = skin.wmp.clone() else { eprintln!("NOTWMP {}", path.display()); continue; };
-        let mut runtime = Runtime::new(wmp, playing(), HashMap::new(),
-            Arc::new(|text: &str, _, _, _| text.chars().count() as f32 * 6.0), || {});
-        let now = Instant::now();
-        for step in 0..10u64 {
-            let at = now + Duration::from_millis(step * 100);
-            runtime.tick(playing(), at);
-            for key in runtime.views.iter().map(|v| v.state.key).collect::<Vec<_>>() {
-                let _ = runtime.paint(key, at);
-                let none = Modifiers::default();
-                for (x, y) in [(50.0, 50.0), (120.0, 90.0), (200.0, 150.0)] {
-                    runtime.input(key, Input::Pointer { x, y }, none, at);
-                    runtime.input(key, Input::Press { secondary: false }, none, at);
-                    runtime.input(key, Input::Release { secondary: false }, none, at);
-                }
-            }
-        }
-        ok += 1;
-        let errors = runtime.logged_errors();
-        if errors.is_empty() { clean += 1; }
-        let windows = runtime.views.iter().filter(|v| v.state.windowed()).count();
-        if windows == 0 { eprintln!("NOWINDOW {} closed={}", path.display(), runtime.closed); }
-        for error in errors {
-            let cut = error.split(": ").skip(1).collect::<Vec<_>>().join(": ");
-            *common.entry(cut.chars().take(70).collect()).or_insert(0) += 1;
-        }
-    }
-    let mut common: Vec<_> = common.into_iter().collect();
-    common.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-    for (e, n) in common.iter().take(60) { eprintln!("{n:4} {e}"); }
-    eprintln!("ok {ok} clean {clean} failed {failed}");
 }

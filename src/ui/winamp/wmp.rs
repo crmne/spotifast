@@ -202,7 +202,10 @@ fn key_code(key: egui::Key) -> Option<u32> {
     use egui::Key;
     let name = key.name();
     if name.len() == 1 {
-        return name.chars().next().map(|c| u32::from(c.to_ascii_uppercase()));
+        return name
+            .chars()
+            .next()
+            .map(|c| u32::from(c.to_ascii_uppercase()));
     }
     Some(match key {
         Key::Enter => 13,
@@ -277,10 +280,7 @@ fn read_input(app: &mut App, ctx: &egui::Context, key: u32, origin: Pos2, unit: 
                 ..
             } => {
                 if let Some(code) = key_code(pressed_key) {
-                    push(Input::Key {
-                        code,
-                        pressed,
-                    });
+                    push(Input::Key { code, pressed });
                 }
             }
             egui::Event::Text(text) => {
@@ -361,7 +361,9 @@ fn draw(app: &mut App, ui: &mut Ui, paint: &Paint, origin: Pos2, unit: f32, now:
             let rect = world(*area, origin, unit);
             for box2 in clip.iter() {
                 let area = world(*box2, origin, unit).intersect(ui.clip_rect());
-                ui.painter().with_clip_rect(area).rect_filled(rect, 0.0, fill);
+                ui.painter()
+                    .with_clip_rect(area)
+                    .rect_filled(rect, 0.0, fill);
             }
             false
         }
@@ -386,12 +388,16 @@ fn draw(app: &mut App, ui: &mut Ui, paint: &Paint, origin: Pos2, unit: f32, now:
             let rect = world(*area, origin, unit);
             let bounds = clip
                 .iter()
-                .fold(Rect::NOTHING, |all, box2| all.union(world(*box2, origin, unit)))
+                .fold(Rect::NOTHING, |all, box2| {
+                    all.union(world(*box2, origin, unit))
+                })
                 .intersect(ui.clip_rect());
             if let Some([r, g, b]) = background {
-                ui.painter()
-                    .with_clip_rect(bounds)
-                    .rect_filled(rect, 0.0, Color32::from_rgb(*r, *g, *b));
+                ui.painter().with_clip_rect(bounds).rect_filled(
+                    rect,
+                    0.0,
+                    Color32::from_rgb(*r, *g, *b),
+                );
             }
             let url = app.now_playing().and_then(|now| now.art_url);
             if url.is_some() {
@@ -431,7 +437,12 @@ fn draw_text(ui: &Ui, text: &TextPaint, clip: &[Box2], origin: Pos2, unit: f32) 
         let area = world(*box2, origin, unit).intersect(ui.clip_rect());
         let painter = ui.painter().with_clip_rect(area);
         let galley = if text.wrap {
-            painter.layout(text.text.clone(), font.clone(), color, rect.width().max(1.0))
+            painter.layout(
+                text.text.clone(),
+                font.clone(),
+                color,
+                rect.width().max(1.0),
+            )
         } else {
             crate::bidi::layout_line(&painter, text.text.clone(), font.clone(), color)
         };
@@ -498,10 +509,7 @@ fn effect_shapes(app: &mut App, rect: Rect, unit: f32, now: Instant) -> (Vec<Sha
             let row = rect.height() / f32::from(vis::ROWS);
             let block = |left: f32, top: f32, fill: Color32| {
                 Shape::rect_filled(
-                    Rect::from_min_size(
-                        pos2(left + slot * 0.1, top),
-                        vec2(slot * 0.8, row * 0.85),
-                    ),
+                    Rect::from_min_size(pos2(left + slot * 0.1, top), vec2(slot * 0.8, row * 0.85)),
                     0.0,
                     fill,
                 )

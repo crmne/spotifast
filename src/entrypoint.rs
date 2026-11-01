@@ -1187,7 +1187,7 @@ mod native_window_tests {
             frame: 0,
             click: false,
         };
-        let frames: Vec<_> = (0..=DemoDrag::REST + DemoDrag::GLIDE + 5)
+        let frames: Vec<_> = (0..=DemoDrag::rest() + DemoDrag::GLIDE + 5)
             .map(|_| drag.events())
             .collect();
         let presses = frames
@@ -1218,7 +1218,7 @@ mod native_window_tests {
             frame: 0,
             click: true,
         };
-        let events: Vec<_> = (0..=DemoDrag::REST + DemoDrag::GLIDE + 5)
+        let events: Vec<_> = (0..=DemoDrag::rest() + DemoDrag::GLIDE + 5)
             .flat_map(|_| click.events())
             .collect();
         let buttons: Vec<bool> = events
@@ -1443,26 +1443,33 @@ struct DemoDrag {
 
 #[cfg(feature = "demo")]
 impl DemoDrag {
-    /// Frames to rest before pressing, so the rows under `from` are laid out.
-    const REST: u32 = 20;
+    /// Frames to rest before pressing, so the rows under `from` are laid
+    /// out. `SPOTIFAST_DEMO_REST` asks for longer, for a skin still loading.
+    fn rest() -> u32 {
+        std::env::var("SPOTIFAST_DEMO_REST")
+            .ok()
+            .and_then(|frames| frames.parse().ok())
+            .unwrap_or(20)
+    }
     /// Frames the glide from `from` to `to` takes.
     const GLIDE: u32 = 20;
 
     fn events(&mut self) -> Vec<egui::Event> {
         let frame = self.frame;
         self.frame = self.frame.saturating_add(1);
-        let pos = if frame <= Self::REST {
+        let rest = Self::rest();
+        let pos = if frame <= rest {
             self.from
         } else {
-            let t = ((frame - Self::REST) as f32 / Self::GLIDE as f32).min(1.0);
+            let t = ((frame - rest) as f32 / Self::GLIDE as f32).min(1.0);
             self.from.lerp(self.to, t)
         };
         let mut events = vec![egui::Event::PointerMoved(pos)];
-        if frame == Self::REST || (self.click && frame == Self::REST + 1) {
+        if frame == rest || (self.click && frame == rest + 1) {
             events.push(egui::Event::PointerButton {
                 pos,
                 button: egui::PointerButton::Primary,
-                pressed: frame == Self::REST,
+                pressed: frame == rest,
                 modifiers: egui::Modifiers::NONE,
             });
         }

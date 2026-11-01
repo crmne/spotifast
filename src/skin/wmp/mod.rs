@@ -192,9 +192,8 @@ impl Wmp {
 }
 
 fn is_picture(name: &str) -> bool {
-    name.rsplit_once('.').is_some_and(|(_, extension)| {
-        matches!(extension, "bmp" | "png" | "gif" | "jpg" | "jpeg")
-    })
+    name.rsplit_once('.')
+        .is_some_and(|(_, extension)| matches!(extension, "bmp" | "png" | "gif" | "jpg" | "jpeg"))
 }
 
 /// Views are children of the theme; a definition with no theme still counts.
