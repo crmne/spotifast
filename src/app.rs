@@ -126,8 +126,9 @@ struct RemoteStartChecks {
     /// Polls already sent describe the past.
     after_poll: u64,
     left: u8,
-    /// The song shown before Next or Previous. While a poll still reports
-    /// it, the skip has not happened yet, even if it says playing.
+    /// The song shown before Next, Previous, or a Play sent while it played.
+    /// While a poll still reports it, the change has not happened yet, even
+    /// if it says playing.
     from: Option<String>,
 }
 
@@ -7243,7 +7244,18 @@ impl App {
                             self.on_now_playing_changed();
                         }
                     }
-                    Err(error) => log::debug!("playback state unavailable: {error}"),
+                    Err(error) => {
+                        log::debug!("playback state unavailable: {error}");
+                        // A failed look ends the quick looks rather than
+                        // spending more polls; regular polling carries on.
+                        if self
+                            .remote_start_checks
+                            .as_ref()
+                            .is_some_and(|checks| seq > checks.after_poll)
+                        {
+                            self.remote_start_checks = None;
+                        }
+                    }
                 }
             }
             ApiResponse::Queue { seq, result } => {
@@ -8655,17 +8667,19 @@ impl App {
                             action,
                             RemoteAction::Play | RemoteAction::Next | RemoteAction::Previous
                         ) {
-                            let from = self.remote.as_ref().and_then(|remote| {
-                                remote
-                                    .state
-                                    .item
-                                    .as_ref()
-                                    .map(|item| item.uri().to_string())
-                            });
+                            // Play resumes a paused song, which plays on;
+                            // sent while one plays, it starts another.
+                            let from = self
+                                .remote
+                                .as_ref()
+                                .map(|remote| &remote.state)
+                                .filter(|state| action != RemoteAction::Play || state.is_playing)
+                                .and_then(|state| state.item.as_ref())
+                                .map(|item| item.uri().to_string());
                             self.remote_start_checks = Some(RemoteStartChecks {
                                 after_poll: self.remote_poll_seq,
                                 left: REMOTE_START_RECHECKS,
-                                from: from.filter(|_| action != RemoteAction::Play),
+                                from,
                             });
                         }
                         if action == RemoteAction::Shuffle {
@@ -13156,8 +13170,8 @@ impl App {
         }
     }
 
-    /// The soonest that playback, a pending play or polling needs the logic
-    /// to run again, if any of them does.
+    /// The soonest that playback, a pending play, polling or a recheck after
+    /// a command needs the logic to run again, if any of them does.
     fn next_pass(&self) -> Option<Duration> {
         let playing = self
             .now_playing()
@@ -13169,7 +13183,15 @@ impl App {
         let polling = self
             .is_connected()
             .then(|| self.connected_repaint_interval());
-        [playing, pending, polling].into_iter().flatten().min()
+        // `tick` sends a due recheck only while connected and online.
+        let recheck = self
+            .remote_recheck_at
+            .filter(|_| self.is_connected() && !self.offline)
+            .map(|due| due.saturating_duration_since(Instant::now()));
+        [playing, pending, polling, recheck]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// How long the headless loop may sleep after this tick: until the next
@@ -25631,7 +25653,9 @@ mod tests {
     /// A song started on another device gets up to three looks a second
     /// apart while it has yet to report playing, and none once it plays. A
     /// poll sent before the command describes the old song and does not
-    /// count, and neither does the song from before a skip still playing.
+    /// count, and neither does the song from before a skip, or before a Play
+    /// sent while it played, still playing. The logic wakes for each look,
+    /// and a failed look ends them.
     #[test]
     fn a_remote_start_gets_a_few_looks_a_second_apart() {
         let mut app = headless_app();
@@ -25663,6 +25687,8 @@ mod tests {
             due > Instant::now() + REMOTE_START_RECHECK / 2,
             "not at once"
         );
+        let wake = app.next_pass().expect("a pass is due");
+        assert!(wake <= REMOTE_START_RECHECK, "the logic wakes for it");
         assert!(
             answer(&mut app, before + 2, false).is_some(),
             "a third look"
@@ -25691,9 +25717,28 @@ mod tests {
         app.remote_poll_seq = before + 6;
         app.handle_api(ApiResponse::PlaybackState {
             seq: before + 6,
-            result: Ok(Some(skipped)),
+            result: Ok(Some(skipped.clone())),
         });
         assert_eq!(app.remote_recheck_at, None, "the next song plays");
+
+        // Play sent while a song plays starts another one.
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Play,
+            result: Ok(()),
+        });
+        app.remote_recheck_at = None;
+        app.remote_poll_seq = before + 7;
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: before + 7,
+            result: Ok(Some(skipped)),
+        });
+        assert!(app.remote_recheck_at.is_some(), "the song before Play");
+        app.remote_poll_seq = before + 8;
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: before + 8,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        assert_eq!(answer(&mut app, before + 9, false), None, "after a failure");
         app.backend.shutdown();
     }
 

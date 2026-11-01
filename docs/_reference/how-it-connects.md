@@ -162,9 +162,10 @@ for ten seconds after a command or a switch to another device, once more
 just after a song on another device should end, and as soon as this computer's
 player stops. Once another device accepts Play, Next or Previous, it is
 checked about a second later, and up to twice more a second apart while the
-song has yet to report playing (after a skip, while the song from before it
-still shows), so the progress clock starts without waiting for the next
-regular check. See
+song has yet to report playing (after a skip, or a Play that replaces the
+playing song, while the song from before still shows), so the progress clock
+starts without waiting for the next regular check. A failed check ends these
+extra checks. See
 [Make It Even Faster](/make-it-even-faster/#api-rate-limits).
 
 Since 0.8.0, a search runs as two requests when a
