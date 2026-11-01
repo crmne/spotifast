@@ -852,7 +852,8 @@ to 100% and confirms that level from playback state or a volume event.
 Subsequent volume-change events from Spotify update Spotifast's output fader,
 then restore the source to 100%. Reset echoes and state snapshots never
 replace the output fader. Windows capture only observes the direct output,
-so this volume policy is not applied there.
+so this volume policy is not applied there; the visualizer copy is divided by
+Soloist's own volume gain instead.
 
 Home's **Recommended for you** shelf uses the Web API recommendations endpoint.
 When that endpoint returns HTTP 403 or 404 and no recommendations have loaded,

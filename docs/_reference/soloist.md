@@ -201,9 +201,12 @@ its private Mac route has taken over the audible output. If Soloist does not
 confirm the full source level within five seconds, the player stops and offers
 retry in Settings.
 
-Windows capture still follows Soloist's volume: **zero stops the visualizers**.
-The tested WASAPI session and stream controls affect capture too, so they
-cannot supply a separate output fader. Windows 11's
+Windows capture comes after Soloist's volume, so Spotifast undoes Soloist's
+volume curve for the visualizers: they keep their level as the volume falls.
+A muted source sends no signal, so **zero still stops the visualizers**.
+Lowering Soloist in the Windows volume mixer also shrinks them, because
+Soloist does not report that level. The tested WASAPI session and stream
+controls affect capture too, so they cannot supply a separate output fader. Windows 11's
 [pre-volume loopback option](https://learn.microsoft.com/en-us/windows-hardware/drivers/audio/ksproperty-audioloopback)
 refers to endpoint volume, which affects other apps as well. Spotifast leaves
 that system control alone.
