@@ -348,13 +348,8 @@ impl Child {
         if self.presets.current().is_none() && self.presets.count() > 0 {
             self.presets.next(false);
         }
-        if let Some(hard) = live.engine.switch_wanted()
-            && !self.presets.locked
-        {
-            self.presets.next(hard);
-        }
+        self.presets.advance(Instant::now(), self.seconds);
         live.engine.set_seconds(self.seconds);
-        live.engine.set_locked(self.presets.locked);
         if let Some(Request::Load { path, smooth }) = self.presets.take_request() {
             live.engine.load(&path, smooth);
         }
