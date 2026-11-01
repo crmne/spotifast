@@ -609,3 +609,21 @@ fn sample_skins_run() {
         runtime.shut_down();
     }
 }
+
+#[test]
+fn a_tiled_edge_that_stretches_runs_to_the_far_side() {
+    let definition = format!(
+        r#"{VIEW}
+        <SUBVIEW id="edge" top="20" verticalAlignment="stretch" backgroundImage="tile.png" backgroundTiled="true"/>
+        <SUBVIEW id="plain" top="20" backgroundImage="tile.png" backgroundTiled="true"/>
+        </VIEW></THEME>"#
+    );
+    let runtime = start_with(
+        &definition,
+        vec![("tile.png", png(8, 5, |_, _| [9, 9, 9]))],
+        playing(),
+    );
+    let key = key_of(&runtime);
+    assert_eq!(runtime.read(key, "edge", "height"), 30.0);
+    assert_eq!(runtime.read(key, "plain", "height"), 5.0);
+}
