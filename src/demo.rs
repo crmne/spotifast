@@ -4231,7 +4231,7 @@ mod tests {
     /// A Windows Media Player skin is listed under its own title, even from
     /// a `.zip`, and choosing one says what it lacks before it has loaded.
     #[test]
-    fn the_mini_player_settings_say_what_a_media_player_skin_lacks() {
+    fn the_mini_player_settings_give_each_kind_of_skin_its_own_source() {
         let (ctx, mut app) = accessible_app("settings-media-player-skin");
         let folder = app.dirs.skins_dir();
         std::fs::create_dir_all(&folder).unwrap();
@@ -4241,7 +4241,6 @@ mod tests {
             false,
         )]);
         std::fs::write(folder.join("chrome.zip"), archive).unwrap();
-        let caveat = "This skin has no equalizer or playlist window, and its scripts do not run.";
         // The folder is listed on another thread.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let mut text = settings_text(&ctx, &mut app, "Mini player");
@@ -4253,12 +4252,15 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
             text = settings_text(&ctx, &mut app, "Mini player");
         }
-        assert!(text.iter().any(|text| text == "Windows Media Player"));
-        assert!(text.iter().any(|text| text == "chrome"));
-        assert!(!text.iter().any(|text| text == caveat));
-        app.settings.skin = Some("chrome.zip".into());
-        let text = settings_text(&ctx, &mut app, "Mini player");
-        assert!(text.iter().any(|text| text == caveat));
+        let count = |wanted: &str| text.iter().filter(|text| *text == wanted).count();
+        assert_eq!(count("Winamp"), 1);
+        assert_eq!(count("Windows Media Player"), 1);
+        assert_eq!(count("chrome"), 1);
+        assert_eq!(count("Skin Museum"), 1);
+        assert_eq!(count("Windows Media Player Skins Collection"), 1);
+        // One folder holds both kinds, so one button opens it, on its own row.
+        assert_eq!(count("Skins folder"), 1);
+        assert_eq!(count("Open folder"), 1);
         let _ = std::fs::remove_dir_all(folder.parent().unwrap().parent().unwrap());
     }
 

@@ -1879,14 +1879,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             filtered_row(ui, &palette, &needle, &mini_player, &mini_rows[7], |ui| {
-                if theme::soft_button(
-                    ui,
-                    &palette,
-                    Some(Icon::ExternalLink),
-                    &open_folder,
-                    false,
-                )
-                .clicked()
+                if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), &open_folder, false)
+                    .clicked()
                 {
                     app.actions.push(Action::OpenSkinsFolder);
                 }
