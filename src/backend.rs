@@ -760,6 +760,10 @@ pub enum Command {
     AuthorizePlayback,
     /// Reload the engine config (audio settings changed).
     RestartEngine(EngineConfig),
+    /// Remove cached audio on the disk worker, keeping the active cache's accounting.
+    ClearAudioCache,
+    /// The disk worker finished clearing cached audio.
+    AudioCacheClearFinished(Result<crate::storage::AudioCleared, crate::storage::ClearAudioError>),
     /// Rebuild the HTTP client. Restart local playback only when its HTTP
     /// proxy changed; Off, System, and SOCKS5 share a direct engine connection.
     ApplyProxy {
@@ -977,6 +981,7 @@ pub struct LyricsRequest {
 
 pub enum Event {
     Soloist(crate::soloist::Update),
+    AudioCacheCleared(Result<crate::storage::AudioCleared, crate::storage::ClearAudioError>),
     /// The folder picked in the local files dialog; `None` when cancelled.
     LocalFilesFolderChosen(Option<std::path::PathBuf>),
     /// The songs in `folder`, by the `spotify:local:` URIs they play for.
@@ -1360,6 +1365,7 @@ impl Backend {
             && !matches!(
                 command,
                 Command::Accent { .. }
+                    | Command::ClearAudioCache
                     | Command::Shutdown
                     | Command::CheckForUpdates { .. }
                     | Command::InspectUpdate
@@ -1895,6 +1901,8 @@ struct Worker {
     /// True while a playback grant or engine connection is in flight, so a
     /// second attempt does not pile up.
     engine_busy: bool,
+    /// Cached audio is being cleared on the disk worker.
+    audio_cache_clearing: bool,
     search_tasks: Vec<tokio::task::AbortHandle>,
     /// A user changed engine-affecting settings while the current connection
     /// attempt was in flight. Its result is stale and must not be installed.
@@ -2007,6 +2015,7 @@ impl Worker {
             radio_waiting: BTreeMap::new(),
             prerelease_waiting: None,
             engine_busy: false,
+            audio_cache_clearing: false,
             search_tasks: Vec::new(),
             engine_restart_pending: false,
             signed_in: false,
@@ -2419,6 +2428,13 @@ impl Worker {
                     config.proxy = self.engine_config.proxy.clone();
                     self.engine_config = config;
                     self.replace_engine();
+                }
+                Command::ClearAudioCache => self.start_audio_cache_clear(),
+                Command::AudioCacheClearFinished(result) => {
+                    self.audio_cache_clearing = false;
+                    self.emit(Event::AudioCacheCleared(result));
+                    // A connection asked for during the clear waited for it.
+                    self.resume_engine();
                 }
                 Command::ApplyProxy { request, config } => self.change_proxy(request, config, None),
                 Command::Player(command) => {
@@ -3622,6 +3638,51 @@ impl Worker {
         self.resume_engine();
     }
 
+    /// Starts clearing cached audio on the disk worker and goes back to the
+    /// commands: a slow disk must not hold up the player. A new engine opens
+    /// a cache of its own, so `connect_engine` waits for the clear to finish.
+    fn start_audio_cache_clear(&mut self) {
+        if self.audio_cache_clearing {
+            return;
+        }
+        // A connecting engine has a cache of its own that this worker cannot
+        // yet reach. A carried player can still be using its former session's
+        // cache. Wait until there is one owner whose accounting we can update.
+        if self.engine_busy
+            || self.kept_player.is_some()
+            || self.engine.as_ref().is_some_and(|engine| engine.carrying())
+        {
+            self.emit(Event::AudioCacheCleared(Err(
+                crate::storage::ClearAudioError::Reconnecting,
+            )));
+            return;
+        }
+        let cache = self.engine.as_ref().and_then(|engine| {
+            engine
+                .session()
+                .cache()
+                .filter(|cache| {
+                    cache
+                        .file_path(librespot_core::file_id::FileId::from_raw(&[0; 20]))
+                        .is_some()
+                })
+                .cloned()
+        });
+        let root = self.dirs.audio_cache_dir();
+        let commands = self.commands.clone();
+        self.audio_cache_clearing = true;
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                crate::storage::clear_audio(&root, cache.as_deref())
+            })
+            .await
+            .unwrap_or_else(|error| {
+                Err(crate::storage::ClearAudioError::Failed(error.to_string()))
+            });
+            let _ = commands.send(Command::AudioCacheClearFinished(result));
+        });
+    }
+
     /// Reconnect the engine after its session dropped on its own. Whatever
     /// was playing comes back at the same spot on the new session, so a
     /// dropped connection is a pause of a few seconds rather than silence.
@@ -3888,6 +3949,14 @@ impl Worker {
             return;
         }
         self.pending_playback_grant = Some(credentials.clone());
+        if self.audio_cache_clearing {
+            // The cache a new engine opens counts what is on disk, so it
+            // waits for the clear; finishing resumes from the pending grant.
+            if !self.engine_retry_quiet {
+                self.emit(Event::Playback(LocalPlayback::Connecting));
+            }
+            return;
+        }
         self.cancel_signin = None;
         self.engine_busy = true;
         self.engine_attempt = self.engine_attempt.wrapping_add(1);
@@ -8611,6 +8680,46 @@ mod authorization_tests {
             event, Event::Api(response) if matches!(response.as_ref(),
                 ApiResponse::MadeForYou { top_mixes: Ok(mixes), .. } if mixes.len() == 1)
         )));
+    }
+
+    #[test]
+    fn audio_cache_clear_works_without_sign_in_and_waits_for_reconnection() {
+        let (runtime, mut worker, _) = worker("audio-clear");
+        let (send, mut commands) = tokio::sync::mpsc::unbounded_channel();
+        worker.commands = send;
+        let root = worker.dirs.audio_cache_dir();
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        std::fs::write(root.join("nested/track"), [0; 27]).unwrap();
+        worker.engine_busy = true;
+        worker.start_audio_cache_clear();
+        assert!(!worker.audio_cache_clearing);
+        assert!(root.join("nested/track").exists());
+        worker.engine_busy = false;
+        {
+            let _entered = runtime.enter();
+            worker.start_audio_cache_clear();
+        }
+        // The command loop is free again before the disk work has finished,
+        // and a second request does not start a second clear.
+        assert!(worker.audio_cache_clearing);
+        worker.start_audio_cache_clear();
+        let Some(Command::AudioCacheClearFinished(result)) = runtime.block_on(commands.recv())
+        else {
+            panic!("expected the clear's answer");
+        };
+        assert_eq!(result.unwrap().bytes, 27);
+        assert!(commands.try_recv().is_err(), "one clear, one answer");
+        assert!(!worker.signed_in);
+        assert!(!root.join("nested/track").exists());
+    }
+
+    #[test]
+    fn a_connection_waits_for_the_audio_clear_and_keeps_its_grant() {
+        let (_runtime, mut worker, _) = worker("audio-clear-connect");
+        worker.audio_cache_clearing = true;
+        worker.connect_engine(Credentials::with_password("alice", "grant"));
+        assert!(!worker.engine_busy);
+        assert!(worker.pending_playback_grant.is_some());
     }
 
     pub(super) fn worker(

@@ -53,6 +53,7 @@ pub mod sink;
 pub mod skin;
 pub mod soloist;
 pub mod sonos;
+mod storage;
 pub mod system_fonts;
 pub mod theme;
 pub mod thumbbar;
