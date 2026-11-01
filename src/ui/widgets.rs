@@ -3509,6 +3509,21 @@ pub fn setting_row(
     setting_row_sized(ui, palette, label, description, 0.0, control);
 }
 
+/// A settings row that only says something: with nothing to lay out beside
+/// or under the text, a narrow window leaves no gap where a control would go.
+pub fn setting_note(ui: &mut Ui, palette: &Palette, label: &str, description: &str) {
+    theme::text(ui, label, theme::medium(14.0), palette.text);
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(description)
+                .font(theme::regular(12.5))
+                .color(palette.secondary),
+        )
+        .wrap(),
+    );
+    ui.add_space(10.0);
+}
+
 /// A settings row whose control needs `control_width` points, such as a
 /// row of choices. Its text wraps before a control wider than usual, and
 /// in a window too narrow for both, any control goes on its own line below

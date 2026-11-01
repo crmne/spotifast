@@ -1197,19 +1197,45 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "soloist-onboarding" => {
                 app.soloist_onboarding = crate::settings::SoloistOnboarding::Setup;
             }
+            "soloist-settled" => app.soloist_settled = true,
+            "soloist-optional" => app.soloist_setup_optional = true,
+            "soloist-home" => app.open(Page::Home),
+            // Past the waits that change what a step says.
+            "soloist-slow" => {
+                let long_ago = std::time::Duration::from_secs(120);
+                if let Some(past) = std::time::Instant::now().checked_sub(long_ago) {
+                    app.soloist_status_at = past;
+                }
+            }
             "soloist-setup"
+            | "soloist-starting"
             | "soloist-downloading"
+            | "soloist-download-unknown"
             | "soloist-pairing"
             | "soloist-ready"
             | "soloist-verifying"
             | "soloist-playing"
+            | "soloist-needs-key"
+            | "soloist-reconnecting"
             | "soloist-error" => {
-                use crate::soloist::Status;
+                use crate::soloist::{Failure, Status};
                 if surface != "soloist-playing" {
                     app.open(Page::Settings);
                 }
                 app.settings.soloist_enabled = surface != "soloist-setup";
+                app.soloist_settled = surface != "soloist-verifying";
                 app.soloist_status = match surface {
+                    "soloist-starting" => Status::Starting,
+                    "soloist-needs-key" => Status::NeedsKey,
+                    "soloist-download-unknown" => Status::Downloading {
+                        received: 0,
+                        total: 0,
+                    },
+                    "soloist-reconnecting" => {
+                        app.soloist_retry_at =
+                            Some(std::time::Instant::now() + std::time::Duration::from_secs(3600));
+                        Status::Failed(Failure::Stopped)
+                    }
                     "soloist-downloading" => Status::Downloading {
                         received: 8_000_000,
                         total: 14_000_000,
@@ -1247,7 +1273,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                                 + 75 * crate::soloist::install::DAY,
                         }
                     }
-                    "soloist-error" => Status::Failed(crate::soloist::Failure::NotReady),
+                    "soloist-error" => Status::Failed(Failure::NotReady),
                     _ => Status::Off,
                 };
             }
@@ -8567,8 +8593,16 @@ mod tests {
         app.settings.audio_cache_mb = 4096;
         for enabled in [true, false] {
             app.settings.soloist_enabled = enabled;
+            // Soloist has an Audio quality row of its own, so this looks for
+            // the built-in one by what it says.
+            let text = settings_text(&ctx, &mut app, "Audio quality");
+            assert_eq!(
+                text.iter()
+                    .any(|label| label == "Higher bitrates use more data and cache space."),
+                !enabled,
+                "{text:?}"
+            );
             for title in [
-                "Audio quality",
                 "Normalize volume",
                 "Autoplay",
                 "Gapless playback",
@@ -8644,12 +8678,7 @@ mod tests {
                 "{title}: {text:?}"
             );
         }
-        for title in [
-            "Audio quality",
-            "Normalize volume",
-            "Local files",
-            "Audio cache",
-        ] {
+        for title in ["Normalize volume", "Local files", "Audio cache"] {
             let text = settings_text(&ctx, &mut app, title);
             assert_eq!(
                 text.iter().filter(|label| *label == title).count(),
@@ -8813,8 +8842,10 @@ mod tests {
         app.backend.set_offline(true);
         apply_flags(&mut app, None, Some("soloist-ready"));
         let text = settings_text(&ctx, &mut app, "Spotify Soloist");
-        assert!(text.iter().any(|s| s == "Enabled on this computer"));
-        assert!(text.iter().any(|s| s.contains("Version 1.3.10")));
+        assert!(text.iter().any(|s| s == "Ready on this computer."));
+        assert!(text.iter().any(|s| s.starts_with("1.3.10, good until")));
+        assert!(text.iter().any(|s| s == "Audio quality"));
+        assert!(text.iter().any(|s| s == "Spotify access"));
         assert!(
             !text
                 .iter()
@@ -8822,7 +8853,7 @@ mod tests {
         );
         assert!(text.iter().any(|s| s == "Setup, privacy and limitations"));
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let off = accessible_node(&tree, "Turn off Soloist", Role::Button);
+        let off = accessible_node(&tree, "Turn off", Role::Button);
         accessible_frame(
             &ctx,
             &mut app,
@@ -8874,8 +8905,7 @@ mod tests {
 
     #[cfg(feature = "demo")]
     #[test]
-    fn soloist_verification_uses_the_sign_in_loading_screen_and_opens_setup() {
-        use egui::accesskit::{Action as AccessibleAction, Role};
+    fn soloist_verification_uses_the_sign_in_loading_screen() {
         let (ctx, mut app) = accessible_app("soloist-verifying");
         app.backend.set_offline(true);
         apply_flags(&mut app, None, Some("soloist-verifying"));
@@ -8901,17 +8931,17 @@ mod tests {
                 .iter()
                 .any(|(_, node)| node.label() == Some("Next"))
         );
-        let status = accessible_node(&tree, "Set up Soloist", Role::Link);
-        accessible_frame(
-            &ctx,
-            &mut app,
-            vec![accessible_action(status, AccessibleAction::Click, None)],
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Set up Soloist")),
+            "waiting is no way into setup, which a saved session would remember"
         );
         assert_eq!(
             app.soloist_onboarding,
-            crate::settings::SoloistOnboarding::Setup
+            crate::settings::SoloistOnboarding::Complete
         );
-        assert!(app.soloist_waiting());
         app.backend.shutdown();
     }
 
@@ -8960,10 +8990,20 @@ mod tests {
             return;
         }
         for light in [false, true] {
-            for size in [egui::vec2(760.0, 520.0), egui::vec2(1240.0, 800.0)] {
-                for (flag, waiting) in [
-                    ("soloist-pairing", "Waiting for Spotify…"),
-                    ("soloist-verifying", "Verifying Soloist…"),
+            for size in [egui::vec2(760.0, 720.0), egui::vec2(1240.0, 800.0)] {
+                for (flag, title, instruction, waiting) in [
+                    (
+                        "soloist-pairing",
+                        "Choose Soloist in Spotify",
+                        "Open its list of devices and choose:",
+                        "Waiting for Spotify…",
+                    ),
+                    (
+                        "soloist-verifying",
+                        "Almost there",
+                        "Soloist is connected. Spotify is confirming it's on your account.",
+                        "Verifying Soloist…",
+                    ),
                 ] {
                     let (ctx, mut app) = accessible_app("soloist-pairing-hierarchy");
                     app.backend.set_offline(true);
@@ -8985,20 +9025,15 @@ mod tests {
                             .unwrap_or_else(|| panic!("missing {label}: {text:?}"))
                             .1
                     };
-                    let title = bounds("Connect in Spotify");
-                    let instruction = bounds(
-                        "Open Spotify with the same account and network.\nIn its device picker, choose:",
-                    );
+                    let title = bounds(title);
+                    let instruction = bounds(instruction);
                     let device = bounds("Spotifast Soloist (12345678)");
                     let status = bounds(waiting);
                     let fallback = bounds("Use the built-in player");
                     assert!(title.bottom() < instruction.top());
                     assert!(instruction.bottom() < device.top());
                     assert!(device.bottom() < status.top());
-                    assert!(
-                        status.bottom() + 28.0 < fallback.top(),
-                        "fallback outside card"
-                    );
+                    assert!(status.bottom() < fallback.top(), "fallback outside card");
                     for rect in [title, instruction, device, status, fallback] {
                         assert!(
                             rect.left() >= 0.0
@@ -9008,10 +9043,8 @@ mod tests {
                             "{rect:?} in {size:?}"
                         );
                     }
-                    assert!(title.height() > instruction.height() / 2.0);
                     for unwanted in [
                         "Listen with Spotify Soloist",
-                        "Spotify's official player for listening outside the Spotify app.",
                         "Setup, privacy and limitations",
                         "Spotify manages audio quality.",
                         "Start listening",
@@ -9125,7 +9158,7 @@ mod tests {
         app.backend.set_offline(true);
         app.open(Page::Settings);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let button = accessible_node(&tree, "Enable with saved key", Role::Button);
+        let button = accessible_node(&tree, "Set up Soloist", Role::Button);
         accessible_frame(
             &ctx,
             &mut app,
@@ -9137,7 +9170,125 @@ mod tests {
             app.soloist_status,
             crate::soloist::Status::Starting
         ));
+        assert_eq!(app.soloist_view(), crate::app::SoloistView::Setup);
         app.backend.shutdown();
+    }
+
+    /// Someone who finished setup keeps the app when Soloist stops, with the
+    /// message and one way forward over it, and no key field (the page this
+    /// used to be).
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_stopped_soloist_offers_try_again_over_the_app() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("soloist-stopped-banner");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-error,soloist-home"));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(app.soloist_view(), crate::app::SoloistView::App);
+        accessible_node(&tree, "Home", Role::Button);
+        accessible_node(&tree, "Use the built-in player", Role::Button);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Download Soloist"))
+        );
+        let retry = accessible_node(&tree, "Try again", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(retry, AccessibleAction::Click, None)],
+        );
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Starting
+        ));
+        app.backend.shutdown();
+    }
+
+    /// While Spotifast restarts the player there is nothing to press.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_reconnecting_soloist_asks_for_nothing() {
+        let (ctx, mut app) = accessible_app("soloist-reconnecting-banner");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-reconnecting,soloist-home"));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Try again"))
+        );
+        let text = view_frame_sized(
+            &ctx,
+            &mut app,
+            vec![],
+            App::frame_ui,
+            egui::vec2(1180.0, 800.0),
+        );
+        assert!(text.iter().any(|(s, _)| s == "Reconnecting Soloist…"));
+        app.backend.shutdown();
+    }
+
+    /// Setup says how far along it is, and a key that cannot be one never
+    /// gets as far as the button (#1137 thought that button was dead).
+    #[cfg(feature = "demo")]
+    #[test]
+    fn soloist_setup_shows_its_step_and_guards_the_key() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("soloist-key-step");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-onboarding,soloist-setup"));
+        let size = egui::vec2(640.0, 800.0);
+        for key in ["", "has a space"] {
+            app.soloist_key = key.into();
+            view_frame_sized(&ctx, &mut app, vec![], App::frame_ui, size);
+            let text = view_frame_sized(&ctx, &mut app, vec![], App::frame_ui, size);
+            assert!(text.iter().any(|(s, _)| s == "Step 1 of 3"));
+            assert_eq!(
+                text.iter()
+                    .any(|(s, _)| s == "That doesn't look like a Soloist key."),
+                !key.is_empty(),
+            );
+        }
+        app.backend.shutdown();
+    }
+
+    /// Long translations stay inside the card at the narrowest window.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn soloist_setup_fits_narrow_windows_in_every_language() {
+        use clap::ValueEnum;
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        for &locale in crate::i18n::Locale::value_variants() {
+            for flag in ["soloist-welcome", "soloist-pairing", "soloist-error"] {
+                let (ctx, mut app) = accessible_app("soloist-narrow");
+                app.backend.set_offline(true);
+                apply_flags(&mut app, None, Some(&format!("soloist-onboarding,{flag}")));
+                app.locale = locale;
+                let size = egui::vec2(640.0, 800.0);
+                view_frame_sized(&ctx, &mut app, vec![], App::frame_ui, size);
+                let text = view_frame_sized(&ctx, &mut app, vec![], App::frame_ui, size);
+                for (label, rect) in &text {
+                    assert!(
+                        rect.left() >= 0.0 && rect.right() <= size.x,
+                        "{locale:?} {flag}: {label} at {rect:?}"
+                    );
+                }
+                app.backend.shutdown();
+            }
+        }
     }
 
     #[test]

@@ -338,7 +338,10 @@ fn sign_in_column(app: &mut App, ui: &mut egui::Ui, connecting: bool, beside: Op
             }
         }
     }
-    let soloist = app.is_connected() && app.soloist_waiting();
+    // Waiting for Soloist is brief, and the app opens by itself if it isn't.
+    if app.is_connected() && app.soloist_waiting() {
+        return;
+    }
     let proxy_id = egui::Id::new("login-proxy-open");
     let mut proxy_open = ui
         .data(|data| data.get_temp::<bool>(proxy_id))
@@ -348,26 +351,18 @@ fn sign_in_column(app: &mut App, ui: &mut egui::Ui, connecting: bool, beside: Op
         ui.with_layout(Layout::top_down(Align::Center), |ui| {
             if theme::link(
                 ui,
-                if soloist {
-                    gettext(locale, "Set up Soloist")
-                } else {
-                    gettext(locale, "Proxy Settings")
-                },
+                gettext(locale, "Proxy Settings"),
                 theme::regular(13.0),
                 palette.secondary,
             )
             .clicked()
             {
-                if soloist {
-                    app.actions.push(Action::StartSoloistSetup);
-                } else {
-                    proxy_open = !proxy_open;
-                }
+                proxy_open = !proxy_open;
             }
         });
     });
     ui.add_space(4.0);
-    if proxy_open && !soloist {
+    if proxy_open {
         proxy_fields(ui, app);
     }
     ui.data_mut(|data| data.insert_temp(proxy_id, proxy_open));
@@ -414,8 +409,8 @@ fn client_id_field(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// One numbered step of setting up an app.
-fn step(
+/// One numbered step of a setup.
+pub(super) fn step(
     ui: &mut egui::Ui,
     palette: &theme::Palette,
     number: usize,
@@ -657,17 +652,34 @@ fn proxy_fields(ui: &mut egui::Ui, app: &mut App) {
     }
 }
 
-fn big_button(ui: &mut egui::Ui, app: &App, label: &str) -> bool {
+pub(super) fn big_button(ui: &mut egui::Ui, app: &App, label: &str) -> bool {
+    big_button_painted(ui, app, label, false)
+}
+
+/// `big_button` whose label stays readable while it is disabled.
+pub(super) fn step_button(ui: &mut egui::Ui, app: &App, label: &str) -> bool {
+    big_button_painted(ui, app, label, true)
+}
+
+fn big_button_painted(ui: &mut egui::Ui, app: &App, label: &str, readable: bool) -> bool {
     let palette = app.palette;
-    let galley =
-        ui.painter()
-            .layout_no_wrap(label.to_string(), theme::bold(15.0), palette.on_accent);
+    let muted = readable && !ui.is_enabled();
+    let color = if muted {
+        palette.secondary
+    } else {
+        palette.on_accent
+    };
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), theme::bold(15.0), color);
     let size = Vec2::new(ui.available_width().min(300.0), 46.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
-    let fill = if !ui.is_enabled() {
+    let fill = if muted {
+        palette.surface_active
+    } else if !ui.is_enabled() {
         palette.accent.gamma_multiply(0.45)
     } else if response.hovered() {
         palette.accent_hover
@@ -675,11 +687,9 @@ fn big_button(ui: &mut egui::Ui, app: &App, label: &str) -> bool {
         palette.accent
     };
     ui.painter().rect_filled(rect, 23.0, fill);
-    ui.painter().galley(
-        rect.center() - galley.size() / 2.0,
-        galley,
-        palette.on_accent,
-    );
+    ui.painter()
+        .galley(rect.center() - galley.size() / 2.0, galley, color);
+    theme::focus_ring(ui, &response);
     response.clicked()
 }
 

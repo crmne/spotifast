@@ -29,14 +29,14 @@ pub(crate) fn row_matches(needle: &str, title: &str, description: &str) -> bool 
 
 /// Text shared by section selection and the rendered row. Conditional rows
 /// participate only on the platforms and account states where they exist.
-struct RowText<'a> {
+pub(super) struct RowText<'a> {
     title: std::borrow::Cow<'a, str>,
     description: std::borrow::Cow<'a, str>,
     available: bool,
 }
 
 impl<'a> RowText<'a> {
-    fn new(
+    pub(super) fn new(
         title: impl Into<std::borrow::Cow<'a, str>>,
         description: impl Into<std::borrow::Cow<'a, str>>,
     ) -> Self {
@@ -47,7 +47,7 @@ impl<'a> RowText<'a> {
         }
     }
 
-    fn when(mut self, available: bool) -> Self {
+    pub(super) fn when(mut self, available: bool) -> Self {
         self.available = available;
         self
     }
@@ -137,7 +137,7 @@ fn section_matches(needle: &str, title: &str, rows: &[RowText<'_>]) -> bool {
     rows.iter().any(|row| row.matches(&needle, title))
 }
 
-fn filtered_row(
+pub(super) fn filtered_row(
     ui: &mut egui::Ui,
     palette: &Palette,
     needle: &str,
@@ -147,6 +147,19 @@ fn filtered_row(
 ) {
     if row.matches(needle, section) {
         widgets::setting_row(ui, palette, &row.title, &row.description, control);
+    }
+}
+
+/// `filtered_row` for a row with no control.
+pub(super) fn filtered_note(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    needle: &str,
+    section: &str,
+    row: &RowText<'_>,
+) {
+    if row.matches(needle, section) {
+        widgets::setting_note(ui, palette, &row.title, &row.description);
     }
 }
 
@@ -479,13 +492,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let mut changed = false;
     let mut any_visible = false;
     let soloist = gettext(locale, "Spotify Soloist");
-    if row_matches(
+    let soloist_rows = super::soloist::rows(app);
+    let soloist_keywords = row_matches(
         &needle,
         &soloist,
         &gettext(locale, "Playback lossless setup key download updates"),
-    ) {
+    );
+    if soloist_keywords || section_matches(&needle, &soloist, &soloist_rows) {
         any_visible = true;
-        section(ui, &palette, &soloist, |ui| super::soloist::show(app, ui));
+        // A word only the section knows shows it whole.
+        let rows_needle = if soloist_keywords {
+            ""
+        } else {
+            needle.as_str()
+        };
+        section(ui, &palette, &soloist, |ui| {
+            super::soloist::settings(app, ui, rows_needle, &soloist, &soloist_rows);
+        });
     }
 
     let open_folder = gettext(locale, "Open folder");
@@ -549,14 +572,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         )
         .when(!in_use && wanted.is_some()),
         RowText::new(sign_out.clone(), account.clone()),
-        RowText::new(
-            gettext(locale, "Spotify access"),
-            gettext(
-                locale,
-                "Made for you, listening activity and Spotify lyrics.",
-            ),
-        )
-        .when(app.settings.soloist_enabled),
     ];
     if section_matches(&needle, &account, &account_rows) {
         any_visible = true;
@@ -676,9 +691,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     }
                 });
             }
-            filtered_row(ui, &palette, &needle, &account, &account_rows[5], |ui| {
-                spotify_access_control(app, ui);
-            });
         });
     }
 
