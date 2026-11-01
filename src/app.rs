@@ -5935,6 +5935,7 @@ impl App {
                 }
             }
             Page::Playlist(id) => {
+                self.report_lagging_snapshot(&id);
                 if self.playlist_pages.get(&id).is_some_and(|page| {
                     page.pending_writes > 0
                         || page.optimistic_snapshot.is_some()
@@ -6015,9 +6016,30 @@ impl App {
         }
     }
 
+    /// Scrolling for rows that can't be read until Spotify's snapshot catches
+    /// up, after the rechecks gave up, says so rather than just stopping.
+    fn report_lagging_snapshot(&mut self, id: &str) {
+        let locale = self.locale;
+        if let Some(page) = self.playlist_pages.get_mut(id)
+            && page.optimistic_snapshot.is_some()
+            && page.pending_writes == 0
+            && page.snapshot_rechecks > 3
+            && page.items.error.is_none()
+        {
+            page.items.fail(
+                gettext(
+                    locale,
+                    "Spotify hasn't confirmed your playlist changes yet. Try refreshing again.",
+                )
+                .into_owned(),
+            );
+        }
+    }
+
     fn load_window(&mut self, page: Page, position: u32) {
         match page {
             Page::Playlist(id) => {
+                self.report_lagging_snapshot(&id);
                 let Some(page) = self.playlist_pages.get_mut(&id) else {
                     return;
                 };
@@ -27255,6 +27277,17 @@ mod tests {
             app.handle_api(metadata("written"));
             assert_eq!(app.backend.take_playlist_item_requests().len(), 1);
         }
+    }
+
+    #[test]
+    fn scrolling_past_a_snapshot_that_never_caught_up_says_why_it_stopped() {
+        let mut app = headless_app();
+        let id = "lagging";
+        let page = app.playlist_pages.entry(id.to_string()).or_default();
+        page.optimistic_snapshot = Some("written".into());
+        page.snapshot_rechecks = 4;
+        app.load_more(Page::Playlist(id.into()));
+        assert!(app.playlist_pages[id].items.error.is_some());
     }
 
     #[test]
