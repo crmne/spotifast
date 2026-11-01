@@ -1828,7 +1828,7 @@ impl App {
         }
     }
 
-    fn library_entry(&self, id: &str) -> Option<&Playlist> {
+    pub(crate) fn library_entry(&self, id: &str) -> Option<&Playlist> {
         self.library
             .playlists
             .get()?
@@ -11906,6 +11906,19 @@ impl App {
                 queue.queue.insert(at, item);
             }
         }
+    }
+
+    /// Whether the rows held locally show the playlist holding `uri`.
+    pub(crate) fn playlist_holds(&self, id: &str, uri: &str) -> bool {
+        self.playlist_pages.get(id).is_some_and(|page| {
+            page.local_additions.contains(uri)
+                || page
+                    .items
+                    .items
+                    .iter()
+                    .filter_map(PlaylistItem::playable)
+                    .any(|item| item.uri() == uri)
+        })
     }
 
     /// Answer from the rows already held locally. A found duplicate is

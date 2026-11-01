@@ -2783,8 +2783,9 @@ mod tests {
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 accessible_node(&tree, &gettext(locale, next), Role::Button);
             }
-            // A liked song's heart opens Add to playlist, whose Remove from
-            // Liked Songs unlikes it; the heart then likes it at once (#792).
+            // A liked song's heart opens a checklist where unchecking Liked
+            // Songs and choosing Done unlikes it; the heart then likes it at
+            // once (#792).
             let click = |ctx: &egui::Context, app: &mut App, label: &'static str| {
                 let tree = accessible_frame(ctx, app, vec![]);
                 let button = accessible_node(&tree, &gettext(locale, label), Role::Button);
@@ -2802,7 +2803,14 @@ mod tests {
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             accessible_node(&tree, &gettext(locale, "Filter playlists"), Role::TextInput);
             assert_eq!(app.is_saved(&now), Some(true), "opening it keeps the like");
-            click(&ctx, &mut app, "Remove from Liked Songs");
+            let liked = accessible_node(&tree, &gettext(locale, "Liked Songs"), Role::CheckBox);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(liked, AccessibleAction::Click, None)],
+            );
+            assert_eq!(app.is_saved(&now), Some(true), "a check waits for Done");
+            click(&ctx, &mut app, "Done");
             assert_eq!(app.is_saved(&now), Some(false));
             click(&ctx, &mut app, "Save to Liked Songs");
             assert_eq!(app.is_saved(&now), Some(true));
@@ -5626,7 +5634,8 @@ mod tests {
                         ..Default::default()
                     },
                     |ui| {
-                        let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                        let field =
+                            crate::ui::widgets::playlist_picker(ui, app, &items, query, None);
                         if focus {
                             field.request_focus();
                         }
@@ -5726,7 +5735,7 @@ mod tests {
                     ..Default::default()
                 },
                 |ui| {
-                    let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                    let field = crate::ui::widgets::playlist_picker(ui, app, &items, query, None);
                     if focus {
                         field.request_focus();
                     }
@@ -5808,6 +5817,95 @@ mod tests {
 
         // #then nothing is chosen for the listener
         assert_eq!(added(&app), None);
+        app.backend.shutdown();
+    }
+
+    /// In the heart's checklist a click checks a playlist instead of adding
+    /// to it, a playlist holding the song starts checked, and Done adds to
+    /// the newly checked and takes the song out of the unchecked.
+    #[test]
+    fn the_heart_checklist_adds_and_removes_only_on_done() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+
+        let (ctx, mut app) = accessible_app("playlist-checklist");
+        app.backend.set_offline(true);
+        let owner = app.user_id().unwrap().to_string();
+        let make = |id: &str, name: &str| Playlist {
+            id: id.into(),
+            uri: format!("spotify:playlist:{id}"),
+            name: name.into(),
+            owner: crate::api::models::Owner {
+                id: Some(owner.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.library.playlists =
+            Loadable::Loaded(vec![make("drive", "Night drive"), make("day", "Daylight")]);
+        let item = PlayableItem::Track(track(0));
+        app.playlist_pages.insert(
+            "day".into(),
+            PlaylistPage {
+                local_additions: [item.uri().to_string()].into(),
+                ..PlaylistPage::default()
+            },
+        );
+        let items = vec![item.clone()];
+        let mut checks = crate::ui::widgets::PlaylistChecks::new(&app, item.uri());
+        let mut query = String::new();
+        let mut draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::widgets::playlist_picker(
+                        ui,
+                        app,
+                        &items,
+                        &mut query,
+                        Some(&mut checks),
+                    );
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        let tree = draw(&mut app, vec![]);
+        let checked = |tree: &egui::accesskit::TreeUpdate, name: &str| {
+            let id = accessible_node(tree, name, Role::CheckBox);
+            let node = &tree.nodes.iter().find(|(node, _)| *node == id).unwrap().1;
+            node.toggled() == Some(egui::accesskit::Toggled::True)
+        };
+        assert!(checked(&tree, "Liked Songs"));
+        assert!(checked(&tree, "Daylight"), "it holds the song");
+        assert!(!checked(&tree, "Night drive"));
+
+        for name in ["Night drive", "Daylight"] {
+            let row = accessible_node(&tree, name, Role::CheckBox);
+            draw(
+                &mut app,
+                vec![accessible_action(row, AccessibleAction::Click, None)],
+            );
+        }
+        let tree = draw(&mut app, vec![]);
+        assert!(checked(&tree, "Night drive"));
+        assert!(!checked(&tree, "Daylight"));
+        assert!(app.actions.is_empty(), "nothing changes before Done");
+
+        let changes = checks.changes(&app, &item);
+        assert!(matches!(
+            changes.as_slice(),
+            [
+                crate::model::Action::AddToPlaylist { playlist_id: added, .. },
+                crate::model::Action::RemoveFromPlaylist { playlist_id: removed, uris, .. },
+            ] if added == "drive" && removed == "day" && uris == &[item.uri().to_string()]
+        ));
         app.backend.shutdown();
     }
 
