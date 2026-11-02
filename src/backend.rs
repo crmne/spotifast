@@ -2474,6 +2474,9 @@ impl Worker {
                 }
                 Command::Api(ApiRequest::Search { query, serial }) => self.search(query, serial),
                 Command::Api(request) => {
+                    if let ApiRequest::PlaybackState { seq } = &request {
+                        self.connect.poll_sent(*seq, self.cluster_playing());
+                    }
                     self.dispatch(request);
                 }
                 Command::ApiFinished {

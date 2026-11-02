@@ -44,6 +44,9 @@ struct Known {
     /// The device Spotify last reported as playing, when it is restricted.
     active_restricted: Option<String>,
     playback_seq: Option<u64>,
+    /// The device the Connect cluster named as playing when each playback
+    /// poll still unanswered went out.
+    polls_sent: HashMap<u64, Option<String>>,
 }
 
 /// Receiver identities and queue writes belong to one signed-in backend.
@@ -99,15 +102,28 @@ impl Controller {
         self.known().restricted.insert(device_id.to_string());
     }
 
+    /// Notes the device Spotify's Connect cluster names as playing as a
+    /// playback poll goes out.
+    pub fn poll_sent(&self, seq: u64, playing: Option<String>) {
+        self.known().polls_sent.insert(seq, playing);
+    }
+
     /// Updates the active restricted device, ignoring older playback polls.
     /// The Web API reports a Sonos without its id, so `playing`, the device
-    /// Spotify's Connect cluster names as playing, stands in for a missing one.
+    /// Spotify's Connect cluster names as playing, stands in for a missing
+    /// one if the cluster named it as the poll went out too.
     pub fn observe_playing(&self, seq: u64, device: Option<&Device>, playing: Option<String>) {
         let mut known = self.known();
+        // A failed poll's entry goes with the next answer.
+        let sent_with = known.polls_sent.remove(&seq).flatten();
+        known.polls_sent.retain(|&sent, _| sent > seq);
         if known.playback_seq.is_some_and(|latest| seq < latest) {
             return;
         }
         known.playback_seq = Some(seq);
+        // Playback may have moved while the poll was out, and its answer
+        // then describes another device than the cluster names now.
+        let playing = playing.filter(|now| sent_with.as_ref() == Some(now));
         // Spotify does not always flag a Sonos as restricted, and a device
         // without an id cannot be named in a Web API command either.
         known.active_restricted = device
@@ -456,6 +472,7 @@ mod tests {
         };
         controller.observe_playing(1, Some(&sonos), None);
         assert_eq!(controller.command_target(None, None), None);
+        controller.poll_sent(2, Some("d0c4".into()));
         controller.observe_playing(2, Some(&sonos), Some("d0c4".into()));
         assert_eq!(
             controller.command_target(None, Some("d0c4")).as_deref(),
@@ -474,12 +491,21 @@ mod tests {
             Some("d0c4")
         );
 
+        // Playback moved to the phone while a poll was out. Its answer still
+        // names the Sonos, which the phone does not stand in for.
+        let controller = Controller::default();
+        controller.poll_sent(1, Some("d0c4".into()));
+        controller.observe_playing(1, Some(&sonos), Some("phone".into()));
+        assert_eq!(controller.command_target(None, None), None);
+        assert_eq!(controller.command_target(None, Some("phone")), None);
+
         // Reported without an id but not flagged as restricted.
         let controller = Controller::default();
         let unflagged = Device {
             is_restricted: false,
             ..sonos
         };
+        controller.poll_sent(1, Some("d0c4".into()));
         controller.observe_playing(1, Some(&unflagged), Some("d0c4".into()));
         assert_eq!(
             controller.command_target(None, None).as_deref(),
