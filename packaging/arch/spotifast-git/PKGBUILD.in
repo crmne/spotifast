@@ -12,6 +12,8 @@ depends=('dbus' 'alsa-lib' 'libpipewire' 'libglvnd' 'libxkbcommon' 'wayland' 'li
 # that build, and clang carries the libclang bindgen reads its headers
 # with. Build with --no-default-features to leave the visualiser out.
 makedepends=('git' 'cargo' 'cmake' 'clang')
+# The test suite uses ps where it cannot read a process any other way.
+checkdepends=('procps-ng')
 optdepends=('libxkbcommon-x11: keyboard handling in X11 sessions'
             'pipewire-pulse: PipeWire as the PulseAudio server')
 provides=("spotifast=$pkgver")
@@ -63,6 +65,8 @@ build() {
 }
 
 check() {
+  # The tests open many files at once; a lower hard limit is left as it is.
+  ulimit -n 4096 2>/dev/null || true
   cd "${srcdir}/${pkgname}"
   export RUSTUP_TOOLCHAIN=stable
   # The demo feature carries the headless render test, which lays out every

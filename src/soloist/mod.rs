@@ -925,14 +925,7 @@ mod tests {
         let pid = String::from_utf8(output.stdout).unwrap().trim().to_owned();
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            let command = std::process::Command::new("ps")
-                .args(["-o", "comm=", "-p", &pid])
-                .output()
-                .unwrap();
-            if String::from_utf8_lossy(&command.stdout)
-                .trim()
-                .ends_with("sleep")
-            {
+            if process_name(&pid).ends_with("sleep") {
                 return pid;
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -943,12 +936,47 @@ mod tests {
     /// A zombie no longer runs, even if nothing has reaped it yet.
     #[cfg(unix)]
     fn running(pid: &str) -> bool {
-        let state = std::process::Command::new("ps")
-            .args(["-o", "stat=", "-p", pid])
+        let state = process_state(pid);
+        !state.is_empty() && !state.starts_with('Z')
+    }
+
+    /// `/proc` holds these on Linux, where `ps` may not be installed, as in a
+    /// clean Arch chroot.
+    #[cfg(target_os = "linux")]
+    fn process_name(pid: &str) -> String {
+        std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    }
+
+    /// The state letter comes after the name, which may hold spaces or
+    /// brackets of its own.
+    #[cfg(target_os = "linux")]
+    fn process_state(pid: &str) -> String {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|stat| Some(stat.rsplit_once(')')?.1.trim().to_owned()))
+            .unwrap_or_default()
+    }
+
+    #[cfg(all(unix, not(target_os = "linux")))]
+    fn process_name(pid: &str) -> String {
+        ps(pid, "comm=")
+    }
+
+    #[cfg(all(unix, not(target_os = "linux")))]
+    fn process_state(pid: &str) -> String {
+        ps(pid, "stat=")
+    }
+
+    #[cfg(all(unix, not(target_os = "linux")))]
+    fn ps(pid: &str, field: &str) -> String {
+        let output = std::process::Command::new("ps")
+            .args(["-o", field, "-p", pid])
             .output()
             .unwrap();
-        let state = String::from_utf8_lossy(&state.stdout);
-        !state.trim().is_empty() && !state.trim().starts_with('Z')
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 
     /// A stopped Soloist whose parent never reaps it stays a zombie, as under
