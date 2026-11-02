@@ -131,6 +131,13 @@ pub struct WinampState {
     listing: Option<mpsc::Receiver<Vec<SkinChoice>>>,
     /// Whether `choices` holds a finished listing yet.
     choices_known: bool,
+    /// Counts the listings, so the previews see each new one.
+    choices_generation: u64,
+    /// Pictures of the skins, for their cards in Settings.
+    pub previews: crate::skin_previews::SkinPreviews,
+    /// What the demo types in the Settings filter.
+    #[cfg(feature = "demo")]
+    pub demo_settings_filter: Option<String>,
     /// Count down instead of up; clicking the time toggles it.
     pub time_remaining: bool,
     /// The balance while its thumb is held, for the marquee to report.
@@ -184,6 +191,10 @@ impl WinampState {
             choices_listed: None,
             listing: None,
             choices_known: false,
+            choices_generation: 0,
+            previews: crate::skin_previews::SkinPreviews::default(),
+            #[cfg(feature = "demo")]
+            demo_settings_filter: None,
             time_remaining: false,
             balance_preview: None,
             open_presets: false,
@@ -243,6 +254,7 @@ impl WinampState {
         self.wmp_textures.clear();
         self.wmp_texture_bytes = 0;
         self.playlist_text.clear();
+        self.previews.forget_textures();
     }
 
     /// The skin's sheets as textures, made now if they are not yet.
@@ -441,11 +453,17 @@ impl WinampState {
             Ok(choices) => {
                 self.choices = choices;
                 self.choices_known = true;
+                self.choices_generation += 1;
                 self.listing = None;
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => self.listing = None,
         }
+    }
+
+    /// Which listing `choices` is, counted from the first.
+    pub fn choices_generation(&self) -> u64 {
+        self.choices_generation
     }
 
     /// Whether a listing has come back since the app started.

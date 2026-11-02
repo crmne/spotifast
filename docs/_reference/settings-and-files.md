@@ -27,6 +27,7 @@ Spotifast follows each platform's conventions. On Linux:
 | Audio cache | `~/.cache/spotifast/audio/` | Always |
 | Artwork cache | `~/.cache/spotifast/art/` | Always |
 | Lyrics cache | `~/.cache/spotifast/lyrics/` | Always |
+| Skin previews | `~/.cache/spotifast/skin-previews/` | Always, they are drawn again |
 | Account-scoped playlist page cache | `~/.cache/spotifast/playlists/<account-id>/` | Always |
 | Account-scoped playlist list | `~/.cache/spotifast/library/` | Always |
 | Account-scoped Home shelves | `~/.cache/spotifast/home/` | Always |

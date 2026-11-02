@@ -204,6 +204,11 @@ impl AppDirs {
         self.cache.join("art")
     }
 
+    /// Pictures of the installed skins, for their cards in Settings.
+    pub fn skin_preview_dir(&self) -> PathBuf {
+        self.cache.join("skin-previews")
+    }
+
     pub fn lyrics_cache_dir(&self) -> PathBuf {
         self.cache.join("lyrics")
     }
