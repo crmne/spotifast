@@ -1210,15 +1210,22 @@ impl App {
             output_devices: Loadable::NotLoaded,
             devices_fetched_at: None,
             selected_device: None,
-            queue: if session.last_track.is_some() && !session.last_queue_rows.is_empty() {
-                // The queue as it was at close, shown until something
-                // plays; then the live queue takes over.
-                Loadable::Loaded(Queue {
-                    currently_playing: None,
-                    queue: session.last_queue_rows.clone(),
-                })
-            } else {
-                Loadable::NotLoaded
+            queue: match &session.last_track {
+                Some(current) if !session.last_queue_rows.is_empty() => {
+                    // The queue as it was at close, shown until something
+                    // plays; then the live queue takes over. One saved by
+                    // an earlier version may still hold Spotify's padding.
+                    let mut rows = session.last_queue_rows.clone();
+                    if RepeatMode::from_api(&session.repeat) == RepeatMode::Off {
+                        let queued = Self::end_of_queued_rows(&rows, &session.last_added_queue);
+                        Self::drop_wraparound(&mut rows, queued, current);
+                    }
+                    Loadable::Loaded(Queue {
+                        currently_playing: None,
+                        queue: rows,
+                    })
+                }
+                _ => Loadable::NotLoaded,
             },
             queue_fetched_at: None,
             queue_seq: 0,
@@ -6611,15 +6618,21 @@ impl App {
     /// How many leading rows of Next up are songs the user queued here,
     /// so the view can give them their own section.
     pub fn queued_rows_len(&self) -> usize {
-        // Before resume, use the saved manual queue to split restored rows.
-        let manual = if self.manual_queue.is_empty() && self.resume_only() {
+        match &self.queue {
+            Loadable::Loaded(queue) => {
+                Self::end_of_queued_rows(&queue.queue, self.queued_by_hand())
+            }
+            _ => 0,
+        }
+    }
+
+    /// The songs the user queued here. Before resume, the saved manual
+    /// queue, which splits the restored rows.
+    fn queued_by_hand(&self) -> &[String] {
+        if self.manual_queue.is_empty() && self.resume_only() {
             &self.resume_queue
         } else {
             &self.manual_queue
-        };
-        match &self.queue {
-            Loadable::Loaded(queue) => Self::end_of_queued_rows(&queue.queue, manual),
-            _ => 0,
         }
     }
 
@@ -7596,10 +7609,13 @@ impl App {
                     Err(error) => log::debug!("playback state unavailable: {error}"),
                 }
             }
-            ApiResponse::Queue { seq, result } => {
+            ApiResponse::Queue { seq, mut result } => {
                 if seq != self.queue_seq {
                     // A newer request supersedes this response.
                     return;
+                }
+                if let Ok(fetched) = &mut result {
+                    self.drop_queue_padding(fetched);
                 }
                 // Partial reads and read failures must preserve optimistic
                 // additions while Spotify is still accepting their writes.
@@ -11050,6 +11066,39 @@ impl App {
             }
         }
         at
+    }
+
+    /// Spotify pads a short queue out to a fixed length by going round it
+    /// again, back to the playing song and on, whatever the Repeat mode.
+    /// With Repeat off playback stops where the list ends, so a song
+    /// started on its own was listed ten times under Next up though it
+    /// plays once. Those rows go; songs queued by hand always stay.
+    fn drop_queue_padding(&self, fetched: &mut Queue) {
+        let repeat = self.now_playing().map(|now| now.repeat);
+        if repeat.unwrap_or(self.repeat_wanted) != RepeatMode::Off {
+            return;
+        }
+        let Some(current) = &fetched.currently_playing else {
+            return;
+        };
+        let queued = Self::end_of_queued_rows(&fetched.queue, self.queued_by_hand());
+        Self::drop_wraparound(&mut fetched.queue, queued, current.uri());
+    }
+
+    /// Drops the rows after the first `queued` from where they come back
+    /// round to `current`, the playing song, and repeat what came before.
+    /// The playing song and the row after it must both come round: one
+    /// late copy of the playing song may be the list's own.
+    fn drop_wraparound(rows: &mut Vec<PlayableItem>, queued: usize, current: &str) {
+        let order: Vec<&str> = std::iter::once(current)
+            .chain(rows[queued..].iter().map(PlayableItem::uri))
+            .collect();
+        // From a wrap on, the list lines up with its own start.
+        let lines_up = |at: usize| order[at..] == order[..order.len() - at];
+        let wrap = (1..order.len().saturating_sub(1)).find(|&at| lines_up(at));
+        if let Some(at) = wrap {
+            rows.truncate(queued + at - 1);
+        }
     }
 
     /// Queue row built from cached details or a temporary label.
@@ -19365,6 +19414,104 @@ mod tests {
         }
         let (current, _) = queue_uris(&app);
         assert_eq!(current.as_deref(), Some("spotify:track:a"));
+    }
+
+    /// Spotify pads a short queue by going round it again, even with Repeat
+    /// off, so a song started on its own, as a Recent row starts it, showed
+    /// ten times under Next up though it plays once. Only the padding goes:
+    /// a playlist's own later copy of the song, a copy queued by hand, and
+    /// a real loop with Repeat on stay.
+    #[test]
+    fn spotify_padding_a_short_queue_is_not_next_up() {
+        fn answer(app: &mut App, next: &[&str]) -> Vec<String> {
+            app.handle_api(ApiResponse::Queue {
+                seq: app.queue_seq,
+                result: Ok(Queue {
+                    currently_playing: Some(queued_song("spotify:track:a")),
+                    queue: next.iter().map(|uri| queued_song(uri)).collect(),
+                }),
+            });
+            queue_uris(app).1
+        }
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let (a, b, c) = ("spotify:track:a", "spotify:track:b", "spotify:track:c");
+
+        assert!(
+            answer(&mut app, &[a; 10]).is_empty(),
+            "a song started on its own plays once"
+        );
+        assert_eq!(
+            answer(&mut app, &[b, a, b, a, b, a, b, a, b, a]),
+            vec![b],
+            "a list of two plays through once"
+        );
+        assert_eq!(
+            answer(&mut app, &[b, a, c]),
+            vec![b, a, c],
+            "a playlist holding the song again"
+        );
+        assert_eq!(
+            answer(&mut app, &[b, c, a]),
+            vec![b, c, a],
+            "one late copy may be the playlist's own"
+        );
+
+        app.manual_queue = vec![a.into()];
+        assert_eq!(
+            answer(&mut app, &[a; 10]),
+            vec![a],
+            "a copy queued by hand plays"
+        );
+
+        app.manual_queue.clear();
+        app.local.repeat = RepeatMode::Context;
+        assert_eq!(
+            answer(&mut app, &[a; 10]),
+            vec![a; 10],
+            "with Repeat on it does play again"
+        );
+    }
+
+    /// A queue saved with Spotify's padding, as earlier versions saved it,
+    /// comes back without it.
+    #[test]
+    fn a_saved_queue_comes_back_without_spotifys_padding() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-queue-padding-test-{}",
+            std::process::id()
+        ));
+        let dirs = || AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        std::fs::create_dir_all(&dirs().state).unwrap();
+        SessionState {
+            last_track: Some("spotify:track:a".into()),
+            last_queue_rows: vec![queued_song("spotify:track:a"); 10],
+            repeat: "off".into(),
+            ..SessionState::default()
+        }
+        .save(&dirs().session_file());
+        let mut app = App::new(
+            &Waker::default(),
+            dirs(),
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        assert!(queue_uris(&app).1.is_empty());
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A pending addition is not restored after its track starts.

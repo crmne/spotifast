@@ -75,6 +75,11 @@ not consume a queue row or restore an older queue saved on this computer.
 1. **The list shows the play order.** The top row plays next, followed by the
    rows below it.
 
+   Spotify pads a short queue by going round it again, back to the playing
+   song, even with Repeat off. With Repeat off, Spotifast leaves out the
+   rows from where the list comes back round, so a song started on its own,
+   as a Recent row starts it, is not listed again under itself.
+
 2. **Add to queue adds a song to your part of the queue.** It goes after
    the songs you queued earlier and before the playlist's songs. Queue
    the same song twice and it plays twice. A double-click only counts
