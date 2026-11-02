@@ -1062,6 +1062,44 @@ pub(crate) fn demo_sound() -> Vec<f64> {
 #[cfg(feature = "demo")]
 const DEMO_CLIENT_ID: &str = "0123456789abcdef0123456789abcdef";
 
+/// Copies a skin into the demo's skins folder and says what it is called
+/// there. The demo may be pointed at a skin in someone's real folder, so it
+/// writes nothing through a link and never opens the file it would replace:
+/// the copy arrives by rename, which replaces a name, not what it points at.
+fn place_skin(source: &std::path::Path, folder: &std::path::Path) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind};
+    let name = source
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "the skin has no file name"))?;
+    // The folder, or the config folder holding it, linked elsewhere would
+    // put the writes below in someone's real data.
+    for level in folder.ancestors().take(2) {
+        if std::fs::symlink_metadata(level).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "the demo's skins folder is a link",
+            ));
+        }
+    }
+    std::fs::create_dir_all(folder)?;
+    let target = folder.join(&name);
+    let source = source.canonicalize()?;
+    if target.canonicalize().is_ok_and(|target| target == source) {
+        return Ok(name);
+    }
+    let temporary = folder.join(format!(".{name}.{}.part", std::process::id()));
+    let written = std::fs::File::open(&source).and_then(|mut from| {
+        let mut to = std::fs::File::create_new(&temporary)?;
+        std::io::copy(&mut from, &mut to)?;
+        std::fs::rename(&temporary, &target)
+    });
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    written.map(|()| name)
+}
+
 /// Select sample pages and UI states for deterministic, unauthenticated demos.
 /// The By You fixtures cover owned rows and an intentionally unmatched search.
 #[cfg(feature = "demo")]
@@ -1692,14 +1730,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             surface if surface.starts_with("wmp-skin=") => {
                 // Through the skins folder, as the real load path reads it.
                 let path = std::path::Path::new(&surface["wmp-skin=".len()..]);
-                let folder = app.dirs.skins_dir();
-                let name = path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned());
-                if let Some(name) = name
-                    && std::fs::create_dir_all(&folder).is_ok()
-                    && std::fs::copy(path, folder.join(&name)).is_ok()
-                {
+                let placed = place_skin(path, &app.dirs.skins_dir());
+                if let Err(error) = &placed {
+                    log::warn!("the demo left {} alone: {error}", path.display());
+                }
+                if let Ok(name) = placed {
                     app.settings.winamp_window = true;
                     app.settings.skin = Some(name);
                     app.settings.skin_scale = Some(1);
@@ -4241,6 +4276,75 @@ mod tests {
         }
         wait(&mut app, [Size::Bytes(0), Size::Bytes(0), Size::Bytes(2)]);
         app.backend.shutdown();
+    }
+
+    /// `wmp-skin=` pointed at the real skins folder must leave it whole: it
+    /// once truncated a skin by copying it through a link onto itself.
+    #[cfg(unix)]
+    #[test]
+    fn placing_a_demo_skin_never_writes_through_a_link_or_onto_its_source() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("spotifast-demo-skin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let real = root.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let skin = real.join("skin.wmz");
+        std::fs::write(&skin, b"the skin").unwrap();
+        let read = |path: &std::path::Path| std::fs::read(path).unwrap();
+
+        // A plain copy, and the source stays put.
+        let plain = root.join("plain/skins");
+        assert_eq!(place_skin(&skin, &plain).unwrap(), "skin.wmz");
+        assert_eq!(read(&plain.join("skin.wmz")), b"the skin");
+
+        // The folder the skin is already in: nothing to write.
+        assert_eq!(place_skin(&skin, &real).unwrap(), "skin.wmz");
+        assert_eq!(read(&skin), b"the skin");
+
+        // A linked skins folder is refused, even though the source is there.
+        let linked = root.join("linked");
+        std::fs::create_dir_all(&linked).unwrap();
+        symlink(&real, linked.join("skins")).unwrap();
+        assert!(place_skin(&skin, &linked.join("skins")).is_err());
+        assert_eq!(read(&skin), b"the skin");
+
+        // So is a linked config folder above it.
+        symlink(&root, root.join("config")).unwrap();
+        assert!(place_skin(&skin, &root.join("config/real")).is_err());
+        assert_eq!(read(&skin), b"the skin");
+
+        // A link where the copy goes is replaced; what it points at is not
+        // touched, however that file is reached.
+        let other = root.join("other.wmz");
+        std::fs::write(&other, b"another skin").unwrap();
+        let folder = root.join("links");
+        std::fs::create_dir_all(&folder).unwrap();
+        symlink(&other, folder.join("skin.wmz")).unwrap();
+        assert_eq!(place_skin(&skin, &folder).unwrap(), "skin.wmz");
+        assert_eq!(read(&other), b"another skin");
+        assert!(
+            !std::fs::symlink_metadata(folder.join("skin.wmz"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+
+        // A link back to the source itself: nothing to write.
+        let looped = root.join("looped");
+        std::fs::create_dir_all(&looped).unwrap();
+        symlink(&skin, looped.join("skin.wmz")).unwrap();
+        assert_eq!(place_skin(&skin, &looped).unwrap(), "skin.wmz");
+        assert_eq!(read(&skin), b"the skin");
+
+        // A hard link shares the source's contents; it is replaced too.
+        let hard = root.join("hard");
+        std::fs::create_dir_all(&hard).unwrap();
+        std::fs::hard_link(&skin, hard.join("skin.wmz")).unwrap();
+        assert_eq!(place_skin(&skin, &hard).unwrap(), "skin.wmz");
+        assert_eq!(read(&skin), b"the skin");
+        assert_eq!(read(&hard.join("skin.wmz")), b"the skin");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// A Windows Media Player skin is listed under its own title, even from
