@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::deck::{Command, Deck, PlayState, Song};
+use super::live::WindowCommand;
 use super::paint::Paint;
 use super::runtime::{Input, Modifiers, Runtime};
 use super::*;
@@ -702,4 +703,69 @@ fn a_binding_follows_an_element_a_handler_moved() {
     assert_eq!(runtime.next_wake(now), Some(Duration::ZERO));
     runtime.tick(playing(), now);
     assert_eq!(runtime.read(key, "b", "top"), 30.0);
+}
+
+#[test]
+fn a_pass_through_picture_lets_clicks_reach_what_is_under_it() {
+    let definition = r#"<THEME><VIEW width="20" height="20">
+      <BUTTON zIndex="1" width="20" height="20" onClick="theme.savePreference('hit', 'yes');"/>
+      <SUBVIEW zIndex="2" backgroundImage="cover.png" passThrough="true"/>
+    </VIEW></THEME>"#;
+    let cover = png(20, 20, |_, _| [9, 9, 9]);
+    let mut runtime = start_with(definition, vec![("cover.png", cover)], playing());
+    let key = key_of(&runtime);
+    let now = Instant::now();
+    runtime.input(
+        key,
+        Input::Pointer { x: 5.0, y: 5.0 },
+        Modifiers::default(),
+        now,
+    );
+    let press = Input::Press { secondary: false };
+    runtime.input(key, press, Modifiers::default(), now);
+    let release = Input::Release { secondary: false };
+    runtime.input(key, release, Modifiers::default(), now);
+    assert_eq!(
+        runtime.shared.prefs.get("hit").map(String::as_str),
+        Some("yes")
+    );
+    assert!(runtime.window_commands(key).is_empty(), "no window drag");
+}
+
+const CONTROLLED: &str = r#"<THEME currentViewID="control">
+  <VIEW id="control" scriptFile="s.js" onLoad="theme.openView('main');" onTimer="act();" timerInterval="100"/>
+  <VIEW id="main" width="20" height="20" scriptFile="s.js"/>
+</THEME>"#;
+
+#[test]
+fn a_view_without_a_window_minimizes_the_skin() {
+    let mut runtime = start(
+        CONTROLLED,
+        "function act(){ view.minimize(); view.timerInterval = 0; }",
+    );
+    runtime.tick(playing(), Instant::now() + Duration::from_secs(1));
+    let key = runtime.views[runtime.primary().unwrap()].state.key;
+    assert!(matches!(
+        runtime.window_commands(key)[..],
+        [WindowCommand::Minimize]
+    ));
+}
+
+#[test]
+fn closing_the_view_that_controls_the_skin_closes_the_skin() {
+    let mut runtime = start(CONTROLLED, "function act(){ view.close(); }");
+    let commands = runtime.tick(playing(), Instant::now() + Duration::from_secs(1));
+    assert!(runtime.views.is_empty());
+    assert_eq!(commands, [Command::BackToMain]);
+}
+
+#[test]
+fn a_view_that_hands_over_as_it_closes_leaves_the_skin_open() {
+    let definition = r#"<THEME currentViewID="boot">
+      <VIEW id="boot" scriptFile="s.js" onLoad="theme.openView('main'); view.close();"/>
+      <VIEW id="main" width="20" height="20" scriptFile="s.js"/>
+    </THEME>"#;
+    let runtime = start(definition, "");
+    assert_eq!(runtime.views.len(), 1);
+    assert!(runtime.primary().is_some());
 }

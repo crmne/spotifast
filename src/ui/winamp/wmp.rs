@@ -64,6 +64,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .filter(|view| view.state.windowed() && Some(view.state.key) != primary)
         .map(|view| (view.state.key, view.state.size(), view.state.id.clone()))
         .collect();
+    #[cfg(target_os = "linux")]
+    {
+        // A window the skin just opened has a border like any other.
+        let id = Id::new("wmp-window-count");
+        if ctx.data(|data| data.get_temp::<usize>(id)) != Some(others.len()) {
+            ctx.data_mut(|data| data.insert_temp(id, others.len()));
+            crate::hyprland::bare_skin_windows();
+        }
+    }
     let unit = unit(app, &ctx);
     for (key, (width, height), title) in others {
         let size = vec2(width as f32, height as f32) * unit;
