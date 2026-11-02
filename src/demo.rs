@@ -1703,6 +1703,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     app.winamp.demo_sounding = true;
                 }
             }
+            // MilkDrop with something to answer, beside a skin: give it
+            // after the skin, whose window the Winamp frame then opens from.
+            "milkdrop-framed" => {
+                app.settings.milkdrop_open = true;
+                app.settings.skin_scale = Some(2);
+                app.winamp.demo_sounding = true;
+            }
             "playlist" => app.settings.playlist_open = true,
             "shade" => app.settings.winamp_shaded = true,
             "playlist-shade" => app.settings.playlist_shaded = true,

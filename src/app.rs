@@ -708,6 +708,9 @@ pub struct App {
     /// MilkDrop's frames for a skin's pane; `None` until one first shows.
     #[cfg(feature = "milkdrop")]
     milkdrop_pane: Option<crate::milkdrop::pane::Stream>,
+    /// The skinned MilkDrop window has gone to full screen, which the plain
+    /// window does for it until the person leaves full screen.
+    milkdrop_big: bool,
     last_eviction: Instant,
     /// Playback snapshot for the current frame, built once per redraw.
     frame_now: Option<NowPlaying>,
@@ -1376,6 +1379,7 @@ impl App {
             milkdrop_host: None,
             #[cfg(feature = "milkdrop")]
             milkdrop_pane: None,
+            milkdrop_big: false,
             last_eviction: Instant::now(),
             frame_now: None,
             sign_in_url: None,
@@ -4670,10 +4674,11 @@ impl App {
     #[cfg(feature = "milkdrop")]
     fn sync_milkdrop(&mut self, ctx: &egui::Context) {
         let presets = self.dirs.milkdrop_dir();
-        let open = self.settings.milkdrop_open;
+        // Beside a classic skin the frame shows MilkDrop, not this window.
+        let open = self.settings.milkdrop_open && !self.milkdrop_framed();
         let size = self.settings.milkdrop_size;
         let pos = self.milkdrop_pos;
-        let fullscreen = self.settings.milkdrop_fullscreen;
+        let fullscreen = self.settings.milkdrop_fullscreen || self.milkdrop_big;
         let fps = crate::power::milkdrop_fps(self.power.conditions(), self.settings.milkdrop_fps);
         let seconds = self.settings.milkdrop_seconds;
         let scale = self.settings.milkdrop_scale.max(1);
@@ -4705,7 +4710,12 @@ impl App {
         };
         if poll.closed {
             self.settings.milkdrop_open = false;
+            self.milkdrop_big = false;
             self.mark_settings_dirty();
+        }
+        // Back from full screen, the frame takes over again.
+        if poll.fullscreen == Some(false) {
+            self.milkdrop_big = false;
         }
         if let Some(size) = poll.size
             && self.settings.milkdrop_size != size
@@ -4726,6 +4736,15 @@ impl App {
         if self.settings.milkdrop_open {
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
         }
+    }
+
+    /// Whether MilkDrop is showing in the Winamp frame: open, beside a
+    /// classic skin's mini player, and not gone to full screen.
+    pub fn milkdrop_framed(&self) -> bool {
+        self.settings.milkdrop_open
+            && self.settings.winamp_window
+            && self.winamp.skin.wmp.is_none()
+            && !self.milkdrop_big
     }
 
     /// MilkDrop's picture for a pane this many physical pixels big. Called
@@ -4758,12 +4777,21 @@ impl App {
         }
     }
 
-    /// How fast the pane's child draws: the visualizers' own rate, since
-    /// the pane is one of them, up to what is worth copying between
-    /// processes. It stops by itself once nobody can see the pane.
+    /// How fast the pane's child draws, up to what is worth copying between
+    /// processes: the visualizers' rate for a skin's pane, which is one of
+    /// them, and MilkDrop's own for its window, which has its own focus. It
+    /// stops by itself once nobody can see the pane.
     #[cfg(feature = "milkdrop")]
-    fn milkdrop_pane_fps(&self) -> u32 {
-        match self.visualiser_fps() {
+    pub fn milkdrop_pane_fps(&self) -> u32 {
+        let rate = if self.milkdrop_framed() {
+            Some(crate::power::milkdrop_fps(
+                self.power.conditions(),
+                self.settings.milkdrop_fps,
+            ))
+        } else {
+            self.visualiser_fps()
+        };
+        match rate {
             None | Some(0) => crate::milkdrop::DEFAULT_FPS,
             Some(rate) => rate.min(crate::milkdrop::DEFAULT_FPS),
         }
@@ -13736,6 +13764,19 @@ impl App {
                         self.toast(gettext(self.locale, "Downloading MilkDrop preset packs"));
                     }
                 }
+            }
+            Action::MilkdropEffect(by) => {
+                #[cfg(feature = "milkdrop")]
+                if let Some(stream) = &self.milkdrop_pane {
+                    stream.step(by);
+                }
+                #[cfg(not(feature = "milkdrop"))]
+                let _ = by;
+            }
+            Action::MilkdropFullscreen => self.milkdrop_big = true,
+            Action::SetMilkdropSize(size) => {
+                self.settings.milkdrop_size = size;
+                self.mark_settings_dirty();
             }
             Action::SetMilkdropSeconds(seconds) => {
                 self.settings.milkdrop_seconds = seconds.clamp(1, 3600);
@@ -26183,6 +26224,25 @@ mod tests {
             app.actions
         );
         app.backend.shutdown();
+    }
+
+    /// Beside a classic skin MilkDrop opens in the frame, and only there;
+    /// full screen hands it to the plain window until that leaves it.
+    #[test]
+    fn milkdrop_opens_framed_beside_a_classic_skin() {
+        let mut app = test_app("milkdrop-framed");
+        app.settings.milkdrop_open = true;
+        assert!(
+            !app.milkdrop_framed(),
+            "the main window keeps the plain one"
+        );
+        app.settings.winamp_window = true;
+        assert!(app.milkdrop_framed());
+        app.milkdrop_big = true;
+        assert!(!app.milkdrop_framed(), "full screen is the plain window's");
+        app.milkdrop_big = false;
+        app.settings.milkdrop_open = false;
+        assert!(!app.milkdrop_framed(), "and closed is closed");
     }
 
     /// A skin's next-visualisation button goes through the bars and the wave

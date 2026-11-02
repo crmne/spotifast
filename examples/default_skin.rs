@@ -807,6 +807,92 @@ fn eq_ex_sheet() -> Canvas {
     c
 }
 
+/// Winamp's generic window frame, in its layout (`src/skin/generic.rs`).
+fn gen_sheet() -> Canvas {
+    // Nothing else in the skin wears this colour: it divides the letters.
+    const DIVIDER: Rgb = [0x00, 0xc6, 0xff];
+    let mut c = Canvas::new(194, 109, DIVIDER);
+    for (row, active) in [(0, true), (21, false)] {
+        let title = if active { TEXT } else { DIM };
+        for tile in 0..6 {
+            let x = 26 * tile;
+            c.rect(x, row, 25, 20, PANEL);
+            c.rect(x, row, 25, 14, SURFACE);
+            c.rect(x, row, 25, 1, OUTLINE);
+            c.rect(x, row + 13, 25, 1, OUTLINE);
+            // Grooves on the fill, none under the title.
+            match tile {
+                2 => {}
+                5 => title_lines(&mut c, x, x + 12, row + 5),
+                _ => title_lines(&mut c, x, x + 25, row + 5),
+            }
+        }
+        c.rect(0, row, 1, 20, OUTLINE);
+        let right = 130;
+        c.rect(right + 24, row, 1, 20, OUTLINE);
+        c.rect(right + 12, row + 3, 11, 9, SURFACE);
+        c.glyph_centred((right + 14, row + 3, 9, 9), CLOSE, title, 0);
+    }
+    // The ends of the bottom, the sides, and their feet.
+    for (x, y, width, height) in [
+        (0, 42, 125, 14),
+        (0, 57, 125, 14),
+        (127, 72, 25, 14),
+        (127, 42, 11, 29),
+        (139, 42, 8, 29),
+        (158, 42, 11, 24),
+        (170, 42, 8, 24),
+    ] {
+        c.rect(x, y, width, height, PANEL);
+    }
+    for (x, y, width) in [(0, 55, 125), (0, 70, 125), (127, 85, 25)] {
+        c.rect(x, y, width, 1, OUTLINE);
+    }
+    for (x, y, height) in [(0, 42, 14), (124, 57, 14), (127, 42, 29), (146, 42, 29)] {
+        c.rect(x, y, 1, height, OUTLINE);
+    }
+    for (x, height) in [(158, 24), (177, 24)] {
+        c.rect(x, 42, 1, height, OUTLINE);
+    }
+    c.rect(148, 42, 9, 9, SURFACE_ACTIVE);
+    c.glyph_centred((148, 42, 9, 9), CLOSE, TEXT, 0);
+    // The corner that resizes.
+    for step in 0..3 {
+        c.rect(106 + 4 * step, 67 - 3 * step, 3 * (3 - step) + 1, 1, DIM);
+    }
+    // The letters, each on a cell of its own, focused then not.
+    for (y, color) in [(88, TEXT), (96, DIM)] {
+        for (index, letter) in ('A'..='Z').enumerate() {
+            let x = 1 + 7 * index as i64;
+            c.rect(x, y, 6, 7, SURFACE);
+            c.glyph(x + 1, y + 1, art(letter), color);
+        }
+    }
+    c
+}
+
+/// The generic windows' colours, in the top row where Winamp reads them.
+fn genex_sheet() -> Canvas {
+    let mut c = Canvas::new(130, 75, PANEL);
+    for (index, color) in [
+        WINDOW,  // item background
+        TEXT,    // item foreground
+        WINDOW,  // window background
+        TEXT,    // button text
+        TEXT,    // window text
+        OUTLINE, // dividers
+        ACCENT,  // selection
+        SURFACE, // list header background
+        TEXT,    // list header text
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        c.set(48 + 2 * index as i64, 0, color);
+    }
+    c
+}
+
 const PLEDIT_TXT: &str = "[Text]\r\nNormal=#A9B1BC\r\nCurrent=#1ED760\r\nNormalBG=#0F1114\r\nSelectedBG=#2F353F\r\nFont=Inter\r\n";
 
 /// Background, grid, sixteen spectrum bands from the top down, the
@@ -920,7 +1006,7 @@ fn preview(skin: &Skin) -> image::RgbaImage {
 
 fn main() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/skins/spotifast.wsz");
-    let sheets: [(Sheet, Canvas); 15] = [
+    let sheets: [(Sheet, Canvas); 17] = [
         (Sheet::Main, main_sheet()),
         (Sheet::CButtons, cbuttons_sheet()),
         (Sheet::TitleBar, titlebar_sheet()),
@@ -936,6 +1022,8 @@ fn main() {
         (Sheet::PlEdit, pledit_sheet()),
         (Sheet::EqMain, eqmain_sheet()),
         (Sheet::EqEx, eq_ex_sheet()),
+        (Sheet::Gen, gen_sheet()),
+        (Sheet::GenEx, genex_sheet()),
     ];
     let mut files: Vec<(String, Vec<u8>)> = sheets
         .iter()

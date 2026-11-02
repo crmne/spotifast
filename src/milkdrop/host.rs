@@ -27,6 +27,7 @@ struct Reported {
     /// What the window's keys asked of the player, oldest first.
     commands: Vec<String>,
     screen_hz: Option<u32>,
+    fullscreen: Option<bool>,
 }
 
 /// One line of what the child says on its stdout.
@@ -37,6 +38,7 @@ struct Event {
     size: Option<[f32; 2]>,
     command: Option<String>,
     screen_hz: Option<u32>,
+    fullscreen: Option<bool>,
 }
 
 /// What the app takes from the window each frame.
@@ -49,6 +51,8 @@ pub struct Poll {
     pub commands: Vec<String>,
     /// How often the screen it is on refreshes, when it has said.
     pub screen_hz: Option<u32>,
+    /// Whether it went to or left full screen, when it has.
+    pub fullscreen: Option<bool>,
 }
 
 struct Running {
@@ -217,11 +221,12 @@ impl Host {
                 size: None,
                 commands: Vec::new(),
                 screen_hz: None,
+                fullscreen: None,
             };
         };
         // The child exiting is a close, even if it said nothing.
         let exited = matches!(running.process.try_wait(), Ok(Some(_)));
-        let (closed, pos, size, commands, screen_hz) = {
+        let (closed, pos, size, commands, screen_hz, fullscreen) = {
             let mut reported = running.reported.lock().unwrap_or_else(|p| p.into_inner());
             (
                 reported.closed || exited,
@@ -229,6 +234,7 @@ impl Host {
                 reported.size.take(),
                 std::mem::take(&mut reported.commands),
                 reported.screen_hz.take(),
+                reported.fullscreen.take(),
             )
         };
         if closed {
@@ -240,6 +246,7 @@ impl Host {
             size,
             commands,
             screen_hz,
+            fullscreen,
         }
     }
 
@@ -301,6 +308,9 @@ fn spawn_reader(stdout: std::process::ChildStdout, reported: Arc<Mutex<Reported>
                 }
                 if event.screen_hz.is_some() {
                     reported.screen_hz = event.screen_hz;
+                }
+                if event.fullscreen.is_some() {
+                    reported.fullscreen = event.fullscreen;
                 }
                 if let Some(command) = event.command {
                     // A key held down cannot pile up more than a moment's

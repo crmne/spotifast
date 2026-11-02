@@ -517,7 +517,12 @@ fn draw_text(ui: &Ui, text: &TextPaint, clip: &[Box2], origin: Pos2, unit: f32) 
 /// The skin's visualisation: the same bars or wave the Winamp display
 /// shows, from the sound after the equalizer and before the volume. Returns
 /// its shapes and whether it is still moving.
-fn effect_shapes(app: &mut App, rect: Rect, unit: f32, now: Instant) -> (Vec<Shape>, bool) {
+pub(super) fn effect_shapes(
+    app: &mut App,
+    rect: Rect,
+    unit: f32,
+    now: Instant,
+) -> (Vec<Shape>, bool) {
     let now_playing = app.now_playing();
     let sounding = now_playing
         .as_ref()

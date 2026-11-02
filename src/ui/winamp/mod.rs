@@ -28,6 +28,8 @@ use crate::winamp::{MAX_SCALE, WinampState};
 use super::widgets::{SliderEvent, wheel_notches};
 
 mod equalizer;
+#[cfg(feature = "milkdrop")]
+mod milkdrop;
 mod pixel_text;
 mod playlist;
 mod wmp;
@@ -403,6 +405,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         };
         playlist::show(app, &mut below, now.as_ref(), focused);
     }
+    #[cfg(feature = "milkdrop")]
+    milkdrop::show(app, &ctx);
 
     if vis_moving {
         crate::theme::visualiser_frame(&ctx, app.visualiser_fps());
