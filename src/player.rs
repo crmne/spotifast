@@ -199,6 +199,9 @@ pub struct LocalState {
     /// `Paused` that brings the position counts as a seek for media
     /// controls, which would otherwise count on past the end (#587).
     pub replay_pending: bool,
+    /// Where a track that is loading but not yet shown starts. The shown
+    /// track keeps its own position until the new one replaces it.
+    pub loading_position: Option<u32>,
 }
 
 /// What local playback was doing when its session ended, so the engine
@@ -270,6 +273,20 @@ pub enum PlaybackResume {
     Track(LoadSpec),
 }
 
+/// Where the app says local playback picks up on a new session. A session
+/// replaced while it still runs hands over only its track; the app knows
+/// the list, album or playlist around it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pickup {
+    /// The track inside its list, album or playlist, at its position.
+    pub load: LoadSpec,
+    /// What to load instead if the track proves not to be in that context,
+    /// which librespot then starts from its first track (a track autoplay
+    /// added, say): the track by itself, or what follows it once it has
+    /// played out.
+    pub alone: Option<LoadSpec>,
+}
+
 impl LoadSpec {
     fn context_options(&self, current_repeat: RepeatMode) -> LoadContextOptions {
         if self.autoplay {
@@ -288,6 +305,9 @@ impl LoadSpec {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PlayerCommand {
     Toggle,
+    /// Pause, and stay paused if already: unlike `Toggle`, safe to send
+    /// from two places at once, as when the system goes to sleep.
+    Pause,
     Next,
     Previous,
     /// Remove manually queued tracks and keep context tracks.
@@ -457,6 +477,24 @@ impl KeptPlayer {
             Playback::Stopped | Playback::Loading => return false,
         }
         true
+    }
+
+    /// Pauses the song, and leaves it paused if it already is: for the
+    /// system going to sleep while the session reconnects.
+    pub fn pause(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        if state.track.is_some() && state.playback == Playback::Playing {
+            state.position_ms = state.position_now();
+            state.position_at = None;
+            state.playback = Playback::Paused;
+            self.player.pause();
+        }
+    }
+
+    /// Whether the song is playing, to ask later from another task.
+    pub fn playing_probe(&self) -> impl Fn() -> bool + Send + 'static {
+        let state = self.state.clone();
+        move || playing_in(&state)
     }
 
     /// Whether the player still has a song, playing or paused.
@@ -712,6 +750,19 @@ impl Engine {
         })
     }
 
+    /// Whether music is playing, or loading to play, here. Reads the state
+    /// without taking the point a dropped session saved.
+    pub fn is_playing(&self) -> bool {
+        playing_in(&self.state)
+    }
+
+    /// [`is_playing`](Self::is_playing), to ask later from another task
+    /// without holding on to the engine.
+    pub fn playing_probe(&self) -> impl Fn() -> bool + Send + 'static {
+        let state = self.state.clone();
+        move || playing_in(&state)
+    }
+
     pub fn device_id(&self) -> &str {
         &self.device_id
     }
@@ -848,6 +899,7 @@ impl Engine {
         let spirc = &self.spirc;
         match command {
             PlayerCommand::Toggle => spirc.play_pause()?,
+            PlayerCommand::Pause => spirc.pause()?,
             PlayerCommand::Next => spirc.next()?,
             PlayerCommand::Previous => spirc.prev()?,
             PlayerCommand::ClearQueue => spirc.clear_queue()?,
@@ -913,7 +965,16 @@ fn resume_from(resume: PlaybackResume, now: Option<&Interrupted>) -> PlaybackRes
             PlaybackResume::Session(Arc::new(snapshot.at_position(now.position_ms, now.playing)))
         }
         PlaybackResume::Track(mut spec) => {
-            if spec.uris.first() == Some(&now.uri) {
+            // The song by itself, or the one asked for inside the album,
+            // playlist or list the app gave (`Pickup`).
+            let carried = match &spec.offset_uri {
+                Some(offset) => offset == &now.uri,
+                None => {
+                    spec.uris.first() == Some(&now.uri)
+                        || spec.context_uri.as_ref() == Some(&now.uri)
+                }
+            };
+            if carried {
                 spec.position_ms = now.position_ms;
                 spec.play = now.playing;
             }
@@ -1086,20 +1147,41 @@ fn start_replay(state: &mut LocalState) -> bool {
 fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
     match event {
         PlayerEvent::Stopped { .. } => {
+            state.loading_position = None;
             let mut changed = set(&mut state.playback, Playback::Stopped);
             changed |= set(&mut state.loading, false);
             changed |= set(&mut state.position_ms, 0);
             changed |= set(&mut state.position_at, None);
             changed
         }
-        PlayerEvent::Loading { position_ms, .. } => {
+        PlayerEvent::Loading {
+            track_id,
+            position_ms,
+            ..
+        } => {
             let mut changed = if state.playback == Playback::Stopped {
                 set(&mut state.playback, Playback::Loading)
             } else {
                 false
             };
             changed |= set(&mut state.loading, true);
-            changed |= set(&mut state.position_ms, position_ms);
+            // The track shown stays until another one starts, and so does
+            // its position: a load that fails (no network, or a track that
+            // will not play) must not leave it at 0, where a reconnect
+            // would pick it up again.
+            let shown = state
+                .track
+                .as_ref()
+                .is_none_or(|track| track_id.to_uri() == track.uri);
+            if shown {
+                state.loading_position = None;
+                changed |= set(&mut state.position_ms, position_ms);
+            } else {
+                state.loading_position = Some(position_ms);
+                // It stops advancing here, where it was heard last.
+                let heard = state.position_now();
+                changed |= set(&mut state.position_ms, heard);
+            }
             changed |= set(&mut state.position_at, None);
             changed |= set(&mut state.error, None);
             changed
@@ -1141,6 +1223,11 @@ fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
                 .track
                 .as_ref()
                 .is_some_and(|previous| previous.uri == track.uri);
+            if let Some(position_ms) = state.loading_position.take()
+                && !state.replay_pending
+            {
+                state.position_ms = position_ms;
+            }
             state.track = Some(track);
             state.error = None;
             // librespot emits this when a loaded track starts, including a
@@ -1366,6 +1453,16 @@ fn decode_folder_name(encoded: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Whether `state` has music playing, or loading to play, without taking
+/// the point a dropped session saved.
+fn playing_in(state: &Mutex<LocalState>) -> bool {
+    state
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .interrupted()
+        .is_some_and(|now| now.playing)
 }
 
 #[cfg(test)]
@@ -1643,6 +1740,20 @@ mod tests {
             panic!("a track pickup stays one");
         };
         assert_eq!(untouched, spec);
+        // The app's pickup inside the album the song plays from.
+        let in_album = LoadSpec {
+            context_uri: Some("spotify:album:a".into()),
+            offset_uri: Some("spotify:track:left".into()),
+            position_ms: 42_000,
+            play: true,
+            ..LoadSpec::default()
+        };
+        let PlaybackResume::Track(picked) =
+            resume_from(PlaybackResume::Track(in_album), Some(&now))
+        else {
+            panic!("a track pickup stays one");
+        };
+        assert_eq!((picked.position_ms, picked.play), (47_500, false));
     }
 
     fn uri() -> SpotifyUri {
@@ -1878,6 +1989,73 @@ mod tests {
             assert!(!state.loading, "failure {failure} stops the spinner");
             assert!(state.error.is_some(), "failure {failure} reports why");
         }
+    }
+
+    /// A track that fails to load (no network) leaves the one shown where
+    /// it was, so a reconnect picks it up there and not from the start; a
+    /// track that does load starts where its load asked.
+    #[test]
+    fn loading_another_track_keeps_the_position_of_the_one_shown() {
+        let mut state = LocalState {
+            playback: Playback::Playing,
+            track: Some(LocalTrack {
+                uri: "spotify:track:shown".into(),
+                duration_ms: 200_000,
+                ..LocalTrack::default()
+            }),
+            position_ms: 116_000,
+            position_at: Some(Instant::now() - Duration::from_secs(3)),
+            ..LocalState::default()
+        };
+        apply_event(
+            &mut state,
+            PlayerEvent::Loading {
+                play_request_id: 1,
+                track_id: uri(),
+                position_ms: 0,
+            },
+        );
+        apply_event(
+            &mut state,
+            PlayerEvent::Unavailable {
+                play_request_id: 1,
+                track_id: uri(),
+            },
+        );
+        // Where it was heard when the load began, not where it was last
+        // reported: it played on in between.
+        assert!((119_000..120_000).contains(&state.position_ms));
+        assert_eq!(state.position_at, None, "no longer advancing");
+        assert_eq!(
+            state.interrupted().map(|resume| resume.position_ms),
+            Some(state.position_ms)
+        );
+
+        apply_event(
+            &mut state,
+            PlayerEvent::Loading {
+                play_request_id: 2,
+                track_id: uri(),
+                position_ms: 5_000,
+            },
+        );
+        apply_event(
+            &mut state,
+            PlayerEvent::TrackChanged {
+                audio_item: Box::new(interlude()),
+            },
+        );
+        assert_eq!(state.position_ms, 5_000, "the new track starts at its load");
+
+        apply_event(
+            &mut state,
+            PlayerEvent::Loading {
+                play_request_id: 3,
+                track_id: uri(),
+                position_ms: 9_000,
+            },
+        );
+        assert_eq!(state.position_ms, 9_000, "reloading the shown track");
     }
 
     #[test]

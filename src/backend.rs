@@ -27,7 +27,8 @@ use crate::images::{ArtLoader, art_palette};
 use crate::model::{PlaylistCache, TopPeriod};
 use crate::paths::AppDirs;
 use crate::player::{
-    Engine, EngineConfig, EngineEvent, Heard, KeptPlayer, LocalState, PlaybackResume, PlayerCommand,
+    Engine, EngineConfig, EngineEvent, Heard, KeptPlayer, LoadSpec, LocalState, Pickup,
+    PlaybackResume, PlayerCommand,
 };
 use crate::session_reads;
 use crate::settings::ProxyConfig;
@@ -829,8 +830,36 @@ pub enum Command {
     },
     /// OS reports network reachability changed.
     NetworkStatus(bool),
-    /// Internal: librespot's session ended on its own.
-    Reconnect,
+    /// librespot's session ended on its own, or the app saw it go bad.
+    /// `resume`, when given, is where playback picks up on the new session:
+    /// the app knows the album or playlist, which a session replaced while
+    /// it still runs cannot hand over.
+    Reconnect {
+        resume: Option<Pickup>,
+    },
+    /// Windows reports the network back. Its hint is not followed, so
+    /// nothing waits for it; this only hurries a dropped session waiting
+    /// for its next try.
+    NetworkReturned,
+    /// The system woke up after `asleep` (unknown when `None`). A session
+    /// that slept long is likely dead, so it is replaced, keeping playback.
+    SystemResumed {
+        asleep: Option<Duration>,
+        /// Where playback picks up if the session is replaced.
+        resume: Option<Pickup>,
+    },
+    /// The system is about to sleep: music playing here pauses at once, and
+    /// a pickup still on its way to a session wakes paused. Sent by the
+    /// power reader as the system says so, not by the interface's pass.
+    PauseForSleep,
+    /// Tells the system to go ahead with the sleep once the player here has
+    /// paused for it, or at `by` at the latest: the system waits 1.5 s at
+    /// most, and the interface's next pass may not run in time once the
+    /// display is off.
+    AnswerSleep {
+        ack: crate::power::Ack,
+        by: Instant,
+    },
     /// Internal: the backoff after a failed engine connection has passed.
     RetryEngine {
         generation: u64,
@@ -1226,6 +1255,14 @@ pub struct Backend {
         std::sync::Mutex<Vec<crate::account_cache::Cache<crate::model::HomeSnapshot>>>,
     #[cfg(test)]
     top_tracks_requests: std::sync::Mutex<Vec<(TopPeriod, u32, bool, u64)>>,
+    #[cfg(test)]
+    reconnects: std::sync::Mutex<Vec<Option<Pickup>>>,
+    #[cfg(test)]
+    system_resumes: std::sync::Mutex<Vec<Option<Pickup>>>,
+    #[cfg(test)]
+    network_returns: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    sleep_answers: std::sync::Mutex<Vec<Instant>>,
 }
 
 impl Backend {
@@ -1328,6 +1365,14 @@ impl Backend {
             home_cache_stores: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             top_tracks_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            reconnects: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            system_resumes: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            network_returns: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            sleep_answers: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -1365,6 +1410,29 @@ impl Backend {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(cache.clone());
         }
+        #[cfg(test)]
+        match &command {
+            Command::Reconnect { resume } => self
+                .reconnects
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(resume.clone()),
+            Command::SystemResumed { resume, .. } => self
+                .system_resumes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(resume.clone()),
+            Command::NetworkReturned => {
+                self.network_returns
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            Command::AnswerSleep { by, .. } => self
+                .sleep_answers
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(*by),
+            _ => {}
+        }
         if self.offline
             && !matches!(
                 command,
@@ -1377,9 +1445,20 @@ impl Backend {
                     | Command::InstallUpdate { .. }
             )
         {
+            // No player here to wait for: the system goes ahead at once.
+            if let Command::AnswerSleep { ack, .. } = &command {
+                ack.done();
+            }
             return;
         }
         let _ = self.commands.send(command);
+    }
+
+    /// A way to send commands from another thread, for the power reader,
+    /// which hears the system go to sleep before the interface's next pass
+    /// would.
+    pub fn command_sender(&self) -> mpsc::UnboundedSender<Command> {
+        self.commands.clone()
     }
 
     /// Construct the native dialog on the UI thread, then await and read it
@@ -1633,6 +1712,32 @@ impl Backend {
     #[cfg(test)]
     pub(crate) fn take_player_commands(&self) -> Vec<PlayerCommand> {
         std::mem::take(&mut *self.player_commands.lock().unwrap())
+    }
+
+    /// The reconnects asked for so far, each with its resume point.
+    #[cfg(test)]
+    pub(crate) fn take_reconnects(&self) -> Vec<Option<Pickup>> {
+        std::mem::take(&mut *self.reconnects.lock().unwrap())
+    }
+
+    /// The wake-ups reported so far, each with its resume point.
+    #[cfg(test)]
+    pub(crate) fn take_system_resumes(&self) -> Vec<Option<Pickup>> {
+        std::mem::take(&mut *self.system_resumes.lock().unwrap())
+    }
+
+    /// The sleeps handed over to answer so far, each with its latest answer.
+    #[cfg(test)]
+    pub(crate) fn take_sleep_answers(&self) -> Vec<Instant> {
+        std::mem::take(&mut *self.sleep_answers.lock().unwrap())
+    }
+
+    /// How many times Windows's report of the network back was passed on
+    /// since the last call.
+    #[cfg(test)]
+    pub(crate) fn take_network_returns(&self) -> usize {
+        self.network_returns
+            .swap(0, std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn player(&self, command: PlayerCommand) {
@@ -1926,6 +2031,17 @@ struct Worker {
     /// The player of an engine whose session dropped, still playing what it
     /// had fetched, for the next engine to carry on with (#268).
     kept_player: Option<KeptPlayer>,
+    /// What the app said to load instead if the track to pick up proves
+    /// not to be in its context.
+    resume_alone: Option<LoadSpec>,
+    /// The system slept with a pickup still on its way to a session: it is
+    /// taken paused, as the music it stands for was paused for the sleep. A
+    /// load says so itself; a session's own snapshot cannot, so it is paused
+    /// as soon as it is restored.
+    pickup_paused: bool,
+    /// Whether the newest engine still speaks for local playback. One that
+    /// was replaced reports for a few seconds more while it winds down.
+    engine_current: Option<Arc<std::sync::atomic::AtomicBool>>,
     network_reachable: bool,
     waiting_for_network: bool,
     engine_attempt: u64,
@@ -2031,6 +2147,9 @@ impl Worker {
             resume: None,
             resume_verify: None,
             kept_player: None,
+            resume_alone: None,
+            pickup_paused: false,
+            engine_current: None,
             network_reachable: true,
             waiting_for_network: false,
             engine_attempt: 0,
@@ -2426,6 +2545,10 @@ impl Worker {
                     }
                 }
                 Command::AuthorizePlayback => self.authorize_playback(),
+                Command::SystemResumed { asleep, resume } => self.on_system_resumed(asleep, resume),
+                Command::PauseForSleep => self.pause_for_sleep(),
+                Command::AnswerSleep { ack, by } => self.answer_sleep(ack, by),
+                Command::NetworkReturned => self.hurry_engine_retry(),
                 Command::RestartEngine(mut config) => {
                     // Audio settings must not revert a proxy change whose UI
                     // acknowledgement was still in flight when this was clicked.
@@ -2445,6 +2568,16 @@ impl Worker {
                     if matches!(&command, PlayerCommand::Load(_)) {
                         self.resume = None;
                     }
+                    if matches!(
+                        command,
+                        PlayerCommand::Load(_) | PlayerCommand::Next | PlayerCommand::Previous
+                    ) {
+                        // What the user picks now wins over a pickup still
+                        // being checked.
+                        self.resume_verify = None;
+                        self.resume_alone = None;
+                        self.pickup_paused = false;
+                    }
                     match &self.engine {
                         // Until the new session picks the song up, it has
                         // nothing to pause: the player does it (#268).
@@ -2452,6 +2585,9 @@ impl Worker {
                             if command == PlayerCommand::Toggle
                                 && engine.carrying()
                                 && engine.keep_player().toggle() => {}
+                        Some(engine) if command == PlayerCommand::Pause && engine.carrying() => {
+                            engine.keep_player().pause();
+                        }
                         Some(engine) => {
                             if let Err(error) = engine.command(command) {
                                 self.emit(Event::Error(format!("Playback error: {error}")));
@@ -2461,6 +2597,12 @@ impl Worker {
                         // pauses and plays on its own player (#268).
                         None if command == PlayerCommand::Toggle
                             && self.kept_player.as_ref().is_some_and(KeptPlayer::toggle) => {}
+                        // Nothing playing here has nothing to pause.
+                        None if command == PlayerCommand::Pause => {
+                            if let Some(player) = &self.kept_player {
+                                player.pause();
+                            }
+                        }
                         None => {
                             if matches!(&command, PlayerCommand::Load(_)) {
                                 // Something else chosen: the old song stops.
@@ -2672,7 +2814,7 @@ impl Worker {
                 Command::PlaybackAuthEnded { attempt } => {
                     self.finish_playback_authorization(attempt)
                 }
-                Command::Reconnect => self.reconnect_engine(),
+                Command::Reconnect { resume } => self.reconnect_engine(resume),
                 Command::RetryEngine { generation } => self.retry_engine(generation),
                 Command::DiscoverReceivers => self.discover_receivers(),
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
@@ -3516,6 +3658,8 @@ impl Worker {
         self.premium = None;
         self.resume = None;
         self.resume_verify = None;
+        self.resume_alone = None;
+        self.pickup_paused = false;
         self.waiting_for_network = false;
         self.cancel_engine_retry();
         self.authorize_if_rejected = false;
@@ -3558,22 +3702,31 @@ impl Worker {
         self.connect_engine(credentials);
     }
 
-    fn engine_notify(&self) -> crate::player::Notify {
+    fn engine_notify(&mut self) -> crate::player::Notify {
         let events = self.events.clone();
         let commands = self.commands.clone();
         let waker = self.waker.clone();
         let lease = self.credentials.lease(CredentialSlot::Playback);
+        let current = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        if let Some(previous) = self.engine_current.replace(Arc::clone(&current)) {
+            previous.store(false, std::sync::atomic::Ordering::Relaxed);
+        }
         Arc::new(move |event| {
             if !lease.current() {
                 return;
             }
             match event {
-                EngineEvent::State(state) => {
+                EngineEvent::State(mut state) => {
+                    if !current.load(std::sync::atomic::Ordering::Relaxed) {
+                        // What a replaced engine failed to play while it
+                        // went down is no news: its successor has taken over.
+                        state.error = None;
+                    }
                     let _ = events.send(Event::Local(Box::new(state)));
                     waker.wake();
                 }
                 EngineEvent::SessionEnded => {
-                    let _ = commands.send(Command::Reconnect);
+                    let _ = commands.send(Command::Reconnect { resume: None });
                 }
                 EngineEvent::AudioDevice { name, id } => {
                     let _ = events.send(Event::AudioDeviceFound { name, id });
@@ -3635,11 +3788,33 @@ impl Worker {
         // New audio settings take effect now, even when the replacement
         // waits for a connection in flight.
         self.stop_kept_player();
-        if defer_engine_replace(self.engine_busy, &mut self.engine_restart_pending) {
+        self.replace_engine_at(None);
+    }
+
+    /// Replaces the engine as [`replace_engine`](Self::replace_engine) does,
+    /// picking playback up at `resume` when the app gives one. A session
+    /// replaced while it still runs can hand over only its track, not the
+    /// album or playlist around it.
+    fn replace_engine_at(&mut self, resume: Option<Pickup>) {
+        if !self.signed_in {
             return;
         }
-        self.take_engine_for_resume();
-        self.resume_engine();
+        let deferred = defer_engine_replace(self.engine_busy, &mut self.engine_restart_pending);
+        if !deferred {
+            self.take_engine_for_resume();
+        }
+        if let Some(pickup) = resume {
+            self.pick_up_at(pickup);
+        }
+        if !deferred {
+            self.resume_engine();
+        }
+    }
+
+    /// The next engine picks up where the app says.
+    fn pick_up_at(&mut self, pickup: Pickup) {
+        self.resume = Some(PlaybackResume::Track(pickup.load));
+        self.resume_alone = pickup.alone;
     }
 
     /// Starts clearing cached audio on the disk worker and goes back to the
@@ -3692,15 +3867,22 @@ impl Worker {
     /// dropped connection is a pause of a few seconds rather than silence.
     /// Six drops in ten minutes stop the loop so a flapping session cannot
     /// sit there reconnecting forever.
-    fn reconnect_engine(&mut self) {
+    fn reconnect_engine(&mut self, resume: Option<Pickup>) {
         if !self.signed_in {
             return;
         }
         if self.engine_busy {
+            // A connection is already on its way; it picks up here.
+            if let Some(pickup) = resume {
+                self.pick_up_at(pickup);
+            }
             return;
         }
         if !self.network_reachable {
             self.take_engine_keeping_player();
+            if let Some(pickup) = resume {
+                self.pick_up_at(pickup);
+            }
             self.waiting_for_network = true;
             self.emit(Event::Playback(LocalPlayback::WaitingForNetwork));
             return;
@@ -3709,6 +3891,8 @@ impl Worker {
         if session_drops_exhausted(&mut self.reconnects, now) {
             self.take_engine_for_resume();
             self.resume = None;
+            self.resume_alone = None;
+            self.pickup_paused = false;
             self.emit(Event::Playback(LocalPlayback::Failed(
                 "Local playback keeps dropping. Re-enable it from Settings.".into(),
             )));
@@ -3720,7 +3904,103 @@ impl Worker {
             self.reconnects.len()
         );
         self.take_engine_keeping_player();
+        if let Some(pickup) = resume {
+            self.pick_up_at(pickup);
+        }
         self.resume_engine();
+    }
+
+    /// Tries a connection waiting out its retry now, when Windows reports
+    /// the network back or the system wakes. macOS's report goes through
+    /// `waiting_for_network` instead.
+    fn hurry_engine_retry(&mut self) {
+        if self.engine_retries == 0 || self.engine_busy {
+            return;
+        }
+        self.retry_engine(self.engine_retry_generation);
+        if self.engine_busy {
+            // The try scheduled for later is stale now.
+            self.engine_retry_generation += 1;
+        }
+    }
+
+    /// The system is about to sleep: music playing here pauses at once, by
+    /// what the player is doing rather than by what the app shows.
+    fn pause_for_sleep(&mut self) {
+        self.keep_pickup_paused();
+        if let Some(player) = &self.kept_player {
+            player.pause();
+        }
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        if engine.carrying() {
+            engine.keep_player().pause();
+        } else if engine.is_playing()
+            && let Err(error) = engine.command(PlayerCommand::Pause)
+        {
+            log::warn!("unable to pause for sleep: {error}");
+        }
+    }
+
+    /// Answers the system once the player here has paused for the sleep,
+    /// or at `by`, whichever is first, waiting off this loop.
+    fn answer_sleep(&self, ack: crate::power::Ack, by: Instant) {
+        let playing: Box<dyn Fn() -> bool + Send> = match (&self.engine, &self.kept_player) {
+            (Some(engine), _) => Box::new(engine.playing_probe()),
+            (None, Some(player)) => Box::new(player.playing_probe()),
+            (None, None) => {
+                ack.done();
+                return;
+            }
+        };
+        tokio::spawn(answer_once_paused(move || ack.done(), by, playing));
+    }
+
+    /// A pickup still on its way to a session, a reconnect queued or one
+    /// waiting for the network, wakes paused rather than starting the music
+    /// when the lid opens: the music it stands for was paused for the sleep.
+    fn keep_pickup_paused(&mut self) {
+        if self.resume.is_none() && self.resume_verify.is_none() {
+            return;
+        }
+        self.pickup_paused = true;
+        let pending = self
+            .resume
+            .iter_mut()
+            .chain(self.resume_verify.iter_mut().map(|(pending, _)| pending));
+        for pending in pending {
+            if let PlaybackResume::Track(load) = pending {
+                load.play = false;
+            }
+        }
+        if let Some(alone) = &mut self.resume_alone {
+            alone.play = false;
+        }
+    }
+
+    /// The system woke up. A session that slept longer than its keep-alive
+    /// is most likely dead though librespot has not noticed yet, so it is
+    /// replaced now, keeping what was playing, rather than failing tracks
+    /// until it does. One waiting out a retry tries now.
+    fn on_system_resumed(&mut self, asleep: Option<Duration>, resume: Option<Pickup>) {
+        if !self.signed_in {
+            return;
+        }
+        // The notice before sleep marks a waiting pickup paused, but the
+        // system can sleep before it reaches the player. A dropped
+        // session's own snapshot, queue and all, is kept rather than
+        // swapped for the app's pickup, and wakes paused like the rest.
+        self.keep_pickup_paused();
+        if asleep.is_some_and(|asleep| asleep < SESSION_SURVIVES_SLEEP) {
+            return;
+        }
+        if self.engine.is_some() {
+            log::info!("the system slept {asleep:?}; replacing the local playback session");
+            self.replace_engine_at(resume);
+        } else {
+            self.hurry_engine_retry();
+        }
     }
 
     /// Try the saved grant again after a backoff. Each failure in a row
@@ -3781,6 +4061,8 @@ impl Worker {
     fn take_engine_for_resume(&mut self) {
         self.stop_kept_player();
         self.resume_verify = None;
+        self.resume_alone = None;
+        self.retire_engine_reports();
         self.album_type_lookup.requeue_active_for_new_engine();
         self.playlist_header_lookup.requeue_active_for_new_engine();
         self.carry_volume();
@@ -3795,6 +4077,8 @@ impl Worker {
     /// connects, and that engine takes the player over (#268).
     fn take_engine_keeping_player(&mut self) {
         self.resume_verify = None;
+        self.resume_alone = None;
+        self.retire_engine_reports();
         self.album_type_lookup.requeue_active_for_new_engine();
         self.playlist_header_lookup.requeue_active_for_new_engine();
         self.carry_volume();
@@ -3805,6 +4089,14 @@ impl Worker {
                 self.resume = engine.resume_point();
             }
             self.kept_player = Some(engine.keep_player());
+        }
+    }
+
+    /// The engine going down still reports while it winds down; from now
+    /// on its errors are no news.
+    fn retire_engine_reports(&mut self) {
+        if let Some(current) = self.engine_current.take() {
+            current.store(false, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -4335,16 +4627,35 @@ impl Worker {
         let Some((spec, attempts)) = self.resume_verify.take() else {
             return;
         };
-        let Some(engine) = &self.engine else {
+        let Some(engine) = self.engine.clone() else {
             return;
         };
-        if engine.interrupted().is_some() && !engine.carrying() {
-            // Playback resumed or another track started. A song the player
+        if let Some(now) = engine.interrupted()
+            && !engine.carrying()
+        {
+            // Playback resumed or another track started. One that started
+            // after this pickup's own load instead of the track asked for
+            // means the track was not in that context. A song the player
             // carried through the reconnect still needs picking up.
+            if (1..3).contains(&attempts)
+                && picked_up_elsewhere(&spec, &now.uri)
+                && let Some(alone) = self.resume_alone.take()
+            {
+                log::info!("the track to pick up is not in its context; playing it by itself");
+                let alone = PlaybackResume::Track(alone);
+                if let Err(error) = engine.resume(alone.clone()) {
+                    log::warn!("unable to pick playback up again: {error}");
+                }
+                self.resume_verify = Some((alone, attempts + 1));
+                self.schedule_resume_check(4_000);
+                return;
+            }
+            self.pickup_paused = false;
             return;
         }
         if attempts >= 3 {
             log::warn!("gave up picking playback up again after {attempts} tries");
+            self.pickup_paused = false;
             return;
         }
         log::info!(
@@ -4353,6 +4664,12 @@ impl Worker {
         );
         if let Err(error) = engine.resume(spec.clone()) {
             log::warn!("unable to pick playback up again: {error}");
+        } else if self.pickup_paused && matches!(spec, PlaybackResume::Session(_)) {
+            // Restoring the snapshot starts loading its track, playing if it
+            // was; a pause sent now stops that load before it sounds.
+            if let Err(error) = engine.command(PlayerCommand::Pause) {
+                log::warn!("unable to keep the pickup paused: {error}");
+            }
         }
         self.resume_verify = Some((spec, attempts + 1));
         self.schedule_resume_check(4_000);
@@ -5023,6 +5340,48 @@ impl Worker {
             }
         });
     }
+}
+
+/// Whether a pickup in a context brought up `playing` rather than the track
+/// it asked for: librespot starts a context from its first track when that
+/// track is not in it, as with one autoplay added after the context ended.
+fn picked_up_elsewhere(resume: &PlaybackResume, playing: &str) -> bool {
+    matches!(
+        resume,
+        PlaybackResume::Track(load)
+            if load.context_uri.is_some()
+                && load.offset_uri.as_deref().is_some_and(|wanted| wanted != playing)
+    )
+}
+
+/// A session that slept this long may still be alive: librespot's keep-alive
+/// gives a silent connection about 100 seconds.
+const SESSION_SURVIVES_SLEEP: Duration = Duration::from_secs(90);
+
+/// How often a sleep waiting on the player looks again.
+const SLEEP_ANSWER_POLL: Duration = Duration::from_millis(10);
+
+/// Calls `answer` once `playing` says the player has stopped, or at `by`.
+/// The log says which, and how long this waited.
+async fn answer_once_paused(answer: impl FnOnce(), by: Instant, playing: impl Fn() -> bool) {
+    let started = tokio::time::Instant::now();
+    let deadline = started + by.saturating_duration_since(Instant::now());
+    while playing() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(SLEEP_ANSWER_POLL).await;
+    }
+    // Not a warning: a player whose pause waits for an audio device that
+    // stopped taking samples as the system went to sleep reaches the
+    // deadline on every sleep, and the system then sleeps paused all the
+    // same.
+    if playing() {
+        log::info!(
+            "the player had not reported its pause for sleep after waiting {:?}; letting the system sleep",
+            started.elapsed()
+        );
+    } else {
+        log::info!("paused for sleep after waiting {:?}", started.elapsed());
+    }
+    answer();
 }
 
 fn friendly_connect_error(error: &anyhow::Error) -> String {
@@ -8028,7 +8387,7 @@ mod authorization_tests {
         worker.engine_config.initial_volume = crate::app::percent_to_volume(80);
         worker.heard = Some(Heard::at(crate::app::percent_to_volume(5)));
         let (commands, receiver) = mpsc::unbounded_channel();
-        commands.send(Command::Reconnect).unwrap();
+        commands.send(Command::Reconnect { resume: None }).unwrap();
         commands.send(Command::Shutdown).unwrap();
         runtime.block_on(async {
             tokio::time::timeout(Duration::from_secs(1), worker.run(receiver))
@@ -8044,6 +8403,252 @@ mod authorization_tests {
             worker.heard.is_none(),
             "what was heard goes with its engine"
         );
+    }
+
+    /// A replaced engine goes on reporting while it winds down, but what it
+    /// failed to play then is no news: its successor has taken over.
+    #[test]
+    fn a_replaced_engine_reports_no_errors() {
+        let (_runtime, mut worker, events) = worker("replaced-engine");
+        let notify = worker.engine_notify();
+        let failed = || {
+            EngineEvent::State(LocalState {
+                error: Some("This item isn't available: spotify:track:x".into()),
+                ..LocalState::default()
+            })
+        };
+        let error = |event: Event| match event {
+            Event::Local(state) => state.error,
+            _ => panic!("a local state"),
+        };
+        notify(failed());
+        assert!(error(events.try_recv().unwrap()).is_some());
+        worker.take_engine_for_resume();
+        notify(failed());
+        assert_eq!(error(events.try_recv().unwrap()), None);
+    }
+
+    /// librespot starts a context from its first track when the one asked
+    /// for is not in it. A pickup that brought up its own track, one of a
+    /// plain list, or a track by itself is not that.
+    #[test]
+    fn a_context_started_elsewhere_is_noticed() {
+        let in_album = PlaybackResume::Track(LoadSpec {
+            context_uri: Some("spotify:album:a".into()),
+            offset_uri: Some("spotify:track:radio".into()),
+            ..LoadSpec::default()
+        });
+        assert!(picked_up_elsewhere(&in_album, "spotify:track:first"));
+        assert!(!picked_up_elsewhere(&in_album, "spotify:track:radio"));
+        let list = PlaybackResume::Track(LoadSpec {
+            uris: vec!["spotify:track:a".into(), "spotify:track:radio".into()],
+            offset_uri: Some("spotify:track:radio".into()),
+            ..LoadSpec::default()
+        });
+        assert!(!picked_up_elsewhere(&list, "spotify:track:a"));
+        let alone = PlaybackResume::Track(LoadSpec {
+            context_uri: Some("spotify:track:radio".into()),
+            ..LoadSpec::default()
+        });
+        assert!(!picked_up_elsewhere(&alone, "spotify:track:first"));
+    }
+
+    /// A reconnect the app asks for picks playback up where the app says,
+    /// album and position included, over what the old engine could tell.
+    #[test]
+    fn a_reconnect_picks_up_where_the_app_says() {
+        let (runtime, mut worker, _) = worker("reconnect-resume");
+        worker.signed_in = true;
+        worker.resume = Some(PlaybackResume::Track(LoadSpec {
+            uris: vec!["spotify:track:shown".into()],
+            ..LoadSpec::default()
+        }));
+        let pickup = Pickup {
+            load: LoadSpec {
+                context_uri: Some("spotify:album:a".into()),
+                offset_uri: Some("spotify:track:shown".into()),
+                position_ms: 119_000,
+                play: true,
+                ..LoadSpec::default()
+            },
+            alone: Some(LoadSpec {
+                context_uri: Some("spotify:track:shown".into()),
+                position_ms: 119_000,
+                play: true,
+                ..LoadSpec::default()
+            }),
+        };
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::Reconnect {
+                resume: Some(pickup.clone()),
+            })
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), worker.run(receiver))
+                .await
+                .unwrap();
+        });
+        match &worker.resume {
+            Some(PlaybackResume::Track(resume)) => assert_eq!(resume, &pickup.load),
+            other => panic!("expected the app's resume point, got {other:?}"),
+        }
+        assert_eq!(worker.resume_alone, pickup.alone);
+    }
+
+    /// A pickup still on its way to a session when the system sleeps (here
+    /// the network is not back) wakes paused, like the music it stands for,
+    /// rather than starting when the lid opens.
+    #[test]
+    fn a_pickup_waiting_through_sleep_wakes_paused() {
+        let (runtime, mut worker, _) = worker("sleep-pickup");
+        worker.signed_in = true;
+        worker.resume = Some(PlaybackResume::Track(LoadSpec {
+            context_uri: Some("spotify:album:a".into()),
+            offset_uri: Some("spotify:track:shown".into()),
+            play: true,
+            ..LoadSpec::default()
+        }));
+        worker.resume_alone = Some(LoadSpec {
+            context_uri: Some("spotify:track:shown".into()),
+            play: true,
+            ..LoadSpec::default()
+        });
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::PauseForSleep).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), worker.run(receiver))
+                .await
+                .unwrap();
+        });
+        match &worker.resume {
+            Some(PlaybackResume::Track(resume)) => {
+                assert!(!resume.play, "the pickup plays on waking");
+                assert_eq!(resume.offset_uri.as_deref(), Some("spotify:track:shown"));
+            }
+            other => panic!("expected the pickup kept, got {other:?}"),
+        }
+        assert!(
+            worker
+                .resume_alone
+                .as_ref()
+                .is_some_and(|alone| !alone.play)
+        );
+        assert!(worker.pickup_paused, "a session's snapshot is paused too");
+    }
+
+    /// The system is told to sleep as soon as the player has paused, when
+    /// the wait is up if it never does, and at once when nothing plays.
+    #[tokio::test(start_paused = true)]
+    async fn a_sleep_is_answered_once_the_player_pauses_or_the_wait_is_up() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let flag = |value| Arc::new(AtomicBool::new(value));
+        let answer = |answered: &Arc<AtomicBool>| {
+            let answered = answered.clone();
+            move || answered.store(true, Ordering::SeqCst)
+        };
+        let probe = |playing: &Arc<AtomicBool>| {
+            let playing = playing.clone();
+            move || playing.load(Ordering::SeqCst)
+        };
+        let wait = Duration::from_secs(1);
+
+        let (playing, answered) = (flag(true), flag(false));
+        let started = tokio::time::Instant::now();
+        let waiting = tokio::spawn(answer_once_paused(
+            answer(&answered),
+            Instant::now() + wait,
+            probe(&playing),
+        ));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!answered.load(Ordering::SeqCst), "still playing");
+        playing.store(false, Ordering::SeqCst);
+        waiting.await.unwrap();
+        assert!(answered.load(Ordering::SeqCst));
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "answered as soon as it paused"
+        );
+
+        let (playing, answered) = (flag(true), flag(false));
+        let started = tokio::time::Instant::now();
+        answer_once_paused(answer(&answered), Instant::now() + wait, probe(&playing)).await;
+        assert!(
+            answered.load(Ordering::SeqCst),
+            "a player that never pauses"
+        );
+        assert!(
+            (Duration::from_millis(990)..Duration::from_millis(1100)).contains(&started.elapsed()),
+            "holds the system no longer than the wait"
+        );
+
+        let (playing, answered) = (flag(false), flag(false));
+        let started = tokio::time::Instant::now();
+        answer_once_paused(answer(&answered), Instant::now() + wait, probe(&playing)).await;
+        assert!(answered.load(Ordering::SeqCst));
+        assert_eq!(started.elapsed(), Duration::ZERO, "nothing to wait for");
+    }
+
+    /// The system can sleep before the notice that pauses a waiting pickup
+    /// is sent. A dropped session waiting for its next try then wakes paused
+    /// all the same, with its own pickup rather than the app's.
+    #[test]
+    fn waking_without_a_sleep_notice_keeps_a_waiting_pickup_paused() {
+        let (runtime, mut worker, _) = worker("wake-without-notice");
+        worker.signed_in = true;
+        // Waiting out the wait before its next try, with no engine.
+        worker.engine_retries = 1;
+        worker.resume = Some(PlaybackResume::Track(LoadSpec {
+            context_uri: Some("spotify:album:a".into()),
+            offset_uri: Some("spotify:track:shown".into()),
+            play: true,
+            ..LoadSpec::default()
+        }));
+        worker.resume_alone = Some(LoadSpec {
+            context_uri: Some("spotify:track:shown".into()),
+            play: true,
+            ..LoadSpec::default()
+        });
+        let from_the_app = Pickup {
+            load: LoadSpec {
+                context_uri: Some("spotify:track:shown".into()),
+                ..LoadSpec::default()
+            },
+            alone: None,
+        };
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands
+            .send(Command::SystemResumed {
+                asleep: Some(Duration::from_secs(120)),
+                resume: Some(from_the_app),
+            })
+            .unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), worker.run(receiver))
+                .await
+                .unwrap();
+        });
+        match &worker.resume {
+            Some(PlaybackResume::Track(resume)) => {
+                assert!(!resume.play, "the pickup plays on waking");
+                assert_eq!(
+                    resume.context_uri.as_deref(),
+                    Some("spotify:album:a"),
+                    "the session's own pickup is kept"
+                );
+            }
+            other => panic!("expected the pickup kept, got {other:?}"),
+        }
+        assert!(
+            worker
+                .resume_alone
+                .as_ref()
+                .is_some_and(|alone| !alone.play)
+        );
+        assert!(worker.pickup_paused, "a session's snapshot is paused too");
     }
 
     /// Signing out takes the engine down outside the reconnect path. The
@@ -10141,7 +10746,7 @@ mod tests {
         super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
         worker.network_reachable = false;
         worker.resume = Some(PlaybackResume::Track(crate::player::LoadSpec::default()));
-        worker.reconnect_engine();
+        worker.reconnect_engine(None);
         assert!(worker.resume.is_some());
         assert!(worker.waiting_for_network);
         assert!(worker.reconnects.is_empty());
@@ -10150,6 +10755,75 @@ mod tests {
                 .try_iter()
                 .any(|event| matches!(event, Event::Playback(LocalPlayback::WaitingForNetwork)))
         );
+    }
+
+    /// Windows reporting the network back hurries a dropped session waiting
+    /// out the wait before its next try. Its hint is not followed: the
+    /// backend never waited for it.
+    #[test]
+    fn the_network_back_on_windows_hurries_a_waiting_session() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("network-returned");
+        let _entered = runtime.enter();
+        super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+        worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+        worker.engine_retries = 3;
+        let scheduled = worker.engine_retry_generation;
+
+        let (commands, receiver) = mpsc::unbounded_channel();
+        commands.send(Command::NetworkReturned).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        runtime.block_on(worker.run(receiver));
+
+        assert!(worker.engine_busy, "tried at once");
+        assert_ne!(
+            worker.engine_retry_generation, scheduled,
+            "the try scheduled for later is stale"
+        );
+        assert!(worker.network_reachable);
+        assert!(!worker.waiting_for_network);
+        assert!(
+            events
+                .try_iter()
+                .all(|event| !matches!(event, Event::Playback(LocalPlayback::Connecting))),
+            "a background retry keeps the error shown"
+        );
+    }
+
+    /// The network coming back on Windows leaves alone a session that is
+    /// connecting, and one that runs, which has no try waiting.
+    #[test]
+    fn the_network_back_on_windows_leaves_a_working_session_alone() {
+        for (name, connecting) in [
+            ("network-returned-connecting", true),
+            ("network-returned-running", false),
+        ] {
+            let (runtime, mut worker, events) = super::authorization_tests::worker(name);
+            let _entered = runtime.enter();
+            super::authorization_tests::verify(&mut worker, ApiSource::Shared, "alice");
+            worker.playback_grant = Some(Credentials::with_password("alice", "grant"));
+            worker.engine_busy = connecting;
+            worker.engine_retries = usize::from(connecting);
+            let attempt = worker.engine_attempt;
+            let scheduled = worker.engine_retry_generation;
+
+            let (commands, receiver) = mpsc::unbounded_channel();
+            commands.send(Command::NetworkReturned).unwrap();
+            commands.send(Command::Shutdown).unwrap();
+            runtime.block_on(worker.run(receiver));
+
+            assert_eq!(worker.engine_attempt, attempt, "{name}: tried again");
+            assert_eq!(worker.engine_busy, connecting, "{name}");
+            assert_eq!(
+                worker.engine_retry_generation, scheduled,
+                "{name}: the scheduled try was dropped"
+            );
+            assert!(
+                events
+                    .try_iter()
+                    .all(|event| !matches!(event, Event::Playback(LocalPlayback::Connecting))),
+                "{name}"
+            );
+        }
     }
 
     #[test]
