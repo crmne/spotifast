@@ -165,6 +165,8 @@ pub struct WinampState {
     pub playlist_selection: std::collections::HashSet<usize>,
     pub playlist_wheel: f32,
     pub playlist_resize: f32,
+    /// The same for the MilkDrop panel, across and down.
+    pub milkdrop_resize: [f32; 2],
     /// The playlist's rows as Winamp drew them, kept once drawn.
     pub playlist_text: crate::ui::winamp::PixelText,
     /// MilkDrop presets listed and downloaded from Settings.
@@ -212,6 +214,7 @@ impl WinampState {
             playlist_selection: std::collections::HashSet::new(),
             playlist_wheel: 0.0,
             playlist_resize: 0.0,
+            milkdrop_resize: [0.0, 0.0],
             playlist_text: crate::ui::winamp::PixelText::default(),
             presets: crate::milkdrop::Presets::new(),
         }

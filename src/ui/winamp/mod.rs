@@ -19,6 +19,7 @@ use crate::i18n::{Locale, gettext, pgettext};
 use crate::model::{Action, Page};
 use crate::player::RepeatMode;
 use crate::settings::VisMode;
+use crate::skin::generic;
 use crate::skin::layout::{self, Area};
 use crate::skin::{Mask, Sheet, Skin, Sprite, font, sprites};
 use crate::util;
@@ -36,8 +37,38 @@ mod wmp;
 
 pub use pixel_text::PixelText;
 
-/// The stack's height in skin pixels: the main window, and the equalizer
-/// and the playlist under it, whichever are open.
+/// The MilkDrop panel's size in skin pixels: its width, and how much of the
+/// stack it takes, whichever size it was left at.
+pub(crate) fn clamped_panel([width, height]: [u32; 2]) -> [u32; 2] {
+    [
+        width.clamp(generic::MIN_WIDTH, MILKDROP_PANEL_MAX[0]),
+        height.clamp(generic::MIN_HEIGHT, MILKDROP_PANEL_MAX[1]),
+    ]
+}
+
+/// The most the panel grows to, in skin pixels.
+const MILKDROP_PANEL_MAX: [u32; 2] = [1280, 960];
+
+#[cfg(feature = "milkdrop")]
+fn milkdrop_panel(settings: &crate::settings::Settings) -> [u32; 2] {
+    clamped_panel(settings.milkdrop_panel)
+}
+
+/// The panel's size in the stack, if it is open in this build.
+fn docked_milkdrop(settings: &crate::settings::Settings) -> Option<[u32; 2]> {
+    (cfg!(feature = "milkdrop") && settings.milkdrop_open)
+        .then(|| clamped_panel(settings.milkdrop_panel))
+}
+
+/// The stack's width in skin pixels: the main window's, or a wider panel's.
+fn stack_width(settings: &crate::settings::Settings) -> u32 {
+    docked_milkdrop(settings).map_or(layout::WINDOW_WIDTH, |[width, _]| {
+        width.max(layout::WINDOW_WIDTH)
+    })
+}
+
+/// The stack's height in skin pixels: the main window, and the equalizer,
+/// the playlist and MilkDrop under it, whichever are open.
 fn stack_height(settings: &crate::settings::Settings) -> u32 {
     let mut height = if settings.winamp_shaded {
         layout::SHADE_HEIGHT
@@ -60,13 +91,16 @@ fn stack_height(settings: &crate::settings::Settings) -> u32 {
                 .clamp(layout::PLAYLIST_MIN_HEIGHT, layout::PLAYLIST_MAX_HEIGHT)
         };
     }
+    if let Some([_, panel]) = docked_milkdrop(settings) {
+        height += panel;
+    }
     height
 }
 
 /// The window's size in logical points, for the given points per skin
 /// pixel.
 pub fn window_size(settings: &crate::settings::Settings, unit: f32) -> Vec2 {
-    vec2(layout::WINDOW_WIDTH as f32, stack_height(settings) as f32) * unit
+    vec2(stack_width(settings) as f32, stack_height(settings) as f32) * unit
 }
 
 /// A first guess at the window's size, before the display's scale is
@@ -106,14 +140,15 @@ fn fit_window(ctx: &egui::Context, wanted: Vec2) {
     if (current - wanted).abs().max_elem() < 1.0 {
         return;
     }
-    // Retry rejected resize requests at most once per second.
+    // Retry a rejected size at most once per second; a new one goes at once,
+    // or a corner being dragged would move in steps of a second.
     let asked = Id::new("winamp-fit-asked");
-    let last: Option<f64> = ctx.data(|data| data.get_temp(asked));
+    let last: Option<(f64, Vec2)> = ctx.data(|data| data.get_temp(asked));
     let now = ctx.input(|input| input.time);
-    if last.is_some_and(|last| now - last < 1.0) {
+    if last.is_some_and(|(last, size)| size == wanted && now - last < 1.0) {
         return;
     }
-    ctx.data_mut(|data| data.insert_temp(asked, now));
+    ctx.data_mut(|data| data.insert_temp(asked, (now, wanted)));
     ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(wanted));
     ctx.send_viewport_cmd(ViewportCommand::MaxInnerSize(wanted));
     ctx.send_viewport_cmd(ViewportCommand::InnerSize(wanted));
@@ -404,9 +439,30 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             mask: None,
         };
         playlist::show(app, &mut below, now.as_ref(), focused);
+        below_y += if app.settings.playlist_shaded {
+            layout::PLAYLIST_SHADE_HEIGHT
+        } else {
+            app.settings
+                .playlist_height
+                .clamp(layout::PLAYLIST_MIN_HEIGHT, layout::PLAYLIST_MAX_HEIGHT)
+        };
     }
     #[cfg(feature = "milkdrop")]
-    milkdrop::show(app, &ctx);
+    if app.milkdrop_framed() {
+        let mut below = View {
+            ui: view.ui,
+            origin: origin + vec2(0.0, below_y as f32 * unit),
+            unit,
+            skin: &skin,
+            textures: &textures,
+            mask: None,
+        };
+        if milkdrop::show(app, &mut below, focused) {
+            crate::theme::visualiser_frame(&ctx, Some(app.milkdrop_pane_fps()));
+        }
+    }
+    #[cfg(not(feature = "milkdrop"))]
+    let _ = below_y;
 
     if vis_moving {
         crate::theme::visualiser_frame(&ctx, app.visualiser_fps());
@@ -1707,5 +1763,45 @@ mod tests {
         assert_eq!(initial_size(&settings, &skin), vec2(275.0, 406.0));
         settings.eq_shaded = true;
         assert_eq!(initial_size(&settings, &skin), vec2(275.0, 304.0));
+    }
+
+    /// MilkDrop docks under everything else, the window grows to fit, and
+    /// the double size scales the lot.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn the_milkdrop_panel_stacks_under_the_rest_and_grows_the_window() {
+        let mut settings = crate::settings::Settings {
+            eq_open: true,
+            playlist_open: true,
+            ..Default::default()
+        };
+        let without = window_size(&settings, 1.0);
+        settings.milkdrop_open = true;
+        settings.milkdrop_panel = [275, 232];
+        assert_eq!(
+            window_size(&settings, 1.0),
+            without + vec2(0.0, 232.0),
+            "the main window's width, and taller"
+        );
+        settings.milkdrop_panel = [640, 300];
+        assert_eq!(
+            window_size(&settings, 1.0),
+            vec2(640.0, without.y + 300.0),
+            "a wider panel takes the window with it"
+        );
+        assert_eq!(
+            window_size(&settings, 2.0),
+            window_size(&settings, 1.0) * 2.0
+        );
+    }
+
+    /// A file edited by hand cannot make the frame fall apart.
+    #[test]
+    fn the_milkdrop_panel_keeps_to_its_limits() {
+        assert_eq!(
+            clamped_panel([0, 0]),
+            [generic::MIN_WIDTH, generic::MIN_HEIGHT]
+        );
+        assert_eq!(clamped_panel([9999, 9999]), MILKDROP_PANEL_MAX);
     }
 }

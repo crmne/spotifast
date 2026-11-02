@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-02 15:08+0100\n"
+"POT-Creation-Date: 2026-11-02 16:46+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: French\n"
@@ -1881,7 +1881,7 @@ msgstr "Proxy du système utilisé."
 msgid "Mini player"
 msgstr "Mini-lecteur"
 
-#: src/ui/settings.rs:1795 src/ui/winamp/mod.rs:736 src/ui/winamp/mod.rs:882
+#: src/ui/settings.rs:1795 src/ui/winamp/mod.rs:792 src/ui/winamp/mod.rs:938
 msgid "Always on top"
 msgstr "Toujours au premier plan"
 
@@ -1938,7 +1938,7 @@ msgstr ""
 msgid "Pick another skin each time the mini player opens."
 msgstr "Choisit un autre skin à chaque ouverture du mini-lecteur."
 
-#: src/ui/settings.rs:1851 src/ui/winamp/mod.rs:723
+#: src/ui/settings.rs:1851 src/ui/winamp/mod.rs:779
 msgid "Size"
 msgstr "Taille"
 
@@ -1951,7 +1951,7 @@ msgstr ""
 msgid "Keep the mini player above everything else."
 msgstr "Garde le mini-lecteur au-dessus de tout le reste."
 
-#: src/ui/settings.rs:1863 src/ui/winamp/mod.rs:746
+#: src/ui/settings.rs:1863 src/ui/winamp/mod.rs:802
 msgid "Show in taskbar"
 msgstr "Afficher dans la barre des tâches"
 
@@ -3400,7 +3400,7 @@ msgstr "Ctrl+/ ou ?"
 msgid "Close the window"
 msgstr "Fermer la fenêtre"
 
-#: src/ui/keys.rs:424 src/ui/winamp/mod.rs:770
+#: src/ui/keys.rs:424 src/ui/winamp/mod.rs:826
 msgid "Quit"
 msgstr "Quitter"
 
@@ -3922,94 +3922,94 @@ msgstr "Enrouler l’égaliseur"
 msgid "Roll the equalizer down"
 msgstr "Dérouler l’égaliseur"
 
-#: src/ui/winamp/mod.rs:446 src/ui/winamp/mod.rs:494 src/ui/winamp/mod.rs:664
+#: src/ui/winamp/mod.rs:502 src/ui/winamp/mod.rs:550 src/ui/winamp/mod.rs:720
 msgid "Back to the big window (Ctrl+M)"
 msgstr "Revenir à la grande fenêtre (Ctrl+M)"
 
-#: src/ui/winamp/mod.rs:447 src/ui/winamp/mod.rs:492 src/ui/winamp/mod.rs:662
+#: src/ui/winamp/mod.rs:503 src/ui/winamp/mod.rs:548 src/ui/winamp/mod.rs:718
 msgid "Back to the big window (Cmd+Shift+M)"
 msgstr "Revenir à la grande fenêtre (Cmd+Shift+M)"
 
-#: src/ui/winamp/mod.rs:526
+#: src/ui/winamp/mod.rs:582
 msgid "Roll the window down"
 msgstr "Dérouler la fenêtre"
 
-#: src/ui/winamp/mod.rs:696
+#: src/ui/winamp/mod.rs:752
 msgid "Roll the window up"
 msgstr "Enrouler la fenêtre"
 
-#: src/ui/winamp/mod.rs:761
+#: src/ui/winamp/mod.rs:817
 msgid "Choose a skin"
 msgstr "Choisir une skin"
 
-#: src/ui/winamp/mod.rs:767
+#: src/ui/winamp/mod.rs:823
 msgid "Big window"
 msgstr "Grande fenêtre"
 
-#: src/ui/winamp/mod.rs:900 src/ui/winamp/playlist.rs:735
+#: src/ui/winamp/mod.rs:956 src/ui/winamp/playlist.rs:735
 #: src/ui/winamp/playlist.rs:740
 msgid "Song info"
 msgstr "Infos sur le titre"
 
-#: src/ui/winamp/mod.rs:925
+#: src/ui/winamp/mod.rs:981
 msgid "Size: 1x, 2x, 3x, 4x"
 msgstr "Taille : 1x, 2x, 3x, 4x"
 
-#: src/ui/winamp/mod.rs:940
+#: src/ui/winamp/mod.rs:996
 msgid "Visualisation"
 msgstr "Visualisation"
 
-#: src/ui/winamp/mod.rs:944
+#: src/ui/winamp/mod.rs:1000
 msgid "Spectrum analyser"
 msgstr "Analyseur de spectre"
 
-#: src/ui/winamp/mod.rs:945
+#: src/ui/winamp/mod.rs:1001
 msgid "Oscilloscope"
 msgstr "Oscilloscope"
 
 #. Translators: The visualiser choice that shows no visualisation.
-#: src/ui/winamp/mod.rs:947
+#: src/ui/winamp/mod.rs:1003
 msgctxt "visualiser"
 msgid "Nothing"
 msgstr "Aucune"
 
-#: src/ui/winamp/mod.rs:1089
+#: src/ui/winamp/mod.rs:1145
 msgid "Play in mono"
 msgstr "Lire en mono"
 
-#: src/ui/winamp/mod.rs:1097
+#: src/ui/winamp/mod.rs:1153
 msgid "Play in stereo"
 msgstr "Lire en stéréo"
 
 #. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
-#: src/ui/winamp/mod.rs:1188
+#: src/ui/winamp/mod.rs:1244
 #, rust-format
 msgid "Balance: {percent}% left"
 msgstr "Balance : {percent} % à gauche"
 
 #. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
-#: src/ui/winamp/mod.rs:1193
+#: src/ui/winamp/mod.rs:1249
 #, rust-format
 msgid "Balance: {percent}% right"
 msgstr "Balance : {percent} % à droite"
 
-#: src/ui/winamp/mod.rs:1196
+#: src/ui/winamp/mod.rs:1252
 msgid "Balance: center"
 msgstr "Balance : centre"
 
 #. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
-#: src/ui/winamp/mod.rs:1201
+#: src/ui/winamp/mod.rs:1257
 #, rust-format
 msgid "Volume: {percent}%"
 msgstr "Volume : {percent} %"
 
 #. Translators: {position} and {duration} are times such as 2:12, {percent} a number from 0 to 100.
-#: src/ui/winamp/mod.rs:1217
+#: src/ui/winamp/mod.rs:1273
 #, rust-format
 msgid "Seek to: {position}/{duration} ({percent}%)"
 msgstr "Aller à : {position}/{duration} ({percent} %)"
 
-#: src/ui/winamp/mod.rs:1547
+#: src/ui/winamp/mod.rs:1603
 msgid "Open the big window"
 msgstr "Ouvrir la grande fenêtre"
 
