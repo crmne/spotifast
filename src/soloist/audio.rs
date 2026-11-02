@@ -52,21 +52,63 @@ impl Repairs {
     }
 }
 
+/// How long a level set here outranks what Soloist reports. Longer than its
+/// round trip, short enough for a change made elsewhere to get through.
+const LEAD_HOLD: Duration = Duration::from_millis(1500);
+/// The route's level before Soloist has reported one.
+const NO_LEVEL: u8 = u8::MAX;
+
 /// A separate output fader. Spotify's source volume never writes this value.
 /// Clones share one control across the UI, child restarts and the audio worker.
 #[derive(Clone)]
-pub struct OutputVolume(Arc<AtomicU8>);
+pub struct OutputVolume(Arc<Levels>);
+struct Levels {
+    fader: AtomicU8,
+    /// What Linux's route plays at: Soloist's volume, ahead of it when the
+    /// user just moved a slider here. The realtime thread reads this.
+    route: AtomicU8,
+    /// The level set here that a report may not undo, and until when.
+    lead: Mutex<Option<(u8, Instant)>>,
+}
 impl Default for OutputVolume {
     fn default() -> Self {
-        Self(Arc::new(AtomicU8::new(100)))
+        Self(Arc::new(Levels {
+            fader: AtomicU8::new(100),
+            route: AtomicU8::new(NO_LEVEL),
+            lead: Mutex::new(None),
+        }))
     }
 }
 impl OutputVolume {
     pub fn percent(&self) -> u8 {
-        self.0.load(Ordering::Relaxed)
+        self.0.fader.load(Ordering::Relaxed)
     }
     pub fn set(&self, percent: u8) {
-        self.0.store(percent.min(100), Ordering::Relaxed);
+        self.0.fader.store(percent.min(100), Ordering::Relaxed);
+    }
+    /// The level the route plays at, once there is one.
+    pub fn route_percent(&self) -> Option<u8> {
+        let percent = self.0.route.load(Ordering::Relaxed);
+        (percent != NO_LEVEL).then_some(percent)
+    }
+    /// Makes `percent` heard now, ahead of Soloist. It is still told, and a
+    /// report from before it knew can't take the level back.
+    pub fn lead(&self, percent: u8) {
+        let percent = percent.min(100);
+        self.0.route.store(percent, Ordering::Relaxed);
+        let mut lead = self.0.lead.lock().unwrap_or_else(|p| p.into_inner());
+        *lead = Some((percent, Instant::now() + LEAD_HOLD));
+    }
+    /// Takes Soloist's level, unless it is behind what was set here.
+    #[cfg(target_os = "linux")]
+    fn report(&self, percent: u8, now: Instant) {
+        let percent = percent.min(100);
+        let mut lead = self.0.lead.lock().unwrap_or_else(|p| p.into_inner());
+        if lead.is_some_and(|(wanted, until)| wanted != percent && now < until) {
+            return;
+        }
+        *lead = None;
+        self.0.route.store(percent, Ordering::Relaxed);
     }
 }
 
@@ -83,6 +125,8 @@ struct State {
     delay_ms: AtomicU32,
     #[cfg(all(feature = "soloist-native-audio", target_os = "macos"))]
     output_volume: OutputVolume,
+    #[cfg(target_os = "linux")]
+    route_volume: OutputVolume,
 }
 
 #[cfg(any(
@@ -105,6 +149,8 @@ impl State {
             delay_ms: AtomicU32::new(0),
             #[cfg(all(feature = "soloist-native-audio", target_os = "macos"))]
             output_volume: OutputVolume::default(),
+            #[cfg(target_os = "linux")]
+            route_volume: OutputVolume::default(),
         }
     }
 
@@ -172,15 +218,22 @@ impl Bridge {
         }
         #[cfg(target_os = "linux")]
         {
-            Self::open_on(config, None).await
+            Self::open_on(config, None, output_volume).await
         }
     }
 
     #[cfg(target_os = "linux")]
-    async fn open_on(config: crate::player::EngineConfig, output: Option<String>) -> Option<Self> {
+    async fn open_on(
+        config: crate::player::EngineConfig,
+        output: Option<String>,
+        route_volume: OutputVolume,
+    ) -> Option<Self> {
         let bridge = Self {
             name: format!("spotifast.soloist.{:016x}", rand::random::<u64>()),
-            state: Arc::new(State::new()),
+            state: Arc::new(State {
+                route_volume,
+                ..State::new()
+            }),
             config,
             output,
             worker: Mutex::new(None),
@@ -287,6 +340,10 @@ impl Bridge {
             self.state
                 .volume
                 .store(volume.min(100) as u8, Ordering::Relaxed);
+            #[cfg(target_os = "linux")]
+            self.state
+                .route_volume
+                .report(volume.min(100) as u8, Instant::now());
         }
         if let Some(status) = message["status"].as_str() {
             match status {
@@ -335,6 +392,41 @@ pub fn child_props(existing: &str) -> String {
 ))]
 mod tests {
     use super::*;
+
+    /// A slider is heard at once, and Soloist's report of an older level, on
+    /// its way back from before it was told, doesn't move it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_level_set_here_outlasts_stale_reports_until_soloist_agrees() {
+        let volume = OutputVolume::default();
+        let now = Instant::now();
+        assert_eq!(volume.route_percent(), None, "nothing to play at yet");
+        volume.report(40, now);
+        assert_eq!(volume.route_percent(), Some(40));
+        volume.lead(70);
+        assert_eq!(volume.route_percent(), Some(70), "with no round trip");
+        volume.report(40, now);
+        volume.report(55, now);
+        assert_eq!(volume.route_percent(), Some(70));
+        volume.report(70, now);
+        volume.report(30, now);
+        assert_eq!(
+            volume.route_percent(),
+            Some(30),
+            "agreed: anyone may move it"
+        );
+    }
+
+    /// If Soloist never agrees, it stays the authority on its own volume.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_level_set_here_gives_way_when_soloist_never_agrees() {
+        let volume = OutputVolume::default();
+        volume.lead(70);
+        let later = Instant::now() + LEAD_HOLD + Duration::from_millis(1);
+        volume.report(40, later);
+        assert_eq!(volume.route_percent(), Some(40));
+    }
 
     /// The route is rebuilt under Soloist's running stream, which must wait
     /// for it rather than be destroyed or fall back to a speaker.
@@ -1489,7 +1581,8 @@ mod pipewire {
                     } else {
                         requested.saturating_mul(8).min(bytes.len()) / 8 * 8
                     };
-                    out_audio.render(&mut bytes[..size], volume.volume.load(Ordering::Relaxed));
+                    let percent = volume.route_volume.route_percent().unwrap_or(0);
+                    out_audio.render(&mut bytes[..size], percent);
                 }
                 let chunk = data.chunk_mut();
                 *chunk.offset_mut() = 0;
@@ -1956,6 +2049,26 @@ mod pipewire {
             assert_eq!(audio.stats.take().input_gaps, 0, "a pause in the song");
         }
 
+        /// A volume change sits after the queue, so none of the margin
+        /// delays it: the cycle in progress, then the fader's ramp.
+        #[test]
+        fn a_volume_change_lands_within_two_cycles_of_a_common_quantum() {
+            let audio = fresh();
+            let quantum = 1024;
+            let mut output = vec![0; quantum * 8];
+            for _ in 0..12 {
+                audio.push(&tone(44_100, quantum));
+                audio.render(&mut output, 100);
+            }
+            let full = peak(&output);
+            audio.push(&tone(44_100, quantum));
+            audio.render(&mut output, 50);
+            audio.push(&tone(44_100, quantum));
+            audio.render(&mut output, 50);
+            let level = peak(&output[output.len() / 2..]);
+            assert!((level - full * 0.125).abs() < 0.002, "{full} to {level}");
+        }
+
         /// Takes a cycle of `frames` of a steady tone through the input and
         /// the output, in the order given. The output's first sample of each
         /// cycle is what the tests below look at, so its peak shows gaps.
@@ -2389,7 +2502,9 @@ mod pipewire {
                 );
                 // As in the app, the output finds its own way to the default
                 // sink, which here is the only one there is.
-                let bridge = Bridge::open_on(config, None).await.expect("private bridge");
+                let bridge = Bridge::open_on(config, None, OutputVolume::default())
+                    .await
+                    .expect("private bridge");
                 if std::env::var("SOLOIST_SOAK_SOURCE").is_ok_and(|source| source == "irregular") {
                     return Self::irregular(bridge).await;
                 }
@@ -2747,7 +2862,7 @@ mod pipewire {
             let other = Bridge::open(config.clone(), OutputVolume::default())
                 .await
                 .expect("second private bridge");
-            let bridge = Bridge::open_on(config, Some(output.clone()))
+            let bridge = Bridge::open_on(config, Some(output.clone()), OutputVolume::default())
                 .await
                 .expect("private bridge");
             let graph = tokio::process::Command::new("pw-dump")

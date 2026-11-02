@@ -1947,6 +1947,14 @@ impl App {
             && self.soloist_audio
     }
 
+    /// The level Linux's route plays our Soloist at. A change is heard from
+    /// here at once; Soloist is told, and its report catches up behind.
+    fn soloist_route_volume(&self) -> Option<u8> {
+        (cfg!(target_os = "linux") && self.settings.soloist_enabled && self.soloist_audio)
+            .then(|| self.backend.soloist_output_volume.route_percent())
+            .flatten()
+    }
+
     /// The built-in sink or an audible processing route from our Soloist child.
     pub fn audio_processing_available(&self) -> bool {
         !self.settings.soloist_enabled || (self.soloist_audio && !cfg!(target_os = "windows"))
@@ -2406,11 +2414,12 @@ impl App {
                 }
             }
         };
-        let volume = if self.has_soloist_output_volume()
-            && self.soloist_device_id.is_some()
-            && self.soloist_device_id.as_deref() == device.and_then(|d| d.id.as_deref())
-        {
+        let own_soloist = self.soloist_device_id.is_some()
+            && self.soloist_device_id.as_deref() == device.and_then(|d| d.id.as_deref());
+        let volume = if self.has_soloist_output_volume() && own_soloist {
             self.backend.soloist_output_volume.percent()
+        } else if let Some(percent) = self.soloist_route_volume().filter(|_| own_soloist) {
+            percent
         } else {
             match &self.pending_remote_volume {
                 Some(pending)
@@ -4956,9 +4965,15 @@ impl App {
                 .as_ref()
                 .map_or(0.0, |now| f64::from(now.position_ms) / 1000.0),
             bitrate: 320_000,
-            volume: now.as_ref().map_or_else(
-                || crate::app::volume_to_percent(self.local.volume),
-                |now| now.volume_percent,
+            // A dragged slider's level is the one shown, wherever it plays.
+            volume: self.volume_preview.map_or_else(
+                || {
+                    now.as_ref().map_or_else(
+                        || crate::app::volume_to_percent(self.local.volume),
+                        |now| now.volume_percent,
+                    )
+                },
+                |fraction| (fraction * 100.0).round() as u8,
             ),
             mute: self.volume_is_muted(),
             balance: (self.settings.balance * 100.0).round() as i32,
@@ -5094,7 +5109,14 @@ impl App {
             Command::Previous => self.actions.push(Action::Previous),
             Command::Seek(position) => self.actions.push(Action::Seek(position)),
             Command::SeekBy(by) => self.actions.push(Action::SeekBy(by)),
-            Command::SetVolume(volume) => self.actions.push(Action::SetVolume(volume)),
+            Command::SetVolume(volume) => {
+                self.volume_preview = None;
+                self.actions.push(Action::SetVolume(volume));
+            }
+            Command::PreviewVolume(volume) => {
+                self.volume_preview = Some(f32::from(volume) / 100.0);
+                self.actions.push(Action::PreviewVolume(volume));
+            }
             Command::SetMute(mute) => {
                 if self.volume_is_muted() != mute {
                     self.actions.push(Action::ToggleMute);
@@ -11000,6 +11022,12 @@ impl App {
             self.pending_remote_volume = None;
             self.session_dirty = true;
             return;
+        }
+        if self.soloist_route_volume().is_some()
+            && self.targets_own_soloist()
+            && self.can_set_volume()
+        {
+            self.backend.soloist_output_volume.lead(percent);
         }
         match self.target() {
             Target::Local => {
@@ -31985,6 +32013,45 @@ mod tests {
         assert_eq!(app.backend.soloist_output_volume.percent(), 30);
         assert_eq!(app.settings.volume, builtin);
         app.backend.shutdown();
+    }
+
+    /// Every step of a drag is heard and shown at once, even the ones paced
+    /// out of the commands to Soloist.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_soloist_route_takes_a_drag_with_no_round_trip() {
+        let mut app = remote_volume_app();
+        let device = app.remote.as_ref().unwrap().state.device.as_ref();
+        app.soloist_device_id = device.unwrap().id.clone();
+        app.settings.soloist_enabled = true;
+        app.soloist_audio = true;
+        let route = app.backend.soloist_output_volume.clone();
+        route.lead(50);
+        for percent in [25, 26, 27] {
+            app.set_volume(percent, false);
+            assert_eq!(route.route_percent(), Some(percent));
+            assert_eq!(app.now_playing().unwrap().volume_percent, percent);
+        }
+        app.soloist_audio = false;
+        app.set_volume(90, true);
+        assert_eq!(route.route_percent(), Some(27), "no route to apply it to");
+    }
+
+    /// The deck is what a skin's sliders read back: a drag must not snap to
+    /// the level from before it on the next tick.
+    #[test]
+    fn a_skin_s_drag_is_previewed_and_the_deck_shows_it() {
+        use crate::skin::wmp::deck::Command;
+        let mut app = remote_volume_app();
+        let deck = app.wmp_deck();
+        let before = deck.volume;
+        let dragged = before.wrapping_add(13) % 100;
+        app.wmp_command(Command::PreviewVolume(dragged), &deck);
+        assert_eq!(app.wmp_deck().volume, dragged);
+        assert!(matches!(app.actions.last(), Some(Action::PreviewVolume(_))));
+        app.wmp_command(Command::SetVolume(dragged), &deck);
+        assert_eq!(app.volume_preview, None);
+        assert!(matches!(app.actions.last(), Some(Action::SetVolume(_))));
     }
 
     #[test]

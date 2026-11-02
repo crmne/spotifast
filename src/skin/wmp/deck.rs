@@ -133,6 +133,8 @@ pub enum Command {
     /// By this many milliseconds.
     SeekBy(i64),
     SetVolume(u8),
+    /// A step of a drag: to be heard, with `SetVolume` to follow on release.
+    PreviewVolume(u8),
     SetMute(bool),
     SetBalance(i32),
     SetShuffle(bool),

@@ -385,6 +385,51 @@ fn dragging_a_seek_slider_holds_its_value_and_seeks_at_the_end() {
     assert_eq!(runtime.tick(deck, now), [Command::Seek(50_000)]);
 }
 
+/// As the app's own sliders do: heard while it moves, settled on release.
+#[test]
+fn dragging_a_volume_slider_previews_and_settles_on_release() {
+    let definition = format!(
+        r#"{VIEW}<VOLUMESLIDER id="v" width="100" height="10" thumbImage="t.png"/></VIEW></THEME>"#
+    );
+    let mut runtime = start_with(
+        &definition,
+        vec![
+            ("t.png", png(4, 10, |_, _| [9, 9, 9])),
+            ("s.js", Vec::new()),
+        ],
+        playing(),
+    );
+    let volumes = |commands: Vec<Command>| -> Vec<Command> {
+        commands
+            .into_iter()
+            .filter(|command| matches!(command, Command::SetVolume(_) | Command::PreviewVolume(_)))
+            .collect()
+    };
+    let key = key_of(&runtime);
+    let none = Modifiers::default();
+    let now = Instant::now();
+    pointer(&mut runtime, 30.0, 5.0, now);
+    runtime.input(key, Input::Press { secondary: false }, none, now);
+    let first = volumes(runtime.tick(playing(), now));
+    assert!(
+        matches!(first.as_slice(), [Command::PreviewVolume(_)]),
+        "{first:?}"
+    );
+    pointer(&mut runtime, 60.0, 5.0, now);
+    let second = volumes(runtime.tick(playing(), now));
+    let [Command::PreviewVolume(dragged)] = second.as_slice() else {
+        panic!("{second:?}");
+    };
+    let dragged = *dragged;
+    assert_eq!(volumes(runtime.tick(playing(), now)), []);
+    runtime.input(key, Input::Release { secondary: false }, none, now);
+    assert_eq!(
+        volumes(runtime.tick(playing(), now)),
+        [Command::SetVolume(dragged)]
+    );
+    assert_eq!(volumes(runtime.tick(playing(), now)), []);
+}
+
 #[test]
 fn moving_onto_a_child_does_not_leave_its_parent() {
     let definition = format!(

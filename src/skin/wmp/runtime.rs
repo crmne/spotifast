@@ -75,6 +75,8 @@ pub struct Runtime {
     pub images: Images,
     next_key: u32,
     last_deck: Option<Deck>,
+    /// Where a volume drag has got to.
+    dragged_volume: Option<u8>,
     /// Errors already logged.
     logged: HashSet<String>,
     /// The whole skin closed.
@@ -114,6 +116,7 @@ impl Runtime {
             images,
             next_key: 0,
             last_deck: Some(deck),
+            dragged_volume: None,
             logged: HashSet::new(),
             closed: false,
         };
@@ -587,7 +590,35 @@ impl Runtime {
             }
         }
         self.settle(now);
-        std::mem::take(&mut self.shared.commands)
+        let mut commands = std::mem::take(&mut self.shared.commands);
+        self.pace_volume(&mut commands);
+        commands
+    }
+
+    /// A slider writes the volume at every step. While the hand is on it
+    /// those are previews, as on the app's own sliders, and the last one
+    /// settles on release. Scripts outside a drag set the volume outright.
+    fn pace_volume(&mut self, commands: &mut Vec<Command>) {
+        let dragging = self.views.iter().any(|view| view.state.dragging.is_some());
+        let mut settled = false;
+        for command in commands.iter_mut() {
+            if let Command::SetVolume(volume) = *command {
+                if dragging {
+                    *command = Command::PreviewVolume(volume);
+                    self.dragged_volume = Some(volume);
+                } else {
+                    settled = true;
+                }
+            }
+        }
+        if dragging {
+            return;
+        }
+        if let Some(volume) = self.dragged_volume.take()
+            && !settled
+        {
+            commands.push(Command::SetVolume(volume));
+        }
     }
 
     fn advance_motions(&mut self, index: usize, now: Instant) {
