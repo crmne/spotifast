@@ -219,6 +219,23 @@ fn pane_button_id(ctx: &egui::Context) -> Id {
     Id::new(ctx.viewport_id())
 }
 
+// The id is asked for outside the locks: using the context again from inside
+// one freezes the app.
+#[cfg(feature = "milkdrop")]
+fn keep_pane_button(ctx: &egui::Context, button: Rect) {
+    let id = pane_button_id(ctx);
+    ctx.data_mut(|data| data.insert_temp(id, button));
+}
+
+fn take_pane_button(ctx: &egui::Context) -> Option<Rect> {
+    let id = pane_button_id(ctx);
+    ctx.data_mut(|data| {
+        let button = data.get_temp::<Rect>(id);
+        data.remove::<Rect>(id);
+        button
+    })
+}
+
 /// Whether a press lands on our button over a pane, and so is not the skin's.
 /// With the press kept back, the skin takes the release for nothing.
 fn on_our_button(button: Option<Rect>, at: Pos2) -> bool {
@@ -265,7 +282,7 @@ fn pane_full_screen(
         egui::pos2(rect.right() - SIDE - 4.0, rect.top() + 4.0),
         egui::Vec2::splat(SIDE),
     );
-    ctx.data_mut(|data| data.insert_temp(pane_button_id(&ctx), button));
+    keep_pane_button(&ctx, button);
     let response = ui
         .interact(button, Id::new("wmp-pane-full-screen"), Sense::click())
         .on_hover_text(gettext(app.locale, "Full screen with lyrics").as_ref());
@@ -305,12 +322,7 @@ fn key_code(key: egui::Key) -> Option<u32> {
 /// Hands this frame's pointer and keys to the skin, in order.
 fn read_input(app: &mut App, ctx: &egui::Context, key: u32, origin: Pos2, unit: f32) {
     let events = ctx.input(|input| input.events.clone());
-    let ours = ctx.data_mut(|data| {
-        let id = pane_button_id(ctx);
-        let button = data.get_temp::<Rect>(id);
-        data.remove::<Rect>(id);
-        button
-    });
+    let ours = take_pane_button(ctx);
     let modifiers = ctx.input(|input| input.modifiers);
     let modifiers = Modifiers {
         shift: modifiers.shift,
@@ -687,6 +699,17 @@ mod pane_button_tests {
 
     /// A press on the button is ours; anywhere else, and with no button
     /// showing, the skin has it.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn the_pane_button_is_kept_and_taken_without_freezing_the_context() {
+        let ctx = egui::Context::default();
+        let button = Rect::from_min_size(Pos2::ZERO, egui::Vec2::splat(20.0));
+        assert_eq!(take_pane_button(&ctx), None);
+        keep_pane_button(&ctx, button);
+        assert_eq!(take_pane_button(&ctx), Some(button));
+        assert_eq!(take_pane_button(&ctx), None);
+    }
+
     #[test]
     fn a_press_on_the_pane_button_does_not_reach_the_skin() {
         let button = Rect::from_min_size(pos2(10.0, 10.0), vec2(22.0, 22.0));
