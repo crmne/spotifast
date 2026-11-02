@@ -38,8 +38,11 @@ Spotifast remembers the window position where your desktop allows it.
 Skins can have transparent areas and shapes other than rectangles. Modern
 Winamp 3 and 5 skin formats are not supported; choose classic Winamp 2 skins.
 
-MilkDrop, opened from a classic skin's mini player, wears that skin's generic
-window frame from `gen.bmp`. A skin without one borrows the built-in skin's.
+MilkDrop, opened from a classic skin's mini player, is a panel of the player,
+under the equalizer and the playlist. It wears the skin's generic window frame
+from `gen.bmp`; a skin without one borrows the built-in skin's. Drag its bottom
+right corner to resize it, and the window grows with it. It moves with the
+player, and the skin's double size applies to it.
 
 The button beside its close button, a double click on the picture, or **F**
 takes MilkDrop to full screen. A Windows Media Player skin's visualisation area

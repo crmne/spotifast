@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-02 15:08+0100\n"
+"POT-Creation-Date: 2026-11-02 16:46+0100\n"
 "PO-Revision-Date: 2026-10-02 20:30+0300\n"
 "Last-Translator: Barış Berke Çetin <brsberkectn@gmail.com>\n"
 "Language-Team: Turkish\n"
@@ -1864,7 +1864,7 @@ msgstr "Sistem proxy'si kullanılıyor."
 msgid "Mini player"
 msgstr "Mini çalar"
 
-#: src/ui/settings.rs:1795 src/ui/winamp/mod.rs:736 src/ui/winamp/mod.rs:882
+#: src/ui/settings.rs:1795 src/ui/winamp/mod.rs:792 src/ui/winamp/mod.rs:938
 msgid "Always on top"
 msgstr "Her zaman üstte"
 
@@ -1922,7 +1922,7 @@ msgstr ""
 msgid "Pick another skin each time the mini player opens."
 msgstr "Mini çalar her açıldığında başka bir tema seçer."
 
-#: src/ui/settings.rs:1851 src/ui/winamp/mod.rs:723
+#: src/ui/settings.rs:1851 src/ui/winamp/mod.rs:779
 msgid "Size"
 msgstr "Boyut"
 
@@ -1934,7 +1934,7 @@ msgstr "Tam sayılı ölçeklendirme tema piksellerini keskin tutar."
 msgid "Keep the mini player above everything else."
 msgstr "Mini çaları diğer her şeyin üstünde tutar."
 
-#: src/ui/settings.rs:1863 src/ui/winamp/mod.rs:746
+#: src/ui/settings.rs:1863 src/ui/winamp/mod.rs:802
 msgid "Show in taskbar"
 msgstr "Görev çubuğunda göster"
 
@@ -3367,7 +3367,7 @@ msgstr "Ctrl+/ veya ?"
 msgid "Close the window"
 msgstr "Pencereyi kapat"
 
-#: src/ui/keys.rs:424 src/ui/winamp/mod.rs:770
+#: src/ui/keys.rs:424 src/ui/winamp/mod.rs:826
 msgid "Quit"
 msgstr "Çıkış"
 
@@ -3880,94 +3880,94 @@ msgstr "Ekolayzeri yukarı topla"
 msgid "Roll the equalizer down"
 msgstr "Ekolayzeri aşağı aç"
 
-#: src/ui/winamp/mod.rs:446 src/ui/winamp/mod.rs:494 src/ui/winamp/mod.rs:664
+#: src/ui/winamp/mod.rs:502 src/ui/winamp/mod.rs:550 src/ui/winamp/mod.rs:720
 msgid "Back to the big window (Ctrl+M)"
 msgstr "Büyük pencereye dön (Ctrl+M)"
 
-#: src/ui/winamp/mod.rs:447 src/ui/winamp/mod.rs:492 src/ui/winamp/mod.rs:662
+#: src/ui/winamp/mod.rs:503 src/ui/winamp/mod.rs:548 src/ui/winamp/mod.rs:718
 msgid "Back to the big window (Cmd+Shift+M)"
 msgstr "Büyük pencereye dön (Cmd+Shift+M)"
 
-#: src/ui/winamp/mod.rs:526
+#: src/ui/winamp/mod.rs:582
 msgid "Roll the window down"
 msgstr "Pencereyi aşağı aç"
 
-#: src/ui/winamp/mod.rs:696
+#: src/ui/winamp/mod.rs:752
 msgid "Roll the window up"
 msgstr "Pencereyi yukarı topla"
 
-#: src/ui/winamp/mod.rs:761
+#: src/ui/winamp/mod.rs:817
 msgid "Choose a skin"
 msgstr "Bir tema seç"
 
-#: src/ui/winamp/mod.rs:767
+#: src/ui/winamp/mod.rs:823
 msgid "Big window"
 msgstr "Büyük pencere"
 
-#: src/ui/winamp/mod.rs:900 src/ui/winamp/playlist.rs:735
+#: src/ui/winamp/mod.rs:956 src/ui/winamp/playlist.rs:735
 #: src/ui/winamp/playlist.rs:740
 msgid "Song info"
 msgstr "Şarkı bilgisi"
 
-#: src/ui/winamp/mod.rs:925
+#: src/ui/winamp/mod.rs:981
 msgid "Size: 1x, 2x, 3x, 4x"
 msgstr "Boyut: 1x, 2x, 3x, 4x"
 
-#: src/ui/winamp/mod.rs:940
+#: src/ui/winamp/mod.rs:996
 msgid "Visualisation"
 msgstr "Görselleştirme"
 
-#: src/ui/winamp/mod.rs:944
+#: src/ui/winamp/mod.rs:1000
 msgid "Spectrum analyser"
 msgstr "Spektrum analizörü"
 
-#: src/ui/winamp/mod.rs:945
+#: src/ui/winamp/mod.rs:1001
 msgid "Oscilloscope"
 msgstr "Osiloskop"
 
 #. Translators: The visualiser choice that shows no visualisation.
-#: src/ui/winamp/mod.rs:947
+#: src/ui/winamp/mod.rs:1003
 msgctxt "visualiser"
 msgid "Nothing"
 msgstr "Hiçbiri"
 
-#: src/ui/winamp/mod.rs:1089
+#: src/ui/winamp/mod.rs:1145
 msgid "Play in mono"
 msgstr "Mono çal"
 
-#: src/ui/winamp/mod.rs:1097
+#: src/ui/winamp/mod.rs:1153
 msgid "Play in stereo"
 msgstr "Stereo çal"
 
 #. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
-#: src/ui/winamp/mod.rs:1188
+#: src/ui/winamp/mod.rs:1244
 #, rust-format
 msgid "Balance: {percent}% left"
 msgstr "Denge: %{percent} sol"
 
 #. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
-#: src/ui/winamp/mod.rs:1193
+#: src/ui/winamp/mod.rs:1249
 #, rust-format
 msgid "Balance: {percent}% right"
 msgstr "Denge: %{percent} sağ"
 
-#: src/ui/winamp/mod.rs:1196
+#: src/ui/winamp/mod.rs:1252
 msgid "Balance: center"
 msgstr "Denge: Merkez"
 
 #. Translators: {percent} is a number from 0 to 100, followed by a percent sign.
-#: src/ui/winamp/mod.rs:1201
+#: src/ui/winamp/mod.rs:1257
 #, rust-format
 msgid "Volume: {percent}%"
 msgstr "Ses düzeyi: %{percent}"
 
 #. Translators: {position} and {duration} are times such as 2:12, {percent} a number from 0 to 100.
-#: src/ui/winamp/mod.rs:1217
+#: src/ui/winamp/mod.rs:1273
 #, rust-format
 msgid "Seek to: {position}/{duration} ({percent}%)"
 msgstr "Konuma sar: {position}/{duration} (%{percent})"
 
-#: src/ui/winamp/mod.rs:1547
+#: src/ui/winamp/mod.rs:1603
 msgid "Open the big window"
 msgstr "Büyük pencereyi aç"
 

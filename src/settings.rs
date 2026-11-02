@@ -436,6 +436,8 @@ pub struct Settings {
     pub milkdrop_scale: u32,
     /// The MilkDrop window fills the screen.
     pub milkdrop_fullscreen: bool,
+    /// The MilkDrop panel's size in the mini player, in skin pixels.
+    pub milkdrop_panel: [u32; 2],
     /// MilkDrop rather than the cover's art behind full screen lyrics.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub lyrics_milkdrop: bool,
@@ -564,6 +566,7 @@ impl Default for Settings {
             milkdrop_screen_hz: 0,
             milkdrop_scale: 1,
             milkdrop_fullscreen: false,
+            milkdrop_panel: [275, 232],
             lyrics_milkdrop: false,
             milkdrop_size: crate::milkdrop::DEFAULT_SIZE,
             proxy_mode: ProxyMode::System,

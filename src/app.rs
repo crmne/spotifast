@@ -13839,8 +13839,8 @@ impl App {
                     self.mark_settings_dirty();
                 }
             }
-            Action::SetMilkdropSize(size) => {
-                self.settings.milkdrop_size = size;
+            Action::SetMilkdropPanel(size) => {
+                self.settings.milkdrop_panel = size;
                 self.mark_settings_dirty();
             }
             Action::SetMilkdropSeconds(seconds) => {
