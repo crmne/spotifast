@@ -96,6 +96,8 @@ pub struct Stream {
     failures: u32,
     /// Not to start again before this.
     retry: Option<Instant>,
+    /// How bright the newest frame is; see [`frames::glow`].
+    glow: f32,
 }
 
 impl Stream {
@@ -118,13 +120,20 @@ impl Stream {
             pass: 0,
             failures: 0,
             retry: None,
+            glow: 0.0,
         }
     }
 
     /// Asks for the picture at this many physical pixels, and says what
     /// there is to draw. Called for each pane each time it paints; it copies
     /// a frame only if a new one has been published, and never waits.
-    pub fn show(&mut self, ctx: &egui::Context, pixels: [f32; 2], scale: u32) -> Picture {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        pixels: [f32; 2],
+        scale: u32,
+        side: u32,
+    ) -> Picture {
         let now = Instant::now();
         self.shown = Some(now);
         let Phase::Running(running) = &mut self.phase else {
@@ -135,7 +144,7 @@ impl Stream {
                 Picture::None
             };
         };
-        let [width, height] = frames::fit(pixels, scale);
+        let [width, height] = frames::fit(pixels, scale, side);
         let pass = ctx.cumulative_pass_nr();
         self.size = if pass == self.pass {
             [self.size[0].max(width), self.size[1].max(height)]
@@ -146,6 +155,7 @@ impl Stream {
         running.frames.ask(self.size);
         running.frames.beat();
         if let Some((size, pixels)) = running.frames.take(&mut running.seen) {
+            self.glow = frames::glow(&pixels);
             let image = ColorImage::new(size, pixels);
             match &mut self.texture {
                 Some(texture) => texture.set(image, OPTIONS),
@@ -163,6 +173,11 @@ impl Stream {
             Some(texture) => Picture::Frame(texture.id()),
             None => Picture::Waiting,
         }
+    }
+
+    /// How bright the picture is, for what is drawn over it.
+    pub fn glow(&self) -> f32 {
+        self.glow
     }
 
     /// Moves the preset on or back, if a frame is on show; `false` if not,
@@ -187,13 +202,20 @@ impl Stream {
     }
 
     /// Starts and stops the child to match what has been shown, and hands
-    /// it the settings. Runs each logic pass, with or without a window.
-    pub fn tick(&mut self, presets: &Path, fps: u32, seconds: u32) {
+    /// it the settings. Runs each logic pass, with or without a window. While
+    /// `frozen` the child keeps its picture and draws nothing, even if no
+    /// paint comes along to ask for it.
+    pub fn tick(&mut self, presets: &Path, fps: u32, seconds: u32, frozen: bool) {
         let now = Instant::now();
+        if frozen && let Phase::Running(running) = &mut self.phase {
+            // Quiet because it was told to be, not hung.
+            running.framed = running.framed.map(|_| now);
+        }
         self.settle(now);
-        let wanted = self
-            .shown
-            .is_some_and(|at| now.saturating_duration_since(at) < LINGER);
+        let wanted = frozen
+            || self
+                .shown
+                .is_some_and(|at| now.saturating_duration_since(at) < LINGER);
         match &self.phase {
             Phase::Off => {
                 if wanted && self.retry.is_none_or(|at| now >= at) {
@@ -205,6 +227,7 @@ impl Stream {
             Phase::Running(running) => {
                 if wanted {
                     running.frames.pace(fps, seconds);
+                    running.frames.freeze(frozen);
                 } else {
                     self.stop();
                 }
@@ -403,8 +426,8 @@ mod tests {
     ) -> bool {
         let started = Instant::now();
         while started.elapsed() < Duration::from_secs(5) {
-            stream.show(ctx, [320.0, 240.0], 1);
-            stream.tick(dir, 60, 10);
+            stream.show(ctx, [320.0, 240.0], 1, frames::PANE_SIDE);
+            stream.tick(dir, 60, 10, false);
             if done(stream) {
                 return true;
             }
@@ -417,18 +440,21 @@ mod tests {
     fn a_child_that_dies_leaves_the_bars_and_a_wait() {
         let (mut stream, dir) = stream("dies", "exit 9");
         let ctx = egui::Context::default();
-        assert_eq!(stream.show(&ctx, [320.0, 240.0], 1), Picture::Waiting);
+        assert_eq!(
+            stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE),
+            Picture::Waiting
+        );
         assert!(run_until(&mut stream, &ctx, &dir, |stream| stream
             .retry
             .is_some()));
         assert_eq!(stream.failures, 1);
         assert_eq!(
-            stream.show(&ctx, [320.0, 240.0], 1),
+            stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE),
             Picture::None,
             "bars, with no repaint asked on its account"
         );
         let retry = stream.retry;
-        stream.tick(&dir, 60, 10);
+        stream.tick(&dir, 60, 10, false);
         assert_eq!(stream.retry, retry, "and it does not start again at once");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -452,7 +478,10 @@ mod tests {
         assert!(run_until(&mut stream, &ctx, &dir, |stream| stream
             .retry
             .is_some()));
-        assert_eq!(stream.show(&ctx, [320.0, 240.0], 1), Picture::None);
+        assert_eq!(
+            stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE),
+            Picture::None
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -467,7 +496,10 @@ mod tests {
             .retry
             .is_some()));
         assert_eq!(stream.failures, 0);
-        assert_eq!(stream.show(&ctx, [320.0, 240.0], 1), Picture::None);
+        assert_eq!(
+            stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE),
+            Picture::None
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -481,10 +513,10 @@ mod tests {
             Phase::Running(_)
         )));
         stream.shown = Some(Instant::now() - LINGER);
-        stream.tick(&dir, 60, 10);
+        stream.tick(&dir, 60, 10, false);
         assert!(matches!(stream.phase, Phase::Off));
         assert!(stream.retry.is_none(), "stopping is no failure");
-        stream.tick(&dir, 60, 10);
+        stream.tick(&dir, 60, 10, false);
         assert!(matches!(stream.phase, Phase::Off), "and it stays stopped");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -501,8 +533,8 @@ mod tests {
         if let Phase::Running(running) = &mut stream.phase {
             running.started = Instant::now() - HUNG;
         }
-        stream.show(&ctx, [320.0, 240.0], 1);
-        stream.tick(&dir, 60, 10);
+        stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE);
+        stream.tick(&dir, 60, 10, false);
         assert!(matches!(stream.phase, Phase::Off));
         assert_eq!(stream.failures, 1);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -519,16 +551,68 @@ mod tests {
             Phase::Running(_)
         )));
         assert!(!stream.step(1), "nothing on show to change yet");
-        assert_eq!(stream.show(&ctx, [320.0, 240.0], 1), Picture::Waiting);
+        assert_eq!(
+            stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE),
+            Picture::Waiting
+        );
         let child = Frames::open(&stream.frames_path).unwrap();
         assert_eq!(child.wanted(), Some([320, 240]), "asked at the pane's size");
         child.publish([320, 240], |pixels| pixels.fill(0x80));
         assert!(matches!(
-            stream.show(&ctx, [320.0, 240.0], 1),
+            stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE),
             Picture::Frame(_)
         ));
         assert!(stream.step(1));
         assert_eq!(child.take_steps(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Paused behind the lyrics, the child stays, and no paint need come.
+    #[test]
+    fn a_frozen_picture_keeps_its_child_with_nothing_painting() {
+        let (mut stream, dir) = stream("frozen", "exec cat >/dev/null");
+        let ctx = egui::Context::default();
+        assert!(run_until(&mut stream, &ctx, &dir, |stream| matches!(
+            stream.phase,
+            Phase::Running(_)
+        )));
+        let child = Frames::open(&stream.frames_path).unwrap();
+        child.publish([320, 240], |pixels| pixels.fill(0x80));
+        stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE);
+        // No paint for longer than the child would otherwise be kept.
+        stream.shown = Some(Instant::now() - LINGER);
+        if let Phase::Running(running) = &mut stream.phase {
+            running.framed = Some(Instant::now() - HUNG);
+        }
+        stream.tick(&dir, 60, 10, true);
+        assert!(matches!(stream.phase, Phase::Running(_)));
+        assert!(child.frozen());
+        stream.show(&ctx, [320.0, 240.0], 1, frames::PANE_SIDE);
+        stream.tick(&dir, 60, 10, false);
+        assert!(!child.frozen(), "and playing again lets it go on");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Full screen asks for more than a pane may have.
+    #[test]
+    fn a_full_screen_picture_may_be_bigger_than_a_pane() {
+        assert_eq!(
+            frames::fit([3840.0, 2160.0], 1, frames::PANE_SIDE),
+            [1280, 720]
+        );
+        assert_eq!(
+            frames::fit([3840.0, 2160.0], 1, frames::FULL_SCREEN_SIDE),
+            [1920, 1080]
+        );
+    }
+
+    #[test]
+    fn glow_reads_the_bright_parts_and_not_a_stray_spark() {
+        let white = vec![egui::Color32::WHITE; 4096];
+        assert!(frames::glow(&white) > 0.99);
+        let mut dark = vec![egui::Color32::from_gray(20); 4096];
+        dark[1000] = egui::Color32::WHITE;
+        assert!(frames::glow(&dark) < 0.1);
+        assert_eq!(frames::glow(&[]), 0.0);
     }
 }

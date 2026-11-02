@@ -708,9 +708,15 @@ pub struct App {
     /// MilkDrop's frames for a skin's pane; `None` until one first shows.
     #[cfg(feature = "milkdrop")]
     milkdrop_pane: Option<crate::milkdrop::pane::Stream>,
-    /// The skinned MilkDrop window has gone to full screen, which the plain
-    /// window does for it until the person leaves full screen.
-    milkdrop_big: bool,
+    /// What fills full screen lyrics: MilkDrop rather than the cover's art.
+    /// Follows `settings.lyrics_milkdrop`, or is on for a trip from a skin.
+    milkdrop_backdrop: bool,
+    /// Full screen lyrics came from the mini player and go back to it.
+    skin_return: bool,
+    /// The main window is on its way, and full screen with it.
+    lyrics_after_switch: bool,
+    /// The next switch to the mini player goes back to the same skin.
+    keep_skin: bool,
     last_eviction: Instant,
     /// Playback snapshot for the current frame, built once per redraw.
     frame_now: Option<NowPlaying>,
@@ -1078,6 +1084,7 @@ fn link_recording(
 
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, mut settings: Settings, options: AppOptions) -> Self {
+        let milkdrop_backdrop = settings.lyrics_milkdrop;
         // The legacy password file has no endpoint of its own. Keep the old
         // settings beside it until migration binds that password in the store.
         settings.proxy_password_legacy |= dirs.proxy_secret_file().try_exists().unwrap_or(true);
@@ -1379,7 +1386,10 @@ impl App {
             milkdrop_host: None,
             #[cfg(feature = "milkdrop")]
             milkdrop_pane: None,
-            milkdrop_big: false,
+            milkdrop_backdrop,
+            skin_return: false,
+            lyrics_after_switch: false,
+            keep_skin: false,
             last_eviction: Instant::now(),
             frame_now: None,
             sign_in_url: None,
@@ -4675,10 +4685,11 @@ impl App {
     fn sync_milkdrop(&mut self, ctx: &egui::Context) {
         let presets = self.dirs.milkdrop_dir();
         // Beside a classic skin the frame shows MilkDrop, not this window.
-        let open = self.settings.milkdrop_open && !self.milkdrop_framed();
+        // Nor on a trip to full screen from a skin, which took it along.
+        let open = self.settings.milkdrop_open && !self.milkdrop_framed() && !self.skin_return;
         let size = self.settings.milkdrop_size;
         let pos = self.milkdrop_pos;
-        let fullscreen = self.settings.milkdrop_fullscreen || self.milkdrop_big;
+        let fullscreen = self.settings.milkdrop_fullscreen;
         let fps = crate::power::milkdrop_fps(self.power.conditions(), self.settings.milkdrop_fps);
         let seconds = self.settings.milkdrop_seconds;
         let scale = self.settings.milkdrop_scale.max(1);
@@ -4710,12 +4721,7 @@ impl App {
         };
         if poll.closed {
             self.settings.milkdrop_open = false;
-            self.milkdrop_big = false;
             self.mark_settings_dirty();
-        }
-        // Back from full screen, the frame takes over again.
-        if poll.fullscreen == Some(false) {
-            self.milkdrop_big = false;
         }
         if let Some(size) = poll.size
             && self.settings.milkdrop_size != size
@@ -4739,12 +4745,22 @@ impl App {
     }
 
     /// Whether MilkDrop is showing in the Winamp frame: open, beside a
-    /// classic skin's mini player, and not gone to full screen.
+    /// classic skin's mini player.
     pub fn milkdrop_framed(&self) -> bool {
-        self.settings.milkdrop_open
-            && self.settings.winamp_window
-            && self.winamp.skin.wmp.is_none()
-            && !self.milkdrop_big
+        self.settings.milkdrop_open && self.settings.winamp_window && self.winamp.skin.wmp.is_none()
+    }
+
+    /// Puts the demo in full screen lyrics with MilkDrop behind them.
+    #[cfg(feature = "demo")]
+    pub fn demo_lyrics_milkdrop(&mut self) {
+        self.milkdrop_backdrop = true;
+        self.lyrics_fullscreen = Some(false);
+        self.show_lyrics_panel = true;
+    }
+
+    /// Whether full screen lyrics want MilkDrop behind them.
+    pub fn milkdrop_behind_lyrics(&self) -> bool {
+        self.milkdrop_backdrop && self.lyrics_fullscreen.is_some()
     }
 
     /// MilkDrop's picture for a pane this many physical pixels big. Called
@@ -4755,11 +4771,24 @@ impl App {
         ctx: &egui::Context,
         pixels: [f32; 2],
     ) -> crate::milkdrop::pane::Picture {
+        let side = if self.milkdrop_behind_lyrics() {
+            crate::milkdrop::frames::FULL_SCREEN_SIDE
+        } else {
+            crate::milkdrop::frames::PANE_SIDE
+        };
         let scale = self.settings.milkdrop_scale;
         let tap = &self.winamp.tap;
         self.milkdrop_pane
             .get_or_insert_with(|| crate::milkdrop::pane::Stream::new(std::sync::Arc::clone(tap)))
-            .show(ctx, pixels, scale)
+            .show(ctx, pixels, scale, side)
+    }
+
+    /// How bright MilkDrop's picture is, from 0 to 1.
+    #[cfg(feature = "milkdrop")]
+    pub fn milkdrop_glow(&self) -> f32 {
+        self.milkdrop_pane
+            .as_ref()
+            .map_or(0.0, crate::milkdrop::pane::Stream::glow)
     }
 
     /// Starts and stops the pane's child, and hands it the settings.
@@ -4772,8 +4801,12 @@ impl App {
         if self.winamp.demo_sounding {
             self.winamp.tap.push(&crate::demo::demo_sound(), 1.0);
         }
+        // Behind the lyrics the picture holds still with the music. Anywhere
+        // else it is a visualizer like the others, and they keep moving.
+        let frozen =
+            self.milkdrop_behind_lyrics() && !self.now_playing().is_some_and(|now| now.playing);
         if let Some(stream) = &mut self.milkdrop_pane {
-            stream.tick(&presets, fps, seconds);
+            stream.tick(&presets, fps, seconds, frozen);
         }
     }
 
@@ -4783,7 +4816,7 @@ impl App {
     /// stops by itself once nobody can see the pane.
     #[cfg(feature = "milkdrop")]
     pub fn milkdrop_pane_fps(&self) -> u32 {
-        let rate = if self.milkdrop_framed() {
+        let rate = if self.milkdrop_framed() || self.milkdrop_behind_lyrics() {
             Some(crate::power::milkdrop_fps(
                 self.power.conditions(),
                 self.settings.milkdrop_fps,
@@ -4944,9 +4977,8 @@ impl App {
     /// Runs the worn Windows Media Player skin for this frame: starts it,
     /// or stops it if it came off, and does what it asks.
     fn run_wmp_skin(&mut self, ctx: &egui::Context) {
-        let wearing = self
-            .settings
-            .winamp_window
+        // A trip to full screen comes back to the skin as it was.
+        let wearing = (self.settings.winamp_window || self.skin_return)
             .then(|| self.winamp.skin.wmp.clone())
             .flatten();
         // Off, or a different skin on: this one's views get to save their
@@ -12164,6 +12196,11 @@ impl App {
             self.lyrics_fullscreen_restoring = Some(was_fullscreen);
             self.lyrics_fullscreen_seen = false;
             self.lyrics_line_shown = None;
+            if std::mem::take(&mut self.skin_return) {
+                self.milkdrop_backdrop = self.settings.lyrics_milkdrop;
+                self.keep_skin = true;
+                self.actions.push(Action::ToggleWinampWindow);
+            }
         }
     }
 
@@ -12233,6 +12270,12 @@ impl App {
         ) {
             // ToggleQueuePanel is deliberately absent: in lyrics fullscreen
             // it flips the queue column instead of leaving the view.
+            // These all ask for a window of their own, so a trip from a skin
+            // ends here rather than going back.
+            if self.lyrics_fullscreen.is_some() && std::mem::take(&mut self.skin_return) {
+                self.milkdrop_backdrop = self.settings.lyrics_milkdrop;
+                self.keep_skin = matches!(action, Action::ToggleWinampWindow);
+            }
             self.leave_lyrics_fullscreen(ctx);
         }
         if self.changes_song_by_hand(&action) {
@@ -13537,7 +13580,8 @@ impl App {
             Action::ToggleWinampWindow => {
                 // One window at a time: this one closes and the loop in
                 // `main` opens the other kind where each was last.
-                if !self.settings.winamp_window && self.settings.random_skin {
+                let keep_skin = std::mem::take(&mut self.keep_skin);
+                if !self.settings.winamp_window && self.settings.random_skin && !keep_skin {
                     self.winamp.poll_choices();
                     self.winamp.refresh_choices(&self.dirs.skins_dir(), ctx);
                     // Until the first listing is back the skin stays as it is.
@@ -13773,7 +13817,28 @@ impl App {
                 #[cfg(not(feature = "milkdrop"))]
                 let _ = by;
             }
-            Action::MilkdropFullscreen => self.milkdrop_big = true,
+            Action::MilkdropFullscreen => {
+                if self.skin_return || self.lyrics_fullscreen.is_some() {
+                    return;
+                }
+                self.milkdrop_backdrop = true;
+                if self.settings.winamp_window {
+                    // One window at a time: the mini player's goes, the main
+                    // one comes, and full screen follows as it arrives.
+                    self.skin_return = true;
+                    self.lyrics_after_switch = true;
+                    self.actions.push(Action::ToggleWinampWindow);
+                } else {
+                    self.actions.push(Action::SetLyricsFullscreen(true));
+                }
+            }
+            Action::ToggleLyricsMilkdrop => {
+                self.milkdrop_backdrop = !self.milkdrop_backdrop;
+                if !self.skin_return {
+                    self.settings.lyrics_milkdrop = self.milkdrop_backdrop;
+                    self.mark_settings_dirty();
+                }
+            }
             Action::SetMilkdropSize(size) => {
                 self.settings.milkdrop_size = size;
                 self.mark_settings_dirty();
@@ -14497,6 +14562,10 @@ impl App {
             && !(self.is_connected() && self.user.is_none());
         if self.settings.winamp_window && needs_sign_in && !self.switch_intent {
             self.actions.push(Action::ToggleWinampWindow);
+        }
+        if self.lyrics_after_switch && !self.settings.winamp_window && !self.switch_intent {
+            self.lyrics_after_switch = false;
+            self.actions.push(Action::SetLyricsFullscreen(true));
         }
         if self.settings.winamp_window {
             crate::ui::winamp::show(self, ui);
@@ -26228,6 +26297,71 @@ mod tests {
 
     /// Beside a classic skin MilkDrop opens in the frame, and only there;
     /// full screen hands it to the plain window until that leaves it.
+    /// The way to full screen from a skin: the mini player's window goes,
+    /// the main one comes, the lyrics take the screen with MilkDrop behind
+    /// them, and leaving goes back to the same skin, not to a random pick.
+    #[test]
+    fn full_screen_from_a_skin_goes_there_and_back() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("milkdrop-trip");
+        app.settings.winamp_window = true;
+        app.settings.milkdrop_open = true;
+        app.settings.random_skin = true;
+        app.settings.skin = Some("mine".into());
+        app.actions.push(Action::MilkdropFullscreen);
+        app.apply_actions(&ctx);
+        assert!(!app.settings.winamp_window);
+        assert!(app.skin_return);
+        assert!(app.lyrics_after_switch);
+        assert!(app.settings.milkdrop_open, "still open for the way back");
+        assert!(!app.settings.lyrics_milkdrop, "the default is not changed");
+
+        // The new window's first frame.
+        app.switch_intent = false;
+        app.lyrics_after_switch = false;
+        app.actions.push(Action::SetLyricsFullscreen(true));
+        app.apply_actions(&ctx);
+        assert!(app.milkdrop_behind_lyrics());
+
+        app.actions.push(Action::SetLyricsFullscreen(false));
+        app.apply_actions(&ctx);
+        assert!(app.settings.winamp_window, "back in the mini player");
+        assert!(!app.skin_return);
+        assert_eq!(app.settings.skin.as_deref(), Some("mine"));
+        assert!(!app.milkdrop_backdrop, "and the art is the default again");
+    }
+
+    /// In the main window the key flips the backdrop and it is remembered; a
+    /// page opened from full screen ends a trip from a skin where it is.
+    #[test]
+    fn the_lyrics_backdrop_is_remembered_and_a_page_ends_the_trip() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("milkdrop-backdrop");
+        assert!(!app.milkdrop_backdrop, "art by default");
+        app.actions.push(Action::SetLyricsFullscreen(true));
+        app.actions.push(Action::ToggleLyricsMilkdrop);
+        app.apply_actions(&ctx);
+        assert!(app.milkdrop_behind_lyrics());
+        assert!(app.settings.lyrics_milkdrop);
+        app.actions.push(Action::SetLyricsFullscreen(false));
+        app.apply_actions(&ctx);
+        assert!(!app.milkdrop_behind_lyrics(), "only in full screen");
+        assert!(app.settings.lyrics_milkdrop, "and kept for next time");
+
+        app.settings.lyrics_milkdrop = false;
+        app.milkdrop_backdrop = true;
+        app.skin_return = true;
+        app.lyrics_fullscreen = Some(false);
+        app.actions.push(Action::Open(Page::Home));
+        app.apply_actions(&ctx);
+        assert!(
+            !app.settings.winamp_window,
+            "the page is in the main window"
+        );
+        assert!(!app.skin_return);
+        assert!(!app.milkdrop_backdrop);
+    }
+
     #[test]
     fn milkdrop_opens_framed_beside_a_classic_skin() {
         let mut app = test_app("milkdrop-framed");
@@ -26238,9 +26372,12 @@ mod tests {
         );
         app.settings.winamp_window = true;
         assert!(app.milkdrop_framed());
-        app.milkdrop_big = true;
-        assert!(!app.milkdrop_framed(), "full screen is the plain window's");
-        app.milkdrop_big = false;
+        app.settings.winamp_window = false;
+        assert!(
+            !app.milkdrop_framed(),
+            "the frame goes with the mini player"
+        );
+        app.settings.winamp_window = true;
         app.settings.milkdrop_open = false;
         assert!(!app.milkdrop_framed(), "and closed is closed");
     }

@@ -20,10 +20,15 @@ use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering, fence};
 use egui::Color32;
 use memmap2::MmapMut;
 
-/// The longest side of a frame, in pixels. A pane or window bigger than this
-/// is scaled up: every frame crosses the process boundary and the graphics
-/// card twice, and MilkDrop has never needed the pixels.
-pub const MAX_SIDE: u32 = 1280;
+/// The longest side of a pane's frame, in pixels. A pane or window bigger than
+/// this is scaled up: every frame crosses the process boundary and the
+/// graphics card twice, and MilkDrop has never needed the pixels.
+pub const PANE_SIDE: u32 = 1280;
+/// The longest side behind full screen lyrics, where the picture fills a
+/// screen with nothing to hide its softness.
+pub const FULL_SCREEN_SIDE: u32 = 1920;
+/// The most a slot holds, whatever is asked.
+pub const MAX_SIDE: u32 = FULL_SCREEN_SIDE;
 const SLOTS: usize = 3;
 const BYTES_PER_PIXEL: usize = 4;
 const SLOT_BYTES: usize = (MAX_SIDE * MAX_SIDE) as usize * BYTES_PER_PIXEL;
@@ -55,6 +60,9 @@ struct Header {
     steps: AtomicI64,
     fps: AtomicU32,
     seconds: AtomicU32,
+    /// Not zero while the picture holds still, as it does while music is
+    /// paused behind full screen lyrics.
+    frozen: AtomicU32,
 }
 
 const _: () = assert!(std::mem::size_of::<Header>() <= HEADER);
@@ -71,11 +79,34 @@ fn unpack(packed: u64) -> [u32; 2] {
 /// times smaller inside (the MilkDrop setting that eases a slow GPU): whole,
 /// even, because projectM's half-size passes leave a seam otherwise, and no
 /// longer on either side than [`MAX_SIDE`], keeping the picture's shape.
-pub fn fit([width, height]: [f32; 2], scale: u32) -> [u32; 2] {
+pub fn fit([width, height]: [f32; 2], scale: u32, side: u32) -> [u32; 2] {
     let scale = scale.max(1) as f32;
+    let side = side.min(MAX_SIDE);
     let (width, height) = ((width / scale).max(2.0), (height / scale).max(2.0));
-    let shrink = (MAX_SIDE as f32 / width.max(height)).min(1.0);
-    [width, height].map(|side| (((side * shrink).round() as u32) & !1).clamp(2, MAX_SIDE))
+    let shrink = (side as f32 / width.max(height)).min(1.0);
+    [width, height].map(|length| (((length * shrink).round() as u32) & !1).clamp(2, side))
+}
+
+/// How bright a frame's bright parts are, from 0 to 1: the luma nine samples
+/// in ten stay under. Lyrics over it are dimmed by this, so a stray spark in
+/// a dark preset does not dim the lot, and a white flash does.
+pub fn glow(pixels: &[Color32]) -> f32 {
+    const SAMPLES: usize = 256;
+    let step = (pixels.len() / SAMPLES).max(1);
+    let mut lumas: Vec<u16> = pixels
+        .iter()
+        .step_by(step)
+        .map(|pixel| {
+            let [r, g, b, _] = pixel.to_array().map(u16::from);
+            (r * 3 + g * 6 + b) / 10
+        })
+        .collect();
+    if lumas.is_empty() {
+        return 0.0;
+    }
+    let at = (lumas.len() * 9 / 10).min(lumas.len() - 1);
+    let (_, luma, _) = lumas.select_nth_unstable(at);
+    f32::from(*luma) / 255.0
 }
 
 /// A handle on the shared frames, held by the app and by the child.
@@ -145,6 +176,18 @@ impl Frames {
         self.header()
             .steps
             .fetch_add(i64::from(by), Ordering::Relaxed);
+    }
+
+    /// Holds the picture still, or lets it go on.
+    pub fn freeze(&self, frozen: bool) {
+        self.header()
+            .frozen
+            .store(u32::from(frozen), Ordering::Relaxed);
+    }
+
+    /// Whether the picture is holding still.
+    pub fn frozen(&self) -> bool {
+        self.header().frozen.load(Ordering::Relaxed) != 0
     }
 
     /// Sets the frame rate and how long a preset plays.
@@ -265,15 +308,27 @@ mod tests {
 
     #[test]
     fn a_pane_is_drawn_at_its_pixels_up_to_the_limit() {
-        assert_eq!(fit([400.0, 300.0], 1), [400, 300]);
-        assert_eq!(fit([401.0, 301.0], 1), [400, 300], "even, for projectM");
-        assert_eq!(fit([400.0, 300.0], 2), [200, 150], "the scale setting");
+        assert_eq!(fit([400.0, 300.0], 1, PANE_SIDE), [400, 300]);
         assert_eq!(
-            fit([3840.0, 2160.0], 1),
+            fit([401.0, 301.0], 1, PANE_SIDE),
+            [400, 300],
+            "even, for projectM"
+        );
+        assert_eq!(
+            fit([400.0, 300.0], 2, PANE_SIDE),
+            [200, 150],
+            "the scale setting"
+        );
+        assert_eq!(
+            fit([3840.0, 2160.0], 1, PANE_SIDE),
             [1280, 720],
             "a big window keeps its shape"
         );
-        assert_eq!(fit([0.0, 0.0], 1), [2, 2], "and nothing is ever empty");
+        assert_eq!(
+            fit([0.0, 0.0], 1, PANE_SIDE),
+            [2, 2],
+            "and nothing is ever empty"
+        );
     }
 
     #[test]

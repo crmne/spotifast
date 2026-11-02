@@ -556,8 +556,56 @@ fn preferred_backdrop_art(small: Option<String>, large: Option<String>) -> Optio
     small.or(large)
 }
 
+/// How bright the brightest of the picture may stay behind the words, so a
+/// white preset reads like the dimmed art does.
+const BACKDROP_GLOW: f32 = 0.2;
+/// The dimming's limits: even a dark preset's sparks stay this far under the
+/// white of the words, and a bright one is never lost altogether.
+const BACKDROP_DIM: std::ops::RangeInclusive<f32> = 0.2..=0.32;
+
+/// How much of the picture's brightness to keep, for one this bright.
+fn backdrop_dim(glow: f32) -> f32 {
+    (BACKDROP_GLOW / glow.max(0.01)).clamp(*BACKDROP_DIM.start(), *BACKDROP_DIM.end())
+}
+
+/// MilkDrop filling `rect`, dimmed so the words stay clear whatever it draws.
+/// `false` leaves the art: there is no picture yet, or none to be had.
+#[cfg(feature = "milkdrop")]
+fn milkdrop_backdrop(app: &mut App, ui: &mut egui::Ui, rect: Rect) -> bool {
+    use crate::milkdrop::pane::{Picture, UV};
+    if !app.milkdrop_behind_lyrics() {
+        return false;
+    }
+    let ctx = ui.ctx().clone();
+    let pixels = rect.size() * ctx.pixels_per_point();
+    let picture = app.milkdrop_picture(&ctx, [pixels.x, pixels.y]);
+    let Picture::Frame(texture) = picture else {
+        if picture == Picture::Waiting {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        return false;
+    };
+    let dim = ctx.animate_value_with_time(
+        egui::Id::new("lyrics-backdrop-dim"),
+        backdrop_dim(app.milkdrop_glow()),
+        crate::motion::seconds(&ctx, 0.5),
+    );
+    let tint = Color32::from_gray((dim * 255.0).round() as u8);
+    ui.painter()
+        .with_clip_rect(rect)
+        .image(texture, rect, UV, tint);
+    if app.now_playing().is_some_and(|now| now.playing) {
+        theme::visualiser_frame(&ctx, Some(app.milkdrop_pane_fps()));
+    }
+    true
+}
+
 fn background(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
     theme::apply_local(ui, &theme::Palette::dark());
+    #[cfg(feature = "milkdrop")]
+    if milkdrop_backdrop(app, ui, rect) {
+        return;
+    }
     let art = app
         .now_playing()
         .and_then(|now| preferred_backdrop_art(now.art_small, now.art_url));
@@ -746,7 +794,14 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
     // The line being sung brightens; all lines keep the same font metrics
     // so highlighting cannot rewrap the words during a transition.
     // A line takes 300 ms to light up or fade.
-    let quiet = palette.text.gamma_multiply(0.68);
+    // A moving picture asks more of the quiet lines than a still one.
+    let quiet = palette
+        .text
+        .gamma_multiply(if app.milkdrop_behind_lyrics() {
+            0.82
+        } else {
+            0.68
+        });
     ui.spacing_mut().scroll.fade.strength = 0.0;
     egui::ScrollArea::vertical()
         .id_salt(("fullscreen-lyrics-scroll", &now.uri))
@@ -895,5 +950,21 @@ mod tests {
         }
         assert_eq!(fullscreen_content_width(47.0), 0.0);
         assert_eq!(fullscreen_content_width(2_000.0), 960.0);
+    }
+
+    /// A white picture ends up as dark as the dimmed art, and full white
+    /// words on it above WCAG's 7:1.
+    #[test]
+    fn white_is_dimmed_until_the_words_read_on_it() {
+        let dim = super::backdrop_dim(1.0);
+        let linear = |value: f32| ((value + 0.055) / 1.055).powf(2.4);
+        let contrast = 1.05 / (linear(dim) + 0.05);
+        assert!(contrast >= 7.0, "{contrast}");
+    }
+
+    #[test]
+    fn a_dark_picture_is_dimmed_less_but_never_left_alone() {
+        assert!(super::backdrop_dim(0.1) > super::backdrop_dim(1.0));
+        assert!(super::backdrop_dim(0.0) <= 0.32);
     }
 }

@@ -26,6 +26,9 @@ use super::shm::Ring;
 /// ([`super::pane`]), so this only matters when the app is stuck or minimised.
 const UNWATCHED: Duration = Duration::from_secs(3);
 
+/// How often a held picture looks to see if it may go on.
+const FROZEN_LOOK: Duration = Duration::from_millis(50);
+
 /// Exit code for a machine this cannot draw on, so the app knows to stay
 /// with the bars.
 pub(super) const NO_GRAPHICS: i32 = 3;
@@ -66,7 +69,8 @@ impl Pump {
     /// Whether to go on: the app is there and someone is looking.
     fn going(&mut self, now: Instant) -> bool {
         let beats = self.frames.beats();
-        if beats != self.beats {
+        // A held picture needs no painting, and the app may sleep over it.
+        if beats != self.beats || self.frames.frozen() {
             self.beats = beats;
             self.watched = now;
         }
@@ -75,6 +79,10 @@ impl Pump {
     }
 
     fn frame(&mut self, engine: &mut Engine) {
+        if self.frames.frozen() {
+            self.due = Instant::now() + FROZEN_LOOK;
+            return;
+        }
         let (fps, seconds) = self.frames.paced();
         if fps != 0 {
             self.fps = fps;
