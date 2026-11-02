@@ -6,7 +6,9 @@ nav_order: 5
 
 MilkDrop shows colourful animations that react to your music. Open it from
 the top-bar visualiser button, Ctrl+Shift+K, Settings, or the mini player's
-**V** menu. It runs in its own window.
+**V** menu. It runs in its own window. Windows Media Player skins also show
+it in their visualisation areas; see
+[Windows Media Player skins](/winamp/#windows-media-player-skins).
 
 <video autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop running in Spotifast" style="width: 100%; height: auto;">
   <source src="/assets/images/milkdrop.mp4" type="video/mp4">

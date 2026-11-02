@@ -58,6 +58,10 @@ pub struct AudioTap {
     /// The ring the MilkDrop child reads, attached while its window is open.
     #[cfg(feature = "milkdrop")]
     shm: Mutex<Option<std::sync::Arc<crate::milkdrop::shm::Ring>>>,
+    /// The ring of the child drawing for a skin's pane, which can run beside
+    /// the window's.
+    #[cfg(feature = "milkdrop")]
+    pane_shm: Mutex<Option<std::sync::Arc<crate::milkdrop::shm::Ring>>>,
 }
 
 impl std::fmt::Debug for AudioTap {
@@ -72,6 +76,8 @@ impl Default for AudioTap {
             samples: Mutex::new(VecDeque::with_capacity(KEPT)),
             #[cfg(feature = "milkdrop")]
             shm: Mutex::new(None),
+            #[cfg(feature = "milkdrop")]
+            pane_shm: Mutex::new(None),
         }
     }
 }
@@ -87,15 +93,29 @@ impl AudioTap {
         *self.shm.lock().unwrap_or_else(|p| p.into_inner()) = ring;
     }
 
+    /// Connects the tap to the pane's ring. `None` detaches it.
+    #[cfg(feature = "milkdrop")]
+    pub fn set_pane_shm(&self, ring: Option<std::sync::Arc<crate::milkdrop::shm::Ring>>) {
+        *self.pane_shm.lock().unwrap_or_else(|p| p.into_inner()) = ring;
+    }
+
     /// Adds scaled stereo samples to the mono analyser buffer and, when
-    /// attached, MilkDrop's stereo shared-memory ring.
+    /// attached, MilkDrop's stereo shared-memory rings.
     pub fn push(&self, interleaved: &[f64], gain: f32) {
         let mut samples = self.samples.lock().unwrap_or_else(|p| p.into_inner());
         let (frames, _) = interleaved.as_chunks::<{ NUM_CHANNELS as usize }>();
         #[cfg(feature = "milkdrop")]
-        let shm = self.shm.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        let rings = [
+            self.shm.lock().unwrap_or_else(|p| p.into_inner()).clone(),
+            self.pane_shm
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
+        ];
         #[cfg(feature = "milkdrop")]
-        let mut stereo: Vec<f32> = if shm.is_some() {
+        let wanted = rings.iter().any(Option::is_some);
+        #[cfg(feature = "milkdrop")]
+        let mut stereo: Vec<f32> = if wanted {
             Vec::with_capacity(frames.len() * 2)
         } else {
             Vec::new()
@@ -107,13 +127,13 @@ impl AudioTap {
             }
             samples.push_back(mono);
             #[cfg(feature = "milkdrop")]
-            if shm.is_some() {
+            if wanted {
                 stereo.push(frame[0] as f32 * gain);
                 stereo.push(frame[1] as f32 * gain);
             }
         }
         #[cfg(feature = "milkdrop")]
-        if let Some(ring) = &shm {
+        for ring in rings.iter().flatten() {
             ring.push(&stereo);
         }
     }

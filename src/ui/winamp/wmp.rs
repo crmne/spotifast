@@ -382,12 +382,35 @@ fn draw(app: &mut App, ui: &mut Ui, paint: &Paint, origin: Pos2, unit: f32, now:
         }
         Paint::Effects { area, clip } => {
             let rect = world(*area, origin, unit);
+            #[cfg(feature = "milkdrop")]
+            let waiting = {
+                use crate::milkdrop::pane::{Picture, UV};
+                let picture = if app.settings.vis == VisMode::Off {
+                    Picture::None
+                } else {
+                    let ctx = ui.ctx().clone();
+                    let pixels = rect.size() * ctx.pixels_per_point();
+                    app.milkdrop_picture(&ctx, [pixels.x, pixels.y])
+                };
+                if let Picture::Frame(texture) = picture {
+                    for box2 in clip.iter() {
+                        let area = world(*box2, origin, unit).intersect(ui.clip_rect());
+                        ui.painter()
+                            .with_clip_rect(area)
+                            .image(texture, rect, UV, Color32::WHITE);
+                    }
+                    return true;
+                }
+                picture == Picture::Waiting
+            };
+            #[cfg(not(feature = "milkdrop"))]
+            let waiting = false;
             let (shapes, moving) = effect_shapes(app, rect, unit, now);
             for box2 in clip.iter() {
                 let area = world(*box2, origin, unit).intersect(ui.clip_rect());
                 ui.painter().with_clip_rect(area).extend(shapes.clone());
             }
-            moving
+            moving || waiting
         }
         Paint::Art {
             area,
