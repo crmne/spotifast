@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-01 19:07+0100\n"
+"POT-Creation-Date: 2026-11-02 13:00+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -657,49 +657,49 @@ msgstr "再生時間で並べ替え"
 msgid "Network connection error. Check your connection."
 msgstr "ネットワーク接続エラーです。接続を確認してください。"
 
-#: src/ui/widgets.rs:3277
+#: src/ui/widgets.rs:3297
 msgid "Cut"
 msgstr "切り取り"
 
-#: src/ui/widgets.rs:3282 src/ui/login.rs:560
+#: src/ui/widgets.rs:3302 src/ui/login.rs:560
 msgid "Copy"
 msgstr "コピー"
 
-#: src/ui/widgets.rs:3287
+#: src/ui/widgets.rs:3307
 msgid "Paste"
 msgstr "貼り付け"
 
-#: src/ui/widgets.rs:3304
+#: src/ui/widgets.rs:3324
 msgid "Select all"
 msgstr "すべて選択"
 
-#: src/ui/widgets.rs:3411
+#: src/ui/widgets.rs:3431
 msgid "Clear"
 msgstr "クリア"
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
-#: src/ui/widgets.rs:3456
+#: src/ui/widgets.rs:3476
 #, rust-format
 msgid "Built with love by {name}"
 msgstr "{name}が心を込めて制作"
 
-#: src/ui/widgets.rs:3601
+#: src/ui/widgets.rs:3621
 msgid "Host"
 msgstr "ホスト"
 
-#: src/ui/widgets.rs:3618
+#: src/ui/widgets.rs:3638
 msgid "Port"
 msgstr "ポート"
 
-#: src/ui/widgets.rs:3636
+#: src/ui/widgets.rs:3656
 msgid "Username"
 msgstr "ユーザー名"
 
-#: src/ui/widgets.rs:3647
+#: src/ui/widgets.rs:3667
 msgid "Password"
 msgstr "パスワード"
 
-#: src/ui/widgets.rs:3665
+#: src/ui/widgets.rs:3685
 msgid ""
 "Proxy login applies to Web requests. Local playback uses this proxy only "
 "without a login."
@@ -707,7 +707,7 @@ msgstr ""
 "プロキシのログイン情報はWebリクエストに適用されます。ローカル再生では、ログイ"
 "ン情報がない場合のみこのプロキシを使用します。"
 
-#: src/ui/widgets.rs:3669
+#: src/ui/widgets.rs:3689
 msgid ""
 "Spotify hostnames are resolved by the proxy. Local playback connects "
 "directly."
@@ -1236,12 +1236,9 @@ msgstr ""
 #: src/app.rs:14580
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
-"again to grant image upload permission. If using a personal app, reconnect "
-"it in Settings too."
-msgstr ""
-"Spotifyがこのカバーを拒否しました。自分のプレイリストであることを確認し、もう"
-"一度ログインして画像アップロードの権限を許可してください。個人用アプリを使っ"
-"ている場合は、設定でも再接続してください。"
+"again to grant image upload permission. If you use your own Client ID, "
+"authorize it again in Settings too."
+msgstr "Spotifyがこのカバーを拒否しました。自分のプレイリストであることを確認し、もう一度ログインして画像アップロードの権限を許可してください。自分のClient IDを使っている場合は、設定でも再度承認してください。"
 
 #: src/app.rs:14584
 msgid "Spotify rejected the image size. Choose a smaller image."
@@ -1266,7 +1263,7 @@ msgid "Preset name"
 msgstr "プリセット名"
 
 #. Translators: a search keyword for saving equalizer presets.
-#: src/ui/settings.rs:98 src/ui/settings.rs:2253
+#: src/ui/settings.rs:98 src/ui/settings.rs:2255
 msgid "Save preset"
 msgstr "プリセットを保存"
 
@@ -1346,48 +1343,44 @@ msgid "Sign out"
 msgstr "ログアウト"
 
 #: src/ui/settings.rs:507
-msgid "Personal Spotify app"
-msgstr "個人用Spotifyアプリ"
+msgid "Spotify registration"
+msgstr "Spotifyへの登録"
 
 #: src/ui/settings.rs:511
 msgid ""
-"You're still signed in through the shared app Spotifast used before, which "
-"Spotify can stop accepting at any time. Set up your own app to keep "
-"listening."
-msgstr ""
-"Spotifastが以前使っていた共有アプリでまだログインしています。Spotifyはこのア"
-"プリをいつでも受け付けなくなる可能性があります。聴き続けるには自分のアプリを"
-"設定してください。"
+"You're still on the shared sign-in Spotifast used before, which Spotify can "
+"stop accepting at any time. Register Spotifast to keep listening."
+msgstr "Spotifastが以前使っていた共有ログインをまだ使用しています。Spotifyはいつ受け付けなくなるかわかりません。聴き続けるにはSpotifastを登録してください。"
 
 #: src/ui/settings.rs:516
-msgid "Spotifast signs in through your own free Spotify app."
-msgstr "Spotifastは、あなた自身の無料Spotifyアプリでログインします。"
+msgid "Spotifast connects with the Client ID you registered with Spotify."
+msgstr "Spotifastは、Spotifyに登録したClient IDで接続します。"
 
-#: src/ui/settings.rs:521
-msgid "Create an app"
-msgstr "アプリを作成"
+#: src/ui/settings.rs:521 src/ui/dialogs.rs:50 src/ui/login.rs:461
+#: src/ui/mod.rs:412
+msgid "Register Spotifast"
+msgstr "Spotifastを登録"
 
 #: src/ui/settings.rs:524
-msgid "Create one for free in Spotify's developer dashboard."
-msgstr "Spotifyの開発者ダッシュボードで無料で作成できます。"
+msgid "It takes about two minutes in Spotify's developer dashboard."
+msgstr "Spotifyの開発者ダッシュボードで約2分で終わります。"
 
 #: src/ui/settings.rs:529
-msgid "Personal app ready"
-msgstr "個人用アプリの準備ができました"
+msgid "Spotifast registered"
+msgstr "Spotifastは登録済みです"
 
 #: src/ui/settings.rs:533
-msgid "Supported requests use your app. Other requests use the shared app."
-msgstr ""
-"対応するリクエストにはあなたのアプリを使います。それ以外のリクエストには共有"
-"アプリを使います。"
+msgid ""
+"Supported requests use your Client ID. Other requests use the shared sign-in."
+msgstr "対応するリクエストにはClient IDを使用します。その他のリクエストには共有ログインを使用します。"
 
 #: src/ui/settings.rs:536
-msgid "Spotifast uses your app for Spotify's Web API."
-msgstr "SpotifastはSpotifyのWeb APIにあなたのアプリを使います。"
+msgid "Spotifast uses your Client ID for Spotify's Web API."
+msgstr "SpotifastはSpotifyのWeb APIにあなたのClient IDを使用します。"
 
 #: src/ui/settings.rs:541
-msgid "Authorize your personal app"
-msgstr "個人用アプリを承認"
+msgid "Authorize your Client ID"
+msgstr "Client IDを承認"
 
 #: src/ui/settings.rs:544
 msgid "Spotify opens in your browser to verify the account."
@@ -1413,7 +1406,7 @@ msgstr "{username}として接続中"
 
 #: src/ui/settings.rs:629 src/ui/login.rs:391
 msgid "Client ID"
-msgstr "クライアントID"
+msgstr "Client ID"
 
 #: src/ui/settings.rs:657
 msgid "Setup guide"
@@ -1737,7 +1730,7 @@ msgstr "「システムに合わせる」ではOmarchyの色を使います。"
 msgid "Follow system uses your desktop's light or dark appearance."
 msgstr "「システムに合わせる」ではデスクトップのライト／ダーク設定を使います。"
 
-#: src/ui/settings.rs:1266 src/ui/settings.rs:2727
+#: src/ui/settings.rs:1266 src/ui/settings.rs:2729
 msgid "Language"
 msgstr "言語"
 
@@ -1800,7 +1793,7 @@ msgstr ""
 "再生バーの空いている部分をクリックしてビジュアライザーを切り替えられるように"
 "します。"
 
-#: src/ui/settings.rs:1329 src/ui/settings.rs:2090
+#: src/ui/settings.rs:1329 src/ui/settings.rs:2092
 msgid "Frame rate"
 msgstr "フレームレート"
 
@@ -1861,7 +1854,7 @@ msgstr "プロキシを使用していません。"
 msgid "Using the system proxy."
 msgstr "システムのプロキシを使用しています。"
 
-#: src/ui/settings.rs:1772
+#: src/ui/settings.rs:1772 src/ui/keys.rs:364
 msgid "Mini player"
 msgstr "ミニプレイヤー"
 
@@ -1959,18 +1952,18 @@ msgstr ""
 "インストール済みのスキンは {folder} にあります。この種類のスキンはまだありま"
 "せん。"
 
-#: src/ui/settings.rs:1974
+#: src/ui/settings.rs:1976
 msgid ""
 "This skin has no equalizer or playlist window, and its scripts do not run."
 msgstr ""
 "このスキンにはイコライザーやプレイリストのウィンドウがなく、スクリプトも実行"
 "されません。"
 
-#: src/ui/settings.rs:2039
+#: src/ui/settings.rs:2041
 msgid "MilkDrop window"
 msgstr "MilkDropウインドウ"
 
-#: src/ui/settings.rs:2047
+#: src/ui/settings.rs:2049
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1980,7 +1973,7 @@ msgstr ""
 "Ctrl+Shift+K、またはミニプレイヤーのVメニューから開けます。?またはF1でショー"
 "トカットを表示します。"
 
-#: src/ui/settings.rs:2051
+#: src/ui/settings.rs:2053
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1990,12 +1983,12 @@ msgstr ""
 "またはミニプレイヤーのVメニューから開けます。?またはF1でショートカットを表示"
 "します。"
 
-#: src/ui/settings.rs:2057 src/ui/settings.rs:2236
+#: src/ui/settings.rs:2059 src/ui/settings.rs:2238
 msgid "Presets"
 msgstr "プリセット"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2062
+#: src/ui/settings.rs:2064
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -2005,7 +1998,7 @@ msgstr ""
 "空の状態で初めてMilkDropを開くと、Spotifastがプリセットをダウンロードします。"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2068
+#: src/ui/settings.rs:2070
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -2016,7 +2009,7 @@ msgstr ""
 "ドします。"
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2074
+#: src/ui/settings.rs:2076
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -2029,22 +2022,22 @@ msgstr[0] ""
 "い。フォルダが空の状態で初めてMilkDropを開くと、Spotifastがプリセットをダウン"
 "ロードします。"
 
-#: src/ui/settings.rs:2083
+#: src/ui/settings.rs:2085
 msgid "Time per preset"
 msgstr "プリセットごとの時間"
 
-#: src/ui/settings.rs:2086
+#: src/ui/settings.rs:2088
 msgid "How long each preset plays before the next fades in."
 msgstr "各プリセットを表示してから次のプリセットに切り替わるまでの時間です。"
 
-#: src/ui/settings.rs:2094
+#: src/ui/settings.rs:2096
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr ""
 "レートを下げるとリソースの使用量が減ります。「無制限」ではできるだけ速く描画"
 "します。"
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:2099
+#: src/ui/settings.rs:2101
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -2053,49 +2046,49 @@ msgstr ""
 "お使いの画面のリフレッシュレートは{hz} Hzです。これより高くしても表示されるフ"
 "レームは増えません。「無制限」ではできるだけ速く描画します。"
 
-#: src/ui/settings.rs:2106
+#: src/ui/settings.rs:2108
 msgid "Resolution"
 msgstr "解像度"
 
-#: src/ui/settings.rs:2109
+#: src/ui/settings.rs:2111
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr "「1/2」と「1/4」はリソースの使用量を抑え、画像を拡大して表示します。"
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:2116
+#: src/ui/settings.rs:2118
 msgid "Get presets"
 msgstr "プリセットを取得"
 
-#: src/ui/settings.rs:2154
+#: src/ui/settings.rs:2156
 msgid "Fetching..."
 msgstr "取得中..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:2157
+#: src/ui/settings.rs:2159
 #, rust-format
 msgid "Get {pack}"
 msgstr "{pack}を取得"
 
-#: src/ui/settings.rs:2208
+#: src/ui/settings.rs:2210
 msgctxt "resolution"
 msgid "Full"
 msgstr "フル"
 
-#: src/ui/settings.rs:2209
+#: src/ui/settings.rs:2211
 msgctxt "resolution"
 msgid "Half"
 msgstr "1/2"
 
-#: src/ui/settings.rs:2210
+#: src/ui/settings.rs:2212
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "1/4"
 
-#: src/ui/settings.rs:2224
+#: src/ui/settings.rs:2226
 msgid "Equalizer"
 msgstr "イコライザー"
 
-#: src/ui/settings.rs:2230
+#: src/ui/settings.rs:2232
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
@@ -2104,137 +2097,137 @@ msgstr ""
 "響しません。"
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2238
+#: src/ui/settings.rs:2240
 msgid "Preamp"
 msgstr "プリアンプ"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:2240
+#: src/ui/settings.rs:2242
 msgid "Bands"
 msgstr "バンド"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2322
+#: src/ui/settings.rs:2324
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "Pre"
 
-#: src/ui/settings.rs:2339
+#: src/ui/settings.rs:2341
 msgid "Storage"
 msgstr "ストレージ"
 
-#: src/ui/settings.rs:2342
+#: src/ui/settings.rs:2344
 msgid "Artwork cache"
 msgstr "アートワークのキャッシュ"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:2344 src/ui/settings.rs:2350
+#: src/ui/settings.rs:2346 src/ui/settings.rs:2352
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "保存先：{folder}"
 
-#: src/ui/settings.rs:2357
+#: src/ui/settings.rs:2359
 msgid "Play history"
 msgstr "再生履歴"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:2361
+#: src/ui/settings.rs:2363
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr ""
 "ここで再生した曲は{file}に保存されます。このファイルがアップロードされること"
 "はありません。"
 
-#: src/ui/settings.rs:2366
+#: src/ui/settings.rs:2368
 msgid "Sign-in"
 msgstr "ログイン"
 
-#: src/ui/settings.rs:2369
+#: src/ui/settings.rs:2371
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr ""
 "ログイン情報は、利用可能な場合はシステムの資格情報ストアに保存されます。"
 
-#: src/ui/settings.rs:2378 src/ui/settings.rs:2437
+#: src/ui/settings.rs:2380 src/ui/settings.rs:2439
 msgid "Checking…"
 msgstr "確認中…"
 
-#: src/ui/settings.rs:2380 src/ui/collection.rs:989 src/ui/collection.rs:1016
+#: src/ui/settings.rs:2382 src/ui/collection.rs:989 src/ui/collection.rs:1016
 msgid "Unavailable"
 msgstr "利用不可"
 
-#: src/ui/settings.rs:2390
+#: src/ui/settings.rs:2392
 msgid "Clear artwork"
 msgstr "アートワークを削除"
 
-#: src/ui/settings.rs:2400
+#: src/ui/settings.rs:2402
 msgid "Clearing…"
 msgstr "削除中…"
 
-#: src/ui/settings.rs:2402
+#: src/ui/settings.rs:2404
 msgid "Clear audio"
 msgstr "音声を削除"
 
-#: src/ui/settings.rs:2419
+#: src/ui/settings.rs:2421
 msgid "Clear history"
 msgstr "履歴を消去"
 
-#: src/ui/settings.rs:2431 src/ui/show.rs:42
+#: src/ui/settings.rs:2433 src/ui/show.rs:42
 msgid "About"
 msgstr "このアプリについて"
 
-#: src/ui/settings.rs:2434
+#: src/ui/settings.rs:2436
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr "Rust、egui、librespotで作られています。Spotifyとは関係ありません。"
 
-#: src/ui/settings.rs:2436
+#: src/ui/settings.rs:2438
 msgid "Check for updates"
 msgstr "アップデートを確認"
 
-#: src/ui/settings.rs:2438 src/ui/dialogs.rs:153 src/ui/keys.rs:396
+#: src/ui/settings.rs:2440 src/ui/dialogs.rs:153 src/ui/keys.rs:396
 #: src/ui/topbar.rs:504
 msgid "Keyboard shortcuts"
 msgstr "キーボードショートカット"
 
-#: src/ui/settings.rs:2439 src/ui/update.rs:65
+#: src/ui/settings.rs:2441 src/ui/update.rs:65
 msgid "Release notes"
 msgstr "リリースノート"
 
-#: src/ui/settings.rs:2440
+#: src/ui/settings.rs:2442
 msgid "Source code"
 msgstr "ソースコード"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:2524
+#: src/ui/settings.rs:2526
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "「{query}」に一致する設定はありません"
 
-#: src/ui/settings.rs:2525
+#: src/ui/settings.rs:2527
 msgid "Try fewer words, or check the spelling."
 msgstr "語句を減らすか、スペルを確認してください。"
 
-#: src/ui/settings.rs:2546
+#: src/ui/settings.rs:2548
 msgctxt "start with your computer"
 msgid "Off"
 msgstr "オフ"
 
-#: src/ui/settings.rs:2547
+#: src/ui/settings.rs:2549
 msgid "With the window"
 msgstr "ウインドウを開く"
 
-#: src/ui/settings.rs:2551
+#: src/ui/settings.rs:2553
 msgid "In the menu bar"
 msgstr "メニューバーに格納"
 
-#: src/ui/settings.rs:2553
+#: src/ui/settings.rs:2555
 msgid "In the tray"
 msgstr "トレイに格納"
 
-#: src/ui/settings.rs:2572
+#: src/ui/settings.rs:2574
 msgid "Allow Spotifast in System Settings, General, Login Items."
 msgstr "システム設定の「一般」>「ログイン項目」でSpotifastを許可してください。"
 
-#: src/ui/settings.rs:2578
+#: src/ui/settings.rs:2580
 msgid ""
 "Starting in the menu bar needs Keep music playing when the window closes. "
 "Until then, the window opens."
@@ -2242,7 +2235,7 @@ msgstr ""
 "メニューバーで起動するには「ウインドウを閉じても再生を続ける」をオンにしてく"
 "ださい。それまではウインドウが開きます。"
 
-#: src/ui/settings.rs:2583
+#: src/ui/settings.rs:2585
 msgid ""
 "Starting in the tray needs Keep music playing when the window closes. Until "
 "then, the window opens."
@@ -2250,18 +2243,18 @@ msgstr ""
 "トレイで起動するには「ウインドウを閉じても再生を続ける」をオンにしてくださ"
 "い。それまではウインドウが開きます。"
 
-#: src/ui/settings.rs:2589
+#: src/ui/settings.rs:2591
 msgid "Open Spotifast when you log in, with its window or in the menu bar."
 msgstr ""
 "ログイン時にSpotifastを開きます。ウインドウを表示するか、メニューバーに格納し"
 "ます。"
 
-#: src/ui/settings.rs:2594
+#: src/ui/settings.rs:2596
 msgid "Open Spotifast when you log in, with its window or in the tray."
 msgstr ""
 "ログイン時にSpotifastを開きます。ウインドウを表示するか、トレイに格納します。"
 
-#: src/ui/settings.rs:2700
+#: src/ui/settings.rs:2702
 msgctxt "language"
 msgid "System"
 msgstr "システム"
@@ -2728,22 +2721,15 @@ msgid "Play here"
 msgstr "ここで再生"
 
 #: src/ui/dialogs.rs:44
-msgid "Move to your own Spotify app"
-msgstr "自分のSpotifyアプリに移行"
+msgid "Register Spotifast with Spotify"
+msgstr "SpotifastをSpotifyに登録"
 
 #: src/ui/dialogs.rs:46
 msgid ""
-"You're signed in through the shared app Spotifast used before. Spotifast no "
-"longer offers it, and Spotify can stop accepting it at any time. Set up your "
-"own free Spotify app so nothing stops your music. It takes a few minutes."
-msgstr ""
-"Spotifastが以前使っていた共有アプリでログインしています。Spotifastはこのアプ"
-"リの提供を終了しており、Spotifyもいつ受け付けなくなるかわかりません。音楽が止"
-"まらないよう、自分の無料Spotifyアプリを設定してください。数分で終わります。"
-
-#: src/ui/dialogs.rs:50 src/ui/mod.rs:412
-msgid "Set up personal app"
-msgstr "個人用アプリを設定"
+"You're on the shared sign-in Spotifast used before. Spotifast no longer "
+"offers it, and Spotify can stop accepting it at any time. Register Spotifast "
+"so nothing stops your music. It takes about two minutes."
+msgstr "Spotifastが以前使っていた共有ログインを使用しています。Spotifastはこのログインの提供を終了しており、Spotifyもいつ受け付けなくなるかわかりません。音楽が止まらないよう、Spotifastを登録してください。約2分で終わります。"
 
 #: src/ui/dialogs.rs:53
 msgid "Not now"
@@ -3164,35 +3150,26 @@ msgstr "Spotifast {version} • Spotifyとは関係ありません"
 #: src/ui/login.rs:170
 msgid ""
 "That doesn't look like a Client ID. It is 32 letters and digits, shown on "
-"your app's page in the dashboard."
-msgstr ""
-"クライアントIDではないようです。クライアントIDは32文字の英数字で、ダッシュ"
-"ボードのアプリのページに表示されています。"
+"Spotify's page for your registration."
+msgstr "Client IDではないようです。Client IDは32文字の英数字で、Spotifyの登録ページに表示されています。"
 
 #: src/ui/login.rs:174
 msgid ""
-"Spotify doesn't know this Client ID. Copy it again from your app's page in "
-"the dashboard."
-msgstr ""
-"SpotifyはこのクライアントIDを認識できません。ダッシュボードのアプリのページか"
-"らもう一度コピーしてください。"
+"Spotify doesn't know this Client ID. Copy it again from Spotify's developer "
+"dashboard."
+msgstr "SpotifyはこのClient IDを認識できません。Spotifyの開発者ダッシュボードからもう一度コピーしてください。"
 
 #: src/ui/login.rs:178
 msgid ""
-"Spotify didn't let this account use the app. Sign in with the Spotify "
-"account that created it, which needs Premium."
-msgstr ""
-"Spotifyがこのアカウントでのアプリの使用を許可しませんでした。アプリを作成した"
-"Spotifyアカウントでログインしてください。そのアカウントにはPremiumが必要で"
-"す。"
+"Spotify didn't let this account use this Client ID. Sign in with the Spotify "
+"account that registered it, which needs Premium."
+msgstr "SpotifyがこのアカウントでのこのClient IDの使用を許可しませんでした。登録したSpotifyアカウントでログインしてください。そのアカウントにはPremiumが必要です。"
 
 #: src/ui/login.rs:182
 msgid ""
-"Spotify no longer accepts the shared sign-in Spotifast used before. Set up "
-"your own Spotify app to keep listening."
-msgstr ""
-"Spotifyは、Spotifastが以前使っていた共有ログインを受け付けなくなりました。聴"
-"き続けるには自分のSpotifyアプリを設定してください。"
+"Spotify no longer accepts the shared sign-in Spotifast used before. Register "
+"Spotifast to keep listening."
+msgstr "Spotifyは、Spotifastが以前使っていた共有ログインを受け付けなくなりました。聴き続けるにはSpotifastを登録してください。"
 
 #: src/ui/login.rs:219
 msgid "A native Spotify client."
@@ -3209,11 +3186,9 @@ msgstr "開きませんか？ログインページをもう一度開く"
 #: src/ui/login.rs:257
 #, rust-format
 msgid ""
-"If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, save, "
-"and sign in again."
-msgstr ""
-"Spotifyに「Invalid redirect URI」と表示された場合は、{uri}をそのままアプリに"
-"追加して保存し、もう一度ログインしてください。"
+"If Spotify says “Invalid redirect URI”, add {uri} to your registration "
+"exactly, save, and sign in again."
+msgstr "Spotifyに「Invalid redirect URI」と表示された場合は、{uri}をそのまま登録内容に追加して保存し、もう一度ログインしてください。"
 
 #: src/ui/login.rs:310
 msgid "Sign in with Spotify"
@@ -3228,37 +3203,33 @@ msgstr ""
 "ル再生にはSpotify Premiumが必要です。"
 
 #: src/ui/login.rs:330
-msgid "How to set up your Spotify app"
-msgstr "Spotifyアプリの設定方法"
+msgid "How to register Spotifast"
+msgstr "Spotifastの登録方法"
 
 #: src/ui/login.rs:354
 msgid "Proxy Settings"
 msgstr "プロキシ設定"
 
 #: src/ui/login.rs:409
-msgid "A Client ID is 32 letters and digits. Copy it from your app's page."
-msgstr ""
-"クライアントIDは32文字の英数字です。アプリのページからコピーしてください。"
-
-#: src/ui/login.rs:461
-msgid "Set up your Spotify app"
-msgstr "Spotifyアプリを設定"
+msgid ""
+"A Client ID is 32 letters and digits. Copy it from Spotify's developer "
+"dashboard."
+msgstr "Client IDは32文字の英数字です。Spotifyの開発者ダッシュボードからコピーしてください。"
 
 #: src/ui/login.rs:469
 msgid ""
-"Spotifast signs in through your own free Spotify app. Spotify requires its "
-"owner to have Premium."
-msgstr ""
-"Spotifastは、あなた自身の無料Spotifyアプリでログインします。Spotifyでは、アプ"
-"リの所有者がPremiumである必要があります。"
+"Spotify asks you to register Spotifast once, on an account with Premium. It "
+"takes about two minutes and gives you a Client ID."
+msgstr "SpotifyではSpotifastの登録が1回必要です。Premiumのアカウントで行ってください。約2分で終わり、Client IDが発行されます。"
 
 #: src/ui/login.rs:479
 msgid "Open Spotify's developer dashboard."
 msgstr "Spotifyの開発者ダッシュボードを開きます。"
 
 #: src/ui/login.rs:498
-msgid "Click Create app. Any name will do."
-msgstr "「Create app」をクリックします。名前は何でも構いません。"
+msgid ""
+"Click Create app, Spotify's name for this registration. Any name will do."
+msgstr "「Create app」をクリックします。これがSpotify上でのこの登録の名前です。名前は何でも構いません。"
 
 #: src/ui/login.rs:505
 msgid "Under Redirect URIs, add exactly:"
@@ -3269,20 +3240,18 @@ msgid "Tick Web API, accept the terms, and save."
 msgstr "「Web API」にチェックを入れ、規約に同意して保存します。"
 
 #: src/ui/login.rs:523
-msgid "Paste the app's Client ID into the field and sign in."
-msgstr "アプリのクライアントIDを入力欄に貼り付けて、ログインします。"
+msgid "Paste the Client ID into the field and sign in."
+msgstr "Client IDを入力欄に貼り付けてログインします。"
 
 #: src/ui/mod.rs:405
-msgid "Spotify is being slow on the shared app."
-msgstr "共有アプリでSpotifyが遅くなっています。"
+msgid "Spotify is being slow on the shared sign-in."
+msgstr "共有ログインではSpotifyの応答が遅くなっています。"
 
 #: src/ui/mod.rs:408
 msgid ""
-"Spotifast no longer offers the shared app, and Spotify can stop accepting it "
-"at any time. Set up your own free Spotify app and you won't have to wait."
-msgstr ""
-"Spotifastは共有アプリの提供を終了しており、Spotifyもいつ受け付けなくなるかわ"
-"かりません。自分の無料Spotifyアプリを設定すれば、待つ必要はありません。"
+"Spotifast no longer offers the shared sign-in, and Spotify can stop "
+"accepting it at any time. Register Spotifast and you won't have to wait."
+msgstr "Spotifastは共有ログインの提供を終了しており、Spotifyもいつ受け付けなくなるかわかりません。Spotifastを登録すれば、待つ必要はありません。"
 
 #. Translators: a button that opens a page explaining why
 #. the banner it sits in appeared.
@@ -3950,6 +3919,130 @@ msgstr ""
 "この PC または仮想マシンにはありません。グラフィックドライバーをインストール"
 "するか、仮想マシンの GPU アクセラレーションを有効にしてください。詳しくは "
 "{url} を開きますか？"
+
+#~ msgid ""
+#~ "Spotify refused this cover. Check that you own the playlist, then sign in "
+#~ "again to grant image upload permission. If using a personal app, "
+#~ "reconnect it in Settings too."
+#~ msgstr ""
+#~ "Spotifyがこのカバーを拒否しました。自分のプレイリストであることを確認し、"
+#~ "もう一度ログインして画像アップロードの権限を許可してください。個人用アプリ"
+#~ "を使っている場合は、設定でも再接続してください。"
+
+#~ msgid "Personal Spotify app"
+#~ msgstr "個人用Spotifyアプリ"
+
+#~ msgid ""
+#~ "You're still signed in through the shared app Spotifast used before, "
+#~ "which Spotify can stop accepting at any time. Set up your own app to keep "
+#~ "listening."
+#~ msgstr ""
+#~ "Spotifastが以前使っていた共有アプリでまだログインしています。Spotifyはこの"
+#~ "アプリをいつでも受け付けなくなる可能性があります。聴き続けるには自分のアプ"
+#~ "リを設定してください。"
+
+#~ msgid "Spotifast signs in through your own free Spotify app."
+#~ msgstr "Spotifastは、あなた自身の無料Spotifyアプリでログインします。"
+
+#~ msgid "Create an app"
+#~ msgstr "アプリを作成"
+
+#~ msgid "Create one for free in Spotify's developer dashboard."
+#~ msgstr "Spotifyの開発者ダッシュボードで無料で作成できます。"
+
+#~ msgid "Personal app ready"
+#~ msgstr "個人用アプリの準備ができました"
+
+#~ msgid "Supported requests use your app. Other requests use the shared app."
+#~ msgstr ""
+#~ "対応するリクエストにはあなたのアプリを使います。それ以外のリクエストには共"
+#~ "有アプリを使います。"
+
+#~ msgid "Spotifast uses your app for Spotify's Web API."
+#~ msgstr "SpotifastはSpotifyのWeb APIにあなたのアプリを使います。"
+
+#~ msgid "Authorize your personal app"
+#~ msgstr "個人用アプリを承認"
+
+#~ msgid "Move to your own Spotify app"
+#~ msgstr "自分のSpotifyアプリに移行"
+
+#~ msgid ""
+#~ "You're signed in through the shared app Spotifast used before. Spotifast "
+#~ "no longer offers it, and Spotify can stop accepting it at any time. Set "
+#~ "up your own free Spotify app so nothing stops your music. It takes a few "
+#~ "minutes."
+#~ msgstr ""
+#~ "Spotifastが以前使っていた共有アプリでログインしています。Spotifastはこのア"
+#~ "プリの提供を終了しており、Spotifyもいつ受け付けなくなるかわかりません。音"
+#~ "楽が止まらないよう、自分の無料Spotifyアプリを設定してください。数分で終わ"
+#~ "ります。"
+
+#~ msgid "Set up personal app"
+#~ msgstr "個人用アプリを設定"
+
+#~ msgid ""
+#~ "That doesn't look like a Client ID. It is 32 letters and digits, shown on "
+#~ "your app's page in the dashboard."
+#~ msgstr ""
+#~ "クライアントIDではないようです。クライアントIDは32文字の英数字で、ダッシュ"
+#~ "ボードのアプリのページに表示されています。"
+
+#~ msgid ""
+#~ "Spotify doesn't know this Client ID. Copy it again from your app's page "
+#~ "in the dashboard."
+#~ msgstr ""
+#~ "SpotifyはこのクライアントIDを認識できません。ダッシュボードのアプリのペー"
+#~ "ジからもう一度コピーしてください。"
+
+#~ msgid ""
+#~ "Spotify didn't let this account use the app. Sign in with the Spotify "
+#~ "account that created it, which needs Premium."
+#~ msgstr ""
+#~ "Spotifyがこのアカウントでのアプリの使用を許可しませんでした。アプリを作成"
+#~ "したSpotifyアカウントでログインしてください。そのアカウントにはPremiumが必"
+#~ "要です。"
+
+#~ msgid ""
+#~ "Spotify no longer accepts the shared sign-in Spotifast used before. Set "
+#~ "up your own Spotify app to keep listening."
+#~ msgstr ""
+#~ "Spotifyは、Spotifastが以前使っていた共有ログインを受け付けなくなりました。"
+#~ "聴き続けるには自分のSpotifyアプリを設定してください。"
+
+#~ msgid "How to set up your Spotify app"
+#~ msgstr "Spotifyアプリの設定方法"
+
+#~ msgid "A Client ID is 32 letters and digits. Copy it from your app's page."
+#~ msgstr ""
+#~ "クライアントIDは32文字の英数字です。アプリのページからコピーしてください。"
+
+#~ msgid "Set up your Spotify app"
+#~ msgstr "Spotifyアプリを設定"
+
+#~ msgid ""
+#~ "Spotifast signs in through your own free Spotify app. Spotify requires "
+#~ "its owner to have Premium."
+#~ msgstr ""
+#~ "Spotifastは、あなた自身の無料Spotifyアプリでログインします。Spotifyでは、"
+#~ "アプリの所有者がPremiumである必要があります。"
+
+#~ msgid "Click Create app. Any name will do."
+#~ msgstr "「Create app」をクリックします。名前は何でも構いません。"
+
+#~ msgid "Paste the app's Client ID into the field and sign in."
+#~ msgstr "アプリのクライアントIDを入力欄に貼り付けて、ログインします。"
+
+#~ msgid "Spotify is being slow on the shared app."
+#~ msgstr "共有アプリでSpotifyが遅くなっています。"
+
+#~ msgid ""
+#~ "Spotifast no longer offers the shared app, and Spotify can stop accepting "
+#~ "it at any time. Set up your own free Spotify app and you won't have to "
+#~ "wait."
+#~ msgstr ""
+#~ "Spotifastは共有アプリの提供を終了しており、Spotifyもいつ受け付けなくなるか"
+#~ "わかりません。自分の無料Spotifyアプリを設定すれば、待つ必要はありません。"
 
 #~ msgid "Winamp skins"
 #~ msgstr "Winampスキン"

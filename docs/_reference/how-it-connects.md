@@ -14,10 +14,11 @@ remain available for playback and library requests.
 
 Spotifast uses separate credentials for Web API access and local playback:
 
-1. **Your own Spotify app**, the personal app, carries the Web API: account,
+1. **Your registration**, the Client ID you get by registering Spotifast with
+   Spotify (the personal app below), carries the Web API: account,
    library, catalogue, search, playlists and playback control. Since 0.14.2
-   it is the only way to sign in. The sign-in screen walks through creating
-   one, and its Client ID is kept in settings
+   it is the only way to sign in. The sign-in screen walks through
+   registering, and the Client ID is kept in settings
    ([Getting Started](/getting-started/#make-a-spotify-app)). Before
    opening the browser, Spotifast asks Spotify's token endpoint whether it
    knows the Client ID, with a code that cannot be valid: an unknown client

@@ -34,7 +34,7 @@ Spotifast uses the Web API for:
   queue.
 
 Since 0.14.2, Web API requests go through the listener's own Spotify app,
-registered for free in Spotify's developer dashboard
+registered in Spotify's developer dashboard
 ([Getting Started](/getting-started/#make-a-spotify-app)). Spotify grants no
 app the quota to serve everyone: an app in Development Mode lets in at most
 five accounts, and an extension needs a registered business with hundreds of
@@ -229,8 +229,8 @@ The Web API and librespot do not provide these features:
 - **One Web API app for every listener.** Spotify no longer extends an app
   beyond Development Mode's five accounts for a project like this one, and
   its desktop client identity is turned away from the Web API with "too many
-  requests". Each listener registers a free app of their own instead, which
-  needs Premium on the account that creates it.
+  requests". Each listener registers Spotifast themselves instead, which
+  needs Premium on the account that registers.
 - **Pins shared with the Spotify app.** Spotify stores pins in its private
   `your-library` service. There is no Web API for it, and librespot does not
   support its protocol. Spotifast's pins are local and are stored in

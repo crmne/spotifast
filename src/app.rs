@@ -14577,7 +14577,7 @@ fn cover_error(locale: Locale, error: &crate::api::client::ApiError) -> String {
         .into_owned(),
         Some(403) => gettext(
             locale,
-            "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If using a personal app, reconnect it in Settings too.",
+            "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If you use your own Client ID, authorize it again in Settings too.",
         )
         .into_owned(),
         Some(413) => {

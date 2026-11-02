@@ -811,7 +811,7 @@ let apps remove a description, so clearing the field keeps the current one.
 You can replace it with other text instead.
 
 If Spotify refuses permission, sign in again and approve image uploads. If you
-use a personal Spotify app, reconnect it in Settings as well.
+use your own Client ID, authorize it again in Settings as well.
 
 ## Lyrics
 

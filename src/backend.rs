@@ -3074,9 +3074,9 @@ impl Worker {
                         // in Settings while a shared grant keeps the app
                         // signed in (#634).
                         let message = if source == ApiSource::Shared {
-                            "Spotify permissions changed. Sign in with your own Spotify app."
+                            "Spotify permissions changed. Sign in with your Client ID."
                         } else {
-                            "Spotify permissions changed for your personal app. Authorize it \
+                            "Spotify permissions changed for your Client ID. Authorize it \
                              again, with Sign in or in Settings, under Account."
                         };
                         self.emit(Event::Error(message.into()));
@@ -3200,7 +3200,7 @@ impl Worker {
         }
         let message = match source {
             ApiSource::Shared => format!("Shared Spotify sign-in failed: {error}"),
-            ApiSource::Personal => format!("Personal app authorization failed: {error}"),
+            ApiSource::Personal => format!("Client ID authorization failed: {error}"),
         };
         let other_ready = match source {
             ApiSource::Shared => self.api.personal_ready(),
@@ -3401,8 +3401,8 @@ impl Worker {
                         Event::Auth(AuthStatus::Refused(SignInProblem::UnknownClient))
                     } else {
                         Event::Error(
-                            "Spotify doesn't know this Client ID. Copy it again from your \
-                             app's page in Spotify's developer dashboard."
+                            "Spotify doesn't know this Client ID. Copy it again from \
+                             Spotify's developer dashboard."
                                 .into(),
                         )
                     });
@@ -9138,7 +9138,7 @@ mod authorization_tests {
             // listener's own app; a personal app is renewed by signing in
             // with it, or in Settings (#634).
             let advice = if slot == CredentialSlot::Shared {
-                "Sign in with your own Spotify app."
+                "Sign in with your Client ID."
             } else {
                 "with Sign in or in Settings, under Account."
             };

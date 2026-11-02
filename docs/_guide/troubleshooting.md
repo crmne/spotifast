@@ -53,7 +53,7 @@ summed up in
 
 Changing audio settings, clearing the cache, signing out and in, or
 reinstalling won't fix it, because nothing on your computer is wrong. A
-[personal Spotify app](/make-it-even-faster/#make-a-spotify-app) doesn't
+[Client ID of your own](/make-it-even-faster/#make-a-spotify-app) doesn't
 change it either: that only speeds up library and search requests, not audio
 keys.
 
@@ -83,13 +83,13 @@ Spotifast follows this in
 ## Signing in fails {#sign-in}
 
 If Spotify's page says **redirect_uri: Not matching configuration**, you are
-on a version before 0.14.2, which signed in through a shared app that no
-longer accepts new sign-ins
+on a version before 0.14.2, which used a shared sign-in that no longer
+accepts new sign-ins
 ([#1057](https://github.com/crmne/spotifast/issues/1057)). Update Spotifast,
-then follow the steps on the sign-in screen to make your own free Spotify app.
+then follow the steps on the sign-in screen to register Spotifast.
 
-If Spotify's page says **Invalid redirect URI**, your own app is missing the
-address `http://127.0.0.1:8989/login`, or has it with a difference, such as
+If Spotify's page says **Invalid redirect URI**, your registration is missing
+the address `http://127.0.0.1:8989/login`, or has it with a difference, such as
 `localhost` or a slash at the end. Add it exactly, save, and sign in again.
 [Getting Started](/getting-started/#sign-in-with-it) covers the other
 messages the sign-in screen can show.
@@ -98,7 +98,7 @@ messages the sign-in screen can show.
 
 You may see this banner at the top of the page:
 
-> **Spotify is being slow on the shared app.**
+> **Spotify is being slow on the shared sign-in.**
 
 Or you may find lines like these in the log:
 
@@ -109,44 +109,43 @@ Spotify cooldown source=personal duration_ms=8000
 
 ### What it means
 
-Spotify limits how many requests an app can make, and tells an app that
+Spotify limits how many requests each Client ID can make, and tells one that
 asks too often to wait. Spotifast waits as told, then tries again. In the
-log, `source=personal` means your own Spotify app is waiting;
-`source=shared` means the shared app that versions before 0.14.2 signed
-everyone in with is.
+log, `source=personal` means your own Client ID is waiting; `source=shared`
+means the shared sign-in that versions before 0.14.2 used for everyone is.
 
 While it waits, searches and your library take longer to load, playback
 controls can feel slow, and signing in can take a while. The top bar shows a
 spinner; point at it to see what Spotifast is waiting for. Your playlists and
 Home keep what they showed last time until the update arrives.
 
-### On the shared app
+### On the shared sign-in
 
-The banner appears only if you are still signed in through the shared app,
-which everyone signed in that way shares, so it is often busy. The fix is a
-free Spotify app of your own, which you will need anyway once Spotify stops
-accepting the shared one. It takes a few minutes, needs no code, and Spotify
-requires Premium for it. **Set up personal app** in the banner opens the
-setup in Settings, and [Getting Started](/getting-started/#make-a-spotify-app)
+The banner appears only if you are still on the shared sign-in, which
+everyone signed in that way shares, so it is often busy. The fix is to register
+Spotifast, which you will need anyway once Spotify stops accepting the shared
+sign-in. It takes about two minutes, needs no code, and Spotify requires
+Premium on the account that registers. **Register Spotifast** in the banner
+opens the setup in Settings, and [Getting Started](/getting-started/#make-a-spotify-app)
 has the steps. Your searches, library and playback controls then use your
 own allowance.
 
-### On your own app
+### With your own Client ID
 
-Your own app's allowance is yours alone, so it is rarely the cause. Setting
+Your Client ID's allowance is yours alone, so it is rarely the cause. Setting
 up playback on this computer helps when it is: Spotifast then reads your
 playlists, popular songs and related artists through its music connection,
 which uses none of it. [How it connects](/how-it-connects/) has the details.
 
 ### "Development Mode quota is exhausted"
 
-A personal app has limits of its own. If you see
+Your Client ID has limits of its own. If you see
 
 ```
 Spotify's Development Mode quota is exhausted; try again after the quota resets
 ```
 
-your personal app has used up the allowance Spotify gives it. Requests on it
-fail until Spotify resets it, so try again later. If you made several personal
-apps, they share one allowance for your account, so another app doesn't
+your Client ID has used up the allowance Spotify gives it. Requests with it
+fail until Spotify resets it, so try again later. If you registered several,
+they share one allowance for your account, so another registration doesn't
 help.

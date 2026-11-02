@@ -11,17 +11,19 @@ installation steps. Then open **Spotifast**.
 
 ## Sign in
 
-Spotifast signs in through a Spotify app of your own. Spotify no longer lets
-one app serve everyone, so each listener registers a free one. It takes a few
-minutes and needs no code, and Spotify requires the account that creates it
-to have Premium. The sign-in screen shows these same steps.
+Spotify asks you to register Spotifast once. It no longer lets one
+registration serve everyone, so each listener makes their own and gets a
+**Client ID** to paste into Spotifast. It takes about two minutes and needs no
+code. Spotify requires Premium on the account that registers, so a Free
+account can't do this step itself. The sign-in screen shows these same steps.
 
-### Make a Spotify app {#make-a-spotify-app}
+### Register Spotifast with Spotify {#make-a-spotify-app}
 
 1. Open the [Spotify developer dashboard](https://developer.spotify.com/dashboard)
    and sign in with your Spotify account.
-2. Click **Create app**. Any name and description will do; nobody else
-   sees them.
+2. Click **Create app**. "App" is Spotify's word for this registration: you
+   aren't building anything, and nobody else sees it. Any name and description
+   will do.
 3. Under **Redirect URIs**, add exactly this address. The sign-in screen
    has a **Copy** button for it.
 
@@ -30,31 +32,30 @@ to have Premium. The sign-in screen shows these same steps.
    ```
 
 4. Tick **Web API**, accept the terms, and save.
-5. The app's page shows its **Client ID**. Copy it.
+5. Spotify's page for your registration shows the **Client ID**. Copy it.
 
 ### Sign in with it
 
 Paste the Client ID into the sign-in screen and press **Sign in with
-Spotify**. Your browser opens Spotify's sign-in page for your app. Approve
-access there, then return to Spotifast to see your library. Spotifast never
+Spotify**. Your browser opens Spotify's sign-in page. Approve access there, then return to Spotifast to see your library. Spotifast never
 sees your Spotify password.
 
 - If Spotify's page says **Invalid redirect URI**, the address from step 3
   is missing or differs by a character. Add it exactly, save, and sign in
   again.
 - If the sign-in screen says Spotify doesn't know the Client ID, copy it
-  again from your app's page. Spotifast asks Spotify before opening the
-  browser.
-- If it says Spotify didn't let the account use the app, sign in with the
-  Spotify account that created it, and check that it has Premium.
+  again from Spotify's developer dashboard. Spotifast asks Spotify before
+  opening the browser.
+- If it says Spotify didn't let the account use the Client ID, sign in with
+  the Spotify account that registered it, and check that it has Premium.
 
 Spotifast remembers your sign-in using your computer's protected storage,
 so you normally do not need to sign in each time you open the app. It keeps
 the Client ID after you sign out, so signing in again is one click.
 
 If you signed in before version 0.14.2, you stay signed in as before until
-Spotify stops accepting it; then the sign-in screen asks you to make your own
-app. [Make It Even Faster](/make-it-even-faster/#shared-app) explains why.
+Spotify stops accepting it; then the sign-in screen asks you to register
+Spotifast. [Make It Even Faster](/make-it-even-faster/#shared-app) explains why.
 
 ## Enable playback on this computer
 

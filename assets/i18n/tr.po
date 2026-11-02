@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-01 19:07+0100\n"
+"POT-Creation-Date: 2026-11-02 13:00+0100\n"
 "PO-Revision-Date: 2026-10-02 20:30+0300\n"
 "Last-Translator: Barış Berke Çetin <brsberkectn@gmail.com>\n"
 "Language-Team: Turkish\n"
@@ -663,49 +663,49 @@ msgstr "Süreye göre sırala"
 msgid "Network connection error. Check your connection."
 msgstr "Ağ bağlantısı hatası. Bağlantınızı kontrol edin."
 
-#: src/ui/widgets.rs:3277
+#: src/ui/widgets.rs:3297
 msgid "Cut"
 msgstr "Kes"
 
-#: src/ui/widgets.rs:3282 src/ui/login.rs:560
+#: src/ui/widgets.rs:3302 src/ui/login.rs:560
 msgid "Copy"
 msgstr "Kopyala"
 
-#: src/ui/widgets.rs:3287
+#: src/ui/widgets.rs:3307
 msgid "Paste"
 msgstr "Yapıştır"
 
-#: src/ui/widgets.rs:3304
+#: src/ui/widgets.rs:3324
 msgid "Select all"
 msgstr "Tümünü seç"
 
-#: src/ui/widgets.rs:3411
+#: src/ui/widgets.rs:3431
 msgid "Clear"
 msgstr "Temizle"
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
-#: src/ui/widgets.rs:3456
+#: src/ui/widgets.rs:3476
 #, rust-format
 msgid "Built with love by {name}"
 msgstr "{name} tarafından sevgiyle geliştirildi"
 
-#: src/ui/widgets.rs:3601
+#: src/ui/widgets.rs:3621
 msgid "Host"
 msgstr "Sunucu"
 
-#: src/ui/widgets.rs:3618
+#: src/ui/widgets.rs:3638
 msgid "Port"
 msgstr "Port"
 
-#: src/ui/widgets.rs:3636
+#: src/ui/widgets.rs:3656
 msgid "Username"
 msgstr "Kullanıcı adı"
 
-#: src/ui/widgets.rs:3647
+#: src/ui/widgets.rs:3667
 msgid "Password"
 msgstr "Parola"
 
-#: src/ui/widgets.rs:3665
+#: src/ui/widgets.rs:3685
 msgid ""
 "Proxy login applies to Web requests. Local playback uses this proxy only "
 "without a login."
@@ -713,7 +713,7 @@ msgstr ""
 "Proxy girişi web istekleri için geçerlidir. Yerel çalma bu proxy'yi yalnızca "
 "kimlik doğrulamasız kullanır."
 
-#: src/ui/widgets.rs:3669
+#: src/ui/widgets.rs:3689
 msgid ""
 "Spotify hostnames are resolved by the proxy. Local playback connects "
 "directly."
@@ -1248,12 +1248,9 @@ msgstr ""
 #: src/app.rs:14580
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
-"again to grant image upload permission. If using a personal app, reconnect "
-"it in Settings too."
-msgstr ""
-"Spotify bu kapağı reddetti. Çalma listesinin size ait olduğunu kontrol edin "
-"ve görsel yükleme izni vermek için yeniden giriş yapın. Kişisel bir uygulama "
-"kullanıyorsanız Ayarlar'dan da yeniden bağlayın."
+"again to grant image upload permission. If you use your own Client ID, "
+"authorize it again in Settings too."
+msgstr "Spotify bu kapağı reddetti. Çalma listesinin size ait olduğunu kontrol edin ve görsel yükleme izni vermek için yeniden giriş yapın. Kendi Client ID'nizi kullanıyorsanız Ayarlar'dan da yeniden yetkilendirin."
 
 #: src/app.rs:14584
 msgid "Spotify rejected the image size. Choose a smaller image."
@@ -1277,7 +1274,7 @@ msgid "Preset name"
 msgstr "Hazır ayar adı"
 
 #. Translators: a search keyword for saving equalizer presets.
-#: src/ui/settings.rs:98 src/ui/settings.rs:2253
+#: src/ui/settings.rs:98 src/ui/settings.rs:2255
 msgid "Save preset"
 msgstr "Hazır ayarı kaydet"
 
@@ -1357,48 +1354,44 @@ msgid "Sign out"
 msgstr "Oturumu kapat"
 
 #: src/ui/settings.rs:507
-msgid "Personal Spotify app"
-msgstr "Kişisel Spotify uygulaması"
+msgid "Spotify registration"
+msgstr "Spotify kaydı"
 
 #: src/ui/settings.rs:511
 msgid ""
-"You're still signed in through the shared app Spotifast used before, which "
-"Spotify can stop accepting at any time. Set up your own app to keep "
-"listening."
-msgstr ""
-"Hâlâ Spotifast'ın önceden kullandığı paylaşılan uygulama üzerinden giriş "
-"yapmış durumdasınız. Spotify bu uygulamayı her an kabul etmeyi bırakabilir. "
-"Dinlemeye devam etmek için kendi uygulamanızı kurun."
+"You're still on the shared sign-in Spotifast used before, which Spotify can "
+"stop accepting at any time. Register Spotifast to keep listening."
+msgstr "Spotifast'ın önceden kullandığı paylaşılan girişi hâlâ kullanıyorsunuz ve Spotify onu her an kabul etmeyi bırakabilir. Dinlemeye devam etmek için Spotifast'ı kaydedin."
 
 #: src/ui/settings.rs:516
-msgid "Spotifast signs in through your own free Spotify app."
-msgstr "Spotifast, kendi ücretsiz Spotify uygulamanız üzerinden giriş yapar."
+msgid "Spotifast connects with the Client ID you registered with Spotify."
+msgstr "Spotifast, Spotify'a kaydettiğiniz Client ID ile bağlanır."
 
-#: src/ui/settings.rs:521
-msgid "Create an app"
-msgstr "Bir uygulama oluştur"
+#: src/ui/settings.rs:521 src/ui/dialogs.rs:50 src/ui/login.rs:461
+#: src/ui/mod.rs:412
+msgid "Register Spotifast"
+msgstr "Spotifast'ı kaydet"
 
 #: src/ui/settings.rs:524
-msgid "Create one for free in Spotify's developer dashboard."
-msgstr "Spotify geliştirici panelinde ücretsiz bir uygulama oluşturun."
+msgid "It takes about two minutes in Spotify's developer dashboard."
+msgstr "Spotify geliştirici panelinde yaklaşık iki dakika sürer."
 
 #: src/ui/settings.rs:529
-msgid "Personal app ready"
-msgstr "Kişisel uygulama hazır"
+msgid "Spotifast registered"
+msgstr "Spotifast kaydedildi"
 
 #: src/ui/settings.rs:533
-msgid "Supported requests use your app. Other requests use the shared app."
-msgstr ""
-"Desteklenen istekler uygulamanızı kullanır. Diğer istekler paylaşılan "
-"uygulamayı kullanır."
+msgid ""
+"Supported requests use your Client ID. Other requests use the shared sign-in."
+msgstr "Desteklenen istekler Client ID'nizi kullanır. Diğer istekler paylaşılan girişi kullanır."
 
 #: src/ui/settings.rs:536
-msgid "Spotifast uses your app for Spotify's Web API."
-msgstr "Spotifast, Spotify Web API'si için uygulamanızı kullanır."
+msgid "Spotifast uses your Client ID for Spotify's Web API."
+msgstr "Spotifast, Spotify'ın Web API'si için Client ID'nizi kullanır."
 
 #: src/ui/settings.rs:541
-msgid "Authorize your personal app"
-msgstr "Kişisel uygulamanızı yetkilendirin"
+msgid "Authorize your Client ID"
+msgstr "Client ID'nizi yetkilendirin"
 
 #: src/ui/settings.rs:544
 msgid "Spotify opens in your browser to verify the account."
@@ -1424,7 +1417,7 @@ msgstr "{username} olarak bağlandı"
 
 #: src/ui/settings.rs:629 src/ui/login.rs:391
 msgid "Client ID"
-msgstr "İstemci Kimliği (Client ID)"
+msgstr "Client ID"
 
 #: src/ui/settings.rs:657
 msgid "Setup guide"
@@ -1748,7 +1741,7 @@ msgid "Follow system uses your desktop's light or dark appearance."
 msgstr ""
 "Sistemi takip et seçeneği masaüstünüzün açık veya koyu görünümünü kullanır."
 
-#: src/ui/settings.rs:1266 src/ui/settings.rs:2727
+#: src/ui/settings.rs:1266 src/ui/settings.rs:2729
 msgid "Language"
 msgstr "Dil"
 
@@ -1811,7 +1804,7 @@ msgstr ""
 "Oynatma çubuğundaki boş alana tıklayarak görselleştiriciyi değiştirmeye izin "
 "ver."
 
-#: src/ui/settings.rs:1329 src/ui/settings.rs:2090
+#: src/ui/settings.rs:1329 src/ui/settings.rs:2092
 msgid "Frame rate"
 msgstr "Kare hızı"
 
@@ -1873,7 +1866,7 @@ msgstr "Proxy kullanılmıyor."
 msgid "Using the system proxy."
 msgstr "Sistem proxy'si kullanılıyor."
 
-#: src/ui/settings.rs:1772
+#: src/ui/settings.rs:1772 src/ui/keys.rs:364
 msgid "Mini player"
 msgstr "Mini çalar"
 
@@ -1970,17 +1963,17 @@ msgstr "Skin Museum"
 msgid "Installed skins are in {folder}. None of this kind yet."
 msgstr "Yüklü temalar {folder} içinde. Bu türden henüz yok."
 
-#: src/ui/settings.rs:1974
+#: src/ui/settings.rs:1976
 msgid ""
 "This skin has no equalizer or playlist window, and its scripts do not run."
 msgstr ""
 "Bu temada ekolayzır veya çalma listesi penceresi yok ve betikleri çalışmaz."
 
-#: src/ui/settings.rs:2039
+#: src/ui/settings.rs:2041
 msgid "MilkDrop window"
 msgstr "MilkDrop penceresi"
 
-#: src/ui/settings.rs:2047
+#: src/ui/settings.rs:2049
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1990,7 +1983,7 @@ msgstr ""
 "Ctrl+Shift+K ile veya mini çaların V menüsünden açın. Kısayolları için ? "
 "veya F1 tuşuna basın."
 
-#: src/ui/settings.rs:2051
+#: src/ui/settings.rs:2053
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -2000,12 +1993,12 @@ msgstr ""
 "Cmd+Shift+K ile veya mini çaların V menüsünden açın. Kısayolları için ? veya "
 "F1 tuşuna basın."
 
-#: src/ui/settings.rs:2057 src/ui/settings.rs:2236
+#: src/ui/settings.rs:2059 src/ui/settings.rs:2238
 msgid "Presets"
 msgstr "Hazır ayarlar"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2062
+#: src/ui/settings.rs:2064
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -2016,7 +2009,7 @@ msgstr ""
 "indirir."
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2068
+#: src/ui/settings.rs:2070
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -2027,7 +2020,7 @@ msgstr ""
 "indirir."
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2074
+#: src/ui/settings.rs:2076
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -2044,23 +2037,23 @@ msgstr[1] ""
 "Spotifast, MilkDrop boş bir klasörle ilk açıldığında hazır ayarları otomatik "
 "indirir."
 
-#: src/ui/settings.rs:2083
+#: src/ui/settings.rs:2085
 msgid "Time per preset"
 msgstr "Hazır ayar başına süre"
 
-#: src/ui/settings.rs:2086
+#: src/ui/settings.rs:2088
 msgid "How long each preset plays before the next fades in."
 msgstr ""
 "Bir sonrakine geçmeden önce her hazır ayarın ne kadar süre oynatılacağı."
 
-#: src/ui/settings.rs:2094
+#: src/ui/settings.rs:2096
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr ""
 "Daha düşük kare hızları daha az kaynak kullanır. Sınırsız, mümkün olan en "
 "hızlı şekilde çizer."
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:2099
+#: src/ui/settings.rs:2101
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -2069,50 +2062,50 @@ msgstr ""
 "Ekranınız {hz} Hz yenileme hızına sahip. Daha yüksek hızlar görünür kare "
 "eklemez. Sınırsız, mümkün olan en hızlı şekilde çizer."
 
-#: src/ui/settings.rs:2106
+#: src/ui/settings.rs:2108
 msgid "Resolution"
 msgstr "Çözünürlük"
 
-#: src/ui/settings.rs:2109
+#: src/ui/settings.rs:2111
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr ""
 "Yarım ve Çeyrek daha az kaynak kullanır ve görüntüyü yeniden ölçeklendirir."
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:2116
+#: src/ui/settings.rs:2118
 msgid "Get presets"
 msgstr "Hazır ayarları indir"
 
-#: src/ui/settings.rs:2154
+#: src/ui/settings.rs:2156
 msgid "Fetching..."
 msgstr "Alınıyor..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:2157
+#: src/ui/settings.rs:2159
 #, rust-format
 msgid "Get {pack}"
 msgstr "{pack} paketini indir"
 
-#: src/ui/settings.rs:2208
+#: src/ui/settings.rs:2210
 msgctxt "resolution"
 msgid "Full"
 msgstr "Tam"
 
-#: src/ui/settings.rs:2209
+#: src/ui/settings.rs:2211
 msgctxt "resolution"
 msgid "Half"
 msgstr "Yarım"
 
-#: src/ui/settings.rs:2210
+#: src/ui/settings.rs:2212
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "Çeyrek"
 
-#: src/ui/settings.rs:2224
+#: src/ui/settings.rs:2226
 msgid "Equalizer"
 msgstr "Ekolayzer"
 
-#: src/ui/settings.rs:2230
+#: src/ui/settings.rs:2232
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
@@ -2120,140 +2113,140 @@ msgstr ""
 "Bu bilgisayarda çalma için on bantlı ekolayzer. Diğer cihazları etkilemez."
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2238
+#: src/ui/settings.rs:2240
 msgid "Preamp"
 msgstr "Ön amfi"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:2240
+#: src/ui/settings.rs:2242
 msgid "Bands"
 msgstr "Bantlar"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2322
+#: src/ui/settings.rs:2324
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "Ön"
 
-#: src/ui/settings.rs:2339
+#: src/ui/settings.rs:2341
 msgid "Storage"
 msgstr "Depolama"
 
-#: src/ui/settings.rs:2342
+#: src/ui/settings.rs:2344
 msgid "Artwork cache"
 msgstr "Albüm kapağı önbelleği"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:2344 src/ui/settings.rs:2350
+#: src/ui/settings.rs:2346 src/ui/settings.rs:2352
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "{folder} konumunda saklanır"
 
-#: src/ui/settings.rs:2357
+#: src/ui/settings.rs:2359
 msgid "Play history"
 msgstr "Çalma geçmişi"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:2361
+#: src/ui/settings.rs:2363
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr ""
 "Burada çalınan parçalar {file} dosyasında saklanır. Bu dosya asla karşıya "
 "yüklenmez."
 
-#: src/ui/settings.rs:2366
+#: src/ui/settings.rs:2368
 msgid "Sign-in"
 msgstr "Oturum Açma"
 
-#: src/ui/settings.rs:2369
+#: src/ui/settings.rs:2371
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr ""
 "Oturum bilgileri kullanılabilir olduğunda sistem kimlik bilgisi deposuna "
 "kaydedilir."
 
-#: src/ui/settings.rs:2378 src/ui/settings.rs:2437
+#: src/ui/settings.rs:2380 src/ui/settings.rs:2439
 msgid "Checking…"
 msgstr "Denetleniyor…"
 
-#: src/ui/settings.rs:2380 src/ui/collection.rs:989 src/ui/collection.rs:1016
+#: src/ui/settings.rs:2382 src/ui/collection.rs:989 src/ui/collection.rs:1016
 msgid "Unavailable"
 msgstr "Kullanılamıyor"
 
-#: src/ui/settings.rs:2390
+#: src/ui/settings.rs:2392
 msgid "Clear artwork"
 msgstr "Kapakları temizle"
 
-#: src/ui/settings.rs:2400
+#: src/ui/settings.rs:2402
 msgid "Clearing…"
 msgstr "Temizleniyor…"
 
-#: src/ui/settings.rs:2402
+#: src/ui/settings.rs:2404
 msgid "Clear audio"
 msgstr "Sesi temizle"
 
-#: src/ui/settings.rs:2419
+#: src/ui/settings.rs:2421
 msgid "Clear history"
 msgstr "Geçmişi temizle"
 
-#: src/ui/settings.rs:2431 src/ui/show.rs:42
+#: src/ui/settings.rs:2433 src/ui/show.rs:42
 msgid "About"
 msgstr "Hakkında"
 
-#: src/ui/settings.rs:2434
+#: src/ui/settings.rs:2436
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr ""
 "Rust, egui ve librespot ile geliştirildi. Spotify ile bağlantılı değildir."
 
-#: src/ui/settings.rs:2436
+#: src/ui/settings.rs:2438
 msgid "Check for updates"
 msgstr "Güncellemeleri denetle"
 
-#: src/ui/settings.rs:2438 src/ui/dialogs.rs:153 src/ui/keys.rs:396
+#: src/ui/settings.rs:2440 src/ui/dialogs.rs:153 src/ui/keys.rs:396
 #: src/ui/topbar.rs:504
 msgid "Keyboard shortcuts"
 msgstr "Klavye kısayolları"
 
-#: src/ui/settings.rs:2439 src/ui/update.rs:65
+#: src/ui/settings.rs:2441 src/ui/update.rs:65
 msgid "Release notes"
 msgstr "Sürüm notları"
 
-#: src/ui/settings.rs:2440
+#: src/ui/settings.rs:2442
 msgid "Source code"
 msgstr "Kaynak kodu"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:2524
+#: src/ui/settings.rs:2526
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "“{query}” için ayar bulunamadı"
 
-#: src/ui/settings.rs:2525
+#: src/ui/settings.rs:2527
 msgid "Try fewer words, or check the spelling."
 msgstr "Daha az kelime deneyin veya yazımı kontrol edin."
 
-#: src/ui/settings.rs:2546
+#: src/ui/settings.rs:2548
 msgctxt "start with your computer"
 msgid "Off"
 msgstr "Kapalı"
 
-#: src/ui/settings.rs:2547
+#: src/ui/settings.rs:2549
 msgid "With the window"
 msgstr "Pencereyle"
 
-#: src/ui/settings.rs:2551
+#: src/ui/settings.rs:2553
 msgid "In the menu bar"
 msgstr "Menü çubuğunda"
 
-#: src/ui/settings.rs:2553
+#: src/ui/settings.rs:2555
 msgid "In the tray"
 msgstr "Sistem tepsisinde"
 
-#: src/ui/settings.rs:2572
+#: src/ui/settings.rs:2574
 msgid "Allow Spotifast in System Settings, General, Login Items."
 msgstr ""
 "Sistem Ayarları, Genel, Giriş Öğeleri bölümünden Spotifast’e izin verin."
 
-#: src/ui/settings.rs:2578
+#: src/ui/settings.rs:2580
 msgid ""
 "Starting in the menu bar needs Keep music playing when the window closes. "
 "Until then, the window opens."
@@ -2261,7 +2254,7 @@ msgstr ""
 "Menü çubuğunda başlamak için “Pencere kapandığında müzik çalmaya devam "
 "etsin” açık olmalı. O zamana kadar pencere açılır."
 
-#: src/ui/settings.rs:2583
+#: src/ui/settings.rs:2585
 msgid ""
 "Starting in the tray needs Keep music playing when the window closes. Until "
 "then, the window opens."
@@ -2269,16 +2262,16 @@ msgstr ""
 "Sistem tepsisinde başlamak için “Pencere kapandığında müzik çalmaya devam "
 "etsin” açık olmalı. O zamana kadar pencere açılır."
 
-#: src/ui/settings.rs:2589
+#: src/ui/settings.rs:2591
 msgid "Open Spotifast when you log in, with its window or in the menu bar."
 msgstr "Oturum açtığınızda Spotifast’i penceresiyle veya menü çubuğunda açar."
 
-#: src/ui/settings.rs:2594
+#: src/ui/settings.rs:2596
 msgid "Open Spotifast when you log in, with its window or in the tray."
 msgstr ""
 "Oturum açtığınızda Spotifast’i penceresiyle veya sistem tepsisinde açar."
 
-#: src/ui/settings.rs:2700
+#: src/ui/settings.rs:2702
 msgctxt "language"
 msgid "System"
 msgstr "Sistem"
@@ -2748,23 +2741,15 @@ msgid "Play here"
 msgstr "Burada çal"
 
 #: src/ui/dialogs.rs:44
-msgid "Move to your own Spotify app"
-msgstr "Kendi Spotify uygulamanıza geçin"
+msgid "Register Spotifast with Spotify"
+msgstr "Spotifast'ı Spotify'a kaydet"
 
 #: src/ui/dialogs.rs:46
 msgid ""
-"You're signed in through the shared app Spotifast used before. Spotifast no "
-"longer offers it, and Spotify can stop accepting it at any time. Set up your "
-"own free Spotify app so nothing stops your music. It takes a few minutes."
-msgstr ""
-"Spotifast'ın önceden kullandığı paylaşılan uygulama üzerinden giriş "
-"yaptınız. Spotifast artık bu uygulamayı sunmuyor ve Spotify onu her an kabul "
-"etmeyi bırakabilir. Müziğinizin kesilmemesi için kendi ücretsiz Spotify "
-"uygulamanızı kurun. Yalnızca birkaç dakika sürer."
-
-#: src/ui/dialogs.rs:50 src/ui/mod.rs:412
-msgid "Set up personal app"
-msgstr "Kişisel uygulamayı ayarla"
+"You're on the shared sign-in Spotifast used before. Spotifast no longer "
+"offers it, and Spotify can stop accepting it at any time. Register Spotifast "
+"so nothing stops your music. It takes about two minutes."
+msgstr "Spotifast'ın önceden kullandığı paylaşılan girişi kullanıyorsunuz. Spotifast artık bunu sunmuyor ve Spotify onu her an kabul etmeyi bırakabilir. Müziğinizin kesilmemesi için Spotifast'ı kaydedin. Yaklaşık iki dakika sürer."
 
 #: src/ui/dialogs.rs:53
 msgid "Not now"
@@ -3189,34 +3174,26 @@ msgstr "Spotifast {version} • Spotify ile bağlantılı değildir"
 #: src/ui/login.rs:170
 msgid ""
 "That doesn't look like a Client ID. It is 32 letters and digits, shown on "
-"your app's page in the dashboard."
-msgstr ""
-"Bu bir İstemci Kimliği'ne benzemiyor. İstemci Kimliği 32 harf ve rakamdan "
-"oluşur ve paneldeki uygulama sayfanızda gösterilir."
+"Spotify's page for your registration."
+msgstr "Bu bir Client ID'ye benzemiyor. Client ID 32 harf ve rakamdan oluşur ve Spotify'daki kayıt sayfanızda gösterilir."
 
 #: src/ui/login.rs:174
 msgid ""
-"Spotify doesn't know this Client ID. Copy it again from your app's page in "
-"the dashboard."
-msgstr ""
-"Spotify bu İstemci Kimliği'ni tanımıyor. Paneldeki uygulama sayfanızdan "
-"yeniden kopyalayın."
+"Spotify doesn't know this Client ID. Copy it again from Spotify's developer "
+"dashboard."
+msgstr "Spotify bu Client ID'yi tanımıyor. Spotify geliştirici panelinden yeniden kopyalayın."
 
 #: src/ui/login.rs:178
 msgid ""
-"Spotify didn't let this account use the app. Sign in with the Spotify "
-"account that created it, which needs Premium."
-msgstr ""
-"Spotify bu hesabın uygulamayı kullanmasına izin vermedi. Uygulamayı "
-"oluşturan Spotify hesabıyla giriş yapın. Bu hesabın Premium olması gerekir."
+"Spotify didn't let this account use this Client ID. Sign in with the Spotify "
+"account that registered it, which needs Premium."
+msgstr "Spotify bu hesabın bu Client ID'yi kullanmasına izin vermedi. Onu kaydeden Spotify hesabıyla giriş yapın. Bu hesabın Premium olması gerekir."
 
 #: src/ui/login.rs:182
 msgid ""
-"Spotify no longer accepts the shared sign-in Spotifast used before. Set up "
-"your own Spotify app to keep listening."
-msgstr ""
-"Spotify, Spotifast'ın önceden kullandığı paylaşılan girişi artık kabul "
-"etmiyor. Dinlemeye devam etmek için kendi Spotify uygulamanızı kurun."
+"Spotify no longer accepts the shared sign-in Spotifast used before. Register "
+"Spotifast to keep listening."
+msgstr "Spotify, Spotifast'ın önceden kullandığı paylaşılan girişi artık kabul etmiyor. Dinlemeye devam etmek için Spotifast'ı kaydedin."
 
 #: src/ui/login.rs:219
 msgid "A native Spotify client."
@@ -3233,11 +3210,9 @@ msgstr "Açılmadı mı? Giriş sayfasını tekrar açın"
 #: src/ui/login.rs:257
 #, rust-format
 msgid ""
-"If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, save, "
-"and sign in again."
-msgstr ""
-"Spotify “Invalid redirect URI” derse {uri} adresini uygulamanıza tam olarak "
-"ekleyin, kaydedin ve yeniden giriş yapın."
+"If Spotify says “Invalid redirect URI”, add {uri} to your registration "
+"exactly, save, and sign in again."
+msgstr "Spotify “Invalid redirect URI” derse {uri} adresini kaydınıza tam olarak ekleyin, kaydedin ve yeniden giriş yapın."
 
 #: src/ui/login.rs:310
 msgid "Sign in with Spotify"
@@ -3252,37 +3227,33 @@ msgstr ""
 "çalma için Spotify Premium gerekir."
 
 #: src/ui/login.rs:330
-msgid "How to set up your Spotify app"
-msgstr "Spotify uygulamanızı nasıl kurarsınız"
+msgid "How to register Spotifast"
+msgstr "Spotifast nasıl kaydedilir"
 
 #: src/ui/login.rs:354
 msgid "Proxy Settings"
 msgstr "Proxy Ayarları"
 
 #: src/ui/login.rs:409
-msgid "A Client ID is 32 letters and digits. Copy it from your app's page."
-msgstr ""
-"İstemci Kimliği 32 harf ve rakamdan oluşur. Uygulama sayfanızdan kopyalayın."
-
-#: src/ui/login.rs:461
-msgid "Set up your Spotify app"
-msgstr "Spotify uygulamanızı kurun"
+msgid ""
+"A Client ID is 32 letters and digits. Copy it from Spotify's developer "
+"dashboard."
+msgstr "Client ID 32 harf ve rakamdan oluşur. Spotify geliştirici panelinden kopyalayın."
 
 #: src/ui/login.rs:469
 msgid ""
-"Spotifast signs in through your own free Spotify app. Spotify requires its "
-"owner to have Premium."
-msgstr ""
-"Spotifast, kendi ücretsiz Spotify uygulamanız üzerinden giriş yapar. "
-"Spotify, uygulama sahibinin Premium olmasını şart koşar."
+"Spotify asks you to register Spotifast once, on an account with Premium. It "
+"takes about two minutes and gives you a Client ID."
+msgstr "Spotify, Spotifast'ı Premium'lu bir hesapta bir kez kaydetmenizi ister. Yaklaşık iki dakika sürer ve size bir Client ID verir."
 
 #: src/ui/login.rs:479
 msgid "Open Spotify's developer dashboard."
 msgstr "Spotify geliştirici panelini açın."
 
 #: src/ui/login.rs:498
-msgid "Click Create app. Any name will do."
-msgstr "“Create app” düğmesine tıklayın. Herhangi bir ad olur."
+msgid ""
+"Click Create app, Spotify's name for this registration. Any name will do."
+msgstr "Create app'e tıklayın, Spotify bu kayda böyle diyor. Herhangi bir ad olur."
 
 #: src/ui/login.rs:505
 msgid "Under Redirect URIs, add exactly:"
@@ -3293,21 +3264,18 @@ msgid "Tick Web API, accept the terms, and save."
 msgstr "“Web API” kutusunu işaretleyin, koşulları kabul edin ve kaydedin."
 
 #: src/ui/login.rs:523
-msgid "Paste the app's Client ID into the field and sign in."
-msgstr "Uygulamanın İstemci Kimliği'ni alana yapıştırın ve giriş yapın."
+msgid "Paste the Client ID into the field and sign in."
+msgstr "Client ID'yi alana yapıştırın ve giriş yapın."
 
 #: src/ui/mod.rs:405
-msgid "Spotify is being slow on the shared app."
-msgstr "Spotify paylaşılan uygulamada yavaş çalışıyor."
+msgid "Spotify is being slow on the shared sign-in."
+msgstr "Spotify paylaşılan girişte yavaş."
 
 #: src/ui/mod.rs:408
 msgid ""
-"Spotifast no longer offers the shared app, and Spotify can stop accepting it "
-"at any time. Set up your own free Spotify app and you won't have to wait."
-msgstr ""
-"Spotifast artık paylaşılan uygulamayı sunmuyor ve Spotify onu her an kabul "
-"etmeyi bırakabilir. Kendi ücretsiz Spotify uygulamanızı kurarsanız "
-"beklemeniz gerekmez."
+"Spotifast no longer offers the shared sign-in, and Spotify can stop "
+"accepting it at any time. Register Spotifast and you won't have to wait."
+msgstr "Spotifast artık paylaşılan girişi sunmuyor ve Spotify onu her an kabul etmeyi bırakabilir. Spotifast'ı kaydederseniz beklemeniz gerekmez."
 
 #. Translators: a button that opens a page explaining why
 #. the banner it sits in appeared.
@@ -3981,6 +3949,133 @@ msgstr ""
 "ihtiyaç duyar ve bu bilgisayar ya da sanal makine bunu sağlamıyor. Grafik "
 "sürücüsünü yükleyin veya sanal makine için GPU hızlandırmayı açın. Daha "
 "fazlasını okumak için {url} açılsın mı?"
+
+#~ msgid ""
+#~ "Spotify refused this cover. Check that you own the playlist, then sign in "
+#~ "again to grant image upload permission. If using a personal app, "
+#~ "reconnect it in Settings too."
+#~ msgstr ""
+#~ "Spotify bu kapağı reddetti. Çalma listesinin size ait olduğunu kontrol "
+#~ "edin ve görsel yükleme izni vermek için yeniden giriş yapın. Kişisel bir "
+#~ "uygulama kullanıyorsanız Ayarlar'dan da yeniden bağlayın."
+
+#~ msgid "Personal Spotify app"
+#~ msgstr "Kişisel Spotify uygulaması"
+
+#~ msgid ""
+#~ "You're still signed in through the shared app Spotifast used before, "
+#~ "which Spotify can stop accepting at any time. Set up your own app to keep "
+#~ "listening."
+#~ msgstr ""
+#~ "Hâlâ Spotifast'ın önceden kullandığı paylaşılan uygulama üzerinden giriş "
+#~ "yapmış durumdasınız. Spotify bu uygulamayı her an kabul etmeyi "
+#~ "bırakabilir. Dinlemeye devam etmek için kendi uygulamanızı kurun."
+
+#~ msgid "Spotifast signs in through your own free Spotify app."
+#~ msgstr ""
+#~ "Spotifast, kendi ücretsiz Spotify uygulamanız üzerinden giriş yapar."
+
+#~ msgid "Create an app"
+#~ msgstr "Bir uygulama oluştur"
+
+#~ msgid "Create one for free in Spotify's developer dashboard."
+#~ msgstr "Spotify geliştirici panelinde ücretsiz bir uygulama oluşturun."
+
+#~ msgid "Personal app ready"
+#~ msgstr "Kişisel uygulama hazır"
+
+#~ msgid "Supported requests use your app. Other requests use the shared app."
+#~ msgstr ""
+#~ "Desteklenen istekler uygulamanızı kullanır. Diğer istekler paylaşılan "
+#~ "uygulamayı kullanır."
+
+#~ msgid "Spotifast uses your app for Spotify's Web API."
+#~ msgstr "Spotifast, Spotify Web API'si için uygulamanızı kullanır."
+
+#~ msgid "Authorize your personal app"
+#~ msgstr "Kişisel uygulamanızı yetkilendirin"
+
+#~ msgid "Move to your own Spotify app"
+#~ msgstr "Kendi Spotify uygulamanıza geçin"
+
+#~ msgid ""
+#~ "You're signed in through the shared app Spotifast used before. Spotifast "
+#~ "no longer offers it, and Spotify can stop accepting it at any time. Set "
+#~ "up your own free Spotify app so nothing stops your music. It takes a few "
+#~ "minutes."
+#~ msgstr ""
+#~ "Spotifast'ın önceden kullandığı paylaşılan uygulama üzerinden giriş "
+#~ "yaptınız. Spotifast artık bu uygulamayı sunmuyor ve Spotify onu her an "
+#~ "kabul etmeyi bırakabilir. Müziğinizin kesilmemesi için kendi ücretsiz "
+#~ "Spotify uygulamanızı kurun. Yalnızca birkaç dakika sürer."
+
+#~ msgid "Set up personal app"
+#~ msgstr "Kişisel uygulamayı ayarla"
+
+#~ msgid ""
+#~ "That doesn't look like a Client ID. It is 32 letters and digits, shown on "
+#~ "your app's page in the dashboard."
+#~ msgstr ""
+#~ "Bu bir İstemci Kimliği'ne benzemiyor. İstemci Kimliği 32 harf ve rakamdan "
+#~ "oluşur ve paneldeki uygulama sayfanızda gösterilir."
+
+#~ msgid ""
+#~ "Spotify doesn't know this Client ID. Copy it again from your app's page "
+#~ "in the dashboard."
+#~ msgstr ""
+#~ "Spotify bu İstemci Kimliği'ni tanımıyor. Paneldeki uygulama sayfanızdan "
+#~ "yeniden kopyalayın."
+
+#~ msgid ""
+#~ "Spotify didn't let this account use the app. Sign in with the Spotify "
+#~ "account that created it, which needs Premium."
+#~ msgstr ""
+#~ "Spotify bu hesabın uygulamayı kullanmasına izin vermedi. Uygulamayı "
+#~ "oluşturan Spotify hesabıyla giriş yapın. Bu hesabın Premium olması "
+#~ "gerekir."
+
+#~ msgid ""
+#~ "Spotify no longer accepts the shared sign-in Spotifast used before. Set "
+#~ "up your own Spotify app to keep listening."
+#~ msgstr ""
+#~ "Spotify, Spotifast'ın önceden kullandığı paylaşılan girişi artık kabul "
+#~ "etmiyor. Dinlemeye devam etmek için kendi Spotify uygulamanızı kurun."
+
+#~ msgid "How to set up your Spotify app"
+#~ msgstr "Spotify uygulamanızı nasıl kurarsınız"
+
+#~ msgid "A Client ID is 32 letters and digits. Copy it from your app's page."
+#~ msgstr ""
+#~ "İstemci Kimliği 32 harf ve rakamdan oluşur. Uygulama sayfanızdan "
+#~ "kopyalayın."
+
+#~ msgid "Set up your Spotify app"
+#~ msgstr "Spotify uygulamanızı kurun"
+
+#~ msgid ""
+#~ "Spotifast signs in through your own free Spotify app. Spotify requires "
+#~ "its owner to have Premium."
+#~ msgstr ""
+#~ "Spotifast, kendi ücretsiz Spotify uygulamanız üzerinden giriş yapar. "
+#~ "Spotify, uygulama sahibinin Premium olmasını şart koşar."
+
+#~ msgid "Click Create app. Any name will do."
+#~ msgstr "“Create app” düğmesine tıklayın. Herhangi bir ad olur."
+
+#~ msgid "Paste the app's Client ID into the field and sign in."
+#~ msgstr "Uygulamanın İstemci Kimliği'ni alana yapıştırın ve giriş yapın."
+
+#~ msgid "Spotify is being slow on the shared app."
+#~ msgstr "Spotify paylaşılan uygulamada yavaş çalışıyor."
+
+#~ msgid ""
+#~ "Spotifast no longer offers the shared app, and Spotify can stop accepting "
+#~ "it at any time. Set up your own free Spotify app and you won't have to "
+#~ "wait."
+#~ msgstr ""
+#~ "Spotifast artık paylaşılan uygulamayı sunmuyor ve Spotify onu her an "
+#~ "kabul etmeyi bırakabilir. Kendi ücretsiz Spotify uygulamanızı kurarsanız "
+#~ "beklemeniz gerekmez."
 
 #~ msgid "Winamp skins"
 #~ msgstr "Winamp temaları"

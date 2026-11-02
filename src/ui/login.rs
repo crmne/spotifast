@@ -167,19 +167,19 @@ fn problem_text(locale: crate::i18n::Locale, problem: SignInProblem) -> String {
     match problem {
         SignInProblem::MalformedClientId => gettext(
             locale,
-            "That doesn't look like a Client ID. It is 32 letters and digits, shown on your app's page in the dashboard.",
+            "That doesn't look like a Client ID. It is 32 letters and digits, shown on Spotify's page for your registration.",
         ),
         SignInProblem::UnknownClient => gettext(
             locale,
-            "Spotify doesn't know this Client ID. Copy it again from your app's page in the dashboard.",
+            "Spotify doesn't know this Client ID. Copy it again from Spotify's developer dashboard.",
         ),
         SignInProblem::AccountNotAllowed => gettext(
             locale,
-            "Spotify didn't let this account use the app. Sign in with the Spotify account that created it, which needs Premium.",
+            "Spotify didn't let this account use this Client ID. Sign in with the Spotify account that registered it, which needs Premium.",
         ),
         SignInProblem::SharedRetired => gettext(
             locale,
-            "Spotify no longer accepts the shared sign-in Spotifast used before. Set up your own Spotify app to keep listening.",
+            "Spotify no longer accepts the shared sign-in Spotifast used before. Register Spotifast to keep listening.",
         ),
         SignInProblem::Expired => {
             gettext(locale, "Your Spotify sign-in expired. Please sign in again.")
@@ -254,7 +254,7 @@ fn sign_in_column(app: &mut App, ui: &mut egui::Ui, connecting: bool, beside: Op
                 // Translators: {uri} is the address to add, http://127.0.0.1:8989/login.
                 gettext(
                     locale,
-                    "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, save, and sign in again.",
+                    "If Spotify says “Invalid redirect URI”, add {uri} to your registration exactly, save, and sign in again.",
                 )
                 .replace("{uri}", &crate::auth::personal_redirect_uri()),
                 theme::regular(12.5),
@@ -327,7 +327,7 @@ fn sign_in_column(app: &mut App, ui: &mut egui::Ui, connecting: bool, beside: Op
                 ui.add_space(4.0);
                 if theme::link(
                     ui,
-                    gettext(locale, "How to set up your Spotify app"),
+                    gettext(locale, "How to register Spotifast"),
                     theme::regular(13.0),
                     palette.secondary,
                 )
@@ -406,7 +406,7 @@ fn client_id_field(app: &mut App, ui: &mut egui::Ui) {
             ui,
             gettext(
                 locale,
-                "A Client ID is 32 letters and digits. Copy it from your app's page.",
+                "A Client ID is 32 letters and digits. Copy it from Spotify's developer dashboard.",
             ),
             theme::regular(12.0),
             palette.danger,
@@ -458,7 +458,7 @@ fn setup_steps(app: &mut App, ui: &mut egui::Ui, width: f32) {
     ui.add_space(4.0);
     theme::text(
         ui,
-        gettext(locale, "Set up your Spotify app"),
+        gettext(locale, "Register Spotifast"),
         theme::bold(18.0),
         palette.text,
     );
@@ -466,7 +466,7 @@ fn setup_steps(app: &mut App, ui: &mut egui::Ui, width: f32) {
         ui,
         gettext(
             locale,
-            "Spotifast signs in through your own free Spotify app. Spotify requires its owner to have Premium.",
+            "Spotify asks you to register Spotifast once, on an account with Premium. It takes about two minutes and gives you a Client ID.",
         ),
         theme::regular(13.0),
         palette.secondary,
@@ -495,7 +495,10 @@ fn setup_steps(app: &mut App, ui: &mut egui::Ui, width: f32) {
         ui,
         &palette,
         2,
-        &gettext(locale, "Click Create app. Any name will do."),
+        &gettext(
+            locale,
+            "Click Create app, Spotify's name for this registration. Any name will do.",
+        ),
         |_| {},
     );
     step(
@@ -518,10 +521,7 @@ fn setup_steps(app: &mut App, ui: &mut egui::Ui, width: f32) {
         ui,
         &palette,
         5,
-        &gettext(
-            locale,
-            "Paste the app's Client ID into the field and sign in.",
-        ),
+        &gettext(locale, "Paste the Client ID into the field and sign in."),
         |_| {},
     );
 }

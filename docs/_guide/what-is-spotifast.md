@@ -43,20 +43,20 @@ cannot play music through Spotifast on this computer or another device.
 
 <a id="account-safety"></a>
 
-## Will my Spotify account get banned?
+## Is it safe for my Spotify account?
 
-**We're not aware of any confirmed account bans caused by normal Premium
-listening through Spotifast or other players using the same playback
-software, [librespot](https://github.com/librespot-org/librespot).**
+[Soloist](/soloist/) is Spotify's official player for third-party apps, so
+with Soloist you're listening the way Spotify provides for.
 
-Spotifast plays music using your Spotify Premium subscription. It does not
-unlock Premium for Free accounts, remove ads, export songs, or bypass
-Spotify's copy protection. You sign in on Spotify's own website, and
-Spotifast never receives your Spotify password.
+Spotifast never receives your Spotify password: you sign in on Spotify's own
+website. It doesn't unlock Premium, remove ads, export songs, or bypass
+Spotify's copy protection.
 
-Spotifast is independent of Spotify, so we cannot guarantee Spotify's future
-decisions. Changes at Spotify can also temporarily interrupt playback until
-the app is updated.
+The built-in player uses
+[librespot](https://github.com/librespot-org/librespot) and stays available.
+We know of no confirmed bans from normal Premium listening with it, though
+Spotify sometimes refuses it, which shows up as an
+[audio key error](/troubleshooting/#audio-key).
 
 ## What it does not do
 
@@ -74,8 +74,7 @@ Spotifast has a limited scope:
   Spotifast's [private audio routes](/soloist/#playback-and-current-limits)
   provide EQ and visualizers on Linux and Mac, and visualizers on Windows.
 - No video podcasts or social features.
-- Spotifast is an **unofficial** app. Changes at Spotify can temporarily
-  break features until Spotifast is updated.
+- Changes at Spotify can briefly interrupt features until an update.
 
 Bug reports should include `spotifast.log`, `panic.log` after a crash, and
 steps to reproduce the problem. See the

@@ -94,7 +94,7 @@ impl Grant {
     pub fn personal_web_api(client_id: &str) -> Result<Self> {
         let client_id = client_id.trim();
         if client_id.is_empty() {
-            bail!("a personal Spotify Client ID is required");
+            bail!("a Spotify Client ID is required");
         }
         Ok(Self {
             client_id: client_id.to_string(),

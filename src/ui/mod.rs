@@ -402,14 +402,14 @@ fn slow_banner(app: &mut App, ui: &mut egui::Ui) {
     banner(
         app,
         ui,
-        &gettext(locale, "Spotify is being slow on the shared app."),
+        &gettext(locale, "Spotify is being slow on the shared sign-in."),
         &gettext(
             locale,
-            "Spotifast no longer offers the shared app, and Spotify can stop accepting it at any time. Set up your own free Spotify app and you won't have to wait.",
+            "Spotifast no longer offers the shared sign-in, and Spotify can stop accepting it at any time. Register Spotifast and you won't have to wait.",
         ),
         [
             (
-                gettext(locale, "Set up personal app"),
+                gettext(locale, "Register Spotifast"),
                 Action::OpenPersonalAppSetup,
             ),
             (

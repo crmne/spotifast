@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-01 19:07+0100\n"
+"POT-Creation-Date: 2026-11-02 13:00+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -657,56 +657,56 @@ msgstr "依長度排序"
 msgid "Network connection error. Check your connection."
 msgstr "網路連線錯誤。請檢查連線。"
 
-#: src/ui/widgets.rs:3277
+#: src/ui/widgets.rs:3297
 msgid "Cut"
 msgstr "剪下"
 
-#: src/ui/widgets.rs:3282 src/ui/login.rs:560
+#: src/ui/widgets.rs:3302 src/ui/login.rs:560
 msgid "Copy"
 msgstr "複製"
 
-#: src/ui/widgets.rs:3287
+#: src/ui/widgets.rs:3307
 msgid "Paste"
 msgstr "貼上"
 
-#: src/ui/widgets.rs:3304
+#: src/ui/widgets.rs:3324
 msgid "Select all"
 msgstr "全選"
 
-#: src/ui/widgets.rs:3411
+#: src/ui/widgets.rs:3431
 msgid "Clear"
 msgstr "清除"
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
-#: src/ui/widgets.rs:3456
+#: src/ui/widgets.rs:3476
 #, rust-format
 msgid "Built with love by {name}"
 msgstr "由 {name} 用心打造"
 
-#: src/ui/widgets.rs:3601
+#: src/ui/widgets.rs:3621
 msgid "Host"
 msgstr "主機"
 
-#: src/ui/widgets.rs:3618
+#: src/ui/widgets.rs:3638
 msgid "Port"
 msgstr "連接埠"
 
-#: src/ui/widgets.rs:3636
+#: src/ui/widgets.rs:3656
 msgid "Username"
 msgstr "使用者名稱"
 
-#: src/ui/widgets.rs:3647
+#: src/ui/widgets.rs:3667
 msgid "Password"
 msgstr "密碼"
 
-#: src/ui/widgets.rs:3665
+#: src/ui/widgets.rs:3685
 msgid ""
 "Proxy login applies to Web requests. Local playback uses this proxy only "
 "without a login."
 msgstr ""
 "Proxy 登入資訊僅套用於 Web 要求。本機播放只會在不需登入時使用這個 Proxy。"
 
-#: src/ui/widgets.rs:3669
+#: src/ui/widgets.rs:3689
 msgid ""
 "Spotify hostnames are resolved by the proxy. Local playback connects "
 "directly."
@@ -1216,11 +1216,9 @@ msgstr "Spotify 登入已過期。請重新登入，然後再次嘗試上傳封�
 #: src/app.rs:14580
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
-"again to grant image upload permission. If using a personal app, reconnect "
-"it in Settings too."
-msgstr ""
-"Spotify 拒絕了這張封面。請確認你是播放清單的擁有者，然後重新登入以授予上傳圖"
-"片的權限。如果使用個人應用程式，也請在設定中重新連線。"
+"again to grant image upload permission. If you use your own Client ID, "
+"authorize it again in Settings too."
+msgstr "Spotify 拒絕了這張封面。請確認你是播放清單的擁有者，然後重新登入以授予上傳圖片的權限。如果使用你自己的 Client ID，也請在設定中重新授權。"
 
 #: src/app.rs:14584
 msgid "Spotify rejected the image size. Choose a smaller image."
@@ -1244,7 +1242,7 @@ msgid "Preset name"
 msgstr "預設名稱"
 
 #. Translators: a search keyword for saving equalizer presets.
-#: src/ui/settings.rs:98 src/ui/settings.rs:2253
+#: src/ui/settings.rs:98 src/ui/settings.rs:2255
 msgid "Save preset"
 msgstr "儲存預設"
 
@@ -1322,45 +1320,44 @@ msgid "Sign out"
 msgstr "登出"
 
 #: src/ui/settings.rs:507
-msgid "Personal Spotify app"
-msgstr "個人 Spotify 應用程式"
+msgid "Spotify registration"
+msgstr "Spotify 註冊"
 
 #: src/ui/settings.rs:511
 msgid ""
-"You're still signed in through the shared app Spotifast used before, which "
-"Spotify can stop accepting at any time. Set up your own app to keep "
-"listening."
-msgstr ""
-"你仍透過 Spotifast 以前使用的共用應用程式登入，Spotify 隨時可能停止接受它。請"
-"設定你自己的應用程式以繼續收聽。"
+"You're still on the shared sign-in Spotifast used before, which Spotify can "
+"stop accepting at any time. Register Spotifast to keep listening."
+msgstr "你仍在使用 Spotifast 以前使用的共用登入，Spotify 隨時可能停止接受它。請註冊 Spotifast 以繼續收聽。"
 
 #: src/ui/settings.rs:516
-msgid "Spotifast signs in through your own free Spotify app."
-msgstr "Spotifast 透過你自己的免費 Spotify 應用程式登入。"
+msgid "Spotifast connects with the Client ID you registered with Spotify."
+msgstr "Spotifast 使用你在 Spotify 註冊的 Client ID 連線。"
 
-#: src/ui/settings.rs:521
-msgid "Create an app"
-msgstr "建立應用程式"
+#: src/ui/settings.rs:521 src/ui/dialogs.rs:50 src/ui/login.rs:461
+#: src/ui/mod.rs:412
+msgid "Register Spotifast"
+msgstr "註冊 Spotifast"
 
 #: src/ui/settings.rs:524
-msgid "Create one for free in Spotify's developer dashboard."
-msgstr "在 Spotify 開發人員資訊主頁中免費建立。"
+msgid "It takes about two minutes in Spotify's developer dashboard."
+msgstr "在 Spotify 開發人員資訊主頁中大約需要兩分鐘。"
 
 #: src/ui/settings.rs:529
-msgid "Personal app ready"
-msgstr "個人應用程式已就緒"
+msgid "Spotifast registered"
+msgstr "Spotifast 已註冊"
 
 #: src/ui/settings.rs:533
-msgid "Supported requests use your app. Other requests use the shared app."
-msgstr "支援的要求會使用你的應用程式，其他要求則使用共用應用程式。"
+msgid ""
+"Supported requests use your Client ID. Other requests use the shared sign-in."
+msgstr "受支援的請求使用你的 Client ID。其他請求使用共用登入。"
 
 #: src/ui/settings.rs:536
-msgid "Spotifast uses your app for Spotify's Web API."
-msgstr "Spotifast 使用你的應用程式存取 Spotify 的 Web API。"
+msgid "Spotifast uses your Client ID for Spotify's Web API."
+msgstr "Spotifast 將你的 Client ID 用於 Spotify 的 Web API。"
 
 #: src/ui/settings.rs:541
-msgid "Authorize your personal app"
-msgstr "授權你的個人應用程式"
+msgid "Authorize your Client ID"
+msgstr "授權你的 Client ID"
 
 #: src/ui/settings.rs:544
 msgid "Spotify opens in your browser to verify the account."
@@ -1386,7 +1383,7 @@ msgstr "已以 {username} 身分連線"
 
 #: src/ui/settings.rs:629 src/ui/login.rs:391
 msgid "Client ID"
-msgstr "用戶端 ID"
+msgstr "Client ID"
 
 #: src/ui/settings.rs:657
 msgid "Setup guide"
@@ -1700,7 +1697,7 @@ msgstr "「跟隨系統」會使用你的 Omarchy 色彩。"
 msgid "Follow system uses your desktop's light or dark appearance."
 msgstr "「跟隨系統」會使用桌面的淺色或深色外觀。"
 
-#: src/ui/settings.rs:1266 src/ui/settings.rs:2727
+#: src/ui/settings.rs:1266 src/ui/settings.rs:2729
 msgid "Language"
 msgstr "語言"
 
@@ -1755,7 +1752,7 @@ msgstr "歌曲在本機播放時，在播放列控制項後方顯示它的律動
 msgid "Allow clicks on empty player bar space to cycle the visualizer."
 msgstr "允許點擊播放列的空白區域來切換視覺化效果。"
 
-#: src/ui/settings.rs:1329 src/ui/settings.rs:2090
+#: src/ui/settings.rs:1329 src/ui/settings.rs:2092
 msgid "Frame rate"
 msgstr "影格速率"
 
@@ -1816,7 +1813,7 @@ msgstr "未使用 Proxy。"
 msgid "Using the system proxy."
 msgstr "正在使用系統 Proxy。"
 
-#: src/ui/settings.rs:1772
+#: src/ui/settings.rs:1772 src/ui/keys.rs:364
 msgid "Mini player"
 msgstr "迷你播放器"
 
@@ -1907,16 +1904,16 @@ msgstr "Skin Museum"
 msgid "Installed skins are in {folder}. None of this kind yet."
 msgstr "已安裝的面板位於 {folder}。目前還沒有這一類面板。"
 
-#: src/ui/settings.rs:1974
+#: src/ui/settings.rs:1976
 msgid ""
 "This skin has no equalizer or playlist window, and its scripts do not run."
 msgstr "此面板沒有等化器和播放清單視窗，其指令碼也不會執行。"
 
-#: src/ui/settings.rs:2039
+#: src/ui/settings.rs:2041
 msgid "MilkDrop window"
 msgstr "MilkDrop 視窗"
 
-#: src/ui/settings.rs:2047
+#: src/ui/settings.rs:2049
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1925,7 +1922,7 @@ msgstr ""
 "用於本機播放的 projectM 視覺效果。可從這裡、頂端列、按 Ctrl+Shift+K 或透過迷"
 "你播放器的 V 選單開啟。按 ? 或 F1 查看快捷鍵。"
 
-#: src/ui/settings.rs:2051
+#: src/ui/settings.rs:2053
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1934,12 +1931,12 @@ msgstr ""
 "用於本機播放的 projectM 視覺效果。可從這裡、頂端列、按 Cmd+Shift+K 或透過迷你"
 "播放器的 V 選單開啟。按 ? 或 F1 查看快捷鍵。"
 
-#: src/ui/settings.rs:2057 src/ui/settings.rs:2236
+#: src/ui/settings.rs:2059 src/ui/settings.rs:2238
 msgid "Presets"
 msgstr "預設集"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2062
+#: src/ui/settings.rs:2064
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -1949,7 +1946,7 @@ msgstr ""
 "料夾是空的，Spotifast 會下載預設集。"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2068
+#: src/ui/settings.rs:2070
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -1959,7 +1956,7 @@ msgstr ""
 "料夾是空的，Spotifast 會下載預設集。"
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2074
+#: src/ui/settings.rs:2076
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -1971,20 +1968,20 @@ msgstr[0] ""
 "{folder} 中有 {count} 個預設集。請將 .milk 檔案加入這裡。第一次開啟 MilkDrop "
 "時若資料夾是空的，Spotifast 會下載預設集。"
 
-#: src/ui/settings.rs:2083
+#: src/ui/settings.rs:2085
 msgid "Time per preset"
 msgstr "每個預設集的時間"
 
-#: src/ui/settings.rs:2086
+#: src/ui/settings.rs:2088
 msgid "How long each preset plays before the next fades in."
 msgstr "每個預設集播放多久後再淡入下一個。"
 
-#: src/ui/settings.rs:2094
+#: src/ui/settings.rs:2096
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr "影格速率越低，使用的資源越少。「不限制」會盡可能快速繪製。"
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:2099
+#: src/ui/settings.rs:2101
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -1993,205 +1990,205 @@ msgstr ""
 "你的螢幕更新頻率為 {hz} Hz，更高的速率不會增加可見的影格。「不限制」會盡可能"
 "快速繪製。"
 
-#: src/ui/settings.rs:2106
+#: src/ui/settings.rs:2108
 msgid "Resolution"
 msgstr "解析度"
 
-#: src/ui/settings.rs:2109
+#: src/ui/settings.rs:2111
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr "「一半」和「四分之一」使用較少資源，並會將畫面放大顯示。"
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:2116
+#: src/ui/settings.rs:2118
 msgid "Get presets"
 msgstr "取得預設集"
 
-#: src/ui/settings.rs:2154
+#: src/ui/settings.rs:2156
 msgid "Fetching..."
 msgstr "正在取得..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:2157
+#: src/ui/settings.rs:2159
 #, rust-format
 msgid "Get {pack}"
 msgstr "取得 {pack}"
 
-#: src/ui/settings.rs:2208
+#: src/ui/settings.rs:2210
 msgctxt "resolution"
 msgid "Full"
 msgstr "完整"
 
-#: src/ui/settings.rs:2209
+#: src/ui/settings.rs:2211
 msgctxt "resolution"
 msgid "Half"
 msgstr "一半"
 
-#: src/ui/settings.rs:2210
+#: src/ui/settings.rs:2212
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "四分之一"
 
-#: src/ui/settings.rs:2224
+#: src/ui/settings.rs:2226
 msgid "Equalizer"
 msgstr "等化器"
 
-#: src/ui/settings.rs:2230
+#: src/ui/settings.rs:2232
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
 msgstr "用於這台電腦播放的十段等化器，不會影響其他裝置。"
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2238
+#: src/ui/settings.rs:2240
 msgid "Preamp"
 msgstr "前級放大"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:2240
+#: src/ui/settings.rs:2242
 msgid "Bands"
 msgstr "頻段"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2322
+#: src/ui/settings.rs:2324
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "前級"
 
-#: src/ui/settings.rs:2339
+#: src/ui/settings.rs:2341
 msgid "Storage"
 msgstr "儲存空間"
 
-#: src/ui/settings.rs:2342
+#: src/ui/settings.rs:2344
 msgid "Artwork cache"
 msgstr "封面圖片快取"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:2344 src/ui/settings.rs:2350
+#: src/ui/settings.rs:2346 src/ui/settings.rs:2352
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "儲存於 {folder}"
 
-#: src/ui/settings.rs:2357
+#: src/ui/settings.rs:2359
 msgid "Play history"
 msgstr "播放紀錄"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:2361
+#: src/ui/settings.rs:2363
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr "在這裡播放的歌曲會儲存在 {file}。這個檔案永遠不會上傳。"
 
-#: src/ui/settings.rs:2366
+#: src/ui/settings.rs:2368
 msgid "Sign-in"
 msgstr "登入"
 
-#: src/ui/settings.rs:2369
+#: src/ui/settings.rs:2371
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr "登入資訊會在可用時儲存在系統的認證存放區中。"
 
-#: src/ui/settings.rs:2378 src/ui/settings.rs:2437
+#: src/ui/settings.rs:2380 src/ui/settings.rs:2439
 msgid "Checking…"
 msgstr "正在檢查…"
 
-#: src/ui/settings.rs:2380 src/ui/collection.rs:989 src/ui/collection.rs:1016
+#: src/ui/settings.rs:2382 src/ui/collection.rs:989 src/ui/collection.rs:1016
 msgid "Unavailable"
 msgstr "無法使用"
 
-#: src/ui/settings.rs:2390
+#: src/ui/settings.rs:2392
 msgid "Clear artwork"
 msgstr "清除封面圖片"
 
-#: src/ui/settings.rs:2400
+#: src/ui/settings.rs:2402
 msgid "Clearing…"
 msgstr "正在清除…"
 
-#: src/ui/settings.rs:2402
+#: src/ui/settings.rs:2404
 msgid "Clear audio"
 msgstr "清除音訊"
 
-#: src/ui/settings.rs:2419
+#: src/ui/settings.rs:2421
 msgid "Clear history"
 msgstr "清除紀錄"
 
-#: src/ui/settings.rs:2431 src/ui/show.rs:42
+#: src/ui/settings.rs:2433 src/ui/show.rs:42
 msgid "About"
 msgstr "關於"
 
-#: src/ui/settings.rs:2434
+#: src/ui/settings.rs:2436
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr "使用 Rust、egui 和 librespot 打造。與 Spotify 無關。"
 
-#: src/ui/settings.rs:2436
+#: src/ui/settings.rs:2438
 msgid "Check for updates"
 msgstr "檢查更新"
 
-#: src/ui/settings.rs:2438 src/ui/dialogs.rs:153 src/ui/keys.rs:396
+#: src/ui/settings.rs:2440 src/ui/dialogs.rs:153 src/ui/keys.rs:396
 #: src/ui/topbar.rs:504
 msgid "Keyboard shortcuts"
 msgstr "鍵盤快捷鍵"
 
-#: src/ui/settings.rs:2439 src/ui/update.rs:65
+#: src/ui/settings.rs:2441 src/ui/update.rs:65
 msgid "Release notes"
 msgstr "版本資訊"
 
-#: src/ui/settings.rs:2440
+#: src/ui/settings.rs:2442
 msgid "Source code"
 msgstr "原始碼"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:2524
+#: src/ui/settings.rs:2526
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "沒有與「{query}」相關的設定"
 
-#: src/ui/settings.rs:2525
+#: src/ui/settings.rs:2527
 msgid "Try fewer words, or check the spelling."
 msgstr "請減少字詞，或檢查拼字。"
 
-#: src/ui/settings.rs:2546
+#: src/ui/settings.rs:2548
 msgctxt "start with your computer"
 msgid "Off"
 msgstr "關閉"
 
-#: src/ui/settings.rs:2547
+#: src/ui/settings.rs:2549
 msgid "With the window"
 msgstr "開啟視窗"
 
-#: src/ui/settings.rs:2551
+#: src/ui/settings.rs:2553
 msgid "In the menu bar"
 msgstr "在選單列中"
 
-#: src/ui/settings.rs:2553
+#: src/ui/settings.rs:2555
 msgid "In the tray"
 msgstr "在系統匣中"
 
-#: src/ui/settings.rs:2572
+#: src/ui/settings.rs:2574
 msgid "Allow Spotifast in System Settings, General, Login Items."
 msgstr "請在「系統設定」>「一般」>「登入項目」中允許 Spotifast。"
 
-#: src/ui/settings.rs:2578
+#: src/ui/settings.rs:2580
 msgid ""
 "Starting in the menu bar needs Keep music playing when the window closes. "
 "Until then, the window opens."
 msgstr ""
 "要在選單列中啟動，需要開啟「關閉視窗後繼續播放音樂」。在此之前會開啟視窗。"
 
-#: src/ui/settings.rs:2583
+#: src/ui/settings.rs:2585
 msgid ""
 "Starting in the tray needs Keep music playing when the window closes. Until "
 "then, the window opens."
 msgstr ""
 "要在系統匣中啟動，需要開啟「關閉視窗後繼續播放音樂」。在此之前會開啟視窗。"
 
-#: src/ui/settings.rs:2589
+#: src/ui/settings.rs:2591
 msgid "Open Spotifast when you log in, with its window or in the menu bar."
 msgstr "登入時開啟 Spotifast，顯示視窗或留在選單列中。"
 
-#: src/ui/settings.rs:2594
+#: src/ui/settings.rs:2596
 msgid "Open Spotifast when you log in, with its window or in the tray."
 msgstr "登入時開啟 Spotifast，顯示視窗或留在系統匣中。"
 
-#: src/ui/settings.rs:2700
+#: src/ui/settings.rs:2702
 msgctxt "language"
 msgid "System"
 msgstr "系統"
@@ -2644,22 +2641,15 @@ msgid "Play here"
 msgstr "在這裡播放"
 
 #: src/ui/dialogs.rs:44
-msgid "Move to your own Spotify app"
-msgstr "改用你自己的 Spotify 應用程式"
+msgid "Register Spotifast with Spotify"
+msgstr "向 Spotify 註冊 Spotifast"
 
 #: src/ui/dialogs.rs:46
 msgid ""
-"You're signed in through the shared app Spotifast used before. Spotifast no "
-"longer offers it, and Spotify can stop accepting it at any time. Set up your "
-"own free Spotify app so nothing stops your music. It takes a few minutes."
-msgstr ""
-"你正透過 Spotifast 以前使用的共用應用程式登入。Spotifast 已不再提供它，"
-"Spotify 也隨時可能停止接受它。請設定你自己的免費 Spotify 應用程式，讓音樂不會"
-"中斷。只需要幾分鐘。"
-
-#: src/ui/dialogs.rs:50 src/ui/mod.rs:412
-msgid "Set up personal app"
-msgstr "設定個人應用程式"
+"You're on the shared sign-in Spotifast used before. Spotifast no longer "
+"offers it, and Spotify can stop accepting it at any time. Register Spotifast "
+"so nothing stops your music. It takes about two minutes."
+msgstr "你正在使用 Spotifast 以前使用的共用登入。Spotifast 已不再提供它，Spotify 也隨時可能停止接受它。請註冊 Spotifast，讓音樂不會中斷。大約需要兩分鐘。"
 
 #: src/ui/dialogs.rs:53
 msgid "Not now"
@@ -3077,32 +3067,26 @@ msgstr "Spotifast {version} • 與 Spotify 無關"
 #: src/ui/login.rs:170
 msgid ""
 "That doesn't look like a Client ID. It is 32 letters and digits, shown on "
-"your app's page in the dashboard."
-msgstr ""
-"這看起來不像用戶端 ID。用戶端 ID 由 32 個字母和數字組成，顯示在資訊主頁中你的"
-"應用程式頁面上。"
+"Spotify's page for your registration."
+msgstr "這看起來不像 Client ID。Client ID 由 32 個字母和數字組成，顯示在 Spotify 上你的註冊頁面中。"
 
 #: src/ui/login.rs:174
 msgid ""
-"Spotify doesn't know this Client ID. Copy it again from your app's page in "
-"the dashboard."
-msgstr "Spotify 無法辨識此用戶端 ID。請從資訊主頁中你的應用程式頁面重新複製。"
+"Spotify doesn't know this Client ID. Copy it again from Spotify's developer "
+"dashboard."
+msgstr "Spotify 不認得此 Client ID。請從 Spotify 開發人員資訊主頁重新複製。"
 
 #: src/ui/login.rs:178
 msgid ""
-"Spotify didn't let this account use the app. Sign in with the Spotify "
-"account that created it, which needs Premium."
-msgstr ""
-"Spotify 不允許此帳戶使用該應用程式。請使用建立該應用程式的 Spotify 帳戶登入，"
-"該帳戶需要 Premium。"
+"Spotify didn't let this account use this Client ID. Sign in with the Spotify "
+"account that registered it, which needs Premium."
+msgstr "Spotify 不允許此帳戶使用此 Client ID。請使用註冊它的 Spotify 帳戶登入，該帳戶需要 Premium。"
 
 #: src/ui/login.rs:182
 msgid ""
-"Spotify no longer accepts the shared sign-in Spotifast used before. Set up "
-"your own Spotify app to keep listening."
-msgstr ""
-"Spotify 已不再接受 Spotifast 以前使用的共用登入。請設定你自己的 Spotify 應用"
-"程式以繼續收聽。"
+"Spotify no longer accepts the shared sign-in Spotifast used before. Register "
+"Spotifast to keep listening."
+msgstr "Spotify 已不再接受 Spotifast 以前使用的共用登入。請註冊 Spotifast 以繼續收聽。"
 
 #: src/ui/login.rs:219
 msgid "A native Spotify client."
@@ -3119,11 +3103,9 @@ msgstr "沒有開啟嗎？重新開啟登入頁面"
 #: src/ui/login.rs:257
 #, rust-format
 msgid ""
-"If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, save, "
-"and sign in again."
-msgstr ""
-"如果 Spotify 顯示「Invalid redirect URI」，請將 {uri} 原樣新增到你的應用程"
-"式，儲存後重新登入。"
+"If Spotify says “Invalid redirect URI”, add {uri} to your registration "
+"exactly, save, and sign in again."
+msgstr "如果 Spotify 顯示「Invalid redirect URI」，請將 {uri} 原樣新增到你的註冊資訊中，儲存後重新登入。"
 
 #: src/ui/login.rs:310
 msgid "Sign in with Spotify"
@@ -3138,36 +3120,33 @@ msgstr ""
 "Premium。"
 
 #: src/ui/login.rs:330
-msgid "How to set up your Spotify app"
-msgstr "如何設定你的 Spotify 應用程式"
+msgid "How to register Spotifast"
+msgstr "如何註冊 Spotifast"
 
 #: src/ui/login.rs:354
 msgid "Proxy Settings"
 msgstr "Proxy 設定"
 
 #: src/ui/login.rs:409
-msgid "A Client ID is 32 letters and digits. Copy it from your app's page."
-msgstr "用戶端 ID 由 32 個字母和數字組成。請從你的應用程式頁面複製。"
-
-#: src/ui/login.rs:461
-msgid "Set up your Spotify app"
-msgstr "設定你的 Spotify 應用程式"
+msgid ""
+"A Client ID is 32 letters and digits. Copy it from Spotify's developer "
+"dashboard."
+msgstr "Client ID 由 32 個字母和數字組成。請從 Spotify 開發人員資訊主頁複製。"
 
 #: src/ui/login.rs:469
 msgid ""
-"Spotifast signs in through your own free Spotify app. Spotify requires its "
-"owner to have Premium."
-msgstr ""
-"Spotifast 透過你自己的免費 Spotify 應用程式登入。Spotify 要求應用程式擁有者具"
-"備 Premium。"
+"Spotify asks you to register Spotifast once, on an account with Premium. It "
+"takes about two minutes and gives you a Client ID."
+msgstr "Spotify 要求你用具有 Premium 的帳戶註冊一次 Spotifast。大約需要兩分鐘，完成後你會得到一個 Client ID。"
 
 #: src/ui/login.rs:479
 msgid "Open Spotify's developer dashboard."
 msgstr "開啟 Spotify 開發人員資訊主頁。"
 
 #: src/ui/login.rs:498
-msgid "Click Create app. Any name will do."
-msgstr "按一下「Create app」。名稱不拘。"
+msgid ""
+"Click Create app, Spotify's name for this registration. Any name will do."
+msgstr "點選「Create app」，這是 Spotify 對此註冊的稱呼。名稱隨意。"
 
 #: src/ui/login.rs:505
 msgid "Under Redirect URIs, add exactly:"
@@ -3178,20 +3157,18 @@ msgid "Tick Web API, accept the terms, and save."
 msgstr "勾選「Web API」，接受條款並儲存。"
 
 #: src/ui/login.rs:523
-msgid "Paste the app's Client ID into the field and sign in."
-msgstr "將應用程式的用戶端 ID 貼到欄位中並登入。"
+msgid "Paste the Client ID into the field and sign in."
+msgstr "將 Client ID 貼到輸入框並登入。"
 
 #: src/ui/mod.rs:405
-msgid "Spotify is being slow on the shared app."
-msgstr "Spotify 在共用應用程式上回應很慢。"
+msgid "Spotify is being slow on the shared sign-in."
+msgstr "Spotify 在共用登入上回應緩慢。"
 
 #: src/ui/mod.rs:408
 msgid ""
-"Spotifast no longer offers the shared app, and Spotify can stop accepting it "
-"at any time. Set up your own free Spotify app and you won't have to wait."
-msgstr ""
-"Spotifast 已不再提供共用應用程式，Spotify 也隨時可能停止接受它。設定你自己的"
-"免費 Spotify 應用程式，就不用再等了。"
+"Spotifast no longer offers the shared sign-in, and Spotify can stop "
+"accepting it at any time. Register Spotifast and you won't have to wait."
+msgstr "Spotifast 已不再提供共用登入，Spotify 也隨時可能停止接受它。註冊 Spotifast，就不用再等了。"
 
 #. Translators: a button that opens a page explaining why
 #. the banner it sits in appeared.
@@ -3851,6 +3828,122 @@ msgstr ""
 "Spotifast 需要支援 OpenGL 2.0 或更新版本的顯示卡驅動程式，而這台電腦或虛擬機"
 "器沒有提供。請安裝顯示卡驅動程式，或為虛擬機器開啟 GPU 加速。要開啟 {url} 了"
 "解更多嗎？"
+
+#~ msgid ""
+#~ "Spotify refused this cover. Check that you own the playlist, then sign in "
+#~ "again to grant image upload permission. If using a personal app, "
+#~ "reconnect it in Settings too."
+#~ msgstr ""
+#~ "Spotify 拒絕了這張封面。請確認你是播放清單的擁有者，然後重新登入以授予上傳"
+#~ "圖片的權限。如果使用個人應用程式，也請在設定中重新連線。"
+
+#~ msgid "Personal Spotify app"
+#~ msgstr "個人 Spotify 應用程式"
+
+#~ msgid ""
+#~ "You're still signed in through the shared app Spotifast used before, "
+#~ "which Spotify can stop accepting at any time. Set up your own app to keep "
+#~ "listening."
+#~ msgstr ""
+#~ "你仍透過 Spotifast 以前使用的共用應用程式登入，Spotify 隨時可能停止接受"
+#~ "它。請設定你自己的應用程式以繼續收聽。"
+
+#~ msgid "Spotifast signs in through your own free Spotify app."
+#~ msgstr "Spotifast 透過你自己的免費 Spotify 應用程式登入。"
+
+#~ msgid "Create an app"
+#~ msgstr "建立應用程式"
+
+#~ msgid "Create one for free in Spotify's developer dashboard."
+#~ msgstr "在 Spotify 開發人員資訊主頁中免費建立。"
+
+#~ msgid "Personal app ready"
+#~ msgstr "個人應用程式已就緒"
+
+#~ msgid "Supported requests use your app. Other requests use the shared app."
+#~ msgstr "支援的要求會使用你的應用程式，其他要求則使用共用應用程式。"
+
+#~ msgid "Spotifast uses your app for Spotify's Web API."
+#~ msgstr "Spotifast 使用你的應用程式存取 Spotify 的 Web API。"
+
+#~ msgid "Authorize your personal app"
+#~ msgstr "授權你的個人應用程式"
+
+#~ msgid "Move to your own Spotify app"
+#~ msgstr "改用你自己的 Spotify 應用程式"
+
+#~ msgid ""
+#~ "You're signed in through the shared app Spotifast used before. Spotifast "
+#~ "no longer offers it, and Spotify can stop accepting it at any time. Set "
+#~ "up your own free Spotify app so nothing stops your music. It takes a few "
+#~ "minutes."
+#~ msgstr ""
+#~ "你正透過 Spotifast 以前使用的共用應用程式登入。Spotifast 已不再提供它，"
+#~ "Spotify 也隨時可能停止接受它。請設定你自己的免費 Spotify 應用程式，讓音樂"
+#~ "不會中斷。只需要幾分鐘。"
+
+#~ msgid "Set up personal app"
+#~ msgstr "設定個人應用程式"
+
+#~ msgid ""
+#~ "That doesn't look like a Client ID. It is 32 letters and digits, shown on "
+#~ "your app's page in the dashboard."
+#~ msgstr ""
+#~ "這看起來不像用戶端 ID。用戶端 ID 由 32 個字母和數字組成，顯示在資訊主頁中"
+#~ "你的應用程式頁面上。"
+
+#~ msgid ""
+#~ "Spotify doesn't know this Client ID. Copy it again from your app's page "
+#~ "in the dashboard."
+#~ msgstr ""
+#~ "Spotify 無法辨識此用戶端 ID。請從資訊主頁中你的應用程式頁面重新複製。"
+
+#~ msgid ""
+#~ "Spotify didn't let this account use the app. Sign in with the Spotify "
+#~ "account that created it, which needs Premium."
+#~ msgstr ""
+#~ "Spotify 不允許此帳戶使用該應用程式。請使用建立該應用程式的 Spotify 帳戶登"
+#~ "入，該帳戶需要 Premium。"
+
+#~ msgid ""
+#~ "Spotify no longer accepts the shared sign-in Spotifast used before. Set "
+#~ "up your own Spotify app to keep listening."
+#~ msgstr ""
+#~ "Spotify 已不再接受 Spotifast 以前使用的共用登入。請設定你自己的 Spotify 應"
+#~ "用程式以繼續收聽。"
+
+#~ msgid "How to set up your Spotify app"
+#~ msgstr "如何設定你的 Spotify 應用程式"
+
+#~ msgid "A Client ID is 32 letters and digits. Copy it from your app's page."
+#~ msgstr "用戶端 ID 由 32 個字母和數字組成。請從你的應用程式頁面複製。"
+
+#~ msgid "Set up your Spotify app"
+#~ msgstr "設定你的 Spotify 應用程式"
+
+#~ msgid ""
+#~ "Spotifast signs in through your own free Spotify app. Spotify requires "
+#~ "its owner to have Premium."
+#~ msgstr ""
+#~ "Spotifast 透過你自己的免費 Spotify 應用程式登入。Spotify 要求應用程式擁有"
+#~ "者具備 Premium。"
+
+#~ msgid "Click Create app. Any name will do."
+#~ msgstr "按一下「Create app」。名稱不拘。"
+
+#~ msgid "Paste the app's Client ID into the field and sign in."
+#~ msgstr "將應用程式的用戶端 ID 貼到欄位中並登入。"
+
+#~ msgid "Spotify is being slow on the shared app."
+#~ msgstr "Spotify 在共用應用程式上回應很慢。"
+
+#~ msgid ""
+#~ "Spotifast no longer offers the shared app, and Spotify can stop accepting "
+#~ "it at any time. Set up your own free Spotify app and you won't have to "
+#~ "wait."
+#~ msgstr ""
+#~ "Spotifast 已不再提供共用應用程式，Spotify 也隨時可能停止接受它。設定你自己"
+#~ "的免費 Spotify 應用程式，就不用再等了。"
 
 #~ msgid "Winamp skins"
 #~ msgstr "Winamp 面板"

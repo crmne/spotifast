@@ -3700,7 +3700,7 @@ mod tests {
             let button = accessible_node(
                 &tree,
                 if setup {
-                    "Set up personal app"
+                    "Register Spotifast"
                 } else {
                     "Close banner"
                 },
@@ -3747,7 +3747,7 @@ mod tests {
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             assert!(shows(&tree, title));
             assert!(
-                !shows(&tree, "Spotify is being slow on the shared app."),
+                !shows(&tree, "Spotify is being slow on the shared sign-in."),
                 "one banner at a time, the audio key's first"
             );
             let button = accessible_node(
@@ -3787,7 +3787,7 @@ mod tests {
             let button = accessible_node(
                 &tree,
                 if setup {
-                    "Set up personal app"
+                    "Register Spotifast"
                 } else {
                     "Not now"
                 },
@@ -4080,7 +4080,7 @@ mod tests {
         app.dialog = Some(Dialog::PersonalAppIntro);
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let setup = accessible_node(&tree, "Set up personal app", Role::Button);
+        let setup = accessible_node(&tree, "Register Spotifast", Role::Button);
         accessible_frame(
             &ctx,
             &mut app,
@@ -4310,13 +4310,13 @@ mod tests {
 
         app.settings.web_client_id = None;
         app.web_app = None;
-        let text = settings_text(&ctx, &mut app, "Personal app ready");
+        let text = settings_text(&ctx, &mut app, "Spotifast registered");
         assert!(!text.iter().any(|text| text == "Account"));
         assert!(text.iter().any(|text| text.starts_with("No settings for")));
         app.settings.web_client_id = Some("test-client".into());
         app.web_app = Some("test-client".into());
-        let text = settings_text(&ctx, &mut app, "Personal app ready");
-        assert!(text.iter().any(|text| text == "Personal app ready"));
+        let text = settings_text(&ctx, &mut app, "Spotifast registered");
+        assert!(text.iter().any(|text| text == "Spotifast registered"));
         app.backend.shutdown();
     }
 
@@ -4326,20 +4326,17 @@ mod tests {
         app.settings.web_client_id = None;
         app.web_app = None;
         let text = settings_text(&ctx, &mut app, "Account");
-        assert!(text.iter().any(|text| text == "Create an app"));
+        assert!(text.iter().any(|text| text == "Register Spotifast"));
 
         app.settings.web_client_id = Some("test-client".into());
         let text = settings_text(&ctx, &mut app, "Account");
-        assert!(text.iter().any(|text| text == "Create an app"));
-        assert!(
-            text.iter()
-                .any(|text| text == "Authorize your personal app")
-        );
+        assert!(text.iter().any(|text| text == "Register Spotifast"));
+        assert!(text.iter().any(|text| text == "Authorize your Client ID"));
 
         app.web_app = Some("test-client".into());
         let text = settings_text(&ctx, &mut app, "Account");
-        assert!(text.iter().any(|text| text == "Personal app ready"));
-        assert!(!text.iter().any(|text| text == "Create an app"));
+        assert!(text.iter().any(|text| text == "Spotifast registered"));
+        assert!(!text.iter().any(|text| text == "Register Spotifast"));
         assert!(!text.iter().any(|text| text == "Setup guide"));
         app.backend.shutdown();
     }
