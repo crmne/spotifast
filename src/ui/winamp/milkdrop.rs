@@ -16,7 +16,7 @@ use crate::app::App;
 use crate::i18n::gettext;
 use crate::milkdrop::pane::{Picture, UV};
 use crate::model::Action;
-use crate::skin::layout::Area;
+use crate::skin::layout::{self, Area};
 use crate::skin::{Sheet, generic};
 
 use super::View;
@@ -28,7 +28,8 @@ const TITLE: &str = "MILKDROP";
 /// itself.
 pub(super) fn show(app: &mut App, view: &mut View, focused: bool) -> bool {
     let ctx = view.ui.ctx().clone();
-    let [width, height] = super::milkdrop_panel(&app.settings);
+    let width = layout::WINDOW_WIDTH;
+    let height = super::clamped_panel(app.settings.milkdrop_panel_height);
     read_keys(app, &ctx);
 
     // What the frame's sprites leave over between them.
@@ -88,34 +89,28 @@ pub(super) fn show(app: &mut App, view: &mut View, focused: bool) -> bool {
     {
         app.actions.push(Action::MilkdropFullscreen);
     }
-    grip(app, view, [width, height]);
+    grip(app, view, width, height);
     moving
 }
 
-/// The corner that resizes the panel, and the window with it, in whole skin
-/// pixels so the frame's tiles stay crisp.
-fn grip(app: &mut App, view: &mut View, [width, height]: [u32; 2]) {
+/// The corner that makes the panel, and the window with it, taller, in whole
+/// skin pixels so the frame's tiles stay crisp.
+fn grip(app: &mut App, view: &mut View, width: u32, height: u32) {
     let response = view
         .interact(generic::grip(width, height), "milkdrop-grip", Sense::drag())
-        .on_hover_cursor(egui::CursorIcon::ResizeNwSe);
+        .on_hover_cursor(egui::CursorIcon::ResizeVertical);
     if response.dragged() {
-        let moved = response.drag_delta() / view.unit;
-        let [across, down] = &mut app.winamp.milkdrop_resize;
-        *across += moved.x;
-        *down += moved.y;
-        let (steps_x, steps_y) = (across.trunc(), down.trunc());
-        *across -= steps_x;
-        *down -= steps_y;
-        if steps_x != 0.0 || steps_y != 0.0 {
+        app.winamp.milkdrop_resize += response.drag_delta().y / view.unit;
+        let steps = app.winamp.milkdrop_resize.trunc();
+        app.winamp.milkdrop_resize -= steps;
+        if steps != 0.0 {
+            let wanted = (i64::from(height) + steps as i64).max(0) as u32;
             app.actions
-                .push(Action::SetMilkdropPanel(super::clamped_panel([
-                    (i64::from(width) + steps_x as i64).max(0) as u32,
-                    (i64::from(height) + steps_y as i64).max(0) as u32,
-                ])));
+                .push(Action::SetMilkdropPanel(super::clamped_panel(wanted)));
         }
     }
     if response.drag_stopped() {
-        app.winamp.milkdrop_resize = [0.0, 0.0];
+        app.winamp.milkdrop_resize = 0.0;
     }
 }
 

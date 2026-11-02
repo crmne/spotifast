@@ -1489,7 +1489,7 @@ pub enum Action {
     /// Puts MilkDrop behind full screen lyrics, or the cover's art back.
     ToggleLyricsMilkdrop,
     /// The size of the picture in the skinned MilkDrop window, in points.
-    SetMilkdropPanel([u32; 2]),
+    SetMilkdropPanel(u32),
     /// How long each MilkDrop preset plays, in seconds.
     SetMilkdropSeconds(u32),
     SetMilkdropScale(u32),

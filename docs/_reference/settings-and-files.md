@@ -422,7 +422,7 @@ main fields are:
 | `milkdrop_fps` | `60` | MilkDrop frame rate; `0` is uncapped. At most 30 while the system saves energy |
 | `milkdrop_screen_hz` | `0` | Last refresh rate reported by MilkDrop's window |
 | `milkdrop_fullscreen` | `false` | The MilkDrop window fills the screen |
-| `milkdrop_panel` | `[275, 232]` | The MilkDrop panel's size in the mini player, in skin pixels |
+| `milkdrop_panel_height` | `232` | The MilkDrop panel's height in the mini player, in skin pixels |
 | `lyrics_milkdrop` | `false` | MilkDrop rather than the cover's art behind full screen lyrics |
 | `milkdrop_size` | `640, 480` | The MilkDrop window's size in points |
 | `keep_playing_in_background` | `true` | Close to tray |
