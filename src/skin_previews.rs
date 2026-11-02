@@ -827,7 +827,10 @@ mod tests {
         frames(&mut previews, &ctx, &cache, &[], 2, |previews| {
             !previews.entries.contains_key("skin.wsz")
         });
-        assert!(previews.texture_count() <= 1, "at most the built-in skin's");
+        assert!(
+            previews.texture_count() <= 1 + crate::skin::SHIPPED.len(),
+            "at most the built-in skins'"
+        );
         drop(previews);
         let _ = std::fs::remove_dir_all(root);
     }
