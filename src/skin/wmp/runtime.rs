@@ -417,10 +417,14 @@ impl Runtime {
             .position(|view| view.state.id.eq_ignore_ascii_case(name))
     }
 
-    /// A script's close. A view with no window is what runs the skin's other
-    /// views, so they go with it, unless it just opened them and is leaving.
+    /// A script's close. A view with no window that came first is what runs
+    /// the skin's other views, so they go with it, unless it just opened them
+    /// and is leaving. One opened by a window is that window's helper: skins
+    /// probe with an empty view that closes itself.
     fn close_asked(&mut self, index: usize, handing_over: bool) {
-        let control = !self.views[index].state.windowed();
+        let control = !self.views[..=index]
+            .iter()
+            .any(|view| view.state.windowed());
         self.close(index);
         if control && !handing_over {
             while !self.views.is_empty() {

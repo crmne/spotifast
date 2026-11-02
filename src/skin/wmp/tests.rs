@@ -879,3 +879,174 @@ fn sample_strips() {
         }
     }
 }
+
+/// A skin once its pictures are in, drawn off screen. Every pixel is
+/// `[r, g, b, a]`, and a clear one is what the desktop shows through.
+fn drawn(runtime: &mut Runtime) -> crate::skin::Bitmap {
+    let key = key_of(runtime);
+    let now = Instant::now();
+    let mut paints = runtime.paint(key, now).0;
+    for _ in 0..2000 {
+        if !runtime.images.loading() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+        runtime.images.poll();
+        paints = runtime.paint(key, now).0;
+    }
+    let (width, height) = runtime.views[runtime.primary().unwrap()].state.size();
+    let mut canvas = raster::canvas(width as u32, height as u32);
+    raster::draw(&paints, &mut canvas);
+    canvas
+}
+
+const MAGENTA: [u8; 3] = [255, 0, 255];
+const RED: [u8; 3] = [200, 10, 10];
+
+/// Pharaoh looks for its other pane with an empty view that closes itself.
+/// That is no control view going away: the window it was opened from stays.
+#[test]
+fn a_helper_view_closing_itself_leaves_the_window_that_opened_it() {
+    let definition = r#"<THEME>
+      <VIEW width="40" height="30" onLoad="theme.openView('ghost');"/>
+      <VIEW id="ghost" width="0" height="0" onLoad="view.close();"/>
+      </THEME>"#;
+    let runtime = start_with(definition, Vec::new(), playing());
+    assert!(!runtime.closed);
+    assert_eq!(runtime.views.len(), 1);
+    assert_eq!(runtime.views[0].state.size(), (40.0, 30.0));
+}
+
+/// WMP shows a view whatever its `visible` says, and gnome's says false.
+#[test]
+fn a_view_is_shown_even_if_it_says_it_is_not() {
+    let definition = r##"<THEME><VIEW width="10" height="10" visible="false">
+      <SUBVIEW width="10" height="10" backgroundColor="#c80a0a"/></VIEW></THEME>"##;
+    let mut runtime = start_with(definition, Vec::new(), playing());
+    let canvas = drawn(&mut runtime);
+    assert_eq!(canvas.pixel(5, 5).unwrap()[..3], RED);
+    // A script may still hide it.
+    let key = key_of(&runtime);
+    runtime.run_script(key, "view.visible = false;", Instant::now());
+    assert_eq!(drawn(&mut runtime).pixel(5, 5).unwrap()[3], 0);
+}
+
+/// Gorillaz tiles a little square of nothing but its clipping colour over
+/// the window, and draws the window's real shape in its sub-views.
+#[test]
+fn a_tiled_clipping_background_does_not_cut_the_window_to_one_tile() {
+    let definition = r##"<THEME><VIEW width="40" height="20" clippingColor="#ff00ff"
+        backgroundImage="tile.png" backgroundTiled="true">
+      <SUBVIEW left="20" top="10" backgroundImage="head.png"/></VIEW></THEME>"##;
+    let files = vec![
+        ("tile.png", png(5, 5, |_, _| MAGENTA)),
+        ("head.png", png(10, 10, |_, _| RED)),
+    ];
+    let mut runtime = start_with(definition, files, playing());
+    let canvas = drawn(&mut runtime);
+    assert_eq!(canvas.pixel(25, 15).unwrap()[..3], RED);
+    assert_eq!(canvas.pixel(2, 2).unwrap()[3], 0);
+}
+
+/// xXx and Wild Well Control name the colour on the group of buttons.
+#[test]
+fn a_sub_views_transparency_colour_holds_for_what_is_in_it() {
+    let definition = r##"<THEME><VIEW width="20" height="10" backgroundColor="none">
+      <SUBVIEW width="20" height="10" transparencyColor="#ff00ff">
+        <BUTTON image="b.png"/></SUBVIEW></VIEW></THEME>"##;
+    let files = vec![(
+        "b.png",
+        png(20, 10, |x, _| if x < 10 { MAGENTA } else { RED }),
+    )];
+    let mut runtime = start_with(definition, files, playing());
+    let canvas = drawn(&mut runtime);
+    assert_eq!(canvas.pixel(5, 5).unwrap()[3], 0);
+    assert_eq!(canvas.pixel(15, 5).unwrap()[..3], RED);
+}
+
+/// World of Warcraft's strips name no colour at all.
+#[test]
+fn a_custom_slider_strip_is_cut_out_of_magenta() {
+    let definition = r##"<THEME><VIEW width="20" height="10" backgroundColor="none">
+      <CUSTOMSLIDER width="20" height="10" image="s.png" min="0" max="1"/></VIEW></THEME>"##;
+    let files = vec![(
+        "s.png",
+        png(40, 10, |x, _| if x % 20 < 10 { MAGENTA } else { RED }),
+    )];
+    let mut runtime = start_with(definition, files, playing());
+    let canvas = drawn(&mut runtime);
+    assert_eq!(canvas.pixel(5, 5).unwrap()[3], 0);
+    assert_eq!(canvas.pixel(15, 5).unwrap()[..3], RED);
+}
+
+/// The Bionic Dot's pane: effects under a picture whose middle is see-through
+/// and whose corners are its transparency colour, faded out until wanted.
+const PANE: &str = r##"<THEME><VIEW width="30" height="10" backgroundColor="none">
+  <SUBVIEW id="mask" width="30" height="10" backgroundImage="m.png"
+      transparencyColor="#ff00ff" alphaBlend="ALPHA">
+    <EFFECTS zIndex="-15" width="30" height="10" windowed="false"/>
+  </SUBVIEW></VIEW></THEME>"##;
+
+fn pane_mask() -> Vec<u8> {
+    // Ten pixels of outside, ten of window, ten of rim.
+    let image = image::RgbaImage::from_fn(30, 10, |x, _| match x {
+        0..10 => image::Rgba([255, 0, 255, 255]),
+        10..20 => image::Rgba([0, 0, 0, 0]),
+        _ => image::Rgba([200, 10, 10, 255]),
+    });
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+#[test]
+fn effects_fade_with_their_sub_view() {
+    let definition = PANE.replace("ALPHA", "0");
+    let mut runtime = start_with(&definition, vec![("m.png", pane_mask())], playing());
+    let canvas = drawn(&mut runtime);
+    assert!(
+        canvas.rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 0),
+        "nothing is left of a faded pane"
+    );
+}
+
+#[test]
+fn effects_stay_inside_a_pictures_outline_and_show_in_its_window() {
+    let definition = PANE.replace("ALPHA", "255");
+    let mut runtime = start_with(&definition, vec![("m.png", pane_mask())], playing());
+    let canvas = drawn(&mut runtime);
+    assert_eq!(canvas.pixel(5, 5).unwrap()[3], 0, "outside the outline");
+    assert_eq!(canvas.pixel(15, 9).unwrap()[3], 255, "the window");
+    assert_eq!(canvas.pixel(25, 5).unwrap()[..3], RED, "the rim on top");
+}
+
+/// A transparent hole cut by colour alone is still a window on what is under
+/// it, as Alienware's and ALX's panes are.
+#[test]
+fn effects_show_through_a_hole_cut_by_a_transparency_colour() {
+    let definition = PANE.replace("ALPHA", "255");
+    let mask = png(30, 10, |x, _| if x < 20 { MAGENTA } else { RED });
+    let mut runtime = start_with(&definition, vec![("m.png", mask)], playing());
+    let canvas = drawn(&mut runtime);
+    assert_eq!(canvas.pixel(5, 9).unwrap()[3], 255);
+    assert_eq!(canvas.pixel(25, 5).unwrap()[..3], RED);
+}
+
+/// A windowed pane really was a window: it stays over every picture, but it
+/// goes when the sub-view around it fades.
+#[test]
+fn a_windowed_effects_pane_stays_on_top_until_its_sub_view_fades() {
+    let pane = |alpha: u8| {
+        format!(
+            r##"<THEME><VIEW width="10" height="10" backgroundColor="none">
+            <SUBVIEW width="10" height="10" alphaBlend="{alpha}">
+              <EFFECTS width="10" height="10" zIndex="-5" windowed="true"/>
+              <SUBVIEW width="10" height="10" backgroundColor="#c80a0a"/>
+            </SUBVIEW></VIEW></THEME>"##
+        )
+    };
+    let mut shown = start_with(&pane(255), Vec::new(), playing());
+    assert_eq!(drawn(&mut shown).pixel(2, 2).unwrap()[..3], [0, 0, 0]);
+    let mut faded = start_with(&pane(0), Vec::new(), playing());
+    assert_eq!(drawn(&mut faded).pixel(2, 2).unwrap()[3], 0);
+}

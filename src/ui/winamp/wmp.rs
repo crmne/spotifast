@@ -380,7 +380,7 @@ fn draw(app: &mut App, ui: &mut Ui, paint: &Paint, origin: Pos2, unit: f32, now:
             draw_text(ui, text, clip, origin, unit);
             false
         }
-        Paint::Effects { area, clip } => {
+        Paint::Effects { area, alpha, clip } => {
             let rect = world(*area, origin, unit);
             #[cfg(feature = "milkdrop")]
             let waiting = {
@@ -393,11 +393,12 @@ fn draw(app: &mut App, ui: &mut Ui, paint: &Paint, origin: Pos2, unit: f32, now:
                     app.milkdrop_picture(&ctx, [pixels.x, pixels.y])
                 };
                 if let Picture::Frame(texture) = picture {
+                    let tint = Color32::from_white_alpha(*alpha);
                     for box2 in clip.iter() {
                         let area = world(*box2, origin, unit).intersect(ui.clip_rect());
                         ui.painter()
                             .with_clip_rect(area)
-                            .image(texture, rect, UV, Color32::WHITE);
+                            .image(texture, rect, UV, tint);
                     }
                     return true;
                 }
@@ -406,9 +407,12 @@ fn draw(app: &mut App, ui: &mut Ui, paint: &Paint, origin: Pos2, unit: f32, now:
             #[cfg(not(feature = "milkdrop"))]
             let waiting = false;
             let (shapes, moving) = effect_shapes(app, rect, unit, now);
-            for box2 in clip.iter() {
-                let area = world(*box2, origin, unit).intersect(ui.clip_rect());
-                ui.painter().with_clip_rect(area).extend(shapes.clone());
+            // Bars have no alpha of their own: past halfway through a fade.
+            if *alpha >= 128 {
+                for box2 in clip.iter() {
+                    let area = world(*box2, origin, unit).intersect(ui.clip_rect());
+                    ui.painter().with_clip_rect(area).extend(shapes.clone());
+                }
             }
             moving || waiting
         }

@@ -335,6 +335,9 @@ impl ViewState {
             dropped_events: 0,
         };
         view.build(&node, None);
+        // A view is its window: WMP shows it whatever it says, and gnome says
+        // `visible="false"`. Only a script hides it.
+        view.elements[view.root].visible = true;
         view
     }
 

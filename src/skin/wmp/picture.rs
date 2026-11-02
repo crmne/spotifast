@@ -42,6 +42,9 @@ pub struct ImageKey {
     /// The picture's own top-left pixel is see-through as well: the colour
     /// `auto`.
     pub clear_corner: bool,
+    /// For a shape: only `clear` is out of it, its see-through pixels are in,
+    /// and with none of those the whole picture is.
+    pub window_only_clear: bool,
     /// Keep only the pixels where this mapping picture has this colour: one
     /// button of a button group.
     pub mask: Option<(String, Rgb)>,
@@ -375,7 +378,26 @@ fn decode_frames(
             .and_then(|frame| frame.bitmap.pixel(0, 0))
             .map_or([0; 3], |pixel| [pixel[0], pixel[1], pixel[2]])
     });
-    let clear: Vec<Rgb> = key.clear.iter().copied().chain(corner).collect();
+    let mut clear: Vec<Rgb> = key.clear.iter().copied().chain(corner).collect();
+    if key.window_only_clear {
+        let has_window = frames.first().is_some_and(|frame| {
+            frame
+                .bitmap
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p[3] == 0)
+        });
+        if !has_window {
+            clear.clear();
+        }
+        for frame in &mut frames {
+            for pixel in frame.bitmap.rgba.as_chunks_mut::<4>().0 {
+                pixel[3] = 255;
+            }
+        }
+    }
     for frame in &mut frames {
         if !clear.is_empty() {
             for pixel in frame.bitmap.rgba.as_chunks_mut::<4>().0 {
