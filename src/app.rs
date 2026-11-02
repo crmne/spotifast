@@ -20,7 +20,9 @@ use crate::i18n::{Locale, gettext, ngettext};
 use crate::model::QueueTab;
 use crate::model::*;
 use crate::paths::AppDirs;
-use crate::player::{EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand, RepeatMode};
+use crate::player::{
+    EngineConfig, LoadSpec, LocalState, Pickup, Playback, PlayerCommand, RepeatMode,
+};
 use crate::settings::{CachedRootlist, SessionState, Settings, ThemeChoice};
 use crate::single_instance::ControlCommand;
 use crate::theme::{self, Palette};
@@ -51,6 +53,10 @@ const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 /// suspend (3 s at the end of a session), so a longer wait would only
 /// answer after the system has gone ahead without us.
 const SUSPEND_FLUSH_TIMEOUT: Duration = Duration::from_millis(1500);
+/// The longest the backend waits for the player to pause before it lets
+/// the system sleep, from when a pass saw the notice: the system itself
+/// waits 1.5 s at most.
+const SLEEP_ANSWER_WAIT: Duration = Duration::from_secs(1);
 /// How old the saved resume point may grow while music plays.
 const SESSION_REFRESH: Duration = Duration::from_secs(30);
 /// The longest the app sleeps in the tray with nothing due.
@@ -86,6 +92,15 @@ const ASSUMED_CONTEXT_HOLD: Duration = Duration::from_secs(8);
 /// has not caught up yet. Spotify can take a moment to report a command it
 /// has already carried out.
 const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
+
+/// How close to its end a song counts as played out: picking it up there
+/// would end it at once.
+const PLAYED_OUT_MS: u32 = 2_000;
+/// The longest tracks failing while Windows reports no internet leave the
+/// session alone. Its hint can say so where Spotify still answers (behind
+/// a proxy, or with its check blocked), so it is for waiting, never for
+/// giving up.
+const OFFLINE_HINT_HOLD: Duration = Duration::from_secs(60);
 /// Delay before checking playback again after a command.
 const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
 /// Least time between polls that Spotify's pushes ask for. Turning another
@@ -391,8 +406,21 @@ pub struct App {
     /// where Spotify still answers (a proxy, a blocked probe), and Linux
     /// reports nothing.
     follows_reachability: bool,
-    /// The reachability the backend was last told.
+    /// The system's last word on reaching the internet. Where the app
+    /// follows it, the backend is told; elsewhere (Windows) its return is
+    /// only the moment to try again.
     reachable: bool,
+    /// Tracks failed to load while there was no internet. librespot then
+    /// marks them unavailable and skips on, so the session is replaced
+    /// once the network is back, picking up where playback was before.
+    failed_offline: bool,
+    /// Where playback was when the last track failed offline, for when the
+    /// skipping has stopped the player by the time the network is back.
+    offline_resume: Option<Pickup>,
+    /// Until when tracks that failed while Windows said there is no
+    /// internet leave the session alone. Its hint can be wrong, so this
+    /// waits for the network a while but never gives up on it.
+    offline_hold_until: Option<Instant>,
     /// Keeps local playback out of App Nap while it plays (macOS).
     playback_activity: Option<crate::power::Activity>,
     /// Keeps the computer from going to sleep on its own while local
@@ -1116,6 +1144,13 @@ impl App {
         } else {
             crate::power::Power::fixed(crate::power::Conditions::default())
         };
+        // Music playing here pauses as the system says it is going to sleep,
+        // from the power reader: the interface's next pass may not run in
+        // time once the display goes off.
+        let sleep_commands = backend.command_sender();
+        power.on_suspending(move || {
+            let _ = sleep_commands.send(Command::PauseForSleep);
+        });
 
         let first_page = session
             .last_page
@@ -1157,6 +1192,9 @@ impl App {
             follows_reachability: cfg!(target_os = "macos"),
             reachable: true,
             playback_activity: None,
+            failed_offline: false,
+            offline_resume: None,
+            offline_hold_until: None,
             keep_awake: None,
             budget: crate::power::Budget::default(),
             screen_hz: 0,
@@ -3163,6 +3201,11 @@ impl App {
                 self.user = None;
                 self.premium_notice_shown = false;
                 self.local = LocalState::default();
+                // What failed offline was this account's: the next one must
+                // not pick it up when the network returns.
+                self.failed_offline = false;
+                self.offline_resume = None;
+                self.offline_hold_until = None;
                 self.local_ready = false;
                 self.local_device_id = None;
                 self.local_playback = LocalPlayback::Unavailable;
@@ -3290,10 +3333,37 @@ impl App {
         }
     }
 
+    /// Picks local playback up after tracks failed offline. librespot
+    /// marked them unavailable and skipped past them, so a new session
+    /// starts clean, where playback was: still playing from what had
+    /// loaded, or where the first track failed if the skipping stopped it.
+    fn pick_up_after_outage(&mut self) {
+        if std::mem::take(&mut self.failed_offline) {
+            let resume = self
+                .local_pickup(&self.local)
+                .or(self.offline_resume.take());
+            self.backend.send(Command::Reconnect { resume });
+        }
+    }
+
+    /// Windows reports the network back. Its hint holds nothing up, but
+    /// its return is the moment to try again: music that failed while it
+    /// said there was none picks up at once, a session waiting for its next
+    /// try goes now, and the other devices get a fresh look.
+    fn on_network_hint_returned(&mut self) {
+        self.offline_hold_until = None;
+        self.pick_up_after_outage();
+        self.backend.send(Command::NetworkReturned);
+        self.poll_remote_soon();
+    }
+
     fn on_network_restored(&mut self) {
+        self.pick_up_after_outage();
         if !self.is_connected() {
             return;
         }
+        // The other devices' state is worth a fresh look.
+        self.poll_remote_soon();
         if self.playlists_unsettled() {
             self.load_playlists();
         }
@@ -3628,10 +3698,38 @@ impl App {
         {
             controls.seeked(Duration::from_millis(u64::from(state.position_ms)));
         }
+        // A track that loads shows Spotify answers, whatever Windows says:
+        // the hold is lifted, and failures count as they do online.
+        if self.offline_hold_until.is_some() && state.track_sequence != self.local.track_sequence {
+            self.offline_hold_until = None;
+            self.failed_offline = false;
+            self.offline_resume = None;
+        }
         if let Some(error) = &state.error
             && self.local.error.as_deref() != Some(error.as_str())
         {
-            if error == crate::player::AUDIO_KEY_REFUSED && !self.audio_key_banner_closed {
+            let unavailable = error.starts_with("This item isn't available");
+            // Windows's hint, which the backend does not follow, still
+            // tells why tracks fail; it holds the session a while at most.
+            let hinted_offline = !self.follows_reachability && !self.power.conditions().online;
+            if unavailable && (!self.network_reachable || hinted_offline) {
+                // Without internet every track fails the same way and
+                // librespot skips on through the list. Nothing is wrong with
+                // the tracks or the session: say so once, and start a clean
+                // session where playback was when the network is back.
+                // The latest point before the skipping stops the player: a
+                // failed preload comes while the shown track still plays on.
+                if let Some(resume) = self.local_pickup(&state) {
+                    self.offline_resume = Some(resume);
+                }
+                if !self.failed_offline {
+                    self.failed_offline = true;
+                    if hinted_offline {
+                        self.offline_hold_until = Some(Instant::now() + OFFLINE_HINT_HOLD);
+                    }
+                    self.toast(gettext(self.locale, "You're offline"));
+                }
+            } else if error == crate::player::AUDIO_KEY_REFUSED && !self.audio_key_banner_closed {
                 // The banner explains it and says what still works.
                 self.audio_key_banner = true;
             } else {
@@ -3641,7 +3739,7 @@ impl App {
             // row is the session's audio-key service gone bad, which
             // leaves librespot feeding the decoder encrypted bytes and
             // skipping through the whole album. A fresh session cures it.
-            if error.starts_with("This item isn't available") {
+            if unavailable && !self.failed_offline {
                 let now = Instant::now();
                 self.unavailable_at
                     .retain(|at| now.duration_since(*at) < Duration::from_secs(20));
@@ -3653,7 +3751,9 @@ impl App {
                 {
                     self.unavailable_at.clear();
                     self.last_unavailable_reconnect = Some(now);
-                    self.backend.send(Command::Reconnect);
+                    self.backend.send(Command::Reconnect {
+                        resume: self.local_pickup(&state),
+                    });
                     self.toast(gettext(
                         self.locale,
                         "Spotify audio disconnected. Reconnecting local playback",
@@ -9680,6 +9780,24 @@ impl App {
         (!uris.is_empty()).then_some(uris)
     }
 
+    /// Whether every row of a context is loaded, so that its rows can show a
+    /// track is not in it.
+    fn context_loaded_whole(&self, context_uri: &str) -> bool {
+        if let Some(id) = context_uri.strip_prefix("spotify:playlist:") {
+            self.playlist_pages
+                .get(id)
+                .is_some_and(|page| page.items.is_complete())
+        } else if let Some(id) = context_uri.strip_prefix("spotify:album:") {
+            self.album_pages
+                .get(id)
+                .is_some_and(|page| page.tracks.is_complete())
+        } else if context_uri.ends_with(":collection") {
+            self.library.liked.is_complete()
+        } else {
+            false
+        }
+    }
+
     fn random_track_in(&self, context_uri: &str) -> Option<String> {
         let uris = self.context_track_uris(context_uri)?;
         Some(uris[rand::random_range(0..uris.len())].clone())
@@ -10279,6 +10397,71 @@ impl App {
             .map(|uri| (uri, request.position_ms));
         self.play_request(request, false);
         self.resume_load = expected;
+    }
+
+    /// Where local playback is, as a pickup for a new session: the track
+    /// and position from `local`, inside the list or the album or playlist
+    /// it plays from. A session replaced while it still runs hands over only
+    /// its track, so the app, which knows the rest, supplies this, with the
+    /// track by itself in case it proves not to be in that context.
+    fn local_pickup(&self, local: &LocalState) -> Option<Pickup> {
+        let interrupted = local.interrupted()?;
+        let track = interrupted.uri;
+        let finish = |mut load: LoadSpec| {
+            load.play = interrupted.playing;
+            load.repeat = Some(local.repeat);
+            load
+        };
+        // A song that has played out has nothing left to pick up: by itself
+        // it goes on to its radio, what Spotify follows it with. (Loading it
+        // for autoplay instead finds no context on a new session.)
+        let played_out = local.track.as_ref().is_some_and(|shown| {
+            shown.duration_ms > 0
+                && interrupted.position_ms.saturating_add(PLAYED_OUT_MS) >= shown.duration_ms
+        });
+        let radio = played_out
+            .then(|| crate::util::station_uri(&track))
+            .flatten();
+        let alone = finish(match radio {
+            Some(station) => LoadSpec {
+                context_uri: Some(station),
+                ..LoadSpec::default()
+            },
+            None => {
+                let mut request = PlayRequest::tracks(vec![track.clone()]);
+                request.position_ms = interrupted.position_ms;
+                local_load(&request, false)
+            }
+        });
+        // A track autoplay added is not in the context it followed, and
+        // librespot would start that context from its first track instead.
+        // Only a context loaded whole can show that: in a long playlist or
+        // Liked Songs loaded in part, the track may be further on, so the
+        // context is kept with the track by itself to fall back on.
+        let outside = |context: &str| {
+            self.context_loaded_whole(context)
+                && self
+                    .context_track_uris(context)
+                    .is_some_and(|rows| !rows.contains(&track))
+        };
+        let mut request = match (&self.local_list, self.playing_context_uri()) {
+            (Some(list), _) if list.contains(&track) => {
+                PlayRequest::tracks(list.clone()).starting_at_uri(track.clone())
+            }
+            (_, Some(context)) if !outside(&context) => {
+                PlayRequest::context(context).starting_at_uri(track.clone())
+            }
+            _ => {
+                return Some(Pickup {
+                    load: alone,
+                    alone: None,
+                });
+            }
+        };
+        request.position_ms = interrupted.position_ms;
+        let load = finish(local_load(&request, local.shuffle));
+        let alone = load.context_uri.is_some().then_some(alone);
+        Some(Pickup { load, alone })
     }
 
     fn toggle_play(&mut self) {
@@ -13634,9 +13817,23 @@ impl App {
             self.power
                 .set_background(budget == crate::power::Budget::Background);
         }
-        if self.follows_reachability && conditions.online != self.reachable {
+        if conditions.online != self.reachable {
             self.reachable = conditions.online;
-            self.backend.network_status(conditions.online);
+            if self.follows_reachability {
+                self.backend.network_status(conditions.online);
+            } else if conditions.online {
+                self.on_network_hint_returned();
+            }
+        }
+        // Windows's hint may say there is no internet where Spotify answers:
+        // after a while, music that failed while it said so picks up as if
+        // the network were back, without the notice a broken session gets.
+        if self
+            .offline_hold_until
+            .is_some_and(|until| Instant::now() >= until)
+        {
+            self.offline_hold_until = None;
+            self.pick_up_after_outage();
         }
         if crate::power::playback_needs_activity(&self.local) {
             self.playback_activity
@@ -13651,7 +13848,52 @@ impl App {
         for event in self.power.events() {
             use crate::power::Event;
             match event {
-                Event::Suspending(ack) | Event::EndingSession(ack) => {
+                Event::Suspending(ack) => {
+                    let seen = Instant::now();
+                    // Music playing here stops before the system sleeps and
+                    // waits at the same spot; another device plays on. The
+                    // power reader has had the backend pause the player
+                    // already, so this pause must not be a toggle. Whether
+                    // to wait for it goes by the player, not by what is
+                    // shown: a pause pressed a moment ago shows at once,
+                    // before the player has stopped; a play pressed a moment
+                    // ago is undone by this pause, sent after it.
+                    let player_playing = self.local.is_active()
+                        && matches!(self.local.playback, Playback::Playing | Playback::Loading);
+                    let pausing = player_playing
+                        || self
+                            .now_playing()
+                            .is_some_and(|now| now.playing && now.local);
+                    if pausing {
+                        self.backend.player(PlayerCommand::Pause);
+                        self.optimistic_playing = Some((false, Instant::now()));
+                    }
+                    // The position stops counting here: on Windows its clock
+                    // runs on through sleep and would carry it to the end of
+                    // the song by the time the system wakes.
+                    self.local.position_ms = self.local.position_now();
+                    self.local.position_at = None;
+                    self.save_state();
+                    self.plays.save(&self.files, &self.dirs.history_file());
+                    // The writes reach the disk before the system is told
+                    // to go ahead.
+                    self.files.flush(SUSPEND_FLUSH_TIMEOUT);
+                    if player_playing {
+                        // The backend answers once the player has paused:
+                        // an answer now lets the system sleep before the
+                        // pause reaches the player, which then picks it up
+                        // on waking, mid-write. Not a later pass here,
+                        // which may not run before the system stops
+                        // waiting once the display is off.
+                        self.backend.send(Command::AnswerSleep {
+                            ack,
+                            by: seen + SLEEP_ANSWER_WAIT,
+                        });
+                    } else {
+                        ack.done();
+                    }
+                }
+                Event::EndingSession(ack) => {
                     self.save_state();
                     self.plays.save(&self.files, &self.dirs.history_file());
                     // The system may stop for good after this: the writes
@@ -13660,7 +13902,24 @@ impl App {
                     self.files.flush(SUSPEND_FLUSH_TIMEOUT);
                     ack.done();
                 }
-                Event::Resumed => {}
+                Event::Resumed => {
+                    // Noted by the reader as the system said it was going
+                    // to sleep, however late this pass got to it.
+                    let asleep = self
+                        .power
+                        .take_suspended_at()
+                        .and_then(|at| at.elapsed().ok());
+                    // Music here was paused for the sleep and stays paused.
+                    let resume = self.local_pickup(&self.local).map(|mut pickup| {
+                        pickup.load.play = false;
+                        if let Some(alone) = &mut pickup.alone {
+                            alone.play = false;
+                        }
+                        pickup
+                    });
+                    self.backend.send(Command::SystemResumed { asleep, resume });
+                    self.poll_remote_soon();
+                }
             }
         }
     }
@@ -13692,7 +13951,11 @@ impl App {
         let pushed = self
             .remote_push_due()
             .map(|due| due.saturating_duration_since(Instant::now()));
-        [playing, pending, polling, pushed]
+        // The end of a hold on Windows's offline hint.
+        let offline_hold = self
+            .offline_hold_until
+            .map(|until| until.saturating_duration_since(Instant::now()));
+        [playing, pending, polling, pushed, offline_hold]
             .into_iter()
             .flatten()
             .min()
@@ -26788,6 +27051,520 @@ mod tests {
             app.last_session_save.elapsed() < SESSION_REFRESH,
             "saved again"
         );
+    }
+
+    /// Before the system sleeps, music playing here pauses and the session
+    /// is saved, and only then is the system told to go ahead. Music on
+    /// another device plays on.
+    #[test]
+    fn sleeping_pauses_local_music_and_answers_the_system() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.local.position_ms = 60_000;
+        app.local.position_at = Some(Instant::now());
+        app.power
+            .send(crate::power::Event::Suspending(crate::power::Ack::default()));
+        let ctx = egui::Context::default();
+        let pass = |app: &mut App| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.background_frame(ui.ctx());
+            });
+            output.textures_delta.clear();
+        };
+        let before = Instant::now();
+        pass(&mut app);
+        assert!(!app.now_playing().is_some_and(|now| now.playing));
+        assert!(
+            app.backend
+                .take_player_commands()
+                .contains(&PlayerCommand::Pause),
+            "a pause, not a toggle: the backend pauses as well"
+        );
+        assert_eq!(app.local.position_at, None, "the position stops counting");
+        let answers = app.backend.take_sleep_answers();
+        let [by] = answers.as_slice() else {
+            panic!("the backend answers once the player has paused, got {answers:?}");
+        };
+        assert!(
+            *by >= before + SLEEP_ANSWER_WAIT,
+            "not before the player has had its time to pause"
+        );
+        assert!(
+            *by <= Instant::now() + SLEEP_ANSWER_WAIT,
+            "within the time the system waits"
+        );
+    }
+
+    /// On waking, playback here picks up paused where it stopped, however
+    /// long the system slept.
+    #[test]
+    fn waking_picks_up_paused_where_the_music_stopped() {
+        let mut app = headless_app();
+        app.local = playing_in_an_album(&mut app);
+        app.local.position_at = Some(Instant::now());
+        let ctx = egui::Context::default();
+        let pass = |app: &mut App| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.background_frame(ui.ctx());
+            });
+            output.textures_delta.clear();
+        };
+        app.power
+            .send(crate::power::Event::Suspending(crate::power::Ack::default()));
+        pass(&mut app);
+        app.power.send(crate::power::Event::Resumed);
+        pass(&mut app);
+        let resumes = app.backend.take_system_resumes();
+        let [Some(pickup)] = resumes.as_slice() else {
+            panic!("one wake-up with a resume point, got {resumes:?}");
+        };
+        assert_eq!(pickup.load.context_uri.as_deref(), Some("spotify:album:a"));
+        assert!((119_000..121_000).contains(&pickup.load.position_ms));
+        assert!(!pickup.load.play, "it stays paused");
+        assert!(pickup.alone.as_ref().is_some_and(|alone| !alone.play));
+    }
+
+    /// With nothing playing here there is nothing to wait for.
+    #[test]
+    fn with_nothing_playing_here_sleep_is_answered_at_once() {
+        let mut app = headless_app();
+        let ack = crate::power::Ack::default();
+        app.power.send(crate::power::Event::Suspending(ack.clone()));
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.background_frame(ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert!(ack.is_done(), "answered at once");
+        assert!(
+            app.backend.take_sleep_answers().is_empty(),
+            "answered at once, not handed to the backend"
+        );
+    }
+
+    /// A pause pressed a moment before the system sleeps shows at once,
+    /// while the player may still be playing: the system waits for the
+    /// player, not for what is shown.
+    #[test]
+    fn a_pause_pressed_just_before_sleep_still_waits_for_the_player() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.optimistic_playing = Some((false, Instant::now()));
+        assert!(
+            !app.now_playing().is_some_and(|now| now.playing),
+            "shown paused"
+        );
+        app.power
+            .send(crate::power::Event::Suspending(crate::power::Ack::default()));
+        let ctx = egui::Context::default();
+        let pass = |app: &mut App| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.background_frame(ui.ctx());
+            });
+            output.textures_delta.clear();
+        };
+        pass(&mut app);
+        assert_eq!(
+            app.backend.take_sleep_answers().len(),
+            1,
+            "the backend waits for the player, not for what is shown"
+        );
+    }
+
+    /// Local playback inside an album, as a failing load leaves it: the
+    /// shown track keeps its place while librespot tries the next one.
+    fn playing_in_an_album(app: &mut App) -> LocalState {
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:album:a".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+        LocalState {
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:shown".into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            }),
+            position_ms: 119_000,
+            connected: true,
+            ..LocalState::default()
+        }
+    }
+
+    fn unavailable(state: &LocalState, uri: &str) -> LocalState {
+        LocalState {
+            error: Some(format!("This item isn't available: {uri}")),
+            ..state.clone()
+        }
+    }
+
+    /// Without internet every track fails and librespot skips on. That is
+    /// said once, the session is left alone, and once the network is back
+    /// a clean session picks up in the album, at the track and position
+    /// shown when the last load failed.
+    #[test]
+    fn tracks_that_fail_offline_wait_for_the_network() {
+        let mut app = headless_app();
+        let playing = playing_in_an_album(&mut app);
+        app.handle_local(playing.clone());
+        app.toasts.clear();
+        app.handle_backend_events(vec![Event::NetworkStatus(false)]);
+        for uri in ["spotify:track:b", "spotify:track:c", "spotify:track:d"] {
+            app.handle_local(unavailable(&playing, uri));
+        }
+        assert_eq!(app.toasts.len(), 1, "said once: {:?}", app.toasts);
+        assert!(
+            app.backend.take_reconnects().is_empty(),
+            "left alone offline"
+        );
+
+        // The skipping ran out of tracks and stopped the player.
+        app.handle_local(LocalState {
+            playback: Playback::Stopped,
+            position_ms: 0,
+            ..playing.clone()
+        });
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+        let reconnects = app.backend.take_reconnects();
+        let [Some(pickup)] = reconnects.as_slice() else {
+            panic!("one reconnect with a resume point, got {reconnects:?}");
+        };
+        let resume = &pickup.load;
+        assert_eq!(resume.context_uri.as_deref(), Some("spotify:album:a"));
+        assert_eq!(resume.offset_uri.as_deref(), Some("spotify:track:shown"));
+        assert_eq!(resume.position_ms, 119_000);
+        assert!(resume.play);
+        let alone = pickup
+            .alone
+            .as_ref()
+            .expect("in case it is not in the album");
+        assert_eq!(alone.context_uri.as_deref(), Some("spotify:track:shown"));
+        assert_eq!(alone.position_ms, 119_000);
+        assert!(alone.play && !alone.autoplay);
+
+        // Another outage with nothing failing asks for no new session: the
+        // backend brings forward a dropped one's next try by itself.
+        app.handle_backend_events(vec![Event::NetworkStatus(false)]);
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+        assert!(app.backend.take_reconnects().is_empty());
+    }
+
+    /// What failed offline belongs to the account that played it: after
+    /// signing out, the network's return picks nothing up for the next one.
+    #[test]
+    fn signing_out_forgets_what_failed_offline() {
+        let mut app = headless_app();
+        let playing = playing_in_an_album(&mut app);
+        app.handle_local(playing.clone());
+        app.handle_backend_events(vec![Event::NetworkStatus(false)]);
+        for uri in ["spotify:track:b", "spotify:track:c"] {
+            app.handle_local(unavailable(&playing, uri));
+        }
+        assert!(app.failed_offline);
+
+        app.handle_auth(AuthStatus::SignedOut);
+        app.handle_backend_events(vec![Event::NetworkStatus(true)]);
+        assert!(
+            app.backend.take_reconnects().is_empty(),
+            "picked up the last account's music"
+        );
+    }
+
+    /// A track autoplay added after the album is not in it: asked to start
+    /// the album there, librespot would start it from its first track. The
+    /// track comes back by itself, and autoplay follows it again.
+    #[test]
+    fn an_autoplay_track_is_picked_up_by_itself() {
+        let mut app = headless_app();
+        let mut playing = playing_in_an_album(&mut app);
+        app.album_pages.insert(
+            "a".into(),
+            AlbumPage {
+                tracks: PagedList {
+                    items: ["one", "two"].into_iter().map(album_queue_track).collect(),
+                    loaded_once: true,
+                    next_offset: None,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let pickup = app.local_pickup(&playing).expect("playing");
+        assert_eq!(
+            pickup.load.context_uri.as_deref(),
+            Some("spotify:track:shown")
+        );
+        assert_eq!(pickup.load.offset_uri, None);
+        assert_eq!(pickup.load.position_ms, 119_000);
+        assert_eq!(pickup.alone, None, "it is by itself already");
+
+        playing.track.as_mut().unwrap().uri = "spotify:track:two".into();
+        let pickup = app.local_pickup(&playing).expect("playing");
+        assert_eq!(pickup.load.context_uri.as_deref(), Some("spotify:album:a"));
+        assert_eq!(pickup.load.offset_uri.as_deref(), Some("spotify:track:two"));
+    }
+
+    /// Rows loaded in part cannot show a track is not in its context: it
+    /// may be further on. The context is kept, with the track by itself to
+    /// fall back on if the new session starts somewhere else.
+    #[test]
+    fn a_track_beyond_the_loaded_rows_keeps_its_context() {
+        let mut app = headless_app();
+        let playing = playing_in_an_album(&mut app);
+        app.album_pages.insert(
+            "a".into(),
+            AlbumPage {
+                tracks: PagedList {
+                    items: ["one", "two"].into_iter().map(album_queue_track).collect(),
+                    loaded_once: true,
+                    next_offset: Some(2),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let pickup = app.local_pickup(&playing).expect("playing");
+        assert_eq!(pickup.load.context_uri.as_deref(), Some("spotify:album:a"));
+        assert_eq!(
+            pickup.load.offset_uri.as_deref(),
+            Some("spotify:track:shown")
+        );
+        assert_eq!(
+            pickup
+                .alone
+                .as_ref()
+                .and_then(|alone| alone.context_uri.as_deref()),
+            Some("spotify:track:shown"),
+            "by itself if it is not there after all"
+        );
+    }
+
+    /// A song that played out while the next could not load has nothing
+    /// left to pick up. In its album the next track follows; by itself, its
+    /// radio, what Spotify follows it with.
+    #[test]
+    fn a_played_out_song_is_followed_rather_than_ended_again() {
+        let mut app = headless_app();
+        let mut playing = playing_in_an_album(&mut app);
+        playing.position_ms = 200_000;
+        let pickup = app.local_pickup(&playing).expect("playing");
+        assert_eq!(pickup.load.context_uri.as_deref(), Some("spotify:album:a"));
+        assert_eq!(pickup.load.position_ms, 200_000, "the album moves on");
+        let alone = pickup.alone.expect("in case it is not in the album");
+        assert_eq!(
+            alone.context_uri.as_deref(),
+            Some("spotify:station:track:shown")
+        );
+        assert!(alone.play && !alone.autoplay);
+        assert_eq!(alone.position_ms, 0);
+    }
+
+    /// With the network up, tracks failing in a row mean a broken session.
+    /// The new one picks up in the album, not with the lone track.
+    #[test]
+    fn unavailable_tracks_online_reconnect_with_their_context() {
+        let mut app = headless_app();
+        let playing = playing_in_an_album(&mut app);
+        app.handle_local(playing.clone());
+        for uri in ["spotify:track:b", "spotify:track:c", "spotify:track:d"] {
+            app.handle_local(unavailable(&playing, uri));
+        }
+        let reconnects = app.backend.take_reconnects();
+        let [Some(pickup)] = reconnects.as_slice() else {
+            panic!("one reconnect with a resume point, got {reconnects:?}");
+        };
+        let resume = &pickup.load;
+        assert_eq!(resume.context_uri.as_deref(), Some("spotify:album:a"));
+        assert_eq!(resume.offset_uri.as_deref(), Some("spotify:track:shown"));
+        assert_eq!(resume.position_ms, 119_000);
+    }
+
+    /// Playing in an album as on Windows, where the backend does not follow
+    /// the system's hint on the internet: the hint goes, and three tracks
+    /// fail. Returns the state they failed from.
+    fn failing_under_a_windows_offline_hint(app: &mut App, ctx: &egui::Context) -> LocalState {
+        app.follows_reachability = false;
+        let playing = playing_in_an_album(app);
+        app.handle_local(playing.clone());
+        app.toasts.clear();
+        change_power(app, |conditions| conditions.online = false);
+        app.sync_power(ctx);
+        for uri in ["spotify:track:b", "spotify:track:c", "spotify:track:d"] {
+            app.handle_local(unavailable(&playing, uri));
+        }
+        playing
+    }
+
+    fn assert_picked_up_in_the_album(reconnects: &[Option<Pickup>]) {
+        let [Some(pickup)] = reconnects else {
+            panic!("one reconnect with a resume point, got {reconnects:?}");
+        };
+        let resume = &pickup.load;
+        assert_eq!(resume.context_uri.as_deref(), Some("spotify:album:a"));
+        assert_eq!(resume.offset_uri.as_deref(), Some("spotify:track:shown"));
+        assert_eq!(resume.position_ms, 119_000);
+        assert!(resume.play);
+    }
+
+    /// Windows's hint that there is no internet is said once and leaves the
+    /// session alone, though the backend never hears of it. When the hint
+    /// comes back, a clean session picks up in the album at the same track
+    /// and position, and a session waiting for its next try hurries.
+    #[test]
+    fn a_windows_offline_hint_waits_and_picks_up_when_it_returns() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let playing = failing_under_a_windows_offline_hint(&mut app, &ctx);
+        assert_eq!(app.toasts.len(), 1, "said once: {:?}", app.toasts);
+        assert!(app.backend.take_reconnects().is_empty(), "left alone");
+
+        app.handle_local(LocalState {
+            playback: Playback::Stopped,
+            position_ms: 0,
+            ..playing
+        });
+        change_power(&app, |conditions| conditions.online = true);
+        app.sync_power(&ctx);
+        assert_picked_up_in_the_album(&app.backend.take_reconnects());
+        assert_eq!(app.backend.take_network_returns(), 1);
+        assert_eq!(app.offline_hold_until, None);
+        assert!(
+            app.backend.take_network_statuses().is_empty(),
+            "the backend never waits for Windows's hint"
+        );
+    }
+
+    /// Windows's hint can say there is no internet where Spotify answers
+    /// (a proxy, a blocked check), so it holds the session a minute at
+    /// most. Then a clean session picks up where playback was, without the
+    /// notice a broken session gets, and the logic runs in time for it.
+    #[test]
+    fn a_windows_offline_hint_holds_the_session_a_minute_at_most() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let playing = failing_under_a_windows_offline_hint(&mut app, &ctx);
+        app.handle_local(LocalState {
+            playback: Playback::Stopped,
+            position_ms: 0,
+            ..playing
+        });
+        let held = app.offline_hold_until.expect("held");
+        assert!(held <= Instant::now() + OFFLINE_HINT_HOLD);
+        assert!(
+            app.next_pass()
+                .is_some_and(|due| due > Duration::from_secs(50) && due <= OFFLINE_HINT_HOLD),
+            "the next pass comes when the hold ends: {:?}",
+            app.next_pass()
+        );
+        app.sync_power(&ctx);
+        assert!(
+            app.backend.take_reconnects().is_empty(),
+            "within the minute"
+        );
+
+        // The minute is up and Windows still says there is no internet.
+        app.offline_hold_until = Some(Instant::now());
+        app.sync_power(&ctx);
+        assert_picked_up_in_the_album(&app.backend.take_reconnects());
+        assert_eq!(app.toasts.len(), 1, "only the offline notice");
+        assert_eq!(app.offline_hold_until, None);
+        assert!(!app.failed_offline);
+
+        // Nothing is picked up twice when the hint comes back.
+        change_power(&app, |conditions| conditions.online = true);
+        app.sync_power(&ctx);
+        assert!(app.backend.take_reconnects().is_empty());
+    }
+
+    /// A track that loads while Windows says there is no internet shows the
+    /// hint is wrong: the hold is lifted, and the music playing is left
+    /// alone when the hint comes back.
+    #[test]
+    fn a_track_that_plays_lifts_the_offline_hold() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let playing = failing_under_a_windows_offline_hint(&mut app, &ctx);
+        assert!(app.offline_hold_until.is_some());
+
+        app.handle_local(LocalState {
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:e".into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            }),
+            track_sequence: playing.track_sequence + 1,
+            position_ms: 0,
+            ..playing
+        });
+        assert_eq!(app.offline_hold_until, None);
+        assert!(!app.failed_offline);
+
+        change_power(&app, |conditions| conditions.online = true);
+        app.sync_power(&ctx);
+        assert!(
+            app.backend.take_reconnects().is_empty(),
+            "replaced the session that plays"
+        );
+    }
+
+    /// Windows's hint coming back hurries a session waiting for its next
+    /// try, once each time; the backend is never told of it. Where the app
+    /// follows the system's word (macOS), the backend is told instead.
+    #[test]
+    fn the_windows_hint_coming_back_hurries_a_waiting_session() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.follows_reachability = false;
+        change_power(&app, |conditions| conditions.online = false);
+        app.sync_power(&ctx);
+        app.sync_power(&ctx);
+        assert_eq!(app.backend.take_network_returns(), 0);
+        change_power(&app, |conditions| conditions.online = true);
+        app.sync_power(&ctx);
+        app.sync_power(&ctx);
+        assert_eq!(app.backend.take_network_returns(), 1);
+        assert!(app.backend.take_network_statuses().is_empty());
+
+        app.follows_reachability = true;
+        change_power(&app, |conditions| conditions.online = false);
+        app.sync_power(&ctx);
+        change_power(&app, |conditions| conditions.online = true);
+        app.sync_power(&ctx);
+        assert_eq!(app.backend.take_network_returns(), 0);
+        assert_eq!(app.backend.take_network_statuses(), [false, true]);
+    }
+
+    /// Linux says nothing about the internet, which reads as online: three
+    /// tracks failing in a row still replace the session, with its notice.
+    #[test]
+    fn without_a_hint_three_failing_tracks_still_replace_the_session() {
+        let mut app = headless_app();
+        app.follows_reachability = false;
+        let playing = playing_in_an_album(&mut app);
+        app.handle_local(playing.clone());
+        app.toasts.clear();
+        for uri in ["spotify:track:b", "spotify:track:c", "spotify:track:d"] {
+            app.handle_local(unavailable(&playing, uri));
+        }
+        assert_eq!(app.backend.take_reconnects().len(), 1);
+        let notice = gettext(
+            app.locale,
+            "Spotify audio disconnected. Reconnecting local playback",
+        );
+        assert!(app.toasts.iter().any(|toast| toast.message == notice));
+        assert_eq!(app.offline_hold_until, None);
+        assert!(!app.failed_offline);
     }
 
     /// eframe runs only the logic of a hidden, minimised or occluded window,
