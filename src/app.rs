@@ -14931,6 +14931,12 @@ impl App {
 
     /// Final teardown at real quit.
     pub fn shutdown(&mut self) {
+        // Quit on a trip from a skin: the next start opens the mini player,
+        // not the main window the trip borrowed.
+        if std::mem::take(&mut self.skin_return) {
+            self.settings.winamp_window = true;
+            self.settings_dirty = true;
+        }
         self.save_state();
         self.flush_files();
         self.backend.shutdown();
@@ -26580,6 +26586,19 @@ mod tests {
         assert!(!app.skin_return);
         assert_eq!(app.settings.skin.as_deref(), Some("mine"));
         assert!(!app.milkdrop_backdrop, "and the art is the default again");
+    }
+
+    /// Quitting in the middle of the trip counts as having gone home.
+    #[test]
+    fn quitting_on_a_trip_from_a_skin_opens_the_mini_player_next() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("milkdrop-trip-quit");
+        app.settings.winamp_window = true;
+        app.actions.push(Action::MilkdropFullscreen);
+        app.apply_actions(&ctx);
+        assert!(!app.settings.winamp_window);
+        app.shutdown();
+        assert!(app.settings.winamp_window);
     }
 
     /// In the main window the key flips the backdrop and it is remembered; a
