@@ -10616,6 +10616,8 @@ impl App {
     }
 
     fn set_repeat(&mut self, mode: RepeatMode) {
+        // Next up leaves Spotify's padding out only with Repeat off.
+        self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
         match self.target() {
             Target::Local => {
                 self.local.repeat = mode;
@@ -19469,7 +19471,9 @@ mod tests {
         );
 
         app.manual_queue.clear();
-        app.local.repeat = RepeatMode::Context;
+        app.queue_recheck_at = None;
+        app.set_repeat(RepeatMode::Context);
+        assert!(app.queue_recheck_at.is_some(), "Next up is fetched again");
         assert_eq!(
             answer(&mut app, &[a; 10]),
             vec![a; 10],
