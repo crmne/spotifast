@@ -763,6 +763,16 @@ mod pipewire {
         unowned: AtomicU32,
         /// Cycles when the input's callback got no audio at all.
         input_empty: AtomicU32,
+        /// Input blocks smaller than the output's cycle, and the smallest.
+        /// Nothing else sees these: such a cycle has input, and it isn't zero.
+        short_inputs: AtomicU32,
+        smallest_input: AtomicUsize,
+        /// Frames in at the input's rate, and out at the output's: what the
+        /// two streams really moved, which a steady deficit shows up in.
+        frames_in: AtomicU32,
+        frames_out: AtomicU32,
+        /// Frames of silence rendered while holding for the margin.
+        held_frames: AtomicU32,
         /// Runs of silence inside the sound: missing before our ring.
         input_gaps: AtomicU32,
         input_gap_frames: AtomicU32,
@@ -794,6 +804,11 @@ mod pipewire {
                 skipped_frames: AtomicU32::new(0),
                 unowned: AtomicU32::new(0),
                 input_empty: AtomicU32::new(0),
+                short_inputs: AtomicU32::new(0),
+                smallest_input: AtomicUsize::new(usize::MAX),
+                frames_in: AtomicU32::new(0),
+                frames_out: AtomicU32::new(0),
+                held_frames: AtomicU32::new(0),
                 input_gaps: AtomicU32::new(0),
                 input_gap_frames: AtomicU32::new(0),
                 cycles_without_input: AtomicU32::new(0),
@@ -865,6 +880,11 @@ mod pipewire {
                 skipped_frames: take(&self.skipped_frames),
                 unowned: take(&self.unowned),
                 input_empty: take(&self.input_empty),
+                short_inputs: take(&self.short_inputs),
+                smallest_input: self.smallest_input.swap(usize::MAX, Ordering::Relaxed),
+                frames_in: take(&self.frames_in),
+                frames_out: take(&self.frames_out),
+                held_frames: take(&self.held_frames),
                 input_gaps: take(&self.input_gaps),
                 input_gap_frames: take(&self.input_gap_frames),
                 cycles_without_input: take(&self.cycles_without_input),
@@ -885,6 +905,11 @@ mod pipewire {
         skipped_frames: u32,
         unowned: u32,
         input_empty: u32,
+        short_inputs: u32,
+        smallest_input: usize,
+        frames_in: u32,
+        frames_out: u32,
+        held_frames: u32,
         input_gaps: u32,
         input_gap_frames: u32,
         cycles_without_input: u32,
@@ -904,6 +929,7 @@ mod pipewire {
                 && self.unowned == 0
                 && self.input_empty == 0
                 && self.input_gaps == 0
+                && self.short_inputs == 0
             {
                 return None;
             }
@@ -912,11 +938,16 @@ mod pipewire {
                 usize::MAX => "no reads".to_owned(),
                 low => format!("{} ms", ms(low as u64)),
             };
+            let smallest = match self.smallest_input {
+                usize::MAX => 0,
+                smallest => smallest,
+            };
             Some(format!(
                 "Soloist audio, last {} s: {} short reads ({} ms silent), {} chain lock misses, \
                  {} ring overflows, {} ms skipped, {} unowned blocks dropped, {} input gaps \
-                 ({} ms), {} empty inputs, {} cycles without input, lowest margin {low}, \
-                 quantum {}",
+                 ({} ms), {} empty inputs, {} short inputs (smallest {smallest}), \
+                 {} cycles without input, lowest margin {low}, quantum {}, \
+                 {} frames in, {} out, {} ms held",
                 REPORT_EVERY.as_secs(),
                 self.short_reads,
                 ms(u64::from(self.short_frames)),
@@ -927,8 +958,12 @@ mod pipewire {
                 self.input_gaps,
                 ms(u64::from(self.input_gap_frames)),
                 self.input_empty,
+                self.short_inputs,
                 self.cycles_without_input,
                 self.quantum,
+                self.frames_in,
+                self.frames_out,
+                ms(u64::from(self.held_frames)),
             ))
         }
     }
@@ -1273,9 +1308,19 @@ mod pipewire {
                 return;
             }
             let rate = self.input_rate.load(Ordering::Relaxed);
+            let frames = stereo / 2;
+            let cycle = self.stats.quantum.load(Ordering::Relaxed) as u64 * u64::from(rate)
+                / u64::from(self.stats.rate.load(Ordering::Relaxed).max(1));
+            if frames > 0 && (frames as u64) < cycle {
+                Stats::add(&self.stats.short_inputs, 1);
+                self.stats
+                    .smallest_input
+                    .fetch_min(frames, Ordering::Relaxed);
+            }
             if self.stats.is_hole(&samples[..stereo], rate) {
                 return;
             }
+            Stats::add(&self.stats.frames_in, frames);
             if !self.ring.write(&samples[..stereo]) {
                 Stats::add(&self.stats.overflows, 1);
                 self.flush.store(true, Ordering::Release);
@@ -1299,6 +1344,12 @@ mod pipewire {
             self.stats.quantum.store(frames, Ordering::Relaxed);
             self.stats.rate.store(chain.output_rate, Ordering::Relaxed);
             let play = chain.pace(frames, &self.stats);
+            let moved = if play {
+                &self.stats.frames_out
+            } else {
+                &self.stats.held_frames
+            };
+            Stats::add(moved, frames);
             for block in bytes.chunks_mut(CHUNK * 4) {
                 chain.block(block, percent, play);
             }
@@ -2706,6 +2757,8 @@ mod pipewire {
             };
             let odds = number("SOLOIST_STAND_IN_ODDS", 8);
             let most = number("SOLOIST_STAND_IN_MS", 40);
+            // One buffer in this many carries half what was asked for.
+            let partial = number("SOLOIST_STAND_IN_PARTIAL", 0);
             pw::init();
             let mainloop = pw::main_loop::MainLoopRc::new(None).unwrap();
             let context = pw::context::ContextRc::new(&mainloop, None).unwrap();
@@ -2746,6 +2799,11 @@ mod pipewire {
                             (bytes.len() / 8).min(1024)
                         } else {
                             requested.min(bytes.len() / 8)
+                        };
+                        let frames = if partial > 0 && (random >> 32) % partial == 0 {
+                            frames / 2
+                        } else {
+                            frames
                         };
                         size = frames * 8;
                         for out in bytes[..size].as_chunks_mut::<8>().0 {
