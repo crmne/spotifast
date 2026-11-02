@@ -73,15 +73,31 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 Action::ToggleQueuePanel,
             );
         }
+        let sidebar_hovered = app.settings.sidebar_visible
+            && app.lyrics_fullscreen.is_none()
+            && ctx
+                .pointer_latest_pos()
+                .zip(ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("sidebar-rect"))))
+                .is_some_and(|(pointer, rect)| rect.contains(pointer));
         let playlist_page = matches!(app.page(), Page::Playlist(_));
-        if input.consume_key(Modifiers::COMMAND, Key::F) {
-            if playlist_page {
+        let mut focus_local_search = || {
+            if sidebar_hovered {
+                ctx.data_mut(|data| {
+                    data.insert_temp(egui::Id::new("sidebar-show-search"), true);
+                });
+                ctx.memory_mut(|memory| {
+                    memory.request_focus(egui::Id::new("sidebar-search"));
+                });
+            } else if playlist_page {
                 ctx.memory_mut(|memory| {
                     memory.request_focus(egui::Id::new("collection-filter"));
                 });
             } else {
                 actions.push(Action::FocusSearch);
             }
+        };
+        if input.consume_key(Modifiers::COMMAND, Key::F) {
+            focus_local_search();
         }
         key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
@@ -158,13 +174,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             }
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
             if input.consume_key(Modifiers::NONE, Key::Slash) {
-                if playlist_page {
-                    ctx.memory_mut(|memory| {
-                        memory.request_focus(egui::Id::new("collection-filter"));
-                    });
-                } else {
-                    actions.push(Action::FocusSearch);
-                }
+                focus_local_search();
             }
             key(
                 Modifiers::NONE,
