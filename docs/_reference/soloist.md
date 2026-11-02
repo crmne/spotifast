@@ -168,7 +168,15 @@ The existing equalizer, spectrum, oscilloscope and MilkDrop work on this route.
 The equalizer runs at the output's negotiated sample rate; the visualization
 copy is converted to 44.1 kHz. Visualizers receive audio after EQ and before
 volume, so zero volume still animates. Spotify's reported volume controls the
-final output gain, including changes made from another Spotify client.
+final output gain, including changes made from another Spotify client. A slider
+moved in Spotifast or a skin is heard at once, and Soloist is told behind it.
+
+The route holds about 60 ms of audio, or two graph cycles if those are longer,
+so a late wake-up in Soloist doesn't become a dropout. The clock and lyrics
+allow for that delay. While Soloist plays, Spotifast asks rtkit, or failing
+that the system's nice limit, to raise the priority of its audio threads to
+nice -11. Anything that goes wrong on the route is counted and goes to
+`spotifast.log` at most every 10 seconds.
 
 The route uses native PipeWire streams and the system's default output. It
 needs no extra command-line tools, virtual audio driver, or persistent audio
