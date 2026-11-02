@@ -1785,6 +1785,18 @@ impl App {
             .filter(|remote| remote.received_at.elapsed() < REMOTE_FRESH)
     }
 
+    /// Playback on another device, playing or holding a song to resume. The
+    /// Web API reports a Sonos without its device id.
+    fn remote_elsewhere(&self) -> Option<&RemoteSnapshot> {
+        self.remote_fresh().filter(|remote| {
+            let device = remote.state.device.as_ref();
+            let is_local = device
+                .and_then(|device| device.id.as_deref())
+                .is_some_and(|id| Some(id) == self.local_device_id.as_deref());
+            !is_local && (remote.state.is_playing || remote.state.item.is_some())
+        })
+    }
+
     /// Where playback commands go: this computer's player or a remote device.
     pub fn target(&self) -> Target {
         if self.local_ready && self.local.is_active() {
@@ -1795,14 +1807,9 @@ impl App {
         {
             return Target::Remote(Some(selected.clone()));
         }
-        if let Some(remote) = self.remote_fresh() {
+        if let Some(remote) = self.remote_elsewhere() {
             let device = remote.state.device.as_ref();
-            let is_local = device
-                .and_then(|device| device.id.as_deref())
-                .is_some_and(|id| Some(id) == self.local_device_id.as_deref());
-            if !is_local && (remote.state.is_playing || remote.state.item.is_some()) {
-                return Target::Remote(device.and_then(|device| device.id.clone()));
-            }
+            return Target::Remote(device.and_then(|device| device.id.clone()));
         }
         if self.local_ready {
             Target::Local
@@ -9725,7 +9732,13 @@ impl App {
         if let Some(uri) = self.random_track_in(context_uri) {
             return (Some(uri), None);
         }
-        if matches!(self.target(), Target::Remote(Some(_)))
+        // A remote device without an id, a Sonos, plays through the Web API
+        // too; with neither, the play waits for this computer's player.
+        let web_api = match self.target() {
+            Target::Local => false,
+            Target::Remote(device_id) => device_id.is_some() || self.remote_elsewhere().is_some(),
+        };
+        if web_api
             && let Some(len) = self.context_len(context_uri)
             && len > 0
         {
@@ -9887,27 +9900,7 @@ impl App {
                 }
                 self.optimistic_playing = Some((true, Instant::now()));
             }
-            Target::Remote(Some(device_id)) => {
-                self.queued_play = None;
-                if shuffle {
-                    self.backend.api(ApiRequest::ShufflePlay {
-                        device_id: Some(device_id),
-                        play: request,
-                    });
-                } else {
-                    self.backend.api(ApiRequest::Remote {
-                        action: RemoteAction::Play,
-                        device_id: Some(device_id),
-                        play: Some(request),
-                        position_ms: 0,
-                        percent: 0,
-                        flag: false,
-                        repeat: String::new(),
-                    });
-                }
-                self.optimistic_playing = Some((true, Instant::now()));
-            }
-            Target::Remote(None) => {
+            Target::Remote(None) if self.remote_elsewhere().is_none() => {
                 // No remote device is active, and this computer's player is
                 // not ready. Never ask Spotify to play "nowhere": either
                 // wait for the connecting engine or ask for a device.
@@ -9931,6 +9924,28 @@ impl App {
                     self.show_devices = true;
                     self.refresh_devices();
                 }
+            }
+            // With no id, the play names no device and goes to the one
+            // playing, which a Sonos is.
+            Target::Remote(device_id) => {
+                self.queued_play = None;
+                if shuffle {
+                    self.backend.api(ApiRequest::ShufflePlay {
+                        device_id,
+                        play: request,
+                    });
+                } else {
+                    self.backend.api(ApiRequest::Remote {
+                        action: RemoteAction::Play,
+                        device_id,
+                        play: Some(request),
+                        position_ms: 0,
+                        percent: 0,
+                        flag: false,
+                        repeat: String::new(),
+                    });
+                }
+                self.optimistic_playing = Some((true, Instant::now()));
             }
         }
     }
@@ -30862,6 +30877,44 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[test]
+    fn a_play_goes_to_remote_playback_without_a_device_id() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local_ready = false;
+        app.local_playback = LocalPlayback::Unavailable;
+        app.selected_device = None;
+        app.remote
+            .as_mut()
+            .unwrap()
+            .state
+            .device
+            .as_mut()
+            .unwrap()
+            .id = None;
+        assert!(matches!(app.target(), Target::Remote(None)));
+
+        app.play_request(PlayRequest::context("spotify:playlist:pl0"), false);
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id: None,
+                play: Some(play),
+                ..
+            }] if play.context_uri.as_deref() == Some("spotify:playlist:pl0")
+        ));
+        assert!(app.queued_play.is_none());
+        assert!(app.toasts.is_empty(), "the device playing is the one asked");
+
+        app.play_request(PlayRequest::context("spotify:playlist:pl0"), true);
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::ShufflePlay { device_id: None, .. }]
+        ));
+        app.backend.shutdown();
+    }
+
     fn remote_volume_app() -> App {
         let mut app = headless_app();
         crate::demo::populate(&mut app);
@@ -32537,6 +32590,20 @@ mod tests {
             (None, None),
             "librespot is left to draw its own"
         );
+
+        // A Sonos the Web API reports without an id needs the offset too.
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(crate::api::models::Device::default()),
+                is_playing: true,
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        assert!(matches!(app.target(), Target::Remote(None)));
+        let (_, position) = app.shuffle_start("spotify:playlist:unopened");
+        assert!(position.is_some_and(|position| position < 57));
     }
 
     /// A failed refresh retains visible cards and stale responses cannot replace them.

@@ -531,9 +531,9 @@ resume, skip, seek, shuffle, repeat, queue) and volume, all sent from this
 computer's Connect device to that one. This needs local playback enabled,
 because the session belongs to it. Playback state is still read from the Web
 API, which reports a restricted device while it plays. It may report a Sonos
-without its device id, so a command naming no device goes to the device the
-session's Connect cluster names as playing, which the session knows from the
-moment it connects.
+without its device id. Commands for it, starting a song or playlist included,
+then name no device and go to the device the session's Connect cluster names
+as playing, which the session knows from the moment it connects.
 
 Spotify does not always report a restricted device as such, for example a
 Sonos that another app is already steering when Spotifast starts. When the Web
