@@ -112,6 +112,7 @@ pub enum Paint {
     },
     Effects {
         area: Box2,
+        alpha: u8,
         clip: Clip,
     },
     /// The cover art, for a video pane or an album-art picture.
@@ -136,7 +137,7 @@ pub struct Painter<'a> {
     pub wake_ms: Option<u64>,
     /// Controls that were windows of their own in WMP and so sat over
     /// every picture, whatever the `zIndex`.
-    pub on_top: Vec<(ElementId, Box2, Clip)>,
+    pub on_top: Vec<(ElementId, Box2, f64, Clip)>,
 }
 
 fn soonest(a: &mut Option<u64>, b: u64) {
@@ -185,11 +186,11 @@ impl Painter<'_> {
             height: height.round() as i32,
         }]);
         self.element(root, 0.0, 0.0, 255.0, &clip);
-        for (id, area, inside) in std::mem::take(&mut self.on_top) {
+        for (id, area, alpha, inside) in std::mem::take(&mut self.on_top) {
             match self.view.elements[id].kind {
                 Kind::Playlist | Kind::ListBox => self.list(id, area, &inside),
                 Kind::Video => self.video(id, area, &inside),
-                _ => self.effects(area, &inside),
+                _ => self.effects(area, alpha, &inside),
             }
         }
         // Popups sit over everything in the window.
@@ -232,35 +233,41 @@ impl Painter<'_> {
             Kind::Text => self.text(id, area, alpha, clip),
             Kind::Effects => {
                 if self.view.elements[id].flag("windowed", false) {
-                    self.on_top.push((id, area, clip.clone()));
+                    self.on_top.push((id, area, alpha, clip.clone()));
                 } else {
-                    self.effects(area, clip);
+                    self.effects(area, alpha, clip);
                 }
             }
             Kind::Video => {
                 if self.view.elements[id].flag("windowless", false) {
                     self.video(id, area, clip);
                 } else {
-                    self.on_top.push((id, area, clip.clone()));
+                    self.on_top.push((id, area, alpha, clip.clone()));
                 }
             }
-            Kind::Playlist => self.on_top.push((id, area, clip.clone())),
+            Kind::Playlist => self.on_top.push((id, area, alpha, clip.clone())),
             Kind::ListBox => self.list(id, area, clip),
             Kind::EditBox => self.edit(id, area, clip),
             _ => {}
         }
     }
 
-    fn effects(&mut self, area: Box2, clip: &Clip) {
+    fn effects(&mut self, area: Box2, alpha: f64, clip: &Clip) {
+        // A skin fades the sub-view it is in out to show what is under it.
+        let alpha = alpha as u8;
+        if alpha == 0 {
+            return;
+        }
         // Visualisations draw on black.
         self.out.push(Paint::Fill {
             area,
             color: [0, 0, 0],
-            alpha: 255,
+            alpha,
             clip: clip.clone(),
         });
         self.out.push(Paint::Effects {
             area,
+            alpha,
             clip: clip.clone(),
         });
     }
@@ -281,6 +288,12 @@ impl Painter<'_> {
         let name = element.image_name("backgroundimage");
         let plain = clip_to(clip, area);
         let clipping = element.str("clippingcolor");
+        // A tiled picture has no one shape to cut to: Gorillaz fills its whole
+        // window with a tile of nothing but the clipping colour.
+        let tiled = element.flag("backgroundtiled", false);
+        let outline = (!tiled && clipping.is_none() && !root)
+            .then(|| name.as_ref().zip(element.str("transparencycolor")))
+            .flatten();
         let key = name.as_ref().map(|name| self.key_for(id, name));
         let picture = key
             .as_ref()
@@ -288,21 +301,40 @@ impl Painter<'_> {
         // The clipping colour cuts the picture into the sub-view's shape,
         // children included. Only that colour: a transparent hole is a
         // window onto what lies under the picture, not outside the shape.
-        let shape = clipping.zip(name.as_ref()).and_then(|(clipping, name)| {
-            let mut key = ImageKey {
-                file: super::file_name(name),
-                ..ImageKey::default()
-            };
-            if clipping.trim().eq_ignore_ascii_case("auto") {
-                key.clear_corner = true;
-            } else {
-                key.clear.extend(color(&clipping));
-            }
-            self.images.get(&key)
-        });
+        let shape = clipping
+            .filter(|_| !tiled)
+            .zip(name.as_ref())
+            .and_then(|(clipping, name)| {
+                let mut key = ImageKey {
+                    file: super::file_name(name),
+                    ..ImageKey::default()
+                };
+                if clipping.trim().eq_ignore_ascii_case("auto") {
+                    key.clear_corner = true;
+                } else {
+                    key.clear.extend(color(&clipping));
+                }
+                self.images.get(&key)
+            });
         let inner = match shape {
             Some(shape) => clip_to_shape(&plain, &shape.runs(), (area.x, area.y)),
             None => plain.clone(),
+        };
+        // A picture with see-through pixels of its own and a transparency
+        // colour as well: its pixels are the window, the colour is what lies
+        // outside it, and what shows through stays within that outline.
+        let window = outline.and_then(|(name, colour)| {
+            let key = ImageKey {
+                file: super::file_name(name),
+                clear: color(&colour).into_iter().collect(),
+                window_only_clear: true,
+                ..ImageKey::default()
+            };
+            self.images.get(&key)
+        });
+        let under = match window {
+            Some(window) => clip_to_shape(&inner, &window.runs(), (area.x, area.y)),
+            None => inner.clone(),
         };
 
         let element = &self.view.elements[id];
@@ -326,7 +358,7 @@ impl Painter<'_> {
         // it and shows through its holes.
         let split = order.partition_point(|child| self.view.elements[*child].z < 0);
         for child in &order[..split] {
-            self.element(*child, x, y, alpha, &inner);
+            self.element(*child, x, y, alpha, &under);
         }
         if name.as_deref().is_some_and(is_album_art) {
             self.out.push(Paint::Art {
@@ -408,7 +440,7 @@ impl Painter<'_> {
         };
         let root = &self.view.elements[self.view.root];
         let element = &self.view.elements[id];
-        let colours = [
+        let mut colours = vec![
             element.str("transparencycolor"),
             matches!(element.kind, Kind::View | Kind::SubView)
                 .then(|| element.str("clippingcolor"))
@@ -416,6 +448,18 @@ impl Painter<'_> {
             root.str("transparencycolor"),
             root.str("clippingcolor"),
         ];
+        // A sub-view's colour holds for everything in it: xXx and Wild Well
+        // Control name it on the group, not on each button.
+        let mut parent = element.parent;
+        while let Some(at) = parent {
+            colours.push(self.view.elements[at].str("transparencycolor"));
+            parent = self.view.elements[at].parent;
+        }
+        // World of Warcraft's strips name no colour, though each is cut out
+        // of magenta like the 47 pictures that do. Nothing means pure magenta.
+        if element.kind == Kind::CustomSlider {
+            colours.push(Some("#ff00ff".to_owned()));
+        }
         for text in colours.into_iter().flatten() {
             let text = text.trim().to_ascii_lowercase();
             if text == "auto" {

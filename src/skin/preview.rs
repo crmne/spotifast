@@ -425,7 +425,8 @@ mod tests {
 
     #[test]
     fn a_skin_that_stays_hidden_has_no_preview() {
-        let definition = br#"<VIEW id="main" width="40" height="40" visible="false"/>"#;
+        let definition =
+            br#"<VIEW id="main" width="40" height="40" onLoad="view.visible=false;"/>"#;
         let archive = zip::write(&[("skin.wms", definition, false)]);
         let skin = Skin::from_archive("hidden", &archive).unwrap();
         assert!(of_skin(&skin).is_none());
