@@ -366,6 +366,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 &gettext(locale, "What do you want to play?"),
                 search_width,
             );
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(egui::Id::new("global-search-rect"), response.rect);
+            });
             if app.search.focus_requested {
                 app.search.focus_requested = false;
                 response.request_focus();

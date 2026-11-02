@@ -43,10 +43,20 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             .pointer_latest_pos()
             .zip(ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("sidebar-rect"))))
             .is_some_and(|(pointer, rect)| rect.contains(pointer));
+    let pointer = ctx.pointer_latest_pos();
+    let pointer_over = |id: &str| {
+        pointer.is_some_and(|pointer| {
+            ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new(id)))
+                .is_some_and(|rect| rect.contains(pointer))
+        })
+    };
+    let global_search_hovered = pointer_over("global-search-rect");
+    let settings_search_hovered = pointer_over("settings-search-rect");
     let playlist_page = matches!(app.page(), Page::Playlist(_));
     let mut actions = Vec::new();
     let mut focus_sidebar_search = false;
     let mut focus_playlist_filter = false;
+    let mut focus_settings_search = false;
     ctx.input_mut(|input| {
         // With songs picked, Shift+Q is the song list's: it queues them.
         let queue_key_is_the_lists = songs_picked
@@ -57,6 +67,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         let mut focus_local_search = || {
             if sidebar_hovered {
                 focus_sidebar_search = true;
+            } else if settings_search_hovered {
+                focus_settings_search = true;
+            } else if global_search_hovered {
+                actions.push(Action::FocusSearch);
             } else if playlist_page {
                 focus_playlist_filter = true;
             } else {
@@ -200,6 +214,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     } else if focus_playlist_filter {
         ctx.memory_mut(|memory| {
             memory.request_focus(egui::Id::new("collection-filter"));
+        });
+    } else if focus_settings_search {
+        ctx.memory_mut(|memory| {
+            memory.request_focus(egui::Id::new("settings-search-field"));
         });
     }
     if !editing_text
