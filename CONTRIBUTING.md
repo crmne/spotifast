@@ -122,8 +122,8 @@ Spotifast never signs in with another project's Spotify Client ID. Until
 0.14.2 it used ncspot's, which ncspot's developer had registered for ncspot
 alone on their own Spotify account; they closed it to other apps in October
 2026, as was their right. A Client ID belongs to whoever registered it and
-its quota to their users, so the Web API runs on each person's own app, and a
-pull request that adds someone else's Client ID or redirect path is closed.
+its quota to their users, so each person registers Spotifast and the Web API
+runs on their own Client ID, and a pull request that adds someone else's Client ID or redirect path is closed.
 
 ### Windowing fixes
 

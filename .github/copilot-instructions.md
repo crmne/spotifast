@@ -54,12 +54,13 @@ colon, or parentheses instead.
 When an issue reports slow or throttled Web API requests, slow playlist or
 library loading, rate limits, or proposes an export or cache workaround for
 those problems, first direct the reporter to
-https://spotifast.rocks/make-it-even-faster/ for the personal Client ID setup.
+https://spotifast.rocks/make-it-even-faster/ for registering Spotifast and
+getting a Client ID.
 Ask them to configure it and report what remains slow or throttled afterward;
-do this before asking for other diagnostic details. Make clear that the
-personal app gives supported Web API requests a separate quota while the
-shared app remains necessary for complete Spotify coverage. It cannot fix a
-librespot session or an `audio key 0 1` refusal.
+do this before asking for other diagnostic details. Make clear that a
+person who registers Spotifast gets a Client ID whose quota covers supported
+Web API requests. It cannot fix a librespot session or an `audio key 0 1`
+refusal.
 
 When reviewing a pull request, prioritize correctness, regressions, product
 fit, cross-platform behaviour, UI-thread blocking, credential exposure, and
