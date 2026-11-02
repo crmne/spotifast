@@ -2560,6 +2560,10 @@ impl Worker {
                                 self.cluster_playing(),
                             );
                         }
+                        ApiResponse::PlaybackState {
+                            seq,
+                            result: Err(_),
+                        } => self.connect.poll_failed(*seq),
                         _ => {}
                     }
                     if let ApiResponse::MadeForYou {

@@ -108,13 +108,18 @@ impl Controller {
         self.known().polls_sent.insert(seq, playing);
     }
 
+    /// Forgets a playback poll that failed.
+    pub fn poll_failed(&self, seq: u64) {
+        self.known().polls_sent.remove(&seq);
+    }
+
     /// Updates the active restricted device, ignoring older playback polls.
     /// The Web API reports a Sonos without its id, so `playing`, the device
     /// Spotify's Connect cluster names as playing, stands in for a missing
     /// one if the cluster named it as the poll went out too.
     pub fn observe_playing(&self, seq: u64, device: Option<&Device>, playing: Option<String>) {
         let mut known = self.known();
-        // A failed poll's entry goes with the next answer.
+        // Older polls' answers are ignored from here on.
         let sent_with = known.polls_sent.remove(&seq).flatten();
         known.polls_sent.retain(|&sent, _| sent > seq);
         if known.playback_seq.is_some_and(|latest| seq < latest) {
@@ -511,6 +516,19 @@ mod tests {
             controller.command_target(None, None).as_deref(),
             Some("d0c4")
         );
+    }
+
+    /// Polls leave nothing behind once answered, or once they fail.
+    #[test]
+    fn finished_playback_polls_are_forgotten() {
+        let controller = Controller::default();
+        controller.poll_sent(1, Some("d0c4".into()));
+        controller.poll_sent(2, None);
+        controller.poll_sent(3, None);
+        controller.poll_failed(1);
+        assert_eq!(controller.known().polls_sent.len(), 2);
+        controller.observe_playing(3, None, None);
+        assert!(controller.known().polls_sent.is_empty());
     }
 
     /// A refusal before any playback poll marks the cluster's device.
