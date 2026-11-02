@@ -1754,6 +1754,14 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             }
             // Full screen lyrics with MilkDrop behind them, on whatever is
             // in the demo's presets folder.
+            "lyrics-immersive" => {
+                app.demo_lyrics_milkdrop(true);
+                app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+                app.winamp.demo_sounding = true;
+                play_here(app);
+                app.local.playback = crate::player::Playback::Playing;
+                app.actions.push(crate::model::Action::EnterImmersive);
+            }
             "lyrics-milkdrop" | "lyrics-art" => {
                 app.demo_lyrics_milkdrop(surface == "lyrics-milkdrop");
                 app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
@@ -5106,6 +5114,202 @@ mod tests {
                 _ => None,
             })
             .expect("the line is drawn")
+    }
+
+    /// A frame at this input time, with what egui hands back.
+    #[cfg(feature = "milkdrop")]
+    fn timed(
+        ctx: &egui::Context,
+        app: &mut App,
+        time: f64,
+        events: Vec<egui::Event>,
+    ) -> Vec<String> {
+        let (text, _) = timed_output(ctx, app, time, events);
+        text
+    }
+
+    #[cfg(feature = "milkdrop")]
+    fn timed_output(
+        ctx: &egui::Context,
+        app: &mut App,
+        time: f64,
+        events: Vec<egui::Event>,
+    ) -> (Vec<String>, egui::CursorIcon) {
+        let input = egui::RawInput {
+            time: Some(time),
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+        output.textures_delta.clear();
+        let text = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+                _ => None,
+            })
+            .collect();
+        (text, output.platform_output.cursor_icon)
+    }
+
+    #[cfg(feature = "milkdrop")]
+    fn immersive_app(name: &str) -> (egui::Context, App) {
+        use crate::milkdrop::pane::Picture;
+        let (ctx, mut app) = accessible_app(name);
+        app.backend.set_offline(true);
+        populate(&mut app);
+        app.show_lyrics_panel = true;
+        app.lyrics_fullscreen = Some(false);
+        app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+        app.lyrics_following = false;
+        app.answer_milkdrop(Picture::Frame(egui::TextureId::default()));
+        (ctx, app)
+    }
+
+    /// The cover opens MilkDrop alone; any click brings back just what was
+    /// there; the controls come with the mouse and go again.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn the_cover_opens_milkdrop_alone_and_any_click_comes_back() {
+        use egui::PointerButton::Primary;
+        const LINE: &str = "Streetlights blinking down the river road";
+        const BAR: &str = "1:23";
+        let (ctx, mut app) = immersive_app("immersive");
+        let cover = egui::pos2(288.0, 300.0);
+        let mut t = 10.0;
+        let mut step = |ctx: &egui::Context, app: &mut App, events| {
+            t += 0.1;
+            timed_output(ctx, app, t, events)
+        };
+        let (text, _) = step(&ctx, &mut app, vec![egui::Event::PointerMoved(cover)]);
+        assert!(text.iter().any(|text| text == LINE), "lyrics to begin with");
+        step(&ctx, &mut app, Vec::new());
+        step(&ctx, &mut app, pointer_click(cover, Primary));
+        assert!(
+            !app.settings.lyrics_milkdrop,
+            "the backdrop's memory is safe"
+        );
+        assert!(app.milkdrop_behind_lyrics(), "MilkDrop comes on");
+        step(&ctx, &mut app, Vec::new());
+        let (text, cursor) = step(&ctx, &mut app, Vec::new());
+        assert!(app.immersive());
+        assert!(text.is_empty(), "nothing but the picture: {text:?}");
+        assert_eq!(cursor, egui::CursorIcon::None, "and no cursor while idle");
+
+        // The mouse brings the controls over the picture, and they leave.
+        let (text, cursor) = step(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(cover + egui::vec2(9.0, 0.0))],
+        );
+        assert!(text.iter().any(|text| text.contains(BAR)), "{text:?}");
+        assert_ne!(cursor, egui::CursorIcon::None);
+        let (text, _) = timed_output(&ctx, &mut app, 40.0, Vec::new());
+        assert!(text.is_empty(), "gone again: {text:?}");
+
+        // Any click: lyrics again, and the backdrop off as it was.
+        let far = egui::pos2(1000.0, 100.0);
+        timed(&ctx, &mut app, 41.0, vec![egui::Event::PointerMoved(far)]);
+        timed(&ctx, &mut app, 41.1, pointer_click(far, Primary));
+        assert!(!app.immersive());
+        assert!(!app.milkdrop_behind_lyrics(), "off as it was, not toggled");
+        let text = timed(&ctx, &mut app, 41.2, Vec::new());
+        assert!(text.iter().any(|text| text == LINE));
+
+        // With the backdrop on, it stays on.
+        app.actions.push(Action::ToggleLyricsMilkdrop);
+        timed(&ctx, &mut app, 45.0, vec![egui::Event::PointerMoved(cover)]);
+        timed(&ctx, &mut app, 45.1, Vec::new());
+        timed(&ctx, &mut app, 45.2, pointer_click(cover, Primary));
+        timed(&ctx, &mut app, 45.3, Vec::new());
+        timed(&ctx, &mut app, 45.4, Vec::new());
+        assert!(app.immersive());
+        timed(&ctx, &mut app, 45.5, pointer_click(far, Primary));
+        assert!(app.milkdrop_behind_lyrics(), "on as it was");
+        assert!(app.settings.lyrics_milkdrop);
+        app.actions.push(Action::ToggleLyricsMilkdrop);
+        timed(&ctx, &mut app, 45.6, Vec::new());
+
+        // Esc leaves full screen as ever, and the backdrop as it was.
+        timed(&ctx, &mut app, 49.8, vec![egui::Event::PointerMoved(cover)]);
+        timed(&ctx, &mut app, 49.9, Vec::new());
+        timed(&ctx, &mut app, 50.0, pointer_click(cover, Primary));
+        timed(&ctx, &mut app, 50.1, Vec::new());
+        timed(&ctx, &mut app, 50.2, Vec::new());
+        assert!(app.immersive());
+        let esc = egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        timed(&ctx, &mut app, 50.3, vec![esc]);
+        assert!(app.lyrics_fullscreen.is_none());
+        assert!(!app.immersive());
+        app.actions.push(Action::SetLyricsFullscreen(true));
+        timed(&ctx, &mut app, 50.4, Vec::new());
+        assert!(!app.milkdrop_behind_lyrics());
+        app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+
+        // V stays a choice of its own: MilkDrop off, and remembered.
+        timed(&ctx, &mut app, 54.8, vec![egui::Event::PointerMoved(cover)]);
+        timed(&ctx, &mut app, 54.9, Vec::new());
+        timed(&ctx, &mut app, 55.0, pointer_click(cover, Primary));
+        timed(&ctx, &mut app, 55.1, Vec::new());
+        timed(&ctx, &mut app, 55.2, Vec::new());
+        assert!(app.immersive());
+        let key = |key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        timed(&ctx, &mut app, 55.3, vec![key(egui::Key::N)]);
+        assert!(app.immersive(), "N changes the preset and nothing else");
+        timed(&ctx, &mut app, 55.4, vec![key(egui::Key::V)]);
+        assert!(!app.immersive());
+        assert!(!app.milkdrop_behind_lyrics(), "V is the backdrop's own key");
+        app.backend.shutdown();
+    }
+
+    /// With no MilkDrop, or no art to click, nothing changes.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn the_cover_changes_nothing_without_milkdrop_or_art() {
+        use crate::milkdrop::pane::Picture;
+        use egui::PointerButton::Primary;
+        let (ctx, mut app) = immersive_app("immersive-none");
+        app.answer_milkdrop(Picture::None);
+        let cover = egui::pos2(288.0, 300.0);
+        timed(&ctx, &mut app, 10.0, vec![egui::Event::PointerMoved(cover)]);
+        timed(&ctx, &mut app, 10.1, Vec::new());
+        timed(&ctx, &mut app, 10.2, pointer_click(cover, Primary));
+        for frame in 0..4 {
+            timed(&ctx, &mut app, 10.3 + f64::from(frame) / 10.0, Vec::new());
+        }
+        assert!(!app.immersive());
+        assert!(!app.milkdrop_behind_lyrics(), "and the backdrop as it was");
+
+        let (ctx, mut app) = immersive_app("immersive-no-art");
+        if let Some(remote) = &mut app.remote
+            && let Some(PlayableItem::Track(track)) = &mut remote.state.item
+        {
+            track.album = None;
+        }
+        timed(&ctx, &mut app, 10.0, vec![egui::Event::PointerMoved(cover)]);
+        timed(&ctx, &mut app, 10.1, Vec::new());
+        timed(&ctx, &mut app, 10.2, pointer_click(cover, Primary));
+        timed(&ctx, &mut app, 10.3, Vec::new());
+        timed(&ctx, &mut app, 10.4, Vec::new());
+        assert!(!app.immersive());
+        app.backend.shutdown();
     }
 
     /// A click on nothing in full screen lyrics is the backdrop's switch, and

@@ -1482,6 +1482,10 @@ pub enum Action {
     MilkdropEffect(i32),
     /// Take the skinned MilkDrop window to full screen, in the plain window.
     MilkdropFullscreen,
+    /// MilkDrop alone in the window, from full screen lyrics.
+    EnterImmersive,
+    /// Full screen lyrics back as they were.
+    LeaveImmersive,
     /// Puts MilkDrop behind full screen lyrics, or the cover's art back.
     ToggleLyricsMilkdrop,
     /// The size of the picture in the skinned MilkDrop window, in points.

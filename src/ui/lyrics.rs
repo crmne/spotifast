@@ -507,7 +507,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
 
 /// The playing song's cover filling the top of `column`, with its title and
 /// artists beneath, aligned to its left edge or centred.
-fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
+fn big_cover(app: &mut App, ui: &mut egui::Ui, column: Rect, align: Align) {
     let Some(now) = app.now_playing() else {
         return;
     };
@@ -532,6 +532,8 @@ fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
         cover,
         radius,
     );
+    let art = now.art_url.is_some() || now.art_small.is_some();
+    cover_opens_immersive(app, ui, cover, art);
     let words = Rect::from_min_max(pos2(column.left(), cover.bottom() + 18.0), column.max);
     let mut text = ui.new_child(
         UiBuilder::new()
@@ -592,9 +594,13 @@ fn milkdrop_backdrop(app: &mut App, ui: &mut egui::Ui, rect: Rect) -> bool {
     let Picture::Frame(texture) = picture else {
         if picture == Picture::Waiting {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        } else {
+            // No MilkDrop to be had: as if the art was never clicked.
+            app.actions.push(Action::LeaveImmersive);
         }
         return false;
     };
+    app.immersive_arrived();
     let dim = ctx.animate_value_with_time(
         egui::Id::new("lyrics-backdrop-dim"),
         backdrop_dim(app.milkdrop_glow()),
@@ -608,6 +614,68 @@ fn milkdrop_backdrop(app: &mut App, ui: &mut egui::Ui, rect: Rect) -> bool {
         theme::visualiser_frame(&ctx, Some(app.milkdrop_pane_fps()));
     }
     true
+}
+
+/// MilkDrop alone, edge to edge and at full brightness, under the root of the
+/// window so that the player bar comes and goes over it without resizing it.
+/// Returns whether the controls show.
+#[cfg(feature = "milkdrop")]
+pub fn immersive(app: &mut App, ui: &mut egui::Ui) -> bool {
+    use crate::milkdrop::pane::{Picture, UV};
+    let ctx = ui.ctx().clone();
+    let rect = ctx.viewport_rect();
+    ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+    let pixels = rect.size() * ctx.pixels_per_point();
+    match app.milkdrop_picture(&ctx, [pixels.x, pixels.y]) {
+        Picture::Frame(texture) => {
+            ui.painter().image(texture, rect, UV, Color32::WHITE);
+        }
+        Picture::Waiting => ctx.request_repaint_after(std::time::Duration::from_millis(100)),
+        Picture::None => app.actions.push(Action::LeaveImmersive),
+    }
+    if app.now_playing().is_some_and(|now| now.playing) {
+        theme::visualiser_frame(&ctx, Some(app.milkdrop_pane_fps()));
+    }
+    let moved = ctx.input(|input| input.pointer.delta() != egui::Vec2::ZERO);
+    let now = ctx.input(|input| input.time);
+    let left = app.immersive_controls(moved, now);
+    match left {
+        Some(left) => ctx.request_repaint_after(std::time::Duration::from_secs_f64(left)),
+        None => ctx.set_cursor_icon(egui::CursorIcon::None),
+    }
+    left.is_some()
+}
+
+/// Everything in immersive mode that is not a control: any click there brings
+/// the view back.
+#[cfg(feature = "milkdrop")]
+pub fn immersive_click(app: &mut App, ui: &mut egui::Ui) {
+    egui::CentralPanel::default()
+        .frame(Frame::new())
+        .show(ui, |ui| {
+            let rect = ui.max_rect();
+            if ui
+                .interact(rect, ui.id().with("immersive"), Sense::click())
+                .clicked()
+            {
+                app.actions.push(Action::LeaveImmersive);
+            }
+        });
+}
+
+/// The cover is the way into immersive mode, if there is MilkDrop to go to.
+fn cover_opens_immersive(app: &mut App, ui: &egui::Ui, cover: Rect, art: bool) {
+    #[cfg(feature = "milkdrop")]
+    if art
+        && ui
+            .interact(cover, ui.id().with("lyrics-cover"), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+    {
+        app.actions.push(Action::EnterImmersive);
+    }
+    #[cfg(not(feature = "milkdrop"))]
+    let _ = (app, ui, cover, art);
 }
 
 fn background(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
@@ -689,7 +757,7 @@ fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
     });
 }
 
-fn track_heading(app: &App, ui: &mut egui::Ui) {
+fn track_heading(app: &mut App, ui: &mut egui::Ui) {
     if let Some(now) = app.now_playing() {
         ui.horizontal(|ui| {
             let size = 52.0;
@@ -703,6 +771,8 @@ fn track_heading(app: &App, ui: &mut egui::Ui) {
                 rect,
                 4.0,
             );
+            let art = now.art_url.is_some() || now.art_small.is_some();
+            cover_opens_immersive(app, ui, rect, art);
             ui.vertical(|ui| {
                 ui.add(
                     egui::Label::new(

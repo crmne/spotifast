@@ -98,6 +98,9 @@ pub struct Stream {
     retry: Option<Instant>,
     /// How bright the newest frame is; see [`frames::glow`].
     glow: f32,
+    /// What to answer in a test of what is drawn over the picture.
+    #[cfg(test)]
+    pub(crate) answer: Option<Picture>,
 }
 
 impl Stream {
@@ -121,6 +124,8 @@ impl Stream {
             failures: 0,
             retry: None,
             glow: 0.0,
+            #[cfg(test)]
+            answer: None,
         }
     }
 
@@ -136,6 +141,10 @@ impl Stream {
     ) -> Picture {
         let now = Instant::now();
         self.shown = Some(now);
+        #[cfg(test)]
+        if let Some(answer) = self.answer {
+            return answer;
+        }
         let Phase::Running(running) = &mut self.phase else {
             let waiting = matches!(self.phase, Phase::Starting(_)) || self.retry.is_none();
             return if waiting {

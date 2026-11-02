@@ -68,6 +68,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         fastframe_titlebar::resize(ui);
         return;
     }
+    #[cfg(feature = "milkdrop")]
+    if app.immersive() {
+        if lyrics::immersive(app, ui) {
+            player_bar::show(app, ui);
+        }
+        lyrics::immersive_click(app, ui);
+        devices::popup(app, ctx);
+        dialogs::show(app, ctx);
+        toasts(app, ctx, theme::PLAYER_BAR_HEIGHT + 16.0);
+        return;
+    }
     if titlebar_spans_window(cfg!(target_os = "macos"), fastframe_titlebar::enabled()) {
         fastframe_titlebar::drag(
             ui,

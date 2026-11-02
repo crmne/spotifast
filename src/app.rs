@@ -345,6 +345,17 @@ struct ArtistMetadataRead {
     has_counts: bool,
 }
 
+/// MilkDrop edge to edge, what it replaced, and its controls.
+#[derive(Clone, Copy)]
+struct Immersive {
+    /// Whether MilkDrop was behind the lyrics before; it goes back to that.
+    backdrop_was: bool,
+    /// A frame has arrived, so the lyrics, cover and bars have gone.
+    showing: bool,
+    /// Until when the controls show, on the input clock.
+    controls_until: f64,
+}
+
 pub struct App {
     pub dirs: AppDirs,
     pub(crate) storage_usage: crate::storage::Usage,
@@ -725,6 +736,8 @@ pub struct App {
     lyrics_after_switch: bool,
     /// The next switch to the mini player goes back to the same skin.
     keep_skin: bool,
+    /// Full screen lyrics stepped aside for MilkDrop alone. Not remembered.
+    immersive: Option<Immersive>,
     last_eviction: Instant,
     /// Playback snapshot for the current frame, built once per redraw.
     frame_now: Option<NowPlaying>,
@@ -1412,6 +1425,7 @@ impl App {
             skin_return: false,
             lyrics_after_switch: false,
             keep_skin: false,
+            immersive: None,
             last_eviction: Instant::now(),
             frame_now: None,
             sign_in_url: None,
@@ -4824,6 +4838,37 @@ impl App {
         self.show_lyrics_panel = true;
     }
 
+    /// Whether MilkDrop has the whole window, past its first frame.
+    pub fn immersive(&self) -> bool {
+        self.immersive.is_some_and(|mode| mode.showing)
+    }
+
+    /// The first frame is in: the rest of the view may go. Until then it
+    /// stays, so a MilkDrop that cannot draw changes nothing.
+    pub fn immersive_arrived(&mut self) {
+        if let Some(mode) = &mut self.immersive {
+            mode.showing = true;
+        }
+    }
+
+    /// Whether immersive mode's controls show: the pointer moved within the
+    /// last few seconds. Moves them on, and says when to look again.
+    pub fn immersive_controls(&mut self, moved: bool, now: f64) -> Option<f64> {
+        const SHOWN_FOR: f64 = 3.0;
+        let mode = self.immersive.as_mut()?;
+        if moved {
+            mode.controls_until = now + SHOWN_FOR;
+        }
+        (now < mode.controls_until).then_some(mode.controls_until - now)
+    }
+
+    /// Everything back as it was, the backdrop included.
+    fn end_immersive(&mut self) {
+        if let Some(mode) = self.immersive.take() {
+            self.milkdrop_backdrop = mode.backdrop_was;
+        }
+    }
+
     /// Whether full screen lyrics want MilkDrop behind them.
     pub fn milkdrop_behind_lyrics(&self) -> bool {
         self.milkdrop_backdrop && self.lyrics_fullscreen.is_some()
@@ -4847,6 +4892,15 @@ impl App {
         self.milkdrop_pane
             .get_or_insert_with(|| crate::milkdrop::pane::Stream::new(std::sync::Arc::clone(tap)))
             .show(ctx, pixels, scale, side)
+    }
+
+    /// Has the picture answer `picture`, whatever a child would.
+    #[cfg(all(test, feature = "milkdrop"))]
+    pub fn answer_milkdrop(&mut self, picture: crate::milkdrop::pane::Picture) {
+        let tap = &self.winamp.tap;
+        self.milkdrop_pane
+            .get_or_insert_with(|| crate::milkdrop::pane::Stream::new(std::sync::Arc::clone(tap)))
+            .answer = Some(picture);
     }
 
     /// How bright MilkDrop's picture is, from 0 to 1.
@@ -12279,6 +12333,7 @@ impl App {
     }
 
     fn leave_lyrics_fullscreen(&mut self, ctx: &egui::Context) {
+        self.end_immersive();
         if let Some(was_fullscreen) = self.lyrics_fullscreen.take() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(was_fullscreen));
             if self.lyrics_restore_maximized {
@@ -13926,7 +13981,21 @@ impl App {
                     self.actions.push(Action::SetLyricsFullscreen(true));
                 }
             }
+            Action::EnterImmersive => {
+                if self.lyrics_fullscreen.is_some() && self.immersive.is_none() {
+                    self.immersive = Some(Immersive {
+                        backdrop_was: self.milkdrop_backdrop,
+                        showing: false,
+                        controls_until: 0.0,
+                    });
+                    self.milkdrop_backdrop = true;
+                }
+            }
+            Action::LeaveImmersive => self.end_immersive(),
             Action::ToggleLyricsMilkdrop => {
+                // Off is a choice of its own, and there is nothing left to be
+                // immersed in; the mode's memory of the backdrop goes with it.
+                self.immersive = None;
                 self.milkdrop_backdrop = !self.milkdrop_backdrop;
                 if !self.skin_return {
                     self.settings.lyrics_milkdrop = self.milkdrop_backdrop;

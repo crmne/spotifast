@@ -842,6 +842,13 @@ it takes to keep the words clear, and holds still while the music is paused.
 It uses the presets you have: with none, the art stays. It follows the sound
 after the equalizer and before the volume, like every visualizer.
 
+Click the album art in full screen lyrics to leave MilkDrop alone on the
+screen, edge to edge and at full brightness, even if it was off. Move the mouse
+to see the player's controls for a few seconds; the cursor hides with them.
+Any other click brings everything back as it was, and **Esc** leaves full
+screen. **V**, **N** and **P** still work. A song with no art, or a computer
+with no MilkDrop to show, stays as it is.
+
 Since 0.10.0, quitting while lyrics are full screen no longer leaves
 the next launch stuck in full screen: the window returns to its previous size.
 
