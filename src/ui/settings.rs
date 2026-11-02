@@ -492,7 +492,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 egui::Id::new("settings-search-field").with("search-field-bounds"),
             )
         })
-        .unwrap_or(search_response.rect);
+        .unwrap_or(search_response.rect)
+        .intersect(ui.clip_rect());
     ui.ctx().data_mut(|data| {
         data.insert_temp(egui::Id::new("settings-search-rect"), search_bounds);
     });

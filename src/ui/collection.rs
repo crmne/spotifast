@@ -506,17 +506,36 @@ pub fn actions_row(
                 });
         }
         if let Some(filter) = filter {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                widgets::search_field(
-                    ui,
-                    &palette,
-                    locale,
-                    egui::Id::new("collection-filter"),
-                    filter,
-                    &gettext(locale, "Filter"),
-                    220.0,
-                );
+            let response = ui
+                .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    widgets::search_field(
+                        ui,
+                        &palette,
+                        locale,
+                        egui::Id::new("collection-filter"),
+                        filter,
+                        &gettext(locale, "Filter"),
+                        220.0,
+                    )
+                })
+                .inner;
+            let scroll_to_filter = ui.ctx().data_mut(|data| {
+                let id = egui::Id::new("scroll-to-collection-filter");
+                let requested = data.get_temp::<bool>(id).unwrap_or(false);
+                if requested {
+                    data.remove::<bool>(id);
+                }
+                requested
             });
+            if scroll_to_filter {
+                response.request_focus();
+                let bounds = ui.ctx().data(|data| {
+                    data.get_temp::<egui::Rect>(
+                        egui::Id::new("collection-filter").with("search-field-bounds"),
+                    )
+                });
+                ui.scroll_to_rect(bounds.unwrap_or(response.rect), Some(egui::Align::Center));
+            }
         }
     });
     ui.add_space(14.0);
@@ -1973,10 +1992,10 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             let mut actions =
                 playlist_actions(app.locale, playlist, owned, saved, view_play, reload_action);
             actions.plays_shown_rows = hides;
-            mark_playlist_filter_drawn(ui, id);
             if !app.network_reachable {
                 disabled_actions_row(app, ui, actions, Some(&mut page.filter));
             } else {
+                mark_playlist_filter_drawn(ui, id);
                 actions_row(app, ui, actions, Some(&mut page.filter));
             }
             if page.items.base_offset > 0 && !page.filter.trim().is_empty() {
@@ -2025,7 +2044,6 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
         Loadable::Loading | Loadable::NotLoaded => {
             if let Some(playlist) = &preview {
                 playlist_loading_hero(app, ui, playlist);
-                mark_playlist_filter_drawn(ui, id);
                 playlist_loading_actions(app, ui, playlist, &mut page.filter);
             } else {
                 ui.add_space(40.0);
@@ -2049,7 +2067,6 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             let error = error.clone();
             if let Some(playlist) = &preview {
                 playlist_loading_hero(app, ui, playlist);
-                mark_playlist_filter_drawn(ui, id);
                 playlist_loading_actions(app, ui, playlist, &mut page.filter);
             } else {
                 ui.add_space(40.0);

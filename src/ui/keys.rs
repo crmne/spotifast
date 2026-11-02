@@ -51,16 +51,18 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         })
     };
     let global_search_hovered = pointer_over("global-search-rect");
-    let settings_search_hovered =
-        matches!(app.page(), Page::Settings) && pointer_over("settings-search-rect");
-    let playlist_filter_available = match app.page() {
-        Page::Playlist(id) => {
-            ctx.data(|data| data.get_temp::<String>(egui::Id::new("playlist-filter-page")))
-                .as_deref()
-                == Some(id.as_str())
-        }
-        _ => false,
-    };
+    let settings_search_hovered = matches!(app.page(), Page::Settings)
+        && app.lyrics_fullscreen.is_none()
+        && pointer_over("settings-search-rect");
+    let playlist_filter_available = app.network_reachable
+        && match app.page() {
+            Page::Playlist(id) => {
+                ctx.data(|data| data.get_temp::<String>(egui::Id::new("playlist-filter-page")))
+                    .as_deref()
+                    == Some(id.as_str())
+            }
+            _ => false,
+        };
     let mut actions = Vec::new();
     let mut focus_sidebar_search = false;
     let mut focus_playlist_filter = false;
@@ -89,6 +91,9 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             focus_local_search();
         }
         if !editing_text && app.dialog.is_none() && input.consume_key(Modifiers::NONE, Key::Slash) {
+            input
+                .events
+                .retain(|event| !matches!(event, egui::Event::Text(text) if text == "/"));
             focus_local_search();
         }
         let mut key = |modifiers: Modifiers, key: Key, action: Action| {
@@ -222,6 +227,9 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     } else if focus_playlist_filter {
         ctx.memory_mut(|memory| {
             memory.request_focus(egui::Id::new("collection-filter"));
+        });
+        ctx.data_mut(|data| {
+            data.insert_temp(egui::Id::new("scroll-to-collection-filter"), true);
         });
     } else if focus_settings_search {
         ctx.memory_mut(|memory| {
@@ -613,6 +621,11 @@ mod tests {
                     modifiers,
                 },
             ];
+            let mut events = events;
+            if key == Key::Slash {
+                events.push(egui::Event::Text("/".into()));
+            }
+            let mut field_text = String::new();
             let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
@@ -625,8 +638,7 @@ mod tests {
                 |ui| {
                     handle(&mut app, ui.ctx());
                     if let Some(id) = focused_id {
-                        let mut text = String::new();
-                        ui.add(egui::TextEdit::singleline(&mut text).id(egui::Id::new(id)));
+                        ui.add(egui::TextEdit::singleline(&mut field_text).id(egui::Id::new(id)));
                     }
                 },
             );
@@ -647,6 +659,12 @@ mod tests {
             } else {
                 assert!(app.actions.is_empty());
             }
+            if key == Key::Slash {
+                assert!(
+                    field_text.is_empty(),
+                    "the shortcut slash must not be typed"
+                );
+            }
             if focused_id == Some("sidebar-search") {
                 assert!(ctx.data(|data| {
                     data.get_temp::<bool>(egui::Id::new("sidebar-show-search"))
@@ -654,6 +672,43 @@ mod tests {
                 }));
             }
         }
+
+        app.open(Page::Settings);
+        app.lyrics_fullscreen = Some(false);
+        app.actions.clear();
+        let ctx = egui::Context::default();
+        ctx.data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new("settings-search-rect"),
+                egui::Rect::from_min_size(egui::pos2(500.0, 50.0), egui::vec2(200.0, 60.0)),
+            );
+        });
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 800.0),
+                )),
+                events: vec![
+                    egui::Event::PointerMoved(egui::pos2(550.0, 80.0)),
+                    egui::Event::Key {
+                        key: Key::F,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: command,
+                    },
+                ],
+                ..Default::default()
+            },
+            |ui| handle(&mut app, ui.ctx()),
+        );
+        output.textures_delta.clear();
+        assert_eq!(
+            format!("{:?}", app.actions),
+            format!("{:?}", [Action::FocusSearch]),
+            "fullscreen lyrics must not route to hidden Settings search"
+        );
 
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
