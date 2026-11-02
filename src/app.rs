@@ -9804,6 +9804,17 @@ impl App {
         }
     }
 
+    /// Whether this computer's player is still connecting.
+    fn local_player_coming(&self) -> bool {
+        matches!(
+            self.local_playback,
+            LocalPlayback::Connecting
+                | LocalPlayback::Authorizing
+                | LocalPlayback::WaitingForNetwork
+        ) || (self.settings.playback_authorized
+            && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
+    }
+
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
         if self.soloist_waiting() {
             self.clear_play_pending();
@@ -9900,30 +9911,26 @@ impl App {
                 }
                 self.optimistic_playing = Some((true, Instant::now()));
             }
+            // Wait for this computer's connecting player. With no remote
+            // device the play goes to it, and a device the Web API reports
+            // without an id, a Sonos, may take the play only over its
+            // session.
+            Target::Remote(None) if !self.local_ready && self.local_player_coming() => {
+                self.queued_play = Some(request);
+            }
             Target::Remote(None) if self.remote_elsewhere().is_none() => {
                 // No remote device is active, and this computer's player is
-                // not ready. Never ask Spotify to play "nowhere": either
-                // wait for the connecting engine or ask for a device.
-                if matches!(
-                    self.local_playback,
-                    LocalPlayback::Connecting
-                        | LocalPlayback::Authorizing
-                        | LocalPlayback::WaitingForNetwork
-                ) || (self.settings.playback_authorized
-                    && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
-                {
-                    self.queued_play = Some(request);
-                } else {
-                    self.queue_start_pending = None;
-                    self.clear_play_pending();
-                    self.queued_play = None;
-                    self.toast(gettext(
-                        self.locale,
-                        "Choose a device, or enable playback on this computer",
-                    ));
-                    self.show_devices = true;
-                    self.refresh_devices();
-                }
+                // not coming. Never ask Spotify to play "nowhere": ask for a
+                // device.
+                self.queue_start_pending = None;
+                self.clear_play_pending();
+                self.queued_play = None;
+                self.toast(gettext(
+                    self.locale,
+                    "Choose a device, or enable playback on this computer",
+                ));
+                self.show_devices = true;
+                self.refresh_devices();
             }
             // With no id, the play names no device and goes to the one
             // playing, which a Sonos is.
@@ -30915,6 +30922,28 @@ mod tests {
                 device_id: None,
                 ..
             }]
+        ));
+
+        // While this computer's player connects, the play waits for it, so
+        // a Sonos that refuses the Web API's play still gets it over the
+        // session.
+        app.shuffle_wanted = false;
+        app.local_playback = LocalPlayback::Connecting;
+        app.play_request(PlayRequest::context("spotify:playlist:pl0"), false);
+        assert!(app.queued_play.is_some());
+        assert!(app.backend.take_remote_play_requests().is_empty());
+        app.handle_playback(LocalPlayback::Ready {
+            device_id: "local-demo".into(),
+        });
+        assert!(app.queued_play.is_none());
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id: None,
+                play: Some(play),
+                ..
+            }] if play.context_uri.as_deref() == Some("spotify:playlist:pl0")
         ));
         app.backend.shutdown();
     }
