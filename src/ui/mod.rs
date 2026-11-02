@@ -342,45 +342,46 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                     slow_banner(app, ui);
                 }
             }
-            let scroll = crate::autoscroll::show(
-                ui,
-                egui::ScrollArea::vertical()
-                    .id_salt(("page", page.encode()))
-                    .auto_shrink([false, false]),
-                egui::Vec2b::new(false, true),
-                |ui| {
-                    Frame::new()
-                        .inner_margin(Margin {
-                            left: widgets::PAGE_PADDING as i8,
-                            right: widgets::PAGE_PADDING as i8,
-                            top: 4,
-                            bottom: 48,
-                        })
-                        .show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            match page {
-                                Page::Home => home::show(app, ui),
-                                Page::TopSongs => collection::top_songs(app, ui),
-                                Page::NewReleases => new_releases::page(app, ui),
-                                Page::Search => search::show(app, ui),
-                                Page::LikedSongs => collection::liked(app, ui),
-                                Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {
-                                    library::show(app, ui, page)
-                                }
-                                Page::Playlist(id) => collection::playlist(app, ui, &id),
-                                Page::Album(id) => collection::album(app, ui, &id),
-                                Page::Artist(id) => artist::show(app, ui, &id),
-                                Page::Show(id) => show::show(app, ui, &id),
-                                Page::Radio(seed) => radio::radio(app, ui, &seed),
-                                Page::Queue => queue::page(app, ui),
-                                Page::Settings => settings::show(app, ui),
+            let page_key = page.encode();
+            let mut area = egui::ScrollArea::vertical()
+                .id_salt(("page", &page_key))
+                .auto_shrink([false, false]);
+            if let Some((_, offset)) = app.restore_scroll.take().filter(|(at, _)| *at == page_key) {
+                area = area.vertical_scroll_offset(offset);
+            }
+            let scroll = crate::autoscroll::show(ui, area, egui::Vec2b::new(false, true), |ui| {
+                Frame::new()
+                    .inner_margin(Margin {
+                        left: widgets::PAGE_PADDING as i8,
+                        right: widgets::PAGE_PADDING as i8,
+                        top: 4,
+                        bottom: 48,
+                    })
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        match page {
+                            Page::Home => home::show(app, ui),
+                            Page::TopSongs => collection::top_songs(app, ui),
+                            Page::NewReleases => new_releases::page(app, ui),
+                            Page::Search => search::show(app, ui),
+                            Page::LikedSongs => collection::liked(app, ui),
+                            Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {
+                                library::show(app, ui, page)
                             }
-                        });
-                    if app.dialog.is_none() && !app.show_devices {
-                        keys::scroll_page(ui);
-                    }
-                },
-            );
+                            Page::Playlist(id) => collection::playlist(app, ui, &id),
+                            Page::Album(id) => collection::album(app, ui, &id),
+                            Page::Artist(id) => artist::show(app, ui, &id),
+                            Page::Show(id) => show::show(app, ui, &id),
+                            Page::Radio(seed) => radio::radio(app, ui, &seed),
+                            Page::Queue => queue::page(app, ui),
+                            Page::Settings => settings::show(app, ui),
+                        }
+                    });
+                if app.dialog.is_none() && !app.show_devices {
+                    keys::scroll_page(ui);
+                }
+            });
+            app.page_scroll = Some((page_key, scroll.state.offset.y));
             ui.ctx()
                 .data_mut(|data| data.insert_temp(scrolled_id, scroll.state.offset.y));
             header_shadow(ui, scroll.inner_rect, scroll.state.offset.y, palette.dark);
