@@ -79,6 +79,8 @@ struct State {
     fault: Mutex<Option<String>>,
     playing: AtomicBool,
     volume: AtomicU8,
+    /// How far our queue puts the sound behind Soloist's clock.
+    delay_ms: AtomicU32,
     #[cfg(all(feature = "soloist-native-audio", target_os = "macos"))]
     output_volume: OutputVolume,
 }
@@ -100,6 +102,7 @@ impl State {
             fault: Mutex::new(None),
             playing: AtomicBool::new(false),
             volume: AtomicU8::new(0),
+            delay_ms: AtomicU32::new(0),
             #[cfg(all(feature = "soloist-native-audio", target_os = "macos"))]
             output_volume: OutputVolume::default(),
         }
@@ -242,6 +245,10 @@ impl Bridge {
 
     pub fn playing(&self) -> bool {
         self.state.playing.load(Ordering::Acquire)
+    }
+    /// How far behind Soloist's reported position the sound is.
+    pub fn delay_ms(&self) -> u32 {
+        self.state.delay_ms.load(Ordering::Relaxed)
     }
     pub fn child(&self, pid: u32) {
         self.state.child.store(pid, Ordering::Release);
@@ -431,9 +438,22 @@ mod pipewire {
     const GAP_LIMIT: Duration = Duration::from_millis(250);
     const EPIPE: i32 = 32;
     const RATE: usize = 44_100;
-    /// The fastest rate the streams accept. At a quarter-second of stereo
-    /// this bounds the queue, and sizes it once and for all.
+    /// The fastest rate the streams accept. It sizes the queues once and for
+    /// all, at `MAX_HELD_SECONDS` of stereo.
     const MAX_RATE: usize = 384_000;
+    /// Samples per second of stereo held at most before queued audio counts
+    /// as abandoned: a target at PipeWire's largest quantum, and a cycle more.
+    const MAX_HELD: f64 = 1.5;
+    /// The least audio the output keeps queued. Soloist's stream is async, so
+    /// the graph doesn't wait for it, and the two streams' order inside a
+    /// cycle isn't fixed either. This rides out both: one flipped order costs
+    /// a quantum, one late cycle another, at the usual 21 ms quantum. Measured
+    /// against 100 ms, more margin only made each re-prime longer.
+    const MIN_TARGET: Duration = Duration::from_millis(60);
+    /// The longest fade at either end of a hole or a splice.
+    const FADE: Duration = Duration::from_millis(5);
+    /// How much output passes between looks at whether the delay has grown.
+    const TRIM_EVERY: Duration = Duration::from_secs(1);
     /// The samples processed in one go, a whole number of stereo frames.
     /// A longer quantum than this is worked through in pieces.
     const CHUNK: usize = 4096;
@@ -633,9 +653,15 @@ mod pipewire {
         /// The input's run of digital silence, and whether sound came before.
         quiet_frames: AtomicUsize,
         sounding: AtomicBool,
+        /// The queue ran out inside that run: unheard if the silence was the
+        /// song's, a dropout if the sound comes back as from a hole.
+        dry_in_quiet: AtomicBool,
         /// The output's latest cycle, for the log.
         quantum: AtomicUsize,
         rate: AtomicU32,
+        /// The frames the output holds, which is how far behind Soloist's
+        /// clock the sound is.
+        target: AtomicUsize,
     }
     impl Default for Stats {
         fn default() -> Self {
@@ -653,8 +679,10 @@ mod pipewire {
                 low_water: AtomicUsize::new(usize::MAX),
                 quiet_frames: AtomicUsize::new(0),
                 sounding: AtomicBool::new(false),
+                dry_in_quiet: AtomicBool::new(false),
                 quantum: AtomicUsize::new(0),
                 rate: AtomicU32::new(RATE as u32),
+                target: AtomicUsize::new(0),
             }
         }
     }
@@ -664,31 +692,46 @@ mod pipewire {
         }
         /// For the input's callback: what a block says about what Soloist
         /// sent. A late Soloist isn't an xrun, its stream being async, and
-        /// shows up here as zeros in the input.
-        fn heard(&self, samples: &[[u8; 4]], input_rate: u32) {
+        /// PipeWire fills the cycle it missed with zeros. True for those: the
+        /// music comes after them, late rather than lost, so they are no part
+        /// of it, and the output's margin plays across the hole. If it was a
+        /// silence in the song after all, the queue runs out in that silence,
+        /// where nobody can hear it.
+        fn is_hole(&self, samples: &[[u8; 4]], input_rate: u32) -> bool {
             let frames = samples.len() / 2;
             if frames == 0 {
-                return;
+                return false;
             }
+            let limit = (f64::from(input_rate) * GAP_LIMIT.as_secs_f64()) as usize;
             if samples
                 .iter()
                 .all(|bytes| f32::from_le_bytes(*bytes) == 0.0)
             {
-                self.quiet_frames.fetch_add(frames, Ordering::Relaxed);
-                return;
+                let quiet = self.quiet_frames.fetch_add(frames, Ordering::Relaxed) + frames;
+                return quiet <= limit && self.sounding.load(Ordering::Relaxed);
             }
             let quiet = self.quiet_frames.swap(0, Ordering::Relaxed);
-            let limit = (f64::from(input_rate) * GAP_LIMIT.as_secs_f64()) as usize;
+            let dry = self.dry_in_quiet.swap(false, Ordering::Relaxed);
             if quiet > 0 && quiet <= limit && self.sounding.load(Ordering::Relaxed) {
                 Self::add(&self.input_gaps, 1);
                 Self::add(&self.input_gap_frames, quiet);
+                if dry {
+                    Self::add(&self.short_reads, 1);
+                    Self::add(&self.short_frames, quiet);
+                }
             }
             self.sounding.store(true, Ordering::Relaxed);
+            false
         }
         /// Sound from before a pause or a flush says nothing of what follows.
         fn restart(&self) {
             self.sounding.store(false, Ordering::Relaxed);
             self.quiet_frames.store(0, Ordering::Relaxed);
+            self.dry_in_quiet.store(false, Ordering::Relaxed);
+        }
+        fn delay_ms(&self) -> u32 {
+            let frames = self.target.load(Ordering::Relaxed) as u64;
+            (frames * 1000 / u64::from(self.rate.load(Ordering::Relaxed).max(1))) as u32
         }
         /// Empties the counters.
         fn take(&self) -> Report {
@@ -792,6 +835,12 @@ mod pipewire {
         tapped: Vec<f64>,
         /// The ring's write count at the output's last cycle.
         seen: usize,
+        /// Whether the output is playing the queue, or holding for it to fill.
+        primed: bool,
+        /// The fullest the queue has stayed before a read, since `watched`
+        /// frames ago: what could go without ever running short.
+        lowest: usize,
+        watched: usize,
     }
     impl Chain {
         fn new(
@@ -817,7 +866,7 @@ mod pipewire {
                 tap_resampler: resampler(output_rate, RATE as u32),
                 tap,
                 limiter: crate::limiter::Limiter::new(f64::from(output_rate)),
-                samples: VecDeque::with_capacity(MAX_RATE / 2),
+                samples: VecDeque::with_capacity((MAX_RATE as f64 * MAX_HELD) as usize),
                 gain: 0.0,
                 pulled: vec![0.0; CHUNK],
                 converted: Vec::with_capacity(room(input_rate, output_rate)),
@@ -826,7 +875,96 @@ mod pipewire {
                 tapped_narrow: Vec::with_capacity(room(output_rate, RATE as u32)),
                 tapped: vec![0.0; room(output_rate, RATE as u32)],
                 seen: 0,
+                primed: false,
+                lowest: usize::MAX,
+                watched: 0,
             }
+        }
+        /// The frames to hold before playing: two quanta, and never less
+        /// than `MIN_TARGET`.
+        fn target(&self, frames: usize) -> usize {
+            let least = (f64::from(self.output_rate) * MIN_TARGET.as_secs_f64()) as usize;
+            least.max(frames * 2)
+        }
+        /// Decides what this cycle of `frames` does: true plays the queue,
+        /// false holds it and renders silence.
+        fn pace(&mut self, frames: usize, stats: &Stats) -> bool {
+            if frames == 0 {
+                return false;
+            }
+            let fill = self.samples.len() / 2;
+            let target = self.target(frames);
+            stats.target.store(target, Ordering::Relaxed);
+            if !self.primed {
+                if fill < target {
+                    return false;
+                }
+                self.primed = true;
+                // The fader's ramp brings the sound back without a click.
+                self.gain = 0.0;
+                self.lowest = usize::MAX;
+                self.watched = 0;
+            }
+            stats
+                .low_water
+                .fetch_min(fill.saturating_sub(frames), Ordering::Relaxed);
+            if fill < frames {
+                // Running out in the song's own silence is no dropout, and the
+                // hold after it puts back a margin spent on late cycles. The
+                // input can only tell which it was when the sound returns.
+                if stats.quiet_frames.load(Ordering::Relaxed) == 0 {
+                    Stats::add(&stats.short_reads, 1);
+                    Stats::add(&stats.short_frames, frames - fill);
+                } else {
+                    stats.dry_in_quiet.store(true, Ordering::Relaxed);
+                }
+                self.fade_out(fill);
+                self.primed = false;
+                return true;
+            }
+            self.lowest = self.lowest.min(fill);
+            self.watched += frames;
+            if self.watched >= (f64::from(self.output_rate) * TRIM_EVERY.as_secs_f64()) as usize {
+                // A cycle or two over is the streams' order, or a chain lock
+                // miss. More than that would be delay kept for good.
+                let slack = frames.max(self.output_rate as usize / 50);
+                if self.lowest > target + slack {
+                    let excess = self.lowest - target;
+                    self.splice(excess);
+                    Stats::add(&stats.skipped_frames, excess);
+                }
+                self.lowest = usize::MAX;
+                self.watched = 0;
+            }
+            true
+        }
+        fn fade_frames(&self) -> usize {
+            (f64::from(self.output_rate) * FADE.as_secs_f64()) as usize
+        }
+        /// Fades what is left of the queue's `fill` frames into silence.
+        fn fade_out(&mut self, fill: usize) {
+            let fade = fill.min(self.fade_frames());
+            for back in 0..fade {
+                let gain = (back as f64 + 0.5) / fade as f64;
+                let frame = fill - 1 - back;
+                self.samples[frame * 2] *= gain;
+                self.samples[frame * 2 + 1] *= gain;
+            }
+        }
+        /// Takes `excess` frames off the front of the queue, crossfading what
+        /// was next into what is now next so the jump doesn't click.
+        fn splice(&mut self, excess: usize) {
+            let fill = self.samples.len() / 2;
+            let fade = self.fade_frames().min(fill.saturating_sub(excess));
+            for frame in 0..fade {
+                let share = (frame as f64 + 0.5) / fade as f64;
+                for channel in 0..2 {
+                    let old = self.samples[frame * 2 + channel];
+                    let new = &mut self.samples[(frame + excess) * 2 + channel];
+                    *new = old * (1.0 - share) + *new * share;
+                }
+            }
+            self.samples.drain(..excess * 2);
         }
         /// Forgets the signal.
         fn reset(&mut self) {
@@ -834,6 +972,7 @@ mod pipewire {
             self.eq.reset();
             self.tap.try_clear();
             self.gain = 0.0;
+            self.primed = false;
             if let Some(resampler) = &mut self.input_resampler {
                 resampler.reset();
             }
@@ -849,7 +988,7 @@ mod pipewire {
                 Stats::add(&stats.cycles_without_input, 1);
             }
             // A missing output must never accumulate a song to play later.
-            if ring.len() > self.input_rate as usize / 2 {
+            if ring.len() as f64 > f64::from(self.input_rate) * MAX_HELD {
                 Stats::add(&stats.skipped_frames, ring.len() / 2);
                 ring.skip();
                 self.reset();
@@ -867,7 +1006,9 @@ mod pipewire {
                     }
                     None => self.converted.extend_from_slice(&self.pulled[..count]),
                 }
-                if self.samples.len() + self.converted.len() > self.output_rate as usize / 2 {
+                if (self.samples.len() + self.converted.len()) as f64
+                    > f64::from(self.output_rate) * MAX_HELD
+                {
                     Stats::add(&stats.skipped_frames, self.samples.len() / 2);
                     self.reset();
                     continue;
@@ -877,11 +1018,16 @@ mod pipewire {
             }
         }
         /// Fills at most one `CHUNK` of interleaved float frames.
-        fn block(&mut self, bytes: &mut [u8], percent: u8) {
+        /// Silent, leaving the queue alone, unless it is to `play`.
+        fn block(&mut self, bytes: &mut [u8], percent: u8, play: bool) {
             let count = bytes.len() / 8 * 2;
             let samples = &mut self.block[..count];
             for sample in samples.iter_mut() {
-                *sample = self.samples.pop_front().unwrap_or(0.0);
+                *sample = if play {
+                    self.samples.pop_front().unwrap_or(0.0)
+                } else {
+                    0.0
+                };
             }
             self.eq.apply(samples);
             if let Some(resampler) = &mut self.tap_resampler {
@@ -941,7 +1087,7 @@ mod pipewire {
             let settings = Self::eq_settings(&eq);
             let processor = crate::eq::Processor::prepared(eq.clone(), rate);
             Self {
-                ring: Ring::new(MAX_RATE / 2),
+                ring: Ring::new((MAX_RATE as f64 * MAX_HELD) as usize),
                 chain: Mutex::new(Chain::new(processor, tap.clone(), rate, rate)),
                 flush: AtomicBool::new(false),
                 input_rate: AtomicU32::new(rate),
@@ -1005,8 +1151,10 @@ mod pipewire {
                 self.flush.store(true, Ordering::Release);
                 return;
             }
-            self.stats
-                .heard(&samples[..stereo], self.input_rate.load(Ordering::Relaxed));
+            let rate = self.input_rate.load(Ordering::Relaxed);
+            if self.stats.is_hole(&samples[..stereo], rate) {
+                return;
+            }
             if !self.ring.write(&samples[..stereo]) {
                 Stats::add(&self.stats.overflows, 1);
                 self.flush.store(true, Ordering::Release);
@@ -1027,20 +1175,11 @@ mod pipewire {
             }
             chain.pull(&self.ring, &self.stats);
             let frames = bytes.len() / 8;
-            let fill = chain.samples.len() / 2;
             self.stats.quantum.store(frames, Ordering::Relaxed);
             self.stats.rate.store(chain.output_rate, Ordering::Relaxed);
-            if frames > 0 {
-                self.stats
-                    .low_water
-                    .fetch_min(fill.saturating_sub(frames), Ordering::Relaxed);
-            }
-            if fill < frames {
-                Stats::add(&self.stats.short_reads, 1);
-                Stats::add(&self.stats.short_frames, frames - fill);
-            }
+            let play = chain.pace(frames, &self.stats);
             for block in bytes.chunks_mut(CHUNK * 4) {
-                chain.block(block, percent);
+                chain.block(block, percent, play);
             }
         }
     }
@@ -1403,6 +1542,9 @@ mod pipewire {
                 return;
             }
             leaving.borrow_mut().settle();
+            state
+                .delay_ms
+                .store(timer_audio.stats.delay_ms(), Ordering::Relaxed);
             if reported.get().elapsed() >= REPORT_EVERY {
                 reported.set(Instant::now());
                 if let Some(line) = timer_audio.stats.take().line() {
@@ -1512,6 +1654,13 @@ mod pipewire {
                 .iter()
                 .map(|b| f32::from_le_bytes(*b).abs())
                 .fold(0.0, f32::max)
+        }
+
+        /// Renders `output` as a graph would, a short quantum at a time.
+        fn render_all(audio: &Audio, output: &mut [u8], percent: u8) {
+            for cycle in output.chunks_mut(256 * 8) {
+                audio.render(cycle, percent);
+            }
         }
 
         fn owned(audio: Audio) -> Audio {
@@ -1649,7 +1798,7 @@ mod pipewire {
                 let input = tone(rate, rate as usize / 10);
                 audio.push(&input);
                 let mut output = vec![0; input.len()];
-                audio.render(&mut output, 0);
+                render_all(&audio, &mut output, 0);
                 assert_eq!(peak(&output), 0.0, "zero volume must be silent");
                 let before = tap.window(512, 0);
                 let level = before.iter().copied().map(f32::abs).fold(0.0, f32::max);
@@ -1658,7 +1807,7 @@ mod pipewire {
                     "post-EQ level at {rate} Hz: {level}"
                 );
                 audio.push(&input);
-                audio.render(&mut output, 50);
+                render_all(&audio, &mut output, 50);
                 let level = peak(&output[output.len() / 2..]);
                 assert!(
                     (level - 0.025).abs() < 0.002,
@@ -1726,20 +1875,20 @@ mod pipewire {
             let audio = owned(Audio::new(crate::eq::shared(), crate::vis::AudioTap::new()));
             assert_eq!(audio.stats.take().line(), None);
             audio.push(&tone(44_100, 4096));
-            audio.render(&mut vec![0; 4096 * 8], 100);
+            let mut output = vec![0; 4096 * 8];
+            render_all(&audio, &mut output, 100);
             assert_eq!(
                 audio.stats.take().line(),
                 None,
                 "no fault, and a margin alone is not one"
             );
 
-            let mut output = vec![0; 8192 * 8];
-            audio.render(&mut output, 100);
+            render_all(&audio, &mut output[..256 * 8], 100);
             let report = audio.stats.take();
             assert_eq!(report.short_reads, 1);
             assert!(report.line().unwrap().contains("1 short reads"));
             assert_eq!(report.low_water, 0);
-            assert_eq!(report.cycles_without_input, 1);
+            assert!(report.cycles_without_input >= 1);
             assert_eq!(audio.stats.take().short_reads, 0, "emptied by the report");
 
             let chain = audio.chain.lock().unwrap();
@@ -1747,8 +1896,9 @@ mod pipewire {
             drop(chain);
             assert_eq!(audio.stats.take().chain_misses, 1);
 
-            audio.push(&vec![0; 8 * (MAX_RATE / 4)]);
-            audio.push(&vec![0; 8 * (MAX_RATE / 4)]);
+            for _ in 0..4 {
+                audio.push(&tone(44_100, MAX_RATE / 4));
+            }
             assert_eq!(audio.stats.take().overflows, 1);
             audio.render(&mut [], 100);
 
@@ -1790,6 +1940,237 @@ mod pipewire {
             assert_eq!(audio.stats.take().input_gaps, 0, "a pause in the song");
         }
 
+        /// Takes a cycle of `frames` of a steady tone through the input and
+        /// the output, in the order given. The output's first sample of each
+        /// cycle is what the tests below look at, so its peak shows gaps.
+        fn cycle(audio: &Audio, frames: usize, input_first: bool) -> Vec<u8> {
+            let mut output = vec![0; frames * 8];
+            if input_first {
+                audio.push(&tone(44_100, frames));
+            }
+            audio.render(&mut output, 100);
+            if !input_first {
+                audio.push(&tone(44_100, frames));
+            }
+            output
+        }
+        fn fresh() -> Audio {
+            owned(Audio::new(crate::eq::shared(), crate::vis::AudioTap::new()))
+        }
+        /// The frames of `MIN_TARGET` at the tests' 44.1 kHz.
+        const TARGET: usize = 2646;
+
+        /// Nothing plays until the margin is there, and then it stays.
+        #[test]
+        fn the_output_holds_until_the_target_fill_then_plays_on_unbroken() {
+            let audio = fresh();
+            let quantum = 256;
+            let mut held = 0;
+            for _ in 0..TARGET / quantum + 4 {
+                if peak(&cycle(&audio, quantum, true)) > 0.0 {
+                    break;
+                }
+                held += 1;
+            }
+            // And the limiter's look-ahead, with the ramp's first frames.
+            assert!(
+                (TARGET / quantum..TARGET / quantum + 3).contains(&held),
+                "held for the target and no longer: {held} cycles"
+            );
+            for _ in 0..500 {
+                cycle(&audio, quantum, true);
+            }
+            assert_eq!(audio.stats.take().short_reads, 0);
+        }
+
+        /// A large quantum holds for two of them instead.
+        #[test]
+        fn the_target_is_two_quanta_when_those_are_more_than_the_minimum() {
+            let chain = fresh();
+            let chain = chain.chain.lock().unwrap();
+            assert_eq!(chain.target(256), TARGET);
+            assert_eq!(chain.target(1024), TARGET);
+            assert_eq!(chain.target(2048), 4096);
+            assert_eq!(chain.target(8192), 16_384);
+        }
+
+        /// The streams' order inside a cycle isn't fixed: the old queue, with
+        /// no margin, lost a quantum whenever it flipped.
+        #[test]
+        fn input_and_output_swapping_order_within_a_cycle_costs_nothing() {
+            let audio = fresh();
+            let (mut random, quantum) = (0x9E37_79B9u32, 1024);
+            for _ in 0..4 {
+                cycle(&audio, quantum, true);
+            }
+            for _ in 0..2000 {
+                random ^= random << 13;
+                random ^= random >> 17;
+                random ^= random << 5;
+                cycle(&audio, quantum, random & 1 == 0);
+            }
+            let report = audio.stats.take();
+            assert_eq!(report.short_reads, 0);
+            assert_eq!(report.skipped_frames, 0, "and it isn't mistaken for delay");
+        }
+
+        /// After running dry it holds for the margin again, and the sound
+        /// comes back on the fader's ramp rather than at full level.
+        #[test]
+        fn running_dry_re_primes_and_ramps_back_in() {
+            let audio = fresh();
+            let quantum = 1024;
+            for _ in 0..8 {
+                cycle(&audio, quantum, true);
+            }
+            let mut output = vec![0; quantum * 8];
+            audio.render(&mut output, 100);
+            audio.render(&mut output, 100);
+            audio.render(&mut output, 100);
+            audio.render(&mut output, 100);
+            assert_eq!(audio.stats.take().short_reads, 1, "counted once");
+            assert_eq!(peak(&output), 0.0, "holding");
+            let mut held = 0;
+            let output = loop {
+                let output = cycle(&audio, quantum, true);
+                if peak(&output) > 0.0 {
+                    break output;
+                }
+                held += 1;
+            };
+            assert_eq!(held, 2);
+            let first = f32::from_le_bytes(output[..4].try_into().unwrap());
+            assert!(first.abs() < 0.001, "not back at full level: {first}");
+        }
+
+        /// The last of the queue before a hole fades rather than stops dead.
+        #[test]
+        fn the_last_frames_before_running_dry_fade_out() {
+            let mut audio = fresh();
+            let chain = audio.chain.get_mut().unwrap();
+            chain.samples = vec![1.0; 2000].into();
+            chain.fade_out(1000);
+            let left = |frame: usize| chain.samples[frame * 2];
+            assert_eq!(left(0), 1.0, "only the end");
+            assert!(left(999) < 0.01, "{}", left(999));
+            assert!((800..999).all(|frame| left(frame) >= left(frame + 1)));
+        }
+
+        /// Delay left over from a large quantum, or a missed render, goes.
+        /// It would otherwise stay for as long as the song does.
+        #[test]
+        fn delay_beyond_the_target_is_cut_back() {
+            let audio = fresh();
+            for _ in 0..4 {
+                cycle(&audio, 8192, true);
+            }
+            let held = |audio: &Audio| audio.chain.lock().unwrap().samples.len() / 2;
+            assert!(held(&audio) >= 8192, "{}", held(&audio));
+            for _ in 0..(2 * 44_100 / 256) {
+                cycle(&audio, 256, true);
+            }
+            assert!(held(&audio) <= TARGET + 256, "{}", held(&audio));
+            let report = audio.stats.take();
+            assert!(report.skipped_frames > 0);
+            assert_eq!(report.short_reads, 0);
+        }
+
+        /// Cutting the delay doesn't click: a tone steps by no more than it
+        /// does anyway, or little over it.
+        #[test]
+        fn cutting_the_delay_crossfades() {
+            let mut chain = fresh();
+            let chain = chain.chain.get_mut().unwrap();
+            let tone = tone(44_100, 8192);
+            chain.samples = tone
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|bytes| f64::from(f32::from_le_bytes(*bytes)))
+                .collect();
+            chain.splice(1000);
+            assert_eq!(chain.samples.len() / 2, 8192 - 1000);
+            let step = 0.1 * std::f64::consts::TAU * 1000.0 / 44_100.0;
+            for at in 1..512 {
+                let jump = (chain.samples[at * 2] - chain.samples[(at - 1) * 2]).abs();
+                assert!(jump < step * 2.0, "at {at}: {jump}");
+            }
+        }
+
+        /// The cycle a late Soloist missed comes as zeros, with the music
+        /// after it. They aren't queued, so the margin plays straight across.
+        #[test]
+        fn a_cycle_of_zeros_inside_the_sound_is_played_across() {
+            let audio = fresh();
+            let quantum = 1024;
+            let frames = |bytes: &[u8]| bytes.len() / 8;
+            for _ in 0..6 {
+                cycle(&audio, quantum, true);
+            }
+            audio.push(&vec![0; quantum * 8]);
+            let mut output = vec![0; quantum * 8];
+            audio.render(&mut output, 100);
+            assert!(
+                output
+                    .as_chunks::<8>()
+                    .0
+                    .chunks(45)
+                    .all(|period| peak(period.as_flattened()) > 0.05),
+                "{} frames with a hole in them",
+                frames(&output)
+            );
+            for _ in 0..20 {
+                cycle(&audio, quantum, true);
+            }
+            let report = audio.stats.take();
+            assert_eq!(report.short_reads, 0);
+            assert_eq!(report.input_gaps, 1, "and the log still hears of it");
+        }
+
+        /// Holes that outlast the margin are heard, and the log must say so.
+        #[test]
+        fn a_hole_longer_than_the_margin_counts_as_a_short_read() {
+            let audio = fresh();
+            let quantum = 1024;
+            for _ in 0..6 {
+                cycle(&audio, quantum, true);
+            }
+            let mut output = vec![0; quantum * 8];
+            for _ in 0..6 {
+                audio.push(&vec![0; quantum * 8]);
+                audio.render(&mut output, 100);
+            }
+            cycle(&audio, quantum, true);
+            let report = audio.stats.take();
+            assert_eq!((report.short_reads, report.input_gaps), (1, 1));
+        }
+
+        /// Silence that was the song's after all goes unreported, and puts
+        /// the margin back. A dropout here would be a warning per track.
+        #[test]
+        fn a_long_silence_runs_the_queue_out_quietly_and_restores_the_margin() {
+            let audio = fresh();
+            let quantum = 1024;
+            for _ in 0..6 {
+                cycle(&audio, quantum, true);
+            }
+            let mut output = vec![0; quantum * 8];
+            for _ in 0..40 {
+                audio.push(&vec![0; quantum * 8]);
+                audio.render(&mut output, 100);
+            }
+            assert_eq!(peak(&output), 0.0);
+            for _ in 0..6 {
+                cycle(&audio, quantum, true);
+            }
+            let report = audio.stats.take();
+            assert_eq!(report.short_reads, 0);
+            assert_eq!(report.input_gaps, 0);
+            let chain = audio.chain.lock().unwrap();
+            assert!(chain.primed);
+            assert!(chain.samples.len() / 2 >= TARGET - quantum);
+        }
+
         /// A chain taken by the main loop costs a block of silence, never a
         /// wait, and the sound is still there afterwards.
         #[test]
@@ -1816,7 +2197,7 @@ mod pipewire {
                 let input = tone(44_100, 4410);
                 let mut output = vec![0; input.len()];
                 audio.push(&input);
-                audio.render(&mut output, 100);
+                render_all(audio, &mut output, 100);
                 peak(&output[output.len() / 2..])
             };
             let before = level(&audio);

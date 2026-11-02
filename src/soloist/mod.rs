@@ -526,6 +526,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                     // A rebuilt route Soloist never came back to is a player
                     // playing into nothing: only starting it again helps.
                     if bridge.routed() { rebuilt_at = None; }
+                    client.audio_delay(bridge.delay_ms());
                     if rebuilt_at.is_some_and(|at| at.elapsed() >= REROUTE_LIMIT) && bridge.playing() {
                         log::warn!("Soloist did not return to its rebuilt audio route");
                         bail!(Failure::AudioLost);
