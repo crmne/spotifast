@@ -45,6 +45,43 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 matches!(event, egui::Event::Key { key: Key::Q, pressed: true, modifiers, .. }
                     if modifiers.shift_only())
             });
+        let sidebar_hovered = app.settings.sidebar_visible
+            && app.lyrics_fullscreen.is_none()
+            && ctx
+                .pointer_latest_pos()
+                .zip(ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("sidebar-rect"))))
+                .is_some_and(|(pointer, rect)| rect.contains(pointer));
+        let playlist_page = matches!(app.page(), Page::Playlist(_));
+        let focus_local_search = || {
+            if sidebar_hovered {
+                ctx.data_mut(|data| {
+                    data.insert_temp(egui::Id::new("sidebar-show-search"), true);
+                });
+                ctx.memory_mut(|memory| {
+                    memory.request_focus(egui::Id::new("sidebar-search"));
+                });
+                None
+            } else if playlist_page {
+                ctx.memory_mut(|memory| {
+                    memory.request_focus(egui::Id::new("collection-filter"));
+                });
+                None
+            } else {
+                Some(Action::FocusSearch)
+            }
+        };
+        if input.consume_key(Modifiers::COMMAND, Key::F)
+            && let Some(action) = focus_local_search()
+        {
+            actions.push(action);
+        }
+        if !editing_text
+            && app.dialog.is_none()
+            && input.consume_key(Modifiers::NONE, Key::Slash)
+            && let Some(action) = focus_local_search()
+        {
+            actions.push(action);
+        }
         let mut key = |modifiers: Modifiers, key: Key, action: Action| {
             if input.consume_key(modifiers, key) {
                 actions.push(action);
@@ -72,32 +109,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 Key::Q,
                 Action::ToggleQueuePanel,
             );
-        }
-        let sidebar_hovered = app.settings.sidebar_visible
-            && app.lyrics_fullscreen.is_none()
-            && ctx
-                .pointer_latest_pos()
-                .zip(ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("sidebar-rect"))))
-                .is_some_and(|(pointer, rect)| rect.contains(pointer));
-        let playlist_page = matches!(app.page(), Page::Playlist(_));
-        let mut focus_local_search = || {
-            if sidebar_hovered {
-                ctx.data_mut(|data| {
-                    data.insert_temp(egui::Id::new("sidebar-show-search"), true);
-                });
-                ctx.memory_mut(|memory| {
-                    memory.request_focus(egui::Id::new("sidebar-search"));
-                });
-            } else if playlist_page {
-                ctx.memory_mut(|memory| {
-                    memory.request_focus(egui::Id::new("collection-filter"));
-                });
-            } else {
-                actions.push(Action::FocusSearch);
-            }
-        };
-        if input.consume_key(Modifiers::COMMAND, Key::F) {
-            focus_local_search();
         }
         key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
@@ -173,9 +184,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
             }
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
-            if input.consume_key(Modifiers::NONE, Key::Slash) {
-                focus_local_search();
-            }
             key(
                 Modifiers::NONE,
                 Key::F,
