@@ -19,6 +19,9 @@ use sha1::{Digest, Sha1};
 const API: &str = "https://lrclib.net/api";
 /// Lyrics do not change; a cached answer is good for this long.
 const CACHE_LIFETIME: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+/// A cached "Spotify has none" is good for this long: it may be wrong, and
+/// costs a look at LRCLIB every time.
+const NONE_LIFETIME: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// A candidate this far from the playing track's length is another
 /// recording, however well the names match.
 const MAX_DRIFT_SECS: f64 = 30.0;
@@ -112,7 +115,20 @@ pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
 
 /// The cached answer at `path`, while it is fresh.
 pub fn cached(path: &Path) -> Option<Option<Lyrics>> {
-    read_cache(&path.to_path_buf())
+    let answer = read_cache(&path.to_path_buf())?;
+    if answer.is_none() && older_than(path, NONE_LIFETIME) {
+        return None;
+    }
+    Some(answer)
+}
+
+/// Whether the file at `path` was written over `age` ago.
+fn older_than(path: &Path, age: Duration) -> bool {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_none_or(|elapsed| elapsed > age)
 }
 
 /// Remember an answer at `path`, `None` included.

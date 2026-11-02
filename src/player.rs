@@ -17,7 +17,7 @@ use librespot_connect::{
     Spirc,
 };
 use librespot_core::{
-    SpotifyUri,
+    FileId, SpotifyUri,
     authentication::Credentials,
     cache::Cache,
     config::{DeviceType, SessionConfig},
@@ -27,7 +27,7 @@ use librespot_core::{
     spotify_id::SpotifyId,
 };
 use librespot_metadata::{
-    Album as MetadataAlbum, Metadata,
+    Album as MetadataAlbum, Metadata, Track as MetadataTrack,
     album::AlbumType,
     audio::{AudioItem, UniqueFields},
 };
@@ -755,17 +755,41 @@ impl Engine {
         else {
             return Ok(None);
         };
-        match self.session.spclient().get_lyrics(&id).await {
+        let cover = self.album_cover(&id).await;
+        let endpoint = lyrics_endpoint(&id, cover.as_ref());
+        let answer = self
+            .session
+            .spclient()
+            .request_as_json(&reqwest::Method::GET, &endpoint, None, None)
+            .await;
+        match answer {
             Ok(bytes) => {
                 let (json, outcome) = read_lyrics(&bytes);
                 log::info!("spotify lyrics {track_uri}: {outcome}");
                 Ok(json)
             }
+            // A redirect lands here too: librespot files it under not found,
+            // and only the status in the error tells them apart.
             Err(error) if error.kind == ErrorKind::NotFound => {
-                log::info!("spotify lyrics {track_uri}: not found");
+                log::info!("spotify lyrics {track_uri}: not found ({error})");
                 Ok(None)
             }
-            Err(error) => Err(anyhow!("spotify lyrics: {error}")),
+            Err(error) => {
+                log::info!("spotify lyrics {track_uri}: failed ({error})");
+                Err(anyhow!("spotify lyrics: {error}"))
+            }
+        }
+    }
+
+    /// The track's album cover, which the lyrics request names.
+    async fn album_cover(&self, id: &SpotifyId) -> Option<FileId> {
+        let uri = SpotifyUri::Track { id: *id };
+        match MetadataTrack::get(&self.session, &uri).await {
+            Ok(track) => track.album.covers.first().map(|cover| cover.id),
+            Err(error) => {
+                log::debug!("no cover to ask for lyrics with: {error}");
+                None
+            }
         }
     }
 
@@ -1373,6 +1397,20 @@ fn decode_folder_name(encoded: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The request Spotify's own client makes for a track's lyrics, which names
+/// the album cover. Every lookup without the cover came back 404, so it stays
+/// only for a track whose cover could not be read.
+fn lyrics_endpoint(id: &SpotifyId, cover: Option<&FileId>) -> String {
+    let track = id.to_base62();
+    let query = "format=json&vocalRemoval=false&market=from_token";
+    match cover {
+        Some(cover) => {
+            format!("/color-lyrics/v2/track/{track}/image/spotify:image:{cover}?{query}")
+        }
+        None => format!("/color-lyrics/v2/track/{track}?{query}"),
+    }
 }
 
 /// What came back for a lyrics request, and what to log of it: its shape and
@@ -2138,5 +2176,26 @@ mod tests {
         let (json, outcome) = read_lyrics(b"{\"message\":\"secret\"}");
         assert!(json.is_some(), "a body the caller still gets to read");
         assert_eq!(outcome, "no lines in the answer, 20 bytes");
+    }
+
+    /// The official client's request, cover included; librespot adds its
+    /// `product`, `country` and `salt` after an `&`.
+    #[test]
+    fn the_lyrics_request_names_the_album_cover() {
+        let id = SpotifyId::from_base62("4uLU6hMCjMI75M1A2tKUQC").unwrap();
+        let cover = FileId::from_raw(&[0xab; 20]);
+        assert_eq!(
+            lyrics_endpoint(&id, Some(&cover)),
+            format!(
+                "/color-lyrics/v2/track/4uLU6hMCjMI75M1A2tKUQC/image/spotify:image:{}\
+                 ?format=json&vocalRemoval=false&market=from_token",
+                "ab".repeat(20)
+            )
+        );
+        assert_eq!(
+            lyrics_endpoint(&id, None),
+            "/color-lyrics/v2/track/4uLU6hMCjMI75M1A2tKUQC\
+             ?format=json&vocalRemoval=false&market=from_token"
+        );
     }
 }
