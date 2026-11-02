@@ -1705,6 +1705,9 @@ mod pipewire {
                 // As in the app, the output finds its own way to the default
                 // sink, which here is the only one there is.
                 let bridge = Bridge::open_on(config, None).await.expect("private bridge");
+                if std::env::var("SOLOIST_SOAK_SOURCE").is_ok_and(|source| source == "irregular") {
+                    return Self::irregular(bridge).await;
+                }
                 let mut source = tokio::process::Command::new("pw-play")
                     .args([
                         "--target",
@@ -1739,6 +1742,34 @@ mod pipewire {
                     bridge,
                     source,
                     feed,
+                };
+                private.wait_routed().await;
+                private
+            }
+            /// Soloist as `pw-dump` shows it: an async stream at 44.1 kHz on a
+            /// main-class loop, which the graph never waits for. It runs in a
+            /// process of its own, as this one's module-rt would raise it.
+            async fn irregular(bridge: Bridge) -> Self {
+                let source = tokio::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--ignored",
+                        "--exact",
+                        "--nocapture",
+                        "soloist::audio::pipewire::tests::irregular_source",
+                    ])
+                    .env("SOLOIST_STAND_IN_TARGET", &bridge.name)
+                    .env("PIPEWIRE_PROPS", child_props(""))
+                    .env("PIPEWIRE_CONFIG_NAME", "client-nort.conf")
+                    .stdout(std::process::Stdio::null())
+                    .kill_on_drop(true)
+                    .spawn()
+                    .unwrap();
+                bridge.child(source.id().unwrap());
+                bridge.update(&json!({"status":"playing", "volume":100, "is_active":true}));
+                let private = Self {
+                    bridge,
+                    source,
+                    feed: tokio::spawn(async {}),
                 };
                 private.wait_routed().await;
                 private
@@ -1845,6 +1876,107 @@ mod pipewire {
                 private.bridge.failed()
             );
             private.finish().await;
+        }
+
+        /// The stand-in for Soloist's thread: not a test of its own, the
+        /// `Private` above runs it. In one wake in `SOLOIST_STAND_IN_ODDS` it
+        /// oversleeps by up to `SOLOIST_STAND_IN_MS`, as a thread of normal
+        /// priority does on a busy machine, then carries on where it was.
+        #[test]
+        #[ignore = "a stand-in for Soloist, started by the soak"]
+        fn irregular_source() {
+            let Ok(target) = std::env::var("SOLOIST_STAND_IN_TARGET") else {
+                return;
+            };
+            let number = |name: &str, default: u64| {
+                std::env::var(name).map_or(default, |value| value.parse().unwrap())
+            };
+            let odds = number("SOLOIST_STAND_IN_ODDS", 8);
+            let most = number("SOLOIST_STAND_IN_MS", 40);
+            pw::init();
+            let mainloop = pw::main_loop::MainLoopRc::new(None).unwrap();
+            let context = pw::context::ContextRc::new(&mainloop, None).unwrap();
+            let core = context.connect_rc(None).unwrap();
+            let stream = pw::stream::StreamRc::new(
+                core,
+                "stand-in",
+                properties! {
+                    "media.type" => "Audio", "media.category" => "Playback",
+                    "media.role" => "Music", "node.name" => "spotify",
+                    "target.object" => target, "node.loop.class" => "main",
+                },
+            )
+            .unwrap();
+            let (mut frame, mut random) = (0u64, 0x9E37_79B9_7F4A_7C15u64);
+            let _listener = stream
+                .add_local_listener::<()>()
+                .process(move |stream, _| {
+                    random ^= random << 13;
+                    random ^= random >> 7;
+                    random ^= random << 17;
+                    if most > 0 && random % odds == 0 {
+                        std::thread::sleep(Duration::from_micros(
+                            (random >> 8) % (most * 1000).max(1),
+                        ));
+                    }
+                    let Some(mut buffer) = stream.dequeue_buffer() else {
+                        return;
+                    };
+                    let requested = buffer.requested() as usize;
+                    let datas = buffer.datas_mut();
+                    let Some(data) = datas.first_mut() else {
+                        return;
+                    };
+                    let mut size = 0;
+                    if let Some(bytes) = data.data() {
+                        let frames = if requested == 0 {
+                            (bytes.len() / 8).min(1024)
+                        } else {
+                            requested.min(bytes.len() / 8)
+                        };
+                        size = frames * 8;
+                        for out in bytes[..size].as_chunks_mut::<8>().0 {
+                            let sample = (0.1
+                                * (std::f64::consts::TAU * 1000.0 * frame as f64 / 44_100.0).sin())
+                                as f32;
+                            frame += 1;
+                            out[..4].copy_from_slice(&sample.to_le_bytes());
+                            out[4..].copy_from_slice(&sample.to_le_bytes());
+                        }
+                    }
+                    let chunk = data.chunk_mut();
+                    *chunk.offset_mut() = 0;
+                    *chunk.stride_mut() = 8;
+                    *chunk.size_mut() = size as u32;
+                })
+                .register()
+                .unwrap();
+            let mut format = spa::param::audio::AudioInfoRaw::new();
+            format.set_format(spa::param::audio::AudioFormat::F32LE);
+            format.set_channels(2);
+            format.set_rate(44_100);
+            let value = spa::pod::Value::Object(spa::pod::Object {
+                type_: spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
+                id: spa::param::ParamType::EnumFormat.as_raw(),
+                properties: format.into(),
+            });
+            let bytes = spa::pod::serialize::PodSerializer::serialize(
+                std::io::Cursor::new(Vec::new()),
+                &value,
+            )
+            .unwrap()
+            .0
+            .into_inner();
+            let mut params = [spa::pod::Pod::from_bytes(&bytes).unwrap()];
+            stream
+                .connect(
+                    spa::utils::Direction::Output,
+                    None,
+                    pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS,
+                    &mut params,
+                )
+                .unwrap();
+            mainloop.run();
         }
 
         /// Frames in one period of the soak's 1 kHz tone at 48 kHz.
