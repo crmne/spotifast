@@ -114,7 +114,7 @@ impl Host {
                 return;
             }
         };
-        let exe = match std::env::current_exe() {
+        let exe = match super::this_program() {
             Ok(exe) => exe,
             Err(error) => {
                 log::warn!("MilkDrop: could not find the program to run: {error}");

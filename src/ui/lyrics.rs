@@ -15,6 +15,9 @@ const LINE_GAP: f32 = 10.0;
 /// the top: high up, so the lines to come fill most of the view.
 const SUNG_LINE_AT: f32 = 0.2;
 
+/// How much bigger the line being sung is in full screen.
+const SUNG_LINE_GROWTH: f32 = 1.15;
+
 /// Scrolls so the middle of `line` sits `SUNG_LINE_AT` of the way down the
 /// visible lyrics.
 fn show_sung_line(ui: &egui::Ui, line: Rect, animation: Option<egui::style::ScrollAnimation>) {
@@ -871,16 +874,16 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
     let follow = following && app.lyrics_line_shown != Some(active);
     let animation = crate::motion::scroll(ui.ctx(), 0.45);
     let size = (ui.available_width() * 0.046).clamp(28.0, 42.0);
-    // The line being sung brightens; all lines keep the same font metrics
-    // so highlighting cannot rewrap the words during a transition.
+    // The line being sung takes the accent colour and grows; each line wraps
+    // for its full size all along, so growing can't rewrap its words.
     // A line takes 300 ms to light up or fade.
     // A moving picture asks more of the quiet lines than a still one.
     let quiet = palette
         .text
         .gamma_multiply(if app.milkdrop_behind_lyrics() {
-            0.82
+            0.62
         } else {
-            0.68
+            0.42
         });
     ui.spacing_mut().scroll.fade.strength = 0.0;
     egui::ScrollArea::vertical()
@@ -916,11 +919,17 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                     crate::motion::seconds(ui.ctx(), 0.3),
                 );
                 let color = if lyrics.synced {
-                    blend(quiet, palette.text, lit)
+                    blend(quiet, palette.accent, lit)
                 } else {
                     palette.text
                 };
-                let font = theme::bold(size);
+                let grown = if lyrics.synced {
+                    1.0 + (SUNG_LINE_GROWTH - 1.0) * lit
+                } else {
+                    1.0
+                };
+                let wrap = ui.available_width() / SUNG_LINE_GROWTH * grown;
+                let font = theme::bold(size * grown);
                 // A timed line with no words is the band playing on.
                 let text = if line.text.is_empty() && lyrics.synced {
                     "\u{266a}"
@@ -930,15 +939,8 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 // Untimed words have nowhere to jump to, but a click on them
                 // is still on a line, so it must not reach the backdrop.
                 let sense = Sense::click();
-                let galley = crate::bidi::layout(
-                    ui.painter(),
-                    text,
-                    font,
-                    color,
-                    ui.available_width(),
-                    usize::MAX,
-                    None,
-                );
+                let galley =
+                    crate::bidi::layout(ui.painter(), text, font, color, wrap, usize::MAX, None);
                 let center = ui.cursor().top() + galley.size().y * 0.5;
                 let edge = ((center - viewport.top()).min(viewport.bottom() - center)
                     / (size * 2.0))

@@ -370,7 +370,7 @@ fn launch(
     let frames = Frames::create(frames_path).map_err(failed)?;
     let program = match program {
         Some(program) => program,
-        None => std::env::current_exe().map_err(failed)?,
+        None => super::this_program().map_err(failed)?,
     };
     let mut process = Command::new(program)
         .arg("--milkdrop-child")

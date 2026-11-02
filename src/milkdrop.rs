@@ -424,6 +424,17 @@ fn walk(folder: &Path, depth: usize, files: &mut Vec<PathBuf>) {
     }
 }
 
+/// The program to start MilkDrop's child from. An update that replaces the
+/// running file leaves `current_exe` naming nothing, but Linux keeps the
+/// running file reachable through `/proc`.
+pub(crate) fn this_program() -> std::io::Result<std::path::PathBuf> {
+    let own = Path::new("/proc/self/exe");
+    if cfg!(target_os = "linux") && own.exists() {
+        return Ok(own.to_path_buf());
+    }
+    std::env::current_exe()
+}
+
 /// Whether the folder holds a preset, looking no further than the first:
 /// cheap enough for the UI thread, where a full listing is not.
 pub fn has_presets(folder: &Path) -> bool {

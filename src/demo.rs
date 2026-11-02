@@ -5168,6 +5168,10 @@ mod tests {
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.lyrics_following = false;
         app.answer_milkdrop(Picture::Frame(egui::TextureId::default()));
+        // With a preset here, nothing is fetched.
+        let presets = app.dirs.milkdrop_dir();
+        std::fs::create_dir_all(&presets).unwrap();
+        std::fs::write(presets.join("test.milk"), "").unwrap();
         (ctx, app)
     }
 
@@ -9065,7 +9069,7 @@ mod tests {
                                 && text.galley.job.text
                                     == "Streetlights blinking down the river road"
                             {
-                                Some(text.galley.size())
+                                Some(text.galley.rows.len())
                             } else {
                                 None
                             }
@@ -9076,10 +9080,7 @@ mod tests {
             }
         }
         app.backend.shutdown();
-        assert_eq!(
-            sizes[0], sizes[1],
-            "highlighting must not rewrap or resize a line"
-        );
+        assert_eq!(sizes[0], sizes[1], "highlighting must not rewrap a line");
     }
 
     #[test]
