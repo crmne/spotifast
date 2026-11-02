@@ -51,8 +51,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         })
     };
     let global_search_hovered = pointer_over("global-search-rect");
-    let settings_search_hovered = pointer_over("settings-search-rect");
-    let playlist_page = matches!(app.page(), Page::Playlist(_));
+    let settings_search_hovered =
+        matches!(app.page(), Page::Settings) && pointer_over("settings-search-rect");
+    let playlist_filter_available = match app.page() {
+        Page::Playlist(id) => {
+            ctx.data(|data| data.get_temp::<String>(egui::Id::new("playlist-filter-page")))
+                .as_deref()
+                == Some(id.as_str())
+        }
+        _ => false,
+    };
     let mut actions = Vec::new();
     let mut focus_sidebar_search = false;
     let mut focus_playlist_filter = false;
@@ -71,7 +79,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 focus_settings_search = true;
             } else if global_search_hovered {
                 actions.push(Action::FocusSearch);
-            } else if playlist_page {
+            } else if playlist_filter_available {
                 focus_playlist_filter = true;
             } else {
                 actions.push(Action::FocusSearch);
@@ -521,6 +529,7 @@ mod tests {
                 command,
                 Some("sidebar-search"),
                 None,
+                false,
             ),
             (
                 Page::Playlist("playlist-test".into()),
@@ -529,6 +538,7 @@ mod tests {
                 Modifiers::NONE,
                 Some("collection-filter"),
                 None,
+                true,
             ),
             (
                 Page::Settings,
@@ -537,18 +547,39 @@ mod tests {
                 command,
                 Some("settings-search-field"),
                 None,
+                false,
             ),
             (
                 Page::Playlist("playlist-test".into()),
-                egui::pos2(350.0, 80.0),
+                egui::pos2(310.0, 80.0),
+                Key::F,
+                command,
+                None,
+                Some(Action::FocusSearch),
+                false,
+            ),
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(550.0, 80.0),
+                Key::F,
+                command,
+                Some("collection-filter"),
+                None,
+                true,
+            ),
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(800.0, 500.0),
                 Key::Slash,
                 Modifiers::NONE,
                 None,
                 Some(Action::FocusSearch),
+                false,
             ),
         ];
 
-        for (page, pointer, key, modifiers, focused_id, expected_action) in cases {
+        for (page, pointer, key, modifiers, focused_id, expected_action, filter_available) in cases
+        {
             app.open(page);
             app.actions.clear();
             let ctx = egui::Context::default();
@@ -565,6 +596,12 @@ mod tests {
                     egui::Id::new("settings-search-rect"),
                     egui::Rect::from_min_size(egui::pos2(500.0, 50.0), egui::vec2(200.0, 60.0)),
                 );
+                if filter_available {
+                    data.insert_temp(
+                        egui::Id::new("playlist-filter-page"),
+                        "playlist-test".to_string(),
+                    );
+                }
             });
             let events = vec![
                 egui::Event::PointerMoved(pointer),

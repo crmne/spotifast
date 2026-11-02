@@ -485,8 +485,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         &gettext(locale, "Search settings"),
         ui.available_width().min(400.0),
     );
+    let search_bounds = ui
+        .ctx()
+        .data(|data| {
+            data.get_temp::<egui::Rect>(
+                egui::Id::new("settings-search-field").with("search-field-bounds"),
+            )
+        })
+        .unwrap_or(search_response.rect);
     ui.ctx().data_mut(|data| {
-        data.insert_temp(egui::Id::new("settings-search-rect"), search_response.rect);
+        data.insert_temp(egui::Id::new("settings-search-rect"), search_bounds);
     });
     let needle = filter.trim().to_lowercase();
     ui.data_mut(|data| data.insert_temp(egui::Id::new(SETTINGS_FILTER_ID), filter));

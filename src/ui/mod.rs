@@ -40,6 +40,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let ctx = &ctx;
     keys::handle(app, ctx);
+    ctx.data_mut(|data| {
+        data.remove::<String>(Id::new("playlist-filter-page"));
+    });
     for path in winamp::dropped_skins(ctx) {
         app.actions.push(Action::InstallSkin(path));
     }

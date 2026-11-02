@@ -3350,6 +3350,9 @@ pub fn search_field(
 ) -> egui::Response {
     let height = 34.0;
     let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    ui.ctx().data_mut(|data| {
+        data.insert_temp(id.with("search-field-bounds"), rect);
+    });
     let has_focus = ui.memory(|memory| memory.has_focus(id));
     let fill = if has_focus {
         palette.surface_hover
@@ -3758,6 +3761,41 @@ mod tests {
     use crate::model::{Action, Page};
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn search_field_records_its_full_control_bounds() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let id = egui::Id::new("search-bounds-test");
+        let mut query = "query".to_string();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 100.0))),
+                ..Default::default()
+            },
+            |ui| {
+                search_field(
+                    ui,
+                    &Palette::dark(),
+                    Locale::English,
+                    id,
+                    &mut query,
+                    "Search",
+                    220.0,
+                );
+            },
+        );
+        output.textures_delta.clear();
+
+        let bounds = ctx
+            .data(|data| data.get_temp::<Rect>(id.with("search-field-bounds")))
+            .expect("search field records its outer bounds");
+        assert_eq!(bounds.width(), 220.0);
+        assert_eq!(bounds.height(), 34.0);
+        assert!(bounds.contains(egui::pos2(bounds.left() + 8.0, bounds.center().y)));
+        assert!(bounds.contains(egui::pos2(bounds.right() - 8.0, bounds.center().y)));
+    }
 
     #[test]
     fn editing_a_proxy_endpoint_clears_its_password_but_password_entry_is_preserved() {
