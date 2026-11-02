@@ -172,8 +172,10 @@ final output gain, including changes made from another Spotify client. A slider
 moved in Spotifast or a skin is heard at once, and Soloist is told behind it.
 
 The route holds about 60 ms of audio, or two graph cycles if those are longer,
-so a late wake-up in Soloist doesn't become a dropout. The clock and lyrics
-allow for that delay. While Soloist plays, Spotifast asks rtkit, or failing
+so a late wake-up in Soloist doesn't become a dropout. When that margin runs
+low it is rebuilt by playing up to 0.5% slow, too little to hear, and repeated
+dropouts raise it to at most 250 ms until things stay clean again. The clock
+and lyrics follow the delay as it changes. While Soloist plays, Spotifast asks rtkit, or failing
 that the system's nice limit, to raise the priority of its audio threads to
 nice -11. Anything that goes wrong on the route is counted and goes to
 `spotifast.log` at most every 10 seconds.
