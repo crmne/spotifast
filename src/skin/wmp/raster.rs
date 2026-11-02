@@ -148,6 +148,19 @@ pub fn fill(canvas: &mut Bitmap, area: Box2, color: Rgb, alpha: u8, clip: &[Box2
     });
 }
 
+/// The strip at rest, in a preview: a row of dots.
+fn wave(canvas: &mut Bitmap, area: Box2, color: Rgb, clip: &[Box2]) {
+    for x in (0..area.width).step_by(3) {
+        let dot = Box2 {
+            x: area.x + x,
+            y: area.y + area.height / 2,
+            width: 1,
+            height: 1,
+        };
+        fill(canvas, dot, color, 255, clip);
+    }
+}
+
 fn effects(canvas: &mut Bitmap, area: Box2, clip: &[Box2]) {
     let slot = area.width / BARS.len() as i32;
     if slot < 2 {
@@ -379,6 +392,9 @@ pub fn draw(paints: &[Paint], canvas: &mut Bitmap) {
             } => fill(canvas, *area, *color, *alpha, clip),
             Paint::Text { text: paint, clip } => text(canvas, paint, clip),
             Paint::Effects { area, clip, .. } => effects(canvas, *area, clip),
+            Paint::Wave {
+                area, color, clip, ..
+            } => wave(canvas, *area, *color, clip),
             Paint::Art {
                 area,
                 background,

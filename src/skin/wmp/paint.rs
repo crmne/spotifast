@@ -115,6 +115,13 @@ pub enum Paint {
         alpha: u8,
         clip: Clip,
     },
+    /// A slim strip of the sound, for an `effects` element with `wave`.
+    Wave {
+        area: Box2,
+        color: Rgb,
+        alpha: u8,
+        clip: Clip,
+    },
     /// The cover art, for a video pane or an album-art picture.
     Art {
         area: Box2,
@@ -231,6 +238,16 @@ impl Painter<'_> {
             Kind::Slider => self.slider(id, area, alpha, clip),
             Kind::CustomSlider => self.custom_slider(id, area, alpha, clip),
             Kind::Text => self.text(id, area, alpha, clip),
+            Kind::Effects if self.view.elements[id].flag("wave", false) => {
+                self.out.push(Paint::Wave {
+                    area,
+                    color: self.view.elements[id]
+                        .color("foregroundcolor")
+                        .unwrap_or([255, 255, 255]),
+                    alpha: alpha as u8,
+                    clip: clip.clone(),
+                });
+            }
             Kind::Effects => {
                 if self.view.elements[id].flag("windowed", false) {
                     self.on_top.push((id, area, alpha, clip.clone()));

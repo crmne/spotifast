@@ -598,7 +598,7 @@ fn a_negative_z_child_sits_under_the_background() {
     let order: Vec<u8> = paints
         .iter()
         .map(|paint| match paint {
-            Paint::Effects { .. } => 0,
+            Paint::Effects { .. } | Paint::Wave { .. } => 0,
             Paint::Picture { .. } => 1,
             Paint::Text { .. } => 2,
             _ => 9,

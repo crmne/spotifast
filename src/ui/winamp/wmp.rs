@@ -509,6 +509,20 @@ fn draw(app: &mut App, ui: &mut Ui, paint: &Paint, origin: Pos2, unit: f32, now:
             }
             moving || waiting
         }
+        Paint::Wave {
+            area,
+            color,
+            alpha,
+            clip,
+        } => {
+            let rect = world(*area, origin, unit);
+            let (shapes, moving) = wave_shapes(app, rect, *color, *alpha, unit);
+            for box2 in clip.iter() {
+                let area = world(*box2, origin, unit).intersect(ui.clip_rect());
+                ui.painter().with_clip_rect(area).extend(shapes.clone());
+            }
+            moving
+        }
         Paint::Art {
             area,
             background,
@@ -609,6 +623,44 @@ fn draw_text(ui: &Ui, text: &TextPaint, clip: &[Box2], origin: Pos2, unit: f32) 
             painter.line_segment([pos2(start.x, y), pos2(start.x + size.x, y)], stroke);
         }
     }
+}
+
+/// A strip of thin upright lines as tall as the sound, from the same place as
+/// the visualisations: after the equalizer and before the volume.
+fn wave_shapes(
+    app: &App,
+    rect: Rect,
+    [r, g, b]: [u8; 3],
+    alpha: u8,
+    unit: f32,
+) -> (Vec<Shape>, bool) {
+    let sounding = app
+        .now_playing()
+        .is_some_and(|now| (now.playing || now.loading) && now.local);
+    let samples = if sounding {
+        app.winamp.tap.window(vis::SCOPE_SAMPLES, vis::LAG)
+    } else {
+        Vec::new()
+    };
+    let line = Color32::from_rgba_unmultiplied(r, g, b, alpha);
+    let glow = Color32::from_rgba_unmultiplied(r, g, b, alpha / 5);
+    let step = 3.0 * unit;
+    let columns = (rect.width() / step).floor().max(1.0) as usize;
+    let chunk = (samples.len() / columns).max(1);
+    let mut shapes = Vec::with_capacity(columns * 2);
+    for column in 0..columns {
+        let peak = samples.chunks(chunk).nth(column).map_or(0.0, |part| {
+            part.iter().fold(0.0f32, |top, at| top.max(at.abs()))
+        });
+        // Tapered to the ends, and quiet parts kept quiet.
+        let taper = (std::f32::consts::PI * (column as f32 + 0.5) / columns as f32).sin();
+        let height = (peak.min(1.0).powf(1.6) * taper.sqrt() * rect.height()).max(1.5 * unit);
+        let x = rect.min.x + step * (column as f32 + 0.5);
+        let bar = Rect::from_center_size(pos2(x, rect.center().y), vec2(1.5 * unit, height));
+        shapes.push(Shape::rect_filled(bar.expand(unit), 2.0 * unit, glow));
+        shapes.push(Shape::rect_filled(bar, 0.75 * unit, line));
+    }
+    (shapes, sounding)
 }
 
 /// The skin's visualisation: the same bars or wave the Winamp display
