@@ -1,4 +1,4 @@
-// Spotifast: the opening, the square that shows the album art or the
+// The ribbon skins, tall and wide: the opening, the square that shows the album art or the
 // visualizer, and the pages of the glass. The engine's Date runs on the wall
 // clock, which a skin's preview does not, so all timing comes from `clock`, an
 // element the engine moves one pixel a millisecond. `ticker` moves too and
@@ -12,7 +12,7 @@ var TRACE_TO = 600, WIPE_TO = 840, WAKE_AT = 840, REVEAL_AT = 1050, OPEN_END = 1
 // The app says when the window is up and every picture is in. A window that
 // never takes the skin's size must not leave it dark.
 var LONGEST_WAIT = 1500;
-var TRACE_LAST = 13, WIPE_LAST = 7, SIDE = 126, FOREVER = 600000;
+var TRACE_LAST = 13, WIPE_LAST = 7, FOREVER = 600000;
 // Not EQ or QUEUE: names are not case sensitive, and those are elements.
 var PAGE_NOW = 0, PAGE_EQ = 1, PAGE_QUEUE = 2;
 
@@ -23,8 +23,8 @@ var woken = false, revealed = false, whole = false;
 var showVisual = false, page = PAGE_NOW, changing = false, veilOpen = false;
 
 function boot() {
-    showVisual = theme.loadPreference("pane") == "visual";
-    var saved = theme.loadPreference("page");
+    showVisual = theme.loadPreference(REMEMBER + "pane") == "visual";
+    var saved = theme.loadPreference(REMEMBER + "page");
     if (saved == "eq") page = PAGE_EQ;
     if (saved == "queue") page = PAGE_QUEUE;
     showDots();
@@ -201,13 +201,13 @@ function veilArrived() {
 
 function togglePane() {
     showVisual = !showVisual;
-    theme.savePreference("pane", showVisual ? "visual" : "art");
+    theme.savePreference(REMEMBER + "pane", showVisual ? "visual" : "art");
     change();
 }
 
 function setPage(wanted) {
     page = wanted;
-    theme.savePreference("page", page == PAGE_EQ ? "eq" : page == PAGE_QUEUE ? "queue" : "now");
+    theme.savePreference(REMEMBER + "page", page == PAGE_EQ ? "eq" : page == PAGE_QUEUE ? "queue" : "now");
     showDots();
     change();
 }

@@ -310,6 +310,20 @@ impl Skin {
         Skin::from_archive(RIBBON, RIBBON_ARCHIVE)
     }
 
+    /// The wide sibling of [`Skin::ribbon`].
+    pub fn wide() -> Result<Skin, SkinError> {
+        Skin::from_archive(WIDE, WIDE_ARCHIVE)
+    }
+
+    /// A Windows Media Player skin the app ships, by its name.
+    pub fn shipped(name: &str) -> Option<Result<Skin, SkinError>> {
+        match name {
+            RIBBON => Some(Skin::ribbon()),
+            WIDE => Some(Skin::wide()),
+            _ => None,
+        }
+    }
+
     /// Whether the skin brought this sheet itself.
     pub fn has(&self, sheet: Sheet) -> bool {
         self.sheets.contains_key(&sheet)
@@ -429,11 +443,16 @@ fn wanted(file_name: &str) -> bool {
 /// The built-in skin, drawn by `examples/default_skin.rs`.
 /// The name the settings hold for [`Skin::ribbon`], which is no file in the
 /// skins folder.
-pub const RIBBON: &str = "Spotifast";
+pub const RIBBON: &str = "Spotifast Tall";
+/// The same, for [`Skin::wide`].
+pub const WIDE: &str = "Spotifast Wide";
+/// The skins the app ships, in the order they are listed.
+pub const SHIPPED: [&str; 2] = [RIBBON, WIDE];
 
 const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotifast.wsz");
 /// Cut and packed by `examples/ribbon_skin.rs`.
 const RIBBON_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotifast-ribbon.wmz");
+const WIDE_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotifast-wide.wmz");
 
 static BUILTIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
     Arc::new(Skin::from_archive("Spotifast", BUILTIN_ARCHIVE).expect("the built-in skin reads"))

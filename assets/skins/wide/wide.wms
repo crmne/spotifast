@@ -1,0 +1,103 @@
+<!--
+  Spotifast Wide. The ceramic ribbon arches over the right of a long
+  smoked-glass core. The pictures are cut from generated art by
+  examples/ribbon_skin.rs, which also packs the skin. The script is the tall
+  skin's, assets/skins/ribbon/ribbon.js, with shape.js in front of it.
+-->
+<THEME title="Spotifast Wide" author="Spotifast" copyright="Part of Spotifast">
+<VIEW id="main" width="460" height="180" titleBar="false" backgroundColor="none" resizable="false"
+      scriptFile="shape.js;ribbon.js" onLoad="boot();">
+  <PLAYER playState_onChange="followPlayer();" currentMedia_onChange="followPlayer();"/>
+  <EQUALIZERSETTINGS id="eq"/>
+
+  <!-- Two hidden elements keep time: the engine moves them, the script reads. -->
+  <SUBVIEW id="clock" visible="false" width="1" height="1"/>
+  <SUBVIEW id="ticker" visible="false" width="1" height="1" onEndMove="tick();"/>
+
+  <!-- The object. It is all there from the start at next to no alpha, so that
+       every picture is decoded before the opening needs it, and it comes on
+       at once when the wipe has finished. -->
+  <SUBVIEW id="object" left="0" top="0" width="460" height="180" alphaBlend="1" passThrough="true">
+    <!-- The square, showing through a hole in the glass. -->
+    <SUBVIEW id="paneBack" left="20" top="44" width="104" height="104" zIndex="1" backgroundColor="#0a0c0e" visible="false"/>
+    <SUBVIEW id="art" left="20" top="44" width="104" height="104" zIndex="2" visible="false" backgroundImage="wmpimage_albumart"
+             onClick="togglePane();" cursor="hand"/>
+    <SUBVIEW id="veilSlot" left="20" top="44" width="104" height="104" zIndex="4" passThrough="true">
+      <SUBVIEW id="veil" left="0" top="0" backgroundImage="veil.png" passThrough="true" onEndMove="veilArrived();"/>
+    </SUBVIEW>
+
+    <SUBVIEW id="core" left="0" top="0" zIndex="5" backgroundImage="core.png"/>
+    <!-- The visualizer fills the glass, cut to its shape, under the ribbon and
+         the light. The rim softens that cut, and what is on the page draws
+         over all of it. -->
+    <SUBVIEW id="visual" left="8" top="28" width="424" height="140" zIndex="5" visible="false" alphaBlend="0"
+             backgroundImage="glass_mask.png" clippingColor="#ff00ff" passThrough="true">
+      <EFFECTS id="fx" left="0" top="0" width="424" height="140" onClick="togglePane();" cursor="hand"/>
+      <SUBVIEW id="scrim" left="0" top="0" zIndex="1" backgroundImage="scrim.png" passThrough="true"/>
+      <SUBVIEW id="rim" left="0" top="0" zIndex="2" backgroundImage="glass_rim.png" passThrough="true"/>
+    </SUBVIEW>
+    <SUBVIEW id="ribbon" left="0" top="0" zIndex="6" backgroundImage="ribbon.png"/>
+    <SUBVIEW id="light" left="0" top="0" zIndex="7" alphaBlend="0" backgroundImage="light.png" passThrough="true"/>
+
+    <!-- What wakes on the glass. -->
+    <SUBVIEW id="screen" left="0" top="0" width="460" height="180" zIndex="8" alphaBlend="0" passThrough="true">
+      <BUTTON id="pageButton" left="326" top="52" width="24" height="11" onClick="nextPage();" upToolTip="Now Playing, Equalizer, Queue"
+              image="page0.png" hoverImage="page0.png" downImage="page0.png"/>
+      <MINIMIZEBUTTON id="minButton" left="354" top="52" image="w_min.png" hoverImage="w_min_hover.png" downImage="w_min_down.png"/>
+      <RETURNBUTTON id="returnButton" left="368" top="52" image="w_back.png" hoverImage="w_back_hover.png" downImage="w_back_down.png"/>
+      <BUTTON id="closeButton" left="382" top="52" onClick="shutDown();" upToolTip="Close" image="w_close.png" hoverImage="w_close_hover.png" downImage="w_close_down.png"/>
+
+      <SUBVIEW id="nowPage" left="0" top="0" width="460" height="180" passThrough="true">
+        <TEXT id="title" left="134" top="38" width="186" height="18" fontSize="11" fontStyle="bold" foregroundColor="#f2f4f6"
+              scrollingAmount="1" scrollingDelay="40" value=""/>
+        <TEXT id="artist" left="134" top="56" width="186" height="14" fontSize="8" foregroundColor="#a9b1bc"
+              scrollingAmount="1" scrollingDelay="40" value=""/>
+        <EFFECTS id="wave" left="134" top="74" width="190" height="22" wave="true" foregroundColor="#39ff88" passThrough="true"/>
+        <TEXT id="time" left="134" top="100" width="36" height="13" fontSize="7" foregroundColor="#f2f4f6"
+              value="wmpprop:player.controls.currentPositionString"/>
+        <SEEKSLIDER id="seek" left="170" top="102" width="150" height="9" backgroundImage="seek_back.png" foregroundImage="seek_fill.png"
+                    thumbImage="thumb.png" thumbHoverImage="thumb_hot.png" thumbDownImage="thumb_hot.png" slide="false" cursor="hand"/>
+        <BUTTON id="paneButton" left="328" top="100" onClick="togglePane();" upToolTip="Album art or visualizer"
+                image="w_pane.png" hoverImage="w_pane_hover.png" downImage="w_pane_down.png"/>
+      </SUBVIEW>
+
+      <SUBVIEW id="eqPage" left="0" top="0" width="460" height="180" visible="false" passThrough="true">
+        <TEXT left="22" top="42" width="90" height="17" fontSize="10" fontStyle="bold" foregroundColor="#f2f4f6" value="Equalizer"/>
+        <BUTTON id="eqPower" left="22" top="64" sticky="true" onClick="eq.enabled = down;" down="wmpprop:eq.enabled"
+                upToolTip="Turn the equalizer on" downToolTip="Turn the equalizer off"
+                image="switch_off.png" hoverImage="switch_off.png" downImage="switch_on.png"/>
+        <TEXT id="eqName" left="22" top="80" width="92" height="14" fontSize="8" foregroundColor="#a9b1bc" cursor="hand"
+              value="wmpprop:eq.currentPresetTitle" onClick="eq.nextPreset();" toolTip="Next preset"/>
+        <SLIDER id="preamp" left="122" top="42" width="9" height="78" direction="vertical" min="-12" max="12"
+                backgroundImage="eq_back.png" thumbImage="thumb.png" thumbHoverImage="thumb_hot.png" thumbDownImage="thumb_hot.png"
+                value="wmpprop:eq.preamp" value_onChange="eq.preamp = value;" cursor="hand" toolTip="Preamp"/>
+<!-- @bands -->
+      </SUBVIEW>
+
+      <SUBVIEW id="queuePage" left="0" top="0" width="460" height="180" visible="false" passThrough="true">
+        <TEXT left="22" top="42" width="84" height="17" fontSize="10" fontStyle="bold" foregroundColor="#f2f4f6" value="Queue"/>
+        <PLAYLIST id="queue" left="112" top="38" width="206" height="75" backgroundColor="none" foregroundColor="#a9b1bc"
+                  itemPlayingColor="#1ed760" itemSelectedColor="#f2f4f6" itemSelectedBackgroundColor="#2a3038"
+                  columns="name=Name;Duration=Time" columnsVisible="false" dropdownVisible="false" fontSize="7"
+                  onClick="playRow();"/>
+      </SUBVIEW>
+
+      <MUTEBUTTON id="mute" left="308" top="143" image="speaker.png" hoverImage="speaker_hover.png" downImage="speaker_down.png"/>
+      <VOLUMESLIDER id="volume" left="328" top="147" width="90" height="9" backgroundImage="volume_back.png" foregroundImage="volume_fill.png"
+                    thumbImage="thumb.png" thumbHoverImage="thumb_hot.png" thumbDownImage="thumb_hot.png" slide="false" cursor="hand"/>
+    </SUBVIEW>
+
+    <SUBVIEW id="pill" left="160" top="126" width="130" height="44" zIndex="9" alphaBlend="0" passThrough="true">
+      <PREVBUTTON id="prevButton" left="21" top="12" image="prev.png" hoverImage="prev_hover.png" downImage="prev_down.png" disabledImage="prev_off.png"/>
+      <PLAYBUTTON id="playButton" left="55" top="6" image="play.png" hoverImage="play_hover.png" downImage="play_down.png" disabledImage="play_off.png"/>
+      <PAUSEBUTTON id="pauseButton" left="55" top="6" visible="false" image="pause.png" hoverImage="pause_hover.png" downImage="pause_down.png" disabledImage="pause_off.png"/>
+      <NEXTBUTTON id="nextButton" left="100" top="12" image="next.png" hoverImage="next_hover.png" downImage="next_down.png" disabledImage="next_off.png"/>
+    </SUBVIEW>
+  </SUBVIEW>
+
+  <!-- The opening: a thread of light round the outline, then the whole object
+       wiped on behind it. Neither takes a click. -->
+  <CUSTOMSLIDER id="wipe" left="0" top="0" width="460" height="180" zIndex="2" image="wipe.png" min="0" max="7" value="0"/>
+  <CUSTOMSLIDER id="trace" left="0" top="0" width="460" height="180" zIndex="3" image="trace.png" min="0" max="13" value="0"/>
+</VIEW>
+</THEME>

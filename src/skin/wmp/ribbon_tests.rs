@@ -9,11 +9,11 @@ use super::live::{Kind, WindowCommand};
 use super::runtime::{Input, Modifiers, Runtime};
 use crate::skin::Skin;
 
-const FRAME: Duration = Duration::from_millis(16);
+pub(super) const FRAME: Duration = Duration::from_millis(16);
 /// Longer than the opening.
 const OPENED: Duration = Duration::from_millis(2600);
 
-fn song() -> Song {
+pub(super) fn song() -> Song {
     Song {
         title: "Song".into(),
         artist: "Band".into(),
@@ -23,7 +23,7 @@ fn song() -> Song {
     }
 }
 
-fn deck(state: PlayState) -> Deck {
+pub(super) fn deck(state: PlayState) -> Deck {
     Deck {
         state,
         song: Some(song()),
@@ -38,7 +38,7 @@ fn deck(state: PlayState) -> Deck {
 fn start(deck: &Deck) -> (Runtime, u32, Instant) {
     let skin = Skin::ribbon().expect("the skin reads");
     let wmp = skin.wmp.clone().expect("a Windows Media Player skin");
-    assert_eq!(wmp.title, "Spotifast");
+    assert_eq!(wmp.title, "Spotifast Tall");
     let runtime = Runtime::new(
         crate::skin::RIBBON.into(),
         wmp,
@@ -52,7 +52,12 @@ fn start(deck: &Deck) -> (Runtime, u32, Instant) {
     (runtime, key, Instant::now())
 }
 
-fn run(runtime: &mut Runtime, deck: &Deck, now: &mut Instant, length: Duration) -> Vec<Command> {
+pub(super) fn run(
+    runtime: &mut Runtime,
+    deck: &Deck,
+    now: &mut Instant,
+    length: Duration,
+) -> Vec<Command> {
     let end = *now + length;
     let mut commands = Vec::new();
     while *now < end {
@@ -64,7 +69,7 @@ fn run(runtime: &mut Runtime, deck: &Deck, now: &mut Instant, length: Duration) 
 
 /// Paints until every picture is in: a click on a picture not yet decoded
 /// counts as landing on it, as it does before the app's first frames.
-fn paint_all(runtime: &mut Runtime, key: u32, now: Instant) {
+pub(super) fn paint_all(runtime: &mut Runtime, key: u32, now: Instant) {
     loop {
         let _ = runtime.paint(key, now);
         if !runtime.images.loading() {
@@ -84,14 +89,14 @@ fn opened(deck: &Deck) -> (Runtime, u32, Instant) {
     (runtime, key, now)
 }
 
-fn text(runtime: &Runtime, key: u32, id: &str) -> String {
+pub(super) fn text(runtime: &Runtime, key: u32, id: &str) -> String {
     let view = runtime.view(key).expect("the view");
     view.state.elements[view.state.ids[id]]
         .str("value")
         .unwrap_or_default()
 }
 
-fn click(runtime: &mut Runtime, key: u32, place: (f32, f32), now: Instant) {
+pub(super) fn click(runtime: &mut Runtime, key: u32, place: (f32, f32), now: Instant) {
     let none = Modifiers::default();
     let pointer = Input::Pointer {
         x: place.0,

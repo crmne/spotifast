@@ -350,11 +350,7 @@ impl WinampState {
         let path = folder.join(&name);
         let preferences = skin_preferences_path(folder, &name);
         self.spawn(ctx, move || Loaded {
-            result: if name == crate::skin::RIBBON {
-                Skin::ribbon()
-            } else {
-                Skin::load(&path)
-            },
+            result: Skin::shipped(&name).unwrap_or_else(|| Skin::load(&path)),
             preferences: read_preferences(&preferences),
             name,
             installed: false,
@@ -550,18 +546,15 @@ pub fn list_skins(folder: &Path) -> Vec<SkinChoice> {
 
 /// What is in the skins folder, after what comes with the app.
 fn with_shipped_skins(listed: Vec<SkinChoice>) -> Vec<SkinChoice> {
-    let ribbon = SkinChoice {
-        name: crate::skin::RIBBON.to_owned(),
+    let shipped = crate::skin::SHIPPED.map(|name| SkinChoice {
+        name: name.to_owned(),
         path: PathBuf::new(),
         kind: SkinKind::WindowsMediaPlayer,
-    };
-    std::iter::once(ribbon)
-        .chain(
-            listed
-                .into_iter()
-                .filter(|skin| skin.name != crate::skin::RIBBON),
-        )
-        .collect()
+    });
+    let listed = listed
+        .into_iter()
+        .filter(|skin| !crate::skin::SHIPPED.contains(&skin.name.as_str()));
+    shipped.into_iter().chain(listed).collect()
 }
 
 /// What an archive holds, by its file names alone. One that cannot be read

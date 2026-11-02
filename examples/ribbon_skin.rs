@@ -1,35 +1,115 @@
-//! Cuts the Windows Media Player skin the app ships from
-//! its generated art.
+//! Cuts the Windows Media Player skins the app ships, tall and wide, from
+//! their generated art.
 //!
-//! The body is not drawn here. `assets/skins/ribbon/source/plate.png` and
-//! `keys.png` are rendered images of the object, a white ceramic ribbon round
-//! a floating smoked-glass core, on flat magenta. This takes them apart for
-//! the skin: it keys out the magenta and scales down to a hard outline, since
-//! a window has no soft edge; separates the glass from the ceramic; takes the
-//! green out of the arch to get the light off and the light alone; and makes
-//! the opening's frames from the plate, with a mask for each: a thread of light
-//! along the outline, then a wipe that brings on ceramic and glass together.
-//! Only the small glyphs and the slider parts are drawn, being a few pixels
-//! each.
+//! The bodies are not drawn here. Each skin's `source/plate.png` and `keys.png`
+//! are rendered images of the object, a white ceramic ribbon round a floating
+//! smoked-glass core, on flat magenta. This takes them apart for the skin: it
+//! keys out the magenta and scales down to a hard outline, since a window has
+//! no soft edge; separates the glass from the ceramic; takes the green out of
+//! the arch to get the light off and the light alone; and makes the opening's
+//! frames from the plate, with a mask for each: a thread of light along the
+//! outline, then a wipe that brings on ceramic and glass together. Only the
+//! small glyphs and the slider parts are drawn, being a few pixels each.
 //!
 //! `cargo run --example ribbon_skin` regenerates
-//! `assets/skins/spotifast-ribbon.wmz` from this file and from
-//! `assets/skins/ribbon`, which holds the definition and script as well. The
+//! `assets/skins/spotifast-ribbon.wmz` and `spotifast-wide.wmz` from this file
+//! and from `assets/skins/ribbon` and `assets/skins/wide`, which hold each
+//! skin's definition and art, the first the script they share as well. A
 //! definition's `@bands` line is filled in here.
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use image::{Rgba, RgbaImage};
 use spotifast::skin::zip;
 
-const WIDTH: u32 = 240;
-const HEIGHT: u32 = 420;
-/// The square that shows the album art or the visualizer.
-const PANE: (u32, u32, u32) = (62, 75, 126);
+/// How one skin differs from the other.
+struct Design {
+    /// Its folder under `assets/skins`, and its definition's name there.
+    folder: &'static str,
+    archive: &'static str,
+    width: u32,
+    height: u32,
+    /// The square that shows the album art: left, top and side.
+    pane: (u32, u32, u32),
+    /// The box of the glass the visualizer fills.
+    visual: (u32, u32, u32, u32),
+    /// Where glass may be found, to tell it from the ceramic. The first is
+    /// in the part the visualizer fills.
+    seeds: [(u32, u32); 2],
+    /// Where the light starts: the outside of the arch.
+    arch: (u32, u32),
+    /// How dark the ground is behind the words over the visualizer, at a
+    /// place in the window.
+    scrim: fn(f32, f32) -> f32,
+    /// The key sheet: its columns, the rows of buttons and glyphs, and how
+    /// far a button reaches from its middle.
+    columns: [u32; 3],
+    rows: [u32; 3],
+    reach: u32,
+    seek: u32,
+    volume: u32,
+    /// Equalizer bands: the first's left, the step, the top and the height.
+    bands: (u32, u32, u32, u32),
+}
+
+const TALL: Design = Design {
+    folder: "ribbon",
+    archive: "spotifast-ribbon.wmz",
+    width: 240,
+    height: 420,
+    pane: (62, 75, 126),
+    visual: (34, 46, 176, 276),
+    seeds: [(130, 240), (130, 395)],
+    arch: (84, 22),
+    scrim: |_, y| {
+        let low = ((y - 214.0) / 50.0).clamp(0.0, 1.0);
+        let high = ((86.0 - y) / 34.0).clamp(0.0, 1.0);
+        (low * low * (3.0 - 2.0 * low) * 0.66).max(high * 0.5)
+    },
+    columns: [251, 626, 1002],
+    rows: [268, 644, 1004],
+    reach: 156,
+    seek: 127,
+    volume: 82,
+    bands: (78, 11, 102, 150),
+};
+
+const WIDE: Design = Design {
+    folder: "wide",
+    archive: "spotifast-wide.wmz",
+    width: 460,
+    height: 180,
+    pane: (20, 44, 104),
+    visual: (8, 28, 424, 140),
+    seeds: [(240, 80), (350, 150)],
+    arch: (300, 8),
+    scrim: |x, y| {
+        // The words have the right of the art to themselves, and the window's
+        // buttons sit above them.
+        let words = ((x - 70.0) / 150.0).clamp(0.0, 1.0);
+        let top = ((70.0 - y) / 30.0).clamp(0.0, 1.0);
+        (words * words * (3.0 - 2.0 * words) * 0.56).max(top * 0.36 * words)
+    },
+    columns: [249, 624, 1000],
+    rows: [258, 664, 1026],
+    reach: 165,
+    seek: 150,
+    volume: 90,
+    bands: (140, 18, 42, 78),
+};
+
+thread_local! {
+    /// The skin being cut.
+    static DESIGN: Cell<&'static Design> = const { Cell::new(&TALL) };
+}
+
+fn design() -> &'static Design {
+    DESIGN.with(Cell::get)
+}
+
 const PANE_ROUND: f32 = 9.0;
-/// The box of the glass above the pill, which the visualizer fills.
-const VISUAL: (u32, u32, u32, u32) = (34, 46, 176, 276);
 /// How wide the rim is that softens the visualizer's cut edge.
 const RIM: u32 = 3;
 /// The colour keyed out of the shape, in the definition's `clippingColor`.
@@ -38,12 +118,8 @@ const OUTSIDE: [f32; 4] = [1.0, 0.0, 1.0, 1.0];
 const TRACE_FRAMES: u32 = 14;
 /// Frames of the wipe, the first empty and the last the whole object.
 const WIPE_FRAMES: u32 = 8;
-/// Where the light starts: the outside of the arch.
-const ARCH: (u32, u32) = (84, 22);
 /// How far from the outline the thread's glow reaches.
 const GLOW: i32 = 5;
-/// Where glass may be found, to tell it from the ceramic.
-const GLASS_SEEDS: [(u32, u32); 2] = [(130, 240), (130, 395)];
 
 type Color = [f32; 3];
 
@@ -56,7 +132,10 @@ struct Cut {
 }
 
 fn read(path: &str) -> image::RgbImage {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/skins/ribbon/source");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("assets/skins")
+        .join(design().folder)
+        .join("source");
     image::open(root.join(path))
         .expect("the source art")
         .to_rgb8()
@@ -167,7 +246,7 @@ fn unlit(color: Color) -> Color {
 }
 
 fn at(x: u32, y: u32) -> usize {
-    (y * WIDTH + x) as usize
+    (y * design().width + x) as usize
 }
 
 fn neighbours(x: u32, y: u32) -> impl Iterator<Item = (u32, u32)> {
@@ -175,7 +254,7 @@ fn neighbours(x: u32, y: u32) -> impl Iterator<Item = (u32, u32)> {
         .into_iter()
         .filter_map(move |(dx, dy)| {
             let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-            (nx >= 0 && ny >= 0 && nx < WIDTH as i32 && ny < HEIGHT as i32)
+            (nx >= 0 && ny >= 0 && nx < design().width as i32 && ny < design().height as i32)
                 .then_some((nx as u32, ny as u32))
         })
 }
@@ -187,8 +266,8 @@ fn glass_mask(plate: &Cut, solid: &[bool]) -> Vec<bool> {
         solid[at(x, y)] && color[0].max(color[1]).max(color[2]) < 0.34
     };
     let mut glass = vec![false; solid.len()];
-    let mut queue: VecDeque<(u32, u32)> = GLASS_SEEDS.into_iter().collect();
-    for (x, y) in GLASS_SEEDS {
+    let mut queue: VecDeque<(u32, u32)> = design().seeds.into_iter().collect();
+    for (x, y) in design().seeds {
         glass[at(x, y)] = true;
     }
     while let Some((x, y)) = queue.pop_front() {
@@ -207,8 +286,8 @@ fn glass_mask(plate: &Cut, solid: &[bool]) -> Vec<bool> {
 fn smoothed(mut mask: Vec<bool>, solid: &[bool]) -> Vec<bool> {
     for _ in 0..3 {
         let before = mask.clone();
-        for y in 2..HEIGHT - 2 {
-            for x in 2..WIDTH - 2 {
+        for y in 2..design().height - 2 {
+            for x in 2..design().width - 2 {
                 let around = (y - 2..=y + 2)
                     .flat_map(|ny| (x - 2..=x + 2).map(move |nx| (nx, ny)))
                     .filter(|(nx, ny)| before[at(*nx, *ny)])
@@ -223,12 +302,12 @@ fn smoothed(mut mask: Vec<bool>, solid: &[bool]) -> Vec<bool> {
 /// The object's outline as one line, from the arch and round.
 fn outline_of(solid: &[bool]) -> Vec<(u32, u32)> {
     let mut edge: Vec<(u32, u32)> = Vec::new();
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
+    for y in 0..design().height {
+        for x in 0..design().width {
             let open = x == 0
                 || y == 0
-                || x == WIDTH - 1
-                || y == HEIGHT - 1
+                || x == design().width - 1
+                || y == design().height - 1
                 || neighbours(x, y).any(|(nx, ny)| !solid[at(nx, ny)]);
             if solid[at(x, y)] && open {
                 edge.push((x, y));
@@ -240,7 +319,7 @@ fn outline_of(solid: &[bool]) -> Vec<(u32, u32)> {
         dx * dx + dy * dy
     };
     let start = (0..edge.len())
-        .min_by_key(|index| far(edge[*index], ARCH))
+        .min_by_key(|index| far(edge[*index], design().arch))
         .expect("an outline");
     let mut here = edge.swap_remove(start);
     let mut line = vec![here];
@@ -256,12 +335,12 @@ fn outline_of(solid: &[bool]) -> Vec<(u32, u32)> {
 
 /// For each pixel near the outline, how far along it and how far from it.
 fn near_outline(line: &[(u32, u32)]) -> Vec<(usize, f32)> {
-    let mut near = vec![(usize::MAX, f32::MAX); (WIDTH * HEIGHT) as usize];
+    let mut near = vec![(usize::MAX, f32::MAX); (design().width * design().height) as usize];
     for (index, (x, y)) in line.iter().enumerate() {
         for dy in -GLOW..=GLOW {
             for dx in -GLOW..=GLOW {
                 let (px, py) = (*x as i32 + dx, *y as i32 + dy);
-                if px < 0 || py < 0 || px >= WIDTH as i32 || py >= HEIGHT as i32 {
+                if px < 0 || py < 0 || px >= design().width as i32 || py >= design().height as i32 {
                     continue;
                 }
                 let distance = (dx as f32).hypot(dy as f32);
@@ -276,14 +355,14 @@ fn near_outline(line: &[(u32, u32)]) -> Vec<(usize, f32)> {
 }
 
 fn stack(frames: u32, frame: impl Fn(u32, u32, u32) -> [f32; 4]) -> RgbaImage {
-    let mut strip = RgbaImage::new(WIDTH, HEIGHT * frames);
+    let mut strip = RgbaImage::new(design().width, design().height * frames);
     for at_frame in 0..frames {
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
+        for y in 0..design().height {
+            for x in 0..design().width {
                 let pixel = frame(at_frame, x, y);
                 strip.put_pixel(
                     x,
-                    y + at_frame * HEIGHT,
+                    y + at_frame * design().height,
                     Rgba(pixel.map(|channel| (channel.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)),
                 );
             }
@@ -294,7 +373,11 @@ fn stack(frames: u32, frame: impl Fn(u32, u32, u32) -> [f32; 4]) -> RgbaImage {
 
 /// Whether a pixel is inside the pane's rounded square, softly.
 fn in_pane(x: u32, y: u32) -> f32 {
-    let (left, top, side) = (PANE.0 as f32, PANE.1 as f32, PANE.2 as f32);
+    let (left, top, side) = (
+        design().pane.0 as f32,
+        design().pane.1 as f32,
+        design().pane.2 as f32,
+    );
     let half = side / 2.0;
     let dx = (x as f32 + 0.5 - left - half).abs() - (half - PANE_ROUND);
     let dy = (y as f32 + 0.5 - top - half).abs() - (half - PANE_ROUND);
@@ -390,9 +473,10 @@ fn thumb(color: Color) -> RgbaImage {
 
 /// An equalizer band's track, upright, with a mark at no change.
 fn eq_track(color: Color) -> RgbaImage {
-    picture(9, 150, |x, y| {
-        let rail = x == 4 && (2..148).contains(&y);
-        let mark = y == 75 && (2..7).contains(&x);
+    let height = design().bands.3;
+    picture(9, height, |x, y| {
+        let rail = x == 4 && (2..height - 2).contains(&y);
+        let mark = y == height / 2 && (2..7).contains(&x);
         let shade = if mark { 2.0 } else { 1.0 };
         [
             color[0] * shade,
@@ -442,8 +526,8 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
         &source,
         &keep,
         (0, 0, source.width(), source.height()),
-        WIDTH,
-        HEIGHT,
+        design().width,
+        design().height,
     );
     // The outline is hard: a pixel is the object or the desktop.
     let solid: Vec<bool> = plate.cover.iter().map(|cover| *cover >= 0.5).collect();
@@ -456,9 +540,11 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
     visual_parts(files, &plate, &glass);
     let line = outline_of(&solid);
     let near = near_outline(&line);
-    let reach_of = |x: u32, y: u32| (x as f32 - ARCH.0 as f32).hypot(y as f32 - ARCH.1 as f32);
-    let furthest = (0..HEIGHT)
-        .flat_map(|y| (0..WIDTH).map(move |x| (x, y)))
+    let reach_of = |x: u32, y: u32| {
+        (x as f32 - design().arch.0 as f32).hypot(y as f32 - design().arch.1 as f32)
+    };
+    let furthest = (0..design().height)
+        .flat_map(|y| (0..design().width).map(move |x| (x, y)))
         .filter(|(x, y)| solid[at(*x, *y)])
         .map(|(x, y)| reach_of(x, y))
         .fold(0.0, f32::max);
@@ -497,7 +583,7 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
             1.0,
         ]
     });
-    let core = picture(WIDTH, HEIGHT, |x, y| {
+    let core = picture(design().width, design().height, |x, y| {
         let index = at(x, y);
         let [r, g, b] = unlit(plate.colors[index]);
         let shown = if glass[index] {
@@ -507,12 +593,12 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
         };
         [r, g, b, shown]
     });
-    let whole = picture(WIDTH, HEIGHT, |x, y| {
+    let whole = picture(design().width, design().height, |x, y| {
         let index = at(x, y);
         let [r, g, b] = unlit(plate.colors[index]);
         [r, g, b, f32::from(u8::from(ribbon[index]))]
     });
-    let light = picture(WIDTH, HEIGHT, |x, y| {
+    let light = picture(design().width, design().height, |x, y| {
         let index = at(x, y);
         let [r, g, b] = plate.colors[index];
         let strength = if solid[index] {
@@ -523,7 +609,7 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
         [r, g, b, strength]
     });
     // Empty glass, to slide over the pane. Its colours are the plate's.
-    let (left, top, side) = PANE;
+    let (left, top, side) = design().pane;
     let veil = picture(side, side, |x, y| {
         let [r, g, b] = unlit(plate.colors[at(x + left, y + top)]);
         [r, g, b, 1.0]
@@ -540,11 +626,11 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
 /// glass to lie over the cut edge, and a soft dark ground for what is drawn
 /// over it, since some presets go white.
 fn visual_parts(files: &mut Vec<(String, Vec<u8>)>, plate: &Cut, glass: &[bool]) {
-    let (left, top, width, height) = VISUAL;
+    let (left, top, width, height) = design().visual;
     // The upper glass alone: the foot lies beyond the pill.
     let mut upper = vec![false; glass.len()];
-    let mut queue = VecDeque::from([GLASS_SEEDS[0]]);
-    upper[at(GLASS_SEEDS[0].0, GLASS_SEEDS[0].1)] = true;
+    let mut queue = VecDeque::from([design().seeds[0]]);
+    upper[at(design().seeds[0].0, design().seeds[0].1)] = true;
     while let Some((x, y)) = queue.pop_front() {
         for (nx, ny) in neighbours(x, y) {
             if glass[at(nx, ny)] && !upper[at(nx, ny)] {
@@ -554,8 +640,8 @@ fn visual_parts(files: &mut Vec<(String, Vec<u8>)>, plate: &Cut, glass: &[bool])
         }
     }
     let inside = |x: u32, y: u32| upper[at(x + left, y + top)];
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
+    for y in 0..design().height {
+        for x in 0..design().width {
             let beyond = x < left || y < top || x >= left + width || y >= top + height;
             assert!(!(upper[at(x, y)] && beyond), "the glass is outside the box");
         }
@@ -597,15 +683,8 @@ fn visual_parts(files: &mut Vec<(String, Vec<u8>)>, plate: &Cut, glass: &[bool])
         if !inside(x, y) {
             return [0.0; 4];
         }
-        let screen_y = (y + top) as f32;
-        let low = ((screen_y - 214.0) / 50.0).clamp(0.0, 1.0);
-        let high = ((86.0 - screen_y) / 34.0).clamp(0.0, 1.0);
-        [
-            0.03,
-            0.035,
-            0.04,
-            (low * low * (3.0 - 2.0 * low) * 0.66).max(high * 0.5),
-        ]
+        let ground = (design().scrim)((x + left) as f32, (y + top) as f32);
+        [0.03, 0.035, 0.04, ground]
     });
     files.push(("glass_mask.png".into(), png(&mask)));
     files.push(("glass_rim.png".into(), png(&rim)));
@@ -616,17 +695,18 @@ fn keys(files: &mut Vec<(String, Vec<u8>)>) {
     let sheet = read("keys.png");
     let keep = object_mask(&sheet);
     let disc = 30;
-    let columns = [251, 626, 1002];
-    let (top, middle) = (268, 644);
+    let columns = design().columns;
+    let [top, middle, glyphs] = design().rows;
+    let reach = design().reach;
     let flat = |color: Color| color;
     let gray = |color: Color| {
         let level = (color[0] + color[1] + color[2]) / 3.0;
         [level; 3]
     };
     for (name, column) in [("pause", columns[0]), ("play", columns[1])] {
-        let normal = part(&sheet, &keep, (column, top), 156, disc);
-        let hover = part(&sheet, &keep, (column, middle), 156, disc);
-        let pressed = part(&sheet, &keep, (columns[2], middle), 156, disc);
+        let normal = part(&sheet, &keep, (column, top), reach, disc);
+        let hover = part(&sheet, &keep, (column, middle), reach, disc);
+        let pressed = part(&sheet, &keep, (columns[2], middle), reach, disc);
         // The pressed button is blank in the sheet: it takes the symbol from
         // the normal one.
         let down = picture(disc, disc, |x, y| {
@@ -649,7 +729,7 @@ fn keys(files: &mut Vec<(String, Vec<u8>)>) {
         ));
     }
     for (name, column) in [("prev", columns[0]), ("next", columns[1])] {
-        let shape = part(&sheet, &keep, (column, 1004), 62, 18);
+        let shape = part(&sheet, &keep, (column, glyphs), 62, 18);
         let ink = |color: Color| color;
         files.push((format!("{name}.png"), png(&with_alpha(&shape, ink, 1.0))));
         files.push((
@@ -665,7 +745,7 @@ fn keys(files: &mut Vec<(String, Vec<u8>)>) {
             png(&with_alpha(&shape, ink, 0.35)),
         ));
     }
-    let speaker = part(&sheet, &keep, (1002, 1004), 78, 16);
+    let speaker = part(&sheet, &keep, (columns[2], glyphs), 78, 16);
     files.push(("speaker.png".into(), png(&with_alpha(&speaker, flat, 1.0))));
     files.push((
         "speaker_hover.png".into(),
@@ -688,7 +768,7 @@ fn small_parts(files: &mut Vec<(String, Vec<u8>)>) {
         }
     }
     let dim = [0.26, 0.285, 0.32];
-    for (name, width) in [("seek", 127), ("volume", 82)] {
+    for (name, width) in [("seek", design().seek), ("volume", design().volume)] {
         files.push((format!("{name}_back.png"), png(&track(width, 9, dim))));
         files.push((format!("{name}_fill.png"), png(&track(width, 9, BRIGHT))));
     }
@@ -702,33 +782,42 @@ fn small_parts(files: &mut Vec<(String, Vec<u8>)>) {
     files.push(("thumb_hot.png".into(), png(&thumb(BRIGHT))));
 }
 
-fn main() {
+fn cut(skin: &'static Design) {
+    DESIGN.with(|design| design.set(skin));
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/skins");
-    let path = std::env::args()
-        .nth(1)
-        .map_or(root.join("spotifast-ribbon.wmz"), PathBuf::from);
     let mut files = Vec::new();
     body(&mut files);
     keys(&mut files);
     small_parts(&mut files);
-    for name in ["ribbon.wms", "ribbon.js", "viscolor.txt"] {
-        let bytes = std::fs::read(root.join("ribbon").join(name)).expect("the skin's source");
+    let own = root.join(skin.folder);
+    let definition = format!("{}.wms", skin.folder);
+    let shared = root.join("ribbon");
+    let sources = [
+        (definition.as_str(), &own),
+        ("shape.js", &own),
+        ("ribbon.js", &shared),
+        ("viscolor.txt", &shared),
+    ];
+    for (name, folder) in sources {
+        let bytes = std::fs::read(folder.join(name)).expect("the skin's source");
         files.push((name.to_owned(), bytes));
     }
-    let band = |index: usize| {
+    let (first, step, top, height) = skin.bands;
+    let band = |index: u32| {
         format!(
-            "        <SLIDER id=\"band{number}\" left=\"{left}\" top=\"102\" width=\"9\" height=\"150\" \
-             direction=\"vertical\" min=\"-12\" max=\"12\" backgroundImage=\"eq_back.png\" \
-             thumbImage=\"thumb.png\" thumbHoverImage=\"thumb_hot.png\" \
-             thumbDownImage=\"thumb_hot.png\" value=\"wmpprop:eq.gainLevel{number}\" \
+            "        <SLIDER id=\"band{number}\" left=\"{left}\" top=\"{top}\" width=\"9\" \
+             height=\"{height}\" direction=\"vertical\" min=\"-12\" max=\"12\" \
+             backgroundImage=\"eq_back.png\" thumbImage=\"thumb.png\" \
+             thumbHoverImage=\"thumb_hot.png\" thumbDownImage=\"thumb_hot.png\" \
+             value=\"wmpprop:eq.gainLevel{number}\" \
              value_onChange=\"eq.gainLevel{number} = value;\" cursor=\"hand\"/>\n",
             number = index + 1,
-            left = 78 + index * 11,
+            left = first + index * step,
         )
     };
     let bands: String = (0..10).map(band).collect();
     for (name, bytes) in &mut files {
-        if name == "ribbon.wms" {
+        if *name == definition {
             let text = String::from_utf8_lossy(bytes).replace("<!-- @bands -->\n", &bands);
             *bytes = text.into_bytes();
         }
@@ -738,6 +827,7 @@ fn main() {
         .map(|(name, bytes)| (name.as_str(), bytes.as_slice(), true))
         .collect();
     let archive = zip::write(&entries);
+    let path = root.join(skin.archive);
     std::fs::write(&path, &archive).expect("the skin can be written");
     println!(
         "wrote {} files ({} bytes) to {}",
@@ -745,4 +835,9 @@ fn main() {
         archive.len(),
         path.display()
     );
+}
+
+fn main() {
+    cut(&TALL);
+    cut(&WIDE);
 }

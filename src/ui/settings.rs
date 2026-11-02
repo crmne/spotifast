@@ -1991,7 +1991,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     // What comes with the app is not an installed skin.
                     if kept
                         .iter()
-                        .all(|index| choices[*index].name == crate::skin::RIBBON)
+                        .all(|index| crate::skin::SHIPPED.contains(&choices[*index].name.as_str()))
                     {
                         skin_note(
                             ui,

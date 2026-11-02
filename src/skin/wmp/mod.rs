@@ -219,3 +219,5 @@ fn collect_views(node: &Node, views: &mut Vec<Node>) {
 mod ribbon_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wide_tests;

@@ -134,8 +134,9 @@ fn stem_of_path(name: &str, path: &Path) -> Option<String> {
 }
 
 /// The skins that come with the app change only with the app.
-fn built_in_jobs() -> [Job; 2] {
-    [BUILT_IN, crate::skin::RIBBON].map(|name| Job {
+fn built_in_jobs() -> [Job; 3] {
+    let [ribbon, wide] = crate::skin::SHIPPED;
+    [BUILT_IN, ribbon, wide].map(|name| Job {
         name: name.to_owned(),
         path: None,
         stem: stem_of(&format!("{}{name}", env!("CARGO_PKG_VERSION")), 0, 0),
@@ -164,10 +165,10 @@ fn draw(job: &Job, cache: &Path) -> Option<PathBuf> {
     let started = Instant::now();
     let picture = match &job.path {
         Some(path) => preview::of_file(path),
-        None if job.name == crate::skin::RIBBON => {
-            Skin::ribbon().ok().and_then(|skin| preview::of_skin(&skin))
-        }
-        None => preview::of_skin(&Skin::builtin()),
+        None => match Skin::shipped(&job.name) {
+            Some(skin) => skin.ok().and_then(|skin| preview::of_skin(&skin)),
+            None => preview::of_skin(&Skin::builtin()),
+        },
     };
     log::debug!(
         "skin preview of {:?} took {:?}",
@@ -198,7 +199,7 @@ fn take_listing(
     let mut jobs = Vec::new();
     let mut current = HashSet::new();
     for (name, path) in listing {
-        if name == crate::skin::RIBBON {
+        if crate::skin::SHIPPED.contains(&name.as_str()) {
             continue;
         }
         let Some(stem) = stem_of_path(&name, &path) else {
@@ -215,8 +216,9 @@ fn take_listing(
         }
     }
     known.retain(|name, _| {
-        let stays =
-            name.as_str() == BUILT_IN || name == crate::skin::RIBBON || current.contains(name);
+        let stays = name.as_str() == BUILT_IN
+            || crate::skin::SHIPPED.contains(&name.as_str())
+            || current.contains(name);
         if !stays {
             let _ = updates.send(Update::Gone { name: name.clone() });
         }
@@ -602,7 +604,9 @@ mod tests {
                 previews.thumb(&choice.name);
             }
             previews.thumb(BUILT_IN);
-            previews.thumb(crate::skin::RIBBON);
+            for name in crate::skin::SHIPPED {
+                previews.thumb(name);
+            }
             previews.finish();
             std::thread::sleep(Duration::from_millis(2));
         }
@@ -729,7 +733,9 @@ mod tests {
         frames(&mut previews, &ctx, &cache, &choices, 1, |previews| {
             is_picture(previews.thumb("good.wsz"))
                 && is_picture(previews.thumb(BUILT_IN))
-                && is_picture(previews.thumb(crate::skin::RIBBON))
+                && crate::skin::SHIPPED
+                    .iter()
+                    .all(|name| is_picture(previews.thumb(name)))
                 && previews.thumb("broken.wsz") == Thumb::Failed
         });
         let stored = |extension: &str| {
@@ -744,7 +750,7 @@ mod tests {
                 })
                 .count()
         };
-        assert_eq!((stored("png"), stored("none")), (3, 1));
+        assert_eq!((stored("png"), stored("none")), (4, 1));
         drop(previews);
 
         // A second run finds them; a removed skin takes its picture along.

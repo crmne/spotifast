@@ -1,11 +1,11 @@
 <!--
-  Spotifast. A white ceramic ribbon round a floating smoked-glass core. The
+  Spotifast Tall. A white ceramic ribbon round a floating smoked-glass core. The
   pictures are cut from generated art by examples/ribbon_skin.rs, which also
   packs the skin.
 -->
-<THEME title="Spotifast" author="Spotifast" copyright="Part of Spotifast">
+<THEME title="Spotifast Tall" author="Spotifast" copyright="Part of Spotifast">
 <VIEW id="main" width="240" height="420" titleBar="false" backgroundColor="none" resizable="false"
-      scriptFile="ribbon.js" onLoad="boot();">
+      scriptFile="shape.js;ribbon.js" onLoad="boot();">
   <PLAYER playState_onChange="followPlayer();" currentMedia_onChange="followPlayer();"/>
   <EQUALIZERSETTINGS id="eq"/>
 
