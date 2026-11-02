@@ -1478,6 +1478,12 @@ pub enum Action {
     ToggleWinampShade,
     /// Open or close the MilkDrop window.
     ToggleWinampMilkdrop,
+    /// Move the MilkDrop picture in the skinned window on or back a preset.
+    MilkdropEffect(i32),
+    /// Take the skinned MilkDrop window to full screen, in the plain window.
+    MilkdropFullscreen,
+    /// The size of the picture in the skinned MilkDrop window, in points.
+    SetMilkdropSize([f32; 2]),
     /// How long each MilkDrop preset plays, in seconds.
     SetMilkdropSeconds(u32),
     SetMilkdropScale(u32),

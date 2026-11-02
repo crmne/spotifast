@@ -6,7 +6,12 @@ nav_order: 5
 
 MilkDrop shows colourful animations that react to your music. Open it from
 the top-bar visualiser button, Ctrl+Shift+K, Settings, or the mini player's
-**V** menu. It runs in its own window. Windows Media Player skins also show
+**V** menu. It runs in its own window. With a classic Winamp skin on, that
+window wears the skin's frame, as it did in Winamp 5, with a title bar, a close
+button and a corner to resize it by. Double-click it or press **F** for
+fullscreen; leaving fullscreen brings the frame back. The next and previous
+preset keys and the right-click below work in it too; the other MilkDrop keys
+and the song title are only in the plain window. Windows Media Player skins also show
 it in their visualisation areas; see
 [Windows Media Player skins](/winamp/#windows-media-player-skins).
 

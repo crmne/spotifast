@@ -38,10 +38,14 @@ pub enum Sheet {
     /// The equalizer rolled up: its bar, mini sliders, and buttons. Skins
     /// from Winamp 2.9 on ship this; older ones borrow the built-in one.
     EqEx,
+    /// The frame of Winamp's generic windows, which MilkDrop wears.
+    Gen,
+    /// The generic windows' colours and dialog parts.
+    GenEx,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 15] = [
+    pub const ALL: [Sheet; 17] = [
         Sheet::Main,
         Sheet::CButtons,
         Sheet::TitleBar,
@@ -57,6 +61,8 @@ impl Sheet {
         Sheet::PlEdit,
         Sheet::EqMain,
         Sheet::EqEx,
+        Sheet::Gen,
+        Sheet::GenEx,
     ];
 
     /// The file's name without its extension, in lower case.
@@ -77,6 +83,8 @@ impl Sheet {
             Sheet::PlEdit => "pledit",
             Sheet::EqMain => "eqmain",
             Sheet::EqEx => "eq_ex",
+            Sheet::Gen => "gen",
+            Sheet::GenEx => "genex",
         }
     }
 }

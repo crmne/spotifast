@@ -57,6 +57,9 @@ struct Event {
     pos: Option<[f32; 2]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     size: Option<[f32; 2]>,
+    /// The window went to or left full screen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fullscreen: Option<bool>,
 }
 
 /// How the child was started, from the command line.
@@ -333,6 +336,10 @@ impl Child {
             live.window
                 .set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
             live.fullscreen = on;
+            report(&Event {
+                fullscreen: Some(on),
+                ..Default::default()
+            });
         }
     }
 

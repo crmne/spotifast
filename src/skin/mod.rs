@@ -8,6 +8,7 @@
 
 pub mod config;
 pub mod font;
+pub mod generic;
 pub mod layout;
 pub mod script;
 pub mod sprites;
@@ -537,6 +538,20 @@ mod tests {
         let sheet = skin.sheet(Sheet::CButtons);
         assert_eq!((sheet.width, sheet.height), (136, 36));
         assert_eq!(sheet.pixel(135, 35), Some([4, 5, 6, 255]));
+    }
+
+    /// Winamp's generic frame comes with the built-in skin, whole, so a
+    /// skin without a `gen.bmp` still frames MilkDrop.
+    #[test]
+    fn the_built_in_skin_has_the_generic_frame() {
+        let skin = Skin::builtin();
+        let bitmap = skin.sheet(Sheet::Gen);
+        assert!(bitmap.width >= 178 && bitmap.height >= 103);
+        for focused in [true, false] {
+            let letters = generic::letters(bitmap, focused);
+            assert!(letters.iter().all(|letter| letter.width > 0));
+        }
+        assert!(generic::window_background(skin.sheet(Sheet::GenEx)).is_some());
     }
 
     #[test]

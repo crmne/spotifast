@@ -35,6 +35,9 @@ Spotifast remembers the window position where your desktop allows it.
 Skins can have transparent areas and shapes other than rectangles. Modern
 Winamp 3 and 5 skin formats are not supported; choose classic Winamp 2 skins.
 
+MilkDrop, opened from a classic skin's mini player, wears that skin's generic
+window frame from `gen.bmp`. A skin without one borrows the built-in skin's.
+
 ## Windows Media Player skins
 
 ![Headspace, Cerulean and Activate, three classic Windows Media Player skins, with their panels open](/assets/images/wmp-skins.png)
