@@ -18,6 +18,8 @@ pub mod emoji;
 pub mod eq;
 pub mod history;
 pub mod http;
+#[cfg(target_os = "linux")]
+pub mod hyprland;
 pub mod i18n;
 pub mod images;
 pub mod liked;

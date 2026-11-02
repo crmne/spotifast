@@ -902,6 +902,7 @@ fn media_app() -> fastframe_now_playing::App {
 }
 
 const TRAY_SHOW: &str = "show";
+const TRAY_MAIN_WINDOW: &str = "main-window";
 const TRAY_PLAY_PAUSE: &str = "play-pause";
 const TRAY_NEXT: &str = "next";
 const TRAY_PREVIOUS: &str = "previous";
@@ -1038,6 +1039,7 @@ fn tray_config() -> fastframe_tray::Config {
         themed_icon: true,
         menu: vec![
             MenuItem::action(TRAY_SHOW, "Show or hide Spotifast"),
+            MenuItem::action(TRAY_MAIN_WINDOW, "Open main window"),
             MenuItem::Separator,
             MenuItem::action(TRAY_PLAY_PAUSE, play_pause_label(false)),
             MenuItem::action(TRAY_NEXT, "Next"),
@@ -1494,6 +1496,12 @@ impl App {
         ctx.set_theme(self.theme_preference());
         self.applied_dark = None;
         self.winamp.forget_textures();
+        #[cfg(target_os = "linux")]
+        if self.settings.winamp_window {
+            crate::hyprland::bare_skin_windows();
+        } else {
+            crate::hyprland::keep_borders();
+        }
         self.window_hidden = false;
         self.hide_intent = false;
         self.wants_show = false;
@@ -5316,6 +5324,18 @@ impl App {
                         Action::ShowWindow
                     } else {
                         Action::HideWindow
+                    }
+                }
+                Event::Menu(TRAY_MAIN_WINDOW) => {
+                    if !self.settings.winamp_window {
+                        Action::ShowWindow
+                    } else if self.window_hidden {
+                        // Closed to the tray: the next window is the main one.
+                        self.settings.winamp_window = false;
+                        self.settings_dirty = true;
+                        Action::ShowWindow
+                    } else {
+                        Action::ToggleWinampWindow
                     }
                 }
                 Event::Menu(TRAY_PLAY_PAUSE) => Action::TogglePlay,

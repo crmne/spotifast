@@ -1371,7 +1371,8 @@ fn hit_in(
                     return Some(found);
                 }
             }
-            if solid_at(view, images, id, x - left, y - top) {
+            if !element.flag("passthrough", false) && solid_at(view, images, id, x - left, y - top)
+            {
                 return Some(id);
             }
             for child in order[..split].iter().rev() {

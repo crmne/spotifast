@@ -364,6 +364,7 @@ impl Runtime {
             if requests.is_empty() {
                 break;
             }
+            let mut opened = false;
             for request in requests {
                 match request {
                     ViewRequest::Open(name) => {
@@ -371,16 +372,17 @@ impl Runtime {
                             && let Some(definition) = self.wmp.view_named(&name)
                         {
                             self.open(definition, now);
+                            opened = true;
                         }
                     }
                     ViewRequest::CloseNamed(name) => {
                         if let Some(index) = self.find_named(&name) {
-                            self.close(index);
+                            self.close_asked(index, opened);
                         }
                     }
                     ViewRequest::Close(key) => {
                         if let Some(index) = self.index_of(key) {
-                            self.close(index);
+                            self.close_asked(index, opened);
                         }
                     }
                     ViewRequest::Switch(key, name) => {
@@ -413,6 +415,18 @@ impl Runtime {
         self.views
             .iter()
             .position(|view| view.state.id.eq_ignore_ascii_case(name))
+    }
+
+    /// A script's close. A view with no window is what runs the skin's other
+    /// views, so they go with it, unless it just opened them and is leaving.
+    fn close_asked(&mut self, index: usize, handing_over: bool) {
+        let control = !self.views[index].state.windowed();
+        self.close(index);
+        if control && !handing_over {
+            while !self.views.is_empty() {
+                self.close(self.views.len() - 1);
+            }
+        }
     }
 
     fn close(&mut self, index: usize) {
@@ -685,10 +699,20 @@ impl Runtime {
     }
 
     /// Takes what a view asked of its window.
+    /// The primary view also carries out what views with no window asked.
     pub fn window_commands(&mut self, key: u32) -> Vec<WindowCommand> {
-        self.index_of(key).map_or_else(Vec::new, |index| {
-            std::mem::take(&mut self.views[index].state.window)
-        })
+        let Some(index) = self.index_of(key) else {
+            return Vec::new();
+        };
+        let mut commands = std::mem::take(&mut self.views[index].state.window);
+        if self.primary() == Some(index) {
+            for view in &mut self.views {
+                if !view.state.windowed() {
+                    commands.append(&mut view.state.window);
+                }
+            }
+        }
+        commands
     }
 
     /// The tooltip and cursor of what is under the pointer.
