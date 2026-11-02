@@ -10473,21 +10473,25 @@ impl App {
             return;
         }
         let device = state.and_then(|state| state.device.as_ref());
-        // A device change ends this intent. Missing volume on the same
-        // device confirms neither the write nor a change made elsewhere.
+        // A device change ends this intent.
         if !pending.may_be_on(device) {
             self.pending_remote_volume = None;
             return;
         }
-        let Some(reported) = device.and_then(|device| device.volume_percent) else {
-            return;
-        };
         // Polls after a successful write can lag, a Sonos's by seconds.
         // Check once more, and hold the chosen volume as long as play and
         // pause are held, before accepting a volume set elsewhere.
         let held = pending
             .written_at
             .is_some_and(|at| at.elapsed() < PLAYBACK_HOLD);
+        // Missing volume on the same device confirms neither the write nor
+        // a change made elsewhere, so the hold only runs out.
+        let Some(reported) = device.and_then(|device| device.volume_percent) else {
+            if !held {
+                self.pending_remote_volume = None;
+            }
+            return;
+        };
         if reported == pending.percent || (pending.mismatches > 0 && !held) {
             self.pending_remote_volume = None;
         } else {
@@ -31204,6 +31208,34 @@ mod tests {
         device.id = Some("phone".into());
         report_remote_volume(&mut app, 5, Some(35));
         assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 35);
+        app.backend.shutdown();
+    }
+
+    /// Polls that leave the volume out confirm nothing, so the hold runs out
+    /// as usual, and a volume Spotify pushes later shows.
+    #[test]
+    fn remote_volume_hold_runs_out_when_polls_omit_the_volume() {
+        let mut app = remote_volume_app();
+        let device = app.remote.as_mut().unwrap().state.device.as_mut().unwrap();
+        device.id = None;
+        app.local_ready = true;
+        app.selected_device = Some("sonos".into());
+        app.set_volume(65, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        report_remote_volume(&mut app, 1, None);
+        assert!(app.pending_remote_volume.is_some());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+        app.pending_remote_volume.as_mut().unwrap().written_at =
+            Some(Instant::now() - PLAYBACK_HOLD);
+        report_remote_volume(&mut app, 2, None);
+        assert!(app.pending_remote_volume.is_none());
+        app.handle_remote_volume("sonos", percent_to_volume(35));
         assert_eq!(app.now_playing().unwrap().volume_percent, 35);
         app.backend.shutdown();
     }
