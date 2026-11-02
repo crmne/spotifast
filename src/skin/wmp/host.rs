@@ -298,6 +298,7 @@ impl Bridge<'_> {
         }
         Some(match name {
             "bands" => number(10.0),
+            "preamp" => number(f64::from(deck.eq_preamp)),
             "bypass" => Value::Bool(!deck.eq_on),
             "enabled" | "enable" => Value::Bool(deck.eq_on),
             "presetcount" => number(deck.eq_presets.len() as f64),
@@ -418,6 +419,14 @@ impl Bridge<'_> {
                     return;
                 }
                 match name {
+                    "preamp" => {
+                        let gain = number_of(&value) as f32;
+                        if (self.shared.deck.eq_preamp - gain).abs() > 0.01 {
+                            self.shared.deck.eq_preamp = gain;
+                            self.command(Command::SetEqPreamp(gain));
+                        }
+                        return;
+                    }
                     "bypass" | "enabled" | "enable" => {
                         let on = truthy(&value) != (name == "bypass");
                         if self.shared.deck.eq_on != on {
@@ -442,7 +451,7 @@ impl Bridge<'_> {
                 self.view.store(id, &format!("skin-{name}"), value);
                 return;
             }
-            Kind::ListBox if name == "selecteditem" => {
+            Kind::ListBox | Kind::Playlist if name == "selecteditem" => {
                 let at = number_of(&value);
                 self.view.elements[id].selected = (at >= 0.0).then_some(at as usize);
                 self.view.changed = true;

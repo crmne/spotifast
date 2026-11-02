@@ -670,6 +670,31 @@ impl Runtime {
         }
     }
 
+    /// Tells the skin its window is not up yet, as `view.onScreen`, so that
+    /// an opening can wait for it. A preview has no window and never says so.
+    pub fn await_window(&mut self) {
+        if let Some(at) = self.primary() {
+            let state = &mut self.views[at].state;
+            let root = state.root;
+            state.store(root, "onscreen", Value::Bool(false));
+        }
+    }
+
+    /// The window has the view's size and something of it has been drawn.
+    /// It counts once the pictures that drawing asked for are in.
+    pub fn window_ready(&mut self, key: u32) {
+        if self.images.loading() {
+            return;
+        }
+        if let Some(index) = self.index_of(key) {
+            let state = &mut self.views[index].state;
+            let root = state.root;
+            if state.elements[root].props.contains_key("onscreen") {
+                state.store(root, "onscreen", Value::Bool(true));
+            }
+        }
+    }
+
     /// When the skin next wants a frame on its own, if ever.
     pub fn next_wake(&self, now: Instant) -> Option<Duration> {
         let mut wake: Option<Duration> = None;

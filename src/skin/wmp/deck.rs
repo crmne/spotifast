@@ -49,6 +49,7 @@ pub struct Deck {
     pub playing: Option<usize>,
     pub eq_on: bool,
     pub eq_bands: [f32; 10],
+    pub eq_preamp: f32,
     pub eq_presets: Vec<String>,
     pub eq_preset: Option<usize>,
     /// The visualisation: 0 bars, 1 sound wave, 2 none.
@@ -72,6 +73,7 @@ impl Default for Deck {
             playing: None,
             eq_on: false,
             eq_bands: [0.0; 10],
+            eq_preamp: 0.0,
             eq_presets: Vec::new(),
             eq_preset: None,
             effect: 0,
@@ -142,6 +144,7 @@ pub enum Command {
     /// A row of [`Deck::queue`].
     PlayQueued(usize),
     SetEqBand(usize, f32),
+    SetEqPreamp(f32),
     SetEqOn(bool),
     SetEqPreset(usize),
     /// Reset all bands.

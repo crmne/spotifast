@@ -150,6 +150,9 @@ fn draw_view(app: &mut App, runtime: &mut Runtime, ui: &mut Ui, key: u32, primar
 
     let now = Instant::now();
     let (paints, wake) = runtime.paint(key, now);
+    if (ctx.viewport_rect().size() - wanted).abs().max_elem() < 1.0 {
+        runtime.window_ready(key);
+    }
     let mut moving = false;
     for paint in &paints {
         moving |= draw(app, ui, paint, origin, unit, now);
