@@ -21,6 +21,9 @@ use super::View;
 struct Row {
     uri: String,
     label: String,
+    /// The title alone, without the number or the artist in front of it, so
+    /// a title that reads right to left is placed by its own direction.
+    title: String,
     duration_ms: u32,
     current: bool,
     /// Where the song sits in the queue, when it is queued rather than on.
@@ -292,6 +295,7 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
         rows.push(Row {
             uri: item.uri().to_string(),
             label: label(1, &item.subtitle(), item.name()),
+            title: item.name().to_string(),
             duration_ms: item.duration_ms(),
             current: true,
             queued: None,
@@ -302,6 +306,7 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
         rows.push(Row {
             uri: now.uri.clone(),
             label: label(1, &now.subtitle, &now.title),
+            title: now.title.clone(),
             duration_ms: now.duration_ms,
             current: true,
             queued: None,
@@ -321,6 +326,7 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
         rows.push(Row {
             uri: item.uri().to_string(),
             label: label(rows.len() + 1, &item.subtitle(), item.name()),
+            title: item.name().to_string(),
             duration_ms: item.duration_ms(),
             current: false,
             queued: Some(index),
@@ -459,7 +465,7 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
         let duration = util::format_duration_ms(row.duration_ms);
         let duration_width = text.width(&duration).ceil() as u32;
         let title_room = line.width.saturating_sub(3 * pad + duration_width);
-        let title = fit(text, &row.label, title_room as f32);
+        let title = text.fitted(&row.label, title_room as f32);
         let duration_line = text.line(&ctx, &duration);
         let duration_at = Area::new(
             line.x + line.width - pad - duration_line.width,
@@ -476,13 +482,11 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
         let title_line = text.line(&ctx, &title);
         // A title that reads right to left hugs the right edge of its room,
         // the way every other view places one, rather than starting at the
-        // left and leaving the gap a left-to-right title fills.
+        // left and leaving the gap a left-to-right title fills. The row's
+        // direction is the title's own: the number and a Latin artist in
+        // front of an Arabic or Hebrew title must not place it on the left.
         let title_at = Area::new(
-            if crate::bidi::is_rtl(&row.label) {
-                line.x + pad + title_room - title_line.width.min(title_room)
-            } else {
-                line.x + pad
-            },
+            title_x(line.x, pad, title_room, title_line.width, &row.title),
             line.y + (line.height.saturating_sub(title_line.height)) / 2,
             title_line.width.min(title_room),
             title_line.height,
@@ -506,21 +510,15 @@ fn rows_for_wheel(lines: f32, points: f32, pages: f32, row_points: f32, visible:
     -(lines * 3.0 + points / row_points + pages * visible as f32)
 }
 
-/// Text cut to a width, with an ellipsis when it had to be.
-fn fit(text: &mut super::PixelText, label: &str, width: f32) -> String {
-    if text.width(label) <= width {
-        return label.to_string();
+/// Where a row's title starts: against the right edge of its room when the
+/// title reads right to left, at the left otherwise. The number and the
+/// artist in front of the title do not decide this; the title does.
+fn title_x(x: u32, pad: u32, room: u32, drawn: u32, title: &str) -> u32 {
+    if crate::bidi::is_rtl(title) {
+        x + pad + room - drawn.min(room)
+    } else {
+        x + pad
     }
-    let chars: Vec<char> = label.chars().collect();
-    let mut keep = chars.len();
-    while keep > 0 {
-        keep -= 1;
-        let candidate: String = chars[..keep].iter().collect::<String>() + "\u{2026}";
-        if text.width(&candidate) <= width {
-            return candidate;
-        }
-    }
-    "\u{2026}".to_string()
 }
 
 /// The handle in the right-hand tiles, dragged to scroll.
@@ -842,6 +840,23 @@ mod tests {
         assert_eq!(rows_visible(116), 4);
         assert_eq!(rows_visible(174), 8);
         assert_eq!(list_area(174), Area::new(12, 20, 243, 116));
+    }
+
+    /// A title that reads right to left goes against the right edge even
+    /// when the number and the artist in front of it read left to right.
+    #[test]
+    fn a_right_to_left_title_is_placed_by_its_own_direction() {
+        let title = "\u{644}\u{64a}\u{644} \u{637}\u{648}\u{64a}\u{644}";
+        let label = format!("3. Kasia & Noa - {title}");
+        assert!(
+            !crate::bidi::is_rtl(&label),
+            "the label reads left to right"
+        );
+        assert!(crate::bidi::is_rtl(title));
+        assert_eq!(title_x(10, 4, 100, 60, title), 10 + 4 + 100 - 60);
+        assert_eq!(title_x(10, 4, 100, 60, "Tel Aviv Nights"), 14);
+        // A title wider than its room starts at the room's left edge.
+        assert_eq!(title_x(10, 4, 100, 160, title), 14);
     }
 
     /// REM's Remove selected names queue rows, not list rows: the list

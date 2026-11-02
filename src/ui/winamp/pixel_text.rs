@@ -91,6 +91,11 @@ pub struct PixelText {
     /// every candidate again each frame would cost more than the rest of
     /// the list.
     widths: HashMap<String, f32>,
+    /// The longest piece of a row that fits its room, for that row and that
+    /// room. Fitting cuts a long title back a character at a time, and the
+    /// prefixes it measures would otherwise crowd `widths` while a long
+    /// list is scrolled through, shaping the visible rows again each frame.
+    fitted: HashMap<(String, u32), String>,
     faces: Vec<Face>,
 }
 
@@ -99,6 +104,7 @@ impl PixelText {
     pub fn clear(&mut self) {
         self.lines.clear();
         self.widths.clear();
+        self.fitted.clear();
     }
 
     fn faces(&mut self) -> &[Face] {
@@ -149,22 +155,60 @@ impl PixelText {
         if let Some(width) = self.widths.get(text) {
             return *width;
         }
-        let width = {
-            let faces = self.faces();
-            let mut width = 0.0;
-            for (rtl, run) in runs(text) {
-                for (index, segment) in segments(faces, &text[run], rtl) {
-                    let face = &faces[index];
-                    width += advance(&face.shape(&segment, rtl), face.scale);
-                }
-            }
-            width
-        };
+        let width = self.measure(text);
         if self.widths.len() >= CACHE_LIMIT {
             self.widths.clear();
         }
         self.widths.insert(text.to_string(), width);
         width
+    }
+
+    /// The width of a line, shaped now and not kept: fitting asks for every
+    /// prefix of a title, and those would crowd the cache above.
+    fn measure(&mut self, text: &str) -> f32 {
+        let faces = self.faces();
+        let mut width = 0.0;
+        for (rtl, run) in runs(text) {
+            for (index, segment) in segments(faces, &text[run], rtl) {
+                let face = &faces[index];
+                width += advance(&face.shape(&segment, rtl), face.scale);
+            }
+        }
+        width
+    }
+
+    /// The longest start of `label` that fits `width` skin pixels, cut at a
+    /// character and ended with an ellipsis, as the list draws a title too
+    /// long for its row. A shaped prefix is not always narrower than a
+    /// shorter one, so each one is measured in turn rather than searched
+    /// for. The answer is kept for the label and the room: a long list
+    /// draws the same rows again on every scroll.
+    pub fn fitted(&mut self, label: &str, width: f32) -> String {
+        let key = (label.to_string(), width.to_bits());
+        if let Some(fitted) = self.fitted.get(&key) {
+            return fitted.clone();
+        }
+        let fitted = if self.width(label) <= width {
+            label.to_string()
+        } else {
+            let chars: Vec<char> = label.chars().collect();
+            let mut fitted = "\u{2026}".to_string();
+            let mut keep = chars.len();
+            while keep > 0 {
+                keep -= 1;
+                let candidate = format!("{}\u{2026}", chars[..keep].iter().collect::<String>());
+                if self.measure(&candidate) <= width {
+                    fitted = candidate;
+                    break;
+                }
+            }
+            fitted
+        };
+        if self.fitted.len() >= CACHE_LIMIT {
+            self.fitted.clear();
+        }
+        self.fitted.insert(key, fitted.clone());
+        fitted
     }
 
     /// A line, drawn now if it has not been.
@@ -528,6 +572,24 @@ mod tests {
             (drawn - long).abs() <= long * 0.15,
             "drawn {drawn}, measured {long}"
         );
+    }
+
+    /// Fitting keeps its answer for a row and a room: a long list draws the
+    /// same rows again on every scroll, and measuring their prefixes again
+    /// would crowd the width cache with candidates no other row uses.
+    #[test]
+    fn a_fitted_title_is_the_longest_start_that_fits_its_room() {
+        let mut text = PixelText::default();
+        let label = "1. Khruangbin - Otomo";
+        let room = text.width("1. Khruan") + 1.0;
+        let fitted = text.fitted(label, room);
+        assert!(fitted.ends_with('\u{2026}'), "fitted {fitted:?}");
+        let prefix = fitted.trim_end_matches('\u{2026}');
+        assert!(label.starts_with(prefix), "{fitted:?} is not a start of it");
+        assert!(prefix.chars().count() < label.chars().count());
+        assert!(text.width(&fitted) <= room, "{fitted:?} does not fit");
+        assert_eq!(text.fitted(label, room), fitted, "the kept answer changed");
+        assert_eq!(text.fitted("Otomo", 10_000.0), "Otomo");
     }
 
     #[test]
