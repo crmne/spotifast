@@ -484,6 +484,144 @@ mod tests {
     use crate::paths::AppDirs;
     use crate::settings::Settings;
 
+    #[test]
+    fn search_shortcuts_focus_the_search_for_the_pointer_context() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-search-shortcuts-test-{}",
+            std::process::id()
+        ));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let mut app = App::new(
+            &crate::backend::Waker::default(),
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        app.settings.sidebar_visible = true;
+
+        let command = if cfg!(target_os = "macos") {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        let cases = [
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(50.0, 80.0),
+                Key::F,
+                command,
+                Some("sidebar-search"),
+                None,
+            ),
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(800.0, 500.0),
+                Key::Slash,
+                Modifiers::NONE,
+                Some("collection-filter"),
+                None,
+            ),
+            (
+                Page::Settings,
+                egui::pos2(550.0, 80.0),
+                Key::F,
+                command,
+                Some("settings-search-field"),
+                None,
+            ),
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(350.0, 80.0),
+                Key::Slash,
+                Modifiers::NONE,
+                None,
+                Some(Action::FocusSearch),
+            ),
+        ];
+
+        for (page, pointer, key, modifiers, focused_id, expected_action) in cases {
+            app.open(page);
+            app.actions.clear();
+            let ctx = egui::Context::default();
+            ctx.data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new("sidebar-rect"),
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 800.0)),
+                );
+                data.insert_temp(
+                    egui::Id::new("global-search-rect"),
+                    egui::Rect::from_min_size(egui::pos2(300.0, 50.0), egui::vec2(200.0, 60.0)),
+                );
+                data.insert_temp(
+                    egui::Id::new("settings-search-rect"),
+                    egui::Rect::from_min_size(egui::pos2(500.0, 50.0), egui::vec2(200.0, 60.0)),
+                );
+            });
+            let events = vec![
+                egui::Event::PointerMoved(pointer),
+                egui::Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+            ];
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    handle(&mut app, ui.ctx());
+                    if let Some(id) = focused_id {
+                        let mut text = String::new();
+                        ui.add(egui::TextEdit::singleline(&mut text).id(egui::Id::new(id)));
+                    }
+                },
+            );
+            output.textures_delta.clear();
+
+            if let Some(id) = focused_id {
+                assert!(
+                    ctx.memory(|memory| memory.has_focus(egui::Id::new(id))),
+                    "{key:?} should focus {id}"
+                );
+            }
+            if let Some(action) = expected_action {
+                assert_eq!(
+                    format!("{:?}", app.actions),
+                    format!("{:?}", [action]),
+                    "{key:?} should retain global search"
+                );
+            } else {
+                assert!(app.actions.is_empty());
+            }
+            if focused_id == Some("sidebar-search") {
+                assert!(ctx.data(|data| {
+                    data.get_temp::<bool>(egui::Id::new("sidebar-show-search"))
+                        .unwrap_or(false)
+                }));
+            }
+        }
+
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// A text field edits with the arrow keys: Ctrl or Alt moves a word,
     /// Cmd moves to the end of the line, and Ctrl or Cmd with Up or Down
     /// to either end of the text. While a field has focus those keys are
