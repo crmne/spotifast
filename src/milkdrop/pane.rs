@@ -1,7 +1,7 @@
 //! MilkDrop inside the app's own windows: a skin's visualisation pane, or the
 //! Winamp frame around it.
 //!
-//! [`Stream`] keeps a windowless child running while something shows its
+//! `Stream` keeps a windowless child running while something shows its
 //! picture, and turns the newest frame it published into a texture. The UI
 //! thread only ever looks at shared memory and asks nothing of the child, so
 //! a child that hangs or dies costs the bars their pane back and nothing
