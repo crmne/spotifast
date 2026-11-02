@@ -662,6 +662,10 @@ pub struct App {
     pub softened_covers: crate::images::SoftenedCovers,
     /// The track the lyrics below are for.
     pub lyrics_uri: Option<String>,
+    /// How many of `LYRICS_RETRIES` this song has used.
+    lyrics_retries: usize,
+    /// When to ask again for lyrics a busy service didn't answer for.
+    lyrics_retry_at: Option<Instant>,
     /// `Loaded(None)` when no lyrics are available.
     pub lyrics: Loadable<Option<crate::lyrics::Lyrics>>,
     /// Whether the panel follows the current line. Manual scrolling disables
@@ -1011,6 +1015,13 @@ const SOLOIST_RETRIES: [Duration; 3] = [
 ];
 /// A player that ran this long starts its retries from the first again.
 const SOLOIST_STABLE: Duration = Duration::from_secs(60);
+/// How long to wait before each new try at lyrics that failed.
+const LYRICS_RETRIES: [Duration; 4] = [
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+    Duration::from_secs(45),
+    Duration::from_secs(120),
+];
 /// How often a volume drag updates our own Soloist.
 const SOLOIST_VOLUME_PACE: Duration = Duration::from_millis(100);
 
@@ -1367,6 +1378,8 @@ impl App {
             lyrics_backdrop: Default::default(),
             softened_covers: Default::default(),
             lyrics_uri: None,
+            lyrics_retries: 0,
+            lyrics_retry_at: None,
             lyrics: Loadable::NotLoaded,
             lyrics_following: true,
             lyrics_line_shown: None,
@@ -3013,7 +3026,7 @@ impl App {
                     if self.lyrics_uri.as_deref() == Some(uri.as_str()) {
                         self.lyrics = match result {
                             Ok(found) => Loadable::Loaded(found),
-                            Err(error) => Loadable::Failed(error),
+                            Err(error) => self.lyrics_failed(error, Instant::now()),
                         };
                     }
                 }
@@ -4357,6 +4370,31 @@ impl App {
         }
     }
 
+    /// LRCLIB's outages come in short bursts, so a failure stays "looking"
+    /// and is asked again a few times before it is shown.
+    fn lyrics_failed(
+        &mut self,
+        error: String,
+        now: Instant,
+    ) -> Loadable<Option<crate::lyrics::Lyrics>> {
+        let Some(wait) = LYRICS_RETRIES.get(self.lyrics_retries) else {
+            return Loadable::Failed(error);
+        };
+        self.lyrics_retries += 1;
+        self.lyrics_retry_at = Some(now + *wait);
+        Loadable::Loading
+    }
+
+    /// Asks again once the wait is over, if the song is still the one waiting.
+    fn retry_lyrics_when_due(&mut self, now: Instant) {
+        if self.lyrics_retry_at.is_none_or(|at| now < at) {
+            return;
+        }
+        self.lyrics_retry_at = None;
+        self.lyrics = Loadable::NotLoaded;
+        self.request_lyrics();
+    }
+
     /// Asks for the playing track's lyrics unless they are here or on the
     /// way. Podcasts have no lyrics to ask for.
     pub fn request_lyrics(&mut self) {
@@ -4367,6 +4405,10 @@ impl App {
             && !matches!(self.lyrics, Loadable::NotLoaded | Loadable::Failed(_))
         {
             return;
+        }
+        if self.lyrics_uri.as_deref() != Some(now.uri.as_str()) {
+            self.lyrics_retries = 0;
+            self.lyrics_retry_at = None;
         }
         self.lyrics_uri = Some(now.uri.clone());
         self.lyrics_following = true;
@@ -4632,6 +4674,10 @@ impl App {
             self.evict_stale_pages();
         }
         self.sync_skin(ctx);
+        self.retry_lyrics_when_due(Instant::now());
+        if let Some(at) = self.lyrics_retry_at {
+            ctx.request_repaint_after(at.saturating_duration_since(Instant::now()));
+        }
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
         }
@@ -13231,7 +13277,10 @@ impl App {
                 self.lyrics_line_shown = None;
             }
             Action::PauseLyricsFollow => self.lyrics_following = false,
-            Action::RetryLyrics => self.request_lyrics(),
+            Action::RetryLyrics => {
+                self.lyrics_retries = 0;
+                self.request_lyrics();
+            }
             Action::ToggleDevicesPopup => {
                 self.show_devices = !self.show_devices;
                 if self.show_devices {
@@ -16909,6 +16958,43 @@ mod tests {
     /// A track change requests fresh lyrics while fullscreen shows the
     /// queue column: the lyrics panel flag stays off there, so gating on
     /// it alone would leave the previous track's words up.
+    #[test]
+    fn a_busy_lyrics_service_is_asked_again_before_the_failure_shows() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.request_lyrics();
+        let mut now = Instant::now();
+        for wait in LYRICS_RETRIES {
+            app.lyrics = app.lyrics_failed("503".into(), now);
+            assert!(matches!(app.lyrics, Loadable::Loading));
+            app.retry_lyrics_when_due(now + wait - Duration::from_millis(1));
+            assert!(app.lyrics_retry_at.is_some(), "not before its time");
+            now += wait;
+            app.retry_lyrics_when_due(now);
+            assert!(app.lyrics_retry_at.is_none());
+            assert!(matches!(app.lyrics, Loadable::Loading));
+        }
+        app.lyrics = app.lyrics_failed("503".into(), now);
+        assert!(matches!(app.lyrics, Loadable::Failed(_)));
+        assert!(app.lyrics_retry_at.is_none());
+        app.apply(Action::RetryLyrics, &egui::Context::default());
+        assert_eq!(app.lyrics_retries, 0, "a click starts over");
+        app.lyrics = app.lyrics_failed("503".into(), now);
+        assert!(app.lyrics_retry_at.is_some());
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:b".into(),
+            ..Default::default()
+        });
+        app.request_lyrics();
+        assert!(app.lyrics_retry_at.is_none(), "the next song starts clean");
+        assert_eq!(app.lyrics_retries, 0);
+        app.backend.shutdown();
+    }
+
     #[test]
     fn track_change_requests_lyrics_with_fullscreen_queue_open() {
         let mut app = headless_app();
