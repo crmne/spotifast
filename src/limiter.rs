@@ -86,6 +86,10 @@ impl Limiter {
             return;
         }
         let threshold_db = to_db(full_scale) + THRESHOLD_DB;
+        // Below the knee the target is exactly unity. Compare in the linear
+        // domain so ordinary audio does not need a log and a power per frame.
+        // Keep to_db's floor for very small ceilings and near-silent samples.
+        let knee_start = from_db(threshold_db - KNEE_DB / 2.0);
         let ceiling = full_scale;
         for frame in frames.chunks_mut(2) {
             // Calculate gain from the incoming frame and apply it to the
@@ -93,7 +97,11 @@ impl Limiter {
             let peak = frame
                 .iter()
                 .fold(0.0f64, |loudest, sample| loudest.max(sample.abs()));
-            let target = from_db(-reduction_db(to_db(peak) - threshold_db));
+            let target = if peak.max(1e-12) < knee_start {
+                1.0
+            } else {
+                from_db(-reduction_db(to_db(peak) - threshold_db))
+            };
             // Reduce gain quickly and restore it slowly.
             let coefficient = if target < self.gain {
                 self.attack
@@ -240,6 +248,54 @@ mod tests {
             let before = samples.len();
             limiter.process(&mut samples, 1.0);
             assert_eq!(samples.len(), before, "a block of {frames} frames");
+        }
+    }
+
+    /// Compare output and gain recovery to the original decibel calculation,
+    /// including the knee's edges, tiny ceilings, and volume changes mid-stream.
+    #[test]
+    fn the_linear_fast_path_preserves_the_decibel_response() {
+        let mut limiter = Limiter::new(RATE);
+        let mut expected_gain = 1.0;
+        let mut held = std::collections::VecDeque::from(vec![[0.0; 2]; DELAY]);
+        for full_scale in [1.0, 4.0, 0.25, 1e-14, 1e-12, 0.5, 1.0] {
+            let threshold_db = to_db(full_scale) + THRESHOLD_DB;
+            let knee = from_db(threshold_db - KNEE_DB / 2.0);
+            let mut input = Vec::new();
+            // Silence, quiet passages, both sides of the knee, and overload.
+            for level in [0.0, 0.1 * full_scale, knee, full_scale, 4.0 * full_scale] {
+                for offset in [-1e-14, 0.0, 1e-14] {
+                    let level = level * (1.0 + offset);
+                    input.extend((0..512).flat_map(|_| [level, -level / 2.0]));
+                }
+            }
+            let mut actual = input.clone();
+            limiter.process(&mut actual, full_scale);
+            for (frame, got) in input
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .zip(actual.as_chunks::<2>().0)
+            {
+                let peak = frame[0].abs().max(frame[1].abs());
+                let target = from_db(-reduction_db(to_db(peak) - threshold_db));
+                let coefficient = if target < expected_gain {
+                    limiter.attack
+                } else {
+                    limiter.release
+                };
+                expected_gain += (target - expected_gain) * coefficient;
+                held.push_back([frame[0], frame[1]]);
+                let due = held.pop_front().unwrap();
+                for (sample, delayed) in got.iter().zip(due) {
+                    let expected = (delayed * expected_gain).clamp(-full_scale, full_scale);
+                    assert!(
+                        (sample - expected).abs() <= full_scale * 1e-12,
+                        "at full scale {full_scale}: got {sample}, expected {expected}"
+                    );
+                }
+            }
+            assert!((limiter.gain - expected_gain).abs() < 1e-12);
         }
     }
 }

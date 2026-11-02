@@ -3188,6 +3188,125 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Long saved and podcast episode lists retain their scroll extent and
+    /// play the visible episode, including its resume point, far down the list.
+    #[test]
+    fn virtual_episode_lists_keep_their_rows_and_play_actions() {
+        for dark in [false, true] {
+            for size in [egui::vec2(720.0, 600.0), egui::vec2(1280.0, 800.0)] {
+                for podcast in [false, true] {
+                    let (ctx, mut app) = accessible_app("virtual-episodes");
+                    if dark {
+                        ctx.set_visuals(egui::Visuals::dark());
+                    } else {
+                        ctx.set_visuals(egui::Visuals::light());
+                    }
+                    app.palette = if dark {
+                        crate::theme::Palette::dark()
+                    } else {
+                        crate::theme::Palette::light()
+                    };
+                    let mut template = app.library.episodes.items[0].clone();
+                    template.episode.images.clear();
+                    template.episode.resume_point = Some(ResumePoint {
+                        fully_played: false,
+                        resume_position_ms: 600_000,
+                    });
+                    let episodes: Vec<_> = (0..1000)
+                        .map(|index| {
+                            let mut saved = template.clone();
+                            saved.episode.name = format!("Virtual episode {index}");
+                            saved.episode.uri = format!("spotify:episode:virtual{index}");
+                            saved
+                        })
+                        .collect();
+                    let show = app.show_pages.get_mut("sh0").unwrap();
+                    show.episodes.items = episodes.iter().map(|s| s.episode.clone()).collect();
+                    show.episodes.total = Some(1000);
+                    app.library.episodes.items = episodes;
+                    app.library.episodes.total = Some(1000);
+                    for offset in [0.0, 400.0 * crate::ui::show::EPISODE_ROW_HEIGHT] {
+                        // Start a separate click sequence after scrolling, even
+                        // when a later row occupies the same screen position.
+                        let mut frame_time = if offset == 0.0 { 0.0 } else { 1.0 };
+                        let mut draw = |events| {
+                            frame_time += 1.0 / 60.0;
+                            let mut height = 0.0;
+                            let mut output = ctx.run_ui(
+                                egui::RawInput {
+                                    screen_rect: Some(egui::Rect::from_min_size(
+                                        egui::Pos2::ZERO,
+                                        size,
+                                    )),
+                                    time: Some(frame_time),
+                                    events,
+                                    ..Default::default()
+                                },
+                                |ui| {
+                                    let scroll = egui::ScrollArea::vertical()
+                                        .vertical_scroll_offset(offset)
+                                        .show(ui, |ui| {
+                                            if podcast {
+                                                crate::ui::show::show(&mut app, ui, "sh0");
+                                            } else {
+                                                crate::ui::library::show(
+                                                    &mut app,
+                                                    ui,
+                                                    Page::Episodes,
+                                                );
+                                            }
+                                        });
+                                    height = scroll.content_size.y;
+                                },
+                            );
+                            output.textures_delta.clear();
+                            assert!(height >= 1000.0 * crate::ui::show::EPISODE_ROW_HEIGHT);
+                            menu_text(&output)
+                        };
+                        draw(vec![]);
+                        let text = draw(vec![]);
+                        let rows: Vec<_> = text
+                            .iter()
+                            .filter(|(name, rect)| {
+                                name.starts_with("Virtual episode ")
+                                    && rect.center().y > 0.0
+                                    && rect.center().y < size.y
+                            })
+                            .collect();
+                        assert!(!rows.is_empty() && rows.len() < 10, "{rows:?}");
+                        let (name, rect) = rows[0];
+                        let index: usize = name
+                            .strip_prefix("Virtual episode ")
+                            .unwrap()
+                            .parse()
+                            .unwrap();
+                        if offset == 0.0 {
+                            assert_eq!(index, 0);
+                        } else {
+                            assert!((390..410).contains(&index), "{index}");
+                        }
+                        for _ in 0..2 {
+                            draw(pointer_click(rect.center(), egui::PointerButton::Primary));
+                        }
+                        assert!(
+                            app.actions.iter().any(|action| matches!(
+                                action,
+                                Action::PlayEpisode { uri, resume_ms: Some(600_000) }
+                                    if *uri == format!("spotify:episode:virtual{index}")
+                            )),
+                            "{:?}",
+                            app.actions
+                        );
+                        app.actions.clear();
+                    }
+                    assert_eq!(app.library.episodes.items.len(), 1000);
+                    assert_eq!(app.show_pages["sh0"].episodes.items.len(), 1000);
+                    app.backend.shutdown();
+                }
+            }
+        }
+    }
+
     /// Spotify lists audiobooks among saved shows, but librespot can't play
     /// them, so the Podcasts shelf leaves out any show marked as one.
     #[test]
