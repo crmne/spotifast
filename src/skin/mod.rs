@@ -230,11 +230,17 @@ impl Skin {
                 wmp::Wmp::parse(&text, stem, files.clone())
             })
             .ok_or(SkinError::NoView)?;
+        // The bars a pane falls back to can wear the skin's colours.
+        let vis_colors = files
+            .get("viscolor.txt")
+            .map_or(config::DEFAULT_VIS_COLORS, |bytes| {
+                config::parse_vis_colors(&String::from_utf8_lossy(bytes))
+            });
         Ok(Self {
             name,
             sheets: HashMap::new(),
             playlist: PlaylistStyle::default(),
-            vis_colors: config::DEFAULT_VIS_COLORS,
+            vis_colors,
             regions: Regions::default(),
             wmp: Some(Arc::new(wmp)),
         })
@@ -364,7 +370,7 @@ fn wanted_by_media_player(file_name: &str) -> bool {
             extension,
             "wms" | "js" | "bmp" | "png" | "gif" | "jpg" | "jpeg"
         )
-    })
+    }) || file_name == "viscolor.txt"
 }
 
 /// A definition as text: UTF-8, or UTF-16 with a byte order mark, which
@@ -543,6 +549,21 @@ mod tests {
 
     /// Winamp's generic frame comes with the built-in skin, whole, so a
     /// skin without a `gen.bmp` still frames MilkDrop.
+    #[test]
+    fn a_media_player_skin_can_bring_its_own_bar_colours() {
+        let definition = b"<THEME><VIEW id=\"main\" width=\"9\" height=\"9\"/></THEME>";
+        let colours = "1,2,3\n".repeat(24);
+        let archive = zip::write(&[
+            ("a.wms", definition.as_slice(), true),
+            ("viscolor.txt", colours.as_bytes(), true),
+        ]);
+        let skin = Skin::from_archive("a", &archive).unwrap();
+        assert_eq!(skin.vis_colors[5], [1, 2, 3]);
+        let archive = zip::write(&[("a.wms", definition.as_slice(), true)]);
+        let skin = Skin::from_archive("a", &archive).unwrap();
+        assert_eq!(skin.vis_colors, config::DEFAULT_VIS_COLORS);
+    }
+
     #[test]
     fn the_built_in_skin_has_the_generic_frame() {
         let skin = Skin::builtin();
