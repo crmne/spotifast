@@ -69,12 +69,23 @@ pub struct Limiter {
 impl Limiter {
     pub fn new(sample_rate: f64) -> Self {
         let lookahead = ((LOOKAHEAD_MS / 1000.0 * sample_rate).round() as usize).max(1);
+        // One over: each frame goes in before the oldest comes out, and this
+        // must not need to grow on an audio thread.
+        let mut held = std::collections::VecDeque::with_capacity(lookahead + 1);
+        held.resize(lookahead, [0.0; 2]);
         Self {
             gain: 1.0,
             attack: coefficient(ATTACK_MS, sample_rate),
             release: coefficient(RELEASE_MS, sample_rate),
-            held: std::collections::VecDeque::from(vec![[0.0; 2]; lookahead]),
+            held,
         }
+    }
+
+    /// Forgets the signal, as a new limiter would start, without allocating.
+    #[cfg(target_os = "linux")]
+    pub fn reset(&mut self) {
+        self.gain = 1.0;
+        self.held.iter_mut().for_each(|frame| *frame = [0.0; 2]);
     }
 
     /// Limits interleaved stereo `frames` to `full_scale`.

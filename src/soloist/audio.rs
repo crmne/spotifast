@@ -422,10 +422,16 @@ mod pipewire {
         cell::{Cell, RefCell},
         collections::{HashMap, HashSet, VecDeque},
         rc::Rc,
+        sync::atomic::AtomicUsize,
     };
     const EPIPE: i32 = 32;
     const RATE: usize = 44_100;
-    const MAX_SAMPLES: usize = RATE / 2; // A quarter-second of stereo, always bounded.
+    /// The fastest rate the streams accept. At a quarter-second of stereo
+    /// this bounds the queue, and sizes it once and for all.
+    const MAX_RATE: usize = 384_000;
+    /// The samples processed in one go, a whole number of stereo frames.
+    /// A longer quantum than this is worked through in pieces.
+    const CHUNK: usize = 4096;
     /// How long the input may stay silent behind a link that won't go away.
     const FOREIGN_LIMIT: Duration = Duration::from_secs(10);
     /// How many timer ticks the streams may refuse to change state.
@@ -538,9 +544,68 @@ mod pipewire {
         }
     }
 
-    struct Audio {
+    /// Samples between the two streams' callbacks: the input writes, the
+    /// output reads. Their threads may differ, and neither can wait, so this
+    /// is lock-free. Each sample is an atomic, which needs no unsafe code and
+    /// is an ordinary load or store on anything this runs on.
+    struct Ring {
+        samples: Box<[AtomicU32]>,
+        /// Counts of samples ever written and read, wrapping.
+        written: AtomicUsize,
+        read: AtomicUsize,
+    }
+    impl Ring {
+        fn new(capacity: usize) -> Self {
+            Self {
+                samples: (0..capacity).map(|_| AtomicU32::new(0)).collect(),
+                written: AtomicUsize::new(0),
+                read: AtomicUsize::new(0),
+            }
+        }
+        fn len(&self) -> usize {
+            self.written
+                .load(Ordering::Acquire)
+                .wrapping_sub(self.read.load(Ordering::Acquire))
+        }
+        /// For the writer. False, with nothing written, if they won't all fit.
+        fn write(&self, samples: &[[u8; 4]]) -> bool {
+            if self.len() + samples.len() > self.samples.len() {
+                return false;
+            }
+            let mut at = self.written.load(Ordering::Relaxed);
+            for bytes in samples {
+                let sample = f32::from_le_bytes(*bytes);
+                let sample = if sample.is_finite() { sample } else { 0.0 };
+                self.samples[at % self.samples.len()].store(sample.to_bits(), Ordering::Relaxed);
+                at = at.wrapping_add(1);
+            }
+            self.written.store(at, Ordering::Release);
+            true
+        }
+        /// For the reader. How many samples it took into `out`.
+        fn read(&self, out: &mut [f32]) -> usize {
+            let count = self.len().min(out.len());
+            let mut at = self.read.load(Ordering::Relaxed);
+            for slot in &mut out[..count] {
+                let bits = self.samples[at % self.samples.len()].load(Ordering::Relaxed);
+                *slot = f32::from_bits(bits);
+                at = at.wrapping_add(1);
+            }
+            self.read.store(at, Ordering::Release);
+            count
+        }
+        /// For the reader. Leaves whatever has been written unread.
+        fn skip(&self) {
+            self.read
+                .store(self.written.load(Ordering::Acquire), Ordering::Release);
+        }
+    }
+
+    /// Everything the output's callback works on. It owns this for as long
+    /// as it holds the lock, and only ever tries for it. Allocating is done
+    /// beforehand, here in `new`, for the sizes `pull` and `block` work in.
+    struct Chain {
         eq: crate::eq::Processor,
-        shared_eq: crate::eq::SharedEq,
         input_rate: u32,
         output_rate: u32,
         input_resampler: Option<crate::resample::Resampler>,
@@ -549,88 +614,112 @@ mod pipewire {
         limiter: crate::limiter::Limiter,
         samples: VecDeque<f64>,
         gain: f64,
+        /// One `CHUNK` from the ring, and what the rate conversion makes of it.
+        pulled: Vec<f32>,
+        converted: Vec<f32>,
+        /// One `CHUNK` on its way out, and its copies for the tap.
+        block: Vec<f64>,
+        narrow: Vec<f32>,
+        tapped_narrow: Vec<f32>,
+        tapped: Vec<f64>,
     }
-    impl Audio {
-        fn new(eq: crate::eq::SharedEq, tap: Arc<crate::vis::AudioTap>) -> Self {
+    impl Chain {
+        fn new(
+            eq: crate::eq::Processor,
+            tap: Arc<crate::vis::AudioTap>,
+            input_rate: u32,
+            output_rate: u32,
+        ) -> Self {
+            let resampler = |from, to| {
+                let mut resampler = crate::resample::Resampler::new(from, to, 2);
+                if let Some(resampler) = &mut resampler {
+                    resampler.reserve(CHUNK);
+                }
+                resampler
+            };
+            // A chunk converted, and the frames rounding can add to it.
+            let room = |from: u32, to: u32| (CHUNK * to as usize).div_ceil(from as usize) + 64;
             Self {
-                eq: crate::eq::Processor::new(eq.clone()),
-                shared_eq: eq,
+                eq,
+                input_rate,
+                output_rate,
+                input_resampler: resampler(input_rate, output_rate),
+                tap_resampler: resampler(output_rate, RATE as u32),
                 tap,
-                input_rate: RATE as u32,
-                output_rate: RATE as u32,
-                input_resampler: None,
-                tap_resampler: None,
-                limiter: crate::limiter::Limiter::new(RATE as f64),
-                samples: VecDeque::with_capacity(MAX_SAMPLES),
+                limiter: crate::limiter::Limiter::new(f64::from(output_rate)),
+                samples: VecDeque::with_capacity(MAX_RATE / 2),
                 gain: 0.0,
+                pulled: vec![0.0; CHUNK],
+                converted: Vec::with_capacity(room(input_rate, output_rate)),
+                block: vec![0.0; CHUNK],
+                narrow: vec![0.0; CHUNK],
+                tapped_narrow: Vec::with_capacity(room(output_rate, RATE as u32)),
+                tapped: vec![0.0; room(output_rate, RATE as u32)],
             }
         }
-        fn rates(&mut self, input: Option<u32>, output: Option<u32>) {
-            if let Some(rate) = input {
-                self.input_rate = rate;
-            }
-            if let Some(rate) = output {
-                self.output_rate = rate;
-            }
-            self.clear();
-            self.eq = crate::eq::Processor::at_rate(self.shared_eq.clone(), self.output_rate);
-            self.input_resampler =
-                crate::resample::Resampler::new(self.input_rate, self.output_rate, 2);
-            self.tap_resampler = crate::resample::Resampler::new(self.output_rate, RATE as u32, 2);
-        }
-        fn clear(&mut self) {
+        /// Forgets the signal.
+        fn reset(&mut self) {
             self.samples.clear();
             self.eq.reset();
-            self.tap.clear();
+            self.tap.try_clear();
             self.gain = 0.0;
-            self.input_resampler =
-                crate::resample::Resampler::new(self.input_rate, self.output_rate, 2);
-            self.tap_resampler = crate::resample::Resampler::new(self.output_rate, RATE as u32, 2);
-            self.limiter = crate::limiter::Limiter::new(f64::from(self.output_rate));
-        }
-        fn push(&mut self, bytes: &[u8]) {
-            // A missing output must never accumulate a song to play later.
-            let count = bytes.len() / 8 * 2;
-            if count > self.input_rate as usize / 2 {
-                self.clear();
-                return;
-            }
-            let mut samples: Vec<f32> = bytes[..count * 4]
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|b| {
-                    let sample = f32::from_le_bytes(*b);
-                    if sample.is_finite() { sample } else { 0.0 }
-                })
-                .collect();
             if let Some(resampler) = &mut self.input_resampler {
-                samples = resampler.process(&samples);
+                resampler.reset();
             }
-            let max = self.output_rate as usize / 2;
-            if samples.len() > max {
-                self.clear();
+            if let Some(resampler) = &mut self.tap_resampler {
+                resampler.reset();
+            }
+            self.limiter.reset();
+        }
+        /// Moves what the input wrote into `samples`, at the output's rate.
+        fn pull(&mut self, ring: &Ring) {
+            // A missing output must never accumulate a song to play later.
+            if ring.len() > self.input_rate as usize / 2 {
+                ring.skip();
+                self.reset();
                 return;
             }
-            if self.samples.len() + samples.len() > max {
-                self.clear();
+            loop {
+                let count = ring.read(&mut self.pulled);
+                if count == 0 {
+                    return;
+                }
+                self.converted.clear();
+                match &mut self.input_resampler {
+                    Some(resampler) => {
+                        resampler.process_into(&self.pulled[..count], &mut self.converted);
+                    }
+                    None => self.converted.extend_from_slice(&self.pulled[..count]),
+                }
+                if self.samples.len() + self.converted.len() > self.output_rate as usize / 2 {
+                    self.reset();
+                    continue;
+                }
+                self.samples
+                    .extend(self.converted.iter().copied().map(f64::from));
             }
-            self.samples.extend(samples.into_iter().map(f64::from));
         }
-        fn render(&mut self, bytes: &mut [u8], percent: u8) {
-            let mut samples: Vec<f64> = (0..bytes.len() / 8 * 2)
-                .map(|_| self.samples.pop_front().unwrap_or(0.0))
-                .collect();
-            self.eq.process(&mut samples);
+        /// Fills at most one `CHUNK` of interleaved float frames.
+        fn block(&mut self, bytes: &mut [u8], percent: u8) {
+            let count = bytes.len() / 8 * 2;
+            let samples = &mut self.block[..count];
+            for sample in samples.iter_mut() {
+                *sample = self.samples.pop_front().unwrap_or(0.0);
+            }
+            self.eq.apply(samples);
             if let Some(resampler) = &mut self.tap_resampler {
-                let mono_rate =
-                    resampler.process(&samples.iter().map(|v| *v as f32).collect::<Vec<_>>());
-                self.tap.push(
-                    &mono_rate.into_iter().map(f64::from).collect::<Vec<_>>(),
-                    1.0,
-                );
+                for (narrow, sample) in self.narrow.iter_mut().zip(samples.iter()) {
+                    *narrow = *sample as f32;
+                }
+                self.tapped_narrow.clear();
+                resampler.process_into(&self.narrow[..count], &mut self.tapped_narrow);
+                for (wide, sample) in self.tapped.iter_mut().zip(&self.tapped_narrow) {
+                    *wide = f64::from(*sample);
+                }
+                self.tap
+                    .try_push(&self.tapped[..self.tapped_narrow.len()], 1.0);
             } else {
-                self.tap.push(&samples, 1.0);
+                self.tap.try_push(samples, 1.0);
             }
             // Matches Soloist's native PipeWire curve: 50% is 0.125 gain.
             let wanted = (f64::from(percent.min(100)) / 100.0).powi(3);
@@ -643,11 +732,121 @@ mod pipewire {
                     *sample *= self.gain;
                 }
             }
-            self.limiter.process(&mut samples, 1.0);
-            for (out, sample) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(samples) {
-                out.copy_from_slice(&(sample as f32).to_le_bytes());
+            self.limiter.process(samples, 1.0);
+            for (out, sample) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(samples.iter()) {
+                out.copy_from_slice(&(*sample as f32).to_le_bytes());
             }
         }
+    }
+
+    /// The audio path, shared by the main loop and PipeWire's realtime data
+    /// thread. `push` and `render` run on the latter and must never wait,
+    /// allocate or log. The rest runs on the main loop: it builds what the
+    /// callbacks will use, and takes the chain's lock only to swap it in.
+    struct Audio {
+        ring: Ring,
+        chain: Mutex<Chain>,
+        /// The chain is to forget the signal before it next renders.
+        flush: AtomicBool,
+        /// Only the owned child feeds the input, as the main loop last saw.
+        owned: AtomicBool,
+        tap: Arc<crate::vis::AudioTap>,
+        shared_eq: crate::eq::SharedEq,
+        /// The main loop's: what the chain was last built from.
+        settings: Mutex<(u32, u32, crate::eq::EqSettings)>,
+    }
+    impl Audio {
+        fn new(eq: crate::eq::SharedEq, tap: Arc<crate::vis::AudioTap>) -> Self {
+            let rate = RATE as u32;
+            let settings = Self::eq_settings(&eq);
+            let processor = crate::eq::Processor::prepared(eq.clone(), rate);
+            Self {
+                ring: Ring::new(MAX_RATE / 2),
+                chain: Mutex::new(Chain::new(processor, tap.clone(), rate, rate)),
+                flush: AtomicBool::new(false),
+                owned: AtomicBool::new(false),
+                tap,
+                shared_eq: eq,
+                settings: Mutex::new((rate, rate, settings)),
+            }
+        }
+        fn eq_settings(eq: &crate::eq::SharedEq) -> crate::eq::EqSettings {
+            eq.lock()
+                .map(|settings| settings.clamped())
+                .unwrap_or_else(|poisoned| poisoned.into_inner().clamped())
+        }
+        /// Swaps in `change`, keeping the lock for the swap alone. What it
+        /// replaces is freed here, away from the realtime thread.
+        fn swap(&self, mut change: impl FnMut(&mut Chain)) {
+            let mut chain = self.chain.lock().unwrap_or_else(|p| p.into_inner());
+            change(&mut chain);
+        }
+        fn rates(&self, input: Option<u32>, output: Option<u32>) {
+            let mut settings = self.settings.lock().unwrap_or_else(|p| p.into_inner());
+            let input = input.unwrap_or(settings.0);
+            let output = output.unwrap_or(settings.1);
+            let wanted = Self::eq_settings(&self.shared_eq);
+            *settings = (input, output, wanted);
+            let eq = crate::eq::Processor::prepared(self.shared_eq.clone(), output);
+            let mut fresh = Chain::new(eq, self.tap.clone(), input, output);
+            self.swap(|chain| std::mem::swap(chain, &mut fresh));
+            drop(fresh);
+            self.clear();
+        }
+        /// Takes up an equalizer change, if there is one. The chain would
+        /// have to allocate to do this itself.
+        fn refresh_eq(&self) {
+            let mut settings = self.settings.lock().unwrap_or_else(|p| p.into_inner());
+            let wanted = Self::eq_settings(&self.shared_eq);
+            if settings.2 == wanted {
+                return;
+            }
+            settings.2 = wanted;
+            let mut eq = crate::eq::Processor::prepared(self.shared_eq.clone(), settings.1);
+            self.swap(|chain| std::mem::swap(&mut chain.eq, &mut eq));
+        }
+        /// Forgets queued audio, and at once what the tap shows.
+        fn clear(&self) {
+            self.flush.store(true, Ordering::Release);
+            self.tap.clear();
+        }
+        /// The input's callback.
+        fn push(&self, bytes: &[u8]) {
+            // A mix is never processed: while anything else is linked in, the
+            // input is dropped and the main loop deals with it.
+            let samples = bytes.as_chunks::<4>().0;
+            let stereo = samples.len() / 2 * 2;
+            if !self.owned.load(Ordering::Acquire) || !self.ring.write(&samples[..stereo]) {
+                self.flush.store(true, Ordering::Release);
+            }
+        }
+        /// The output's callback.
+        fn render(&self, bytes: &mut [u8], percent: u8) {
+            let Ok(mut chain) = self.chain.try_lock() else {
+                // The main loop is swapping the chain in: a format change, or
+                // an equalizer change. The ring keeps the sound for next time.
+                bytes.fill(0);
+                return;
+            };
+            if self.flush.swap(false, Ordering::AcqRel) {
+                self.ring.skip();
+                chain.reset();
+            }
+            chain.pull(&self.ring);
+            for block in bytes.chunks_mut(CHUNK * 4) {
+                chain.block(block, percent);
+            }
+        }
+    }
+
+    /// Marks a `process` callback. pipewire-rs takes these on a "local"
+    /// listener, with no `Send` bound, though RT_PROCESS calls them on another
+    /// thread. This bound is that check: no `Rc` of the main loop gets in.
+    fn realtime<F>(callback: F) -> F
+    where
+        F: FnMut(&pw::stream::Stream, &mut ()) + Send + 'static,
+    {
+        callback
     }
 
     pub(super) fn run(
@@ -675,9 +874,23 @@ mod pipewire {
             })
             .register();
         let graph = Rc::new(RefCell::new(Graph::default()));
+        let audio = Arc::new(Audio::new(config.eq, config.tap));
+        // The input's node id, once it has one: the timer keeps this.
+        let input_id = Rc::new(Cell::new(pw::constants::ID_ANY));
+        // The realtime callback can't see the graph, so what it needs of it
+        // is published, as soon as a link or a client changes the answer.
+        let gate = {
+            let (audio, state, input_id) = (audio.clone(), state.clone(), input_id.clone());
+            Rc::new(move |graph: &Graph| {
+                let route = graph.route(input_id.get(), state.child.load(Ordering::Acquire));
+                audio.owned.store(route == Route::Owned, Ordering::Release);
+            })
+        };
         let registry = core.get_registry_rc()?;
         let added = graph.clone();
         let removed = graph.clone();
+        let added_gate = gate.clone();
+        let removed_gate = gate.clone();
         let weak_registry = registry.downgrade();
         // Client PIDs arrive with ClientInfo, not the registry's minimal props.
         let clients = Rc::new(RefCell::new(HashMap::new()));
@@ -698,6 +911,7 @@ mod pipewire {
                             && let Ok(client) = registry.bind::<pw::client::Client, _>(global)
                         {
                             let clients_graph = added.clone();
+                            let client_gate = added_gate.clone();
                             let id = global.id;
                             let listener = client
                                 .add_listener_local()
@@ -707,7 +921,9 @@ mod pipewire {
                                         .and_then(|p| p.get("application.process.id"))
                                         .and_then(|s| s.parse::<u32>().ok())
                                     {
-                                        clients_graph.borrow_mut().clients.insert(id, pid);
+                                        let mut graph = clients_graph.borrow_mut();
+                                        graph.clients.insert(id, pid);
+                                        client_gate(&graph);
                                     }
                                 })
                                 .register();
@@ -736,6 +952,7 @@ mod pipewire {
                             (number("link.output.node"), number("link.input.node"))
                         {
                             graph.links.insert(global.id, (from, to));
+                            added_gate(&graph);
                         }
                     }
                     _ => {}
@@ -747,12 +964,12 @@ mod pipewire {
                 graph.nodes.remove(&id);
                 graph.names.remove(&id);
                 graph.links.remove(&id);
+                removed_gate(&graph);
                 if let Some((gone, client)) = removed_clients.borrow_mut().remove(&id) {
                     left.borrow_mut().add(gone, client);
                 }
             })
             .register();
-        let audio = Rc::new(RefCell::new(Audio::new(config.eq, config.tap)));
         let input = pw::stream::StreamRc::new(
             core.clone(),
             "Soloist processing",
@@ -789,8 +1006,6 @@ mod pipewire {
         let in_audio = audio.clone();
         let in_format = audio.clone();
         let in_fail = state.clone();
-        let in_state = state.clone();
-        let in_graph = graph.clone();
         let _input_listener = input
             .add_local_listener::<()>()
             .state_changed(move |_, _, _, new| {
@@ -818,7 +1033,7 @@ mod pipewire {
                         && info.channels() == 2
                         && (44100..=384000).contains(&info.rate())
                     {
-                        in_format.borrow_mut().rates(Some(info.rate()), None);
+                        in_format.rates(Some(info.rate()), None);
                     } else {
                         in_fail.fail(format!(
                             "unusable input format: {} channels at {} Hz",
@@ -828,22 +1043,15 @@ mod pipewire {
                     }
                 }
             })
-            .process(move |stream, _| {
+            .register()?;
+        // On the realtime thread. A listener of its own, so the callback
+        // shares no state with the ones the main loop calls.
+        let _input_process = input
+            .add_local_listener::<()>()
+            .process(realtime(move |stream, _| {
                 let Some(mut buffer) = stream.dequeue_buffer() else {
                     return;
                 };
-                match in_graph
-                    .borrow()
-                    .route(stream.node_id(), in_state.child.load(Ordering::Acquire))
-                {
-                    Route::Owned => in_state.routed.store(true, Ordering::Release),
-                    // A mix is never processed: while anything else is linked
-                    // in, the input is dropped and the timer deals with it.
-                    _ => {
-                        in_audio.borrow_mut().clear();
-                        return;
-                    }
-                }
                 let datas = buffer.datas_mut();
                 let Some(data) = datas.first_mut() else {
                     return;
@@ -852,9 +1060,9 @@ mod pipewire {
                 let size = data.chunk().size() as usize;
                 let Some(bytes) = data.data() else { return };
                 if let Some(bytes) = bytes.get(offset..offset.saturating_add(size)) {
-                    in_audio.borrow_mut().push(bytes);
+                    in_audio.push(bytes);
                 }
-            })
+            }))
             .register()?;
         let ready_output = readiness;
         let output_state = state.clone();
@@ -889,7 +1097,7 @@ mod pipewire {
                         && info.channels() == 2
                         && (44100..=384000).contains(&info.rate())
                     {
-                        out_format.borrow_mut().rates(None, Some(info.rate()));
+                        out_format.rates(None, Some(info.rate()));
                     } else {
                         out_fail.fail(format!(
                             "unusable output format: {} channels at {} Hz",
@@ -899,7 +1107,10 @@ mod pipewire {
                     }
                 }
             })
-            .process(move |stream, _| {
+            .register()?;
+        let _output_process = output
+            .add_local_listener::<()>()
+            .process(realtime(move |stream, _| {
                 let Some(mut buffer) = stream.dequeue_buffer() else {
                     return;
                 };
@@ -915,15 +1126,13 @@ mod pipewire {
                     } else {
                         requested.saturating_mul(8).min(bytes.len()) / 8 * 8
                     };
-                    out_audio
-                        .borrow_mut()
-                        .render(&mut bytes[..size], volume.volume.load(Ordering::Relaxed));
+                    out_audio.render(&mut bytes[..size], volume.volume.load(Ordering::Relaxed));
                 }
                 let chunk = data.chunk_mut();
                 *chunk.offset_mut() = 0;
                 *chunk.stride_mut() = 8;
                 *chunk.size_mut() = size as u32;
-            })
+            }))
             .register()?;
         let mut format = spa::param::audio::AudioInfoRaw::new();
         format.set_format(spa::param::audio::AudioFormat::F32LE);
@@ -955,7 +1164,13 @@ mod pipewire {
         .into_inner();
         let mut params = [spa::pod::Pod::from_bytes(&bytes)
             .ok_or_else(|| anyhow::anyhow!("Invalid audio format"))?];
-        let flags = pw::stream::StreamFlags::MAP_BUFFERS | pw::stream::StreamFlags::INACTIVE;
+        // RT_PROCESS runs both `process` callbacks on PipeWire's realtime data
+        // thread, in the graph's own time. No node.latency is set: it could
+        // only slow the whole graph for everyone, the lowest request wins,
+        // and it adds to the delay that lyrics and the clock must follow.
+        let flags = pw::stream::StreamFlags::MAP_BUFFERS
+            | pw::stream::StreamFlags::INACTIVE
+            | pw::stream::StreamFlags::RT_PROCESS;
         input.connect(spa::utils::Direction::Input, None, flags, &mut params)?;
         output.connect(
             spa::utils::Direction::Output,
@@ -968,6 +1183,8 @@ mod pipewire {
         let active_input = input.clone();
         let active_output = output.clone();
         let timer_audio = audio.clone();
+        let timer_input = input_id;
+        let timer_gate = gate;
         let foreign_since = Cell::new(None);
         let unlinked = RefCell::new(HashSet::new());
         let refused = Cell::new(0u32);
@@ -979,21 +1196,24 @@ mod pipewire {
             leaving.borrow_mut().settle();
             // Linking does not require playback. Show EQ and visualizers as
             // soon as the owned child is routed, including while paused.
-            let input_id = active_input.node_id();
+            timer_audio.refresh_eq();
+            let input_node = active_input.node_id();
+            timer_input.set(input_node);
             let child = state.child.load(Ordering::Acquire);
-            let mut route = graph.borrow().route(input_id, child);
+            let mut route = graph.borrow().route(input_node, child);
             if route == Route::Foreign {
                 graph.borrow_mut().note_helpers(child);
-                route = graph.borrow().route(input_id, child);
+                route = graph.borrow().route(input_node, child);
             }
+            timer_gate(&graph.borrow());
             match route {
                 Route::Owned => state.routed.store(true, Ordering::Release),
                 Route::Foreign => {
                     // Silent until it goes: only Soloist reaches the tap and
                     // the output. Soloist's own link is left alone.
-                    timer_audio.borrow_mut().clear();
+                    timer_audio.clear();
                     let graph = graph.borrow();
-                    for link in graph.foreign_links(input_id, child) {
+                    for link in graph.foreign_links(input_node, child) {
                         if unlinked.borrow_mut().insert(link) {
                             log::warn!(
                                 "Removing a link into Soloist's private input from {}",
@@ -1010,7 +1230,7 @@ mod pipewire {
                         state.fail(format!(
                             "a link from {} would not go away",
                             graph
-                                .foreign_links(input_id, child)
+                                .foreign_links(input_node, child)
                                 .first()
                                 .map_or("another node", |link| graph.link_source(*link))
                         ));
@@ -1026,7 +1246,7 @@ mod pipewire {
             let playing = state.playing.load(Ordering::Acquire);
             if was_playing.get() != playing {
                 if !playing {
-                    timer_audio.borrow_mut().clear();
+                    timer_audio.clear();
                 }
                 if active_input.set_active(playing).is_ok()
                     && active_output.set_active(playing).is_ok()
@@ -1046,8 +1266,10 @@ mod pipewire {
             )
             .into_result()?;
         mainloop.run();
-        // Drop listeners before their proxies. The graph stores no audio.
-        audio.borrow_mut().clear();
+        // Drop listeners before their proxies. PipeWire takes a process
+        // listener off the data thread before its drop frees the callback
+        // (hook_removed in stream.c). The graph stores no audio.
+        audio.clear();
         Ok(())
     }
     #[cfg(test)]
@@ -1072,6 +1294,11 @@ mod pipewire {
                 .iter()
                 .map(|b| f32::from_le_bytes(*b).abs())
                 .fold(0.0, f32::max)
+        }
+
+        fn owned(audio: Audio) -> Audio {
+            audio.owned.store(true, Ordering::Release);
+            audio
         }
 
         #[test]
@@ -1197,8 +1424,10 @@ mod pipewire {
                     eq.bands_db[4] = 6.0;
                 }
                 let tap = crate::vis::AudioTap::new();
-                let mut audio = Audio::new(eq, tap.clone());
+                let audio = owned(Audio::new(eq, tap.clone()));
                 audio.rates(Some(rate), Some(rate));
+                // Takes up the flush that drops audio of the old format.
+                audio.render(&mut [], 0);
                 let input = tone(rate, rate as usize / 10);
                 audio.push(&input);
                 let mut output = vec![0; input.len()];
@@ -1229,7 +1458,7 @@ mod pipewire {
         #[test]
         fn pause_clears_queued_audio_and_nonfinite_input_is_silent() {
             let tap = crate::vis::AudioTap::new();
-            let mut audio = Audio::new(crate::eq::shared(), tap.clone());
+            let audio = owned(Audio::new(crate::eq::shared(), tap.clone()));
             audio.push(&tone(44_100, 4096));
             audio.clear();
             let mut output = vec![0; 4096 * 8];
@@ -1245,10 +1474,202 @@ mod pipewire {
             audio.render(&mut output, 100);
             assert_eq!(peak(&output), 0.0);
             audio.push(&tone(44_100, 44_100));
-            assert!(
-                audio.samples.is_empty(),
+            audio.render(&mut output, 100);
+            assert_eq!(
+                peak(&output),
+                0.0,
                 "oversized input cannot queue stale music"
             );
+            assert_eq!(audio.ring.len(), 0);
+        }
+
+        /// A mix is never processed: not a sample, even before the main loop
+        /// has reacted to the link.
+        #[test]
+        fn input_is_dropped_unless_it_is_the_owned_child_alone() {
+            let tap = crate::vis::AudioTap::new();
+            let audio = Audio::new(crate::eq::shared(), tap.clone());
+            audio.push(&tone(44_100, 4096));
+            assert_eq!(audio.ring.len(), 0);
+            let mut output = vec![0; 4096 * 8];
+            audio.render(&mut output, 100);
+            assert_eq!(peak(&output), 0.0);
+            audio.owned.store(true, Ordering::Release);
+            audio.push(&tone(44_100, 4096));
+            audio.owned.store(false, Ordering::Release);
+            audio.push(&tone(44_100, 16));
+            audio.render(&mut output, 100);
+            assert_eq!(peak(&output), 0.0, "what came before goes with it");
+        }
+
+        /// A chain taken by the main loop costs a block of silence, never a
+        /// wait, and the sound is still there afterwards.
+        #[test]
+        fn a_busy_chain_renders_silence_and_loses_nothing() {
+            let audio = owned(Audio::new(crate::eq::shared(), crate::vis::AudioTap::new()));
+            audio.push(&tone(44_100, 4096));
+            let mut output = vec![1; 1024 * 8];
+            let chain = audio.chain.lock().unwrap();
+            audio.render(&mut output, 100);
+            drop(chain);
+            assert!(output.iter().all(|byte| *byte == 0));
+            assert_eq!(audio.ring.len(), 4096 * 2);
+            audio.render(&mut output, 100);
+            assert_eq!(audio.ring.len(), 0);
+        }
+
+        /// The main loop rebuilds the equalizer; the callback only swaps it.
+        #[test]
+        fn an_equalizer_change_arrives_from_the_main_loop() {
+            let eq = crate::eq::shared();
+            let tap = crate::vis::AudioTap::new();
+            let audio = owned(Audio::new(eq.clone(), tap.clone()));
+            let level = |audio: &Audio| {
+                let input = tone(44_100, 4410);
+                let mut output = vec![0; input.len()];
+                audio.push(&input);
+                audio.render(&mut output, 100);
+                peak(&output[output.len() / 2..])
+            };
+            let before = level(&audio);
+            {
+                let mut eq = eq.lock().unwrap();
+                eq.on = true;
+                eq.preamp_db = -6.0;
+            }
+            assert!(
+                (level(&audio) - before).abs() < 0.001,
+                "not on the audio thread"
+            );
+            audio.refresh_eq();
+            assert!(level(&audio) < before * 0.6);
+        }
+
+        #[test]
+        fn the_ring_keeps_order_across_its_end_and_refuses_what_won_t_fit() {
+            let ring = Ring::new(4);
+            let bytes = |values: &[f32]| -> Vec<[u8; 4]> {
+                values.iter().map(|value| value.to_le_bytes()).collect()
+            };
+            let mut out = [0.0; 3];
+            assert!(ring.write(&bytes(&[1.0, 2.0, 3.0])));
+            assert_eq!(ring.read(&mut out), 3);
+            assert!(ring.write(&bytes(&[4.0, f32::NAN, 6.0, 7.0])));
+            assert!(!ring.write(&bytes(&[8.0])), "full");
+            assert_eq!(ring.read(&mut out), 3);
+            assert_eq!(out, [4.0, 0.0, 6.0]);
+            ring.skip();
+            assert_eq!(ring.read(&mut out), 0);
+        }
+
+        /// One writer and one reader on their own threads, as the streams'
+        /// callbacks may be.
+        #[test]
+        fn the_ring_carries_every_sample_between_threads() {
+            let ring = Arc::new(Ring::new(64));
+            let writer = ring.clone();
+            let thread = std::thread::spawn(move || {
+                let mut next = 0u32;
+                while next < 100_000 {
+                    let block: Vec<[u8; 4]> = (next..next + 8)
+                        .map(|value| (value as f32).to_le_bytes())
+                        .collect();
+                    if writer.write(&block) {
+                        next += 8;
+                    }
+                }
+            });
+            let mut next = 0u32;
+            let mut out = [0.0; 16];
+            while next < 100_000 {
+                let count = ring.read(&mut out);
+                for value in &out[..count] {
+                    assert_eq!(*value, next as f32);
+                    next += 1;
+                }
+            }
+            thread.join().unwrap();
+        }
+
+        /// Counts this thread's allocations, while told to.
+        struct Counting;
+        thread_local! {
+            static COUNTING: Cell<bool> = const { Cell::new(false) };
+            static COUNT: Cell<usize> = const { Cell::new(0) };
+        }
+        fn note() {
+            let _ = COUNTING.try_with(|counting| {
+                if counting.get() {
+                    let _ = COUNT.try_with(|count| count.set(count.get() + 1));
+                }
+            });
+        }
+        // SAFETY: this forwards every call to the system allocator as it
+        // stands, and only adds to a thread-local beside it.
+        unsafe impl std::alloc::GlobalAlloc for Counting {
+            unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+                note();
+                unsafe { std::alloc::System.alloc(layout) }
+            }
+            unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+                note();
+                unsafe { std::alloc::System.alloc_zeroed(layout) }
+            }
+            unsafe fn dealloc(&self, pointer: *mut u8, layout: std::alloc::Layout) {
+                note();
+                unsafe { std::alloc::System.dealloc(pointer, layout) }
+            }
+            unsafe fn realloc(
+                &self,
+                pointer: *mut u8,
+                layout: std::alloc::Layout,
+                size: usize,
+            ) -> *mut u8 {
+                note();
+                unsafe { std::alloc::System.realloc(pointer, layout, size) }
+            }
+        }
+        #[global_allocator]
+        static ALLOCATOR: Counting = Counting;
+
+        /// The callbacks on an equalized, resampled, flushed stream, at
+        /// quanta from a small one to one larger than `CHUNK`.
+        #[test]
+        fn the_realtime_callbacks_never_allocate() {
+            for (input, output) in [
+                (44_100, 44_100),
+                (48_000, 48_000),
+                (44_100, 96_000),
+                (192_000, 48_000),
+            ] {
+                let eq = crate::eq::shared();
+                {
+                    let mut eq = eq.lock().unwrap();
+                    eq.on = true;
+                    eq.bands_db[4] = 6.0;
+                }
+                let audio = owned(Audio::new(eq, crate::vis::AudioTap::new()));
+                audio.rates(Some(input), Some(output));
+                for quantum in [256, 1024, 8192] {
+                    let incoming = tone(input, quantum * input as usize / output as usize);
+                    let mut outgoing = vec![0; quantum * 8];
+                    COUNT.with(|count| count.set(0));
+                    COUNTING.with(|counting| counting.set(true));
+                    for cycle in 0..64 {
+                        audio.push(&incoming);
+                        audio.render(&mut outgoing, 50);
+                        if cycle == 32 {
+                            audio.flush.store(true, Ordering::Release);
+                        }
+                    }
+                    COUNTING.with(|counting| counting.set(false));
+                    assert_eq!(
+                        COUNT.with(Cell::get),
+                        0,
+                        "{input} to {output} Hz at a quantum of {quantum}"
+                    );
+                }
+            }
         }
 
         /// What the private tests below need: a bridge to the private null
