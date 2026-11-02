@@ -24,6 +24,7 @@ pub mod live;
 pub mod paint;
 pub mod picture;
 pub mod predefined;
+pub mod raster;
 pub mod runtime;
 pub mod xml;
 

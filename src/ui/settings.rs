@@ -16,6 +16,9 @@ const PLAYBACK_DIRTY_ID: &str = "playback-settings-dirty";
 pub(crate) const PERSONAL_APP_FOCUS_ID: &str = "focus-personal-app-setup";
 const SETTINGS_FILTER_ID: &str = "settings-filter";
 
+use super::skin_cards::{self, Card};
+use crate::skin_previews::BUILT_IN;
+
 /// Whether a settings row matches the filter query (case-insensitive).
 /// An empty query matches everything, so the page reads exactly as
 /// before when the search field is empty.
@@ -466,6 +469,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         palette.text,
     );
     ui.add_space(4.0);
+    #[cfg(feature = "demo")]
+    if let Some(filter) = app.winamp.demo_settings_filter.take() {
+        ui.data_mut(|data| data.insert_temp(egui::Id::new(SETTINGS_FILTER_ID), filter));
+    }
     let mut filter = ui
         .data(|data| data.get_temp::<String>(egui::Id::new(SETTINGS_FILTER_ID)))
         .unwrap_or_default();
@@ -1886,6 +1893,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             let choices = app.winamp.choices.clone();
+            let generation = app.winamp.choices_generation();
+            let listed = app.winamp.choices_known();
+            app.winamp.previews.begin(
+                ui.ctx(),
+                &app.dirs.skin_preview_dir(),
+                &choices,
+                generation,
+                listed,
+            );
             let showing = app
                 .settings
                 .skin
@@ -1917,28 +1933,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         }
                     });
                     ui.add_space(6.0);
-                    let mut options: Vec<(usize, &str)> = vec![(0, "Spotifast")];
-                    options.extend(
-                        choices
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, choice)| choice.kind == SkinKind::Winamp)
-                            .map(|(index, choice)| (index + 1, choice.label())),
-                    );
-                    let current = showing
+                    let kept: Vec<usize> = (0..choices.len())
                         .filter(|index| choices[*index].kind == SkinKind::Winamp)
-                        .map_or(0, |index| index + 1);
+                        .collect();
+                    let mut cards = vec![Card {
+                        key: BUILT_IN,
+                        label: "Spotifast",
+                    }];
+                    cards.extend(kept.iter().map(|index| Card {
+                        key: &choices[*index].name,
+                        label: choices[*index].label(),
+                    }));
                     // With a Windows Media Player skin on, nothing here is.
-                    let current = if showing.is_some() && current == 0 {
-                        usize::MAX
-                    } else {
-                        current
+                    let current = match showing {
+                        None => Some(0),
+                        Some(index) => kept.iter().position(|kept| *kept == index).map(|at| at + 1),
                     };
-                    if let Some(picked) = widgets::wrapped_chips(ui, &palette, &options, current) {
+                    let picked =
+                        skin_cards::grid(ui, &palette, &mut app.winamp.previews, &cards, current);
+                    if let Some(picked) = picked {
                         app.actions.push(Action::SetSkin(
                             picked
                                 .checked_sub(1)
-                                .map(|index| choices[index].name.clone()),
+                                .map(|at| choices[kept[at]].name.clone()),
                         ));
                     }
                 });
@@ -1967,14 +1984,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             "https://archive.org/details/windowsmediaplayerskinscollection".into(),
                         ));
                     }
-                    let options: Vec<(usize, &str)> = choices
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, choice)| choice.kind == SkinKind::WindowsMediaPlayer)
-                        .map(|(index, choice)| (index, choice.label()))
+                    let kept: Vec<usize> = (0..choices.len())
+                        .filter(|index| choices[*index].kind == SkinKind::WindowsMediaPlayer)
                         .collect();
                     ui.add_space(6.0);
-                    if options.is_empty() {
+                    if kept.is_empty() {
                         skin_note(
                             ui,
                             &palette,
@@ -1985,18 +1999,30 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             .replace("{folder}", &skins_folder.display().to_string()),
                         );
                     } else {
-                        let current = showing
-                            .filter(|index| choices[*index].kind == SkinKind::WindowsMediaPlayer)
-                            .unwrap_or(usize::MAX);
-                        if let Some(picked) =
-                            widgets::wrapped_chips(ui, &palette, &options, current)
-                        {
+                        let cards: Vec<Card> = kept
+                            .iter()
+                            .map(|index| Card {
+                                key: &choices[*index].name,
+                                label: choices[*index].label(),
+                            })
+                            .collect();
+                        let current =
+                            showing.and_then(|index| kept.iter().position(|kept| *kept == index));
+                        let picked = skin_cards::grid(
+                            ui,
+                            &palette,
+                            &mut app.winamp.previews,
+                            &cards,
+                            current,
+                        );
+                        if let Some(picked) = picked {
                             app.actions
-                                .push(Action::SetSkin(Some(choices[picked].name.clone())));
+                                .push(Action::SetSkin(Some(choices[kept[picked]].name.clone())));
                         }
                     }
                 });
             }
+            app.winamp.previews.finish();
             filtered_row(ui, &palette, &needle, &mini_player, &mini_rows[3], |ui| {
                 let mut random = app.settings.random_skin;
                 if widgets::switch(ui, &palette, &random_skin, &mut random).changed() {

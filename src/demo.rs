@@ -1602,6 +1602,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.theme = crate::settings::ThemeChoice::Dark;
                 app.actions.push(Action::SettingsChanged);
             }
+            // Settings filtered down to the skin cards.
+            "settings-skins" => {
+                app.winamp.demo_settings_filter = Some("Mini player".into());
+            }
+            "settings-player-skins" => {
+                app.winamp.demo_settings_filter = Some("Windows Media Player".into());
+            }
             // Follow system on a desktop fixed light or dark (Linux), for
             // shots of the light and dark mode themes.
             "system-light" | "system-dark" => {

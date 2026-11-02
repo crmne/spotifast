@@ -10,6 +10,7 @@ pub mod config;
 pub mod font;
 pub mod generic;
 pub mod layout;
+pub mod preview;
 pub mod script;
 pub mod sprites;
 pub mod wmp;
