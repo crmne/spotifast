@@ -185,7 +185,23 @@ impl Bridge {
             output,
             worker: Mutex::new(None),
         };
-        bridge.start().await.then_some(bridge)
+        if !bridge.start().await {
+            return None;
+        }
+        let state = bridge.state.clone();
+        let raising = std::thread::Builder::new()
+            .name("soloist-priority".into())
+            .spawn(move || {
+                super::priority::watch(
+                    || state.child.load(Ordering::Acquire),
+                    || state.playing.load(Ordering::Acquire),
+                    || state.stop.load(Ordering::Acquire),
+                );
+            });
+        if let Err(error) = raising {
+            log::debug!("could not start the thread that raises Soloist's: {error}");
+        }
+        Some(bridge)
     }
 
     #[cfg(target_os = "linux")]

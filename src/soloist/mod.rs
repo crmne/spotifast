@@ -2,6 +2,8 @@
 //! started, and keeps its files and credentials separate from librespot.
 mod audio;
 pub mod install;
+#[cfg(target_os = "linux")]
+mod priority;
 mod protocol;
 mod volume;
 use crate::{
