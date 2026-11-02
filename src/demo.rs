@@ -9044,7 +9044,11 @@ mod tests {
         app.lyrics_fullscreen = Some(false);
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.lyrics_following = false;
+        // Light differs from the dark palette this view is always drawn in.
+        let accent = crate::theme::Palette::light().accent;
+        ctx.set_theme(egui::Theme::Light);
         let mut sizes = Vec::new();
+        let mut sung = None;
         for (step, position) in [0, 41_000].into_iter().enumerate() {
             let remote = app.remote.as_mut().unwrap();
             remote.state.is_playing = false;
@@ -9069,6 +9073,7 @@ mod tests {
                                 && text.galley.job.text
                                     == "Streetlights blinking down the river road"
                             {
+                                sung = text.galley.job.sections.first().map(|s| s.format.color);
                                 Some(text.galley.rows.len())
                             } else {
                                 None
@@ -9081,6 +9086,7 @@ mod tests {
         }
         app.backend.shutdown();
         assert_eq!(sizes[0], sizes[1], "highlighting must not rewrap a line");
+        assert_eq!(sung, Some(accent), "the sung line takes the theme's accent");
     }
 
     #[test]
