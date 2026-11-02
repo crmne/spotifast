@@ -101,6 +101,7 @@ struct WmpTexture {
 const MAX_WMP_TEXTURES: usize = 192 * 1024 * 1024;
 
 pub struct WinampState {
+    disk_jobs: Vec<std::thread::JoinHandle<()>>,
     /// The skin on screen.
     pub skin: Arc<Skin>,
     /// Active skin setting. `None` means the built-in skin.
@@ -176,6 +177,7 @@ pub struct WinampState {
 impl WinampState {
     pub fn new(restore_pos: Option<[f32; 2]>, tap: Arc<AudioTap>, eq: crate::eq::SharedEq) -> Self {
         Self {
+            disk_jobs: Vec::new(),
             skin: Skin::builtin(),
             worn: None,
             textures: HashMap::new(),
@@ -236,6 +238,12 @@ impl WinampState {
             .map(u32::from)
             .unwrap_or_else(|| default.round() as u32);
         chosen.clamp(1, MAX_SCALE)
+    }
+
+    pub(crate) fn finish_disk_jobs(&mut self) {
+        for job in self.disk_jobs.drain(..) {
+            let _ = job.join();
+        }
     }
 
     pub fn is_loading(&self) -> bool {
@@ -394,8 +402,12 @@ impl WinampState {
                 let _ = sender.send(job());
                 ctx.request_repaint();
             });
-        if let Err(error) = spawned {
-            log::warn!("could not start reading the skin: {error}");
+        match spawned {
+            Ok(job) => {
+                self.disk_jobs.retain(|job| !job.is_finished());
+                self.disk_jobs.push(job);
+            }
+            Err(error) => log::warn!("could not start reading the skin: {error}"),
         }
         self.loading = Some(receiver);
     }

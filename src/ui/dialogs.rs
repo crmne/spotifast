@@ -55,6 +55,26 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }
                     });
                 }
+                Dialog::Storage(action) => {
+                    let reset = action == crate::model::StorageAction::ResetApp;
+                    theme::text(ui, if reset { gettext(locale, "Reset Spotifast?") } else { gettext(locale, "Clear all caches?") }, theme::bold(20.0), palette.text);
+                    ui.add_space(12.0);
+                    let body = if reset {
+                        gettext(locale, "Spotifast will quit, remove all local data (including settings, play history, themes, skins and downloaded Soloist files), remove saved sign-ins and turn off start at login. Your Spotify library and original local music files stay unchanged. This cannot be undone.")
+                    } else {
+                        gettext(locale, "Spotifast will quit and remove cached artwork, audio, lyrics and library data, including Soloist audio. Your sign-in, settings, play history, themes and skins stay saved. Caches fill again when you reopen Spotifast.")
+                    };
+                    ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(palette.secondary)).wrap());
+                    ui.add_space(20.0);
+                    buttons(ui, |ui| {
+                        if theme::pill_button(ui, &palette, &if reset { gettext(locale, "Reset and quit") } else { gettext(locale, "Clear caches and quit") }, true).clicked() {
+                            app.actions.push(Action::ClearStorage(action));
+                        }
+                        if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked() {
+                            app.actions.push(Action::CloseDialog);
+                        }
+                    });
+                }
                 Dialog::CreatePlaylist { .. } => create_playlist(app, ui),
                 Dialog::EditPlaylist { .. } => edit_playlist(app, ui),
                 Dialog::ConfirmDeletePlaylist { id, name, owned } => {
