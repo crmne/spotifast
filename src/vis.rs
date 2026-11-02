@@ -103,38 +103,48 @@ impl AudioTap {
     /// attached, MilkDrop's stereo shared-memory rings.
     pub fn push(&self, interleaved: &[f64], gain: f32) {
         let mut samples = self.samples.lock().unwrap_or_else(|p| p.into_inner());
-        let (frames, _) = interleaved.as_chunks::<{ NUM_CHANNELS as usize }>();
+        record_mono(&mut samples, interleaved, gain);
+        drop(samples);
         #[cfg(feature = "milkdrop")]
-        let rings = [
-            self.shm.lock().unwrap_or_else(|p| p.into_inner()).clone(),
-            self.pane_shm
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .clone(),
-        ];
-        #[cfg(feature = "milkdrop")]
-        let wanted = rings.iter().any(Option::is_some);
-        #[cfg(feature = "milkdrop")]
-        let mut stereo: Vec<f32> = if wanted {
-            Vec::with_capacity(frames.len() * 2)
-        } else {
-            Vec::new()
-        };
-        for frame in frames {
-            let mono = frame.iter().sum::<f64>() as f32 / frame.len() as f32 * gain;
-            if samples.len() == KEPT {
-                samples.pop_front();
-            }
-            samples.push_back(mono);
-            #[cfg(feature = "milkdrop")]
-            if wanted {
-                stereo.push(frame[0] as f32 * gain);
-                stereo.push(frame[1] as f32 * gain);
+        {
+            let rings = [
+                self.shm.lock().unwrap_or_else(|p| p.into_inner()).clone(),
+                self.pane_shm
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone(),
+            ];
+            for ring in rings.iter().flatten() {
+                record_stereo(ring, interleaved, gain);
             }
         }
+    }
+
+    /// `push` for a realtime thread: no allocation, and nothing it would
+    /// have to wait for. A window being read costs the picture this block,
+    /// which is better than the sound waiting for the picture.
+    #[cfg(target_os = "linux")]
+    pub fn try_push(&self, interleaved: &[f64], gain: f32) {
+        if let Ok(mut samples) = self.samples.try_lock() {
+            record_mono(&mut samples, interleaved, gain);
+        }
+        // Each lock is kept through the write: a clone of the ring here
+        // could turn out to be the last, and free it on this thread.
         #[cfg(feature = "milkdrop")]
-        for ring in rings.iter().flatten() {
-            ring.push(&stereo);
+        for slot in [&self.shm, &self.pane_shm] {
+            if let Ok(ring) = slot.try_lock()
+                && let Some(ring) = ring.as_ref()
+            {
+                record_stereo(ring, interleaved, gain);
+            }
+        }
+    }
+
+    /// `clear` for a realtime thread, when it can have the lock.
+    #[cfg(target_os = "linux")]
+    pub fn try_clear(&self) {
+        if let Ok(mut samples) = self.samples.try_lock() {
+            samples.clear();
         }
     }
 
@@ -160,6 +170,31 @@ impl AudioTap {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clear();
+    }
+}
+
+fn record_mono(samples: &mut VecDeque<f32>, interleaved: &[f64], gain: f32) {
+    for frame in interleaved.as_chunks::<{ NUM_CHANNELS as usize }>().0 {
+        let mono = frame.iter().sum::<f64>() as f32 / frame.len() as f32 * gain;
+        if samples.len() == KEPT {
+            samples.pop_front();
+        }
+        samples.push_back(mono);
+    }
+}
+
+/// Writes stereo to a shared-memory ring, in pieces of a fixed size on the
+/// stack so that it allocates nothing.
+#[cfg(feature = "milkdrop")]
+fn record_stereo(ring: &crate::milkdrop::shm::Ring, interleaved: &[f64], gain: f32) {
+    const FRAMES: usize = 256;
+    let mut stereo = [0.0f32; FRAMES * 2];
+    let (frames, _) = interleaved.as_chunks::<{ NUM_CHANNELS as usize }>();
+    for piece in frames.chunks(FRAMES) {
+        for (out, frame) in stereo.as_chunks_mut::<2>().0.iter_mut().zip(piece) {
+            *out = [frame[0] as f32 * gain, frame[1] as f32 * gain];
+        }
+        ring.push(&stereo[..piece.len() * 2]);
     }
 }
 

@@ -460,6 +460,13 @@ impl Processor {
 
     /// Runs interleaved stereo samples through the equalizer, in place.
     pub fn process(&mut self, samples: &mut [f64]) {
+        self.sync();
+        self.apply(samples);
+    }
+
+    /// Takes up the shared settings. Locks and may allocate, so a realtime
+    /// thread leaves this to another one: see `prepared`.
+    fn sync(&mut self) {
         let wanted = self
             .shared
             .lock()
@@ -469,6 +476,19 @@ impl Processor {
             self.applied = wanted;
             self.rebuild();
         }
+    }
+
+    /// A processor with the shared settings already applied, for handing to
+    /// a realtime thread that calls `apply` and never looks at them.
+    #[cfg(target_os = "linux")]
+    pub fn prepared(shared: SharedEq, sample_rate: u32) -> Self {
+        let mut processor = Self::at_rate(shared, sample_rate);
+        processor.sync();
+        processor
+    }
+
+    /// `process` with the settings as they stand. No lock, no allocation.
+    pub fn apply(&mut self, samples: &mut [f64]) {
         let shaping = self.applied.on && !(self.chains[0].is_empty() && self.gain == 1.0);
         let gains = self.applied.channel_gains();
         let placing = self.applied.mono || gains != [1.0, 1.0];
