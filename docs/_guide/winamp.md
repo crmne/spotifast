@@ -41,6 +41,12 @@ Winamp 3 and 5 skin formats are not supported; choose classic Winamp 2 skins.
 MilkDrop, opened from a classic skin's mini player, wears that skin's generic
 window frame from `gen.bmp`. A skin without one borrows the built-in skin's.
 
+The button beside its close button, a double click on the picture, or **F**
+takes MilkDrop to full screen. A Windows Media Player skin's visualisation area
+does the same with a double click, or the button that shows when you point at
+it. Full screen is the lyrics view, with MilkDrop behind the words in place of
+the cover's art; leaving it brings the skin back as it was.
+
 ## Windows Media Player skins
 
 ![Headspace, Cerulean and Activate, three classic Windows Media Player skins, with their panels open](/assets/images/wmp-skins.png)

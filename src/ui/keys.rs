@@ -152,8 +152,20 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(
                 Modifiers::NONE,
                 Key::F,
-                Action::SetLyricsFullscreen(app.lyrics_fullscreen.is_none()),
+                if app.milkdrop_framed() {
+                    Action::MilkdropFullscreen
+                } else {
+                    Action::SetLyricsFullscreen(app.lyrics_fullscreen.is_none())
+                },
             );
+            #[cfg(feature = "milkdrop")]
+            if app.lyrics_fullscreen.is_some() {
+                key(Modifiers::NONE, Key::V, Action::ToggleLyricsMilkdrop);
+                if app.milkdrop_behind_lyrics() {
+                    key(Modifiers::NONE, Key::N, Action::MilkdropEffect(1));
+                    key(Modifiers::NONE, Key::P, Action::MilkdropEffect(-1));
+                }
+            }
         }
     });
     if !editing_text
@@ -292,6 +304,16 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
         (keys("Q"), gettext(locale, "Show the queue")),
         (keys("L"), gettext(locale, "Show the lyrics")),
         (keys("F"), gettext(locale, "Full screen lyrics")),
+        #[cfg(feature = "milkdrop")]
+        (
+            keys("V"),
+            gettext(locale, "Full screen lyrics: MilkDrop behind the words"),
+        ),
+        #[cfg(feature = "milkdrop")]
+        (
+            keys("N  /  P"),
+            gettext(locale, "Full screen lyrics: next or previous preset"),
+        ),
         (keys("Esc"), gettext(locale, "Lyrics: leave full screen")),
         (
             keys("Shift+↑  /  Shift+↓"),

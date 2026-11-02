@@ -13,6 +13,7 @@ use egui::{
 };
 
 use crate::app::App;
+use crate::i18n::gettext;
 use crate::model::Action;
 use crate::settings::VisMode;
 use crate::skin::wmp::Box2;
@@ -207,6 +208,76 @@ fn draw_view(app: &mut App, runtime: &mut Runtime, ui: &mut Ui, key: u32, primar
     }
 }
 
+/// Where a pane's full screen button was last frame, in this window.
+#[cfg(feature = "milkdrop")]
+fn pane_button_id(ctx: &egui::Context) -> Id {
+    Id::new(("wmp-pane-button", ctx.viewport_id()))
+}
+
+#[cfg(not(feature = "milkdrop"))]
+fn pane_button_id(ctx: &egui::Context) -> Id {
+    Id::new(ctx.viewport_id())
+}
+
+/// Whether a press lands on our button over a pane, and so is not the skin's.
+/// With the press kept back, the skin takes the release for nothing.
+fn on_our_button(button: Option<Rect>, at: Pos2) -> bool {
+    button.is_some_and(|button| button.contains(at))
+}
+
+/// A pane's way to full screen: a double click on it, or the button that
+/// shows while the pointer is over it.
+#[cfg(feature = "milkdrop")]
+fn pane_full_screen(
+    app: &mut App,
+    ui: &mut Ui,
+    rect: Rect,
+    clip: &[Box2],
+    origin: Pos2,
+    unit: f32,
+) {
+    /// Smaller panes keep their picture to themselves.
+    const LEAST_PANE: f32 = 48.0;
+    const SIDE: f32 = 22.0;
+    let ctx = ui.ctx().clone();
+    let inside = ctx
+        .input(|input| input.pointer.latest_pos())
+        .is_some_and(|at| {
+            rect.contains(at)
+                && clip
+                    .iter()
+                    .any(|box2| world(*box2, origin, unit).contains(at))
+        });
+    if !inside {
+        return;
+    }
+    if ctx.input(|input| {
+        input
+            .pointer
+            .button_double_clicked(egui::PointerButton::Primary)
+    }) {
+        app.actions.push(Action::MilkdropFullscreen);
+    }
+    if rect.width().min(rect.height()) < LEAST_PANE {
+        return;
+    }
+    let button = Rect::from_min_size(
+        egui::pos2(rect.right() - SIDE - 4.0, rect.top() + 4.0),
+        egui::Vec2::splat(SIDE),
+    );
+    ctx.data_mut(|data| data.insert_temp(pane_button_id(&ctx), button));
+    let response = ui
+        .interact(button, Id::new("wmp-pane-full-screen"), Sense::click())
+        .on_hover_text(gettext(app.locale, "Full screen with lyrics").as_ref());
+    ui.painter()
+        .with_clip_rect(rect)
+        .rect_filled(button, 4.0, Color32::from_black_alpha(150));
+    crate::theme::paint_icon(ui, crate::theme::Icon::Expand, button, 14.0, Color32::WHITE);
+    if response.clicked() {
+        app.actions.push(Action::MilkdropFullscreen);
+    }
+}
+
 fn key_code(key: egui::Key) -> Option<u32> {
     use egui::Key;
     let name = key.name();
@@ -234,6 +305,12 @@ fn key_code(key: egui::Key) -> Option<u32> {
 /// Hands this frame's pointer and keys to the skin, in order.
 fn read_input(app: &mut App, ctx: &egui::Context, key: u32, origin: Pos2, unit: f32) {
     let events = ctx.input(|input| input.events.clone());
+    let ours = ctx.data_mut(|data| {
+        let id = pane_button_id(ctx);
+        let button = data.get_temp::<Rect>(id);
+        data.remove::<Rect>(id);
+        button
+    });
     let modifiers = ctx.input(|input| input.modifiers);
     let modifiers = Modifiers {
         shift: modifiers.shift,
@@ -265,6 +342,9 @@ fn read_input(app: &mut App, ctx: &egui::Context, key: u32, origin: Pos2, unit: 
                 ..
             } => {
                 let secondary = button == egui::PointerButton::Secondary;
+                if pressed && on_our_button(ours, pos) {
+                    continue;
+                }
                 if secondary || button == egui::PointerButton::Primary {
                     push(at(pos));
                     push(if pressed {
@@ -400,6 +480,7 @@ fn draw(app: &mut App, ui: &mut Ui, paint: &Paint, origin: Pos2, unit: f32, now:
                             .with_clip_rect(area)
                             .image(texture, rect, UV, tint);
                     }
+                    pane_full_screen(app, ui, rect, clip, origin, unit);
                     return true;
                 }
                 picture == Picture::Waiting
@@ -598,4 +679,19 @@ pub(super) fn effect_shapes(
         }
     };
     (shapes, moving)
+}
+
+#[cfg(test)]
+mod pane_button_tests {
+    use super::*;
+
+    /// A press on the button is ours; anywhere else, and with no button
+    /// showing, the skin has it.
+    #[test]
+    fn a_press_on_the_pane_button_does_not_reach_the_skin() {
+        let button = Rect::from_min_size(pos2(10.0, 10.0), vec2(22.0, 22.0));
+        assert!(on_our_button(Some(button), pos2(20.0, 20.0)));
+        assert!(!on_our_button(Some(button), pos2(40.0, 20.0)));
+        assert!(!on_our_button(None, pos2(20.0, 20.0)));
+    }
 }

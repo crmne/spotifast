@@ -156,6 +156,36 @@ pub fn close_button(width: u32) -> Area {
     Area::new(width.max(MIN_WIDTH) - 11, 3, 9, 9)
 }
 
+/// Our full screen button, on the same tile: Winamp's frame has no such
+/// thing, so it is drawn in the colour of the frame's own title.
+pub fn full_screen_button(width: u32) -> Area {
+    Area::new(width.max(MIN_WIDTH) - 22, 3, 9, 9)
+}
+
+/// The pieces of the button's four corners, inside its nine-pixel square, as
+/// `(x, y, width, height)`.
+pub const FULL_SCREEN_GLYPH: [(u32, u32, u32, u32); 8] = [
+    (1, 1, 3, 1),
+    (1, 1, 1, 3),
+    (5, 1, 3, 1),
+    (7, 1, 1, 3),
+    (1, 7, 3, 1),
+    (1, 5, 1, 3),
+    (5, 7, 3, 1),
+    (7, 5, 1, 3),
+];
+
+/// The colour of the title's letters: the brightest in the first of them.
+pub fn title_colour(gen_sheet: &Bitmap, focused: bool) -> Rgb {
+    let y = LETTER_ROWS[usize::from(!focused)];
+    (1..gen_sheet.width.min(9))
+        .flat_map(|x| (y..y + LETTER_HEIGHT).map(move |y| (x, y)))
+        .filter_map(|(x, y)| gen_sheet.pixel(x, y))
+        .map(|[r, g, b, _]| [r, g, b])
+        .max_by_key(|[r, g, b]| u16::from(*r) + u16::from(*g) + u16::from(*b))
+        .unwrap_or([255, 255, 255])
+}
+
 /// The corner that resizes a window this big.
 pub fn grip(width: u32, height: u32) -> Area {
     let (width, height) = (width.max(MIN_WIDTH), height.max(MIN_HEIGHT));

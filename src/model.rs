@@ -1482,6 +1482,8 @@ pub enum Action {
     MilkdropEffect(i32),
     /// Take the skinned MilkDrop window to full screen, in the plain window.
     MilkdropFullscreen,
+    /// Puts MilkDrop behind full screen lyrics, or the cover's art back.
+    ToggleLyricsMilkdrop,
     /// The size of the picture in the skinned MilkDrop window, in points.
     SetMilkdropSize([f32; 2]),
     /// How long each MilkDrop preset plays, in seconds.

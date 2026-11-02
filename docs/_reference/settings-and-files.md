@@ -422,6 +422,7 @@ main fields are:
 | `milkdrop_fps` | `60` | MilkDrop frame rate; `0` is uncapped. At most 30 while the system saves energy |
 | `milkdrop_screen_hz` | `0` | Last refresh rate reported by MilkDrop's window |
 | `milkdrop_fullscreen` | `false` | The MilkDrop window fills the screen |
+| `lyrics_milkdrop` | `false` | MilkDrop rather than the cover's art behind full screen lyrics |
 | `milkdrop_size` | `640, 480` | The MilkDrop window's size in points |
 | `keep_playing_in_background` | `true` | Close to tray |
 | `tray_icon` | `colour` | Linux and Windows: the tray icon in `colour`, or in `white` or `black` to match the panel or taskbar. macOS ignores it: the menu bar draws its icon black or white to match itself |

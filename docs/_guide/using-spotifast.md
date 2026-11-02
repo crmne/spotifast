@@ -325,6 +325,8 @@ Winamp skins do not yet have equivalent accessibility coverage.
 | `S` / `R` | Shuffle / cycle repeat |
 | `Q` | Queue panel, or the queue column in full screen |
 | `F` | Enter or leave full screen lyrics |
+| `V` | Full screen lyrics: MilkDrop or the cover's art behind the words |
+| `N` / `P` | Full screen lyrics: next or previous MilkDrop preset |
 | `Ctrl+F` or `/` | Search |
 | `Ctrl+B` | Show or hide the sidebar |
 | `Alt+←` / `Alt+→` | Back or forward |
@@ -830,6 +832,14 @@ hand pauses following; choose **Follow** to resume. Since 0.11.0, a wide
 window shows the song's cover beside the lyrics, the two centred together,
 and a song without words, such as an instrumental, shows just its cover in
 the middle of the screen.
+
+Press **V** in full screen lyrics to put MilkDrop behind the words instead of
+the cover's art, and again to bring the art back; Spotifast remembers which you
+chose. **N** and **P** change the preset there. The picture is dimmed as far as
+it takes to keep the words clear, and holds still while the music is paused.
+It uses the presets you have: with none, the art stays. It follows the sound
+after the equalizer and before the volume, like every visualizer.
+
 Since 0.10.0, quitting while lyrics are full screen no longer leaves
 the next launch stuck in full screen: the window returns to its previous size.
 
