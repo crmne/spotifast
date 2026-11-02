@@ -9150,6 +9150,16 @@ impl App {
             device_id: device_id.to_owned(),
             poll_seq: self.remote_poll_seq,
         });
+        // Once the hold has run out, a pushed volume is as current as a
+        // fresh poll's, and ends it without waiting for one.
+        let held = self
+            .pending_remote_volume
+            .as_ref()
+            .and_then(|pending| pending.written_at)
+            .is_none_or(|at| at.elapsed() < PLAYBACK_HOLD);
+        if !held {
+            self.pending_remote_volume = None;
+        }
     }
 
     /// When to poll for a change Spotify pushed: after a pending poll
@@ -31213,7 +31223,8 @@ mod tests {
     }
 
     /// Polls that leave the volume out confirm nothing, so the hold runs out
-    /// as usual, and a volume Spotify pushes later shows.
+    /// as usual. Once it has, a volume Spotify pushes shows at once, without
+    /// waiting for the next poll.
     #[test]
     fn remote_volume_hold_runs_out_when_polls_omit_the_volume() {
         let mut app = remote_volume_app();
@@ -31237,6 +31248,21 @@ mod tests {
         assert!(app.pending_remote_volume.is_none());
         app.handle_remote_volume("sonos", percent_to_volume(35));
         assert_eq!(app.now_playing().unwrap().volume_percent, 35);
+
+        app.set_volume(80, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        app.handle_remote_volume("sonos", percent_to_volume(70));
+        assert_eq!(app.now_playing().unwrap().volume_percent, 80);
+        app.pending_remote_volume.as_mut().unwrap().written_at =
+            Some(Instant::now() - PLAYBACK_HOLD);
+        app.handle_remote_volume("sonos", percent_to_volume(70));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 70);
         app.backend.shutdown();
     }
 
