@@ -5,6 +5,62 @@ use anyhow::{Result, bail};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
+/// How long a restored level may go unconfirmed before it is asked for again.
+const RESTORE_RETRY: Duration = Duration::from_secs(2);
+/// How many times a player taking commands may ignore it before its level stands.
+const RESTORE_TRIES: u32 = 5;
+
+/// Spotify's player starts at a level of its own every launch, so the level
+/// it was left at is kept here and given back once it can take a command.
+#[derive(Default)]
+pub(super) struct ListeningVolume {
+    restored: bool,
+    asked: Option<Instant>,
+    tries: u32,
+}
+impl ListeningVolume {
+    /// Returns the level to send, and whether the level to keep changed.
+    pub fn observe(
+        &mut self,
+        message: &Value,
+        ready: bool,
+        output: &OutputVolume,
+        now: Instant,
+    ) -> (Option<u8>, bool) {
+        if !matches!(
+            message["type"].as_str(),
+            Some("playback_state" | "volume_changed")
+        ) {
+            return (None, false);
+        }
+        let Some(percent) = message["volume"].as_u64().map(|v| v.min(100) as u8) else {
+            return (None, false);
+        };
+        if !ready {
+            return (None, false);
+        }
+        if !self.restored {
+            match output.remembered().filter(|wanted| *wanted != percent) {
+                None => self.restored = true,
+                Some(_) if self.tries >= RESTORE_TRIES => self.restored = true,
+                Some(wanted) => {
+                    if self
+                        .asked
+                        .is_some_and(|at| now.duration_since(at) < RESTORE_RETRY)
+                    {
+                        return (None, false);
+                    }
+                    self.asked = Some(now);
+                    self.tries += u32::from(message["is_active"] == true);
+                    output.lead(wanted);
+                    return (Some(wanted), false);
+                }
+            }
+        }
+        (None, output.remember(percent))
+    }
+}
+
 #[derive(Default)]
 pub(super) struct SourceVolume {
     enabled: bool,
@@ -155,6 +211,85 @@ mod tests {
         assert_eq!(output.percent(), 0);
         assert!(!source.observe(&event(100), &output));
         assert_eq!(output.percent(), 0);
+    }
+
+    fn listening(volume: u8) -> Value {
+        json!({"type":"playback_state", "volume":volume, "is_active":true})
+    }
+
+    #[test]
+    fn soloist_comes_back_at_the_level_it_was_left_at() {
+        let mut restore = ListeningVolume::default();
+        let output = OutputVolume::default();
+        output.remember(70);
+        let now = Instant::now();
+        // Nothing is sent before login, and its own start level isn't kept.
+        assert_eq!(
+            restore.observe(&listening(33), false, &output, now),
+            (None, false)
+        );
+        assert_eq!(
+            restore.observe(&listening(33), true, &output, now),
+            (Some(70), false)
+        );
+        assert_eq!(output.route_percent(), Some(70), "heard before it answers");
+        // A state from before the command changes nothing.
+        assert_eq!(
+            restore.observe(&listening(33), true, &output, now),
+            (None, false)
+        );
+        assert_eq!(output.remembered(), Some(70));
+        assert_eq!(
+            restore.observe(&listening(70), true, &output, now),
+            (None, false)
+        );
+        // From there on the level is followed, so a phone's change is kept.
+        assert_eq!(
+            restore.observe(&event(40), true, &output, now),
+            (None, true)
+        );
+        assert_eq!(output.remembered(), Some(40));
+    }
+
+    #[test]
+    fn a_first_run_keeps_soloists_level_and_a_deaf_player_is_not_fought() {
+        let mut restore = ListeningVolume::default();
+        let output = OutputVolume::default();
+        let now = Instant::now();
+        assert_eq!(
+            restore.observe(&listening(33), true, &output, now),
+            (None, true)
+        );
+        assert_eq!(output.remembered(), Some(33));
+
+        let mut restore = ListeningVolume::default();
+        output.remember(70);
+        let mut sent = 0;
+        for second in 0..60 {
+            let at = now + Duration::from_secs(second);
+            sent += usize::from(
+                restore
+                    .observe(&listening(33), true, &output, at)
+                    .0
+                    .is_some(),
+            );
+        }
+        assert_eq!(sent, RESTORE_TRIES as usize);
+        assert_eq!(output.remembered(), Some(33));
+    }
+
+    #[test]
+    fn an_idle_player_is_asked_until_it_plays() {
+        let mut restore = ListeningVolume::default();
+        let output = OutputVolume::default();
+        output.remember(70);
+        let now = Instant::now();
+        let idle = json!({"type":"playback_state", "volume":33, "is_active":false});
+        for minute in 0..30 {
+            let at = now + Duration::from_secs(minute * 60);
+            assert_eq!(restore.observe(&idle, true, &output, at).0, Some(70));
+        }
+        assert_eq!(output.remembered(), Some(70));
     }
 
     #[test]

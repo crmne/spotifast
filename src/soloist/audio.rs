@@ -69,6 +69,8 @@ struct Levels {
     route: AtomicU8,
     /// The level set here that a report may not undo, and until when.
     lead: Mutex<Option<(u8, Instant)>>,
+    /// The listening level to bring back when Soloist's player restarts.
+    remembered: AtomicU8,
 }
 impl Default for OutputVolume {
     fn default() -> Self {
@@ -76,6 +78,7 @@ impl Default for OutputVolume {
             fader: AtomicU8::new(100),
             route: AtomicU8::new(NO_LEVEL),
             lead: Mutex::new(None),
+            remembered: AtomicU8::new(NO_LEVEL),
         }))
     }
 }
@@ -85,6 +88,16 @@ impl OutputVolume {
     }
     pub fn set(&self, percent: u8) {
         self.0.fader.store(percent.min(100), Ordering::Relaxed);
+    }
+    /// What Soloist's player should come back at, once it has played at all.
+    pub fn remembered(&self) -> Option<u8> {
+        let percent = self.0.remembered.load(Ordering::Relaxed);
+        (percent != NO_LEVEL).then_some(percent)
+    }
+    /// Returns whether that changed, so the session can be saved.
+    pub fn remember(&self, percent: u8) -> bool {
+        let percent = percent.min(100);
+        self.0.remembered.swap(percent, Ordering::Relaxed) != percent
     }
     /// The level the route plays at, once there is one.
     pub fn route_percent(&self) -> Option<u8> {

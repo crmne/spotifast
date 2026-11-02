@@ -238,6 +238,10 @@ its private Mac route has taken over the audible output. If Soloist does not
 confirm the full source level within five seconds, the player stops, and
 Spotifast restarts it.
 
+Spotify's player starts at a level of its own every launch, so Spotifast keeps
+the level you left it at and gives it back once the player is signed in. This
+is saved in the session file.
+
 Windows capture comes after Soloist's volume, so Spotifast undoes Soloist's
 volume curve for the visualizers: they keep their level as the volume falls.
 A muted source sends no signal, so **zero still stops the visualizers**.

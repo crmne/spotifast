@@ -492,6 +492,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         let mut repairs = audio::Repairs::default();
         let mut rebuilt_at: Option<Instant> = None;
         let mut source_volume = volume::SourceVolume::default();
+        let mut listening_volume = volume::ListeningVolume::default();
         let mut idle = false;
         let mut active = true;
         let mut player_idle = false;
@@ -586,7 +587,14 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                     let (message, received_after_reconnect) = message?;
                     reconnected |= received_after_reconnect;
                     if let Some(message) = message {
+                        let owned = bridge.as_ref().is_some_and(|bridge| bridge.owns_output_volume());
+                        let (restore, kept) = listening_volume.observe(&message, logged_in && !owned, output_volume, Instant::now());
+                        if kept { notify(Update::OutputVolume); }
                         if let Some(bridge) = &bridge { bridge.update(&message); }
+                        if let Some(volume) = restore {
+                            reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"set_volume", "volume":volume})).await?;
+                            reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"get_state"})).await?;
+                        }
                         if source_volume.observe(&message, output_volume) { notify(Update::OutputVolume); }
                         if source_volume.maintain(logged_in && message["logged_in"] != false && bridge.as_ref().is_some_and(|bridge| bridge.owns_output_volume()), Instant::now())? {
                             reconnected |= protocol::send_reconnecting(&mut socket, port, json!({"command":"set_volume", "volume":100})).await?;

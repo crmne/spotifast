@@ -1850,6 +1850,9 @@ pub struct SessionState {
     /// Separate Mac output fader. Absent in older sessions means unity gain.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub soloist_output_volume: Option<u8>,
+    /// The level Soloist's player was left at; it forgets it between launches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub soloist_volume: Option<u8>,
     /// Recent explicit output choices, scoped to the verified Spotify account.
     pub device_history: crate::device_history::DeviceHistory,
     pub last_page: Option<String>,
@@ -1974,6 +1977,12 @@ mod session_tests {
             };
             let saved: SessionState = serde_json::from_str(&session.encode().unwrap()).unwrap();
             assert_eq!(saved.soloist_output_volume, Some(volume));
+            let session = SessionState {
+                soloist_volume: Some(volume),
+                ..old.clone()
+            };
+            let saved: SessionState = serde_json::from_str(&session.encode().unwrap()).unwrap();
+            assert_eq!(saved.soloist_volume, Some(volume));
         }
     }
 

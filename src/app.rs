@@ -1129,6 +1129,9 @@ impl App {
         backend
             .soloist_output_volume
             .set(session.soloist_output_volume.unwrap_or(100));
+        if let Some(volume) = session.soloist_volume {
+            backend.soloist_output_volume.remember(volume);
+        }
         let soloist_onboarding = session.soloist_onboarding.restore(settings.soloist_enabled);
         let wake = waker.clone();
         let media_controls = options
@@ -11029,6 +11032,12 @@ impl App {
         {
             self.backend.soloist_output_volume.lead(percent);
         }
+        if self.targets_own_soloist()
+            && self.can_set_volume()
+            && self.backend.soloist_output_volume.remember(percent)
+        {
+            self.session_dirty = true;
+        }
         match self.target() {
             Target::Local => {
                 let volume = percent_to_volume(percent);
@@ -14740,6 +14749,7 @@ impl App {
             let session = SessionState {
                 soloist_onboarding: self.soloist_onboarding,
                 soloist_output_volume: Some(self.backend.soloist_output_volume.percent()),
+                soloist_volume: self.backend.soloist_output_volume.remembered(),
                 device_history: self.device_history.clone(),
                 last_page: Some(self.page().encode()),
                 recent_contexts: self.recent_contexts.clone(),
