@@ -4772,8 +4772,8 @@ impl App {
 
     /// Puts the demo in full screen lyrics with MilkDrop behind them.
     #[cfg(feature = "demo")]
-    pub fn demo_lyrics_milkdrop(&mut self) {
-        self.milkdrop_backdrop = true;
+    pub fn demo_lyrics_milkdrop(&mut self, milkdrop: bool) {
+        self.milkdrop_backdrop = milkdrop;
         self.lyrics_fullscreen = Some(false);
         self.show_lyrics_panel = true;
     }
@@ -23656,6 +23656,7 @@ mod tests {
         app.attach(&ctx);
         crate::demo::populate(&mut app);
         let mut shown_at = None;
+        let mut button_at = None;
         for width in (760..=1600).step_by(8) {
             let width = width as f32;
             let mut tree = None;
@@ -23683,6 +23684,16 @@ mod tests {
             };
             let repeat = button("Repeat").expect("Repeat");
             let lyrics = button("Lyrics").expect("Lyrics");
+            // The full screen button is the last on the right, keeps clear
+            // of Repeat, and outlasts Listening activity as it narrows.
+            if let Some(full) = button("Full screen lyrics") {
+                button_at.get_or_insert(width);
+                assert!(full.x1 <= f64::from(width), "inside the bar at {width}");
+                assert!(lyrics.x1 < full.x0, "right of the rest at {width}");
+                assert!(lyrics.x0 - repeat.x1 >= 10.0, "clear of Repeat at {width}");
+            } else {
+                assert!(button_at.is_none(), "it stays once shown, gone at {width}");
+            }
             if let Some(friends) = button("Listening activity") {
                 shown_at.get_or_insert(width);
                 assert!(friends.y0 > 700.0, "in the player bar at {width}");
@@ -23692,7 +23703,8 @@ mod tests {
                 assert!(shown_at.is_none(), "it stays once shown, gone at {width}");
             }
         }
-        assert!(shown_at.is_some_and(|width| width > 760.0 && width <= 840.0));
+        assert!(button_at.is_some_and(|width| width > 760.0 && width <= 840.0));
+        assert!(shown_at.is_some_and(|width| Some(width) > button_at && width <= 920.0));
         app.backend.shutdown();
     }
 

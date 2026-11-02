@@ -317,6 +317,16 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             let rect = ui.max_rect();
             background(app, ui, rect);
+            // The empty space is the backdrop's switch, as the player bar's
+            // is its visualizer's. Everything drawn after this takes its own
+            // clicks, and a drag is no click.
+            #[cfg(feature = "milkdrop")]
+            if ui
+                .interact(rect, ui.id().with("lyrics-backdrop"), Sense::click())
+                .clicked()
+            {
+                app.actions.push(Action::ToggleLyricsMilkdrop);
+            }
             let top = theme::titlebar_inset(ui.ctx()) + 24.0;
             if app.now_playing().is_some() && rect.width() >= COVER_BESIDE_MIN_WIDTH {
                 with_cover(app, ui, rect, top);
@@ -847,11 +857,9 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 } else {
                     line.text.as_str()
                 };
-                let sense = if lyrics.synced {
-                    Sense::click()
-                } else {
-                    Sense::hover()
-                };
+                // Untimed words have nowhere to jump to, but a click on them
+                // is still on a line, so it must not reach the backdrop.
+                let sense = Sense::click();
                 let galley = crate::bidi::layout(
                     ui.painter(),
                     text,

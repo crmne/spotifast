@@ -824,17 +824,19 @@ from LRCLIB by its artist, title, album and length.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
 
-The expand button, or **F** when no text field has focus, opens lyrics in
-full screen. Press **F** or **Esc**, or choose the shrink button, to return to
-your previous window size. Full-screen lyrics
+The expand button in the lyrics panel or at the right of the player bar, or
+**F** when no text field has focus, opens lyrics in full screen. A narrow
+window has no room for the player bar's button. Press **F** or **Esc**, or
+choose the shrink button, to return to your previous window size. Full-screen lyrics
 scroll smoothly and highlight the playing line automatically. Scrolling by
 hand pauses following; choose **Follow** to resume. Since 0.11.0, a wide
 window shows the song's cover beside the lyrics, the two centred together,
 and a song without words, such as an instrumental, shows just its cover in
 the middle of the screen.
 
-Press **V** in full screen lyrics to put MilkDrop behind the words instead of
-the cover's art, and again to bring the art back; Spotifast remembers which you
+Press **V** in full screen lyrics, or click anywhere that isn't a line of
+lyrics or a control, to put MilkDrop behind the words instead of the cover's
+art, and do the same again to bring the art back; Spotifast remembers which you
 chose. **N** and **P** change the preset there. The picture is dimmed as far as
 it takes to keep the words clear, and holds still while the music is paused.
 It uses the presets you have: with none, the art stays. It follows the sound

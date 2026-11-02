@@ -1754,8 +1754,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             }
             // Full screen lyrics with MilkDrop behind them, on whatever is
             // in the demo's presets folder.
-            "lyrics-milkdrop" => {
-                app.demo_lyrics_milkdrop();
+            "lyrics-milkdrop" | "lyrics-art" => {
+                app.demo_lyrics_milkdrop(surface == "lyrics-milkdrop");
                 app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
                 app.winamp.demo_sounding = true;
                 play_here(app);
@@ -5083,6 +5083,144 @@ mod tests {
 
     fn frame(ctx: &egui::Context, app: &mut App) {
         frame_events(ctx, app, Vec::new());
+    }
+
+    /// Where a line of lyrics was drawn, in a frame of full screen lyrics.
+    fn lyric_at(ctx: &egui::Context, app: &mut App, line: &str) -> egui::Pos2 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+        output.textures_delta.clear();
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == line => {
+                    Some(text.pos + text.galley.size() / 2.0)
+                }
+                _ => None,
+            })
+            .expect("the line is drawn")
+    }
+
+    /// A click on nothing in full screen lyrics is the backdrop's switch, and
+    /// nothing else that happens there touches it.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn only_a_click_on_nothing_switches_the_lyrics_backdrop() {
+        use egui::PointerButton::Primary;
+        let (ctx, mut app) = accessible_app("lyrics-backdrop-click");
+        app.backend.set_offline(true);
+        populate(&mut app);
+        app.show_lyrics_panel = true;
+        app.lyrics_fullscreen = Some(false);
+        app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+        app.lyrics_following = false;
+        let empty = egui::pos2(20.0, 400.0);
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+        assert!(!app.milkdrop_behind_lyrics(), "the art by default");
+
+        // Far enough apart in time that no two make a double click.
+        let run = |ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>| {
+            let time = ctx.input(|input| input.time) + 2.0;
+            let input = egui::RawInput {
+                time: Some(time),
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+        };
+        run(&ctx, &mut app, vec![egui::Event::PointerMoved(empty)]);
+        run(&ctx, &mut app, pointer_click(empty, Primary));
+        assert!(app.milkdrop_behind_lyrics(), "a click turns it on");
+        assert!(app.settings.lyrics_milkdrop, "remembered as V is");
+        run(&ctx, &mut app, Vec::new());
+        run(&ctx, &mut app, pointer_click(empty, Primary));
+        assert!(!app.milkdrop_behind_lyrics(), "and off");
+        run(&ctx, &mut app, Vec::new());
+
+        // A drag is no click.
+        let press = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let far = egui::pos2(160.0, 400.0);
+        run(&ctx, &mut app, vec![press(empty, true)]);
+        run(&ctx, &mut app, vec![egui::Event::PointerMoved(far)]);
+        run(&ctx, &mut app, vec![press(far, false)]);
+        assert!(!app.milkdrop_behind_lyrics(), "dragged, not clicked");
+
+        // A synced line still seeks and a plain one does nothing; neither
+        // reaches the backdrop.
+        let line = lyric_at(&ctx, &mut app, "Streetlights blinking down the river road");
+        run(&ctx, &mut app, vec![egui::Event::PointerMoved(line)]);
+        run(&ctx, &mut app, pointer_click(line, Primary));
+        assert!(!app.milkdrop_behind_lyrics(), "a timed line");
+        if let Loadable::Loaded(Some(lyrics)) = &mut app.lyrics {
+            lyrics.synced = false;
+        }
+        app.lyrics_following = false;
+        run(&ctx, &mut app, Vec::new());
+        let line = lyric_at(&ctx, &mut app, "Streetlights blinking down the river road");
+        run(&ctx, &mut app, vec![egui::Event::PointerMoved(line)]);
+        run(&ctx, &mut app, pointer_click(line, Primary));
+        assert!(!app.milkdrop_behind_lyrics(), "an untimed line");
+
+        // A double click is two clicks, back where it started, and leaves
+        // nothing: full screen has no double click of its own.
+        run(&ctx, &mut app, vec![egui::Event::PointerMoved(empty)]);
+        frame_clicks_close_together(&ctx, &mut app, empty);
+        assert!(app.lyrics_fullscreen.is_some());
+        assert!(!app.milkdrop_behind_lyrics(), "off, on, off");
+
+        // The bar's button is a control: it leaves and comes back, and the
+        // backdrop stays out of it.
+        let button = egui::pos2(1280.0 - 16.0 - 15.0, 800.0 - 45.0);
+        run(&ctx, &mut app, vec![egui::Event::PointerMoved(button)]);
+        run(&ctx, &mut app, pointer_click(button, Primary));
+        assert!(app.lyrics_fullscreen.is_none(), "the button leaves");
+        assert!(!app.settings.lyrics_milkdrop);
+        run(&ctx, &mut app, Vec::new());
+        run(&ctx, &mut app, Vec::new());
+        run(&ctx, &mut app, pointer_click(button, Primary));
+        assert!(app.lyrics_fullscreen.is_some(), "and enters");
+        assert!(!app.settings.lyrics_milkdrop);
+    }
+
+    #[cfg(feature = "milkdrop")]
+    fn frame_clicks_close_together(ctx: &egui::Context, app: &mut App, at: egui::Pos2) {
+        let start = ctx.input(|input| input.time) + 2.0;
+        for step in 0..4 {
+            let input = egui::RawInput {
+                time: Some(start + f64::from(step) * 0.1),
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                events: if step % 2 == 0 {
+                    pointer_click(at, egui::PointerButton::Primary)
+                } else {
+                    Vec::new()
+                },
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+        }
     }
 
     #[test]
