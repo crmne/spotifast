@@ -631,6 +631,80 @@ mod tests {
         assert_eq!(work.next_job(now + STAY_ACTIVE), None);
     }
 
+    /// A blank card left by the old renderer: the mark `VERSION` 1 wrote for
+    /// this very file must not stop gnome's kind of skin getting its picture.
+    #[test]
+    fn a_mark_from_before_the_renderers_fixes_leaves_the_card_to_be_drawn() {
+        let root = folder("stale-mark");
+        let cache = root.join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let skin = root.join("hidden.wmz");
+        let definition =
+            br##"<VIEW width="40" height="40" visible="false" backgroundColor="#c80a0a"/>"##;
+        let bytes = crate::skin::zip::write(&[("skin.wms", definition.as_slice(), false)]);
+        std::fs::write(&skin, bytes).unwrap();
+        let name = "hidden.wmz";
+        let meta = std::fs::metadata(&skin).unwrap();
+        let modified = meta
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let old = {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            (1u32, name, meta.len(), modified).hash(&mut hasher);
+            format!("{:016x}", hasher.finish())
+        };
+        std::fs::write(cache.join(format!("{old}.none")), [0; MAX_TRIES]).unwrap();
+        let choices = [SkinChoice {
+            kind: crate::winamp::SkinKind::WindowsMediaPlayer,
+            ..choice(&skin)
+        }];
+        let ctx = egui::Context::default();
+        let mut previews = SkinPreviews::default();
+        frames(&mut previews, &ctx, &cache, &choices, 1, |previews| {
+            is_picture(previews.thumb(name))
+        });
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Every `.wmz` in `$SPOTIFAST_SKIN_SAMPLES`, when set, through the cards'
+    /// own path: stored, decoded and handed over as a picture.
+    #[test]
+    fn sample_skins_get_cards() {
+        let Ok(dir) = std::env::var("SPOTIFAST_SKIN_SAMPLES") else {
+            return;
+        };
+        let root = folder("samples");
+        let cache = root.join("cache");
+        let choices: Vec<SkinChoice> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|kind| kind == "wmz"))
+            .map(|path| SkinChoice {
+                kind: crate::winamp::SkinKind::WindowsMediaPlayer,
+                ..choice(&path)
+            })
+            .collect();
+        let ctx = egui::Context::default();
+        let mut previews = SkinPreviews::default();
+        frames(&mut previews, &ctx, &cache, &choices, 1, |previews| {
+            choices
+                .iter()
+                .all(|choice| previews.thumb(&choice.name) != Thumb::Placeholder)
+        });
+        for choice in &choices {
+            assert!(
+                is_picture(previews.thumb(&choice.name)),
+                "{} has no card",
+                choice.name
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn a_skin_gets_a_card_and_a_stored_picture_a_broken_one_does_not() {
         let root = folder("cards");
