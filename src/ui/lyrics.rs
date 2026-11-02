@@ -874,7 +874,8 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
     let follow = following && app.lyrics_line_shown != Some(active);
     let animation = crate::motion::scroll(ui.ctx(), 0.45);
     let size = (ui.available_width() * 0.046).clamp(28.0, 42.0);
-    // The line being sung takes the accent colour and grows; each line wraps
+    // The line being sung takes the theme's accent, though the view is
+    // always dark, and grows; each line wraps
     // for its full size all along, so growing can't rewrap its words.
     // A line takes 300 ms to light up or fade.
     // A moving picture asks more of the quiet lines than a still one.
@@ -919,7 +920,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                     crate::motion::seconds(ui.ctx(), 0.3),
                 );
                 let color = if lyrics.synced {
-                    blend(quiet, palette.accent, lit)
+                    blend(quiet, app.palette.accent, lit)
                 } else {
                     palette.text
                 };
