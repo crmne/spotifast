@@ -133,13 +133,13 @@ fn stem_of_path(name: &str, path: &Path) -> Option<String> {
     Some(stem_of(name, metadata.len(), modified))
 }
 
-/// The built-in skin changes only with the app.
-fn built_in_job() -> Job {
-    Job {
-        name: BUILT_IN.to_owned(),
+/// The skins that come with the app change only with the app.
+fn built_in_jobs() -> [Job; 2] {
+    [BUILT_IN, crate::skin::RIBBON].map(|name| Job {
+        name: name.to_owned(),
         path: None,
-        stem: stem_of(env!("CARGO_PKG_VERSION"), 0, 0),
-    }
+        stem: stem_of(&format!("{}{name}", env!("CARGO_PKG_VERSION")), 0, 0),
+    })
 }
 
 /// Draws a skin and stores the result. A mark goes down first and comes up
@@ -164,6 +164,9 @@ fn draw(job: &Job, cache: &Path) -> Option<PathBuf> {
     let started = Instant::now();
     let picture = match &job.path {
         Some(path) => preview::of_file(path),
+        None if job.name == crate::skin::RIBBON => {
+            Skin::ribbon().ok().and_then(|skin| preview::of_skin(&skin))
+        }
         None => preview::of_skin(&Skin::builtin()),
     };
     log::debug!(
@@ -195,6 +198,9 @@ fn take_listing(
     let mut jobs = Vec::new();
     let mut current = HashSet::new();
     for (name, path) in listing {
+        if name == crate::skin::RIBBON {
+            continue;
+        }
         let Some(stem) = stem_of_path(&name, &path) else {
             continue;
         };
@@ -209,7 +215,8 @@ fn take_listing(
         }
     }
     known.retain(|name, _| {
-        let stays = name.as_str() == BUILT_IN || current.contains(name);
+        let stays =
+            name.as_str() == BUILT_IN || name == crate::skin::RIBBON || current.contains(name);
         if !stays {
             let _ = updates.send(Update::Gone { name: name.clone() });
         }
@@ -237,9 +244,11 @@ fn take_listing(
 }
 
 fn drawing_thread(link: Arc<Link>, cache: PathBuf, updates: Sender<Update>, ctx: egui::Context) {
-    let built_in = built_in_job();
-    let mut known = HashMap::from([(built_in.name.clone(), built_in.stem.clone())]);
-    link.work().queue.push_front(built_in);
+    let mut known = HashMap::new();
+    for job in built_in_jobs() {
+        known.insert(job.name.clone(), job.stem.clone());
+        link.work().queue.push_front(job);
+    }
     loop {
         let mut work = link.work();
         let job = loop {
@@ -593,6 +602,7 @@ mod tests {
                 previews.thumb(&choice.name);
             }
             previews.thumb(BUILT_IN);
+            previews.thumb(crate::skin::RIBBON);
             previews.finish();
             std::thread::sleep(Duration::from_millis(2));
         }
@@ -719,6 +729,7 @@ mod tests {
         frames(&mut previews, &ctx, &cache, &choices, 1, |previews| {
             is_picture(previews.thumb("good.wsz"))
                 && is_picture(previews.thumb(BUILT_IN))
+                && is_picture(previews.thumb(crate::skin::RIBBON))
                 && previews.thumb("broken.wsz") == Thumb::Failed
         });
         let stored = |extension: &str| {
@@ -733,7 +744,7 @@ mod tests {
                 })
                 .count()
         };
-        assert_eq!((stored("png"), stored("none")), (2, 1));
+        assert_eq!((stored("png"), stored("none")), (3, 1));
         drop(previews);
 
         // A second run finds them; a removed skin takes its picture along.

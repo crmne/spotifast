@@ -1,0 +1,24 @@
+15,17,20 // background
+42,48,56 // grid
+30,215,96 // band 0
+29,206,92 // band 1
+29,196,89 // band 2
+28,187,85 // band 3
+27,177,82 // band 4
+27,168,78 // band 5
+26,159,74 // band 6
+25,149,71 // band 7
+25,140,67 // band 8
+24,130,64 // band 9
+23,121,60 // band 10
+23,112,56 // band 11
+22,102,53 // band 12
+21,93,49 // band 13
+21,83,46 // band 14
+20,74,42 // band 15
+242,244,246 // oscilloscope
+169,177,188 // oscilloscope
+169,177,188 // oscilloscope
+110,119,132 // oscilloscope
+110,119,132 // oscilloscope
+242,244,246 // peaks

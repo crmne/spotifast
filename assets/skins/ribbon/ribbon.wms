@@ -1,0 +1,61 @@
+<!--
+  Spotifast Ribbon. A white ceramic ribbon round a floating smoked-glass core.
+  The pictures are cut from generated art by examples/ribbon_skin.rs, which
+  also packs the skin.
+-->
+<THEME title="Spotifast Ribbon" author="Spotifast" copyright="Part of Spotifast">
+<VIEW id="main" width="240" height="420" titleBar="false" backgroundColor="none" resizable="false"
+      scriptFile="ribbon.js" onLoad="boot();">
+  <PLAYER playState_onChange="followPlayer();" currentMedia_onChange="followPlayer();"/>
+
+  <!-- Two hidden elements keep time: the engine moves them, the script reads. -->
+  <SUBVIEW id="clock" visible="false" width="1" height="1"/>
+  <SUBVIEW id="ticker" visible="false" width="1" height="1" onEndMove="tick();"/>
+
+  <!-- The square, showing through a hole in the glass. -->
+  <SUBVIEW id="paneBack" left="62" top="75" width="126" height="126" zIndex="1" backgroundColor="#0a0c0e" visible="false"/>
+  <SUBVIEW id="art" left="62" top="75" width="126" height="126" zIndex="2" visible="false" backgroundImage="wmpimage_albumart"
+           onClick="togglePane();" cursor="hand"/>
+  <EFFECTS id="fx" left="62" top="75" width="126" height="126" zIndex="3" visible="false" onClick="togglePane();" cursor="hand"/>
+  <SUBVIEW id="veilSlot" left="62" top="75" width="126" height="126" zIndex="4" alphaBlend="0" passThrough="true">
+    <SUBVIEW id="veil" left="0" top="0" backgroundImage="veil.png" passThrough="true" onEndMove="veilArrived();"/>
+  </SUBVIEW>
+
+  <SUBVIEW id="core" left="0" top="0" zIndex="5" alphaBlend="0" backgroundImage="core.png"/>
+
+  <SUBVIEW id="ui" left="0" top="0" width="240" height="420" zIndex="6" alphaBlend="0" passThrough="true">
+    <MINIMIZEBUTTON id="minButton" left="152" top="59" image="w_min.png" hoverImage="w_min_hover.png" downImage="w_min_down.png"/>
+    <RETURNBUTTON id="returnButton" left="166" top="59" image="w_back.png" hoverImage="w_back_hover.png" downImage="w_back_down.png"/>
+    <BUTTON id="closeButton" left="180" top="59" onClick="shutDown();" upToolTip="Close" image="w_close.png" hoverImage="w_close_hover.png" downImage="w_close_down.png"/>
+
+    <EFFECTS id="wave" left="63" top="205" width="125" height="24" wave="true" foregroundColor="#39ff88" passThrough="true"/>
+
+    <TEXT id="title" left="63" top="233" width="125" height="18" fontSize="11" fontStyle="bold" foregroundColor="#f2f4f6"
+          scrollingAmount="1" scrollingDelay="40" value=""/>
+    <TEXT id="artist" left="63" top="251" width="125" height="14" fontSize="8" foregroundColor="#a9b1bc"
+          scrollingAmount="1" scrollingDelay="40" value=""/>
+    <TEXT id="time" left="63" top="267" width="60" height="13" fontSize="7" foregroundColor="#f2f4f6"
+          value="wmpprop:player.controls.currentPositionString"/>
+    <BUTTON id="paneButton" left="176" top="267" onClick="togglePane();" upToolTip="Album art or visualizer"
+            image="w_pane.png" hoverImage="w_pane_hover.png" downImage="w_pane_down.png"/>
+    <SEEKSLIDER id="seek" left="63" top="281" width="127" height="9" backgroundImage="seek_back.png" foregroundImage="seek_fill.png"
+                thumbImage="thumb.png" thumbHoverImage="thumb_hot.png" thumbDownImage="thumb_hot.png" slide="false" cursor="hand"/>
+
+    <MUTEBUTTON id="mute" left="66" top="373" image="speaker.png" hoverImage="speaker_hover.png" downImage="speaker_down.png"/>
+    <VOLUMESLIDER id="volume" left="91" top="377" width="82" height="9" backgroundImage="volume_back.png" foregroundImage="volume_fill.png"
+                  thumbImage="thumb.png" thumbHoverImage="thumb_hot.png" thumbDownImage="thumb_hot.png" slide="false" cursor="hand"/>
+  </SUBVIEW>
+
+  <!-- The ribbon: a strip while it sweeps, then one still picture to hold on by. -->
+  <CUSTOMSLIDER id="sweep" left="0" top="0" width="240" height="420" zIndex="7" image="sweep.png" min="0" max="13" value="0" visible="false"/>
+  <SUBVIEW id="ribbon" left="0" top="0" zIndex="8" visible="false" backgroundImage="ribbon.png"/>
+  <SUBVIEW id="light" left="0" top="0" zIndex="9" alphaBlend="0" backgroundImage="light.png" passThrough="true"/>
+
+  <SUBVIEW id="pill" left="0" top="310" width="240" height="56" zIndex="10" alphaBlend="0" passThrough="true">
+    <PREVBUTTON id="prevButton" left="70" top="19" image="prev.png" hoverImage="prev_hover.png" downImage="prev_down.png" disabledImage="prev_off.png"/>
+    <PLAYBUTTON id="playButton" left="103" top="13" image="play.png" hoverImage="play_hover.png" downImage="play_down.png" disabledImage="play_off.png"/>
+    <PAUSEBUTTON id="pauseButton" left="103" top="13" visible="false" image="pause.png" hoverImage="pause_hover.png" downImage="pause_down.png" disabledImage="pause_off.png"/>
+    <NEXTBUTTON id="nextButton" left="148" top="19" image="next.png" hoverImage="next_hover.png" downImage="next_down.png" disabledImage="next_off.png"/>
+  </SUBVIEW>
+</VIEW>
+</THEME>

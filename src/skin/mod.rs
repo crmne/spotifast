@@ -305,6 +305,11 @@ impl Skin {
         BUILTIN.clone()
     }
 
+    /// The Windows Media Player skin Spotifast ships, read as any other is.
+    pub fn ribbon() -> Result<Skin, SkinError> {
+        Skin::from_archive(RIBBON, RIBBON_ARCHIVE)
+    }
+
     /// Whether the skin brought this sheet itself.
     pub fn has(&self, sheet: Sheet) -> bool {
         self.sheets.contains_key(&sheet)
@@ -422,7 +427,13 @@ fn wanted(file_name: &str) -> bool {
 }
 
 /// The built-in skin, drawn by `examples/default_skin.rs`.
+/// The name the settings hold for [`Skin::ribbon`], which is no file in the
+/// skins folder.
+pub const RIBBON: &str = "Spotifast Ribbon";
+
 const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotifast.wsz");
+/// Cut and packed by `examples/ribbon_skin.rs`.
+const RIBBON_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotifast-ribbon.wmz");
 
 static BUILTIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
     Arc::new(Skin::from_archive("Spotifast", BUILTIN_ARCHIVE).expect("the built-in skin reads"))
