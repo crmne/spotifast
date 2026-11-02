@@ -606,8 +606,45 @@ fn sample_skins_run() {
                 );
             }
         }
+        // Real skins must fit the stack allowance in every build.
+        let errors = runtime.logged_errors();
+        let deep = errors
+            .iter()
+            .find(|error| error.contains("nested too deeply"));
+        assert!(deep.is_none(), "{}: {deep:?}", path.display());
         runtime.shut_down();
     }
+}
+
+/// A view nested as deep as a file can make it, built, laid out, painted, hit
+/// and resized on a small stack.
+#[test]
+fn deep_elements_fit_a_small_stack() {
+    let mut definition = String::from(r#"<THEME><VIEW width="50" height="50" onResize="">"#);
+    definition.push_str(
+        &r#"<SUBVIEW width="50" height="50" horizontalAlignment="stretch">"#.repeat(100_000),
+    );
+    let run = move || {
+        let mut runtime = start_with(&definition, Vec::new(), playing());
+        let key = runtime.views[0].state.key;
+        let now = Instant::now();
+        let _ = runtime.paint(key, now);
+        runtime.input(
+            key,
+            Input::Pointer { x: 5.0, y: 5.0 },
+            Modifiers::default(),
+            now,
+        );
+        runtime.run_script(key, "view.width = 80;", now);
+        runtime.tick(playing(), now);
+        drop(runtime);
+    };
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(run)
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 #[test]

@@ -21,6 +21,7 @@ mod interp;
 mod lexer;
 mod parser;
 mod regex;
+mod stack;
 mod strings;
 #[cfg(test)]
 mod tests;
@@ -196,6 +197,7 @@ impl Engine {
     /// Compiles handler text (statements as written in an attribute, perhaps
     /// prefixed `jscript:`) or a single expression. Cached by source text.
     pub fn compile(&mut self, source: &str) -> Result<Code, ScriptError> {
+        stack::mark();
         if source.len() > MAX_SOURCE {
             return Err(ScriptError::Memory);
         }

@@ -172,7 +172,7 @@ impl Parser {
 
     fn alternation(&mut self) -> P<Node> {
         self.depth += 1;
-        if self.depth > MAX_NESTING {
+        if self.depth > MAX_NESTING || super::stack::exceeded() {
             return Err("regular expression nested too deeply".into());
         }
         let mut arms = vec![self.sequence()?];
@@ -494,7 +494,7 @@ impl Emitter {
 
     fn emit(&mut self, node: &Node) -> P<()> {
         self.walked += 1;
-        if self.walked > MAX_PROGRAM {
+        if self.walked > MAX_PROGRAM || super::stack::exceeded() {
             return Err("regular expression too big".into());
         }
         match node {
@@ -677,6 +677,9 @@ impl Matcher<'_> {
 
     /// Runs from `pc` at `pos` to `Match`; returns the end position.
     fn run(&mut self, pc: usize, pos: usize) -> Result<Option<usize>, OutOfSteps> {
+        if super::stack::exceeded() {
+            return Err(OutOfSteps);
+        }
         let mut stack = Vec::new();
         let (mut pc, mut pos) = (pc, pos);
         loop {

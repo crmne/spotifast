@@ -11,13 +11,10 @@ use std::sync::Arc;
 use super::ast::{BinOp, Expr, FuncDef, Link, Stmt, UnOp};
 use super::convert::{number_to_string, string_to_number, to_int32, to_uint32};
 use super::heap::{Kind, OBJECT_BYTES, PROP_BYTES, SLOT_BYTES, find_var};
-use super::{Engine, Host, HostId, Name, ObjectRef, ScriptError, Value, parser, to_bool};
+use super::{Engine, Host, HostId, Name, ObjectRef, ScriptError, Value, parser, stack, to_bool};
 
-/// Native recursion ceiling. One unit costs at most about 1.6 KiB of stack in
-/// an unoptimised build, so this is 1.4 MiB, leaving room for `eval`'s parser
-/// on a 2 MiB stack; `tests::stack_survives_every_recursive_path` holds it to
-/// that. Ordinary recursion uses about seven units a call, so `max_depth`
-/// is what normally stops it.
+/// Native recursion ceiling, a backstop to what `stack` measures. Ordinary
+/// recursion uses about seven units a call.
 pub(super) const MAX_NATIVE_DEPTH: u32 = 900;
 /// What a script or builtin call adds to `depth`, for its extra native frames.
 const CALL_WEIGHT: u32 = 3;
@@ -105,6 +102,7 @@ fn missing(name: &str) -> String {
 
 impl Engine {
     pub(super) fn begin(&mut self) {
+        stack::mark();
         self.steps = self.limits.steps;
         self.depth = 0;
         self.calls = 0;
@@ -151,7 +149,7 @@ impl Engine {
     #[inline]
     fn enter(&mut self) -> R<()> {
         self.depth += 1;
-        if self.depth > MAX_NATIVE_DEPTH {
+        if self.depth > MAX_NATIVE_DEPTH || stack::exceeded() {
             self.depth -= 1;
             return Err(Abort::Depth);
         }
@@ -159,7 +157,10 @@ impl Engine {
     }
 
     fn enter_call(&mut self) -> R<()> {
-        if self.calls >= self.limits.max_depth || self.depth + CALL_WEIGHT > MAX_NATIVE_DEPTH {
+        if self.calls >= self.limits.max_depth
+            || self.depth + CALL_WEIGHT > MAX_NATIVE_DEPTH
+            || stack::exceeded()
+        {
             return Err(Abort::Depth);
         }
         self.calls += 1;
@@ -263,10 +264,9 @@ impl Engine {
     pub(super) fn eval_source(&mut self, source: &str, host: &mut dyn Host) -> R<Value> {
         self.charge(source.len() as u64 / 4)?;
         self.mem(source.len().saturating_mul(2))?;
-        // The parser shares the stack with whatever called `eval`.
-        let free = MAX_NATIVE_DEPTH.saturating_sub(self.depth);
-        let limit = (30 + free / 7).min(parser::MAX_NESTING);
-        let def = match parser::parse(source, &mut self.names, limit) {
+        // The parser shares the stack with whatever called `eval`, and
+        // `stack` holds it to what is left.
+        let def = match parser::parse(source, &mut self.names, parser::MAX_NESTING) {
             Ok(def) => def,
             Err(ScriptError::Depth) => return Err(Abort::Depth),
             Err(error) => return self.error(ErrorKind::Syntax, &error.to_string()),

@@ -13,8 +13,9 @@ use super::{Name, ScriptError};
 type P<T> = Result<T, ScriptError>;
 
 /// Syntactic nesting, in statements, assignment expressions and operator
-/// levels. Real skins stay well under this. One level costs about 10 KiB of
-/// stack in an unoptimised build, the price of nine frames per parenthesis.
+/// levels. Real skins stay well under this. It also bounds the tree, whose
+/// drop is recursive. The stack itself is what `stack` measures: one level is
+/// about 10 KiB in an unoptimised build, nine frames per parenthesis.
 pub(super) const MAX_NESTING: u32 = 64;
 
 #[derive(Default)]
@@ -96,7 +97,7 @@ impl Parser<'_> {
 
     fn nest(&mut self) -> P<()> {
         self.depth += 1;
-        if self.depth > self.limit {
+        if self.depth > self.limit || super::stack::exceeded() {
             return Err(ScriptError::Depth);
         }
         Ok(())
