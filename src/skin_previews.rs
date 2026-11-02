@@ -22,7 +22,7 @@ use crate::skin::{Bitmap, Skin, preview};
 use crate::winamp::SkinChoice;
 
 /// Changes when the way previews are drawn does, so old ones are redrawn.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 /// Tries a skin gets. A mark of this many bytes means there is no picture to
 /// be had; fewer say a try never finished, because the app was closed or
 /// brought down meanwhile.
