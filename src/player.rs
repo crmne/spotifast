@@ -782,6 +782,17 @@ impl Engine {
         &self.session
     }
 
+    /// The device Spotify's Connect cluster names as playing. Known from
+    /// the moment the session connects, and by its Connect id even for a
+    /// Sonos, which the Web API reports without one.
+    pub fn active_device(&self) -> Option<String> {
+        self.spirc
+            .watch_cluster_state()
+            .borrow()
+            .active_device_id
+            .clone()
+    }
+
     pub fn shutdown(&self) {
         self.shutting_down
             .store(true, std::sync::atomic::Ordering::SeqCst);

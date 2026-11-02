@@ -100,15 +100,17 @@ impl Controller {
     }
 
     /// Updates the active restricted device, ignoring older playback polls.
-    pub fn observe_playing(&self, seq: u64, device: Option<&Device>) {
+    /// The Web API reports a Sonos without its id, so `playing`, the device
+    /// Spotify's Connect cluster names as playing, stands in for a missing one.
+    pub fn observe_playing(&self, seq: u64, device: Option<&Device>, playing: Option<String>) {
         let mut known = self.known();
         if known.playback_seq.is_some_and(|latest| seq < latest) {
             return;
         }
         known.playback_seq = Some(seq);
         known.active_restricted = device
-            .filter(|device| device.is_restricted)
-            .and_then(|device| device.id.clone());
+            .filter(|device| device.is_restricted || device.id.is_none())
+            .and_then(|device| device.id.clone().or(playing));
         if let Some(id) = known.active_restricted.clone() {
             known.restricted.insert(id);
         }
@@ -123,6 +125,16 @@ impl Controller {
             }
             Some(_) => None,
             None => known.active_restricted.clone(),
+        }
+    }
+
+    /// The restricted device a command goes to. One naming no device goes
+    /// to the device Spotify's Connect cluster names as playing, `playing`,
+    /// which is current where the last playback poll may not be.
+    pub fn command_target(&self, device: Option<&str>, playing: Option<&str>) -> Option<String> {
+        match device {
+            None if playing.is_some() => self.restricted_target(playing),
+            _ => self.restricted_target(device),
         }
     }
 }
@@ -408,7 +420,7 @@ mod tests {
             is_restricted: true,
             ..Device::default()
         };
-        controller.observe_playing(2, Some(&device));
+        controller.observe_playing(2, Some(&device), None);
         assert_eq!(
             controller.restricted_target(None).as_deref(),
             Some("restricted-one")
@@ -420,13 +432,57 @@ mod tests {
             Some("restricted-one")
         );
         assert_eq!(controller.restricted_target(Some("someone-else")), None);
-        controller.observe_playing(1, None);
+        controller.observe_playing(1, None, None);
         assert_eq!(
             controller.restricted_target(None).as_deref(),
             Some("restricted-one")
         );
-        controller.observe_playing(3, None);
+        controller.observe_playing(3, None, None);
         assert_eq!(controller.restricted_target(None), None);
+    }
+
+    /// The Web API reports a Sonos the phone started without an id; the
+    /// Connect cluster has it.
+    #[test]
+    fn commands_reach_a_sonos_the_web_api_reports_without_an_id() {
+        let controller = Controller::default();
+        let sonos = Device {
+            id: None,
+            is_restricted: true,
+            volume_percent: Some(30),
+            ..Device::default()
+        };
+        controller.observe_playing(1, Some(&sonos), None);
+        assert_eq!(controller.command_target(None, None), None);
+        controller.observe_playing(2, Some(&sonos), Some("d0c4".into()));
+        assert_eq!(
+            controller.command_target(None, Some("d0c4")).as_deref(),
+            Some("d0c4")
+        );
+        assert_eq!(
+            controller.command_target(None, None).as_deref(),
+            Some("d0c4")
+        );
+        // Playback moved to the phone, which takes Web API commands.
+        assert_eq!(controller.command_target(None, Some("phone")), None);
+        assert_eq!(
+            controller
+                .command_target(Some("d0c4"), Some("phone"))
+                .as_deref(),
+            Some("d0c4")
+        );
+    }
+
+    /// A refusal before any playback poll marks the cluster's device.
+    #[test]
+    fn a_refused_command_naming_no_device_finds_the_playing_one() {
+        let controller = Controller::default();
+        assert_eq!(controller.command_target(None, Some("d0c4")), None);
+        controller.mark_restricted("d0c4");
+        assert_eq!(
+            controller.command_target(None, Some("d0c4")).as_deref(),
+            Some("d0c4")
+        );
     }
 
     #[test]
