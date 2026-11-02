@@ -412,17 +412,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     if let Some(bridge) = &bridge {
         command.args(["--pipewire-device", &bridge.name]);
         let props = std::env::var("PIPEWIRE_PROPS").unwrap_or_default();
-        let props = props.trim();
-        let props = props
-            .strip_prefix('{')
-            .and_then(|s| s.strip_suffix('}'))
-            .unwrap_or(props);
-        // Only this child's stream stays at unity. Its documented volume
-        // events drive our final gain, after the equalizer and visualizers.
-        command.env(
-            "PIPEWIRE_PROPS",
-            format!("{{ {props} channelmix.lock-volumes = true node.dont-fallback = true node.dont-move = true }}"),
-        );
+        command.env("PIPEWIRE_PROPS", audio::child_props(&props));
     }
     command
         .args([
