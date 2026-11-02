@@ -424,6 +424,11 @@ mod pipewire {
         rc::Rc,
         sync::atomic::AtomicUsize,
     };
+    /// How often the main loop reports what went wrong in the audio path.
+    const REPORT_EVERY: Duration = Duration::from_secs(10);
+    /// A shorter run of digital silence between sounds is a piece missing
+    /// from what Soloist sent, not a quiet moment in a song.
+    const GAP_LIMIT: Duration = Duration::from_millis(250);
     const EPIPE: i32 = 32;
     const RATE: usize = 44_100;
     /// The fastest rate the streams accept. At a quarter-second of stereo
@@ -601,6 +606,169 @@ mod pipewire {
         }
     }
 
+    /// What happened in the realtime callbacks, kept in atomics so they can
+    /// count without waiting. The main loop empties these into the log.
+    struct Stats {
+        /// Output cycles the queue couldn't fill: an audible dropout here.
+        short_reads: AtomicU32,
+        short_frames: AtomicU32,
+        /// Output cycles rendered silent because the chain was being swapped.
+        chain_misses: AtomicU32,
+        /// Input blocks that didn't fit in the ring.
+        overflows: AtomicU32,
+        /// Frames thrown away to keep the delay from growing.
+        skipped_frames: AtomicU32,
+        /// Input blocks dropped while the input's owner was in doubt.
+        unowned: AtomicU32,
+        /// Cycles when the input's callback got no audio at all.
+        input_empty: AtomicU32,
+        /// Runs of silence inside the sound: missing before our ring.
+        input_gaps: AtomicU32,
+        input_gap_frames: AtomicU32,
+        /// Output cycles no input had arrived since the one before. Harmless
+        /// as long as the queue has a margin, so these log only alongside.
+        cycles_without_input: AtomicU32,
+        /// The fewest frames left in the queue after a read.
+        low_water: AtomicUsize,
+        /// The input's run of digital silence, and whether sound came before.
+        quiet_frames: AtomicUsize,
+        sounding: AtomicBool,
+        /// The output's latest cycle, for the log.
+        quantum: AtomicUsize,
+        rate: AtomicU32,
+    }
+    impl Default for Stats {
+        fn default() -> Self {
+            Self {
+                short_reads: AtomicU32::new(0),
+                short_frames: AtomicU32::new(0),
+                chain_misses: AtomicU32::new(0),
+                overflows: AtomicU32::new(0),
+                skipped_frames: AtomicU32::new(0),
+                unowned: AtomicU32::new(0),
+                input_empty: AtomicU32::new(0),
+                input_gaps: AtomicU32::new(0),
+                input_gap_frames: AtomicU32::new(0),
+                cycles_without_input: AtomicU32::new(0),
+                low_water: AtomicUsize::new(usize::MAX),
+                quiet_frames: AtomicUsize::new(0),
+                sounding: AtomicBool::new(false),
+                quantum: AtomicUsize::new(0),
+                rate: AtomicU32::new(RATE as u32),
+            }
+        }
+    }
+    impl Stats {
+        fn add(counter: &AtomicU32, by: usize) {
+            counter.fetch_add(by as u32, Ordering::Relaxed);
+        }
+        /// For the input's callback: what a block says about what Soloist
+        /// sent. A late Soloist isn't an xrun, its stream being async, and
+        /// shows up here as zeros in the input.
+        fn heard(&self, samples: &[[u8; 4]], input_rate: u32) {
+            let frames = samples.len() / 2;
+            if frames == 0 {
+                return;
+            }
+            if samples
+                .iter()
+                .all(|bytes| f32::from_le_bytes(*bytes) == 0.0)
+            {
+                self.quiet_frames.fetch_add(frames, Ordering::Relaxed);
+                return;
+            }
+            let quiet = self.quiet_frames.swap(0, Ordering::Relaxed);
+            let limit = (f64::from(input_rate) * GAP_LIMIT.as_secs_f64()) as usize;
+            if quiet > 0 && quiet <= limit && self.sounding.load(Ordering::Relaxed) {
+                Self::add(&self.input_gaps, 1);
+                Self::add(&self.input_gap_frames, quiet);
+            }
+            self.sounding.store(true, Ordering::Relaxed);
+        }
+        /// Sound from before a pause or a flush says nothing of what follows.
+        fn restart(&self) {
+            self.sounding.store(false, Ordering::Relaxed);
+            self.quiet_frames.store(0, Ordering::Relaxed);
+        }
+        /// Empties the counters.
+        fn take(&self) -> Report {
+            let take = |counter: &AtomicU32| counter.swap(0, Ordering::Relaxed);
+            Report {
+                short_reads: take(&self.short_reads),
+                short_frames: take(&self.short_frames),
+                chain_misses: take(&self.chain_misses),
+                overflows: take(&self.overflows),
+                skipped_frames: take(&self.skipped_frames),
+                unowned: take(&self.unowned),
+                input_empty: take(&self.input_empty),
+                input_gaps: take(&self.input_gaps),
+                input_gap_frames: take(&self.input_gap_frames),
+                cycles_without_input: take(&self.cycles_without_input),
+                low_water: self.low_water.swap(usize::MAX, Ordering::Relaxed),
+                quantum: self.quantum.load(Ordering::Relaxed),
+                rate: self.rate.load(Ordering::Relaxed),
+            }
+        }
+    }
+
+    /// One report's worth of `Stats`.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct Report {
+        short_reads: u32,
+        short_frames: u32,
+        chain_misses: u32,
+        overflows: u32,
+        skipped_frames: u32,
+        unowned: u32,
+        input_empty: u32,
+        input_gaps: u32,
+        input_gap_frames: u32,
+        cycles_without_input: u32,
+        low_water: usize,
+        quantum: usize,
+        rate: u32,
+    }
+    impl Report {
+        /// The log line, if anything went wrong. Which number moved says where
+        /// the fault is: `input gaps` and `empty inputs` are before our ring
+        /// (Soloist was late), the rest are in it.
+        fn line(&self) -> Option<String> {
+            if self.short_reads == 0
+                && self.chain_misses == 0
+                && self.overflows == 0
+                && self.skipped_frames == 0
+                && self.unowned == 0
+                && self.input_empty == 0
+                && self.input_gaps == 0
+            {
+                return None;
+            }
+            let ms = |frames: u64| frames * 1000 / u64::from(self.rate.max(1));
+            let low = match self.low_water {
+                usize::MAX => "no reads".to_owned(),
+                low => format!("{} ms", ms(low as u64)),
+            };
+            Some(format!(
+                "Soloist audio, last {} s: {} short reads ({} ms silent), {} chain lock misses, \
+                 {} ring overflows, {} ms skipped, {} unowned blocks dropped, {} input gaps \
+                 ({} ms), {} empty inputs, {} cycles without input, lowest margin {low}, \
+                 quantum {}",
+                REPORT_EVERY.as_secs(),
+                self.short_reads,
+                ms(u64::from(self.short_frames)),
+                self.chain_misses,
+                self.overflows,
+                ms(u64::from(self.skipped_frames)),
+                self.unowned,
+                self.input_gaps,
+                ms(u64::from(self.input_gap_frames)),
+                self.input_empty,
+                self.cycles_without_input,
+                self.quantum,
+            ))
+        }
+    }
+
     /// Everything the output's callback works on. It owns this for as long
     /// as it holds the lock, and only ever tries for it. Allocating is done
     /// beforehand, here in `new`, for the sizes `pull` and `block` work in.
@@ -622,6 +790,8 @@ mod pipewire {
         narrow: Vec<f32>,
         tapped_narrow: Vec<f32>,
         tapped: Vec<f64>,
+        /// The ring's write count at the output's last cycle.
+        seen: usize,
     }
     impl Chain {
         fn new(
@@ -655,6 +825,7 @@ mod pipewire {
                 narrow: vec![0.0; CHUNK],
                 tapped_narrow: Vec::with_capacity(room(output_rate, RATE as u32)),
                 tapped: vec![0.0; room(output_rate, RATE as u32)],
+                seen: 0,
             }
         }
         /// Forgets the signal.
@@ -672,9 +843,14 @@ mod pipewire {
             self.limiter.reset();
         }
         /// Moves what the input wrote into `samples`, at the output's rate.
-        fn pull(&mut self, ring: &Ring) {
+        fn pull(&mut self, ring: &Ring, stats: &Stats) {
+            let written = ring.written.load(Ordering::Acquire);
+            if std::mem::replace(&mut self.seen, written) == written {
+                Stats::add(&stats.cycles_without_input, 1);
+            }
             // A missing output must never accumulate a song to play later.
             if ring.len() > self.input_rate as usize / 2 {
+                Stats::add(&stats.skipped_frames, ring.len() / 2);
                 ring.skip();
                 self.reset();
                 return;
@@ -692,6 +868,7 @@ mod pipewire {
                     None => self.converted.extend_from_slice(&self.pulled[..count]),
                 }
                 if self.samples.len() + self.converted.len() > self.output_rate as usize / 2 {
+                    Stats::add(&stats.skipped_frames, self.samples.len() / 2);
                     self.reset();
                     continue;
                 }
@@ -748,8 +925,11 @@ mod pipewire {
         chain: Mutex<Chain>,
         /// The chain is to forget the signal before it next renders.
         flush: AtomicBool,
+        /// The input's rate, for what `push` counts.
+        input_rate: AtomicU32,
         /// Only the owned child feeds the input, as the main loop last saw.
         owned: AtomicBool,
+        stats: Stats,
         tap: Arc<crate::vis::AudioTap>,
         shared_eq: crate::eq::SharedEq,
         /// The main loop's: what the chain was last built from.
@@ -764,7 +944,9 @@ mod pipewire {
                 ring: Ring::new(MAX_RATE / 2),
                 chain: Mutex::new(Chain::new(processor, tap.clone(), rate, rate)),
                 flush: AtomicBool::new(false),
+                input_rate: AtomicU32::new(rate),
                 owned: AtomicBool::new(false),
+                stats: Stats::default(),
                 tap,
                 shared_eq: eq,
                 settings: Mutex::new((rate, rate, settings)),
@@ -787,6 +969,7 @@ mod pipewire {
             let output = output.unwrap_or(settings.1);
             let wanted = Self::eq_settings(&self.shared_eq);
             *settings = (input, output, wanted);
+            self.input_rate.store(input, Ordering::Relaxed);
             let eq = crate::eq::Processor::prepared(self.shared_eq.clone(), output);
             let mut fresh = Chain::new(eq, self.tap.clone(), input, output);
             self.swap(|chain| std::mem::swap(chain, &mut fresh));
@@ -808,6 +991,7 @@ mod pipewire {
         /// Forgets queued audio, and at once what the tap shows.
         fn clear(&self) {
             self.flush.store(true, Ordering::Release);
+            self.stats.restart();
             self.tap.clear();
         }
         /// The input's callback.
@@ -816,7 +1000,15 @@ mod pipewire {
             // input is dropped and the main loop deals with it.
             let samples = bytes.as_chunks::<4>().0;
             let stereo = samples.len() / 2 * 2;
-            if !self.owned.load(Ordering::Acquire) || !self.ring.write(&samples[..stereo]) {
+            if !self.owned.load(Ordering::Acquire) {
+                Stats::add(&self.stats.unowned, usize::from(stereo > 0));
+                self.flush.store(true, Ordering::Release);
+                return;
+            }
+            self.stats
+                .heard(&samples[..stereo], self.input_rate.load(Ordering::Relaxed));
+            if !self.ring.write(&samples[..stereo]) {
+                Stats::add(&self.stats.overflows, 1);
                 self.flush.store(true, Ordering::Release);
             }
         }
@@ -825,6 +1017,7 @@ mod pipewire {
             let Ok(mut chain) = self.chain.try_lock() else {
                 // The main loop is swapping the chain in: a format change, or
                 // an equalizer change. The ring keeps the sound for next time.
+                Stats::add(&self.stats.chain_misses, usize::from(!bytes.is_empty()));
                 bytes.fill(0);
                 return;
             };
@@ -832,7 +1025,20 @@ mod pipewire {
                 self.ring.skip();
                 chain.reset();
             }
-            chain.pull(&self.ring);
+            chain.pull(&self.ring, &self.stats);
+            let frames = bytes.len() / 8;
+            let fill = chain.samples.len() / 2;
+            self.stats.quantum.store(frames, Ordering::Relaxed);
+            self.stats.rate.store(chain.output_rate, Ordering::Relaxed);
+            if frames > 0 {
+                self.stats
+                    .low_water
+                    .fetch_min(fill.saturating_sub(frames), Ordering::Relaxed);
+            }
+            if fill < frames {
+                Stats::add(&self.stats.short_reads, 1);
+                Stats::add(&self.stats.short_frames, frames - fill);
+            }
             for block in bytes.chunks_mut(CHUNK * 4) {
                 chain.block(block, percent);
             }
@@ -1050,6 +1256,7 @@ mod pipewire {
             .add_local_listener::<()>()
             .process(realtime(move |stream, _| {
                 let Some(mut buffer) = stream.dequeue_buffer() else {
+                    Stats::add(&in_audio.stats.input_empty, 1);
                     return;
                 };
                 let datas = buffer.datas_mut();
@@ -1058,6 +1265,7 @@ mod pipewire {
                 };
                 let offset = data.chunk().offset() as usize;
                 let size = data.chunk().size() as usize;
+                Stats::add(&in_audio.stats.input_empty, usize::from(size == 0));
                 let Some(bytes) = data.data() else { return };
                 if let Some(bytes) = bytes.get(offset..offset.saturating_add(size)) {
                     in_audio.push(bytes);
@@ -1188,12 +1396,22 @@ mod pipewire {
         let foreign_since = Cell::new(None);
         let unlinked = RefCell::new(HashSet::new());
         let refused = Cell::new(0u32);
+        let reported = Cell::new(Instant::now());
         let timer = mainloop.loop_().add_timer(move |_| {
             if state.stop.load(Ordering::Acquire) || state.failed.load(Ordering::Acquire) {
                 done.quit();
                 return;
             }
             leaving.borrow_mut().settle();
+            if reported.get().elapsed() >= REPORT_EVERY {
+                reported.set(Instant::now());
+                if let Some(line) = timer_audio.stats.take().line() {
+                    log::warn!("{line}");
+                    // The soak has no logger, and reads this beside its breaks.
+                    #[cfg(test)]
+                    println!("{line}");
+                }
+            }
             // Linking does not require playback. Show EQ and visualizers as
             // soon as the owned child is routed, including while paused.
             timer_audio.refresh_eq();
@@ -1500,6 +1718,76 @@ mod pipewire {
             audio.push(&tone(44_100, 16));
             audio.render(&mut output, 100);
             assert_eq!(peak(&output), 0.0, "what came before goes with it");
+        }
+
+        /// Each fault the log can name is counted, and a clean run says nothing.
+        #[test]
+        fn the_report_names_each_fault_and_stays_quiet_without_one() {
+            let audio = owned(Audio::new(crate::eq::shared(), crate::vis::AudioTap::new()));
+            assert_eq!(audio.stats.take().line(), None);
+            audio.push(&tone(44_100, 4096));
+            audio.render(&mut vec![0; 4096 * 8], 100);
+            assert_eq!(
+                audio.stats.take().line(),
+                None,
+                "no fault, and a margin alone is not one"
+            );
+
+            let mut output = vec![0; 8192 * 8];
+            audio.render(&mut output, 100);
+            let report = audio.stats.take();
+            assert_eq!(report.short_reads, 1);
+            assert!(report.line().unwrap().contains("1 short reads"));
+            assert_eq!(report.low_water, 0);
+            assert_eq!(report.cycles_without_input, 1);
+            assert_eq!(audio.stats.take().short_reads, 0, "emptied by the report");
+
+            let chain = audio.chain.lock().unwrap();
+            audio.render(&mut output, 100);
+            drop(chain);
+            assert_eq!(audio.stats.take().chain_misses, 1);
+
+            audio.push(&vec![0; 8 * (MAX_RATE / 4)]);
+            audio.push(&vec![0; 8 * (MAX_RATE / 4)]);
+            assert_eq!(audio.stats.take().overflows, 1);
+            audio.render(&mut [], 100);
+
+            audio.owned.store(false, Ordering::Release);
+            audio.push(&tone(44_100, 16));
+            assert_eq!(audio.stats.take().unowned, 1);
+            audio.owned.store(true, Ordering::Release);
+            audio.render(&mut [], 100);
+            audio.clear();
+
+            audio.push(&tone(44_100, 64));
+            audio.render(&mut [], 100);
+            audio.push(&tone(44_100, 8820));
+            audio.push(&tone(44_100, 8820));
+            audio.push(&tone(44_100, 8820));
+            audio.push(&tone(44_100, 8820));
+            audio.push(&tone(44_100, 8820));
+            audio.render(&mut output, 100);
+            let report = audio.stats.take();
+            assert!(report.skipped_frames >= 8820 * 5, "{report:?}");
+        }
+
+        /// Silence between sounds is a piece Soloist didn't deliver. Silence
+        /// before the first sound, or a long one, is music.
+        #[test]
+        fn a_short_silence_inside_the_sound_is_a_gap_in_the_input() {
+            let audio = owned(Audio::new(crate::eq::shared(), crate::vis::AudioTap::new()));
+            let silence = |frames: usize| vec![0; frames * 8];
+            audio.push(&silence(1024));
+            audio.push(&tone(44_100, 1024));
+            assert_eq!(audio.stats.take().input_gaps, 0, "nothing before it");
+            audio.push(&silence(1024));
+            audio.push(&tone(44_100, 1024));
+            let report = audio.stats.take();
+            assert_eq!((report.input_gaps, report.input_gap_frames), (1, 1024));
+            assert!(report.line().unwrap().contains("1 input gaps (23 ms)"));
+            audio.push(&silence(44_100));
+            audio.push(&tone(44_100, 1024));
+            assert_eq!(audio.stats.take().input_gaps, 0, "a pause in the song");
         }
 
         /// A chain taken by the main loop costs a block of silence, never a
