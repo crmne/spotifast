@@ -756,8 +756,15 @@ impl Engine {
             return Ok(None);
         };
         match self.session.spclient().get_lyrics(&id).await {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
-            Err(error) if error.kind == ErrorKind::NotFound => Ok(None),
+            Ok(bytes) => {
+                let (json, outcome) = read_lyrics(&bytes);
+                log::info!("spotify lyrics {track_uri}: {outcome}");
+                Ok(json)
+            }
+            Err(error) if error.kind == ErrorKind::NotFound => {
+                log::info!("spotify lyrics {track_uri}: not found");
+                Ok(None)
+            }
             Err(error) => Err(anyhow!("spotify lyrics: {error}")),
         }
     }
@@ -1366,6 +1373,24 @@ fn decode_folder_name(encoded: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// What came back for a lyrics request, and what to log of it: its shape and
+/// size, never its words.
+fn read_lyrics(bytes: &[u8]) -> (Option<serde_json::Value>, String) {
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return (None, format!("unparseable, {} bytes", bytes.len()));
+    };
+    let lines = json
+        .get("lyrics")
+        .and_then(|lyrics| lyrics.get("lines"))
+        .and_then(|lines| lines.as_array())
+        .map(Vec::len);
+    let outcome = match lines {
+        Some(lines) => format!("found, {lines} lines"),
+        None => format!("no lines in the answer, {} bytes", bytes.len()),
+    };
+    (Some(json), outcome)
 }
 
 #[cfg(test)]
@@ -2095,5 +2120,23 @@ mod tests {
         let elsewhere = ClusterView::of(&cluster("sonos", "spotify:track:b", true, 20_000));
         assert!(ours.changed_elsewhere(&elsewhere, "this"));
         assert!(elsewhere.changed_elsewhere(&ours, "this"));
+    }
+
+    /// The log says which of the ways to no lyrics it was, without the words.
+    #[test]
+    fn a_lyrics_answer_is_described_by_its_shape_and_never_its_words() {
+        let (json, outcome) = read_lyrics(b"<html>secret</html>");
+        assert!(json.is_none());
+        assert_eq!(outcome, "unparseable, 19 bytes");
+        assert_eq!(read_lyrics(b"").1, "unparseable, 0 bytes");
+
+        let body = br#"{"lyrics":{"lines":[{"words":"secret"},{"words":"words"}]}}"#;
+        let (json, outcome) = read_lyrics(body);
+        assert!(json.is_some());
+        assert_eq!(outcome, "found, 2 lines");
+
+        let (json, outcome) = read_lyrics(b"{\"message\":\"secret\"}");
+        assert!(json.is_some(), "a body the caller still gets to read");
+        assert_eq!(outcome, "no lines in the answer, 20 bytes");
     }
 }
