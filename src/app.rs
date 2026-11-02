@@ -124,6 +124,14 @@ struct PendingRemoteVolume {
     mismatches: u8,
 }
 
+impl PendingRemoteVolume {
+    /// Whether `device`, the one the Web API reports playing, may be the one
+    /// this volume was set on. It reports a Sonos without an id.
+    fn may_be_on(&self, device: Option<&Device>) -> bool {
+        device.is_some_and(|device| device.id.is_none() || device.id == self.device_id)
+    }
+}
+
 /// A volume Spotify pushed for the remote device.
 struct PushedVolume {
     percent: u8,
@@ -2290,12 +2298,7 @@ impl App {
             self.backend.soloist_output_volume.percent()
         } else {
             match &self.pending_remote_volume {
-                Some(pending)
-                    if pending.device_id.as_deref()
-                        == device.and_then(|device| device.id.as_deref()) =>
-                {
-                    pending.percent
-                }
+                Some(pending) if pending.may_be_on(device) => pending.percent,
                 _ => device
                     .and_then(|device| device.volume_percent)
                     .unwrap_or(50),
@@ -10472,9 +10475,7 @@ impl App {
         let device = state.and_then(|state| state.device.as_ref());
         // A device change ends this intent. Missing volume on the same
         // device confirms neither the write nor a change made elsewhere.
-        if device.and_then(|device| device.id.as_deref()) != pending.device_id.as_deref()
-            || device.is_none()
-        {
+        if !pending.may_be_on(device) {
             self.pending_remote_volume = None;
             return;
         }
@@ -31160,6 +31161,50 @@ mod tests {
         report_remote_volume(&mut app, 5, Some(65));
         assert!(app.pending_remote_volume.is_none());
         assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+        app.backend.shutdown();
+    }
+
+    /// The Web API reports a Sonos without an id, also one chosen here by
+    /// its Connect id. Its volume holds the same way.
+    #[test]
+    fn remote_volume_holds_on_a_sonos_the_web_api_reports_without_an_id() {
+        let mut app = remote_volume_app();
+        let device = app.remote.as_mut().unwrap().state.device.as_mut().unwrap();
+        device.id = None;
+        device.is_restricted = true;
+        app.local_ready = true;
+        app.selected_device = Some("sonos".into());
+        assert_eq!(app.target(), Target::Remote(Some("sonos".into())));
+        app.set_volume(65, true);
+        assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        app.handle_remote_volume("sonos", percent_to_volume(65));
+        for seq in 1..4 {
+            report_remote_volume(&mut app, seq, Some(35));
+            assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+            assert!(app.pending_remote_volume.is_some());
+        }
+        report_remote_volume(&mut app, 4, Some(65));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+        // Playback moved on to a device the Web API names: the hold ends.
+        app.set_volume(80, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        let device = app.remote.as_mut().unwrap().state.device.as_mut().unwrap();
+        device.id = Some("phone".into());
+        report_remote_volume(&mut app, 5, Some(35));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 35);
         app.backend.shutdown();
     }
 
