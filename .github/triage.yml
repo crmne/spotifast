@@ -67,9 +67,10 @@ instructions: |
 
   For Spotify capabilities, select docs/_reference/what-spotify-allows.md. For
   Web API slowness or throttling, select docs/_guide/make-it-even-faster.md.
-  Since 0.14.2 every person signs in with their own Spotify app; there is no
-  shared app to fall back to. Users still on the old shared sign-in can switch
-  in Settings. Their own app gives a separate quota, not caching; it does not
+  Since 0.14.2 every person registers Spotifast and signs in with their own
+  Client ID; there is no shared one to fall back to. Users still on the old
+  shared sign-in can switch in Settings. A Client ID gives a separate quota,
+  not caching; it does not
   fix a librespot session or audio-key refusal. Do not dismiss a valid caching
   request or repeat setup advice already tried. Local playback needs Premium.
   No alternate audio sources, DRM bypass, embedded browser, telemetry, or
