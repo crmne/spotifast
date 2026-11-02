@@ -679,6 +679,11 @@ impl Runtime {
         (out, wake)
     }
 
+    #[cfg(test)]
+    pub fn logged_errors(&self) -> Vec<String> {
+        self.logged.iter().cloned().collect()
+    }
+
     /// Takes what a view asked of its window.
     pub fn window_commands(&mut self, key: u32) -> Vec<WindowCommand> {
         self.index_of(key).map_or_else(Vec::new, |index| {

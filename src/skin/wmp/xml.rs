@@ -5,8 +5,10 @@
 //! stray text, any case, comments, and an attribute given twice, where the
 //! last one counts, as the skins that do it were tuned to.
 
-/// The deepest element nesting kept; deeper elements are dropped.
-const MAX_DEPTH: usize = 64;
+/// The deepest element nesting kept; deeper elements are dropped. Building,
+/// laying out, painting and hit testing a view all recurse this far on the
+/// window's thread. Real skins nest about a dozen.
+const MAX_DEPTH: usize = 32;
 /// The most elements a definition may have.
 const MAX_NODES: usize = 100_000;
 

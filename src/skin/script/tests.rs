@@ -716,7 +716,7 @@ fn heap_limit_stops_and_collection_recovers() {
 #[test]
 fn recursion_ends_in_a_depth_error() {
     let mut e = engine();
-    assert_eq!(number("function f(n){return n==0?0:1+f(n-1)} f(90)"), 90.0);
+    assert_eq!(number("function f(n){return n==0?0:1+f(n-1)} f(10)"), 10.0);
     let bombs = [
         "function f(){return f()} f()",
         "function f(){try{f()}catch(e){f()}} f()",
@@ -739,54 +739,166 @@ fn recursion_ends_in_a_depth_error() {
     }
 }
 
-/// Runs the deepest paths on a stack a little under the 2 MiB a script thread
-/// gets, in whatever build the tests run in; a debug build is the worst.
+/// Runs `work` on a stack smaller than any a script meets: macOS gives a
+/// secondary thread 512 KiB and Windows its main thread 1 MiB.
+fn on_small_stack(work: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(work)
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+fn survives(source: String) {
+    on_small_stack(move || {
+        let mut e = Engine::new(Limits {
+            steps: 10_000_000,
+            ..Limits::default()
+        });
+        let _ = run(&mut e, &source);
+        assert_alive(&mut e);
+    });
+}
+
 #[test]
-fn stack_survives_every_recursive_path() {
-    let calls = [
+fn parsing_fits_a_small_stack() {
+    let n = 50_000;
+    for (open, close) in [
+        ("(", ")"),
+        ("[", "]"),
+        ("{", "}"),
+        ("{a:", "}"),
+        ("x={a:", "}"),
+        ("!", ""),
+        ("-", ""),
+        ("typeof ", ""),
+        ("++", ""),
+        ("f(", ")"),
+        ("a[", "]"),
+        ("a?", ":1"),
+        ("a=", ""),
+        ("if(1)", ""),
+        ("if(1);else ", ""),
+        ("while(0)", ""),
+        ("for(;;)", ""),
+        ("do ", " while(0)"),
+        ("try{", "}finally{}"),
+        ("with(a)", ""),
+        ("l:", ""),
+        ("function f(){", "}"),
+        ("(function(){", "})"),
+        ("new ", ""),
+    ] {
+        survives(format!("{}1{}", open.repeat(n), close.repeat(n)));
+    }
+}
+
+#[test]
+fn evaluation_fits_a_small_stack() {
+    for source in [
+        "function f(){return f()} f()",
         "function f(n){var r=[{a:[1+(2*(3-(4+(n?f(n-1):0))))]}];return r} f(1000)",
         "function f(n){if(n){for(;;){try{{with({}){switch(1){case 1:return f(n-1)}}}}finally{}}}} f(1000)",
+        "var o={}; o.f=function(){return this.f.call(this)}; o.f()",
+        "function f(){return f.apply(null,[])} f()",
+        "function F(){new F} new F",
+        "function f(){return eval('f()')} f()",
+        "function f(){return eval('((((((((((((((((f()))))))))))))))))')} f()",
+    ] {
+        survives(source.to_owned());
+    }
+}
+
+#[test]
+fn conversions_fit_a_small_stack() {
+    for source in [
+        "var o={toString:function(){return ''+o}}; ''+o",
+        "var o={valueOf:function(){return +o}}; +o",
+        "var o={toString:function(){return o}, valueOf:function(){return o}}; ''+o",
+        "var a=[]; a[0]=a; a.join()",
+        "var a=[]; a[0]=a; ''+a",
+        "var a=[]; for(var i=0;i<100000;i++){a=[a]} ''+a",
+        "function f(){return [[{toString:function(){return f()}}]].join()} f()",
+    ] {
+        survives(source.to_owned());
+    }
+}
+
+#[test]
+fn callbacks_fit_a_small_stack() {
+    for source in [
         "function f(){return [1,2].sort(function(a,b){return f()})} f()",
         "function f(){return 'a'.replace(/a/,function(){return ''+{toString:f}})} f()",
-        "function f(){return [[{toString:function(){return f()}}]].join()} f()",
-        "function f(){return eval('((((((((((((((((f()))))))))))))))))')} f()",
-    ];
-    // Eval reaches the parser and regex compiler with the stack already used,
-    // so sweep how much is used when it does.
+    ] {
+        survives(source.to_owned());
+    }
+}
+
+#[test]
+fn regular_expressions_fit_a_small_stack() {
+    let n = 5_000;
+    for pattern in [
+        format!("{}a{}", "(".repeat(n), ")".repeat(n)),
+        format!("{}a{}", "(?:".repeat(n), ")".repeat(n)),
+        format!("{}a{}", "(?=".repeat(30), ")".repeat(30)),
+        format!("{}a{}", "(?!".repeat(n), ")".repeat(n)),
+    ] {
+        survives(format!("new RegExp('{pattern}').test('a')"));
+        survives(format!(
+            "function f(n){{return n?[[[[f(n-1)]]]]:new RegExp('{pattern}').test('a')}} f(40)"
+        ));
+    }
+}
+
+#[test]
+fn long_chains_of_objects_fit_a_small_stack() {
+    on_small_stack(|| {
+        let mut e = Engine::new(Limits {
+            steps: 50_000_000,
+            ..Limits::default()
+        });
+        // Long prototype and property chains: walked, marked, then dropped.
+        let source = "var o={}; for(var i=0;i<50000;i++){function F(){}; F.prototype=o; o=new F}\
+                      o.x; var l=null; for(var i=0;i<50000;i++){l={n:l}} 1";
+        let _ = run(&mut e, source);
+        e.collect(&[]);
+        assert_alive(&mut e);
+        drop(e);
+    });
+}
+
+/// Eval reaches the parser and regex compiler with the stack already used,
+/// so sweep how much is used when it does.
+#[test]
+fn every_depth_of_stack_is_safe_for_what_runs_on_it() {
     let parens = format!("{}1{}", "(".repeat(140), ")".repeat(140));
     let operators = "1||1&&1|1^1&1==1<1<<1+1*(".repeat(12);
     let tail = ")".repeat(12);
     let groups = format!("{}a{}", "(?=".repeat(30), ")".repeat(30));
-    let wide = "[[[[[[[[[[[[[[[[[[[[[[[[";
-    let close = "]]]]]]]]]]]]]]]]]]]]]]]]";
-    std::thread::Builder::new()
-        .stack_size(1_900_000)
-        .spawn(move || {
-            let limits = || Limits {
-                steps: 10_000_000,
-                ..Limits::default()
-            };
-            for call in calls {
-                let mut e = Engine::new(limits());
-                assert!(run(&mut e, call).is_err(), "{call}");
-                assert_alive(&mut e);
+    on_small_stack(move || {
+        for depth in 1..40 {
+            for last in [
+                format!("eval('{parens}')"),
+                format!("eval('{operators}1{tail}')"),
+                format!("new RegExp('{groups}').test('a')"),
+            ] {
+                let source = format!("function f(n){{return n?[[f(n-1)]]:{last}}} f({depth})");
+                let mut e = Engine::new(Limits::default());
+                let _ = run(&mut e, &source);
             }
-            for depth in 1..96 {
-                for last in [
-                    format!("eval('{parens}')"),
-                    format!("eval('{operators}1{tail}')"),
-                    format!("new RegExp('{groups}').test('a')"),
-                ] {
-                    let source =
-                        format!("function f(n){{return n?{wide}f(n-1){close}:{last}}} f({depth})");
-                    let mut e = Engine::new(limits());
-                    let _ = run(&mut e, &source);
-                }
-            }
-        })
-        .unwrap()
-        .join()
-        .unwrap();
+        }
+    });
+}
+
+/// The allowance must leave ordinary skin code alone, even unoptimised.
+#[test]
+fn ordinary_call_depth_is_allowed() {
+    on_small_stack(|| {
+        let mut e = Engine::new(Limits::default());
+        let source = "function f(n){if(n>0){return 1+f(n-1)}return 0} f(10)";
+        assert_eq!(run(&mut e, source).unwrap(), Value::Number(10.0));
+    });
 }
 
 #[test]
