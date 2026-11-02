@@ -4,3 +4,5 @@
 # So must the Cast root certificates and the Cast test chain.
 assets/cast/** binary
 src/testdata/cast/** binary
+# The shipped skins are checked against their sources byte for byte.
+assets/skins/** -text
