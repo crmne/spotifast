@@ -278,6 +278,28 @@ impl Bridge {
     }
 }
 
+/// The stream properties Soloist runs with, added to any the user set.
+///
+/// Only this child's stream stays at unity: its documented volume events
+/// drive our final gain, after the equalizer and visualizers.
+///
+/// `node.dont-fallback` keeps it from ever reaching a speaker unprocessed,
+/// but alone it makes WirePlumber destroy the stream the moment the private
+/// sink goes (linking/find-defined-target.lua), and Soloist then has nothing
+/// left to link to a rebuilt route. `node.linger` makes WirePlumber wait for
+/// the sink's name to come back instead.
+#[cfg(target_os = "linux")]
+pub fn child_props(existing: &str) -> String {
+    let existing = existing.trim();
+    let existing = existing
+        .strip_prefix('{')
+        .and_then(|props| props.strip_suffix('}'))
+        .unwrap_or(existing);
+    format!(
+        "{{ {existing} channelmix.lock-volumes = true node.dont-fallback = true node.dont-move = true node.linger = true }}"
+    )
+}
+
 #[cfg(all(
     test,
     any(
@@ -290,6 +312,24 @@ impl Bridge {
 ))]
 mod tests {
     use super::*;
+
+    /// The route is rebuilt under Soloist's running stream, which must wait
+    /// for it rather than be destroyed or fall back to a speaker.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn soloist_s_stream_waits_for_a_rebuilt_route_and_keeps_the_user_s_props() {
+        let props = child_props(" { node.latency = 1024/48000 } ");
+        assert!(props.contains("node.latency = 1024/48000"), "{props}");
+        assert!(props.starts_with('{') && props.ends_with('}'), "{props}");
+        for wanted in [
+            "node.linger = true",
+            "node.dont-fallback = true",
+            "node.dont-move = true",
+            "channelmix.lock-volumes = true",
+        ] {
+            assert!(props.contains(wanted), "{props}");
+        }
+    }
 
     /// One bad moment rebuilds at once, a few more wait, and a route that
     /// keeps failing stops using up the audio thread.
@@ -377,12 +417,13 @@ mod tests {
 mod pipewire {
     use super::*;
     use ::pipewire as pw;
-    use pw::{properties::properties, spa};
+    use pw::{properties::properties, proxy::ProxyT, spa};
     use std::{
         cell::{Cell, RefCell},
         collections::{HashMap, HashSet, VecDeque},
         rc::Rc,
     };
+    const EPIPE: i32 = 32;
     const RATE: usize = 44_100;
     const MAX_SAMPLES: usize = RATE / 2; // A quarter-second of stereo, always bounded.
     /// How long the input may stay silent behind a link that won't go away.
@@ -463,6 +504,37 @@ mod pipewire {
                     self.helpers.insert(pid);
                 }
             }
+        }
+    }
+
+    /// Whether a core error means the connection is gone. Everything else,
+    /// even on the core object, is one request PipeWire turned down, with the
+    /// connection fine: pw_stream, on the same event, stops only for this.
+    /// A hangup is reported as -EPIPE on PW_ID_CORE (module-protocol-native.c).
+    fn connection_lost(id: u32, res: i32) -> bool {
+        id == pw::core::PW_ID_CORE && res == -EPIPE
+    }
+
+    /// Proxies of objects that have left, held until the server has said so.
+    ///
+    /// The registry reports a global's removal before the server has told us
+    /// its resource went. Dropping a proxy in between asks the server to
+    /// destroy what it no longer has, and it answers "unknown resource N
+    /// op:7" (PW_CORE_METHOD_DESTROY). A proxy dropped after it was removed
+    /// sends nothing.
+    struct Leaving<T>(Vec<(Rc<Cell<bool>>, T)>);
+    impl<T> Default for Leaving<T> {
+        fn default() -> Self {
+            Self(Vec::new())
+        }
+    }
+    impl<T> Leaving<T> {
+        fn add(&mut self, gone: Rc<Cell<bool>>, proxy: T) {
+            self.0.push((gone, proxy));
+        }
+        /// Drops the ones the server has removed.
+        fn settle(&mut self) {
+            self.0.retain(|(gone, _)| !gone.get());
         }
     }
 
@@ -593,10 +665,12 @@ mod pipewire {
         let core_loop = mainloop.clone();
         let _core_listener = core
             .add_listener_local()
-            .error(move |id, _, _, message| {
-                if id == 0 {
+            .error(move |id, seq, res, message| {
+                if connection_lost(id, res) {
                     core_state.fail(format!("lost the PipeWire connection: {message}"));
                     core_loop.quit();
+                } else {
+                    log::debug!("PipeWire refused a request ({id}, {seq}, {res}): {message}");
                 }
             })
             .register();
@@ -609,6 +683,8 @@ mod pipewire {
         let clients = Rc::new(RefCell::new(HashMap::new()));
         let added_clients = clients.clone();
         let removed_clients = clients;
+        let leaving = Rc::new(RefCell::new(Leaving::default()));
+        let left = leaving.clone();
 
         let _registry_listener = registry
             .add_listener_local()
@@ -635,7 +711,16 @@ mod pipewire {
                                     }
                                 })
                                 .register();
-                            added_clients.borrow_mut().insert(id, (client, listener));
+                            let gone = Rc::new(Cell::new(false));
+                            let removed = gone.clone();
+                            let proxy = client
+                                .upcast_ref()
+                                .add_listener_local()
+                                .removed(move || removed.set(true))
+                                .register();
+                            added_clients
+                                .borrow_mut()
+                                .insert(id, (gone, (client, listener, proxy)));
                         }
                     }
                     pw::types::ObjectType::Node => {
@@ -662,7 +747,9 @@ mod pipewire {
                 graph.nodes.remove(&id);
                 graph.names.remove(&id);
                 graph.links.remove(&id);
-                removed_clients.borrow_mut().remove(&id);
+                if let Some((gone, client)) = removed_clients.borrow_mut().remove(&id) {
+                    left.borrow_mut().add(gone, client);
+                }
             })
             .register();
         let audio = Rc::new(RefCell::new(Audio::new(config.eq, config.tap)));
@@ -889,6 +976,7 @@ mod pipewire {
                 done.quit();
                 return;
             }
+            leaving.borrow_mut().settle();
             // Linking does not require playback. Show EQ and visualizers as
             // soon as the owned child is routed, including while paused.
             let input_id = active_input.node_id();
@@ -984,6 +1072,29 @@ mod pipewire {
                 .iter()
                 .map(|b| f32::from_le_bytes(*b).abs())
                 .fold(0.0, f32::max)
+        }
+
+        #[test]
+        fn only_a_hangup_loses_the_connection() {
+            assert!(connection_lost(0, -32));
+            // "unknown resource 28 op:7": sent on the core, with the
+            // connection perfectly healthy.
+            assert!(!connection_lost(0, -2));
+            assert!(!connection_lost(28, -32));
+            assert!(!connection_lost(28, -2));
+        }
+
+        #[test]
+        fn a_leaving_proxy_is_kept_until_the_server_has_removed_it() {
+            let proxy = Rc::new(());
+            let gone = Rc::new(Cell::new(false));
+            let mut leaving = Leaving::default();
+            leaving.add(gone.clone(), proxy.clone());
+            leaving.settle();
+            assert_eq!(Rc::strong_count(&proxy), 2, "the server still has it");
+            gone.set(true);
+            leaving.settle();
+            assert_eq!(Rc::strong_count(&proxy), 1);
         }
 
         #[test]
@@ -1138,6 +1249,230 @@ mod pipewire {
                 audio.samples.is_empty(),
                 "oversized input cannot queue stale music"
             );
+        }
+
+        /// What the private tests below need: a bridge to the private null
+        /// sink, and a stand-in for Soloist playing a tone at it.
+        struct Private {
+            bridge: Bridge,
+            source: tokio::process::Child,
+            feed: tokio::task::JoinHandle<()>,
+        }
+        impl Private {
+            async fn open() -> Self {
+                use std::process::Stdio;
+                use tokio::io::AsyncWriteExt;
+                let output =
+                    std::env::var("SOLOIST_AUDIO_TEST_OUTPUT").expect("private null sink required");
+                assert!(output.starts_with("spotifast_test_"));
+                assert!(
+                    std::env::var("PIPEWIRE_RUNTIME_DIR").is_ok(),
+                    "these tests start and stop clients: private instance only"
+                );
+                let dirs = crate::paths::AppDirs {
+                    config: std::path::PathBuf::new(),
+                    state: std::path::PathBuf::new(),
+                    cache: std::path::PathBuf::new(),
+                };
+                let config = crate::app::engine_config(
+                    &dirs,
+                    &crate::settings::Settings::default(),
+                    crate::settings::ProxyConfig::Off,
+                    crate::vis::AudioTap::new(),
+                    crate::eq::shared(),
+                );
+                // As in the app, the output finds its own way to the default
+                // sink, which here is the only one there is.
+                let bridge = Bridge::open_on(config, None).await.expect("private bridge");
+                let mut source = tokio::process::Command::new("pw-play")
+                    .args([
+                        "--target",
+                        &bridge.name,
+                        "--raw",
+                        "--format",
+                        "f32",
+                        "--rate",
+                        "48000",
+                        "--channels",
+                        "2",
+                        // The quantum of the graph being measured.
+                        "--latency",
+                        "1024",
+                        "-",
+                    ])
+                    .env("PIPEWIRE_PROPS", child_props(""))
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .kill_on_drop(true)
+                    .spawn()
+                    .unwrap();
+                bridge.child(source.id().unwrap());
+                let mut stdin = source.stdin.take().unwrap();
+                let feed = tokio::spawn(async move {
+                    let tone = tone(48_000, 48_000);
+                    while stdin.write_all(&tone).await.is_ok() {}
+                });
+                bridge.update(&json!({"status":"playing", "volume":100, "is_active":true}));
+                let private = Self {
+                    bridge,
+                    source,
+                    feed,
+                };
+                private.wait_routed().await;
+                private
+            }
+            async fn wait_routed(&self) {
+                for _ in 0..100 {
+                    if self.bridge.routed() {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                panic!(
+                    "the stand-in never reached the route: {:?}",
+                    self.bridge.fault()
+                );
+            }
+            async fn finish(mut self) {
+                let _ = self.source.kill().await;
+                let _ = self.source.wait().await;
+                let _ = self.feed.await;
+            }
+        }
+
+        /// Every client that left used to risk the route, by way of "unknown
+        /// resource N op:7": any pw-cli, any app closing its connection.
+        #[tokio::test]
+        #[ignore = "requires a private PipeWire with WirePlumber, see SOLOIST_AUDIO_TEST_OUTPUT"]
+        async fn clients_leaving_leave_the_route_alone() {
+            let private = Private::open().await;
+            for _ in 0..50 {
+                let status = tokio::process::Command::new("pw-cli")
+                    .args(["info", "0"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .await
+                    .unwrap();
+                assert!(status.success());
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                assert_eq!(private.bridge.fault(), None);
+            }
+            private.finish().await;
+        }
+
+        /// The stream of a running Soloist, whose target name is fixed at
+        /// launch, has to come back to a route built under it.
+        #[tokio::test]
+        #[ignore = "requires a private PipeWire with WirePlumber, see SOLOIST_AUDIO_TEST_OUTPUT"]
+        async fn a_running_stream_returns_to_a_rebuilt_route() {
+            let private = Private::open().await;
+            private.bridge.state.fail("a test wanted a rebuild");
+            assert!(private.bridge.rebuild().await, "the route came back up");
+            assert!(!private.bridge.routed());
+            private.bridge.update(&json!({"status":"playing"}));
+            private.wait_routed().await;
+            private.finish().await;
+        }
+
+        /// Records the private sink for `SOLOIST_SOAK_SECONDS` and reports
+        /// every break in the tone. Run it with and without CPU load.
+        #[tokio::test]
+        #[ignore = "a measurement, requires a private PipeWire with WirePlumber"]
+        async fn soak() {
+            let seconds: usize =
+                std::env::var("SOLOIST_SOAK_SECONDS").map_or(20, |value| value.parse().unwrap());
+            let private = Private::open().await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let frames = seconds * 48_000;
+            let recording = tokio::process::Command::new("pw-record")
+                .args([
+                    "--properties",
+                    "{ stream.capture.sink=true }",
+                    "--raw",
+                    "--format",
+                    "f32",
+                    "--rate",
+                    "48000",
+                    "--channels",
+                    "2",
+                    "--sample-count",
+                    &frames.to_string(),
+                    "-",
+                ])
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true)
+                .output()
+                .await
+                .unwrap()
+                .stdout;
+            let samples: Vec<f32> = recording
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|bytes| f32::from_le_bytes(*bytes))
+                .collect();
+            let breaks = tone_breaks(&samples);
+            println!(
+                "soak: {} frames, {} breaks, {} frames broken, longest {}, failed={}",
+                samples.len() / 2,
+                breaks.len(),
+                breaks.iter().sum::<usize>(),
+                breaks.iter().max().unwrap_or(&0),
+                private.bridge.failed()
+            );
+            private.finish().await;
+        }
+
+        /// Frames in one period of the soak's 1 kHz tone at 48 kHz.
+        const PERIOD: usize = 48;
+
+        /// Differences closer than this are one break: a gap of silence
+        /// shows at both its edges, a period apart from what is around it.
+        const MERGED: usize = 4096;
+
+        /// How long each break in a steady tone lasts, in frames, on the left
+        /// channel from where the tone starts. Silence and a jump alike make
+        /// a frame differ from the one a period before it.
+        fn tone_breaks(interleaved: &[f32]) -> Vec<usize> {
+            let left: Vec<f32> = interleaved.iter().step_by(2).copied().collect();
+            let Some(start) = left.iter().position(|sample| sample.abs() > 0.05) else {
+                return Vec::new();
+            };
+            // The gain's fade-in from silence is not a break.
+            let left = &left[(start + 48_000 / 10).min(left.len())..];
+            let mut breaks = Vec::new();
+            let mut last: Option<(usize, usize)> = None;
+            for frame in PERIOD..left.len() {
+                if (left[frame] - left[frame - PERIOD]).abs() < 0.01 {
+                    continue;
+                }
+                last = match last {
+                    Some((first, end)) if frame - end <= MERGED => Some((first, frame)),
+                    Some((first, end)) => {
+                        breaks.push(end + 1 - first);
+                        Some((frame, frame))
+                    }
+                    None => Some((frame, frame)),
+                };
+            }
+            breaks.extend(last.map(|(first, end)| end + 1 - first));
+            breaks
+        }
+
+        #[test]
+        fn a_gap_in_a_tone_counts_once() {
+            let mut stereo: Vec<f32> = tone(48_000, 9600)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|bytes| f32::from_le_bytes(*bytes))
+                .collect();
+            assert!(tone_breaks(&stereo).is_empty());
+            stereo[12_000..12_256].fill(0.0);
+            assert_eq!(tone_breaks(&stereo).len(), 1);
         }
 
         /// Run against a temporary null sink created by the caller. Captures
