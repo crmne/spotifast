@@ -3204,6 +3204,26 @@ pub fn chips<T: PartialEq + Copy>(
     selected
 }
 
+/// Chips for a list of any length, such as installed skins: they wrap onto as
+/// many rows as they need, so every choice is in sight.
+pub fn wrapped_chips<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    palette: &Palette,
+    options: &[(T, &str)],
+    current: T,
+) -> Option<T> {
+    let mut selected = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        for (value, label) in options {
+            if theme::soft_button(ui, palette, None, label, *value == current).clicked() {
+                selected = Some(*value);
+            }
+        }
+    });
+    selected
+}
+
 /// How wide the fade over a chip row's clipped edge is.
 const CHIP_FADE: f32 = 24.0;
 

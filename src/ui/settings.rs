@@ -1917,7 +1917,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     } else {
                         current
                     };
-                    if let Some(picked) = widgets::chips(ui, &palette, &options, current) {
+                    if let Some(picked) = widgets::wrapped_chips(ui, &palette, &options, current) {
                         app.actions.push(Action::SetSkin(
                             picked
                                 .checked_sub(1)
@@ -1957,7 +1957,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         let current = showing
                             .filter(|index| choices[*index].kind == SkinKind::WindowsMediaPlayer)
                             .unwrap_or(usize::MAX);
-                        if let Some(picked) = widgets::chips(ui, &palette, &options, current) {
+                        if let Some(picked) =
+                            widgets::wrapped_chips(ui, &palette, &options, current)
+                        {
                             app.actions
                                 .push(Action::SetSkin(Some(choices[picked].name.clone())));
                         }
@@ -2296,7 +2298,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 .unwrap_or(usize::MAX);
             let eq_extra_visible = equalizer_rows[1].matches(&needle, &equalizer);
             if eq_extra_visible {
-                if let Some(picked) = widgets::chips(ui, &palette, &names, current) {
+                if let Some(picked) = widgets::wrapped_chips(ui, &palette, &names, current) {
                     app.actions.push(match picked.checked_sub(built_in) {
                         Some(user) => Action::ApplyUserEqPreset(user_presets[user].name.clone()),
                         None => Action::ApplyEqPreset(picked),
