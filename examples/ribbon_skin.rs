@@ -1,4 +1,4 @@
-//! Cuts Spotifast Ribbon, the Windows Media Player skin the app ships, from
+//! Cuts the Windows Media Player skin the app ships from
 //! its generated art.
 //!
 //! The body is not drawn here. `assets/skins/ribbon/source/plate.png` and
@@ -6,13 +6,16 @@
 //! a floating smoked-glass core, on flat magenta. This takes them apart for
 //! the skin: it keys out the magenta and scales down to a hard outline, since
 //! a window has no soft edge; separates the glass from the ceramic; takes the
-//! green out of the arch to get the light off and the light alone; and walks
-//! along the ribbon to make the strip it sweeps round the core with. Only the
-//! window glyphs and the slider parts are drawn, being a few pixels each.
+//! green out of the arch to get the light off and the light alone; and makes
+//! the opening's frames from the plate, with a mask for each: a thread of light
+//! along the outline, then a wipe that brings on ceramic and glass together.
+//! Only the small glyphs and the slider parts are drawn, being a few pixels
+//! each.
 //!
 //! `cargo run --example ribbon_skin` regenerates
 //! `assets/skins/spotifast-ribbon.wmz` from this file and from
-//! `assets/skins/ribbon`, which holds the definition and script as well.
+//! `assets/skins/ribbon`, which holds the definition and script as well. The
+//! definition's `@bands` line is filled in here.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -25,10 +28,20 @@ const HEIGHT: u32 = 420;
 /// The square that shows the album art or the visualizer.
 const PANE: (u32, u32, u32) = (62, 75, 126);
 const PANE_ROUND: f32 = 9.0;
-/// Frames of the ribbon sweeping round. The last is the whole ribbon.
-const SWEEP_FRAMES: u32 = 14;
-/// Where the ribbon starts from, at the pill's free end.
-const SWEEP_FROM: (u32, u32) = (176, 338);
+/// The box of the glass above the pill, which the visualizer fills.
+const VISUAL: (u32, u32, u32, u32) = (34, 46, 176, 276);
+/// How wide the rim is that softens the visualizer's cut edge.
+const RIM: u32 = 3;
+/// The colour keyed out of the shape, in the definition's `clippingColor`.
+const OUTSIDE: [f32; 4] = [1.0, 0.0, 1.0, 1.0];
+/// Frames of the thread of light going round, the first of them empty.
+const TRACE_FRAMES: u32 = 14;
+/// Frames of the wipe, the first empty and the last the whole object.
+const WIPE_FRAMES: u32 = 8;
+/// Where the light starts: the outside of the arch.
+const ARCH: (u32, u32) = (84, 22);
+/// How far from the outline the thread's glow reaches.
+const GLOW: i32 = 5;
 /// Where glass may be found, to tell it from the ceramic.
 const GLASS_SEEDS: [(u32, u32); 2] = [(130, 240), (130, 395)];
 
@@ -207,23 +220,76 @@ fn smoothed(mut mask: Vec<bool>, solid: &[bool]) -> Vec<bool> {
     mask
 }
 
-/// Steps along the ribbon from the pill, so that a front can run its length.
-fn walk(ribbon: &[bool]) -> (Vec<u32>, u32) {
-    let mut steps = vec![u32::MAX; ribbon.len()];
-    let mut queue = VecDeque::from([SWEEP_FROM]);
-    steps[at(SWEEP_FROM.0, SWEEP_FROM.1)] = 0;
-    let mut longest = 0;
-    while let Some((x, y)) = queue.pop_front() {
-        let here = steps[at(x, y)];
-        longest = longest.max(here);
-        for (nx, ny) in neighbours(x, y) {
-            if ribbon[at(nx, ny)] && steps[at(nx, ny)] == u32::MAX {
-                steps[at(nx, ny)] = here + 1;
-                queue.push_back((nx, ny));
+/// The object's outline as one line, from the arch and round.
+fn outline_of(solid: &[bool]) -> Vec<(u32, u32)> {
+    let mut edge: Vec<(u32, u32)> = Vec::new();
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let open = x == 0
+                || y == 0
+                || x == WIDTH - 1
+                || y == HEIGHT - 1
+                || neighbours(x, y).any(|(nx, ny)| !solid[at(nx, ny)]);
+            if solid[at(x, y)] && open {
+                edge.push((x, y));
             }
         }
     }
-    (steps, longest)
+    let far = |a: (u32, u32), b: (u32, u32)| {
+        let (dx, dy) = (a.0 as i64 - b.0 as i64, a.1 as i64 - b.1 as i64);
+        dx * dx + dy * dy
+    };
+    let start = (0..edge.len())
+        .min_by_key(|index| far(edge[*index], ARCH))
+        .expect("an outline");
+    let mut here = edge.swap_remove(start);
+    let mut line = vec![here];
+    while let Some(next) = (0..edge.len()).min_by_key(|index| far(edge[*index], here)) {
+        if far(edge[next], here) > 36 {
+            break;
+        }
+        here = edge.swap_remove(next);
+        line.push(here);
+    }
+    line
+}
+
+/// For each pixel near the outline, how far along it and how far from it.
+fn near_outline(line: &[(u32, u32)]) -> Vec<(usize, f32)> {
+    let mut near = vec![(usize::MAX, f32::MAX); (WIDTH * HEIGHT) as usize];
+    for (index, (x, y)) in line.iter().enumerate() {
+        for dy in -GLOW..=GLOW {
+            for dx in -GLOW..=GLOW {
+                let (px, py) = (*x as i32 + dx, *y as i32 + dy);
+                if px < 0 || py < 0 || px >= WIDTH as i32 || py >= HEIGHT as i32 {
+                    continue;
+                }
+                let distance = (dx as f32).hypot(dy as f32);
+                let slot = &mut near[at(px as u32, py as u32)];
+                if distance < slot.1 {
+                    *slot = (index, distance);
+                }
+            }
+        }
+    }
+    near
+}
+
+fn stack(frames: u32, frame: impl Fn(u32, u32, u32) -> [f32; 4]) -> RgbaImage {
+    let mut strip = RgbaImage::new(WIDTH, HEIGHT * frames);
+    for at_frame in 0..frames {
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let pixel = frame(at_frame, x, y);
+                strip.put_pixel(
+                    x,
+                    y + at_frame * HEIGHT,
+                    Rgba(pixel.map(|channel| (channel.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)),
+                );
+            }
+        }
+    }
+    strip
 }
 
 /// Whether a pixel is inside the pane's rounded square, softly.
@@ -322,6 +388,48 @@ fn thumb(color: Color) -> RgbaImage {
     glyph(9, color, &|x, y| (x - 4.5).hypot(y - 4.5) - 4.0)
 }
 
+/// An equalizer band's track, upright, with a mark at no change.
+fn eq_track(color: Color) -> RgbaImage {
+    picture(9, 150, |x, y| {
+        let rail = x == 4 && (2..148).contains(&y);
+        let mark = y == 75 && (2..7).contains(&x);
+        let shade = if mark { 2.0 } else { 1.0 };
+        [
+            color[0] * shade,
+            color[1] * shade,
+            color[2] * shade,
+            f32::from(u8::from(rail || mark)),
+        ]
+    })
+}
+
+/// Three dots, one to a page, the page that is up in green.
+fn page_dots(page: u32) -> RgbaImage {
+    let lit = glyph(24, GREEN, &|x, y| {
+        (x - (4.0 + page as f32 * 8.0)).hypot(y - 5.5) - 2.2
+    });
+    let rest = glyph(24, SOFT, &|x, y| {
+        (0..3)
+            .filter(|dot| *dot != page)
+            .map(|dot| (x - (4.0 + dot as f32 * 8.0)).hypot(y - 5.5) - 1.8)
+            .fold(f32::MAX, f32::min)
+    });
+    let mut out = rest;
+    image::imageops::overlay(&mut out, &lit, 0, 0);
+    out.view_crop(24, 11)
+}
+
+fn switch(on: bool) -> RgbaImage {
+    let body = glyph(20, if on { GREEN } else { [0.26, 0.285, 0.32] }, &|x, y| {
+        line(x, y, (5.0, 5.0), (15.0, 5.0)) - 4.5
+    });
+    let knob_at = if on { 15.0 } else { 5.0 };
+    let knob = glyph(20, WHITE, &|x, y| (x - knob_at).hypot(y - 5.0) - 3.2);
+    let mut out = body;
+    image::imageops::overlay(&mut out, &knob, 0, 0);
+    out.view_crop(20, 10)
+}
+
 const WHITE: Color = [0.95, 0.957, 0.965];
 const SOFT: Color = [0.66, 0.69, 0.74];
 const GREEN: Color = [0.118, 0.843, 0.376];
@@ -345,8 +453,50 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
         .zip(&glass)
         .map(|(solid, glass)| *solid && !glass)
         .collect();
-    let (steps, longest) = walk(&ribbon);
+    visual_parts(files, &plate, &glass);
+    let line = outline_of(&solid);
+    let near = near_outline(&line);
+    let reach_of = |x: u32, y: u32| (x as f32 - ARCH.0 as f32).hypot(y as f32 - ARCH.1 as f32);
+    let furthest = (0..HEIGHT)
+        .flat_map(|y| (0..WIDTH).map(move |x| (x, y)))
+        .filter(|(x, y)| solid[at(*x, *y)])
+        .map(|(x, y)| reach_of(x, y))
+        .fold(0.0, f32::max);
 
+    let trace = stack(TRACE_FRAMES, |frame, x, y| {
+        let head = line.len() * frame as usize / (TRACE_FRAMES as usize - 1);
+        let (index, distance) = near[at(x, y)];
+        if index >= head {
+            return [0.0; 4];
+        }
+        let thread = (1.6 - distance).clamp(0.0, 1.0);
+        let glow = 0.42 * (1.0 - distance / (GLOW as f32 + 0.5)).max(0.0).powi(2);
+        let hot = (1.0 - (head - index) as f32 / 40.0).max(0.0);
+        let color = [0, 1, 2].map(|at| BRIGHT[at] * (1.0 - hot) + WHITE[at] * hot);
+        [color[0], color[1], color[2], thread.max(glow)]
+    });
+    // The whole plate through one mask: ceramic and glass come on together,
+    // behind a bright edge that carries on from the thread.
+    let wipe = stack(WIPE_FRAMES, |frame, x, y| {
+        let last = frame == WIPE_FRAMES - 1;
+        let reach = furthest * frame as f32 / (WIPE_FRAMES - 1) as f32 + 1.0;
+        let distance = reach_of(x, y);
+        if !solid[at(x, y)] || frame == 0 || distance > reach {
+            return [0.0; 4];
+        }
+        let [r, g, b] = plate.colors[at(x, y)];
+        let edge = if last {
+            0.0
+        } else {
+            (1.0 - (reach - distance) / 7.0).max(0.0)
+        };
+        [
+            r * (1.0 - edge) + BRIGHT[0] * edge,
+            g * (1.0 - edge) + BRIGHT[1] * edge,
+            b * (1.0 - edge) + BRIGHT[2] * edge,
+            1.0,
+        ]
+    });
     let core = picture(WIDTH, HEIGHT, |x, y| {
         let index = at(x, y);
         let [r, g, b] = unlit(plate.colors[index]);
@@ -357,28 +507,11 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
         };
         [r, g, b, shown]
     });
-    let shown_ribbon = |x: u32, y: u32, reach: u32| {
+    let whole = picture(WIDTH, HEIGHT, |x, y| {
         let index = at(x, y);
         let [r, g, b] = unlit(plate.colors[index]);
-        // What the walk could not reach, cut off from the rest, comes last.
-        let on = ribbon[index] && (steps[index] <= reach || reach >= longest);
-        [r, g, b, f32::from(u8::from(on))]
-    };
-    let mut sweep = RgbaImage::new(WIDTH, HEIGHT * SWEEP_FRAMES);
-    for frame in 0..SWEEP_FRAMES {
-        let reach = longest * (frame + 1) / SWEEP_FRAMES;
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let pixel = shown_ribbon(x, y, reach);
-                sweep.put_pixel(
-                    x,
-                    y + frame * HEIGHT,
-                    Rgba(pixel.map(|channel| (channel * 255.0 + 0.5) as u8)),
-                );
-            }
-        }
-    }
-    let whole = picture(WIDTH, HEIGHT, |x, y| shown_ribbon(x, y, longest));
+        [r, g, b, f32::from(u8::from(ribbon[index]))]
+    });
     let light = picture(WIDTH, HEIGHT, |x, y| {
         let index = at(x, y);
         let [r, g, b] = plate.colors[index];
@@ -396,10 +529,87 @@ fn body(files: &mut Vec<(String, Vec<u8>)>) {
         [r, g, b, 1.0]
     });
     files.push(("core.png".into(), png(&core)));
-    files.push(("sweep.png".into(), png(&sweep)));
+    files.push(("trace.png".into(), png(&trace)));
+    files.push(("wipe.png".into(), png(&wipe)));
     files.push(("ribbon.png".into(), png(&whole)));
     files.push(("light.png".into(), png(&light)));
     files.push(("veil.png".into(), png(&veil)));
+}
+
+/// What the full-glass visualizer needs: its shape, a rim of the plate's own
+/// glass to lie over the cut edge, and a soft dark ground for what is drawn
+/// over it, since some presets go white.
+fn visual_parts(files: &mut Vec<(String, Vec<u8>)>, plate: &Cut, glass: &[bool]) {
+    let (left, top, width, height) = VISUAL;
+    // The upper glass alone: the foot lies beyond the pill.
+    let mut upper = vec![false; glass.len()];
+    let mut queue = VecDeque::from([GLASS_SEEDS[0]]);
+    upper[at(GLASS_SEEDS[0].0, GLASS_SEEDS[0].1)] = true;
+    while let Some((x, y)) = queue.pop_front() {
+        for (nx, ny) in neighbours(x, y) {
+            if glass[at(nx, ny)] && !upper[at(nx, ny)] {
+                upper[at(nx, ny)] = true;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    let inside = |x: u32, y: u32| upper[at(x + left, y + top)];
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let beyond = x < left || y < top || x >= left + width || y >= top + height;
+            assert!(!(upper[at(x, y)] && beyond), "the glass is outside the box");
+        }
+    }
+    let mask = picture(width, height, |x, y| {
+        if inside(x, y) {
+            [0.0, 0.0, 0.0, 1.0]
+        } else {
+            OUTSIDE
+        }
+    });
+    let depth = |x: u32, y: u32| {
+        let reach = RIM as i32 + 1;
+        let mut nearest = reach as f32;
+        for dy in -reach..=reach {
+            for dx in -reach..=reach {
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                let out = nx < 0
+                    || ny < 0
+                    || nx >= width as i32
+                    || ny >= height as i32
+                    || !inside(nx as u32, ny as u32);
+                if out {
+                    nearest = nearest.min((dx as f32).hypot(dy as f32));
+                }
+            }
+        }
+        nearest
+    };
+    let rim = picture(width, height, |x, y| {
+        if !inside(x, y) {
+            return [0.0; 4];
+        }
+        let [r, g, b] = unlit(plate.colors[at(x + left, y + top)]);
+        let share = 1.0 - (depth(x, y) - 1.0) / RIM as f32;
+        [r, g, b, share.clamp(0.0, 1.0)]
+    });
+    let scrim = picture(width, height, |x, y| {
+        if !inside(x, y) {
+            return [0.0; 4];
+        }
+        let screen_y = (y + top) as f32;
+        let low = ((screen_y - 214.0) / 50.0).clamp(0.0, 1.0);
+        let high = ((86.0 - screen_y) / 34.0).clamp(0.0, 1.0);
+        [
+            0.03,
+            0.035,
+            0.04,
+            (low * low * (3.0 - 2.0 * low) * 0.66).max(high * 0.5),
+        ]
+    });
+    files.push(("glass_mask.png".into(), png(&mask)));
+    files.push(("glass_rim.png".into(), png(&rim)));
+    files.push(("scrim.png".into(), png(&scrim)));
 }
 
 fn keys(files: &mut Vec<(String, Vec<u8>)>) {
@@ -482,6 +692,12 @@ fn small_parts(files: &mut Vec<(String, Vec<u8>)>) {
         files.push((format!("{name}_back.png"), png(&track(width, 9, dim))));
         files.push((format!("{name}_fill.png"), png(&track(width, 9, BRIGHT))));
     }
+    files.push(("eq_back.png".into(), png(&eq_track(dim))));
+    for page in 0..3 {
+        files.push((format!("page{page}.png"), png(&page_dots(page))));
+    }
+    files.push(("switch_off.png".into(), png(&switch(false))));
+    files.push(("switch_on.png".into(), png(&switch(true))));
     files.push(("thumb.png".into(), png(&thumb(WHITE))));
     files.push(("thumb_hot.png".into(), png(&thumb(BRIGHT))));
 }
@@ -498,6 +714,24 @@ fn main() {
     for name in ["ribbon.wms", "ribbon.js", "viscolor.txt"] {
         let bytes = std::fs::read(root.join("ribbon").join(name)).expect("the skin's source");
         files.push((name.to_owned(), bytes));
+    }
+    let band = |index: usize| {
+        format!(
+            "        <SLIDER id=\"band{number}\" left=\"{left}\" top=\"102\" width=\"9\" height=\"150\" \
+             direction=\"vertical\" min=\"-12\" max=\"12\" backgroundImage=\"eq_back.png\" \
+             thumbImage=\"thumb.png\" thumbHoverImage=\"thumb_hot.png\" \
+             thumbDownImage=\"thumb_hot.png\" value=\"wmpprop:eq.gainLevel{number}\" \
+             value_onChange=\"eq.gainLevel{number} = value;\" cursor=\"hand\"/>\n",
+            number = index + 1,
+            left = 78 + index * 11,
+        )
+    };
+    let bands: String = (0..10).map(band).collect();
+    for (name, bytes) in &mut files {
+        if name == "ribbon.wms" {
+            let text = String::from_utf8_lossy(bytes).replace("<!-- @bands -->\n", &bands);
+            *bytes = text.into_bytes();
+        }
     }
     let entries: Vec<(&str, &[u8], bool)> = files
         .iter()

@@ -429,7 +429,7 @@ fn wanted(file_name: &str) -> bool {
 /// The built-in skin, drawn by `examples/default_skin.rs`.
 /// The name the settings hold for [`Skin::ribbon`], which is no file in the
 /// skins folder.
-pub const RIBBON: &str = "Spotifast Ribbon";
+pub const RIBBON: &str = "Spotifast";
 
 const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotifast.wsz");
 /// Cut and packed by `examples/ribbon_skin.rs`.

@@ -60,12 +60,14 @@ with a Winamp skin, and pick it in Settings. The Internet Archive's
 [Windows Media Player Skins Collection](https://archive.org/details/windowsmediaplayerskinscollection)
 has over 170 of them.
 
-Spotifast comes with one of its own, **Spotifast Ribbon**, listed first under
-Windows Media Player in Settings. It is small enough to keep at the side of your
-screen: a white ceramic ribbon that sweeps round a smoked-glass core as it
-opens, with a green light under its arch that burns while the music plays. Click
-the square, or the small button below it, to switch between the album art and
-the visualizer. It remembers which you chose.
+Spotifast comes with one of its own, listed first under Windows Media Player
+in Settings. It is small enough to keep at the side of your screen: a white
+ceramic ribbon round a smoked-glass core. It opens with a thread of green light
+tracing its outline, and that light burns under the arch while the music plays.
+Click the square, or the small button below it, to switch between the album art
+and the visualizer. The dots at the top of the glass change its page, from Now
+Playing to the equalizer to the queue, where a click plays a song. It remembers
+what you chose.
 
 A skin runs as it did in Windows Media Player. Its own scripts run, in a
 sandbox with no access to your files, the network or other programs, so its

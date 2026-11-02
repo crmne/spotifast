@@ -1,4 +1,4 @@
-//! Spotifast Ribbon, the skin the app ships, run from its real archive.
+//! The Windows Media Player skin the app ships, run from its real archive.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use crate::skin::Skin;
 
 const FRAME: Duration = Duration::from_millis(16);
 /// Longer than the opening.
-const OPENED: Duration = Duration::from_millis(3200);
+const OPENED: Duration = Duration::from_millis(2600);
 
 fn song() -> Song {
     Song {
@@ -38,7 +38,7 @@ fn deck(state: PlayState) -> Deck {
 fn start(deck: &Deck) -> (Runtime, u32, Instant) {
     let skin = Skin::ribbon().expect("the skin reads");
     let wmp = skin.wmp.clone().expect("a Windows Media Player skin");
-    assert_eq!(wmp.title, "Spotifast Ribbon");
+    assert_eq!(wmp.title, "Spotifast");
     let runtime = Runtime::new(
         crate::skin::RIBBON.into(),
         wmp,
@@ -158,7 +158,7 @@ fn every_control_shows_hover_and_press() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 9, "the window's, the pane's and the transport");
+    assert_eq!(checked, 11, "window, pages, pane and transport");
 }
 
 #[test]
@@ -171,30 +171,41 @@ fn the_source_and_the_archive_agree() {
         include_bytes!("../../../assets/skins/ribbon/ribbon.js"),
         "{hint}"
     );
-    assert_eq!(
-        wmp.files["ribbon.wms"],
-        include_bytes!("../../../assets/skins/ribbon/ribbon.wms"),
+    let source = include_str!("../../../assets/skins/ribbon/ribbon.wms");
+    let (before, after) = source.split_once("<!-- @bands -->\n").expect("the marker");
+    let definition = String::from_utf8(wmp.files["ribbon.wms"].clone()).expect("text");
+    assert!(
+        definition.starts_with(before) && definition.ends_with(after),
         "{hint}"
     );
 }
 
 #[test]
-fn it_opens_in_stages_and_shows_the_square_last() {
+fn light_comes_first_then_the_whole_object_then_its_screen() {
     let deck = deck(PlayState::Playing);
     let (mut runtime, key, mut now) = start(&deck);
-    assert_eq!(runtime.read(key, "art", "visible"), 0.0);
-    assert_eq!(runtime.read(key, "ribbon", "visible"), 0.0);
-    assert_eq!(runtime.read(key, "sweep", "value"), 0.0, "the core alone");
-    run(&mut runtime, &deck, &mut now, Duration::from_millis(900));
-    let swept = runtime.read(key, "sweep", "value");
-    assert!(swept > 0.0 && swept < 13.0, "part way round: {swept}");
-    run(&mut runtime, &deck, &mut now, Duration::from_millis(900));
-    assert_eq!(runtime.read(key, "ribbon", "visible"), 1.0, "swept round");
-    assert_eq!(runtime.read(key, "sweep", "visible"), 0.0);
+    let whole = |runtime: &Runtime| {
+        let view = runtime.view(key).expect("the view");
+        view.state.elements[view.state.ids["object"]].alpha
+    };
+    assert_eq!(whole(&runtime), 1.0, "nothing of the object shows");
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(320));
+    let traced = runtime.read(key, "trace", "value");
+    assert!(traced > 0.0 && traced < 13.0, "part way round: {traced}");
+    assert_eq!(runtime.read(key, "wipe", "value"), 0.0, "light alone");
+    assert_eq!(whole(&runtime), 1.0);
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(400));
+    assert_eq!(runtime.read(key, "trace", "value"), 13.0, "all the way");
+    assert!(runtime.read(key, "wipe", "value") > 0.0, "the wipe follows");
+    assert_eq!(whole(&runtime), 1.0, "the plate, not its layers");
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(200));
+    assert_eq!(whole(&runtime), 255.0, "both materials at once");
+    assert_eq!(runtime.read(key, "wipe", "visible"), 0.0);
+    assert_eq!(runtime.read(key, "trace", "visible"), 0.0);
     assert_eq!(runtime.read(key, "art", "visible"), 0.0, "not yet");
     run(&mut runtime, &deck, &mut now, OPENED);
     assert_eq!(runtime.read(key, "art", "visible"), 1.0);
-    assert_eq!(runtime.read(key, "fx", "visible"), 0.0);
+    assert_eq!(runtime.read(key, "visual", "visible"), 0.0);
     assert_eq!(runtime.read(key, "veil", "top"), -126.0);
     assert_eq!(runtime.read(key, "playButton", "visible"), 0.0);
     assert_eq!(runtime.read(key, "pauseButton", "visible"), 1.0);
@@ -204,6 +215,161 @@ fn it_opens_in_stages_and_shows_the_square_last() {
     assert!(
         runtime.next_wake(now) > Some(Duration::from_millis(100)),
         "nothing animates once it has opened"
+    );
+}
+
+#[test]
+fn the_opening_waits_for_the_window() {
+    let deck = deck(PlayState::Playing);
+    let (mut runtime, key, mut now) = start(&deck);
+    runtime.await_window();
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(800));
+    assert_eq!(runtime.read(key, "trace", "value"), 0.0, "still waiting");
+    paint_all(&mut runtime, key, now);
+    runtime.window_ready(key);
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(320));
+    assert!(runtime.read(key, "trace", "value") > 0.0, "off it goes");
+}
+
+#[test]
+fn a_window_that_never_fits_does_not_leave_it_dark() {
+    let deck = deck(PlayState::Playing);
+    let (mut runtime, key, mut now) = start(&deck);
+    runtime.await_window();
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(1500));
+    run(&mut runtime, &deck, &mut now, OPENED);
+    assert_eq!(runtime.read(key, "art", "visible"), 1.0);
+}
+
+#[test]
+fn the_visualizer_fills_the_glass_under_the_ribbon_and_the_words() {
+    use super::paint::Paint;
+    let deck = deck(PlayState::Playing);
+    let (mut runtime, key, mut now) = opened(&deck);
+    click(&mut runtime, key, (125.0, 138.0), now);
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(800));
+    assert_eq!(runtime.read(key, "wave", "visible"), 0.0);
+    assert_eq!(runtime.read(key, "fx", "width"), 176.0);
+    assert_eq!(runtime.read(key, "fx", "height"), 276.0);
+    paint_all(&mut runtime, key, now);
+    let (paints, _) = runtime.paint(key, now);
+    let pane = paints
+        .iter()
+        .position(|paint| matches!(paint, Paint::Effects { .. }))
+        .expect("the pane");
+    let Paint::Effects { clip, .. } = &paints[pane] else {
+        unreachable!();
+    };
+    assert!(clip.len() > 8, "cut to the glass, not a box");
+    let words = paints
+        .iter()
+        .position(|paint| matches!(paint, Paint::Text { text, .. } if text.text == "Song"))
+        .expect("the title");
+    assert!(words > pane, "the title draws over the picture");
+    // Back to the art, by clicking the picture.
+    click(&mut runtime, key, (125.0, 138.0), now);
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(800));
+    assert_eq!(runtime.read(key, "visual", "visible"), 0.0);
+    assert_eq!(runtime.read(key, "art", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "veil", "top"), -126.0);
+}
+
+#[test]
+fn the_glass_turns_through_its_pages_and_remembers() {
+    let deck = deck(PlayState::Playing);
+    let (mut runtime, key, mut now) = opened(&deck);
+    let dots = (86.0, 64.0);
+    click(&mut runtime, key, dots, now);
+    assert_eq!(runtime.shared.prefs["page"], "eq");
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(400));
+    assert_eq!(runtime.read(key, "eqPage", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "nowPage", "visible"), 0.0);
+    assert_eq!(runtime.read(key, "art", "visible"), 0.0);
+    assert_eq!(runtime.read(key, "veil", "top"), 0.0, "plain glass");
+    paint_all(&mut runtime, key, now);
+    click(&mut runtime, key, dots, now);
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(400));
+    assert_eq!(runtime.read(key, "queuePage", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "eqPage", "visible"), 0.0);
+    assert_eq!(runtime.shared.prefs["page"], "queue");
+
+    let prefs = runtime.shared.prefs.clone();
+    let skin = Skin::ribbon().expect("the skin reads");
+    let mut again = Runtime::new(
+        crate::skin::RIBBON.into(),
+        skin.wmp.clone().expect("a Windows Media Player skin"),
+        deck.clone(),
+        prefs,
+        Arc::new(|text: &str, _, _, _| text.chars().count() as f32 * 6.0),
+        || {},
+    );
+    let reopened = again.views[again.primary().expect("a window")].state.key;
+    let mut later = Instant::now();
+    run(&mut again, &deck, &mut later, OPENED);
+    assert_eq!(again.read(reopened, "queuePage", "visible"), 1.0);
+
+    paint_all(&mut runtime, key, now);
+    click(&mut runtime, key, dots, now);
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(500));
+    assert_eq!(runtime.read(key, "nowPage", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "art", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "veil", "top"), -126.0, "open again");
+}
+
+#[test]
+fn the_equalizer_page_reaches_the_player() {
+    let deck = deck(PlayState::Playing);
+    let (mut runtime, key, mut now) = opened(&deck);
+    click(&mut runtime, key, (86.0, 64.0), now);
+    run(&mut runtime, &deck, &mut now, Duration::from_millis(400));
+    paint_all(&mut runtime, key, now);
+    // Near the top of the eighth band, then the preamp, then the switch.
+    click(&mut runtime, key, (159.0, 120.0), now);
+    let commands = run(&mut runtime, &deck, &mut now, FRAME);
+    assert!(
+        commands
+            .iter()
+            .any(|command| matches!(command, Command::SetEqBand(7, gain) if *gain > 0.0)),
+        "{commands:?}"
+    );
+    click(&mut runtime, key, (66.0, 120.0), now);
+    let commands = run(&mut runtime, &deck, &mut now, FRAME);
+    assert!(
+        matches!(commands[..], [Command::SetEqPreamp(gain)] if gain > 0.0),
+        "{commands:?}"
+    );
+    click(&mut runtime, key, (178.0, 84.0), now);
+    let commands = run(&mut runtime, &deck, &mut now, FRAME);
+    // Moving a band turned it on, so this turns it off.
+    assert_eq!(commands, [Command::SetEqOn(false)]);
+}
+
+#[test]
+fn a_click_in_the_queue_plays_that_row() {
+    let mut deck = deck(PlayState::Playing);
+    for row in 0..30 {
+        let mut next = song();
+        next.title = format!("Song {row}");
+        deck.queue.push(next);
+    }
+    let (mut runtime, key, mut now) = opened(&deck);
+    for _ in 0..2 {
+        click(&mut runtime, key, (86.0, 64.0), now);
+        run(&mut runtime, &deck, &mut now, Duration::from_millis(400));
+        paint_all(&mut runtime, key, now);
+    }
+    // The third row, one click.
+    click(&mut runtime, key, (120.0, 98.0 + 37.0), now);
+    assert_eq!(
+        run(&mut runtime, &deck, &mut now, FRAME),
+        [Command::PlayQueued(2)]
+    );
+    // The wheel scrolls it.
+    runtime.input(key, Input::Wheel(-3.0), Modifiers::default(), now);
+    click(&mut runtime, key, (120.0, 98.0 + 7.0), now);
+    assert_eq!(
+        run(&mut runtime, &deck, &mut now, FRAME),
+        [Command::PlayQueued(9)]
     );
 }
 
@@ -224,9 +390,8 @@ fn the_square_switches_and_remembers() {
     click(&mut runtime, key, (125.0, 138.0), now);
     assert_eq!(runtime.shared.prefs["pane"], "visual");
     run(&mut runtime, &deck, &mut now, Duration::from_millis(800));
-    assert_eq!(runtime.read(key, "fx", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "visual", "visible"), 1.0);
     assert_eq!(runtime.read(key, "art", "visible"), 0.0);
-    assert_eq!(runtime.read(key, "veil", "top"), -126.0, "open again");
     paint_all(&mut runtime, key, now);
     // Clicking the visualizer goes back.
     click(&mut runtime, key, (125.0, 138.0), now);
@@ -236,7 +401,7 @@ fn the_square_switches_and_remembers() {
     // And the small button.
     click(&mut runtime, key, (182.0, 273.0), now);
     run(&mut runtime, &deck, &mut now, Duration::from_millis(800));
-    assert_eq!(runtime.read(key, "fx", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "visual", "visible"), 1.0);
 
     let prefs = runtime.shared.prefs.clone();
     let skin = Skin::ribbon().expect("the skin reads");
@@ -251,7 +416,7 @@ fn the_square_switches_and_remembers() {
     let key = again.views[again.primary().expect("a window")].state.key;
     let mut now = Instant::now();
     run(&mut again, &deck, &mut now, OPENED);
-    assert_eq!(again.read(key, "fx", "visible"), 1.0, "after a restart");
+    assert_eq!(again.read(key, "visual", "visible"), 1.0, "after a restart");
     assert_eq!(again.read(key, "art", "visible"), 0.0);
 }
 

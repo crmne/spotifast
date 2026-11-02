@@ -1,29 +1,33 @@
-// Spotifast Ribbon: the opening, and the square that shows the album art or
-// the visualizer. The engine's Date runs on the wall clock, which a skin's
-// preview does not, so all timing comes from `clock`, an element the engine
-// moves one pixel a millisecond. `ticker` moves too and calls back each frame
-// while anything animates, and stands still otherwise, so that an idle skin
-// costs nothing.
+// Spotifast: the opening, the square that shows the album art or the
+// visualizer, and the pages of the glass. The engine's Date runs on the wall
+// clock, which a skin's preview does not, so all timing comes from `clock`, an
+// element the engine moves one pixel a millisecond. `ticker` moves too and
+// calls back each frame while anything animates, and stands still otherwise,
+// so that an idle skin costs nothing.
 
 var PLAYING = 3, BUFFERING = 6, WAITING = 7, TRANSITIONING = 9;
 
-// The opening, in milliseconds. It holds a moment first, so that the core is
-// seen alone whatever the window took to come up.
-var HOLD = 300, SWEEP_FROM = 200, SWEEP_TO = 1100, LIGHT_AT = 1100, UI_AT = 1350;
-var REVEAL_AT = 1650, OPEN_END = 2100;
-var LAST_FRAME = 13, SIDE = 126, FOREVER = 600000;
+// The opening, in milliseconds: light, then the object, then its screen.
+var TRACE_TO = 600, WIPE_TO = 840, WAKE_AT = 840, REVEAL_AT = 1050, OPEN_END = 1520;
+// The app says when the window is up and every picture is in. A window that
+// never takes the skin's size must not leave it dark.
+var LONGEST_WAIT = 1500;
+var TRACE_LAST = 13, WIPE_LAST = 7, SIDE = 126, FOREVER = 600000;
+// Not EQ or QUEUE: names are not case sensitive, and those are elements.
+var PAGE_NOW = 0, PAGE_EQ = 1, PAGE_QUEUE = 2;
 
-var running = false, last = 0;
+var running = false, last = 0, waited = 0;
 var opening = true, openAt = 0;
 var closing = false, closeAt = 0;
-var lightOn = false, uiOn = false, revealed = false;
-var showVisual = false, swapping = false, veilOpen = false;
+var woken = false, revealed = false, whole = false;
+var showVisual = false, page = PAGE_NOW, changing = false, veilOpen = false;
 
 function boot() {
     showVisual = theme.loadPreference("pane") == "visual";
-    core.alphaBlendTo(255, 200);
-    veilSlot.alphaBlendTo(255, 200);
-    sweep.visible = true;
+    var saved = theme.loadPreference("page");
+    if (saved == "eq") page = PAGE_EQ;
+    if (saved == "queue") page = PAGE_QUEUE;
+    showDots();
     followPlayer();
     animate();
 }
@@ -49,8 +53,12 @@ function tick() {
         closeAt += passed;
         more = playClosing(closeAt);
     } else if (opening) {
-        openAt += passed;
-        playOpening(openAt - HOLD);
+        if (view.onScreen === false && waited < LONGEST_WAIT) {
+            waited += passed;
+        } else {
+            openAt += passed;
+            playOpening(openAt);
+        }
         more = opening;
     }
     if (more) {
@@ -71,40 +79,43 @@ function smooth(share) {
     return share * share * (3 - 2 * share);
 }
 
-function showRibbon(share) {
-    sweep.value = Math.round(share * LAST_FRAME);
+function showOpening(traced, wiped) {
+    trace.value = Math.round(traced * TRACE_LAST);
+    wipe.value = Math.round(wiped * WIPE_LAST);
 }
 
-function holdRibbon(still) {
-    ribbon.visible = still;
-    sweep.visible = !still;
+// The object is either the wipe's pictures or itself, never parts of both.
+function holdWhole(on) {
+    whole = on;
+    object.alphaBlend = on ? 255 : 1;
+    trace.visible = !on;
+    wipe.visible = !on;
 }
 
 function playOpening(t) {
-    var swept = smooth(part(t, SWEEP_FROM, SWEEP_TO));
-    showRibbon(swept);
-    if (swept >= 1 && !ribbon.visible) holdRibbon(true);
-    if (!lightOn && t >= LIGHT_AT) {
-        lightOn = true;
-        showLight(500);
+    showOpening(part(t, 0, TRACE_TO), smooth(part(t, TRACE_TO, WIPE_TO)));
+    if (t >= WIPE_TO && !whole) {
+        light.alphaBlend = 255;
+        holdWhole(true);
     }
-    if (!uiOn && t >= UI_AT) {
-        uiOn = true;
-        ui.alphaBlendTo(255, 350);
-        pill.alphaBlendTo(255, 350);
+    if (!woken && t >= WAKE_AT) {
+        woken = true;
+        showLight(500);
+        screen.alphaBlendTo(255, 300);
+        pill.alphaBlendTo(255, 300);
     }
     if (!revealed && t >= REVEAL_AT) {
         revealed = true;
-        showPane();
+        showPage();
         followVeil();
     }
     if (t >= OPEN_END) opening = false;
 }
 
 function playClosing(t) {
-    showRibbon(1 - smooth(part(t, 240, 640)));
-    if (t >= 240 && ribbon.visible) holdRibbon(false);
-    if (t >= 720) {
+    if (t >= 180 && whole) holdWhole(false);
+    showOpening(1 - part(t, 340, 620), 1 - smooth(part(t, 180, 340)));
+    if (t >= 640) {
         view.close();
         return false;
     }
@@ -125,18 +136,30 @@ function showLight(ms) {
     light.alphaBlendTo(sounding() ? 255 : 70, ms);
 }
 
-function showPane() {
+// Which page is up, and in the square what the choice says.
+function showPage() {
     paneBack.visible = true;
-    art.visible = !showVisual;
-    fx.visible = showVisual;
+    art.visible = page == PAGE_NOW && !showVisual;
+    var filling = page == PAGE_NOW && showVisual && hasSong();
+    if (filling != visual.visible) {
+        visual.visible = filling;
+        if (filling) {
+            visual.alphaBlend = 0;
+            visual.alphaBlendTo(255, 220);
+        }
+    }
+    wave.visible = sounding() && !showVisual;
+    nowPage.visible = page == PAGE_NOW;
+    eqPage.visible = page == PAGE_EQ;
+    queuePage.visible = page == PAGE_QUEUE;
 }
 
-// With nothing on, the glass closes over the square.
+// Glass covers the square on the other pages, and with nothing on.
 function followVeil() {
-    var wanted = hasSong();
+    var wanted = page == PAGE_NOW && hasSong() && !showVisual;
     if (wanted != veilOpen) {
         veilOpen = wanted;
-        veil.slideTo(0, wanted ? -SIDE : 0, 420);
+        veil.slideTo(0, wanted ? -SIDE : 0, 320);
     }
 }
 
@@ -144,38 +167,67 @@ function followPlayer() {
     var isPlaying = sounding();
     playButton.visible = !isPlaying;
     pauseButton.visible = isPlaying;
-    wave.visible = isPlaying;
     var song = hasSong();
     title.value = song ? player.currentMedia.name : "Nothing playing";
     artist.value = song ? player.currentMedia.getItemInfo("Artist") : "";
     title.scrolling = title.textWidth > title.width;
     artist.scrolling = artist.textWidth > artist.width;
-    if (opening) return;
-    if (closing) return;
+    if (opening || closing) return;
     showLight(400);
-    if (!swapping) followVeil();
+    if (changing) return;
+    showPage();
+    followVeil();
 }
 
-// Clicking the square, or its button, draws the glass across, changes what is
-// behind it and opens again.
-function togglePane() {
-    showVisual = !showVisual;
-    theme.savePreference("pane", showVisual ? "visual" : "art");
+// A change of what the square shows, or of page, happens behind the glass.
+function change() {
     if (opening || closing) return;
-    if (!hasSong()) {
-        showPane();
+    if (!veilOpen) {
+        showPage();
+        followVeil();
         return;
     }
-    swapping = true;
+    changing = true;
     veilOpen = false;
-    veil.slideTo(0, 0, 170);
+    veil.slideTo(0, 0, 150);
 }
 
 function veilArrived() {
-    if (!swapping) return;
-    swapping = false;
-    showPane();
+    if (!changing) return;
+    changing = false;
+    showPage();
     followVeil();
+}
+
+function togglePane() {
+    showVisual = !showVisual;
+    theme.savePreference("pane", showVisual ? "visual" : "art");
+    change();
+}
+
+function setPage(wanted) {
+    page = wanted;
+    theme.savePreference("page", page == PAGE_EQ ? "eq" : page == PAGE_QUEUE ? "queue" : "now");
+    showDots();
+    change();
+}
+
+function showDots() {
+    var dots = "page" + page + ".png";
+    pageButton.image = dots;
+    pageButton.hoverImage = dots;
+    pageButton.downImage = dots;
+}
+
+function nextPage() {
+    setPage((page + 1) % 3);
+}
+
+// One click on a row plays it.
+function playRow() {
+    var row = queue.selectedItem;
+    if (row >= 0) player.controls.playItem(player.currentPlaylist.item(row));
+    queue.selectedItem = -1;
 }
 
 // Closing runs the opening backwards, faster, and then goes.
@@ -184,9 +236,9 @@ function shutDown() {
     closing = true;
     opening = false;
     closeAt = 0;
-    veil.slideTo(0, 0, 200);
-    ui.alphaBlendTo(0, 200);
-    pill.alphaBlendTo(0, 200);
-    light.alphaBlendTo(0, 240);
+    veil.slideTo(0, 0, 150);
+    visual.alphaBlendTo(0, 150);
+    screen.alphaBlendTo(0, 160);
+    pill.alphaBlendTo(0, 160);
     animate();
 }
