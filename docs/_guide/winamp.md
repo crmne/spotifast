@@ -61,8 +61,12 @@ Skins work with what Spotifast has:
 - **Equalizer** panels change Spotifast's equalizer, and balance changes the
   balance. Moving a band turns the equalizer on. Skins with settings Spotifast
   has no match for, such as SRS WOW or crossfade, show them without effect.
-- **Visualisation** areas show the same bars or sound wave as the Winamp
-  display, from the sound after the equalizer and before the volume.
+- **Visualisation** areas show MilkDrop, moving and scaling with the skin. A
+  skin's next and previous visualisation buttons change the preset. Until the
+  picture arrives, and whenever there are no presets or the graphics card
+  cannot draw it, they show the same bars or sound wave as the Winamp display.
+  Either way the picture comes from the sound after the equalizer and before
+  the volume. Open MilkDrop once to download its presets.
 - **Video** areas show the song's cover. Spotify audio has no video, so a skin
   that waits for video to open its video view does not open it.
 - **File, CD, library and web** buttons do nothing: a skin plays what Spotifast

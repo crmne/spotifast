@@ -257,6 +257,49 @@ impl Engine {
         }
     }
 
+    /// Draws a frame off-screen and reads it into `pixels`, RGBA with the
+    /// bottom row first. `width` and `height` must be even and `pixels` that
+    /// many pixels long; the child's frame sizes come from `frames::fit`.
+    pub fn render_into(&mut self, width: u32, height: u32, pixels: &mut [u8]) {
+        if self
+            .copy
+            .as_ref()
+            .is_none_or(|copy| (copy.width, copy.height) != (width, height))
+        {
+            self.resize(width, height);
+        }
+        let Some(copy) = &self.copy else {
+            return;
+        };
+        let gl = &self.gl;
+        let (w, h) = (width as i32, height as i32);
+        // SAFETY: the context is current; every call is a plain GL call on
+        // objects this engine made, and `pixels` holds what is read.
+        unsafe {
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(copy.framebuffer));
+            gl.disable(glow::SCISSOR_TEST);
+            gl.viewport(0, 0, w, h);
+            pm::projectm_opengl_render_frame_fbo(self.handle, copy.framebuffer.0.get());
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(copy.framebuffer));
+            gl.disable(glow::SCISSOR_TEST);
+            // The picture is opaque, whatever a preset wrote in its alpha.
+            gl.color_mask(false, false, false, true);
+            gl.clear_color(0.0, 0.0, 0.0, 1.0);
+            gl.clear(glow::COLOR_BUFFER_BIT);
+            gl.color_mask(true, true, true, true);
+            gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
+            gl.read_pixels(
+                0,
+                0,
+                w,
+                h,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::Slice(Some(pixels)),
+            );
+        }
+    }
+
     fn resize(&mut self, width: u32, height: u32) {
         let gl = Arc::clone(&self.gl);
         // SAFETY: the context is current; the old objects are this

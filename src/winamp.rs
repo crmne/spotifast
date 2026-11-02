@@ -111,6 +111,9 @@ pub struct WinampState {
     /// Scripts the demo runs in the skin once it has started.
     #[cfg(feature = "demo")]
     pub demo_scripts: Vec<String>,
+    /// Keep the tap fed, so that MilkDrop has the demo's sound to answer.
+    #[cfg(feature = "demo")]
+    pub demo_sounding: bool,
     /// The running Windows Media Player skin.
     pub runtime: Option<crate::skin::wmp::runtime::Runtime>,
     /// Its saved preferences, read with the skin, until it starts.
@@ -169,6 +172,8 @@ impl WinampState {
             textures: HashMap::new(),
             #[cfg(feature = "demo")]
             demo_scripts: Vec::new(),
+            #[cfg(feature = "demo")]
+            demo_sounding: false,
             runtime: None,
             skin_preferences: HashMap::new(),
             wmp_textures: HashMap::new(),

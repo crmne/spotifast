@@ -69,6 +69,8 @@ pub struct Args {
     pub fps: u32,
     pub seconds: u32,
     pub scale: u32,
+    /// Where to publish frames, instead of opening a window.
+    pub frames: Option<PathBuf>,
 }
 
 impl Args {
@@ -87,6 +89,7 @@ impl Args {
         let mut fps = DEFAULT_FPS;
         let mut seconds = DEFAULT_SECONDS;
         let mut scale = 1u32;
+        let mut frames = None;
         while let Some(arg) = all.next() {
             match arg.as_str() {
                 "--milkdrop-shm" => shm = all.next().map(PathBuf::from),
@@ -97,6 +100,7 @@ impl Args {
                     }
                 }
                 "--milkdrop-pos" => pos = all.next().and_then(|value| parse_pair(&value)),
+                "--milkdrop-frames" => frames = all.next().map(PathBuf::from),
                 "--milkdrop-fullscreen" => fullscreen = true,
                 "--milkdrop-fps" => fps = all.next().and_then(|v| v.parse().ok()).unwrap_or(fps),
                 "--milkdrop-seconds" => {
@@ -117,6 +121,7 @@ impl Args {
             fps,
             seconds,
             scale,
+            frames,
         })
     }
 }
@@ -135,6 +140,9 @@ pub fn run(args: Args) -> i32 {
             return 1;
         }
     };
+    if args.frames.is_some() {
+        return super::offscreen::run(args, ring);
+    }
     let event_loop = match EventLoop::<Control>::with_user_event().build() {
         Ok(event_loop) => event_loop,
         Err(error) => {
@@ -167,8 +175,8 @@ pub fn run(args: Args) -> i32 {
 
 /// The live window and everything on its graphics context. Fields drop in
 /// order and the engine frees projectM with GL calls, so it comes first.
-struct Live {
-    engine: Engine,
+pub(super) struct Live {
+    pub(super) engine: Engine,
     gl: Arc<glow::Context>,
     overlay: Option<Overlay>,
     /// What is switched on to stay, each in a corner of its own so that
@@ -341,20 +349,14 @@ impl Child {
         let Some(live) = &mut self.live else {
             return;
         };
-        let folder = self.args.presets.clone();
-        // Drawn every frame, so a finished listing is picked up without a
-        // wake.
-        self.presets.refresh(&folder, None);
-        if self.presets.current().is_none() && self.presets.count() > 0 {
-            self.presets.next(false);
-        }
-        self.presets.advance(Instant::now(), self.seconds);
-        live.engine.set_seconds(self.seconds);
-        if let Some(Request::Load { path, smooth }) = self.presets.take_request() {
-            live.engine.load(&path, smooth);
-        }
-        let frames = self.ring.since(&mut self.cursor, LAG);
-        live.engine.feed_frames(&frames);
+        prepare_frame(
+            &mut live.engine,
+            &mut self.presets,
+            &self.args.presets,
+            self.seconds,
+            &self.ring,
+            &mut self.cursor,
+        );
         let size = live.window.inner_size();
         live.engine.render(
             0,
@@ -946,6 +948,30 @@ fn frames_per_second(drawn: &[Instant]) -> f32 {
     (drawn.len() - 1) as f32 / span.as_secs_f32()
 }
 
+/// What every frame does before drawing, window or not: moves through the
+/// presets and hands the engine the sound since the last frame. Done each
+/// frame, so a finished listing is picked up without a wake.
+pub(super) fn prepare_frame(
+    engine: &mut Engine,
+    presets: &mut Presets,
+    folder: &std::path::Path,
+    seconds: u32,
+    ring: &Ring,
+    cursor: &mut u64,
+) {
+    presets.refresh(folder, None);
+    if presets.current().is_none() && presets.count() > 0 {
+        presets.next(false);
+    }
+    presets.advance(Instant::now(), seconds);
+    engine.set_seconds(seconds);
+    if let Some(Request::Load { path, smooth }) = presets.take_request() {
+        engine.load(&path, smooth);
+    }
+    let frames = ring.since(cursor, LAG);
+    engine.feed_frames(&frames);
+}
+
 /// The window's size in pixels, which the overlay lays itself out for.
 fn window_size(window: &Window) -> (u32, u32) {
     let size = window.inner_size();
@@ -970,10 +996,17 @@ fn report(event: &Event) {
     }
 }
 
-/// Builds the window, a GL context and surface for it, and projectM.
-fn build(event_loop: &ActiveEventLoop, args: &Args, seconds: u32) -> Result<Live, String> {
+/// Builds the window, a GL context and surface for it, and projectM. With
+/// frames to publish, the window only exists to hold the context, and never
+/// shows.
+pub(super) fn build(
+    event_loop: &ActiveEventLoop,
+    args: &Args,
+    seconds: u32,
+) -> Result<Live, String> {
     let mut attributes = Window::default_attributes()
         .with_title("MilkDrop")
+        .with_visible(args.frames.is_none())
         .with_decorations(false)
         .with_resizable(true)
         .with_min_inner_size(LogicalSize::new(MIN_SIZE[0], MIN_SIZE[1]))
@@ -1078,6 +1111,7 @@ mod tests {
                 fps: 30,
                 seconds: 30,
                 scale: 1,
+                frames: None,
             },
             ring,
         )

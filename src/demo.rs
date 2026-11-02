@@ -998,7 +998,7 @@ fn play_here(app: &mut App) {
 /// beneath, so a visualizer shows peaks across the whole range rather
 /// than a slope from the bass.
 #[cfg(feature = "demo")]
-fn demo_sound() -> Vec<f64> {
+pub(crate) fn demo_sound() -> Vec<f64> {
     // Frequency and level of each partial, uneven on purpose so
     // neighbouring bands stand at different heights.
     const PARTIALS: [(f64, f64); 18] = [
@@ -1700,6 +1700,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     play_here(app);
                     app.local.playback = crate::player::Playback::Playing;
                     app.winamp.tap.push(&demo_sound(), 1.0);
+                    app.winamp.demo_sounding = true;
                 }
             }
             "playlist" => app.settings.playlist_open = true,

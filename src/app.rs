@@ -709,6 +709,9 @@ pub struct App {
     /// `Drop` stops the child when the app does.
     #[cfg(feature = "milkdrop")]
     milkdrop_host: Option<crate::milkdrop::host::Host>,
+    /// MilkDrop's frames for a skin's pane; `None` until one first shows.
+    #[cfg(feature = "milkdrop")]
+    milkdrop_pane: Option<crate::milkdrop::pane::Stream>,
     last_eviction: Instant,
     /// Playback snapshot for the current frame, built once per redraw.
     frame_now: Option<NowPlaying>,
@@ -1377,6 +1380,8 @@ impl App {
             milkdrop_pos: session.milkdrop_pos,
             #[cfg(feature = "milkdrop")]
             milkdrop_host: None,
+            #[cfg(feature = "milkdrop")]
+            milkdrop_pane: None,
             last_eviction: Instant::now(),
             frame_now: None,
             sign_in_url: None,
@@ -1501,7 +1506,7 @@ impl App {
         self.backend.art().forget_textures();
         ctx.set_theme(self.theme_preference());
         self.applied_dark = None;
-        self.winamp.forget_textures();
+        self.forget_skin_textures();
         #[cfg(target_os = "linux")]
         if self.settings.winamp_window {
             crate::hyprland::bare_skin_windows();
@@ -1566,10 +1571,19 @@ impl App {
         }
     }
 
+    /// The textures of the skin and its pane belong to the last window.
+    fn forget_skin_textures(&mut self) {
+        self.winamp.forget_textures();
+        #[cfg(feature = "milkdrop")]
+        if let Some(stream) = &mut self.milkdrop_pane {
+            stream.forget_texture();
+        }
+    }
+
     /// The window is gone but the process stays: audio, the tray, and the
     /// media controls keep running until Show or Quit.
     pub fn window_gone(&mut self) {
-        self.winamp.forget_textures();
+        self.forget_skin_textures();
         self.window_hidden = true;
         self.hide_intent = false;
         self.wants_show = false;
@@ -4722,6 +4736,47 @@ impl App {
         }
     }
 
+    /// MilkDrop's picture for a pane this many physical pixels big. Called
+    /// from drawing; see `milkdrop::pane::Stream::show`.
+    #[cfg(feature = "milkdrop")]
+    pub fn milkdrop_picture(
+        &mut self,
+        ctx: &egui::Context,
+        pixels: [f32; 2],
+    ) -> crate::milkdrop::pane::Picture {
+        let scale = self.settings.milkdrop_scale;
+        let tap = &self.winamp.tap;
+        self.milkdrop_pane
+            .get_or_insert_with(|| crate::milkdrop::pane::Stream::new(std::sync::Arc::clone(tap)))
+            .show(ctx, pixels, scale)
+    }
+
+    /// Starts and stops the pane's child, and hands it the settings.
+    #[cfg(feature = "milkdrop")]
+    fn sync_milkdrop_pane(&mut self) {
+        let fps = self.milkdrop_pane_fps();
+        let seconds = self.settings.milkdrop_seconds;
+        let presets = self.dirs.milkdrop_dir();
+        #[cfg(feature = "demo")]
+        if self.winamp.demo_sounding {
+            self.winamp.tap.push(&crate::demo::demo_sound(), 1.0);
+        }
+        if let Some(stream) = &mut self.milkdrop_pane {
+            stream.tick(&presets, fps, seconds);
+        }
+    }
+
+    /// How fast the pane's child draws: the visualizers' own rate, since
+    /// the pane is one of them, up to what is worth copying between
+    /// processes. It stops by itself once nobody can see the pane.
+    #[cfg(feature = "milkdrop")]
+    fn milkdrop_pane_fps(&self) -> u32 {
+        match self.visualiser_fps() {
+            None | Some(0) => crate::milkdrop::DEFAULT_FPS,
+            Some(rate) => rate.min(crate::milkdrop::DEFAULT_FPS),
+        }
+    }
+
     /// How many frames a second the player bar's and mini player's
     /// visualizers draw now, from the user's rate and the power budget;
     /// `None` draws none.
@@ -5022,7 +5077,20 @@ impl App {
                     self.actions.push(Action::SetEqBand(band, 0.0));
                 }
             }
-            Command::Effect(_) => self.actions.push(Action::CycleVisualiser),
+            Command::Effect(by) => {
+                // With MilkDrop showing, a skin's Next moves through presets.
+                #[cfg(feature = "milkdrop")]
+                if self
+                    .milkdrop_pane
+                    .as_ref()
+                    .is_some_and(|stream| stream.step(by))
+                {
+                    return;
+                }
+                #[cfg(not(feature = "milkdrop"))]
+                let _ = by;
+                self.actions.push(Action::CycleVisualiser);
+            }
             Command::BackToMain => {
                 if self.settings.winamp_window {
                     self.actions.push(Action::ToggleWinampWindow);
@@ -14038,7 +14106,10 @@ impl App {
         // MilkDrop runs in a child process and can outlive the main window.
         // Poll it before applying actions because its keys produce actions.
         #[cfg(feature = "milkdrop")]
-        self.sync_milkdrop(ctx);
+        {
+            self.sync_milkdrop(ctx);
+            self.sync_milkdrop_pane();
+        }
         self.apply_actions(ctx);
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
@@ -26153,6 +26224,18 @@ mod tests {
             app.actions
         );
         app.backend.shutdown();
+    }
+
+    /// A skin's next-visualisation button goes through the bars and the wave
+    /// while no MilkDrop picture is on show.
+    #[test]
+    fn a_skins_effect_command_cycles_the_bars_without_a_picture() {
+        let mut app = test_app("wmp-effect");
+        app.wmp_command(
+            crate::skin::wmp::deck::Command::Effect(1),
+            &crate::skin::wmp::deck::Deck::default(),
+        );
+        assert!(matches!(app.actions.as_slice(), [Action::CycleVisualiser]));
     }
 
     /// MilkDrop playback keys produce the same actions as the main window.
