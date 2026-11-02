@@ -37,7 +37,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     // its caret.
     let editing_text = ctx.text_edit_focused();
     let songs_picked = app.picked_rows(app.page()).is_some();
+    let sidebar_hovered = app.settings.sidebar_visible
+        && app.lyrics_fullscreen.is_none()
+        && ctx
+            .pointer_latest_pos()
+            .zip(ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("sidebar-rect"))))
+            .is_some_and(|(pointer, rect)| rect.contains(pointer));
+    let playlist_page = matches!(app.page(), Page::Playlist(_));
     let mut actions = Vec::new();
+    let mut focus_sidebar_search = false;
+    let mut focus_playlist_filter = false;
     ctx.input_mut(|input| {
         // With songs picked, Shift+Q is the song list's: it queues them.
         let queue_key_is_the_lists = songs_picked
@@ -45,42 +54,20 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 matches!(event, egui::Event::Key { key: Key::Q, pressed: true, modifiers, .. }
                     if modifiers.shift_only())
             });
-        let sidebar_hovered = app.settings.sidebar_visible
-            && app.lyrics_fullscreen.is_none()
-            && ctx
-                .pointer_latest_pos()
-                .zip(ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("sidebar-rect"))))
-                .is_some_and(|(pointer, rect)| rect.contains(pointer));
-        let playlist_page = matches!(app.page(), Page::Playlist(_));
-        let focus_local_search = || {
+        let mut focus_local_search = || {
             if sidebar_hovered {
-                ctx.data_mut(|data| {
-                    data.insert_temp(egui::Id::new("sidebar-show-search"), true);
-                });
-                ctx.memory_mut(|memory| {
-                    memory.request_focus(egui::Id::new("sidebar-search"));
-                });
-                None
+                focus_sidebar_search = true;
             } else if playlist_page {
-                ctx.memory_mut(|memory| {
-                    memory.request_focus(egui::Id::new("collection-filter"));
-                });
-                None
+                focus_playlist_filter = true;
             } else {
-                Some(Action::FocusSearch)
+                actions.push(Action::FocusSearch);
             }
         };
-        if input.consume_key(Modifiers::COMMAND, Key::F)
-            && let Some(action) = focus_local_search()
-        {
-            actions.push(action);
+        if input.consume_key(Modifiers::COMMAND, Key::F) {
+            focus_local_search();
         }
-        if !editing_text
-            && app.dialog.is_none()
-            && input.consume_key(Modifiers::NONE, Key::Slash)
-            && let Some(action) = focus_local_search()
-        {
-            actions.push(action);
+        if !editing_text && app.dialog.is_none() && input.consume_key(Modifiers::NONE, Key::Slash) {
+            focus_local_search();
         }
         let mut key = |modifiers: Modifiers, key: Key, action: Action| {
             if input.consume_key(modifiers, key) {
@@ -203,6 +190,18 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             }
         }
     });
+    if focus_sidebar_search {
+        ctx.data_mut(|data| {
+            data.insert_temp(egui::Id::new("sidebar-show-search"), true);
+        });
+        ctx.memory_mut(|memory| {
+            memory.request_focus(egui::Id::new("sidebar-search"));
+        });
+    } else if focus_playlist_filter {
+        ctx.memory_mut(|memory| {
+            memory.request_focus(egui::Id::new("collection-filter"));
+        });
+    }
     if !editing_text
         && app.dialog.is_none()
         && ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::B))
