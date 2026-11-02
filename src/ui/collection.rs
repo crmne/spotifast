@@ -511,7 +511,7 @@ pub fn actions_row(
                     ui,
                     &palette,
                     locale,
-                    egui::Id::new(("collection-filter", actions.name)),
+                    egui::Id::new("collection-filter"),
                     filter,
                     &gettext(locale, "Filter"),
                     220.0,

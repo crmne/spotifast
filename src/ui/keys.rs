@@ -73,7 +73,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 Action::ToggleQueuePanel,
             );
         }
-        key(Modifiers::COMMAND, Key::F, Action::FocusSearch);
+        let playlist_page = matches!(app.page(), Page::Playlist(_));
+        if input.consume_key(Modifiers::COMMAND, Key::F) {
+            if playlist_page {
+                ctx.memory_mut(|memory| {
+                    memory.request_focus(egui::Id::new("collection-filter"));
+                });
+            } else {
+                actions.push(Action::FocusSearch);
+            }
+        }
         key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
         key(Modifiers::COMMAND, Key::Q, Action::Quit);
@@ -148,7 +157,15 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
             }
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
-            key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
+            if input.consume_key(Modifiers::NONE, Key::Slash) {
+                if playlist_page {
+                    ctx.memory_mut(|memory| {
+                        memory.request_focus(egui::Id::new("collection-filter"));
+                    });
+                } else {
+                    actions.push(Action::FocusSearch);
+                }
+            }
             key(
                 Modifiers::NONE,
                 Key::F,
