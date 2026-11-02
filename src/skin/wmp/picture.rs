@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use image::AnimationDecoder;
 
@@ -21,6 +21,16 @@ const MAX_DECODED: usize = 256 * 1024 * 1024;
 /// after that are left out, so a crafted file ends early rather than fills
 /// memory.
 const MAX_ANIMATION: usize = 128 * 1024 * 1024;
+/// Most pixels of a frame looked at to tell which way a strip runs: more
+/// than any real slider has, so a crafted one costs no more than they do.
+const MAX_STRIP_SAMPLES: u32 = 256 * 1024;
+/// Channels this far apart are different pixels, not compression noise.
+const STRIP_NOISE: i32 = 24;
+/// How far apart on the map a strip's two ends must sit to say anything.
+const STRIP_MARGIN: f64 = 24.0;
+/// One in this many of the pixels that differ must belong clearly to one end:
+/// a gauge that brightens all over has next to none.
+const STRIP_CLEAR_SHARE: usize = 10;
 
 /// A picture as an element wants it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -57,6 +67,19 @@ pub struct Picture {
     /// Times an animation plays; `None` for ever.
     loops: Option<u32>,
     runs: OnceLock<Arc<Vec<Box2>>>,
+    /// Which custom sliders' strips, read by their map and frame size, run
+    /// against their map. Scripts rarely swap these, so it stays small.
+    reversed: Mutex<HashMap<(String, Strip), bool>>,
+}
+
+/// How a picture is cut into a custom slider's frames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Strip {
+    pub width: u32,
+    pub height: u32,
+    pub count: u32,
+    /// The frames lie side by side, not one above the other.
+    pub across: bool,
 }
 
 impl Picture {
@@ -69,7 +92,24 @@ impl Picture {
             total_ms,
             loops: None,
             runs: OnceLock::new(),
+            reversed: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Whether this strip runs against the position map named `map_name`,
+    /// worked out once. The picture and the map are decoded already, so this
+    /// costs a look at a few hundred thousand pixels at most.
+    pub fn strip_reversed(&self, map_name: &str, map: &Bitmap, strip: Strip) -> bool {
+        let Ok(mut known) = self.reversed.lock() else {
+            return false;
+        };
+        *known
+            .entry((map_name.to_owned(), strip))
+            .or_insert_with(|| {
+                self.frames
+                    .first()
+                    .is_some_and(|frame| strip_runs_backwards(&frame.bitmap, map, strip))
+            })
     }
 
     /// The first frame's solid part as rectangles, for clipping to it: runs
@@ -160,6 +200,85 @@ fn solid_runs(bitmap: &Bitmap, origin: (i32, i32)) -> Vec<Box2> {
         open = still_open;
     }
     boxes
+}
+
+/// Whether a custom slider's strip was drawn the other way round from its
+/// position map, whose bright end is the top of the range. The frame is
+/// picked from the value, so in such a skin the needle would run against the
+/// pointer and show full at zero.
+///
+/// What is on only in the first frame and what is on only in the last are
+/// told apart by the middle frame, which by then shows neither: a needle's
+/// old and new places, or the two ends of a bar that fills. If the first
+/// frame's sit on brighter map than the last's, the strip is backwards. A
+/// gauge that changes all over at once has no such pixels and is left alone,
+/// as is anything else that does not plainly say so.
+fn strip_runs_backwards(bitmap: &Bitmap, map: &Bitmap, strip: Strip) -> bool {
+    let Strip {
+        width,
+        height,
+        count,
+        across,
+    } = strip;
+    if count < 3 || width == 0 || height == 0 {
+        return false;
+    }
+    let pixel_of = |frame: u32, x: u32, y: u32| {
+        let (x, y) = if across {
+            (x + frame * width, y)
+        } else {
+            (x, y + frame * height)
+        };
+        bitmap.pixel(x, y)
+    };
+    let same = |a: [u8; 4], b: [u8; 4]| {
+        // Nothing is nothing, whatever colour it is stored in.
+        (a[3] == 0 && b[3] == 0)
+            || a.iter()
+                .zip(b)
+                .all(|(a, b)| (i32::from(*a) - i32::from(b)).abs() <= STRIP_NOISE)
+    };
+    let pixels = u64::from(width) * u64::from(height);
+    let step = ((pixels / u64::from(MAX_STRIP_SAMPLES)) as f64)
+        .sqrt()
+        .ceil()
+        .max(1.0) as usize;
+    let (last, middle) = (count - 1, (count - 1) / 2);
+    let (mut differing, mut first_at, mut last_at) = (0usize, (0u64, 0usize), (0u64, 0usize));
+    for y in (0..height).step_by(step) {
+        for x in (0..width).step_by(step) {
+            let (Some(a), Some(z), Some(m)) = (
+                pixel_of(0, x, y),
+                pixel_of(last, x, y),
+                pixel_of(middle, x, y),
+            ) else {
+                continue;
+            };
+            if same(a, z) {
+                continue;
+            }
+            differing += 1;
+            let tally = match (same(a, m), same(z, m)) {
+                (false, true) => &mut first_at,
+                (true, false) => &mut last_at,
+                _ => continue,
+            };
+            // Anything not gray on a map is not part of the slider.
+            if let Some(place) = map.pixel(x, y)
+                && place[0] == place[1]
+                && place[1] == place[2]
+            {
+                tally.0 += u64::from(place[0]);
+                tally.1 += 1;
+            }
+        }
+    }
+    let clear = first_at.1 + last_at.1;
+    if first_at.1 == 0 || last_at.1 == 0 || clear * STRIP_CLEAR_SHARE < differing {
+        return false;
+    }
+    let mean = |(sum, count): (u64, usize)| sum as f64 / count as f64;
+    mean(first_at) - mean(last_at) >= STRIP_MARGIN
 }
 
 /// How many times a GIF plays: its Netscape block's count, for ever at 0;
@@ -550,6 +669,150 @@ mod tests {
         let picture = decode(&files, &key).unwrap();
         assert_eq!(picture.frames[0].bitmap.pixel(0, 0), Some([0, 0, 0, 0]));
         assert_eq!(picture.frames[0].bitmap.pixel(1, 0), Some([5, 5, 5, 255]));
+    }
+
+    /// A strip of `count` frames of 40 by 10 and a map rising to the right:
+    /// the first frame's mark at `from`, the last's at `to`.
+    fn needle_strip(count: u32, from: u32, to: u32, across: bool) -> (Bitmap, Bitmap, Strip) {
+        let (width, height) = (40, 10);
+        let mut strip = Bitmap {
+            width: if across { width * count } else { width },
+            height: if across { height } else { height * count },
+            rgba: [20, 20, 20, 255].repeat((width * height * count) as usize),
+        };
+        for frame in 0..count {
+            let at = i64::from(from)
+                + (i64::from(to) - i64::from(from)) * i64::from(frame) / i64::from(count - 1);
+            for y in 0..height {
+                let (x, y) = if across {
+                    (at as u32 + frame * width, y)
+                } else {
+                    (at as u32, y + frame * height)
+                };
+                let place = 4 * (y * strip.width + x) as usize;
+                strip.rgba[place..place + 4].copy_from_slice(&[250, 40, 40, 255]);
+            }
+        }
+        let mut map = Bitmap {
+            width,
+            height,
+            rgba: Vec::new(),
+        };
+        for _ in 0..height {
+            for x in 0..width {
+                let gray = (x * 255 / (width - 1)) as u8;
+                map.rgba.extend([gray, gray, gray, 255]);
+            }
+        }
+        let shape = Strip {
+            width,
+            height,
+            count,
+            across,
+        };
+        (strip, map, shape)
+    }
+
+    #[test]
+    fn a_needle_drawn_against_its_map_is_reversed() {
+        let (strip, map, shape) = needle_strip(9, 34, 4, false);
+        assert!(strip_runs_backwards(&strip, &map, shape));
+        let (strip, map, shape) = needle_strip(9, 34, 4, true);
+        assert!(strip_runs_backwards(&strip, &map, shape));
+    }
+
+    #[test]
+    fn a_needle_drawn_along_its_map_keeps_its_order() {
+        let (strip, map, shape) = needle_strip(9, 4, 34, false);
+        assert!(!strip_runs_backwards(&strip, &map, shape));
+        let (strip, map, shape) = needle_strip(9, 4, 34, true);
+        assert!(!strip_runs_backwards(&strip, &map, shape));
+    }
+
+    #[test]
+    fn a_needle_against_a_flat_map_keeps_its_order() {
+        let (strip, mut map, shape) = needle_strip(9, 34, 4, false);
+        map.rgba = [128, 128, 128, 255].repeat((map.width * map.height) as usize);
+        assert!(!strip_runs_backwards(&strip, &map, shape));
+    }
+
+    /// Bars that fill from the left, or empty towards it.
+    fn bar_strip(count: u32, filling: bool) -> (Bitmap, Bitmap, Strip) {
+        let (_, map, shape) = needle_strip(count, 0, 1, false);
+        let mut rgba = Vec::new();
+        for frame in 0..count {
+            let shown = if filling { frame } else { count - 1 - frame };
+            let edge = shape.width * shown / (count - 1);
+            for _ in 0..shape.height {
+                for x in 0..shape.width {
+                    let shade: u8 = if x < edge { 230 } else { 10 };
+                    rgba.extend([shade, shade, shade, 255]);
+                }
+            }
+        }
+        let strip = Bitmap {
+            width: shape.width,
+            height: shape.height * count,
+            rgba,
+        };
+        (strip, map, shape)
+    }
+
+    #[test]
+    fn a_bar_that_empties_along_its_map_is_reversed() {
+        let (strip, map, shape) = bar_strip(9, true);
+        assert!(!strip_runs_backwards(&strip, &map, shape));
+        let (strip, map, shape) = bar_strip(9, false);
+        assert!(strip_runs_backwards(&strip, &map, shape));
+    }
+
+    #[test]
+    fn a_gauge_that_only_brightens_keeps_its_order() {
+        // Every pixel moves together, up or down the frames.
+        for rising in [true, false] {
+            let (_, map, shape) = needle_strip(9, 0, 1, false);
+            let mut rgba = Vec::new();
+            for frame in 0..shape.count {
+                let step = if rising {
+                    frame
+                } else {
+                    shape.count - 1 - frame
+                };
+                let shade = 10 + step as u8 * 30;
+                rgba.extend([shade, shade, shade, 255].repeat(400));
+            }
+            let strip = Bitmap {
+                width: shape.width,
+                height: shape.height * shape.count,
+                rgba,
+            };
+            assert!(!strip_runs_backwards(&strip, &map, shape));
+        }
+    }
+
+    #[test]
+    fn a_strip_too_short_to_tell_keeps_its_order() {
+        let (strip, map, mut shape) = needle_strip(2, 34, 4, false);
+        assert!(!strip_runs_backwards(&strip, &map, shape));
+        shape.count = 1;
+        assert!(!strip_runs_backwards(&strip, &map, shape));
+    }
+
+    #[test]
+    fn a_strip_is_read_once_and_remembered() {
+        let (strip, map, shape) = needle_strip(9, 34, 4, false);
+        let mut picture = Picture::new(
+            vec![Frame {
+                bitmap: strip,
+                delay_ms: 0,
+            }],
+            (0, 0),
+            (40, 90),
+        );
+        assert!(picture.strip_reversed("map.png", &map, shape));
+        // Blank the strip: a second look would now say otherwise.
+        picture.frames[0].bitmap.rgba.fill(0);
+        assert!(picture.strip_reversed("map.png", &map, shape));
     }
 
     #[test]

@@ -769,3 +769,113 @@ fn a_view_that_hands_over_as_it_closes_leaves_the_skin_open() {
     assert_eq!(runtime.views.len(), 1);
     assert!(runtime.primary().is_some());
 }
+
+/// The strip's frame on screen for a custom slider at `value`.
+fn slider_frame(runtime: &mut Runtime, value: f64) -> i32 {
+    let key = key_of(runtime);
+    let now = Instant::now();
+    runtime.run_script(key, &format!("dial.value={value};"), now);
+    let (paints, _) = runtime.paint(key, now);
+    paints
+        .iter()
+        .find_map(|paint| match paint {
+            Paint::Picture { part, .. } => Some(part.y / 4),
+            _ => None,
+        })
+        .expect("the strip is drawn")
+}
+
+#[test]
+fn a_custom_slider_drawn_against_its_map_follows_the_pointer() {
+    // A mark moving right to left down the strip, on a map bright to the right.
+    let strip = png(20, 28, |x, y| {
+        let at = 18 - y / 4 * 3;
+        if x == at { [255, 60, 60] } else { [10, 10, 10] }
+    });
+    let map = png(20, 4, |x, _| {
+        let gray = (x * 255 / 19) as u8;
+        [gray, gray, gray]
+    });
+    let definition = r#"<THEME title="T"><VIEW id="main" width="100" height="50">
+        <CUSTOMSLIDER id="dial" image="strip.png" positionImage="map.png" min="0" max="100"/>
+        </VIEW></THEME>"#;
+    let mut runtime = start_with(
+        definition,
+        vec![("strip.png", strip), ("map.png", map)],
+        playing(),
+    );
+    let key = key_of(&runtime);
+    let wait = Instant::now();
+    let _ = runtime.paint(key, Instant::now());
+    while runtime.images.loading() && wait.elapsed() < Duration::from_secs(5) {
+        runtime.images.poll();
+        std::thread::yield_now();
+    }
+    assert_eq!(slider_frame(&mut runtime, 0.0), 6);
+    assert_eq!(slider_frame(&mut runtime, 100.0), 0);
+}
+
+/// Lists which real strips run backwards, for
+/// `SPOTIFAST_WMZ_SAMPLES=folder cargo test sample_strips -- --nocapture`.
+#[test]
+fn sample_strips() {
+    let Ok(folder) = std::env::var("SPOTIFAST_WMZ_SAMPLES") else {
+        return;
+    };
+    let mut paths: Vec<_> = std::fs::read_dir(folder)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "wmz"))
+        .collect();
+    paths.sort();
+    for path in paths {
+        let Some(wmp) = crate::skin::Skin::load(&path)
+            .ok()
+            .and_then(|skin| skin.wmp)
+        else {
+            continue;
+        };
+        let mut pairs = std::collections::BTreeSet::new();
+        for view in &wmp.views {
+            view.walk(&mut |node| {
+                if let (Some(image), Some(map)) = (node.attr("image"), node.attr("positionimage")) {
+                    pairs.insert((file_name(image), file_name(map)));
+                }
+            });
+        }
+        for (image, map_name) in pairs {
+            let key = picture::ImageKey {
+                file: image.clone(),
+                ..Default::default()
+            };
+            let (Some(map), Some(strip)) =
+                (wmp.maps.get(&map_name), picture::decode(&wmp.files, &key))
+            else {
+                continue;
+            };
+            let (width, height) = (map.width, map.height);
+            let across = strip.size.0 > width;
+            let count = if across {
+                strip.size.0 / width.max(1)
+            } else {
+                strip.size.1 / height.max(1)
+            };
+            let reversed = strip.strip_reversed(
+                &map_name,
+                map,
+                picture::Strip {
+                    width,
+                    height,
+                    count,
+                    across,
+                },
+            );
+            println!(
+                "STRIP\t{}\t{image}\t{count}\t{}",
+                path.file_stem().unwrap_or_default().to_string_lossy(),
+                if reversed { "REVERSED" } else { "as drawn" }
+            );
+        }
+    }
+}

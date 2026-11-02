@@ -11,7 +11,7 @@ use std::time::Instant;
 use super::Box2;
 use super::deck::Deck;
 use super::live::{Element, ElementId, Kind, ViewState, text_of};
-use super::picture::{ImageKey, Images, Picture};
+use super::picture::{ImageKey, Images, Picture, Strip};
 use super::predefined::color;
 use crate::skin::Rgb;
 
@@ -867,7 +867,31 @@ impl Painter<'_> {
             height / area.height.max(1)
         }
         .max(1);
-        let index = custom_index(value, min, max, count);
+        // A skin's strip may run against its map; the value does not.
+        let map = self.view.elements[id]
+            .image_name("positionimage")
+            .map(|name| super::file_name(&name))
+            .and_then(|name| {
+                self.view
+                    .wmp
+                    .maps
+                    .get(&name)
+                    .cloned()
+                    .map(|map| (name, map))
+            });
+        let reversed = map.is_some_and(|(name, map)| {
+            picture.strip_reversed(
+                &name,
+                &map,
+                Strip {
+                    width: area.width.max(0) as u32,
+                    height: area.height.max(0) as u32,
+                    count: count as u32,
+                    across,
+                },
+            )
+        });
+        let index = custom_index(value, min, max, count, reversed);
         self.out.push(Paint::Picture {
             picture,
             frame,
@@ -1248,13 +1272,15 @@ pub fn slider_value_at(element: &Element, at: f64, length: i32, border: i32) -> 
     min + share * (max - min)
 }
 
-/// Which picture of a custom slider's strip shows `value`.
-pub fn custom_index(value: f64, min: f64, max: f64, count: i32) -> i32 {
+/// Which picture of a custom slider's strip shows `value`, counting from the
+/// far end when the strip is `reversed`.
+pub fn custom_index(value: f64, min: f64, max: f64, count: i32, reversed: bool) -> i32 {
     let span = max - min;
     if span == 0.0 || count < 2 {
         return 0;
     }
-    (((value - min) / span).clamp(0.0, 1.0) * f64::from(count - 1)).round() as i32
+    let index = (((value - min) / span).clamp(0.0, 1.0) * f64::from(count - 1)).round() as i32;
+    if reversed { count - 1 - index } else { index }
 }
 
 fn ellipsised(
@@ -1487,10 +1513,18 @@ mod tests {
 
     #[test]
     fn custom_sliders_pick_their_picture_by_value() {
-        assert_eq!(custom_index(0.0, 0.0, 100.0, 5), 0);
-        assert_eq!(custom_index(50.0, 0.0, 100.0, 5), 2);
-        assert_eq!(custom_index(100.0, 0.0, 100.0, 5), 4);
-        assert_eq!(custom_index(50.0, 0.0, 0.0, 5), 0);
+        assert_eq!(custom_index(0.0, 0.0, 100.0, 5, false), 0);
+        assert_eq!(custom_index(50.0, 0.0, 100.0, 5, false), 2);
+        assert_eq!(custom_index(100.0, 0.0, 100.0, 5, false), 4);
+        assert_eq!(custom_index(50.0, 0.0, 0.0, 5, false), 0);
+    }
+
+    #[test]
+    fn a_reversed_strip_is_read_from_its_far_end() {
+        assert_eq!(custom_index(0.0, 0.0, 100.0, 5, true), 4);
+        assert_eq!(custom_index(25.0, 0.0, 100.0, 5, true), 3);
+        assert_eq!(custom_index(100.0, 0.0, 100.0, 5, true), 0);
+        assert_eq!(custom_index(50.0, 0.0, 0.0, 5, true), 0);
     }
 
     #[test]
