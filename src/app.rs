@@ -30884,6 +30884,7 @@ mod tests {
         app.local_ready = false;
         app.local_playback = LocalPlayback::Unavailable;
         app.selected_device = None;
+        app.shuffle_wanted = false;
         app.remote
             .as_mut()
             .unwrap()
@@ -30910,7 +30911,10 @@ mod tests {
         app.play_request(PlayRequest::context("spotify:playlist:pl0"), true);
         assert!(matches!(
             app.backend.take_remote_play_requests().as_slice(),
-            [ApiRequest::ShufflePlay { device_id: None, .. }]
+            [ApiRequest::ShufflePlay {
+                device_id: None,
+                ..
+            }]
         ));
         app.backend.shutdown();
     }

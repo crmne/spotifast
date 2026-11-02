@@ -108,6 +108,8 @@ impl Controller {
             return;
         }
         known.playback_seq = Some(seq);
+        // Spotify does not always flag a Sonos as restricted, and a device
+        // without an id cannot be named in a Web API command either.
         known.active_restricted = device
             .filter(|device| device.is_restricted || device.id.is_none())
             .and_then(|device| device.id.clone().or(playing));
@@ -469,6 +471,18 @@ mod tests {
             controller
                 .command_target(Some("d0c4"), Some("phone"))
                 .as_deref(),
+            Some("d0c4")
+        );
+
+        // Reported without an id but not flagged as restricted.
+        let controller = Controller::default();
+        let unflagged = Device {
+            is_restricted: false,
+            ..sonos
+        };
+        controller.observe_playing(1, Some(&unflagged), Some("d0c4".into()));
+        assert_eq!(
+            controller.command_target(None, None).as_deref(),
             Some("d0c4")
         );
     }
