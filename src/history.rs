@@ -19,7 +19,8 @@ const COUNTS_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 const KEPT: usize = 500;
 
 /// A play made here and a play of the same song Spotify reports within this
-/// many seconds of it are the same play.
+/// many seconds of it are the same play. Spotify dates a play at its end, so
+/// its report may also come later by up to the song's length.
 const SAME_PLAY: i64 = 60;
 
 /// When a song has been listened to long enough to count.
@@ -172,19 +173,25 @@ pub fn merged(local: &[PlayHistory], remote: &[PlayHistory]) -> Vec<PlayHistory>
         }
         out.push((at, play.clone()));
     }
-    for play in remote {
-        let at = time(play);
-        // Each play made here stands for at most one report: the closest.
+    // Each play made here stands for at most one report. Taken oldest
+    // first, a report goes to the earliest play made here it can be, so a
+    // song played back to back pairs up in order.
+    let mut reports: Vec<_> = remote.iter().map(|play| (time(play), play)).collect();
+    reports.sort_by_key(|&(at, _)| at);
+    for (at, play) in reports {
+        // Spotify dates a play when it ends, Spotifast when it counts, so a
+        // report can follow the play made here by up to the song's length.
+        let lag = i64::from(play.track.duration_ms / 1000) + SAME_PLAY;
         if let Some(at) = at
             && let Some(times) = unmatched.get_mut(play.track.uri.as_str())
-            && let Some(nearest) = times
+            && let Some(earliest) = times
                 .iter()
                 .enumerate()
-                .filter(|&(_, &held)| (held - at).abs() <= SAME_PLAY)
-                .min_by_key(|&(_, &held)| (held - at).abs())
+                .filter(|&(_, &held)| (-SAME_PLAY..=lag).contains(&(at - held)))
+                .min_by_key(|&(_, &held)| held)
                 .map(|(index, _)| index)
         {
-            times.swap_remove(nearest);
+            times.swap_remove(earliest);
             continue;
         }
         out.push((at, play.clone()));
@@ -213,6 +220,12 @@ mod tests {
             played_at: Some(at.to_string()),
             context: None,
         }
+    }
+
+    fn song(uri: &str, at: &str, seconds: u32) -> PlayHistory {
+        let mut heard = play(uri, at);
+        heard.track.duration_ms = seconds * 1000;
+        heard
     }
 
     /// A play counts after 30 seconds or halfway through a shorter track.
@@ -278,6 +291,37 @@ mod tests {
         assert_eq!(merged(&local, &remote).len(), 1, "twenty seconds apart");
         let distant = vec![play("spotify:track:a", "2026-09-01T15:05:00Z")];
         assert_eq!(merged(&local, &distant).len(), 2, "five minutes apart");
+    }
+
+    /// Spotify dates a play when it ends, Spotifast half a minute in, when
+    /// it counts. A play both report is one row, minutes apart.
+    #[test]
+    fn a_play_spotify_dates_at_its_end_is_one_row() {
+        // Two songs heard on a Sonos, recorded here as they counted.
+        let local = vec![
+            song("spotify:track:caramelle", "2026-11-02T01:46:09Z", 191),
+            song("spotify:track:limitless", "2026-11-02T01:43:42Z", 146),
+        ];
+        // Spotify reports each as it ended.
+        let remote = vec![
+            song("spotify:track:caramelle", "2026-11-02T01:48:51Z", 191),
+            song("spotify:track:limitless", "2026-11-02T01:45:40Z", 146),
+        ];
+        assert_eq!(merged(&local, &remote).len(), 2);
+        // A song played back to back: the first report is nearer the
+        // second play made here, yet belongs to the first.
+        let local = vec![
+            song("spotify:track:a", "2026-11-02T01:03:50Z", 200),
+            song("spotify:track:a", "2026-11-02T01:00:30Z", 200),
+        ];
+        let remote = vec![
+            song("spotify:track:a", "2026-11-02T01:06:40Z", 200),
+            song("spotify:track:a", "2026-11-02T01:03:20Z", 200),
+        ];
+        assert_eq!(merged(&local, &remote).len(), 2, "two plays, each once");
+        // Reported long after the song ended, it is another play.
+        let later = vec![song("spotify:track:a", "2026-11-02T01:15:00Z", 200)];
+        assert_eq!(merged(&local[1..], &later).len(), 2);
     }
 
     /// Each source reports every play it heard: a short song played twice
