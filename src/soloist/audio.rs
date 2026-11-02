@@ -571,6 +571,19 @@ mod pipewire {
     /// a quantum, one late cycle another, at the usual 21 ms quantum. Measured
     /// against 100 ms, more margin only made each re-prime longer.
     const MIN_TARGET: Duration = Duration::from_millis(60);
+    /// How much the output's read may run off the true rate to put a margin
+    /// back or take one off: about 9 cents, under what anyone can hear, and
+    /// enough to rebuild the margin in 12 s with no silence at all.
+    const DRIFT: f64 = 0.005;
+    /// The most the target grows to on a machine that keeps running dry.
+    const MAX_TARGET: Duration = Duration::from_millis(250);
+    /// What one dropout adds to the target.
+    const TARGET_STEP: Duration = Duration::from_millis(40);
+    /// What each `CLEAN_SPELL` without a dropout takes off it again.
+    const TARGET_EASE: Duration = Duration::from_millis(10);
+    const CLEAN_SPELL: Duration = Duration::from_secs(30);
+    /// How far over the target the queue may be before it is cut, not eased.
+    const CUT_OVER: Duration = Duration::from_millis(50);
     /// The longest fade at either end of a hole or a splice.
     const FADE: Duration = Duration::from_millis(5);
     /// How much output passes between looks at whether the delay has grown.
@@ -790,9 +803,14 @@ mod pipewire {
         /// The output's latest cycle, for the log.
         quantum: AtomicUsize,
         rate: AtomicU32,
-        /// The frames the output holds, which is how far behind Soloist's
-        /// clock the sound is.
+        /// The frames the queue is being steered towards.
         target: AtomicUsize,
+        /// The queue's smoothed fill: how far behind Soloist's clock we are.
+        delay_frames: AtomicUsize,
+        /// Dropouts ever, which the chain's target follows. Never emptied.
+        faults: AtomicU32,
+        /// Output frames read off the true rate.
+        drift_frames: AtomicU32,
     }
     impl Default for Stats {
         fn default() -> Self {
@@ -819,6 +837,9 @@ mod pipewire {
                 quantum: AtomicUsize::new(0),
                 rate: AtomicU32::new(RATE as u32),
                 target: AtomicUsize::new(0),
+                delay_frames: AtomicUsize::new(0),
+                faults: AtomicU32::new(0),
+                drift_frames: AtomicU32::new(0),
             }
         }
     }
@@ -854,6 +875,7 @@ mod pipewire {
                 if dry {
                     Self::add(&self.short_reads, 1);
                     Self::add(&self.short_frames, quiet);
+                    Self::add(&self.faults, 1);
                 }
             }
             self.sounding.store(true, Ordering::Relaxed);
@@ -866,7 +888,7 @@ mod pipewire {
             self.dry_in_quiet.store(false, Ordering::Relaxed);
         }
         fn delay_ms(&self) -> u32 {
-            let frames = self.target.load(Ordering::Relaxed) as u64;
+            let frames = self.delay_frames.load(Ordering::Relaxed) as u64;
             (frames * 1000 / u64::from(self.rate.load(Ordering::Relaxed).max(1))) as u32
         }
         /// Empties the counters.
@@ -885,6 +907,8 @@ mod pipewire {
                 frames_in: take(&self.frames_in),
                 frames_out: take(&self.frames_out),
                 held_frames: take(&self.held_frames),
+                drift_frames: take(&self.drift_frames),
+                target: self.target.load(Ordering::Relaxed),
                 input_gaps: take(&self.input_gaps),
                 input_gap_frames: take(&self.input_gap_frames),
                 cycles_without_input: take(&self.cycles_without_input),
@@ -910,6 +934,8 @@ mod pipewire {
         frames_in: u32,
         frames_out: u32,
         held_frames: u32,
+        drift_frames: u32,
+        target: usize,
         input_gaps: u32,
         input_gap_frames: u32,
         cycles_without_input: u32,
@@ -947,7 +973,7 @@ mod pipewire {
                  {} ring overflows, {} ms skipped, {} unowned blocks dropped, {} input gaps \
                  ({} ms), {} empty inputs, {} short inputs (smallest {smallest}), \
                  {} cycles without input, lowest margin {low}, quantum {}, \
-                 {} frames in, {} out, {} ms held",
+                 {} frames in, {} out, {} ms held, {} ms read off rate, target {} ms",
                 REPORT_EVERY.as_secs(),
                 self.short_reads,
                 ms(u64::from(self.short_frames)),
@@ -964,6 +990,8 @@ mod pipewire {
                 self.frames_in,
                 self.frames_out,
                 ms(u64::from(self.held_frames)),
+                ms(u64::from(self.drift_frames)),
+                ms(self.target as u64),
             ))
         }
     }
@@ -997,6 +1025,19 @@ mod pipewire {
         /// frames ago: what could go without ever running short.
         lowest: usize,
         watched: usize,
+        /// What repeated dropouts have added to the target, in frames, and
+        /// the frames played since the last one.
+        extra: usize,
+        clean: usize,
+        /// The dropouts `Stats` had counted when this last looked.
+        faults: u32,
+        /// How far the read moves per output frame, what it is meant to be,
+        /// and how far it stands between two queued frames.
+        step: f64,
+        wanted_step: f64,
+        phase: f64,
+        /// The queue's fill, smoothed: how far behind Soloist the sound is.
+        delay: f64,
     }
     impl Chain {
         fn new(
@@ -1034,13 +1075,46 @@ mod pipewire {
                 primed: false,
                 lowest: usize::MAX,
                 watched: 0,
+                extra: 0,
+                clean: 0,
+                faults: 0,
+                step: 1.0,
+                wanted_step: 1.0,
+                phase: 0.0,
+                delay: 0.0,
             }
         }
-        /// The frames to hold before playing: two quanta, and never less
-        /// than `MIN_TARGET`.
+        fn frames_in(&self, time: Duration) -> usize {
+            (f64::from(self.output_rate) * time.as_secs_f64()) as usize
+        }
+        /// The frames to hold before playing after running dry: two quanta,
+        /// and never less than `MIN_TARGET`. A hold is silence, so it stays
+        /// this short however large the target has grown.
+        fn floor(&self, frames: usize) -> usize {
+            self.frames_in(MIN_TARGET).max(frames * 2)
+        }
+        /// The frames the queue is steered towards.
         fn target(&self, frames: usize) -> usize {
-            let least = (f64::from(self.output_rate) * MIN_TARGET.as_secs_f64()) as usize;
-            least.max(frames * 2)
+            let floor = self.floor(frames);
+            (floor + self.extra).min(self.frames_in(MAX_TARGET).max(floor))
+        }
+        /// Grows the target on a new dropout, and eases it back after a clean
+        /// spell. Not during a hold: nothing plays there to be clean.
+        fn adapt_target(&mut self, frames: usize, stats: &Stats) {
+            let faults = stats.faults.load(Ordering::Relaxed);
+            if std::mem::replace(&mut self.faults, faults) != faults {
+                let most = self
+                    .frames_in(MAX_TARGET)
+                    .saturating_sub(self.floor(frames));
+                self.extra = (self.extra + self.frames_in(TARGET_STEP)).min(most);
+                self.clean = 0;
+                return;
+            }
+            self.clean += frames;
+            if self.clean >= self.frames_in(CLEAN_SPELL) {
+                self.clean = 0;
+                self.extra = self.extra.saturating_sub(self.frames_in(TARGET_EASE));
+            }
         }
         /// Decides what this cycle of `frames` does: true plays the queue,
         /// false holds it and renders silence.
@@ -1049,10 +1123,15 @@ mod pipewire {
                 return false;
             }
             let fill = self.samples.len() / 2;
-            let target = self.target(frames);
-            stats.target.store(target, Ordering::Relaxed);
+            self.delay += (fill as f64 - self.delay) * 0.02;
+            stats
+                .delay_frames
+                .store(self.delay as usize, Ordering::Relaxed);
             if !self.primed {
-                if fill < target {
+                self.wanted_step = 1.0;
+                self.step = 1.0;
+                self.phase = 0.0;
+                if fill < self.floor(frames) {
                     return false;
                 }
                 self.primed = true;
@@ -1071,19 +1150,40 @@ mod pipewire {
                 if stats.quiet_frames.load(Ordering::Relaxed) == 0 {
                     Stats::add(&stats.short_reads, 1);
                     Stats::add(&stats.short_frames, frames - fill);
+                    Stats::add(&stats.faults, 1);
                 } else {
                     stats.dry_in_quiet.store(true, Ordering::Relaxed);
                 }
                 self.fade_out(fill);
                 self.primed = false;
+                self.adapt_target(frames, stats);
+                stats.target.store(self.target(frames), Ordering::Relaxed);
                 return true;
+            }
+            self.adapt_target(frames, stats);
+            let target = self.target(frames);
+            stats.target.store(target, Ordering::Relaxed);
+            // A margin comes back by reading a little slow, never by silence.
+            // Between the two is the steady place: a quantum's worth of play
+            // that is only where the cycles happen to fall.
+            self.wanted_step = if fill < target {
+                1.0 - DRIFT
+            } else if fill > target + frames {
+                1.0 + DRIFT
+            } else {
+                1.0
+            };
+            if self.wanted_step != 1.0 {
+                self.step = self.wanted_step;
+                Stats::add(&stats.drift_frames, frames);
             }
             self.lowest = self.lowest.min(fill);
             self.watched += frames;
             if self.watched >= (f64::from(self.output_rate) * TRIM_EVERY.as_secs_f64()) as usize {
                 // A cycle or two over is the streams' order, or a chain lock
-                // miss. More than that would be delay kept for good.
-                let slack = frames.max(self.output_rate as usize / 50);
+                // miss, and easing deals with it. A long way over is a change
+                // of quantum, and too much to ease.
+                let slack = frames + self.frames_in(CUT_OVER);
                 if self.lowest > target + slack {
                     let excess = self.lowest - target;
                     self.splice(excess);
@@ -1129,6 +1229,9 @@ mod pipewire {
             self.tap.try_clear();
             self.gain = 0.0;
             self.primed = false;
+            self.step = 1.0;
+            self.wanted_step = 1.0;
+            self.phase = 0.0;
             if let Some(resampler) = &mut self.input_resampler {
                 resampler.reset();
             }
@@ -1174,17 +1277,50 @@ mod pipewire {
             }
         }
         /// Fills at most one `CHUNK` of interleaved float frames.
+        /// The next frame of the queue, at the read's `step`. At a step of one
+        /// on a whole frame this is the queue as it stands, sample for sample.
+        fn next_frame(&mut self) -> [f64; 2] {
+            let pop = |samples: &mut VecDeque<f64>| {
+                [
+                    samples.pop_front().unwrap_or(0.0),
+                    samples.pop_front().unwrap_or(0.0),
+                ]
+            };
+            if self.step == 1.0 && self.phase == 0.0 {
+                return pop(&mut self.samples);
+            }
+            if self.samples.len() < 4 {
+                self.phase = 0.0;
+                return pop(&mut self.samples);
+            }
+            let share = self.phase;
+            let frame = [0, 1].map(|channel| {
+                self.samples[channel] * (1.0 - share) + self.samples[channel + 2] * share
+            });
+            self.phase += self.step;
+            while self.phase >= 1.0 {
+                self.phase -= 1.0;
+                pop(&mut self.samples);
+            }
+            // Back on a whole frame the read returns to the true rate, so it
+            // doesn't go on interpolating for nothing.
+            if self.wanted_step == 1.0 && self.phase < DRIFT * 2.0 {
+                self.step = 1.0;
+                self.phase = 0.0;
+            }
+            frame
+        }
         /// Silent, leaving the queue alone, unless it is to `play`.
         fn block(&mut self, bytes: &mut [u8], percent: u8, play: bool) {
             let count = bytes.len() / 8 * 2;
-            let samples = &mut self.block[..count];
-            for sample in samples.iter_mut() {
-                *sample = if play {
-                    self.samples.pop_front().unwrap_or(0.0)
-                } else {
-                    0.0
-                };
+            self.block[..count].fill(0.0);
+            if play {
+                for at in (0..count).step_by(2) {
+                    let frame = self.next_frame();
+                    self.block[at..at + 2].copy_from_slice(&frame);
+                }
             }
+            let samples = &mut self.block[..count];
             self.eq.apply(samples);
             if let Some(resampler) = &mut self.tap_resampler {
                 for (narrow, sample) in self.narrow.iter_mut().zip(samples.iter()) {
@@ -2187,6 +2323,171 @@ mod pipewire {
             assert_eq!(chain.target(8192), 16_384);
         }
 
+        /// Plays `seconds` with `in_per_cycle` frames arriving for every 1024
+        /// that leave, a steady deficit, and says how many times it ran dry.
+        fn run_short(audio: &Audio, in_per_cycle: usize, seconds: usize) -> u32 {
+            let mut output = vec![0; 1024 * 8];
+            let (mut phase, mut dry) = (0u64, 0);
+            for _ in 0..seconds * 44_100 / 1024 {
+                let block: Vec<u8> = (0..in_per_cycle)
+                    .flat_map(|_| {
+                        phase += 1;
+                        let sample = (0.1
+                            * (std::f64::consts::TAU * 1000.0 * phase as f64 / 44_100.0).sin())
+                            as f32;
+                        [sample, sample].into_iter().flat_map(f32::to_le_bytes)
+                    })
+                    .collect();
+                audio.push(&block);
+                audio.render(&mut output, 100);
+                dry += audio.stats.short_reads.swap(0, Ordering::Relaxed);
+            }
+            dry
+        }
+
+        /// A deficit within what the read can drift never reaches silence.
+        #[test]
+        fn a_deficit_within_the_drift_never_runs_dry() {
+            let audio = fresh();
+            let quantum_fraction = (1024.0 * (1.0 - DRIFT * 0.8)) as usize;
+            assert_eq!(run_short(&audio, quantum_fraction, 60), 0);
+        }
+
+        /// Frames lost for good can only be silence: what drifting buys is
+        /// the drift. 18 frames short in 1024 is 1.8%, past what it can cover,
+        /// so about 1.3% of the time is held, not the whole 1.8%.
+        #[test]
+        fn a_deficit_past_the_drift_costs_only_the_excess_in_silence() {
+            let audio = fresh();
+            let seconds = 120;
+            run_short(&audio, 1006, seconds);
+            let held = audio.stats.take().held_frames as f64 / (seconds * 44_100) as f64;
+            assert!((0.010..0.016).contains(&held), "{held}");
+        }
+
+        /// A burst past the margin is heard once. The larger target it leaves
+        /// behind, filled by drifting, rides out the next one like it.
+        #[test]
+        fn a_burst_that_ran_dry_leaves_a_margin_for_the_next() {
+            let audio = fresh();
+            let quantum = 1024;
+            let mut output = vec![0; quantum * 8];
+            let burst = |audio: &Audio, output: &mut [u8]| {
+                for _ in 0..3 {
+                    audio.push(&vec![0; quantum * 8]);
+                    audio.render(output, 100);
+                }
+                cycle(audio, quantum, true);
+                audio.stats.short_reads.swap(0, Ordering::Relaxed)
+            };
+            run_short(&audio, quantum, 2);
+            assert_eq!(burst(&audio, &mut output), 1, "past the 60 ms margin");
+            run_short(&audio, quantum, 20);
+            assert_eq!(burst(&audio, &mut output), 0, "and within the grown one");
+        }
+
+        /// A hole's cost comes back at no more than the drift, in no silence.
+        #[test]
+        fn a_spent_margin_comes_back_by_reading_slow() {
+            let audio = fresh();
+            let quantum = 1024;
+            for _ in 0..6 {
+                cycle(&audio, quantum, true);
+            }
+            audio.push(&vec![0; quantum * 8]);
+            audio.render(&mut vec![0; quantum * 8], 100);
+            let spent = audio.chain.lock().unwrap().samples.len() / 2;
+            assert!(spent < TARGET, "{spent}");
+            let cycles = (TARGET - spent) as f64 / (DRIFT * quantum as f64) * 1.2;
+            for _ in 0..cycles as usize {
+                cycle(&audio, quantum, true);
+            }
+            // Steered before each read, so a quantum of the fill has just gone.
+            let chain = audio.chain.lock().unwrap();
+            assert!(chain.samples.len() / 2 + quantum >= TARGET);
+            assert_eq!(audio.stats.short_reads.load(Ordering::Relaxed), 0);
+        }
+
+        /// The read is continuous however it is drifting, or a tone would
+        /// tick at the drift's rate: no step beyond the tone's own.
+        #[test]
+        fn reading_off_rate_keeps_a_tone_smooth_and_true() {
+            let mut audio = fresh();
+            let chain = audio.chain.get_mut().unwrap();
+            let tone = tone(44_100, 8192);
+            chain.samples = tone
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|bytes| f64::from(f32::from_le_bytes(*bytes)))
+                .collect();
+            let step = 0.1 * std::f64::consts::TAU * 1000.0 / 44_100.0;
+            for wanted in [1.0 - DRIFT, 1.0 + DRIFT] {
+                chain.step = wanted;
+                chain.wanted_step = wanted;
+                let mut last = chain.next_frame()[0];
+                for _ in 0..2000 {
+                    let next = chain.next_frame()[0];
+                    assert!((next - last).abs() < step * 1.05);
+                    last = next;
+                }
+            }
+            chain.wanted_step = 1.0;
+            for _ in 0..1000 {
+                chain.next_frame();
+            }
+            assert_eq!(
+                (chain.step, chain.phase),
+                (1.0, 0.0),
+                "back to the true rate"
+            );
+        }
+
+        /// One dropout adds a step, within the bound, and clean playing
+        /// eases it back, a little at a time.
+        #[test]
+        fn the_target_grows_on_dropouts_and_shrinks_slowly_when_clean() {
+            let mut audio = fresh();
+            let stats = Stats::default();
+            let chain = audio.chain.get_mut().unwrap();
+            let step = chain.frames_in(TARGET_STEP);
+            stats.faults.store(1, Ordering::Relaxed);
+            chain.adapt_target(1024, &stats);
+            assert_eq!(chain.target(1024), TARGET + step);
+            for fault in 2..20 {
+                stats.faults.store(fault, Ordering::Relaxed);
+                chain.adapt_target(1024, &stats);
+            }
+            assert_eq!(chain.target(1024), chain.frames_in(MAX_TARGET), "bounded");
+            let top = chain.target(1024);
+            chain.adapt_target(chain.frames_in(CLEAN_SPELL), &stats);
+            assert_eq!(chain.target(1024), top - chain.frames_in(TARGET_EASE));
+        }
+
+        /// However large the target, a hold stays short: it is silence.
+        #[test]
+        fn a_grown_target_does_not_lengthen_the_hold() {
+            let audio = fresh();
+            audio.chain.lock().unwrap().extra = 8000;
+            let quantum = 1024;
+            let mut held = 0;
+            while peak(&cycle(&audio, quantum, true)) == 0.0 {
+                held += 1;
+                assert!(held < 8, "held for the floor, not the target");
+            }
+        }
+
+        /// The position follows what is really queued, target and all.
+        #[test]
+        fn the_reported_delay_follows_the_queue() {
+            let audio = fresh();
+            for _ in 0..400 {
+                cycle(&audio, 1024, true);
+            }
+            let settled = audio.stats.delay_ms();
+            assert!((60..=90).contains(&settled), "{settled}");
+        }
+
         /// The streams' order inside a cycle isn't fixed: the old queue, with
         /// no margin, lost a quantum whenever it flipped.
         #[test]
@@ -2262,7 +2563,8 @@ mod pipewire {
             for _ in 0..(2 * 44_100 / 256) {
                 cycle(&audio, 256, true);
             }
-            assert!(held(&audio) <= TARGET + 256, "{}", held(&audio));
+            let over = 256 + audio.chain.lock().unwrap().frames_in(CUT_OVER);
+            assert!(held(&audio) <= TARGET + over, "{}", held(&audio));
             let report = audio.stats.take();
             assert!(report.skipped_frames > 0);
             assert_eq!(report.short_reads, 0);
