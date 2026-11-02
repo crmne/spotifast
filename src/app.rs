@@ -4764,9 +4764,7 @@ impl App {
     #[cfg(feature = "milkdrop")]
     fn sync_milkdrop(&mut self, ctx: &egui::Context) {
         let presets = self.dirs.milkdrop_dir();
-        // Beside a classic skin the frame shows MilkDrop, not this window.
-        // Nor on a trip to full screen from a skin, which took it along.
-        let open = self.settings.milkdrop_open && !self.milkdrop_framed() && !self.skin_return;
+        let open = self.plain_milkdrop_wanted();
         let size = self.settings.milkdrop_size;
         let pos = self.milkdrop_pos;
         let fullscreen = self.settings.milkdrop_fullscreen;
@@ -4867,6 +4865,17 @@ impl App {
         if let Some(mode) = self.immersive.take() {
             self.milkdrop_backdrop = mode.backdrop_was;
         }
+    }
+
+    /// Whether the plain MilkDrop window should be open. Not beside a classic
+    /// skin, whose panel has it; not on a trip to full screen from a skin,
+    /// which took it along; and not while MilkDrop is behind the lyrics. One
+    /// child draws at a time, and the window comes back when that ends.
+    fn plain_milkdrop_wanted(&self) -> bool {
+        self.settings.milkdrop_open
+            && !self.milkdrop_framed()
+            && !self.skin_return
+            && !self.milkdrop_behind_lyrics()
     }
 
     /// Whether full screen lyrics want MilkDrop behind them.
@@ -26599,6 +26608,26 @@ mod tests {
         assert!(!app.settings.winamp_window);
         app.shutdown();
         assert!(app.settings.winamp_window);
+    }
+
+    /// One child at a time: the plain window waits out the backdrop, and its
+    /// being open is not forgotten.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn the_plain_milkdrop_window_steps_aside_for_the_backdrop() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("milkdrop-one-child");
+        app.settings.milkdrop_open = true;
+        assert!(app.plain_milkdrop_wanted());
+        app.lyrics_fullscreen = Some(false);
+        assert!(app.plain_milkdrop_wanted(), "art behind the lyrics");
+        app.actions.push(Action::ToggleLyricsMilkdrop);
+        app.apply_actions(&ctx);
+        assert!(!app.plain_milkdrop_wanted());
+        assert!(app.settings.milkdrop_open);
+        app.actions.push(Action::SetLyricsFullscreen(false));
+        app.apply_actions(&ctx);
+        assert!(app.plain_milkdrop_wanted(), "back with the backdrop gone");
     }
 
     /// In the main window the key flips the backdrop and it is remembered; a
