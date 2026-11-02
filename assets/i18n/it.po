@@ -3100,10 +3100,6 @@ msgstr "Vai all’artista in riproduzione"
 msgid "Go to the playing album"
 msgstr "Vai all’album in riproduzione"
 
-#: src/ui/keys.rs:364
-msgid "Winamp mini player"
-msgstr "Mini player Winamp"
-
 #: src/ui/keys.rs:367
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop, sotto il mini player"
@@ -3591,12 +3587,12 @@ msgid "MilkDrop visualiser (Cmd+Shift+K)"
 msgstr "Visualizzatore MilkDrop (Cmd+Shift+K)"
 
 #: src/ui/topbar.rs:589
-msgid "Winamp mini player (Ctrl+M)"
-msgstr "Mini player Winamp (Ctrl+M)"
+msgid "Mini player (Ctrl+M)"
+msgstr "Mini player (Ctrl+M)"
 
 #: src/ui/topbar.rs:590
-msgid "Winamp mini player (Cmd+Shift+M)"
-msgstr "Mini player Winamp (Cmd+Shift+M)"
+msgid "Mini player (Cmd+Shift+M)"
+msgstr "Mini player (Cmd+Shift+M)"
 
 #: src/ui/topbar.rs:602
 msgid "Updating your library…"

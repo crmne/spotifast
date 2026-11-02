@@ -3033,10 +3033,6 @@ msgstr "재생 중인 아티스트로 이동"
 msgid "Go to the playing album"
 msgstr "재생 중인 앨범으로 이동"
 
-#: src/ui/keys.rs:364
-msgid "Winamp mini player"
-msgstr "Winamp 미니 플레이어"
-
 #: src/ui/keys.rs:367
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop, 미니 플레이어 아래"
@@ -3518,12 +3514,12 @@ msgid "MilkDrop visualiser (Cmd+Shift+K)"
 msgstr "MilkDrop 시각화 (Cmd+Shift+K)"
 
 #: src/ui/topbar.rs:589
-msgid "Winamp mini player (Ctrl+M)"
-msgstr "Winamp 미니 플레이어 (Ctrl+M)"
+msgid "Mini player (Ctrl+M)"
+msgstr "미니 플레이어 (Ctrl+M)"
 
 #: src/ui/topbar.rs:590
-msgid "Winamp mini player (Cmd+Shift+M)"
-msgstr "Winamp 미니 플레이어 (Cmd+Shift+M)"
+msgid "Mini player (Cmd+Shift+M)"
+msgstr "미니 플레이어 (Cmd+Shift+M)"
 
 #: src/ui/topbar.rs:602
 msgid "Updating your library…"

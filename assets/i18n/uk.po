@@ -3109,10 +3109,6 @@ msgstr "Перейти до виконавця поточної пісні"
 msgid "Go to the playing album"
 msgstr "Перейти до альбому поточної пісні"
 
-#: src/ui/keys.rs:364
-msgid "Winamp mini player"
-msgstr "Мініплеєр Winamp"
-
 #: src/ui/keys.rs:367
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop під мініплеєром"
@@ -3604,12 +3600,12 @@ msgid "MilkDrop visualiser (Cmd+Shift+K)"
 msgstr "Візуалізатор MilkDrop (Cmd+Shift+K)"
 
 #: src/ui/topbar.rs:589
-msgid "Winamp mini player (Ctrl+M)"
-msgstr "Мініплеєр Winamp (Ctrl+M)"
+msgid "Mini player (Ctrl+M)"
+msgstr "Мініплеєр (Ctrl+M)"
 
 #: src/ui/topbar.rs:590
-msgid "Winamp mini player (Cmd+Shift+M)"
-msgstr "Мініплеєр Winamp (Cmd+Shift+M)"
+msgid "Mini player (Cmd+Shift+M)"
+msgstr "Мініплеєр (Cmd+Shift+M)"
 
 #: src/ui/topbar.rs:602
 msgid "Updating your library…"

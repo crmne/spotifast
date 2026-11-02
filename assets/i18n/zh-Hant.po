@@ -2978,10 +2978,6 @@ msgstr "前往正在播放的藝人"
 msgid "Go to the playing album"
 msgstr "前往正在播放的專輯"
 
-#: src/ui/keys.rs:364
-msgid "Winamp mini player"
-msgstr "Winamp 迷你播放器"
-
 #: src/ui/keys.rs:367
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop，位於迷你播放器下方"
@@ -3458,12 +3454,12 @@ msgid "MilkDrop visualiser (Cmd+Shift+K)"
 msgstr "MilkDrop 視覺效果 (Cmd+Shift+K)"
 
 #: src/ui/topbar.rs:589
-msgid "Winamp mini player (Ctrl+M)"
-msgstr "Winamp 迷你播放器 (Ctrl+M)"
+msgid "Mini player (Ctrl+M)"
+msgstr "迷你播放器 (Ctrl+M)"
 
 #: src/ui/topbar.rs:590
-msgid "Winamp mini player (Cmd+Shift+M)"
-msgstr "Winamp 迷你播放器 (Cmd+Shift+M)"
+msgid "Mini player (Cmd+Shift+M)"
+msgstr "迷你播放器 (Cmd+Shift+M)"
 
 #: src/ui/topbar.rs:602
 msgid "Updating your library…"

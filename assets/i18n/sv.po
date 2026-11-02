@@ -3064,10 +3064,6 @@ msgstr "Gå till artisten som spelas"
 msgid "Go to the playing album"
 msgstr "Gå till albumet som spelas"
 
-#: src/ui/keys.rs:364
-msgid "Winamp mini player"
-msgstr "Winamp-minispelare"
-
 #: src/ui/keys.rs:367
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop, under minispelaren"
@@ -3555,12 +3551,12 @@ msgid "MilkDrop visualiser (Cmd+Shift+K)"
 msgstr "MilkDrop-visualisering (Cmd+Shift+K)"
 
 #: src/ui/topbar.rs:589
-msgid "Winamp mini player (Ctrl+M)"
-msgstr "Winamp-minispelare (Ctrl+M)"
+msgid "Mini player (Ctrl+M)"
+msgstr "Minispelare (Ctrl+M)"
 
 #: src/ui/topbar.rs:590
-msgid "Winamp mini player (Cmd+Shift+M)"
-msgstr "Winamp-minispelare (Cmd+Shift+M)"
+msgid "Mini player (Cmd+Shift+M)"
+msgstr "Minispelare (Cmd+Shift+M)"
 
 #: src/ui/topbar.rs:602
 msgid "Updating your library…"

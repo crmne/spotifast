@@ -586,8 +586,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     palette.secondary,
                     palette.text,
                     super::keys::platform_shortcut(
-                        &gettext(locale, "Winamp mini player (Ctrl+M)"),
-                        &gettext(locale, "Winamp mini player (Cmd+Shift+M)"),
+                        &gettext(locale, "Mini player (Ctrl+M)"),
+                        &gettext(locale, "Mini player (Cmd+Shift+M)"),
                     ),
                 )
                 .clicked()

@@ -3089,10 +3089,6 @@ msgstr "Çalan sanatçıya git"
 msgid "Go to the playing album"
 msgstr "Çalan albüme git"
 
-#: src/ui/keys.rs:364
-msgid "Winamp mini player"
-msgstr "Winamp mini çalar"
-
 #: src/ui/keys.rs:367
 msgid "MilkDrop, under the mini player"
 msgstr "MilkDrop, mini çaların altında"
@@ -3580,12 +3576,12 @@ msgid "MilkDrop visualiser (Cmd+Shift+K)"
 msgstr "MilkDrop görselleştiricisi (Cmd+Shift+K)"
 
 #: src/ui/topbar.rs:589
-msgid "Winamp mini player (Ctrl+M)"
-msgstr "Winamp mini çalar (Ctrl+M)"
+msgid "Mini player (Ctrl+M)"
+msgstr "Mini çalar (Ctrl+M)"
 
 #: src/ui/topbar.rs:590
-msgid "Winamp mini player (Cmd+Shift+M)"
-msgstr "Winamp mini çalar (Cmd+Shift+M)"
+msgid "Mini player (Cmd+Shift+M)"
+msgstr "Mini çalar (Cmd+Shift+M)"
 
 #: src/ui/topbar.rs:602
 msgid "Updating your library…"

@@ -337,7 +337,7 @@ Winamp skins do not yet have equivalent accessibility coverage.
 | `Ctrl+X` | Copy the selected songs' links and remove the songs from your playlist |
 | `Shift+Q` | Add the selected songs to the queue, or show the queue if none are selected |
 | `Shift+N` | Play the selected songs next, on this computer |
-| `Ctrl+M` | Winamp mini player |
+| `Ctrl+M` | Mini player |
 | `Ctrl+Shift+K` | MilkDrop |
 | `Ctrl+,` | Settings |
 | `Ctrl+/` or `?` | All shortcuts |

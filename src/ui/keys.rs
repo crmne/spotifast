@@ -361,7 +361,7 @@ pub fn shortcuts(locale: Locale) -> Vec<(Cow<'static, str>, Cow<'static, str>)> 
             keys(platform_shortcut("Ctrl+Shift+B", "Cmd+Shift+B")),
             gettext(locale, "Go to the playing album"),
         ),
-        (keys(WINAMP_SHORTCUT), gettext(locale, "Winamp mini player")),
+        (keys(WINAMP_SHORTCUT), gettext(locale, "Mini player")),
         (
             keys(MILKDROP_SHORTCUT),
             gettext(locale, "MilkDrop, under the mini player"),
@@ -652,10 +652,10 @@ mod tests {
         };
         if cfg!(target_os = "macos") {
             assert_eq!(label("Home"), "Cmd+Shift+H");
-            assert_eq!(label("Winamp mini player"), "Cmd+Shift+M");
+            assert_eq!(label("Mini player"), "Cmd+Shift+M");
         } else {
             assert_eq!(label("Home"), "Ctrl+H");
-            assert_eq!(label("Winamp mini player"), "Ctrl+M");
+            assert_eq!(label("Mini player"), "Ctrl+M");
         }
     }
 
