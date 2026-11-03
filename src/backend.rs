@@ -2481,6 +2481,9 @@ impl Worker {
                 }
                 Command::Api(ApiRequest::Search { query, serial }) => self.search(query, serial),
                 Command::Api(request) => {
+                    if let ApiRequest::PlaybackState { seq } = &request {
+                        self.connect.poll_sent(*seq, self.cluster_playing());
+                    }
                     self.dispatch(request);
                 }
                 Command::ApiFinished {
@@ -2561,8 +2564,13 @@ impl Worker {
                             self.connect.observe_playing(
                                 *seq,
                                 state.as_ref().and_then(|state| state.device.as_ref()),
+                                self.cluster_playing(),
                             );
                         }
+                        ApiResponse::PlaybackState {
+                            seq,
+                            result: Err(_),
+                        } => self.connect.poll_failed(*seq),
                         _ => {}
                     }
                     if let ApiResponse::MadeForYou {
@@ -4287,6 +4295,16 @@ impl Worker {
         });
     }
 
+    /// The device the playback session's Connect cluster names as playing,
+    /// if the session is this account's.
+    fn cluster_playing(&self) -> Option<String> {
+        let account = self.api.account();
+        self.engine
+            .as_deref()
+            .filter(|engine| same_account(&engine.session().username(), account.as_ref()))
+            .and_then(Engine::active_device)
+    }
+
     /// Starts Spotify on a Google Cast device and signs it in with a token
     /// that this session obtains for the device's Spotify client.
     fn activate_cast(&self, receiver: crate::zeroconf::Receiver) {
@@ -5613,7 +5631,7 @@ async fn handle(
 
     // Spotify does not always flag a restricted device beforehand (a Sonos
     // another app is steering, say), and then refuses its player commands.
-    let retry = command_device(&request).map(|device| (device.to_string(), request.clone()));
+    let retry = command_device(&request).map(|_| request.clone());
     let response = match request {
         ApiRequest::Me => ApiResponse::Me(routed!(me())),
         ApiRequest::Devices => ApiResponse::Devices(routed!(devices())),
@@ -6055,12 +6073,20 @@ async fn handle(
             }
         }
     };
-    if let Some((device, request)) = retry
+    if let Some(request) = retry
         && refused_as_restricted(&response)
         && let Some(engine) = engine
             .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
     {
-        connect.mark_restricted(&device);
+        // A command naming no device went to the one playing, which the Web
+        // API reports without an id when it is a Sonos.
+        let device = command_device(&request)
+            .flatten()
+            .map(str::to_owned)
+            .or_else(|| engine.active_device());
+        if let Some(device) = &device {
+            connect.mark_restricted(device);
+        }
         if let Some(response) = over_connect(engine, connect, &request).await {
             log::debug!("Spotify route operation={operation:?} source=connect after refusal");
             return (response, Vec::new());
@@ -6070,14 +6096,15 @@ async fn handle(
     (response, expired.get().into_iter().collect())
 }
 
-/// The device a player command names, for those [`over_connect`] can send.
-fn command_device(request: &ApiRequest) -> Option<&str> {
+/// The device a player command names, for those [`over_connect`] can send:
+/// `Some(None)` for one meant for whichever device plays.
+fn command_device(request: &ApiRequest) -> Option<Option<&str>> {
     match request {
         ApiRequest::Remote { device_id, .. }
         | ApiRequest::ShufflePlay { device_id, .. }
         | ApiRequest::AddToQueue { device_id, .. }
-        | ApiRequest::AddManyToQueue { device_id, .. } => device_id.as_deref(),
-        ApiRequest::Transfer { device_id, .. } => Some(device_id),
+        | ApiRequest::AddManyToQueue { device_id, .. } => Some(device_id.as_deref()),
+        ApiRequest::Transfer { device_id, .. } => Some(Some(device_id)),
         _ => None,
     }
 }
@@ -6113,6 +6140,7 @@ async fn over_connect(
     request: &ApiRequest,
 ) -> Option<ApiResponse> {
     let session = engine.session();
+    let playing = engine.active_device();
     Some(match request {
         ApiRequest::Remote {
             action,
@@ -6123,7 +6151,7 @@ async fn over_connect(
             flag,
             repeat,
         } => {
-            let to = connect.restricted_target(device_id.as_deref())?;
+            let to = connect.command_target(device_id.as_deref(), playing.as_deref())?;
             let result = match crate::sonos::command_body(
                 *action,
                 play.as_ref(),
@@ -6140,7 +6168,7 @@ async fn over_connect(
             }
         }
         ApiRequest::ShufflePlay { device_id, play } => {
-            let to = connect.restricted_target(device_id.as_deref())?;
+            let to = connect.command_target(device_id.as_deref(), playing.as_deref())?;
             let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "")?;
             let start = crate::sonos::command_body(RemoteAction::Play, Some(play), 0, false, "")?;
             let result = shuffle_then_play(shuffle, start, |body| {
@@ -6165,7 +6193,7 @@ async fn over_connect(
             device_id,
             label,
         } => {
-            let to = connect.restricted_target(device_id.as_deref())?;
+            let to = connect.command_target(device_id.as_deref(), playing.as_deref())?;
             let (_, result) = connect
                 .add_to_queue(session, &to, std::slice::from_ref(uri))
                 .await;
@@ -6179,7 +6207,7 @@ async fn over_connect(
             uris,
             device_id,
         } => {
-            let to = connect.restricted_target(device_id.as_deref())?;
+            let to = connect.command_target(device_id.as_deref(), playing.as_deref())?;
             let (added, result) = connect.add_to_queue(session, &to, uris).await;
             ApiResponse::QueueBatchAdded {
                 request: *request,
@@ -8029,8 +8057,8 @@ mod authorization_tests {
             flag: false,
             repeat: String::new(),
         };
-        assert_eq!(command_device(&pause(Some("move"))), Some("move"));
-        assert_eq!(command_device(&pause(None)), None);
+        assert_eq!(command_device(&pause(Some("move"))), Some(Some("move")));
+        assert_eq!(command_device(&pause(None)), Some(None));
         assert_eq!(command_device(&ApiRequest::Devices), None);
     }
 
@@ -8090,7 +8118,7 @@ mod authorization_tests {
             is_restricted: true,
             ..Default::default()
         };
-        previous.observe_playing(1, Some(&device));
+        previous.observe_playing(1, Some(&device), None);
         assert_eq!(
             worker.connect.restricted_target(None).as_deref(),
             Some("sonos")
