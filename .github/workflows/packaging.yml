@@ -33,6 +33,8 @@ on:
         required: false
       HOMEBREW_TAP_SSH_KEY:
         required: false
+      COPR_CONFIG:
+        required: false
 
 permissions:
   contents: read
@@ -169,3 +171,39 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
         run: bash packaging/test-install.sh "$IMAGE" dist/native-packages
+
+  # Fedora COPR (paolino/spotifast) builds from source, offline, so the
+  # source RPM carries the release's source archive and every vendored
+  # crate (PACKAGING.md, "Fedora COPR"). Release and manual runs make it
+  # from the published release; with PUBLISH_COPR=true a publishing run
+  # submits it and waits for every chroot's build.
+  copr:
+    name: Fedora COPR
+    if: inputs.version != ''
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tools
+        run: dnf install -y --setopt=install_weak_deps=False cargo rpm-build xz curl copr-cli
+      - name: Source RPM
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash packaging/rpm/build-srpm.sh "$VERSION" dist/srpm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: copr-srpm
+          path: dist/srpm/
+          retention-days: 7
+      - name: Submit to COPR
+        if: inputs.publish == true && vars.PUBLISH_COPR == 'true'
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          test -n "$COPR_CONFIG" || { echo "COPR_CONFIG is not set" >&2; exit 1; }
+          mkdir -p ~/.config
+          printf '%s\n' "$COPR_CONFIG" > ~/.config/copr
+          chmod 600 ~/.config/copr
+          copr-cli build paolino/spotifast "dist/srpm/spotifast-${VERSION#v}-1.src.rpm"

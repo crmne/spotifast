@@ -1,0 +1,95 @@
+# Fedora COPR (paolino/spotifast) builds this from the release's source
+# archive and a vendored crate archive, offline. packaging/rpm/build-srpm.sh
+# renders it and makes the source RPM; see PACKAGING.md, "Fedora COPR".
+# The release profile strips the binary, so there is no debug information to
+# split out.
+%global debug_package %{nil}
+
+Name:           spotifast
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Native Spotify client
+
+License:        MIT
+URL:            https://spotifast.rocks
+Source0:        https://github.com/crmne/spotifast/releases/download/v%{version}/spotifast-v%{version}-source.tar.gz
+# Every crate Cargo.lock names, from `cargo vendor`, with the Cargo
+# configuration that points the build at it.
+Source1:        spotifast-%{version}-vendor.tar.xz
+
+ExclusiveArch:  x86_64 aarch64
+
+BuildRequires:  rust >= @RUST_VERSION@
+BuildRequires:  cargo
+BuildRequires:  gcc
+BuildRequires:  gcc-c++
+# MilkDrop: projectm-sys builds libprojectM with CMake and binds it with
+# bindgen, which needs libclang.
+BuildRequires:  cmake
+BuildRequires:  clang
+BuildRequires:  clang-devel
+BuildRequires:  pkgconfig(alsa)
+BuildRequires:  pkgconfig(libpipewire-0.3)
+BuildRequires:  pkgconfig(xkbcommon)
+BuildRequires:  pkgconfig(wayland-client)
+BuildRequires:  pkgconfig(gl)
+
+# The window, input and GL libraries are loaded at run time, so ELF
+# dependency generation does not find them. Keep these aligned with the
+# rpm list in native-packages.yaml.
+Requires:       dbus-libs
+Requires:       libglvnd-glx
+Requires:       libglvnd-egl
+Requires:       libxkbcommon
+Requires:       libxkbcommon-x11
+Requires:       libwayland-client
+Requires:       libwayland-cursor
+Requires:       libwayland-egl
+Requires:       libX11
+Requires:       libX11-xcb
+Requires:       libXcursor
+Requires:       libXi
+Requires:       libXrandr
+Requires:       hicolor-icon-theme
+
+%description
+Spotifast is a small native Spotify client for Linux, macOS and Windows. It
+plays through Spotify Connect and librespot, with a Winamp mini player,
+synced lyrics and MilkDrop visuals.
+
+%prep
+%autosetup -n spotifast-%{version}
+tar -xf %{SOURCE1}
+cat vendor-config.toml >> .cargo/config.toml
+
+%build
+# projectm-sys links libprojectM from its CMake install's lib/, and CMake
+# installs to lib64/ on Fedora unless told otherwise. CMake reads this
+# toolchain file from the environment.
+printf 'set(CMAKE_INSTALL_LIBDIR lib CACHE PATH "")\n' > %{_builddir}/libdir.cmake
+export CMAKE_TOOLCHAIN_FILE=%{_builddir}/libdir.cmake
+cargo build --frozen --release
+
+%check
+# The full test suite builds everything again with the demo feature; COPR
+# checks that the binary it built runs.
+./target/release/spotifast --version | grep -Fx 'spotifast %{version}'
+
+%install
+install -Dpm0755 target/release/spotifast %{buildroot}%{_bindir}/spotifast
+install -Dpm0644 packaging/applications/spotifast.desktop %{buildroot}%{_datadir}/applications/spotifast.desktop
+install -Dpm0644 packaging/icons/spotifast.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/spotifast.svg
+install -Dpm0644 contrib/omarchy/spotifast.json.tpl %{buildroot}%{_datadir}/spotifast/omarchy/spotifast.json.tpl
+install -Dpm0755 contrib/omarchy/spotifast-theme %{buildroot}%{_datadir}/spotifast/omarchy/spotifast-theme
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/spotifast
+%{_datadir}/applications/spotifast.desktop
+%{_datadir}/icons/hicolor/scalable/apps/spotifast.svg
+%{_datadir}/spotifast/
+
+%changelog
+* @RPM_DATE@ Carmine Paolino <carmine@paolino.me> - @VERSION@-1
+- Update to @VERSION@

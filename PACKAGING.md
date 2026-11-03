@@ -124,6 +124,47 @@ immutable workflow reference, and the gem installation pins in the release and
 CI workflows together.
 Applications need no packaging Gemfile, lockfile or Ruby wrapper.
 
+## Fedora COPR
+
+[`paolino/spotifast`](https://copr.fedorainfracloud.org/coprs/paolino/spotifast/)
+gives Fedora users `dnf install spotifast` and updates through dnf. COPR
+builds from source in each chroot (Fedora's own Rust, 1.98 or newer), offline,
+so the release RPM's glibc 2.39 floor does not apply. The spec is
+[`packaging/rpm/spotifast.spec.in`](packaging/rpm/spotifast.spec.in);
+`packaging/rpm/build-srpm.sh VERSION DIR` downloads the release's source
+archive, checks it against `checksums.txt`, vendors every crate `Cargo.lock`
+names (`cargo vendor`, git dependencies included), renders the spec and makes
+`DIR/spotifast-VERSION-1.src.rpm`. Windows-only crates (`windows*`,
+`winapi-*-windows-gnu`) keep only their `Cargo.toml` and an empty library,
+which still resolves `Cargo.lock` and saves about 40 MB of the source RPM. It needs `cargo`, `rpm-build`, `xz` and
+`curl`. To test the build as COPR runs it, offline:
+
+```sh
+docker run --rm -v "$PWD:/src:ro" -v "$OUT:/w" fedora:latest bash -c \
+  'dnf install -y cargo rpm-build xz curl && /src/packaging/rpm/build-srpm.sh v1.2.3 /w'
+# then, in a Fedora container with `dnf builddep` done and --network none:
+rpmbuild --rebuild spotifast-1.2.3-1.src.rpm
+```
+
+The Packaging workflow's `copr` job makes the source RPM on release and
+manual runs. With the repository variable `PUBLISH_COPR=true` and the secret
+`COPR_CONFIG` (the `~/.config/copr` file from
+<https://copr.fedorainfracloud.org/api/>, whose token expires after 180 days),
+a publishing run submits it and waits for each chroot. Create the project once,
+with the chroots hyprmoncfg uses:
+
+```sh
+copr-cli create spotifast \
+  --chroot fedora-44-x86_64 --chroot fedora-44-aarch64 \
+  --chroot fedora-45-x86_64 --chroot fedora-45-aarch64 \
+  --chroot fedora-rawhide-x86_64 --chroot fedora-rawhide-aarch64
+```
+
+Fedora's AI contribution policy asks that AI-assisted changes to Fedora
+packaging carry an `Assisted-by:` trailer naming the tool and model, with a
+person responsible for them: commits that change the spec or this build
+carry one.
+
 ## Automatic macOS notarization
 
 The macOS release job builds the app first, then selects
