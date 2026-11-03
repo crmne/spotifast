@@ -40,8 +40,8 @@ features:
     title: Themes
     details: Choose light, dark, or your own colours. On Omarchy, Spotifast can follow your desktop theme as it changes, while the music keeps playing.
   - icon: 📻
-    title: Winamp mini player
-    details: Bring back the classic Winamp look, with skins, a playlist, sound controls, and animations that move to your music.
+    title: Skins
+    details: Wear Spotifast's own Tall and Wide skins, or classic Winamp and Windows Media Player skins, with their playlists, equalizers, and MilkDrop inside.
     link: /winamp/
     link_text: See it in action
   - icon: 🌀
@@ -85,16 +85,29 @@ features:
   }
 </style>
 
-## It turns into Winamp
+## Skins of its own, and the classics
 
-Load a classic `.wsz` skin from the
-[Winamp Skin Museum](https://skins.webamp.org). The mini player includes
-animated sound displays, an equalizer to adjust your sound, and a playlist.
-Roll it up into a thin bar or enlarge it while keeping the classic pixels
-sharp. [See the mini player in detail](/winamp/).
+Spotifast comes with two skins of its own. **Spotifast Tall** is a small white
+ceramic ribbon round a smoked-glass core, made to live at the side of your
+screen, and **Spotifast Wide** is the same object laid on its side. A thread of
+green light traces each one as it opens, and a click fills the glass with
+MilkDrop. The glass also turns to an equalizer or your queue.
 
-<div class="winamp-showcase">
-  <img src="/assets/images/winamp.png" alt="The mini player wearing the built-in skin" width="550" height="812">
+<video class="skins-showcase" autoplay loop muted playsinline preload="metadata" poster="/assets/images/skins-poster.jpg" aria-label="Spotifast Tall and Spotifast Wide opening with a thread of green light, then filling their glass with MilkDrop">
+  <source src="/assets/images/skins.mp4" type="video/mp4">
+</video>
+
+The mini player wears classic skins too. Load a Winamp `.wsz` skin from the
+[Winamp Skin Museum](https://skins.webamp.org), with its equalizer, playlist,
+and a MilkDrop panel in the skin's own frame, or a Windows Media Player `.wmz`
+skin from the Internet Archive's
+[collection](https://archive.org/details/windowsmediaplayerskinscollection),
+whose drawers and scripts run as they did in Windows Media Player, in a
+sandbox. MilkDrop plays in their visualization areas.
+[See the mini player in detail](/winamp/).
+
+<div class="skins-gallery">
+  <img src="/assets/images/skins-gallery.jpg" alt="Spotifast's Winamp skin with its equalizer, playlist and MilkDrop panel, Spotifast Tall and Spotifast Wide, beside Headspace, Cerulean and Activate, three classic Windows Media Player skins, every one running MilkDrop" width="1600" height="790" loading="lazy">
 </div>
 
 ## MilkDrop with more than 10,000 presets
@@ -106,6 +119,14 @@ react to music playing on your computer, in a resizable window or full screen.
 
 <video class="milkdrop-showcase" autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop presets reacting to music in Spotifast">
   <source src="/assets/images/milkdrop.mp4" type="video/mp4">
+</video>
+
+MilkDrop can also play behind your lyrics in full screen, dimmed until the
+words are clear, with the line being sung in the accent colour. Click the album
+art and everything else steps aside for MilkDrop, edge to edge.
+
+<video class="milkdrop-showcase lyrics-showcase" autoplay loop muted playsinline preload="metadata" poster="/assets/images/lyrics-milkdrop-poster.jpg" aria-label="Full screen lyrics with MilkDrop behind the words, then MilkDrop alone">
+  <source src="/assets/images/lyrics-milkdrop.mp4" type="video/mp4">
 </video>
 
 ## WhatsApp, just as fast
@@ -135,19 +156,21 @@ foundation for native Rust apps built with [egui](https://www.egui.rs).
     border-radius: 12px;
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
   }
-  .winamp-showcase {
-    text-align: center;
+  .skins-gallery {
+    margin-top: 16px;
   }
-  .winamp-showcase img,
+  .skins-gallery img,
+  .skins-showcase,
   .milkdrop-showcase {
+    display: block;
+    width: 100%;
     max-width: 100%;
     height: auto;
     border-radius: 12px;
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
   }
-  .milkdrop-showcase {
-    display: block;
-    width: 100%;
+  .lyrics-showcase {
+    margin-top: 16px;
   }
   @media (max-width: 959px) {
     .VPHero .image {
