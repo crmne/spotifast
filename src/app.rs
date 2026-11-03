@@ -67,10 +67,8 @@ const ROOTLIST_REFRESH: Duration = Duration::from_secs(5);
 /// matching what librespot does during playback.
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
 
-const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
-/// Match other interface animations. egui subtracts the predicted frame time
-/// from delayed repaints, so 33 ms drives roughly one frame per 16 ms.
-const TOAST_FRAME: Duration = Duration::from_millis(33);
+/// How long a toast stays on screen, its fades included.
+pub(crate) const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
 const OPTIMISTIC_HOLD: Duration = Duration::from_millis(2500);
 /// The banner suggesting a personal app appears at most this often.
 const SLOW_BANNER_INTERVAL: jiff::SignedDuration = jiff::SignedDuration::from_hours(24);
@@ -14710,6 +14708,10 @@ impl App {
         }
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
+        // Taken before the toasts are drawn, so the ages their next frame is
+        // planned from are never later than the ones they were drawn at: a
+        // slow frame cannot leave a fade unfinished until the next one.
+        let drawn_from = Instant::now();
         self.pixels_per_point = ctx.pixels_per_point();
         self.refresh_frame_now();
         self.apply_theme(ctx);
@@ -14769,8 +14771,18 @@ impl App {
         self.refresh_frame_now();
         self.sync_media_controls(ctx);
 
-        if !self.toasts.is_empty() {
-            ctx.request_repaint_after(TOAST_FRAME);
+        let ages = self.toasts.iter().map(|toast| {
+            drawn_from
+                .saturating_duration_since(toast.created)
+                .as_secs_f32()
+        });
+        // The mini player shows the latest toast as plain text, unfaded.
+        // A fade's frames come at the visualizers' frame rate, and none
+        // while nobody can see the window.
+        match crate::ui::toast_wake(ages, self.settings.winamp_window) {
+            Some(Duration::ZERO) => theme::visualiser_frame(ctx, self.visualiser_fps()),
+            Some(wait) => theme::repaint_after(ctx, wait),
+            None => {}
         }
         self.theme_transition.paint(ctx);
         self.frame_now = None;
