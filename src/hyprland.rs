@@ -65,10 +65,12 @@ fn bare(address: &str) -> String {
         )
     };
     format!(
-        "/eval {} {} {}",
+        "/eval {} {} {} {}",
         set("border_size", "0"),
         set("rounding", "0"),
         set("no_shadow", "1"),
+        // Blur shows through the see-through window around a shaped skin.
+        set("no_blur", "1"),
     )
 }
 
@@ -127,6 +129,7 @@ mod tests {
     fn the_request_names_the_window_each_time() {
         let text = bare("0xa1");
         assert!(text.starts_with("/eval "));
-        assert_eq!(text.matches("window = \"address:0xa1\"").count(), 3);
+        assert_eq!(text.matches("window = \"address:0xa1\"").count(), 4);
+        assert!(text.contains("prop = \"no_blur\", value = \"1\""));
     }
 }
