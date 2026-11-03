@@ -1555,6 +1555,93 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 );
                 app.local_files = Some(("/home/you/Music".into(), std::sync::Arc::new(uris)));
             }
+            "local-library"
+            | "local-library-offline"
+            | "local-library-filtered"
+            | "local-library-sorted"
+            | "local-library-empty"
+            | "local-library-scanning"
+            | "local-library-error"
+            | "local-library-choose-folder" => {
+                play_here(app);
+                app.local.playback = crate::player::Playback::Paused;
+                let items: Vec<_> = ["Kitchen Demo", "Evening Rehearsal", "Field Recording"]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, name)| {
+                        PlayableItem::Track(Track {
+                            uri: format!(
+                                "spotify:local:Demo+Artist:Home+Recordings:Demo+{index}:180"
+                            ),
+                            name: name.into(),
+                            is_local: true,
+                            duration_ms: 180_000,
+                            artists: vec![ArtistRef {
+                                name: "Demo Artist".into(),
+                                ..Default::default()
+                            }],
+                            album: Some(Album {
+                                name: "Home Recordings".into(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        })
+                    })
+                    .collect();
+                let uris = items
+                    .iter()
+                    .map(|item| {
+                        (
+                            crate::app::local_file_key(item.uri()),
+                            std::path::PathBuf::from("/home/you/Music/recording.flac"),
+                        )
+                    })
+                    .collect();
+                app.settings.local_files_folder = Some("/home/you/Music".into());
+                app.local_files = Some(("/home/you/Music".into(), std::sync::Arc::new(uris)));
+                app.local_library = Loadable::Loaded(std::sync::Arc::new(items));
+                app.local_files_scanning = false;
+                app.local_files_error = None;
+                app.local_files_revision = app.local_files_revision.wrapping_add(1);
+                app.demo_local_files_filter = None;
+                app.table_sorts.remove(&Page::LocalFiles);
+                match surface {
+                    "local-library-filtered" => {
+                        app.demo_local_files_filter = Some("Kitchen".into())
+                    }
+                    "local-library-sorted" => {
+                        app.table_sorts.insert(
+                            Page::LocalFiles,
+                            crate::model::TableSort {
+                                column: crate::model::SortColumn::Title,
+                                ascending: true,
+                            },
+                        );
+                    }
+                    "local-library-empty" => {
+                        app.local_library = Loadable::Loaded(std::sync::Arc::new(Vec::new()));
+                        if let Some((_, files)) = &mut app.local_files {
+                            *files = Default::default();
+                        }
+                    }
+                    "local-library-scanning" => {
+                        app.local_library = Loadable::Loading;
+                        app.local_files_scanning = true;
+                    }
+                    "local-library-error" => {
+                        app.local_files_error =
+                            Some("The selected folder could not be read".into());
+                    }
+                    "local-library-choose-folder" => {
+                        app.settings.local_files_folder = None;
+                        app.local_files = None;
+                    }
+                    _ => {}
+                }
+                if surface == "local-library-offline" {
+                    app.network_reachable = false;
+                }
+            }
             "rtl" => {
                 if let Some(page) = app.playlist_pages.get_mut("pl1") {
                     for (item, &(title, artist, album)) in
@@ -6330,7 +6417,187 @@ mod tests {
         assert_eq!(rows(&app), [true, true, false, true, false]);
         let (_, mut app) = accessible_app("local-files");
         apply_flags(&mut app, Some("playlist:pl1"), Some("local-files"));
+        play_here(&mut app);
+        app.local.playback = crate::player::Playback::Paused;
         assert_eq!(rows(&app), [true, true, true, true, false]);
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn indexed_local_files_remain_visible_and_playable_offline() {
+        let (ctx, mut app) = accessible_app("local-library-offline");
+        apply_flags(&mut app, Some("local-files"), Some("local-library-offline"));
+        let items = app.local_library.get().unwrap();
+        assert_eq!(items.len(), 3);
+        assert!(items.iter().all(|item| app.row_playable(item)));
+        assert!(!app.network_reachable);
+        let view = crate::ui::local_files::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        assert!(painted.iter().any(|(text, _)| text == "Kitchen Demo"));
+        assert!(!painted.iter().any(|(text, _)| text == "You're offline"));
+        assert_eq!(
+            Page::decode(&Page::LocalFiles.encode()),
+            Some(Page::LocalFiles)
+        );
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn local_files_sidebar_appears_automatically_for_the_configured_folder() {
+        let (ctx, mut app) = accessible_app("local-library-sidebar");
+        for folder in [None, Some("/home/you/Music"), Some("  "), None] {
+            app.settings.local_files_folder = folder.map(str::to_string);
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let local_files = tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Local Files") && node.role() == egui::accesskit::Role::Button
+            });
+            assert_eq!(
+                local_files,
+                app.settings.local_files_folder().is_some(),
+                "Local Files follows the existing folder setting: {folder:?}"
+            );
+        }
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn local_files_is_a_library_tab_with_one_entry() {
+        let (ctx, mut app) = accessible_app("local-library-tab");
+        apply_flags(&mut app, Some("home"), Some("local-library"));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let tab = accessible_node(&tree, "Local Files", egui::accesskit::Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(tab, egui::accesskit::Action::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(
+            app.page(),
+            &Page::Home,
+            "tabs filter the Library without navigating"
+        );
+        assert_eq!(
+            tree.nodes
+                .iter()
+                .filter(|(_, node)| node.label() == Some("Local Files")
+                    && node.role() == egui::accesskit::Role::Button)
+                .count(),
+            2,
+            "one tab and one Library entry"
+        );
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Liked Songs"))
+        );
+        let entry = tree
+            .nodes
+            .iter()
+            .find(|(id, node)| {
+                *id != tab
+                    && node.label() == Some("Local Files")
+                    && node.role() == egui::accesskit::Role::Button
+            })
+            .unwrap()
+            .0;
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(
+                entry,
+                egui::accesskit::Action::Click,
+                None,
+            )],
+        );
+        assert_eq!(
+            app.page(),
+            &Page::LocalFiles,
+            "the Library entry opens the track list"
+        );
+        let tab = accessible_node(&tree, "Playlists", egui::accesskit::Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(tab, egui::accesskit::Action::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Liked Songs"))
+        );
+        app.settings.local_files_folder = None;
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Local Files")
+                    && node.role() == egui::accesskit::Role::Button)
+        );
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn local_files_uses_a_compact_header_and_keeps_folder_controls_in_settings() {
+        let (ctx, mut app) = accessible_app("local-library-compact");
+        apply_flags(&mut app, Some("local-files"), Some("local-library"));
+        let view = crate::ui::local_files::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let title = painted
+            .iter()
+            .find(|(text, _)| text == "Local Files")
+            .unwrap();
+        assert!(title.1.height() < 40.0);
+        assert!(
+            painted
+                .iter()
+                .find(|(text, _)| text == "Kitchen Demo")
+                .unwrap()
+                .1
+                .top()
+                < 300.0
+        );
+        for control in ["Choose folder", "Change folder", "Rescan"] {
+            assert!(!painted.iter().any(|(text, _)| text == control));
+        }
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn local_files_without_a_folder_opens_settings() {
+        let (ctx, mut app) = accessible_app("local-library-choose-folder");
+        let view = crate::ui::local_files::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let choose = painted
+            .iter()
+            .find(|(label, _)| label == "Settings")
+            .map(|(_, rect)| rect.center())
+            .expect("folder selection stays in Settings");
+        assert!(!painted.iter().any(|(label, _)| label == "Show Local Files"));
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(choose, egui::PointerButton::Primary),
+            view,
+        );
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::Open(Page::Settings)))
+        );
+        app.backend.shutdown();
     }
 
     #[cfg(feature = "demo")]
@@ -9863,6 +10130,7 @@ mod tests {
             Page::TopSongs,
             Page::Search,
             Page::LikedSongs,
+            Page::LocalFiles,
             Page::Albums,
             Page::Artists,
             Page::Podcasts,
