@@ -24270,6 +24270,7 @@ mod tests {
         for name in ["A.wsz", "B.wsz"] {
             std::fs::write(skins.join(name), b"skin").unwrap();
         }
+        app.settings.skin = None;
         app.apply(Action::SetRandomSkin(true), &ctx);
         app.settings.winamp_window = false;
         app.switch_intent = false;

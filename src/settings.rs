@@ -543,7 +543,9 @@ impl Default for Settings {
             winamp_window: false,
             winamp_show_taskbar: true,
             custom_titlebar: false,
-            skin: None,
+            // New installs open the mini player in our own wide skin; a file
+            // that says null keeps the classic one it chose.
+            skin: Some(crate::skin::WIDE.into()),
             random_skin: false,
             skin_scale: None,
             winamp_on_top: false,
@@ -1354,11 +1356,16 @@ mod tests {
     }
 
     #[test]
-    fn older_settings_keep_the_winamp_window_closed_and_the_built_in_skin() {
+    fn older_settings_keep_the_winamp_window_closed_and_get_our_wide_skin() {
         let settings: Settings = serde_json::from_str(r#"{"zoom": 1.2}"#).unwrap();
         assert!(!settings.winamp_window);
         assert!(settings.winamp_show_taskbar);
-        assert_eq!(settings.skin, None);
+        assert_eq!(settings.skin.as_deref(), Some(crate::skin::WIDE));
+        let chose_classic: Settings = serde_json::from_str(r#"{"skin": null}"#).unwrap();
+        assert_eq!(
+            chose_classic.skin, None,
+            "a saved choice of the classic skin stays"
+        );
         assert_eq!(settings.skin_scale, None);
         assert!(!settings.winamp_on_top);
         assert_eq!(settings.vis, super::VisMode::Bars);
