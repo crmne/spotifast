@@ -1999,7 +1999,6 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             if !app.network_reachable {
                 disabled_actions_row(app, ui, actions, Some(&mut page.filter));
             } else {
-                mark_playlist_filter_drawn(ui, id);
                 actions_row(app, ui, actions, Some(&mut page.filter));
             }
             if page.items.base_offset > 0 && !page.filter.trim().is_empty() {
@@ -2375,12 +2374,6 @@ fn playlist_loading_actions(
         playlist_actions(app.locale, playlist, owned, saved, None, None),
         Some(filter),
     );
-}
-
-fn mark_playlist_filter_drawn(ui: &egui::Ui, id: &str) {
-    ui.ctx().data_mut(|data| {
-        data.insert_temp(egui::Id::new("playlist-filter-page"), id.to_string());
-    });
 }
 
 fn album_loading_actions(app: &mut App, ui: &mut egui::Ui, album: &Album) {

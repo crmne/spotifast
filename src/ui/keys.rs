@@ -56,11 +56,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         && pointer_over("settings-search-rect");
     let playlist_filter_available = app.network_reachable
         && match app.page() {
-            Page::Playlist(id) => {
-                ctx.data(|data| data.get_temp::<String>(egui::Id::new("playlist-filter-page")))
-                    .as_deref()
-                    == Some(id.as_str())
-            }
+            Page::Playlist(id) => app
+                .playlist_pages
+                .get(id)
+                .is_some_and(|page| page.playlist.get().is_some()),
             _ => false,
         };
     let collection_filter_id = super::collection::collection_filter_widget_id(app.page());
@@ -593,6 +592,13 @@ mod tests {
                 "playlist-filter" => crate::ui::collection::collection_filter_widget_id(&page),
                 id => egui::Id::new(id),
             });
+            if let Page::Playlist(id) = &page {
+                let mut playlist_page = crate::model::PlaylistPage::default();
+                if filter_available {
+                    playlist_page.playlist = crate::model::Loadable::Loaded(Default::default());
+                }
+                app.playlist_pages.insert(id.clone(), playlist_page);
+            }
             app.open(page);
             app.actions.clear();
             let ctx = egui::Context::default();
@@ -609,12 +615,10 @@ mod tests {
                     egui::Id::new("settings-search-rect"),
                     egui::Rect::from_min_size(egui::pos2(500.0, 50.0), egui::vec2(200.0, 60.0)),
                 );
-                if filter_available {
-                    data.insert_temp(
-                        egui::Id::new("playlist-filter-page"),
-                        "playlist-test".to_string(),
-                    );
-                }
+                data.insert_temp(
+                    egui::Id::new("playlist-filter-page"),
+                    "playlist-test".to_string(),
+                );
             });
             let events = vec![
                 egui::Event::PointerMoved(pointer),
