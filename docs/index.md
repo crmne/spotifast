@@ -110,6 +110,12 @@ sandbox. MilkDrop plays in their visualization areas.
   <img src="/assets/images/skins-gallery.jpg" alt="Spotifast's Winamp skin with its equalizer, playlist and MilkDrop panel, Spotifast Tall and Spotifast Wide, beside Headspace, Cerulean and Activate, three classic Windows Media Player skins, every one running MilkDrop" width="1600" height="790" loading="lazy">
 </div>
 
+Watch them run, with MilkDrop inside, in the 0.17 film:
+
+<video class="skins-showcase skins-film" controls playsinline preload="none" poster="/assets/images/skins-0-17-poster.jpg" aria-label="Spotifast 0.17 in 31 seconds: Spotifast Tall and Wide, the Winamp skin and three classic Windows Media Player skins, all running MilkDrop, then MilkDrop behind lyrics and alone">
+  <source src="/assets/videos/skins-0-17.mp4" type="video/mp4">
+</video>
+
 ## MilkDrop with more than 10,000 presets
 
 On first use, Spotifast automatically downloads the original MilkDrop 2
@@ -158,6 +164,9 @@ foundation for native Rust apps built with [egui](https://www.egui.rs).
   }
   .skins-gallery {
     margin-top: 16px;
+  }
+  .skins-film {
+    margin-top: 12px;
   }
   .skins-gallery img,
   .skins-showcase,
