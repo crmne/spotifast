@@ -27,6 +27,8 @@ framework behind a family of native desktop apps. It plays music through
 
 The interface includes complete
 [translations for all supported languages](docs/_reference/translating.md#languages-and-coverage).
+Buttons and dropdowns show a hand cursor on hover; equalizer and mini-player
+sliders show a grabbing cursor while dragged.
 
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Spotifast.

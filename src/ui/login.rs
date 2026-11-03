@@ -674,6 +674,7 @@ fn big_button_painted(ui: &mut egui::Ui, app: &App, label: &str, readable: bool)
         .layout_no_wrap(label.to_string(), theme::bold(15.0), color);
     let size = Vec2::new(ui.available_width().min(300.0), 46.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
