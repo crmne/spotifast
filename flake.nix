@@ -79,6 +79,8 @@
                 libxcursor
                 libxi
                 libxrandr
+                # Soloist, started as a child, dlopens libpulse when it plays.
+                libpulseaudio
               ]
             )
           );
@@ -106,6 +108,8 @@
                   libxcursor
                   libxi
                   libxrandr
+                  # Soloist, started as a child, dlopens libpulse when it plays.
+                  libpulseaudio
                 ]
               );
             in
