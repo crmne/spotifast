@@ -2391,7 +2391,10 @@ impl App {
                     Some((position, at)) if at.elapsed() < OPTIMISTIC_HOLD => {
                         if self.local.playback == Playback::Playing {
                             let elapsed = at.elapsed().as_millis() as u32;
-                            let limit = track.duration_ms.max(position);
+                            let limit = match track.duration_ms {
+                                0 => u32::MAX,
+                                duration => duration.max(position),
+                            };
                             position.saturating_add(elapsed).min(limit)
                         } else {
                             position
@@ -27573,6 +27576,56 @@ mod tests {
         app.pending_local_position = None;
         app.apply(Action::SeekBy(15_000), &ctx);
         assert!(app.pending_local_position.is_none());
+    }
+
+    #[test]
+    fn podcast_skips_use_interpolated_local_and_pending_positions() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        for playback in [Playback::Playing, Playback::Paused] {
+            for duration_ms in [0, 120_000] {
+                for offset in [-15_000, 15_000] {
+                    app.pending_local_position = None;
+                    app.local.track = Some(crate::player::LocalTrack {
+                        uri: "spotify:episode:test".into(),
+                        duration_ms,
+                        is_episode: true,
+                        ..Default::default()
+                    });
+                    app.local.position_ms = 60_000;
+                    app.local.position_at = Some(Instant::now() - Duration::from_secs(2));
+                    app.local.playback = playback;
+                    let playing = playback == Playback::Playing;
+                    let expected = (if playing { 62_000 } else { 60_000 }) + offset;
+                    app.apply(Action::SeekBy(offset), &ctx);
+                    let (first, at) = app.pending_local_position.as_mut().expect("local seek");
+                    let first = *first;
+                    if playing {
+                        assert!((expected as u32..expected as u32 + 1_000).contains(&first));
+                    } else {
+                        assert_eq!(first, expected as u32);
+                    }
+                    *at -= Duration::from_secs(1);
+                    let elapsed = if playing { 1_000 } else { 0 };
+                    let shown = app.now_playing().expect("episode").position_ms;
+                    if playing {
+                        assert!((first + elapsed..first + elapsed + 1_000).contains(&shown));
+                    } else {
+                        assert_eq!(shown, first);
+                    }
+                    app.apply(Action::SeekBy(offset), &ctx);
+                    let second = app.pending_local_position.expect("second local seek").0;
+                    let expected = (i64::from(first + elapsed) + offset) as u32;
+                    if playing {
+                        assert!((expected..expected + 1_000).contains(&second));
+                    } else {
+                        assert_eq!(second, expected);
+                    }
+                    assert_eq!(app.local.playback, playback);
+                    assert!(app.optimistic_playing.is_none());
+                }
+            }
+        }
     }
 
     #[test]

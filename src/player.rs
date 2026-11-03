@@ -233,6 +233,7 @@ impl LocalState {
                 let limit = self
                     .track
                     .as_ref()
+                    .filter(|track| track.duration_ms > 0)
                     .map_or(u32::MAX, |track| track.duration_ms.max(self.position_ms));
                 self.position_ms.saturating_add(elapsed).min(limit)
             }
@@ -1847,6 +1848,76 @@ mod tests {
         assert_eq!(state.position_now(), 5_000);
         state.playback = Playback::Playing;
         assert!(state.position_now() >= 7_000);
+    }
+
+    #[test]
+    fn position_reports_advance_when_the_track_duration_is_unknown() {
+        for event in [
+            PlayerEvent::Playing {
+                play_request_id: 1,
+                track_id: uri(),
+                position_ms: 60_000,
+            },
+            PlayerEvent::PositionChanged {
+                play_request_id: 1,
+                track_id: uri(),
+                position_ms: 60_000,
+            },
+            PlayerEvent::PositionCorrection {
+                play_request_id: 1,
+                track_id: uri(),
+                position_ms: 60_000,
+            },
+            PlayerEvent::Seeked {
+                play_request_id: 1,
+                track_id: uri(),
+                position_ms: 60_000,
+            },
+        ] {
+            let mut state = LocalState {
+                playback: Playback::Playing,
+                track: Some(LocalTrack::default()),
+                ..Default::default()
+            };
+            assert!(apply_event(&mut state, event));
+            state.position_at =
+                Some(state.position_at.expect("interpolation started") - Duration::from_secs(2));
+            assert!((62_000..63_000).contains(&state.position_now()));
+            apply_event(
+                &mut state,
+                PlayerEvent::Paused {
+                    play_request_id: 1,
+                    track_id: uri(),
+                    position_ms: 62_000,
+                },
+            );
+            assert_eq!(state.position_at, None);
+            assert_eq!(state.position_now(), 62_000);
+        }
+    }
+
+    #[test]
+    fn position_interpolation_keeps_known_duration_and_integer_limits() {
+        for (position, duration, expected) in [
+            (119_000, 120_000, 120_000),
+            (60_000, 30_000, 60_000),
+            (u32::MAX - 1, 0, u32::MAX),
+            (u32::MAX - 1, u32::MAX, u32::MAX),
+        ] {
+            let mut state = LocalState {
+                playback: Playback::Playing,
+                position_ms: position,
+                position_at: Some(Instant::now() - Duration::from_secs(2)),
+                track: Some(LocalTrack {
+                    duration_ms: duration,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            assert_eq!(state.position_now(), expected);
+            state.playback = Playback::Paused;
+            assert_eq!(state.position_now(), position);
+        }
     }
 
     #[test]
