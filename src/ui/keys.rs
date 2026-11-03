@@ -63,6 +63,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             }
             _ => false,
         };
+    let collection_filter_id = super::collection::collection_filter_widget_id(app.page());
     let mut actions = Vec::new();
     let mut focus_sidebar_search = false;
     let mut focus_playlist_filter = false;
@@ -226,7 +227,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         });
     } else if focus_playlist_filter {
         ctx.memory_mut(|memory| {
-            memory.request_focus(egui::Id::new("collection-filter"));
+            memory.request_focus(collection_filter_id);
         });
         ctx.data_mut(|data| {
             data.insert_temp(egui::Id::new("scroll-to-collection-filter"), true);
@@ -544,7 +545,7 @@ mod tests {
                 egui::pos2(800.0, 500.0),
                 Key::Slash,
                 Modifiers::NONE,
-                Some("collection-filter"),
+                Some("playlist-filter"),
                 None,
                 true,
             ),
@@ -571,7 +572,7 @@ mod tests {
                 egui::pos2(550.0, 80.0),
                 Key::F,
                 command,
-                Some("collection-filter"),
+                Some("playlist-filter"),
                 None,
                 true,
             ),
@@ -588,6 +589,10 @@ mod tests {
 
         for (page, pointer, key, modifiers, focused_id, expected_action, filter_available) in cases
         {
+            let focus_id = focused_id.map(|id| match id {
+                "playlist-filter" => crate::ui::collection::collection_filter_widget_id(&page),
+                id => egui::Id::new(id),
+            });
             app.open(page);
             app.actions.clear();
             let ctx = egui::Context::default();
@@ -637,17 +642,17 @@ mod tests {
                 },
                 |ui| {
                     handle(&mut app, ui.ctx());
-                    if let Some(id) = focused_id {
-                        ui.add(egui::TextEdit::singleline(&mut field_text).id(egui::Id::new(id)));
+                    if let Some(id) = focus_id {
+                        ui.add(egui::TextEdit::singleline(&mut field_text).id(id));
                     }
                 },
             );
             output.textures_delta.clear();
 
-            if let Some(id) = focused_id {
+            if let Some(id) = focus_id {
                 assert!(
-                    ctx.memory(|memory| memory.has_focus(egui::Id::new(id))),
-                    "{key:?} should focus {id}"
+                    ctx.memory(|memory| memory.has_focus(id)),
+                    "{key:?} should focus {focused_id:?}"
                 );
             }
             if let Some(action) = expected_action {

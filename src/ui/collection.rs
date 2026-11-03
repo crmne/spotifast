@@ -331,6 +331,7 @@ pub fn actions_row(
 ) {
     let palette = app.palette;
     let locale = app.locale;
+    let filter_widget_id = collection_filter_widget_id(app.page());
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         if let Some(uri) = &actions.play_uri {
@@ -512,7 +513,7 @@ pub fn actions_row(
                         ui,
                         &palette,
                         locale,
-                        egui::Id::new("collection-filter"),
+                        filter_widget_id,
                         filter,
                         &gettext(locale, "Filter"),
                         220.0,
@@ -530,15 +531,18 @@ pub fn actions_row(
             if scroll_to_filter {
                 response.request_focus();
                 let bounds = ui.ctx().data(|data| {
-                    data.get_temp::<egui::Rect>(
-                        egui::Id::new("collection-filter").with("search-field-bounds"),
-                    )
+                    data.get_temp::<egui::Rect>(filter_widget_id.with("search-field-bounds"))
                 });
                 ui.scroll_to_rect(bounds.unwrap_or(response.rect), Some(egui::Align::Center));
             }
         }
     });
     ui.add_space(14.0);
+}
+
+/// Keeps focus and cursor state with the collection page that owns the filter.
+pub(super) fn collection_filter_widget_id(page: &Page) -> egui::Id {
+    egui::Id::new("collection-filter").with(page)
 }
 
 /// A page's **Refresh** menu item, which reloads it from Spotify. It reads
@@ -2823,6 +2827,24 @@ mod tests {
         hero: 640,
         card: 300,
     };
+
+    #[test]
+    fn each_collection_page_has_its_own_filter_widget_id() {
+        let playlist = Page::Playlist("playlist-test".into());
+        let another_playlist = Page::Playlist("another-playlist".into());
+        assert_ne!(
+            collection_filter_widget_id(&playlist),
+            collection_filter_widget_id(&Page::LikedSongs)
+        );
+        assert_ne!(
+            collection_filter_widget_id(&playlist),
+            collection_filter_widget_id(&another_playlist)
+        );
+        assert_eq!(
+            collection_filter_widget_id(&playlist),
+            collection_filter_widget_id(&playlist)
+        );
+    }
 
     fn adders(ids: &[&str]) -> std::collections::BTreeSet<String> {
         ids.iter().map(|id| (*id).to_string()).collect()
