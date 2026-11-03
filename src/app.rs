@@ -2437,8 +2437,12 @@ impl App {
             _ => {
                 let base = remote.state.progress_ms.unwrap_or(0);
                 if remote.state.is_playing {
+                    let limit = match item.duration_ms() {
+                        0 => u32::MAX,
+                        duration => duration,
+                    };
                     (base as u64 + remote.received_at.elapsed().as_millis() as u64)
-                        .min(item.duration_ms() as u64) as u32
+                        .min(u64::from(limit)) as u32
                 } else {
                     base
                 }
@@ -12683,9 +12687,15 @@ impl App {
             Action::Seek(position_ms) => self.seek(position_ms),
             Action::SeekBy(offset) => {
                 if let Some(now) = self.now_playing() {
-                    let target = (i64::from(now.position_ms) + offset)
-                        .clamp(0, i64::from(now.duration_ms))
-                        as u32;
+                    // Zero means the duration is not known yet.
+                    let limit = if now.duration_ms == 0 {
+                        u32::MAX
+                    } else {
+                        now.duration_ms
+                    };
+                    let target = i64::from(now.position_ms)
+                        .saturating_add(offset)
+                        .clamp(0, i64::from(limit)) as u32;
                     self.seek(target);
                 }
             }
@@ -27522,6 +27532,187 @@ mod tests {
             [Action::TogglePlay, Action::Next, Action::Seek(45_000)]
         ));
         assert!(notch::drain_commands().is_empty());
+    }
+
+    #[test]
+    fn podcast_skips_reuse_seeking_and_preserve_playback_state() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        for playback in [Playback::Paused, Playback::Playing] {
+            for (position, duration, offset, expected) in [
+                (60_000, 120_000, -15_000, 45_000),
+                (60_000, 120_000, 15_000, 75_000),
+                (5_000, 120_000, -15_000, 0),
+                (115_000, 120_000, 15_000, 120_000),
+                (60_000, 0, -15_000, 45_000),
+                (60_000, 0, 15_000, 75_000),
+                (u32::MAX - 1, 0, 15_000, u32::MAX),
+                (60_000, 120_000, i64::MAX, 120_000),
+                (60_000, 120_000, i64::MIN, 0),
+            ] {
+                app.local.track = Some(crate::player::LocalTrack {
+                    uri: "spotify:episode:test".into(),
+                    duration_ms: duration,
+                    is_episode: true,
+                    ..Default::default()
+                });
+                app.local.position_ms = position;
+                app.local.position_at = None;
+                app.local.playback = playback;
+                app.pending_local_position = None;
+                app.apply(Action::SeekBy(offset), &ctx);
+                assert_eq!(
+                    app.pending_local_position.map(|(pos, _)| pos),
+                    Some(expected)
+                );
+                assert_eq!(app.local.playback, playback);
+                assert!(app.optimistic_playing.is_none());
+            }
+        }
+        app.local.track = None;
+        app.pending_local_position = None;
+        app.apply(Action::SeekBy(15_000), &ctx);
+        assert!(app.pending_local_position.is_none());
+    }
+
+    #[test]
+    fn podcast_skips_use_the_remote_episode_position() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.selected_device = Some("phone".into());
+        for playing in [false, true] {
+            for duration_ms in [0, 120_000] {
+                for (offset, expected) in [(-15_000, 45_000), (15_000, 75_000)] {
+                    app.pending_remote_position = None;
+                    app.remote = Some(RemoteSnapshot {
+                        state: PlaybackState {
+                            is_playing: playing,
+                            progress_ms: Some(60_000),
+                            item: Some(PlayableItem::Episode(crate::api::models::Episode {
+                                uri: "spotify:episode:test".into(),
+                                duration_ms,
+                                ..Default::default()
+                            })),
+                            ..Default::default()
+                        },
+                        received_at: Instant::now(),
+                    });
+                    app.apply(Action::SeekBy(offset), &ctx);
+                    let position = app.pending_remote_position.expect("remote seek").0;
+                    if playing {
+                        assert!((expected..expected + 1_000).contains(&position));
+                    } else {
+                        assert_eq!(position, expected);
+                    }
+                    assert_eq!(app.remote.as_ref().unwrap().state.is_playing, playing);
+                    assert!(app.optimistic_playing.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn podcast_skip_buttons_preserve_the_track_buttons_and_music_controls() {
+        let mut app = headless_app();
+        for (episode, playback) in [
+            (Some(true), Playback::Paused),
+            (Some(true), Playback::Playing),
+            (Some(false), Playback::Paused),
+            (None, Playback::Paused),
+        ] {
+            app.local.track = episode.map(|is_episode| crate::player::LocalTrack {
+                uri: if is_episode {
+                    "spotify:episode:test"
+                } else {
+                    "spotify:track:test"
+                }
+                .into(),
+                duration_ms: 120_000,
+                is_episode,
+                ..Default::default()
+            });
+            app.local.playback = playback;
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            crate::theme::install(&ctx);
+            let mut frame = |events| {
+                app.actions.clear();
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1280.0, 800.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| crate::ui::player_bar::show(&mut app, ui),
+                );
+                output.textures_delta.clear();
+                (
+                    output.platform_output.accesskit_update.unwrap(),
+                    std::mem::take(&mut app.actions),
+                )
+            };
+            frame(vec![]);
+            let (tree, _) = frame(vec![]);
+            let is_episode = episode == Some(true);
+            for track in ["Previous", "Next"] {
+                assert!(
+                    tree.nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some(track))
+                );
+            }
+            for (skip, track, offset) in [
+                ("Skip backward 15 seconds", "Shuffle", -15_000),
+                ("Skip forward 15 seconds", "Repeat", 15_000),
+            ] {
+                let (label, absent) = if is_episode {
+                    (skip, track)
+                } else {
+                    (track, skip)
+                };
+                assert!(
+                    !tree
+                        .nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some(absent))
+                );
+                let (_, node) = tree
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| node.label() == Some(label))
+                    .expect(label);
+                let bounds = node.bounds().unwrap();
+                let pos = egui::pos2(
+                    ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                    ((bounds.y0 + bounds.y1) / 2.0) as f32,
+                );
+                let (_, actions) = frame(vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ]);
+                if is_episode {
+                    assert!(matches!(actions.as_slice(), [Action::SeekBy(by)] if *by == offset));
+                } else if offset < 0 {
+                    assert!(matches!(actions.as_slice(), [Action::ToggleShuffle]));
+                } else {
+                    assert!(matches!(actions.as_slice(), [Action::CycleRepeat]));
+                }
+            }
+        }
     }
 
     #[test]
