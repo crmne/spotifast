@@ -2916,7 +2916,8 @@ mod pipewire {
             /// main-class loop, which the graph never waits for. It runs in a
             /// process of its own, as this one's module-rt would raise it.
             async fn irregular(bridge: Bridge) -> Self {
-                let source = tokio::process::Command::new(std::env::current_exe().unwrap())
+                let mut source = tokio::process::Command::new(std::env::current_exe().unwrap());
+                source
                     .args([
                         "--ignored",
                         "--exact",
@@ -2927,9 +2928,10 @@ mod pipewire {
                     .env("PIPEWIRE_PROPS", child_props(""))
                     .env("PIPEWIRE_CONFIG_NAME", "client-nort.conf")
                     .stdout(std::process::Stdio::null())
-                    .kill_on_drop(true)
-                    .spawn()
-                    .unwrap();
+                    .kill_on_drop(true);
+                // As Soloist runs, so the bridge's watcher may make it realtime.
+                crate::soloist::priority::bound_realtime(&mut source);
+                let source = source.spawn().unwrap();
                 bridge.child(source.id().unwrap());
                 bridge.update(&json!({"status":"playing", "volume":100, "is_active":true}));
                 let private = Self {
@@ -3061,6 +3063,84 @@ mod pipewire {
             let most = number("SOLOIST_STAND_IN_MS", 40);
             // One buffer in this many carries half what was asked for.
             let partial = number("SOLOIST_STAND_IN_PARTIAL", 0);
+            // With CPU work per 1024 frames, a thread of its own makes the
+            // audio, as Soloist's mixer does, and the loop hands PipeWire what
+            // it has: half a cycle, when the mixer was starved of CPU.
+            let work = Duration::from_micros(number("SOLOIST_STAND_IN_WORK_US", 0));
+            // `audio` takes Soloist's thread names, which Spotifast raises;
+            // `nice` raises other names to nice -11 itself, as before; any
+            // other value leaves them at normal priority.
+            let names = std::env::var("SOLOIST_STAND_IN_NAMES").unwrap_or_default();
+            let (mixer_name, loop_name) = match names.as_str() {
+                "audio" => ("Media Mixer Ren", "pipewire-loop"),
+                _ => ("stand-in mixer", "stand-in loop"),
+            };
+            let nice = names == "nice";
+            let raise = move || {
+                if nice {
+                    // SAFETY: gettid takes nothing and cannot fail.
+                    let tid = unsafe { libc::gettid() } as u32;
+                    let mut bus = None;
+                    crate::soloist::priority::high_priority(&mut bus, std::process::id(), tid)
+                        .unwrap();
+                }
+            };
+            let made: Option<Arc<Mutex<VecDeque<f32>>>> = (!work.is_zero()).then(Default::default);
+            if let Some(made) = made.clone() {
+                std::thread::Builder::new()
+                    .name(mixer_name.into())
+                    .spawn(move || {
+                        raise();
+                        let cpu = || {
+                            let mut time = libc::timespec {
+                                tv_sec: 0,
+                                tv_nsec: 0,
+                            };
+                            // SAFETY: writes the struct above and nothing else.
+                            unsafe {
+                                libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time)
+                            };
+                            Duration::new(time.tv_sec as u64, time.tv_nsec as u32)
+                        };
+                        let mut frame = 0u64;
+                        loop {
+                            if made.lock().unwrap().len() >= 4096 {
+                                std::thread::sleep(Duration::from_millis(2));
+                                continue;
+                            }
+                            let start = cpu();
+                            while cpu() - start < work {}
+                            let block: Vec<f32> = (0..1024)
+                                .map(|_| {
+                                    frame += 1;
+                                    (0.1 * (std::f64::consts::TAU * 1000.0 * frame as f64
+                                        / 44_100.0)
+                                        .sin()) as f32
+                                })
+                                .collect();
+                            made.lock().unwrap().extend(block);
+                        }
+                    })
+                    .unwrap();
+            }
+            std::thread::Builder::new()
+                .name(loop_name.into())
+                .spawn(move || {
+                    raise();
+                    run_stand_in(&target, odds, most, partial, made);
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+        }
+
+        fn run_stand_in(
+            target: &str,
+            odds: u64,
+            most: u64,
+            partial: u64,
+            made: Option<Arc<Mutex<VecDeque<f32>>>>,
+        ) {
             pw::init();
             let mainloop = pw::main_loop::MainLoopRc::new(None).unwrap();
             let context = pw::context::ContextRc::new(&mainloop, None).unwrap();
@@ -3107,11 +3187,18 @@ mod pipewire {
                         } else {
                             frames
                         };
+                        let mut made = made.as_ref().map(|made| made.lock().unwrap());
+                        let frames = made.as_ref().map_or(frames, |made| frames.min(made.len()));
                         size = frames * 8;
                         for out in bytes[..size].as_chunks_mut::<8>().0 {
-                            let sample = (0.1
-                                * (std::f64::consts::TAU * 1000.0 * frame as f64 / 44_100.0).sin())
-                                as f32;
+                            let sample = match &mut made {
+                                Some(made) => made.pop_front().unwrap_or(0.0),
+                                None => {
+                                    (0.1 * (std::f64::consts::TAU * 1000.0 * frame as f64
+                                        / 44_100.0)
+                                        .sin()) as f32
+                                }
+                            };
                             frame += 1;
                             out[..4].copy_from_slice(&sample.to_le_bytes());
                             out[4..].copy_from_slice(&sample.to_le_bytes());

@@ -194,9 +194,15 @@ The route holds about 60 ms of audio, or two graph cycles if those are longer,
 so a late wake-up in Soloist doesn't become a dropout. When that margin runs
 low it is rebuilt by playing up to 0.5% slow, too little to hear, and repeated
 dropouts raise it to at most 250 ms until things stay clean again. The clock
-and lyrics follow the delay as it changes. While Soloist plays, Spotifast asks rtkit, or failing
-that the system's nice limit, to raise the priority of its audio threads to
-nice -11. Anything that goes wrong on the route is counted and goes to
+and lyrics follow the delay as it changes.
+
+While Soloist plays, Spotifast asks rtkit to run its three audio threads
+realtime, at SCHED_RR priority 5, below PipeWire's own. Spotifast starts
+Soloist with a 200 ms realtime CPU limit (`RLIMIT_RTTIME`), which rtkit
+requires: an audio thread that ran that long without sleeping would be stopped
+by the kernel, and Spotifast would start Soloist again, rather than let it hold
+a CPU. `spotifast.log` says when that happens. If rtkit refuses, the threads get
+nice -11 instead, and the log says why. Anything that goes wrong on the route is counted and goes to
 `spotifast.log` at most every 10 seconds.
 
 The route uses native PipeWire streams and the system's default output. It

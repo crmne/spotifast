@@ -542,6 +542,9 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x08000000);
+    // What makes realtime for its audio threads safe to ask for.
+    #[cfg(target_os = "linux")]
+    priority::bound_realtime(&mut command);
     // Soloist currently requires the key in argv. Never log this command or
     // the child's output: it stays in the private data directory, without the
     // key. See the documented upstream limitation.
@@ -566,6 +569,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
             loop {
                 if let Some(exit) = child.try_wait()? {
                     log::warn!("Soloist exited before it was ready: {exit}");
+                    note_limit(&exit);
                     if exit.code() == Some(10) {
                         return Ok(None);
                     }
@@ -657,6 +661,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                 exit = child.wait() => {
                     let exit = exit?;
                     log::warn!("Soloist exited: {exit}");
+                    note_limit(&exit);
                     if exit.code() == Some(10) { return Ok(Outcome::Expired); }
                     return Ok(Outcome::Crashed { early: on_trial && early_crash(exit.code(), played, started.elapsed()) });
                 }
@@ -803,6 +808,22 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     drop(bridge);
     notify(Update::Audio(false));
     result
+}
+
+/// Says so if the realtime limit may be what ended Soloist: one of its audio
+/// threads ran 200 ms without sleeping, and the kernel stopped it.
+fn note_limit(exit: &std::process::ExitStatus) {
+    #[cfg(target_os = "linux")]
+    if let Some(signal) = priority::killed_by_limit(exit) {
+        log::warn!(
+            "Soloist was killed with {signal}. If nothing else stopped it, a realtime audio \
+             thread ran {} ms without sleeping and the kernel's RLIMIT_RTTIME ended it, \
+             rather than let it hold a CPU; Spotifast starts Soloist again",
+            priority::RT_TIME_LIMIT_US / 1000
+        );
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = exit;
 }
 
 /// Cmd+Q ends the process inside AppKit's `terminate:`, so the event loop
