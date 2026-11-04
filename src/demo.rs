@@ -1584,6 +1584,26 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     url: "https://spotifast.rocks/download/".into(),
                 });
             }
+            // The update window with a download ready to install.
+            "update-ready" => {
+                let installation = crate::updates::Installation {
+                    executable: "/opt/spotifast/spotifast".into(),
+                    kind: crate::updates::Kind::Portable,
+                };
+                app.update = Some(crate::updates::Release {
+                    version: "0.18.0".into(),
+                    url: "https://github.com/crmne/spotifast/releases/tag/v0.18.0".into(),
+                });
+                app.update_support = Some(Ok(installation.clone()));
+                app.update_download = crate::updates::DownloadState::Ready(Box::new(
+                    crate::updates::Prepared::sample(installation, "0.18.0"),
+                ));
+                app.show_update = true;
+            }
+            // Settings filtered down to the automatic update switch.
+            "settings-updates" => {
+                app.winamp.demo_settings_filter = Some("Update automatically".into());
+            }
             // The update window of a copy that can't update itself, for
             // each way Spotifast is installed.
             "update-aur" | "update-homebrew" | "update-copr" | "update-nixos" | "update-deb"

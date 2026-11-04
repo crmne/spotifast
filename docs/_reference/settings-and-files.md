@@ -488,7 +488,8 @@ playback-started outcomes of a collection Shuffle click. `update` shows a sample
 update badge for checking its layout. `update-aur`, `update-homebrew`,
 `update-copr`, `update-nixos`, `update-deb`, `update-rpm`, `update-flatpak` and
 `update-appimage` open the update window of a copy that can't update itself,
-installed that way. `personal-app` shows the introduction to
+installed that way. `update-ready` opens it with a download ready to install,
+and `settings-updates` filters Settings down to **Update automatically**. `personal-app` shows the introduction to
 registering Spotifast for a listener on a shared grant, and `slow-banner` the
 banner suggesting it when Spotify slows the shared sign-in down. `audio-key-banner` shows the banner for a song
 whose audio key Spotify refused. `audio-outputs` opens the device picker with sample audio
