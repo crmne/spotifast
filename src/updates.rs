@@ -179,6 +179,9 @@ pub enum Route {
     /// The release's DEB package: there is no APT repository to upgrade
     /// from, so the new one is downloaded and installed with apt.
     Deb { download: String, command: String },
+    /// Fedora COPR (paolino/spotifast), which dnf upgrades from. `command`
+    /// is `None` when dnf can't tell the package (no `/etc/os-release`).
+    Copr { command: Option<String> },
     /// The release's own RPM package, installed from its address.
     Rpm { command: String },
     /// The release's Flatpak bundle: no Flatpak remote publishes Spotifast
@@ -190,7 +193,7 @@ impl Route {
     /// The command that updates this copy, for the Copy button.
     pub fn command(&self) -> Option<&str> {
         match self {
-            Self::Managed { command, .. } => command.as_deref(),
+            Self::Managed { command, .. } | Self::Copr { command } => command.as_deref(),
             Self::Deb { command, .. }
             | Self::Rpm { command }
             | Self::FlatpakBundle { command, .. } => Some(command),
@@ -201,7 +204,7 @@ impl Route {
     pub fn download(&self) -> Option<&str> {
         match self {
             Self::Deb { download, .. } | Self::FlatpakBundle { download, .. } => Some(download),
-            Self::Managed { .. } | Self::Rpm { .. } => None,
+            Self::Managed { .. } | Self::Copr { .. } | Self::Rpm { .. } => None,
         }
     }
 }
@@ -283,15 +286,24 @@ fn route(
         }
         // COPR stamps its own vendor ("Fedora Copr - user paolino"); the
         // release's RPM, made by nFPM, has none.
-        Manager::Dnf
-            if release_file
-                && vendor().is_none_or(|vendor| vendor.is_empty() || vendor == "(none)") =>
-        {
-            Some(Route::Rpm {
-                command: format!(
-                    "sudo dnf install {}",
-                    file(&format!("spotifast-{version}-1.{arch}.rpm"))
-                ),
+        Manager::Dnf => {
+            let vendor = vendor().unwrap_or_default();
+            Some(if vendor.to_ascii_lowercase().contains("copr") {
+                Route::Copr {
+                    command: managed.command,
+                }
+            } else if release_file && (vendor.is_empty() || vendor == "(none)") {
+                Route::Rpm {
+                    command: format!(
+                        "sudo dnf install {}",
+                        file(&format!("spotifast-{version}-1.{arch}.rpm"))
+                    ),
+                }
+            } else {
+                Route::Managed {
+                    manager: Manager::Dnf,
+                    command: managed.command,
+                }
             })
         }
         // apt and Flatpak would only find the installed version again.
@@ -525,10 +537,25 @@ mod tests {
         let copr = || Some("Fedora Copr - user paolino".to_owned());
         let dnf = "sudo dnf upgrade --refresh spotifast";
         assert_eq!(
-            route(managed(Manager::Dnf, dnf), "0.18.0", "x86_64", copr, saved)
-                .unwrap()
-                .command(),
-            Some(dnf)
+            route(managed(Manager::Dnf, dnf), "0.18.0", "x86_64", copr, saved),
+            Some(Route::Copr {
+                command: Some(dnf.into())
+            })
+        );
+        // Another vendor's package (Fedora's own, say) is plain dnf.
+        let fedora = || Some("Fedora Project".to_owned());
+        assert_eq!(
+            route(
+                managed(Manager::Dnf, dnf),
+                "0.18.0",
+                "x86_64",
+                fedora,
+                saved
+            ),
+            Some(Route::Managed {
+                manager: Manager::Dnf,
+                command: Some(dnf.into())
+            })
         );
         for vendor in [None, Some(String::new()), Some("(none)".to_owned())] {
             assert_eq!(

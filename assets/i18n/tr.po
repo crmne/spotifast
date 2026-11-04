@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-04 16:29+0100\n"
+"POT-Creation-Date: 2026-11-04 17:12+0100\n"
 "PO-Revision-Date: 2026-10-02 20:30+0300\n"
 "Last-Translator: Barış Berke Çetin <brsberkectn@gmail.com>\n"
 "Language-Team: Turkish\n"
@@ -668,7 +668,7 @@ msgstr "Ağ bağlantısı hatası. Bağlantınızı kontrol edin."
 msgid "Cut"
 msgstr "Kes"
 
-#: src/ui/widgets.rs:3302 src/ui/widgets.rs:3789
+#: src/ui/widgets.rs:3302 src/ui/widgets.rs:3773
 msgid "Copy"
 msgstr "Kopyala"
 
@@ -723,7 +723,7 @@ msgstr ""
 "bağlanır."
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/ui/widgets.rs:3787 src/app.rs:13156
+#: src/ui/widgets.rs:3775 src/app.rs:13156
 msgid "Copied"
 msgstr "Kopyalandı"
 
@@ -1275,7 +1275,7 @@ msgid "Preset name"
 msgstr "Hazır ayar adı"
 
 #. Translators: a search keyword for saving equalizer presets.
-#: src/ui/settings.rs:101 src/ui/settings.rs:2304
+#: src/ui/settings.rs:101 src/ui/settings.rs:2267
 msgid "Save preset"
 msgstr "Hazır ayarı kaydet"
 
@@ -1488,89 +1488,77 @@ msgid "Keep music playing when the window closes"
 msgstr "Pencere kapandığında müzik çalmaya devam etsin"
 
 #: src/ui/settings.rs:754
-msgid "Automatic update checks"
-msgstr "Otomatik güncelleme denetimleri"
-
-#: src/ui/settings.rs:755
 msgid "Audio cache"
 msgstr "Ses önbelleği"
 
-#: src/ui/settings.rs:756
+#: src/ui/settings.rs:755
 msgid "Apply and restart playback"
 msgstr "Uygula ve çalmayı yeniden başlat"
 
-#: src/ui/settings.rs:757
+#: src/ui/settings.rs:756
 msgid "Restart local playback to apply these settings."
 msgstr "Bu ayarları uygulamak için yerel çalmayı yeniden başlatın."
 
-#: src/ui/settings.rs:758
-msgid "Update automatically"
-msgstr "Otomatik güncelle"
-
-#: src/ui/settings.rs:759
+#: src/ui/settings.rs:757
 msgid "Show in Dock"
 msgstr "Dock'ta göster"
 
-#: src/ui/settings.rs:760
+#: src/ui/settings.rs:758
 msgid "Start with your computer"
 msgstr "Bilgisayarla başlat"
 
 #. Translators: {status} is a playback state such as Ready or Not set up.
-#: src/ui/settings.rs:774
+#: src/ui/settings.rs:772
 #, rust-format
 msgid "Status: {status}"
 msgstr "Durum: {status}"
 
-#: src/ui/settings.rs:778
+#: src/ui/settings.rs:776
 msgid "Device name"
 msgstr "Cihaz adı"
 
-#: src/ui/settings.rs:779
+#: src/ui/settings.rs:777
 msgid "How this computer appears in Spotify Connect."
 msgstr "Bu bilgisayarın Spotify Connect'te nasıl görüneceği."
 
-#: src/ui/settings.rs:782 src/ui/soloist.rs:818
+#: src/ui/settings.rs:780 src/ui/soloist.rs:818
 msgid "Audio quality"
 msgstr "Ses kalitesi"
 
-#: src/ui/settings.rs:783
+#: src/ui/settings.rs:781
 msgid "Higher bitrates use more data and cache space."
 msgstr "Daha yüksek bit hızları daha fazla veri ve önbellek alanı kullanır."
 
-#: src/ui/settings.rs:787
+#: src/ui/settings.rs:785
 msgid "Keep loud and quiet tracks at a similar level."
 msgstr "Yüksek ve kısık sesli parçaları benzer bir ses düzeyinde tutar."
 
-#: src/ui/settings.rs:791
+#: src/ui/settings.rs:789
 msgid "Keep playing similar songs when your music ends."
 msgstr "Müziğiniz bittiğinde benzer şarkıları çalmaya devam eder."
 
-#: src/ui/settings.rs:795
+#: src/ui/settings.rs:793
 msgid "Play tracks without silence between them."
 msgstr "Parçaları aralarında sessizlik olmadan çalar."
 
-#: src/ui/settings.rs:802
+#: src/ui/settings.rs:800
 msgid ""
 "Spotifast hides to the system tray. Quit from the tray menu or with Ctrl+Q."
 msgstr ""
 "Spotifast sistem tepsisine gizlenir. Tepsi menüsünden veya Ctrl+Q ile çıkın."
 
-#: src/ui/settings.rs:807
+#: src/ui/settings.rs:805
 msgid ""
 "Spotifast hides to the menu bar. Quit from its menu-bar icon or with Cmd+Q."
 msgstr ""
 "Spotifast menü çubuğuna gizlenir. Menü çubuğundaki simgesinden veya Cmd+Q "
 "ile çıkın."
 
-#: src/ui/settings.rs:814
-msgid "Checks GitHub once a day. No personal data is sent."
-msgstr "GitHub'ı günde bir kez kontrol eder. Hiçbir kişisel veri gönderilmez."
-
-#: src/ui/settings.rs:817
+#: src/ui/settings.rs:811
 msgid "Output buffer"
 msgstr "Çıkış arabelleği"
 
-#: src/ui/settings.rs:820
+#: src/ui/settings.rs:814
 msgid ""
 "More buffering can prevent clicks on busy computers. Less buffering makes "
 "controls respond sooner."
@@ -1578,35 +1566,29 @@ msgstr ""
 "Daha fazla arabellek yoğun bilgisayarlarda çıtırtıları önleyebilir. Daha az "
 "arabellek kontrollerin daha hızlı tepki vermesini sağlar."
 
-#: src/ui/settings.rs:826
+#: src/ui/settings.rs:820
 msgid "Save downloaded audio for later playback."
 msgstr "İndirilen sesi daha sonra çalmak üzere saklar."
 
-#: src/ui/settings.rs:829
+#: src/ui/settings.rs:823
 msgid "Playback settings applied"
 msgstr "Çalma ayarları uygulandı"
 
-#: src/ui/settings.rs:834
-msgid ""
-"Downloads new releases in the background and installs them the next time "
-"Spotifast starts."
-msgstr "Yeni sürümleri arka planda indirir ve Spotifast bir sonraki açılışta yükler."
-
-#: src/ui/settings.rs:838 src/ui/settings.rs:1085
+#: src/ui/settings.rs:825 src/ui/settings.rs:1072
 msgid "MacBook notch widget"
 msgstr "MacBook çentik araç takımı"
 
-#: src/ui/settings.rs:841
+#: src/ui/settings.rs:828
 msgid "Show interactive Now Playing widget when hovering over the notch."
 msgstr ""
 "İmleç çentiğin üzerine getirildiğinde etkileşimli Şu An Çalan araç takımını "
 "göster."
 
-#: src/ui/settings.rs:845
+#: src/ui/settings.rs:832
 msgid "Local files"
 msgstr "Yerel dosyalar"
 
-#: src/ui/settings.rs:850
+#: src/ui/settings.rs:837
 msgid ""
 "When off, Spotifast lives in the menu bar and leaves Cmd+Tab. Open it from "
 "its menu-bar icon."
@@ -1614,165 +1596,165 @@ msgstr ""
 "Kapalıyken Spotifast yalnızca menü çubuğunda kalır ve Cmd+Tab'de görünmez. "
 "Menü çubuğundaki simgesinden açın."
 
-#: src/ui/settings.rs:856
+#: src/ui/settings.rs:843
 msgid "Tray icon"
 msgstr "Tepsi simgesi"
 
-#: src/ui/settings.rs:857
+#: src/ui/settings.rs:844
 msgid "White or black can match your panel or taskbar."
 msgstr "Beyaz veya siyah, panelinize ya da görev çubuğunuza uyabilir."
 
-#: src/ui/settings.rs:878
+#: src/ui/settings.rs:865
 msgid "Reconnect"
 msgstr "Yeniden bağlan"
 
-#: src/ui/settings.rs:910
+#: src/ui/settings.rs:897
 msgid "Normal · 96 kbps"
 msgstr "Normal · 96 kbps"
 
-#: src/ui/settings.rs:911
+#: src/ui/settings.rs:898
 msgid "High · 160 kbps"
 msgstr "Yüksek · 160 kbps"
 
-#: src/ui/settings.rs:912
+#: src/ui/settings.rs:899
 msgid "Very high · 320 kbps"
 msgstr "Çok yüksek · 320 kbps"
 
-#: src/ui/settings.rs:1017
+#: src/ui/settings.rs:1004
 msgctxt "tray icon"
 msgid "Colour"
 msgstr "Renkli"
 
-#: src/ui/settings.rs:1018
+#: src/ui/settings.rs:1005
 msgctxt "tray icon"
 msgid "White"
 msgstr "Beyaz"
 
-#: src/ui/settings.rs:1019
+#: src/ui/settings.rs:1006
 msgctxt "tray icon"
 msgid "Black"
 msgstr "Siyah"
 
-#: src/ui/settings.rs:1134
+#: src/ui/settings.rs:1097
 msgid "Choose folder"
 msgstr "Klasör seç"
 
-#: src/ui/settings.rs:1135 src/ui/dialogs.rs:96
+#: src/ui/settings.rs:1098 src/ui/dialogs.rs:96
 msgid "Remove"
 msgstr "Kaldır"
 
-#: src/ui/settings.rs:1225
+#: src/ui/settings.rs:1188
 msgid "Playback settings applied."
 msgstr "Çalma ayarları uygulandı."
 
-#: src/ui/settings.rs:1232
+#: src/ui/settings.rs:1195
 msgid "Appearance"
 msgstr "Görünüm"
 
-#: src/ui/settings.rs:1233
+#: src/ui/settings.rs:1196
 msgid "Theme"
 msgstr "Tema"
 
-#: src/ui/settings.rs:1234
+#: src/ui/settings.rs:1197
 msgid "How to make a theme"
 msgstr "Tema nasıl yapılır"
 
-#: src/ui/settings.rs:1235
+#: src/ui/settings.rs:1198
 msgid "Open themes folder"
 msgstr "Temalar klasörünü aç"
 
-#: src/ui/settings.rs:1236
+#: src/ui/settings.rs:1199
 msgid "Colour from album art"
 msgstr "Albüm kapağından renk al"
 
-#: src/ui/settings.rs:1237
+#: src/ui/settings.rs:1200
 msgid "Compact library sidebar"
 msgstr "Kompakt kitaplık kenar çubuğu"
 
-#: src/ui/settings.rs:1238
+#: src/ui/settings.rs:1201
 msgid "Compact track list"
 msgstr "Kompakt parça listesi"
 
-#: src/ui/settings.rs:1239
+#: src/ui/settings.rs:1202
 msgid "Middle-click autoscroll"
 msgstr "Orta tıklamayla otomatik kaydırma"
 
-#: src/ui/settings.rs:1240
+#: src/ui/settings.rs:1203
 msgid "Custom title bar"
 msgstr "Özel başlık çubuğu"
 
-#: src/ui/settings.rs:1242
+#: src/ui/settings.rs:1205
 msgid "Player bar visualizer"
 msgstr "Çalar çubuğu görselleştiricisi"
 
-#: src/ui/settings.rs:1243
+#: src/ui/settings.rs:1206
 msgid "Click player bar to change visualizer"
 msgstr "Görselleştiriciyi değiştirmek için oynatma çubuğuna tıkla"
 
-#: src/ui/settings.rs:1252
+#: src/ui/settings.rs:1215
 msgid "Light mode theme"
 msgstr "Açık mod teması"
 
-#: src/ui/settings.rs:1255
+#: src/ui/settings.rs:1218
 msgid ""
 "Used while your computer is in light mode. Only light themes are listed."
 msgstr ""
 "Bilgisayarınız açık moddayken kullanılır. Yalnızca açık temalar listelenir."
 
-#: src/ui/settings.rs:1259
+#: src/ui/settings.rs:1222
 msgid "Dark mode theme"
 msgstr "Koyu mod teması"
 
-#: src/ui/settings.rs:1262
+#: src/ui/settings.rs:1225
 msgid "Used while your computer is in dark mode. Only dark themes are listed."
 msgstr ""
 "Bilgisayarınız koyu moddayken kullanılır. Yalnızca koyu temalar listelenir."
 
-#: src/ui/settings.rs:1279
+#: src/ui/settings.rs:1242
 msgid "Follow system uses your Omarchy colours."
 msgstr "Sistemi takip et seçeneği Omarchy renklerinizi kullanır."
 
-#: src/ui/settings.rs:1283
+#: src/ui/settings.rs:1246
 msgid "Follow system uses your desktop's light or dark appearance."
 msgstr ""
 "Sistemi takip et seçeneği masaüstünüzün açık veya koyu görünümünü kullanır."
 
-#: src/ui/settings.rs:1288 src/ui/settings.rs:2778
+#: src/ui/settings.rs:1251 src/ui/settings.rs:2790
 msgid "Language"
 msgstr "Dil"
 
-#: src/ui/settings.rs:1291
+#: src/ui/settings.rs:1254
 msgid ""
 "System follows your computer's language. Untranslated text stays in English."
 msgstr ""
 "Sistem seçeneği bilgisayarınızın dilini takip eder. Çevrilmemiş metinler "
 "İngilizce kalır."
 
-#: src/ui/settings.rs:1298
+#: src/ui/settings.rs:1261
 msgid "Use the current cover's colour on pages and the player bar."
 msgstr "Sayfalarda ve çalar çubuğunda mevcut kapağın rengini kullanır."
 
-#: src/ui/settings.rs:1303
+#: src/ui/settings.rs:1266
 msgid "Show names without covers in the sidebar."
 msgstr "Kenar çubuğunda adları kapaksız gösterir."
 
-#: src/ui/settings.rs:1307
+#: src/ui/settings.rs:1270
 msgid "Show each track on one line without a cover."
 msgstr "Her parçayı tek bir satırda ve kapaksız gösterir."
 
-#: src/ui/settings.rs:1310
+#: src/ui/settings.rs:1273
 msgid "Interface zoom"
 msgstr "Arayüz yakınlaştırma"
 
-#: src/ui/settings.rs:1314
+#: src/ui/settings.rs:1277
 msgid "Ctrl+Plus and Ctrl+Minus work anywhere; Ctrl+0 resets."
 msgstr "Ctrl+Artı ve Ctrl+Eksi her yerde çalışır; Ctrl+0 sıfırlar."
 
-#: src/ui/settings.rs:1318
+#: src/ui/settings.rs:1281
 msgid "Cmd+Plus and Cmd+Minus work anywhere; Cmd+0 resets."
 msgstr "Cmd+Artı ve Cmd+Eksi her yerde çalışır; Cmd+0 sıfırlar."
 
-#: src/ui/settings.rs:1327
+#: src/ui/settings.rs:1290
 msgid ""
 "Middle-click a list, then move the pointer to scroll it. Off by default, "
 "because a middle click usually pastes on Linux."
@@ -1780,31 +1762,31 @@ msgstr ""
 "Bir listeye orta tıklayın ve kaydırmak için imleci hareket ettirin. Linux'ta "
 "orta tıklama genellikle yapıştırdığı için varsayılan olarak kapalıdır."
 
-#: src/ui/settings.rs:1335
+#: src/ui/settings.rs:1298
 msgid ""
 "Draw Spotifast's own title bar and window buttons instead of the desktop's."
 msgstr ""
 "Masaüstü ortamının başlık çubuğu ve pencere düğmeleri yerine Spotifast'in "
 "kendi başlık çubuğunu ve pencere düğmelerini çizer."
 
-#: src/ui/settings.rs:1343
+#: src/ui/settings.rs:1306
 msgid ""
 "Show the song moving behind the player bar's controls while it plays here."
 msgstr ""
 "Şarkı burada çalarken çalar çubuğu kontrollerinin arkasında hareket eden "
 "dalga formunu gösterir."
 
-#: src/ui/settings.rs:1348
+#: src/ui/settings.rs:1311
 msgid "Allow clicks on empty player bar space to cycle the visualizer."
 msgstr ""
 "Oynatma çubuğundaki boş alana tıklayarak görselleştiriciyi değiştirmeye izin "
 "ver."
 
-#: src/ui/settings.rs:1351 src/ui/settings.rs:2141
+#: src/ui/settings.rs:1314 src/ui/settings.rs:2104
 msgid "Frame rate"
 msgstr "Kare hızı"
 
-#: src/ui/settings.rs:1354
+#: src/ui/settings.rs:1317
 msgid ""
 "How often the player bar and mini player visualizers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
@@ -1813,36 +1795,36 @@ msgstr ""
 "Daha düşük kare hızları daha az kaynak kullanır. MilkDrop'un kendi ayarı "
 "vardır."
 
-#: src/ui/settings.rs:1502
+#: src/ui/settings.rs:1465
 msgid "Off"
 msgstr "Kapalı"
 
-#: src/ui/settings.rs:1503
+#: src/ui/settings.rs:1466
 msgid "Spectrum"
 msgstr "Spektrum"
 
-#: src/ui/settings.rs:1504
+#: src/ui/settings.rs:1467
 msgid "Waveform"
 msgstr "Dalga formu"
 
-#: src/ui/settings.rs:1699
+#: src/ui/settings.rs:1662
 msgid "Proxy"
 msgstr "Proxy"
 
-#: src/ui/settings.rs:1701
+#: src/ui/settings.rs:1664
 msgid "Mode, host, port, username and password"
 msgstr "Mod, sunucu, port, kullanıcı adı ve parola"
 
-#: src/ui/settings.rs:1704
+#: src/ui/settings.rs:1667
 msgid "Off, System, HTTP or SOCKS5 proxy for network requests."
 msgstr "Ağ istekleri için Kapalı, Sistem, HTTP veya SOCKS5 proxy."
 
-#: src/ui/settings.rs:1714
+#: src/ui/settings.rs:1677
 msgctxt "proxy"
 msgid "Mode"
 msgstr "Mod"
 
-#: src/ui/settings.rs:1717
+#: src/ui/settings.rs:1680
 msgid ""
 "Off ignores environment variables. System uses them, and the OS proxy on "
 "macOS and Windows."
@@ -1850,47 +1832,47 @@ msgstr ""
 "Kapalı, ortam değişkenlerini yok sayar. Sistem, bu değişkenleri ve macOS ile "
 "Windows'ta işletim sistemi proxy'sini kullanır."
 
-#: src/ui/settings.rs:1769 src/ui/login.rs:608
+#: src/ui/settings.rs:1732 src/ui/login.rs:608
 msgid "Apply settings"
 msgstr "Ayarları uygula"
 
-#: src/ui/settings.rs:1781
+#: src/ui/settings.rs:1744
 msgid "Not using a proxy."
 msgstr "Proxy kullanılmıyor."
 
-#: src/ui/settings.rs:1782
+#: src/ui/settings.rs:1745
 msgid "Using the system proxy."
 msgstr "Sistem proxy'si kullanılıyor."
 
-#: src/ui/settings.rs:1794 src/ui/keys.rs:386
+#: src/ui/settings.rs:1757 src/ui/keys.rs:386
 msgid "Mini player"
 msgstr "Mini çalar"
 
-#: src/ui/settings.rs:1795 src/ui/winamp/mod.rs:777 src/ui/winamp/mod.rs:923
+#: src/ui/settings.rs:1758 src/ui/winamp/mod.rs:777 src/ui/winamp/mod.rs:923
 msgid "Always on top"
 msgstr "Her zaman üstte"
 
-#: src/ui/settings.rs:1796
+#: src/ui/settings.rs:1759
 msgid "Show the mini player in taskbar"
 msgstr "Mini çaları görev çubuğunda göster"
 
-#: src/ui/settings.rs:1797
+#: src/ui/settings.rs:1760
 msgid "Random skin"
 msgstr "Rastgele tema"
 
-#: src/ui/settings.rs:1798
+#: src/ui/settings.rs:1761
 msgid "Winamp"
 msgstr "Winamp"
 
-#: src/ui/settings.rs:1799
+#: src/ui/settings.rs:1762
 msgid "Windows Media Player"
 msgstr "Windows Media Player"
 
-#: src/ui/settings.rs:1811
+#: src/ui/settings.rs:1774
 msgid "Show the mini player"
 msgstr "Mini çaları göster"
 
-#: src/ui/settings.rs:1815
+#: src/ui/settings.rs:1778
 msgid ""
 "Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
 "skin on either window to add it."
@@ -1898,7 +1880,7 @@ msgstr ""
 "Bir Winamp veya Windows Media Player teması kullanın. Geri dönmek için "
 "Ctrl+M tuşlarına basın. Eklemek için bir temayı pencerelerden birine bırakın."
 
-#: src/ui/settings.rs:1819
+#: src/ui/settings.rs:1782
 msgid ""
 "Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
 "a skin on either window to add it."
@@ -1907,12 +1889,12 @@ msgstr ""
 "Cmd+Shift+M tuşlarına basın. Eklemek için bir temayı pencerelerden birine "
 "bırakın."
 
-#: src/ui/settings.rs:1830 src/ui/settings.rs:1917
+#: src/ui/settings.rs:1793 src/ui/settings.rs:1880
 msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
 msgstr ""
 "Klasik .wsz temaları. Daha fazlasını Winamp Skin Museum'da bulabilirsiniz."
 
-#: src/ui/settings.rs:1841 src/ui/settings.rs:1970
+#: src/ui/settings.rs:1804 src/ui/settings.rs:1933
 msgid ""
 "Windows Media Player .wmz skins. Find more in the Internet Archive's "
 "collection."
@@ -1920,27 +1902,27 @@ msgstr ""
 "Windows Media Player .wmz kaplamaları. Daha fazlası Internet Archive "
 "koleksiyonunda."
 
-#: src/ui/settings.rs:1848
+#: src/ui/settings.rs:1811
 msgid "Pick another skin each time the mini player opens."
 msgstr "Mini çalar her açıldığında başka bir tema seçer."
 
-#: src/ui/settings.rs:1851 src/ui/winamp/mod.rs:764
+#: src/ui/settings.rs:1814 src/ui/winamp/mod.rs:764
 msgid "Size"
 msgstr "Boyut"
 
-#: src/ui/settings.rs:1852
+#: src/ui/settings.rs:1815
 msgid "Whole-number scaling keeps skin pixels sharp."
 msgstr "Tam sayılı ölçeklendirme tema piksellerini keskin tutar."
 
-#: src/ui/settings.rs:1857
+#: src/ui/settings.rs:1820
 msgid "Keep the mini player above everything else."
 msgstr "Mini çaları diğer her şeyin üstünde tutar."
 
-#: src/ui/settings.rs:1863 src/ui/winamp/mod.rs:787
+#: src/ui/settings.rs:1826 src/ui/winamp/mod.rs:787
 msgid "Show in taskbar"
 msgstr "Görev çubuğunda göster"
 
-#: src/ui/settings.rs:1866
+#: src/ui/settings.rs:1829
 msgid ""
 "Keep a taskbar button for the mini player. The tray icon stays available "
 "when hidden."
@@ -1948,36 +1930,36 @@ msgstr ""
 "Mini çalar için görev çubuğunda bir düğme tutar. Gizlendiğinde sistem "
 "tepsisi simgesi kullanılabilir kalır."
 
-#: src/ui/settings.rs:1871
+#: src/ui/settings.rs:1834
 msgid "Skins folder"
 msgstr "Kaplama klasörü"
 
-#: src/ui/settings.rs:1874
+#: src/ui/settings.rs:1837
 msgid "Winamp and Windows Media Player skins are both kept here."
 msgstr "Winamp ve Windows Media Player kaplamalarının ikisi de burada tutulur."
 
-#: src/ui/settings.rs:1882
+#: src/ui/settings.rs:1845
 msgid "Switch to it"
 msgstr "Bu temaya geç"
 
-#: src/ui/settings.rs:1926
+#: src/ui/settings.rs:1889
 msgid "Skin Museum"
 msgstr "Skin Museum"
 
-#: src/ui/settings.rs:1978
+#: src/ui/settings.rs:1941
 msgid "Windows Media Player Skins Collection"
 msgstr "Windows Media Player Kaplama Koleksiyonu"
 
-#: src/ui/settings.rs:2001
+#: src/ui/settings.rs:1964
 #, rust-format
 msgid "Installed skins are in {folder}. None of this kind yet."
 msgstr "Yüklü temalar {folder} içinde. Bu türden henüz yok."
 
-#: src/ui/settings.rs:2090
+#: src/ui/settings.rs:2053
 msgid "MilkDrop window"
 msgstr "MilkDrop penceresi"
 
-#: src/ui/settings.rs:2098
+#: src/ui/settings.rs:2061
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1987,7 +1969,7 @@ msgstr ""
 "Ctrl+Shift+K ile veya mini çaların V menüsünden açın. Kısayolları için ? "
 "veya F1 tuşuna basın."
 
-#: src/ui/settings.rs:2102
+#: src/ui/settings.rs:2065
 msgid ""
 "A projectM visualiser for local playback. Open it here, from the top bar, "
 "with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
@@ -1997,12 +1979,12 @@ msgstr ""
 "Cmd+Shift+K ile veya mini çaların V menüsünden açın. Kısayolları için ? veya "
 "F1 tuşuna basın."
 
-#: src/ui/settings.rs:2108 src/ui/settings.rs:2287
+#: src/ui/settings.rs:2071 src/ui/settings.rs:2250
 msgid "Presets"
 msgstr "Hazır ayarlar"
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2113
+#: src/ui/settings.rs:2076
 #, rust-format
 msgid ""
 "None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
@@ -2013,7 +1995,7 @@ msgstr ""
 "indirir."
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2119
+#: src/ui/settings.rs:2082
 #, rust-format
 msgid ""
 "One preset in {folder}. Add .milk files here. Spotifast downloads presets "
@@ -2024,7 +2006,7 @@ msgstr ""
 "indirir."
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
-#: src/ui/settings.rs:2125
+#: src/ui/settings.rs:2088
 #, rust-format
 msgid ""
 "{count} preset in {folder}. Add .milk files here. Spotifast downloads "
@@ -2041,23 +2023,23 @@ msgstr[1] ""
 "Spotifast, MilkDrop boş bir klasörle ilk açıldığında hazır ayarları otomatik "
 "indirir."
 
-#: src/ui/settings.rs:2134
+#: src/ui/settings.rs:2097
 msgid "Time per preset"
 msgstr "Hazır ayar başına süre"
 
-#: src/ui/settings.rs:2137
+#: src/ui/settings.rs:2100
 msgid "How long each preset plays before the next fades in."
 msgstr ""
 "Bir sonrakine geçmeden önce her hazır ayarın ne kadar süre oynatılacağı."
 
-#: src/ui/settings.rs:2145
+#: src/ui/settings.rs:2108
 msgid "Lower rates use fewer resources. Uncapped draws as fast as possible."
 msgstr ""
 "Daha düşük kare hızları daha az kaynak kullanır. Sınırsız, mümkün olan en "
 "hızlı şekilde çizer."
 
 #. Translators: {hz} is the screen's refresh rate in hertz.
-#: src/ui/settings.rs:2150
+#: src/ui/settings.rs:2113
 #, rust-format
 msgid ""
 "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
@@ -2066,50 +2048,50 @@ msgstr ""
 "Ekranınız {hz} Hz yenileme hızına sahip. Daha yüksek hızlar görünür kare "
 "eklemez. Sınırsız, mümkün olan en hızlı şekilde çizer."
 
-#: src/ui/settings.rs:2157
+#: src/ui/settings.rs:2120
 msgid "Resolution"
 msgstr "Çözünürlük"
 
-#: src/ui/settings.rs:2160
+#: src/ui/settings.rs:2123
 msgid "Half and Quarter use fewer resources and scale the image back up."
 msgstr ""
 "Yarım ve Çeyrek daha az kaynak kullanır ve görüntüyü yeniden ölçeklendirir."
 
 #. Translators: search keywords for the MilkDrop preset download buttons.
-#: src/ui/settings.rs:2167
+#: src/ui/settings.rs:2130
 msgid "Get presets"
 msgstr "Hazır ayarları indir"
 
-#: src/ui/settings.rs:2205
+#: src/ui/settings.rs:2168
 msgid "Fetching..."
 msgstr "Alınıyor..."
 
 #. Translators: {pack} is the name of a MilkDrop preset pack.
-#: src/ui/settings.rs:2208
+#: src/ui/settings.rs:2171
 #, rust-format
 msgid "Get {pack}"
 msgstr "{pack} paketini indir"
 
-#: src/ui/settings.rs:2259
+#: src/ui/settings.rs:2222
 msgctxt "resolution"
 msgid "Full"
 msgstr "Tam"
 
-#: src/ui/settings.rs:2260
+#: src/ui/settings.rs:2223
 msgctxt "resolution"
 msgid "Half"
 msgstr "Yarım"
 
-#: src/ui/settings.rs:2261
+#: src/ui/settings.rs:2224
 msgctxt "resolution"
 msgid "Quarter"
 msgstr "Çeyrek"
 
-#: src/ui/settings.rs:2275
+#: src/ui/settings.rs:2238
 msgid "Equalizer"
 msgstr "Ekolayzer"
 
-#: src/ui/settings.rs:2281
+#: src/ui/settings.rs:2244
 msgid ""
 "A ten-band equalizer for playback on this computer. It does not affect other "
 "devices."
@@ -2117,140 +2099,163 @@ msgstr ""
 "Bu bilgisayarda çalma için on bantlı ekolayzer. Diğer cihazları etkilemez."
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2289
+#: src/ui/settings.rs:2252
 msgid "Preamp"
 msgstr "Ön amfi"
 
 #. Translators: a search keyword for the equalizer's frequency band sliders.
-#: src/ui/settings.rs:2291
+#: src/ui/settings.rs:2254
 msgid "Bands"
 msgstr "Bantlar"
 
 #. Translators: short label under the equalizer's preamplifier slider.
-#: src/ui/settings.rs:2373
+#: src/ui/settings.rs:2336
 msgctxt "equalizer"
 msgid "Pre"
 msgstr "Ön"
 
-#: src/ui/settings.rs:2390
+#: src/ui/settings.rs:2353
 msgid "Storage"
 msgstr "Depolama"
 
-#: src/ui/settings.rs:2393
+#: src/ui/settings.rs:2356
 msgid "Artwork cache"
 msgstr "Albüm kapağı önbelleği"
 
 #. Translators: {folder} is the path of a cache folder.
-#: src/ui/settings.rs:2395 src/ui/settings.rs:2401
+#: src/ui/settings.rs:2358 src/ui/settings.rs:2364
 #, rust-format
 msgid "Stored in {folder}"
 msgstr "{folder} konumunda saklanır"
 
-#: src/ui/settings.rs:2408
+#: src/ui/settings.rs:2371
 msgid "Play history"
 msgstr "Çalma geçmişi"
 
 #. Translators: {file} is the path of the play history file.
-#: src/ui/settings.rs:2412
+#: src/ui/settings.rs:2375
 #, rust-format
 msgid "Tracks played here are stored in {file}. This file is never uploaded."
 msgstr ""
 "Burada çalınan parçalar {file} dosyasında saklanır. Bu dosya asla karşıya "
 "yüklenmez."
 
-#: src/ui/settings.rs:2417
+#: src/ui/settings.rs:2380
 msgid "Sign-in"
 msgstr "Oturum Açma"
 
-#: src/ui/settings.rs:2420
+#: src/ui/settings.rs:2383
 msgid "Sign-ins are saved in the system credential store when available."
 msgstr ""
 "Oturum bilgileri kullanılabilir olduğunda sistem kimlik bilgisi deposuna "
 "kaydedilir."
 
-#: src/ui/settings.rs:2429 src/ui/settings.rs:2488
+#: src/ui/settings.rs:2392 src/ui/settings.rs:2500
 msgid "Checking…"
 msgstr "Denetleniyor…"
 
-#: src/ui/settings.rs:2431 src/ui/collection.rs:989 src/ui/collection.rs:1016
+#: src/ui/settings.rs:2394 src/ui/collection.rs:989 src/ui/collection.rs:1016
 msgid "Unavailable"
 msgstr "Kullanılamıyor"
 
-#: src/ui/settings.rs:2441
+#: src/ui/settings.rs:2404
 msgid "Clear artwork"
 msgstr "Kapakları temizle"
 
-#: src/ui/settings.rs:2451
+#: src/ui/settings.rs:2414
 msgid "Clearing…"
 msgstr "Temizleniyor…"
 
-#: src/ui/settings.rs:2453
+#: src/ui/settings.rs:2416
 msgid "Clear audio"
 msgstr "Sesi temizle"
 
-#: src/ui/settings.rs:2470
+#: src/ui/settings.rs:2433
 msgid "Clear history"
 msgstr "Geçmişi temizle"
 
-#: src/ui/settings.rs:2482 src/ui/show.rs:42
+#: src/ui/settings.rs:2445
+msgid "Updates"
+msgstr "Güncellemeler"
+
+#: src/ui/settings.rs:2446
+msgid "Automatic update checks"
+msgstr "Otomatik güncelleme denetimleri"
+
+#: src/ui/settings.rs:2447
+msgid "Update automatically"
+msgstr "Otomatik güncelle"
+
+#: src/ui/settings.rs:2453
+msgid "Checks GitHub once a day. No personal data is sent."
+msgstr "GitHub'ı günde bir kez kontrol eder. Hiçbir kişisel veri gönderilmez."
+
+#: src/ui/settings.rs:2460
+msgid ""
+"Downloads new releases in the background and installs them the next time "
+"Spotifast starts."
+msgstr ""
+"Yeni sürümleri arka planda indirir ve Spotifast bir sonraki açılışta yükler."
+
+#: src/ui/settings.rs:2494 src/ui/show.rs:42
 msgid "About"
 msgstr "Hakkında"
 
-#: src/ui/settings.rs:2485
+#: src/ui/settings.rs:2497
 msgid "Built with Rust, egui, and librespot. Not affiliated with Spotify."
 msgstr ""
 "Rust, egui ve librespot ile geliştirildi. Spotify ile bağlantılı değildir."
 
-#: src/ui/settings.rs:2487
+#: src/ui/settings.rs:2499
 msgid "Check for updates"
 msgstr "Güncellemeleri denetle"
 
-#: src/ui/settings.rs:2489 src/ui/dialogs.rs:153 src/ui/keys.rs:418
+#: src/ui/settings.rs:2501 src/ui/dialogs.rs:153 src/ui/keys.rs:418
 #: src/ui/topbar.rs:504
 msgid "Keyboard shortcuts"
 msgstr "Klavye kısayolları"
 
-#: src/ui/settings.rs:2490 src/ui/update.rs:67
+#: src/ui/settings.rs:2502 src/ui/update.rs:67
 msgid "Release notes"
 msgstr "Sürüm notları"
 
-#: src/ui/settings.rs:2491
+#: src/ui/settings.rs:2503
 msgid "Source code"
 msgstr "Kaynak kodu"
 
 #. Translators: {query} is the text typed into the settings search field.
-#: src/ui/settings.rs:2575
+#: src/ui/settings.rs:2587
 #, rust-format
 msgid "No settings for “{query}”"
 msgstr "“{query}” için ayar bulunamadı"
 
-#: src/ui/settings.rs:2576
+#: src/ui/settings.rs:2588
 msgid "Try fewer words, or check the spelling."
 msgstr "Daha az kelime deneyin veya yazımı kontrol edin."
 
-#: src/ui/settings.rs:2597
+#: src/ui/settings.rs:2609
 msgctxt "start with your computer"
 msgid "Off"
 msgstr "Kapalı"
 
-#: src/ui/settings.rs:2598
+#: src/ui/settings.rs:2610
 msgid "With the window"
 msgstr "Pencereyle"
 
-#: src/ui/settings.rs:2602
+#: src/ui/settings.rs:2614
 msgid "In the menu bar"
 msgstr "Menü çubuğunda"
 
-#: src/ui/settings.rs:2604
+#: src/ui/settings.rs:2616
 msgid "In the tray"
 msgstr "Sistem tepsisinde"
 
-#: src/ui/settings.rs:2623
+#: src/ui/settings.rs:2635
 msgid "Allow Spotifast in System Settings, General, Login Items."
 msgstr ""
 "Sistem Ayarları, Genel, Giriş Öğeleri bölümünden Spotifast’e izin verin."
 
-#: src/ui/settings.rs:2629
+#: src/ui/settings.rs:2641
 msgid ""
 "Starting in the menu bar needs Keep music playing when the window closes. "
 "Until then, the window opens."
@@ -2258,7 +2263,7 @@ msgstr ""
 "Menü çubuğunda başlamak için “Pencere kapandığında müzik çalmaya devam "
 "etsin” açık olmalı. O zamana kadar pencere açılır."
 
-#: src/ui/settings.rs:2634
+#: src/ui/settings.rs:2646
 msgid ""
 "Starting in the tray needs Keep music playing when the window closes. Until "
 "then, the window opens."
@@ -2266,16 +2271,16 @@ msgstr ""
 "Sistem tepsisinde başlamak için “Pencere kapandığında müzik çalmaya devam "
 "etsin” açık olmalı. O zamana kadar pencere açılır."
 
-#: src/ui/settings.rs:2640
+#: src/ui/settings.rs:2652
 msgid "Open Spotifast when you log in, with its window or in the menu bar."
 msgstr "Oturum açtığınızda Spotifast’i penceresiyle veya menü çubuğunda açar."
 
-#: src/ui/settings.rs:2645
+#: src/ui/settings.rs:2657
 msgid "Open Spotifast when you log in, with its window or in the tray."
 msgstr ""
 "Oturum açtığınızda Spotifast’i penceresiyle veya sistem tepsisinde açar."
 
-#: src/ui/settings.rs:2751
+#: src/ui/settings.rs:2763
 msgctxt "language"
 msgid "System"
 msgstr "Sistem"
@@ -3855,8 +3860,8 @@ msgid "Music playing on this computer will stop when Spotifast restarts."
 msgstr "Spotifast yeniden başlatıldığında bu bilgisayarda çalan müzik duracak."
 
 #: src/ui/update.rs:131
-msgid "Otherwise it installs the next time Spotifast starts."
-msgstr "Aksi halde Spotifast bir sonraki açılışta yüklenir."
+msgid "If you don't restart now, it installs the next time Spotifast starts."
+msgstr "Şimdi yeniden başlatmazsanız Spotifast bir sonraki açılışta yüklenir."
 
 #: src/ui/update.rs:139
 msgid "Restart to update"
@@ -3895,8 +3900,13 @@ msgstr "{manager} ile yüklendi. Yüklediğiniz yolla güncelleyin."
 msgid "Installed from the AUR. Update it with this command:"
 msgstr "AUR'dan yüklendi. Şu komutla güncelleyin:"
 
-#. Translators: a command to copy follows.
+#. Translators: COPR is Fedora's community package service. A command to copy follows.
 #: src/ui/update.rs:289
+msgid "Installed from the Fedora COPR. Update it with this command:"
+msgstr "Fedora COPR'dan yüklendi. Şu komutla güncelleyin:"
+
+#. Translators: a command to copy follows.
+#: src/ui/update.rs:295
 msgid ""
 "Installed from a DEB package. Download the new one, then install it with "
 "this command:"
@@ -3904,12 +3914,12 @@ msgstr ""
 "Bir DEB paketinden yüklendi. Yenisini indirin, ardından şu komutla yükleyin:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:294
+#: src/ui/update.rs:300
 msgid "Installed from an RPM package. Install the new one with this command:"
 msgstr "Bir RPM paketinden yüklendi. Yenisini şu komutla yükleyin:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:299
+#: src/ui/update.rs:305
 msgid ""
 "Installed from a Flatpak bundle. Download the new one, then install it with "
 "this command:"
@@ -4251,6 +4261,9 @@ msgstr ""
 "ihtiyaç duyar ve bu bilgisayar ya da sanal makine bunu sağlamıyor. Grafik "
 "sürücüsünü yükleyin veya sanal makine için GPU hızlandırmayı açın. Daha "
 "fazlasını okumak için {url} açılsın mı?"
+
+#~ msgid "Otherwise it installs the next time Spotifast starts."
+#~ msgstr "Aksi halde Spotifast bir sonraki açılışta yüklenir."
 
 #~ msgid "Downloads in the background. You choose when to restart."
 #~ msgstr "Arka planda indirilir. Yeniden başlatma zamanını siz seçersiniz."

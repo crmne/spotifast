@@ -3977,8 +3977,9 @@ mod playing_cover_tests {
 }
 
 /// Text to paste somewhere else, such as a redirect address or a command,
-/// in monospace and selectable, with a Copy button that says Copied for a
-/// moment. A narrow column puts the button under the text.
+/// in monospace on one line, with a Copy button beside it that says Copied
+/// for a moment. Text too long for the row ends in an ellipsis and shows in
+/// full on hover; Copy always copies all of it.
 pub fn copyable_text(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -3987,32 +3988,48 @@ pub fn copyable_text(
     text: &str,
     size: f32,
 ) {
+    const GAP: f32 = 8.0;
+    // The Frame's inner margin, on both sides.
+    const MARGIN: f32 = 20.0;
     let now = ui.input(|input| input.time);
     let copied = ui
         .data(|data| data.get_temp::<f64>(id))
         .is_some_and(|at| now - at < 2.0);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
+    let copy = gettext(locale, "Copy");
+    // Translators: shown on the Copy button for a moment after it copied.
+    let copied_label = gettext(locale, "Copied");
+    // Room for the wider of the two labels, so the text keeps its width
+    // when the button says Copied. pill_button pads 18 points a side.
+    let button = [&copy, &copied_label]
+        .iter()
+        .map(|label| {
+            ui.painter()
+                .layout_no_wrap(label.to_string(), theme::semibold(13.0), palette.text)
+                .size()
+                .x
+        })
+        .fold(0.0, f32::max)
+        + 36.0;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(GAP, 6.0);
+        let room = (ui.available_width() - button - GAP - MARGIN).max(40.0);
         Frame::new()
             .fill(palette.surface)
             .corner_radius(CornerRadius::same(6))
             .inner_margin(Margin::symmetric(10, 6))
             .show(ui, |ui| {
+                ui.set_max_width(room);
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(text)
                             .font(egui::FontId::monospace(size))
                             .color(palette.text),
                     )
+                    .truncate()
                     .selectable(true),
                 );
             });
-        let label = if copied {
-            // Translators: shown on the Copy button for a moment after it copied.
-            gettext(locale, "Copied")
-        } else {
-            gettext(locale, "Copy")
-        };
+        let label = if copied { copied_label } else { copy };
         if theme::pill_button(ui, palette, &label, false).clicked() {
             ui.ctx().copy_text(text.to_owned());
             ui.data_mut(|data| data.insert_temp(id, now));

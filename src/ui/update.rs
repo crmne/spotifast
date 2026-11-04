@@ -128,7 +128,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             egui::Label::new(
                                 RichText::new(gettext(
                                     locale,
-                                    "Otherwise it installs the next time Spotifast starts.",
+                                    "If you don't restart now, it installs the next time Spotifast starts.",
                                 ))
                                 .font(theme::regular(14.0))
                                 .color(palette.secondary),
@@ -283,6 +283,12 @@ fn how(route: &Route, locale: Locale) -> Option<Cow<'static, str>> {
             };
             managed(name, command.is_some())
         }
+        Route::Copr { command: Some(_) } => gettext(
+            locale,
+            // Translators: COPR is Fedora's community package service. A command to copy follows.
+            "Installed from the Fedora COPR. Update it with this command:",
+        ),
+        Route::Copr { command: None } => managed("dnf", false),
         Route::Deb { .. } => gettext(
             locale,
             // Translators: a command to copy follows.

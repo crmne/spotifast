@@ -411,7 +411,7 @@ and choose **Restart to update** to install it now; otherwise it installs
 the next time Spotifast starts, before its window opens, and the new
 version opens in its place. Nothing restarts while you listen.
 
-Turn **Update automatically** off in Settings to decide each time: the green
+Turn **Update automatically** off under **Settings > Updates** to decide each time: the green
 update button then downloads a release when you click it. A new major
 version always asks first. So does going back: if you install an older
 version than one you ran before, Spotifast still shows the newer releases

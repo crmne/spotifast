@@ -1625,10 +1625,9 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                         Manager::HomebrewCask,
                         Some("brew upgrade --cask spotifast"),
                     )),
-                    "update-copr" => Some(managed(
-                        Manager::Dnf,
-                        Some("sudo dnf upgrade --refresh spotifast"),
-                    )),
+                    "update-copr" => Some(Route::Copr {
+                        command: Some("sudo dnf upgrade --refresh spotifast".into()),
+                    }),
                     "update-nixos" => Some(managed(Manager::Nix, None)),
                     "update-deb" => Some(Route::Deb {
                         download: file("spotifast_0.18.0_amd64.deb"),
