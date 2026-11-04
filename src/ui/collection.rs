@@ -818,6 +818,11 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     );
     let thin = app.settings.tracklist_compact;
     let show_cover = !thin && table.show_cover;
+    let show_artist = !thin
+        && table
+            .items
+            .iter()
+            .any(|(item, _, _)| matches!(item, PlayableItem::Track(_)));
     let row_height = if thin {
         theme::THIN_ROW_HEIGHT
     } else {
@@ -834,6 +839,7 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             &palette,
             app.locale,
             table.show_album,
+            show_artist,
             table.show_added,
             table.show_added_by,
             table.show_plays,
@@ -1042,6 +1048,7 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 context: &context,
                 show_cover,
                 show_album: table.show_album,
+                show_artist,
                 // Rows reserve the column only where the header does.
                 added_at: added_at.as_deref().filter(|_| table.show_added),
                 added_by: added_by.as_deref(),
@@ -1431,6 +1438,68 @@ fn sort_by_text_key(visible: &mut [usize], ascending: bool, key: impl Fn(usize) 
     }
 }
 
+/// Orders rows by their first credited artist and keeps each artist's songs
+/// together in album, disc, and track order. Albums that share a name stay in
+/// the order they first appear, and a descending sort reverses the artists,
+/// not the albums inside each one.
+fn sort_by_artist(visible: &mut [usize], ascending: bool, items: &[TableItem]) {
+    let mut first_seen = std::collections::HashMap::new();
+    let mut keyed: Vec<_> = visible
+        .iter()
+        .enumerate()
+        .map(|(position, &index)| {
+            let (artist, album, seen, disc, number) = match &items[index].0 {
+                PlayableItem::Track(track) => {
+                    let artist = track
+                        .artists
+                        .first()
+                        .map(|artist| artist.name.to_lowercase())
+                        .unwrap_or_default();
+                    let (album_name, album_id) = track
+                        .album
+                        .as_ref()
+                        .map(|album| {
+                            let id = if album.id.is_empty() {
+                                album.uri.clone()
+                            } else {
+                                album.id.clone()
+                            };
+                            (album.name.to_lowercase(), id)
+                        })
+                        .unwrap_or_default();
+                    let seen = *first_seen
+                        .entry((album_name.clone(), album_id))
+                        .or_insert(position);
+                    (
+                        artist,
+                        album_name,
+                        seen,
+                        track.disc_number.unwrap_or(0),
+                        track.track_number.unwrap_or(0),
+                    )
+                }
+                PlayableItem::Episode(_) => (String::new(), String::new(), position, 0, 0),
+            };
+            (artist, album, seen, disc, number, index)
+        })
+        .collect();
+    keyed.sort_by(|a, b| {
+        let artists = if ascending {
+            a.0.cmp(&b.0)
+        } else {
+            b.0.cmp(&a.0)
+        };
+        artists
+            .then(a.1.cmp(&b.1))
+            .then(a.2.cmp(&b.2))
+            .then(a.3.cmp(&b.3))
+            .then(a.4.cmp(&b.4))
+    });
+    for (slot, key) in visible.iter_mut().zip(keyed) {
+        *slot = key.5;
+    }
+}
+
 /// Orders rows by album name and keeps each album's songs together in disc
 /// and track order (#699). Albums that share a name stay in the order they
 /// first appear, and a descending sort reverses the albums, not the songs
@@ -1563,6 +1632,7 @@ fn view_indices(
             SortColumn::Title => sort_by_text_key(&mut visible, sort.ascending, |index| {
                 items[index].0.name().to_lowercase()
             }),
+            SortColumn::Artist => sort_by_artist(&mut visible, sort.ascending, items),
             SortColumn::Album => sort_by_album(&mut visible, sort.ascending, items),
             SortColumn::AddedBy => sort_by_text_key(&mut visible, sort.ascending, |index| {
                 items[index].2.as_deref().unwrap_or_default().to_lowercase()
@@ -3900,6 +3970,66 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn artist_sort_groups_artists_and_keeps_their_albums_in_track_order() {
+        // Added in this order: Zebra/Z, Alpha/B, Alpha/A 1, alpha/A 2,
+        // Beta/B, Alpha/A 5. Sorting by artist must keep each artist's
+        // albums in name order and each album's songs in track order, not
+        // the order rows were added.
+        let base = make_test_tracks();
+        let mut items: Vec<TableItem> = (0..6).map(|i| base[i % 4].clone()).collect();
+        for (item, (artist, album, number)) in items.iter_mut().zip([
+            ("Zebra", "Z Album", 2),
+            ("Alpha", "B Album", 3),
+            ("Alpha", "A Album", 1),
+            ("alpha", "A Album", 2),
+            ("Beta", "B Album", 1),
+            ("Alpha", "A Album", 5),
+        ]) {
+            let PlayableItem::Track(track) = &mut item.0 else {
+                panic!("test rows are tracks");
+            };
+            track.artists = vec![ArtistRef {
+                id: None,
+                name: artist.into(),
+                uri: None,
+            }];
+            let entry = track.album.as_mut().unwrap();
+            entry.id = format!("alb_{album}");
+            entry.name = album.into();
+            track.disc_number = Some(1);
+            track.track_number = Some(number);
+        }
+        // A second credit does not decide the row's artist.
+        let PlayableItem::Track(featured) = &mut items[0].0 else {
+            panic!("test rows are tracks");
+        };
+        featured.artists.push(ArtistRef {
+            id: None,
+            name: "Alpha".into(),
+            uri: None,
+        });
+
+        let sorted = |ascending| {
+            view_indices(
+                &items,
+                &HashMap::new(),
+                "",
+                Some(TableSort {
+                    column: SortColumn::Artist,
+                    ascending,
+                }),
+            )
+        };
+
+        assert_eq!(sorted(true), vec![2, 3, 5, 1, 4, 0]);
+        assert_eq!(
+            sorted(false),
+            vec![0, 4, 2, 3, 5, 1],
+            "descending reverses the artists, not the albums inside them"
+        );
     }
 
     #[test]

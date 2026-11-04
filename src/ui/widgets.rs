@@ -1366,6 +1366,8 @@ pub struct TrackRow<'a> {
     pub context: &'a RowContext,
     pub show_cover: bool,
     pub show_album: bool,
+    /// A separate Artist column, on wide track tables.
+    pub show_artist: bool,
     pub added_at: Option<&'a str>,
     /// Who put the song here, on playlists made together.
     pub added_by: Option<&'a str>,
@@ -1431,6 +1433,7 @@ pub(crate) fn artist_links(
 struct Columns {
     number: f32,
     cover: f32,
+    artist: f32,
     album: f32,
     added_by: f32,
     added: f32,
@@ -1448,10 +1451,35 @@ fn plays_fit(width: f32) -> bool {
     width > 560.0
 }
 
+/// The **Artist** and **Album** column widths, shared by the rows and the
+/// header so each heading sits over its own column.
+fn artist_and_album(width: f32, show_album: bool, show_artist: bool) -> (f32, f32) {
+    let wide = width > 760.0;
+    let medium = width > 560.0;
+    // Album pages have no Album column, so their Artist column fits
+    // earlier. Elsewhere both only fit in a wide window that leaves room
+    // for the title, and the album gives up some of its width for it.
+    let artist = if show_artist && wide && (!show_album || width > 1100.0) {
+        (width * 0.14).clamp(110.0, 170.0)
+    } else {
+        0.0
+    };
+    let album = if show_album && medium {
+        if artist > 0.0 {
+            (width * 0.20).clamp(140.0, 260.0)
+        } else {
+            (width * 0.28).clamp(140.0, 360.0)
+        }
+    } else {
+        0.0
+    };
+    (artist, album)
+}
+
 fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
     let extra_wide = width > 920.0;
     let wide = width > 760.0;
-    let medium = width > 560.0;
+    let (artist, album) = artist_and_album(width, row.show_album, row.show_artist);
     Columns {
         number: if row.compact { 0.0 } else { 44.0 },
         cover: if row.show_cover {
@@ -1459,11 +1487,8 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
         } else {
             0.0
         },
-        album: if row.show_album && medium {
-            (width * 0.28).clamp(140.0, 360.0)
-        } else {
-            0.0
-        },
+        artist,
+        album,
         added_by: if row.show_added_by && extra_wide {
             130.0
         } else {
@@ -1726,8 +1751,13 @@ fn track_row_contents(
         x += cols.cover;
     }
     let right_fixed = cols.heart + cols.duration + cols.more + 8.0;
-    let text_right =
-        rect.right() - right_fixed - cols.plays - cols.added - cols.added_by - cols.album;
+    let text_right = rect.right()
+        - right_fixed
+        - cols.plays
+        - cols.added
+        - cols.added_by
+        - cols.album
+        - cols.artist;
     let title_rect = Rect::from_min_max(
         pos2(x, rect.top()),
         pos2((text_right - 12.0).max(x), rect.bottom()),
@@ -1920,6 +1950,29 @@ fn track_row_contents(
     }
     x = text_right;
 
+    // Artist.
+    if cols.artist > 0.0 {
+        if let PlayableItem::Track(track) = row.item {
+            let artist_rect = Rect::from_min_max(
+                pos2(x, rect.top()),
+                pos2(x + cols.artist - 12.0, rect.bottom()),
+            );
+            let mut child = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(artist_rect)
+                    .layout(Layout::left_to_right(Align::Center)),
+            );
+            child.set_clip_rect(artist_rect.intersect(ui.clip_rect()));
+            artist_links(
+                &mut child,
+                app,
+                &track.artists,
+                theme::regular(13.0),
+                subtitle_color,
+            );
+        }
+        x += cols.artist;
+    }
     // Album.
     if cols.album > 0.0 {
         if let PlayableItem::Track(track) = row.item
@@ -2320,6 +2373,7 @@ pub fn table_header(
     palette: &Palette,
     locale: Locale,
     show_album: bool,
+    show_artist: bool,
     show_added: bool,
     show_added_by: bool,
     show_plays: bool,
@@ -2451,15 +2505,10 @@ pub fn table_header(
         &pgettext(locale, "column heading", "TITLE"),
         SortColumn::Title,
     );
-    let medium = width > 560.0;
     let wide = width > 760.0;
-    let album_width = if show_album && medium {
-        (width * 0.28).clamp(140.0, 360.0)
-    } else {
-        0.0
-    };
-    let added_width = if show_added && wide { 120.0 } else { 0.0 };
     let extra_wide = width > 920.0;
+    let (artist_width, album_width) = artist_and_album(width, show_album, show_artist);
+    let added_width = if show_added && wide { 120.0 } else { 0.0 };
     let added_by_width = if show_added_by && extra_wide {
         130.0
     } else {
@@ -2471,8 +2520,22 @@ pub fn table_header(
         0.0
     };
     let right_fixed = 36.0 + 56.0 + 36.0 + 8.0;
-    let mut cx =
-        rect.right() - right_fixed - plays_width - added_width - added_by_width - album_width;
+    let mut cx = rect.right()
+        - right_fixed
+        - plays_width
+        - added_width
+        - added_by_width
+        - album_width
+        - artist_width;
+    if artist_width > 0.0 {
+        heading(
+            ui,
+            cx,
+            &pgettext(locale, "column heading", "ARTIST"),
+            SortColumn::Artist,
+        );
+        cx += artist_width;
+    }
     if album_width > 0.0 {
         heading(
             ui,
@@ -3755,9 +3818,96 @@ mod playing_cover_tests {
 mod tests {
     use super::*;
     use crate::app::{App, AppOptions};
-    use crate::model::{Action, Page};
+    use crate::model::{Action, Page, SortColumn};
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn the_artist_column_appears_only_where_the_rows_have_room() {
+        // Album pages have no Album column, so Artist fits earlier.
+        let (artist, album) = artist_and_album(800.0, false, true);
+        assert!(artist > 0.0, "album pages show Artist at 800 wide");
+        assert_eq!(album, 0.0);
+        let (artist, _) = artist_and_album(700.0, false, true);
+        assert_eq!(artist, 0.0, "a narrow window has no room for either");
+
+        // Beside an Album column it waits for a wide window, where the
+        // album narrows so the title keeps its room.
+        let (artist, album) = artist_and_album(1000.0, true, true);
+        assert_eq!(artist, 0.0);
+        assert!((album - 280.0).abs() < 0.5, "{album}");
+        let (artist, album) = artist_and_album(1200.0, true, true);
+        assert!(artist > 0.0);
+        assert!((album - 240.0).abs() < 0.5, "{album}");
+    }
+
+    /// The heading is not just drawn: a click on ARTIST asks the table to
+    /// sort by artist.
+    #[test]
+    fn the_artist_heading_answers_with_the_artist_sort() {
+        fn find(shape: &egui::epaint::Shape, wanted: &str, found: &mut Option<egui::Pos2>) {
+            match shape {
+                egui::epaint::Shape::Text(text) if text.galley.text() == wanted => {
+                    *found = Some(text.pos + text.galley.rect.center().to_vec2());
+                }
+                egui::epaint::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        find(shape, wanted, found);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut app = test_app();
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let mut time = 0.0;
+        let mut clicked = None;
+        let mut draw = |events: Vec<egui::Event>| {
+            time += 1.0 / 60.0;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1200.0, 200.0))),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    clicked = table_header(
+                        ui,
+                        &app.palette,
+                        Locale::English,
+                        true,
+                        true,
+                        false,
+                        false,
+                        false,
+                        true,
+                        None,
+                    );
+                },
+            );
+            output.textures_delta.clear();
+            output.shapes
+        };
+        let mut found = None;
+        for clipped in draw(Vec::new()) {
+            find(&clipped.shape, "ARTIST", &mut found);
+        }
+        let pos = found.expect("the header shows an Artist heading");
+        let press = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+        draw(vec![egui::Event::PointerMoved(pos)]);
+        draw(vec![press(true)]);
+        draw(vec![press(false)]);
+        assert_eq!(clicked, Some(SortColumn::Artist));
+        app.backend.shutdown();
+    }
 
     #[test]
     fn editing_a_proxy_endpoint_clears_its_password_but_password_entry_is_preserved() {
@@ -4445,6 +4595,7 @@ mod tests {
                                     context: &context,
                                     show_cover: false,
                                     show_album: false,
+                                    show_artist: false,
                                     added_at: None,
                                     added_by: None,
                                     show_added_by: false,

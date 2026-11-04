@@ -170,6 +170,14 @@ When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.
 
+Click a song list's **Title**, **Artist**, or **Album** heading to sort by
+it, click it again to reverse the order, and a third time to return to the
+list's own order. Sorting by artist groups each artist's songs together in
+album and track order.
+
+The **Artist** column needs a wide window. It sits beside **Album** where
+both fit, and album pages show it earlier because they have no album column.
+
 Local songs show readable titles, artists, and albums, including spaces and
 accented characters. Names saved in older playlist caches are corrected
 automatically when the cache is read.
