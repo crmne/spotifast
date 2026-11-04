@@ -309,19 +309,22 @@ opt-level = 0
 # focus on a widget drawn a frame later (emilk/egui#8621), a compatibility
 # profile when a core GL context fails (emilk/egui#8655), and the zoom factor
 # saved with the window size so a zoomed window keeps its size
-# (emilk/egui#8656). Every egui
+# (emilk/egui#8656), right-to-left runs wrapped in reading order with the
+# caret, arrows and selection kept right, winit's Ime::DeleteSurrounding
+# forwarded to egui, and no Windows drop shadow around transparent
+# undecorated windows such as the skins (emilk/egui#8834). Every egui
 # crate comes from the same revision so they share one emath and epaint.
 # Drop this once egui releases these changes.
-ecolor = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-eframe = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-egui = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-egui-wgpu = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-egui-winit = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-egui_extras = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-egui_glow = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-emath = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-epaint = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
-epaint_default_fonts = { git = "https://github.com/crmne/egui", rev = "6ce633ba5f7f64d19ef6d204f9377da560bb546b" }
+ecolor = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+eframe = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+egui = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+egui-wgpu = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+egui-winit = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+egui_extras = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+egui_glow = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+emath = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+epaint = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
+epaint_default_fonts = { git = "https://github.com/crmne/egui", rev = "96c9740d53bb388f4dd7d8303d404a8148836909" }
 # crmne/winit apps-0.30, shared with the same apps: winit 0.30.13 plus Wayland
 # `Occluded` for the xdg-shell suspended state with commits on the app's behalf
 # while it isn't presenting (rust-windowing/winit#4709, #4710), macOS Quit
@@ -329,13 +332,15 @@ epaint_default_fonts = { git = "https://github.com/crmne/egui", rev = "6ce633ba5
 # a macOS window ordered out and flushed before it closes, so a Touch Bar
 # cannot leave a ghost window behind (winit#4728), preserving the menu-bar
 # window when the event loop exits (winit#4754), starting the event loop after
-# a background tray has already launched AppKit (winit#4770), and file drag and drop on
+# a background tray has already launched AppKit (winit#4770), the macOS accent
+# picker replacing the character it was opened on, Wayland clipboard data
+# read on the existing data device, and file drag and drop on
 # Wayland through the one data device egui's
 # clipboard also uses, since Hyprland gives the clipboard and drags only to an
 # app's first data device (#614). eframe from the fork above calls the
 # Occluded API and shares that device. Move both forks together with the
 # other apps.
-winit = { git = "https://github.com/crmne/winit", rev = "0bed9dc0a7db02590a279fb8bac795fa39ee6948" }
+winit = { git = "https://github.com/crmne/winit", rev = "59ebfb727b8c83fcd28f8ca59c3733e32b4b4e9b" }
 # crmne/cpal: cpal 0.18.2 with stream names and roles for PipeWire and
 # PulseAudio (RustAudio/cpal#1409), which fastframe-audio 0.14 uses to name
 # Spotifast in volume mixers. rodio 0.21 gets cpal from crates.io; patching
