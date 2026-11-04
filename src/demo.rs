@@ -2783,8 +2783,9 @@ mod tests {
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 accessible_node(&tree, &gettext(locale, next), Role::Button);
             }
-            // A liked song's heart opens Add to playlist, whose Remove from
-            // Liked Songs unlikes it; the heart then likes it at once (#792).
+            // A liked song's heart opens a checklist where unchecking Liked
+            // Songs and choosing Done unlikes it; the heart then likes it at
+            // once (#792).
             let click = |ctx: &egui::Context, app: &mut App, label: &'static str| {
                 let tree = accessible_frame(ctx, app, vec![]);
                 let button = accessible_node(&tree, &gettext(locale, label), Role::Button);
@@ -2802,7 +2803,14 @@ mod tests {
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             accessible_node(&tree, &gettext(locale, "Filter playlists"), Role::TextInput);
             assert_eq!(app.is_saved(&now), Some(true), "opening it keeps the like");
-            click(&ctx, &mut app, "Remove from Liked Songs");
+            let liked = accessible_node(&tree, &gettext(locale, "Liked Songs"), Role::CheckBox);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(liked, AccessibleAction::Click, None)],
+            );
+            assert_eq!(app.is_saved(&now), Some(true), "a check waits for Done");
+            click(&ctx, &mut app, "Done");
             assert_eq!(app.is_saved(&now), Some(false));
             click(&ctx, &mut app, "Save to Liked Songs");
             assert_eq!(app.is_saved(&now), Some(true));
@@ -5626,7 +5634,8 @@ mod tests {
                         ..Default::default()
                     },
                     |ui| {
-                        let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                        let field =
+                            crate::ui::widgets::playlist_picker(ui, app, &items, query, None);
                         if focus {
                             field.request_focus();
                         }
@@ -5726,7 +5735,7 @@ mod tests {
                     ..Default::default()
                 },
                 |ui| {
-                    let field = crate::ui::widgets::playlist_picker(ui, app, &items, query);
+                    let field = crate::ui::widgets::playlist_picker(ui, app, &items, query, None);
                     if focus {
                         field.request_focus();
                     }
@@ -5808,6 +5817,184 @@ mod tests {
 
         // #then nothing is chosen for the listener
         assert_eq!(added(&app), None);
+        app.backend.shutdown();
+    }
+
+    /// In the heart's checklist a click checks a playlist instead of adding
+    /// to it, a playlist holding the song starts checked, one not read in
+    /// full is marked as unknown rather than lacking it, and Done adds to
+    /// the newly checked and takes the song out of the unchecked.
+    #[test]
+    fn the_heart_checklist_adds_and_removes_only_on_done() {
+        use crate::ui::widgets::Mark;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+
+        let (ctx, mut app) = accessible_app("playlist-checklist");
+        app.backend.set_offline(true);
+        let owner = app.user_id().unwrap().to_string();
+        let make = |id: &str, name: &str| Playlist {
+            id: id.into(),
+            uri: format!("spotify:playlist:{id}"),
+            name: name.into(),
+            owner: crate::api::models::Owner {
+                id: Some(owner.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.library.playlists =
+            Loadable::Loaded(vec![make("drive", "Night drive"), make("day", "Daylight")]);
+        let item = PlayableItem::Track(track(0));
+        app.playlist_pages.insert(
+            "day".into(),
+            PlaylistPage {
+                local_additions: [item.uri().to_string()].into(),
+                ..PlaylistPage::default()
+            },
+        );
+        let items = vec![item.clone()];
+        let mut checks = crate::ui::widgets::PlaylistChecks::new(&app, &item);
+        assert_eq!(checks.mark("drive"), Mark::Unknown, "never read");
+        let mut query = String::new();
+        let mut draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::widgets::playlist_picker(
+                        ui,
+                        app,
+                        &items,
+                        &mut query,
+                        Some(&mut checks),
+                    );
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        let tree = draw(&mut app, vec![]);
+        let checked = |tree: &egui::accesskit::TreeUpdate, name: &str| {
+            let id = accessible_node(tree, name, Role::CheckBox);
+            let node = &tree.nodes.iter().find(|(node, _)| *node == id).unwrap().1;
+            node.toggled() == Some(egui::accesskit::Toggled::True)
+        };
+        assert!(checked(&tree, "Liked Songs"));
+        assert!(checked(&tree, "Daylight"), "it holds the song");
+        assert!(!checked(&tree, "Night drive"));
+
+        for name in ["Night drive", "Daylight"] {
+            let row = accessible_node(&tree, name, Role::CheckBox);
+            draw(
+                &mut app,
+                vec![accessible_action(row, AccessibleAction::Click, None)],
+            );
+        }
+        let tree = draw(&mut app, vec![]);
+        assert!(checked(&tree, "Night drive"));
+        assert!(!checked(&tree, "Daylight"));
+        assert!(app.actions.is_empty(), "nothing changes before Done");
+
+        let changes = checks.changes(&app, &item);
+        assert!(matches!(
+            changes,
+            Some(crate::model::Action::UpdatePlaylists { item: changed, add, remove })
+                if changed.uri() == item.uri()
+                    && add == [("drive".to_string(), "Night drive".to_string())]
+                    && remove == ["day"]
+        ));
+
+        app.playlist_pages.insert(
+            "drive".into(),
+            PlaylistPage {
+                items: PagedList {
+                    loaded_once: true,
+                    next_offset: None,
+                    ..Default::default()
+                },
+                ..PlaylistPage::default()
+            },
+        );
+        let checks = crate::ui::widgets::PlaylistChecks::new(&app, &item);
+        assert_eq!(checks.mark("drive"), Mark::Unchecked, "all rows read");
+        app.backend.shutdown();
+    }
+
+    /// The player bar's heart applies its checks on Done, asking about each
+    /// playlist it adds to, and a click outside drops them unapplied.
+    #[test]
+    fn the_hearts_done_applies_its_checks_and_a_click_outside_drops_them() {
+        use crate::backend::ApiRequest;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+
+        let (ctx, mut app) = accessible_app("heart-checklist-done");
+        app.backend.set_offline(true);
+        let owner = app.user_id().unwrap().to_string();
+        let make = |id: &str, name: &str| Playlist {
+            id: id.into(),
+            uri: format!("spotify:playlist:{id}"),
+            name: name.into(),
+            owner: crate::api::models::Owner {
+                id: Some(owner.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.library.playlists =
+            Loadable::Loaded(vec![make("drive", "Night drive"), make("day", "Daylight")]);
+        let click = |app: &mut App, label: &str, role: Role| {
+            let tree = accessible_frame(&ctx, app, vec![]);
+            let node = accessible_node(&tree, label, role);
+            accessible_frame(
+                &ctx,
+                app,
+                vec![accessible_action(node, AccessibleAction::Click, None)],
+            );
+            // A menu's first frame only measures it.
+            accessible_frame(&ctx, app, vec![]);
+        };
+        // Neither playlist was read in full, so both are checks to make.
+        let check_both = |app: &mut App| {
+            click(app, "Add to playlist", Role::Button);
+            click(app, "Night drive", Role::CheckBox);
+            click(app, "Daylight", Role::CheckBox);
+        };
+        let asked = |app: &App| -> Vec<String> {
+            app.backend
+                .take_playlist_add_requests()
+                .into_iter()
+                .filter_map(|request| match request {
+                    ApiRequest::CheckPlaylistDuplicates { playlist_id, .. } => Some(playlist_id),
+                    _ => None,
+                })
+                .collect()
+        };
+        accessible_frame(&ctx, &mut app, vec![]);
+        let now = app.now_playing().unwrap().uri;
+        assert_eq!(app.is_saved(&now), Some(true));
+
+        check_both(&mut app);
+        // The margin at the bar's left edge, beside the cover.
+        let outside = egui::pos2(6.0, 796.0);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(outside, egui::PointerButton::Primary),
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(asked(&app).is_empty(), "a click outside changes nothing");
+
+        // Kept checks would uncheck both here, and Done would ask nothing.
+        check_both(&mut app);
+        click(&mut app, "Done", Role::Button);
+        assert_eq!(asked(&app), ["drive", "day"]);
+        assert_eq!(app.is_saved(&now), Some(true), "it stays liked");
         app.backend.shutdown();
     }
 
