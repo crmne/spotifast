@@ -3046,6 +3046,48 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A local file has no album or show page to go to, so its title and
+    /// artists under the full-screen cover, and on the player bar below,
+    /// read as plain text rather than links.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_local_file_playing_reads_as_plain_text_not_links() {
+        use egui::accesskit::Role;
+
+        let (ctx, mut app) = accessible_app("local-cover-text");
+        apply_flags(&mut app, None, Some("lyrics-fullscreen-view"));
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:local:Kasia:Kitchen Sessions:Kitchen Demo:180".into(),
+            title: "Kitchen Demo".into(),
+            artists: vec![crate::api::models::ArtistRef {
+                id: None,
+                name: "Kasia".into(),
+                uri: None,
+            }],
+            album: "Kitchen Sessions".into(),
+            duration_ms: 180_000,
+            ..Default::default()
+        });
+        app.local.playback = crate::player::Playback::Playing;
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let drawn = |tree: &egui::accesskit::TreeUpdate, text: &str| {
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some(text) || node.value() == Some(text))
+        };
+        for label in ["Kitchen Demo", "Kasia"] {
+            let links = tree
+                .nodes
+                .iter()
+                .filter(|(_, node)| node.role() == Role::Link && node.label() == Some(label))
+                .count();
+            assert_eq!(links, 0, "{label:?} is plain text for a local file");
+            assert!(drawn(&tree, label), "{label:?} is still drawn");
+        }
+        app.backend.shutdown();
+    }
+
     #[test]
     fn translated_panel_states_keep_original_lyrics_and_failure_details() {
         use crate::i18n::{Locale, gettext};

@@ -528,8 +528,14 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     );
     text_ui.set_clip_rect(info_rect.intersect(ui.clip_rect()));
     text_ui.spacing_mut().item_spacing.y = 2.0;
-    let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text)
-        .interact(drag_sense);
+    // A title with nowhere to go reads as plain text: only a real
+    // destination earns the link's underline.
+    let title_response = if now.album_id.is_some() || now.show_id.is_some() {
+        theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text)
+    } else {
+        theme::text(&mut text_ui, &now.title, theme::medium(14.0), palette.text)
+    }
+    .interact(drag_sense);
     if title_response.clicked() {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
@@ -540,8 +546,14 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     let mut responses = vec![cover_response, title_response];
     text_ui.horizontal_top(|ui| {
         if now.artists.is_empty() {
-            let response = theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary)
-                .interact(drag_sense);
+            // An episode: the line under the title is the show's name, a
+            // link only when the show's page exists.
+            let response = if now.show_id.is_some() {
+                theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary)
+            } else {
+                theme::text(ui, &now.subtitle, theme::regular(12.0), palette.secondary)
+            }
+            .interact(drag_sense);
             if response.clicked()
                 && let Some(id) = &now.show_id
             {

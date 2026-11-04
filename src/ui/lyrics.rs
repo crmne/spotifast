@@ -567,7 +567,13 @@ fn clickable_track_text(
     subtitle_color: Color32,
     align: Align,
 ) {
-    let title = theme::link(ui, &now.title, theme::semibold(22.0), Color32::WHITE);
+    // A title with nowhere to go reads as plain text: only a real
+    // destination earns the link's underline, as with the artists below.
+    let title = if now.album_id.is_some() || now.show_id.is_some() {
+        theme::link(ui, &now.title, theme::semibold(22.0), Color32::WHITE)
+    } else {
+        theme::text(ui, &now.title, theme::semibold(22.0), Color32::WHITE)
+    };
     if title.clicked() {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
@@ -577,7 +583,11 @@ fn clickable_track_text(
     }
     if now.artists.is_empty() {
         // An episode: the line under the title is the show's name.
-        let response = theme::link(ui, &now.subtitle, subtitle_font, subtitle_color);
+        let response = if now.show_id.is_some() {
+            theme::link(ui, &now.subtitle, subtitle_font, subtitle_color)
+        } else {
+            theme::text(ui, &now.subtitle, subtitle_font, subtitle_color)
+        };
         if response.clicked()
             && let Some(id) = &now.show_id
         {
