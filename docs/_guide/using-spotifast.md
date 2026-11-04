@@ -418,7 +418,24 @@ previous installation. Updates keep your settings and sign-ins. On macOS,
 move Spotifast to Applications before updating it.
 
 Package-managed installations update through their package manager,
-including Homebrew, Flatpak, apt, dnf, pacman, Nix, and Cargo. Other
+including Homebrew, Flatpak, apt, dnf, pacman, Nix, and Cargo. They still
+show the green update button when a new release is out, once Spotifast has
+checked the release's signature. Its window says how this copy was
+installed and shows the command that updates it, with a **Copy** button;
+Spotifast never runs it for you:
+
+| Installed from | Command shown |
+| --- | --- |
+| AUR | `yay -Syu` (or `paru -Syu`) with the package you installed, such as `spotifast-bin` |
+| Homebrew | `brew upgrade --cask spotifast` |
+| Fedora COPR | `sudo dnf upgrade --refresh spotifast` |
+| The release's RPM package | `sudo dnf install` with the new package's address |
+| The release's DEB package | `sudo apt install` with the new package, after **Download from GitHub** |
+| The release's Flatpak | `flatpak install --user` with the new bundle, after **Download from GitHub** |
+| Nix profile | `nix profile upgrade` with its element |
+| Cargo | `cargo install` with the crate, or with its repository address |
+
+On NixOS or with Home Manager, update it the way you installed it. Other
 installations use the [Download page](/download/). Portable archives
 identify themselves with `spotifast-portable.txt`. On Windows, a portable
 copy keeps its settings, state and caches in the `spotifast-data` folder

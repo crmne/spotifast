@@ -285,8 +285,6 @@ impl PendingPaste {
 /// internet, taken once the connection is neither.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HeldUpdate {
-    /// Look at how this copy was installed, to see if it can update itself.
-    Inspect,
     /// Download the release.
     Download,
 }
@@ -915,7 +913,9 @@ pub struct App {
     pub show_update: bool,
     pub update_download: crate::updates::DownloadState,
     pub update_source: crate::updates::Source,
-    pub update_support: Option<Result<crate::updates::Installation, String>>,
+    /// Whether this copy can install [`App::update`], from the check that
+    /// found it, or how it gets it instead.
+    pub update_support: Option<crate::updates::Support>,
     pub update_restart_arguments: Vec<String>,
     pub update_receipt: Option<fastframe_update::Receipt>,
     held_update: Option<HeldUpdate>,
@@ -3154,6 +3154,16 @@ impl App {
                     {
                         self.take_update_step(HeldUpdate::Download);
                     }
+                    // A download the release turned out not to sign for this
+                    // copy is no failure: the window says how to update.
+                    if result.is_err()
+                        && matches!(
+                            self.update_download,
+                            crate::updates::DownloadState::Downloading { .. }
+                        )
+                    {
+                        self.update_download = crate::updates::DownloadState::Idle;
+                    }
                     self.update_support = Some(result);
                 }
                 Event::UpdateProgress { received, total } => {
@@ -3163,6 +3173,15 @@ impl App {
                 Event::UpdateDownloaded(result) => {
                     self.update_download = match result {
                         Ok(prepared) => crate::updates::DownloadState::Ready(prepared),
+                        // UpdateSupport already turned it into the notice.
+                        Err(_)
+                            if matches!(
+                                self.update_download,
+                                crate::updates::DownloadState::Idle
+                            ) && matches!(self.update_support, Some(Err(_))) =>
+                        {
+                            crate::updates::DownloadState::Idle
+                        }
                         Err(error) => crate::updates::DownloadState::Failed(error),
                     };
                 }
@@ -3183,15 +3202,9 @@ impl App {
                                         .replace("{version}", &notice.version.to_string()),
                                 );
                             }
+                            // Whether it can be downloaded follows in
+                            // UpdateSupport, from the same check.
                             self.update = Some(notice);
-                            if self.settings.download_updates_automatically
-                                && matches!(
-                                    self.update_download,
-                                    crate::updates::DownloadState::Idle
-                                )
-                            {
-                                self.take_update_step(HeldUpdate::Inspect);
-                            }
                         }
                         Ok(None) => {
                             self.update = None;
@@ -13510,8 +13523,10 @@ impl App {
             Action::CheckForUpdates => self.check_for_updates(true),
             Action::ShowUpdate => {
                 self.show_update = true;
+                // The check that finds a release says whether this copy can
+                // install it; one that didn't (a demo badge) checks again.
                 if self.update_support.is_none() {
-                    self.backend.send(Command::InspectUpdate);
+                    self.check_for_updates(false);
                 }
             }
             Action::DownloadUpdate => {
@@ -14586,7 +14601,6 @@ impl App {
             return;
         }
         match step {
-            HeldUpdate::Inspect => self.backend.send(Command::InspectUpdate),
             HeldUpdate::Download => self.actions.push(Action::DownloadUpdate),
         }
     }
@@ -29148,6 +29162,43 @@ mod tests {
             app.apply(Action::ShowUpdate, &ctx);
             assert!(app.show_update);
         }
+    }
+
+    /// A release that turns out not to sign this copy's download is out all
+    /// the same: the window says how to get it, not that the download broke.
+    #[test]
+    fn a_download_the_release_does_not_sign_becomes_the_notice() {
+        use crate::updates::{DownloadState, Manager, Notice, Route};
+        let mut app = headless_app();
+        app.update = Some(crate::updates::Release {
+            version: "1.2.3".into(),
+            url: "https://github.com/crmne/spotifast/releases/tag/v1.2.3".into(),
+        });
+        app.update_download = DownloadState::Downloading {
+            received: 0,
+            total: 0,
+        };
+        let notice = Notice {
+            reason: "The release has no signed download".into(),
+            route: Some(Route::Managed {
+                manager: Manager::Aur,
+                command: Some("yay -Syu spotifast-bin".into()),
+            }),
+        };
+        app.handle_backend_events(vec![
+            Event::UpdateSupport(Err(notice.clone())),
+            Event::UpdateDownloaded(Err("missing asset".into())),
+        ]);
+        assert!(matches!(app.update_download, DownloadState::Idle));
+        assert_eq!(app.update_support, Some(Err(notice)));
+        // A download that breaks for any other reason still says so.
+        app.update_support = None;
+        app.update_download = DownloadState::Downloading {
+            received: 0,
+            total: 0,
+        };
+        app.handle_backend_events(vec![Event::UpdateDownloaded(Err("reset".into()))]);
+        assert!(matches!(app.update_download, DownloadState::Failed(_)));
     }
 
     #[test]

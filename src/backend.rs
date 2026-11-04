@@ -845,7 +845,6 @@ pub enum Command {
         manual: bool,
         source: crate::updates::Source,
     },
-    InspectUpdate,
     DownloadUpdate {
         release: crate::updates::Release,
         source: crate::updates::Source,
@@ -1003,7 +1002,9 @@ pub enum Event {
         config: ProxyConfig,
         result: Result<bool, String>,
     },
-    UpdateSupport(Result<crate::updates::Installation, String>),
+    /// Whether this copy can install the release just checked, or what the
+    /// update window says instead.
+    UpdateSupport(crate::updates::Support),
     UpdateProgress {
         received: u64,
         total: u64,
@@ -1372,7 +1373,6 @@ impl Backend {
                     | Command::ClearAudioCache
                     | Command::Shutdown
                     | Command::CheckForUpdates { .. }
-                    | Command::InspectUpdate
                     | Command::DownloadUpdate { .. }
                     | Command::InstallUpdate { .. }
             )
@@ -2694,37 +2694,30 @@ impl Worker {
                 Command::CheckForUpdates { manual, source } => {
                     self.check_for_updates(manual, source)
                 }
-                Command::InspectUpdate => {
-                    let proxy = self.engine_config.proxy.clone();
-                    let events = self.events.clone();
-                    let waker = self.waker.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let result = crate::updates::updater(&proxy)
-                            .map_err(|error| format!("{error:#}"))
-                            .and_then(|updater| {
-                                updater.installation().map_err(|error| error.to_string())
-                            });
-                        let _ = events.send(Event::UpdateSupport(result));
-                        waker.wake();
-                    });
-                }
                 Command::DownloadUpdate { release, source } => {
                     let proxy = self.engine_config.proxy.clone();
                     let events = self.events.clone();
                     let waker = self.waker.clone();
                     tokio::task::spawn_blocking(move || {
-                        let result = crate::updates::updater(&proxy)
-                            .and_then(|updater| {
-                                updater
-                                    .with_source(source)
-                                    .download(&release, |received, total| {
-                                        let _ =
-                                            events.send(Event::UpdateProgress { received, total });
-                                        waker.wake();
-                                    })
-                            })
-                            .map(Box::new)
-                            .map_err(|error| format!("{error:#}"));
+                        let result = crate::updates::updater(&proxy).and_then(|updater| {
+                            let updater = updater.with_source(source);
+                            let result = updater.download(&release, |received, total| {
+                                let _ = events.send(Event::UpdateProgress { received, total });
+                                waker.wake();
+                            });
+                            // A release that doesn't sign this copy's download
+                            // is out all the same: say how to get it instead.
+                            if let Err(error) = &result
+                                && let Some(reason) =
+                                    error.downcast_ref::<crate::updates::Unsupported>()
+                            {
+                                let notice =
+                                    crate::updates::notice(&updater, reason, &release.version);
+                                let _ = events.send(Event::UpdateSupport(Err(notice)));
+                            }
+                            result
+                        });
+                        let result = result.map(Box::new).map_err(|error| format!("{error:#}"));
                         let _ = events.send(Event::UpdateDownloaded(result));
                         waker.wake();
                     });
@@ -4345,11 +4338,30 @@ impl Worker {
         let waker = self.waker.clone();
         tokio::task::spawn_blocking(move || {
             let result = usable.and_then(|()| {
-                crate::updates::updater(&proxy)
-                    .and_then(|updater| updater.with_source(source).check())
-                    .map_err(|error| format!("{error:#}"))
+                (|| {
+                    let updater = crate::updates::updater(&proxy)?.with_source(source);
+                    // Only a release whose signed checksums verify is
+                    // announced, whether or not this copy can install it.
+                    let Some(release) = updater.check()? else {
+                        return Ok(None);
+                    };
+                    let support = crate::updates::support(&updater, &release).map_err(|error| {
+                        anyhow::anyhow!("Couldn't verify version {}: {error:#}", release.version)
+                    })?;
+                    Ok(Some((release, support)))
+                })()
+                .map_err(|error: anyhow::Error| format!("{error:#}"))
             });
+            let (result, support) = match result {
+                Ok(Some((release, support))) => (Ok(Some(release)), Some(support)),
+                Ok(None) => (Ok(None), None),
+                Err(error) => (Err(error), None),
+            };
             let _ = events.send(Event::UpdateChecked { manual, result });
+            // After the release, so the window that opens on it knows.
+            if let Some(support) = support {
+                let _ = events.send(Event::UpdateSupport(support));
+            }
             waker.wake();
         });
     }

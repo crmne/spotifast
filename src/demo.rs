@@ -1584,6 +1584,65 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     url: "https://spotifast.rocks/download/".into(),
                 });
             }
+            // The update window of a copy that can't update itself, for
+            // each way Spotifast is installed.
+            "update-aur" | "update-homebrew" | "update-copr" | "update-nixos" | "update-deb"
+            | "update-rpm" | "update-flatpak" | "update-appimage" => {
+                use crate::updates::{Manager, Notice, Route};
+                let version = "0.18.0";
+                let file = |name: &str| {
+                    format!(
+                        "https://github.com/crmne/spotifast/releases/download/v{version}/{name}"
+                    )
+                };
+                let managed = |manager, command: Option<&str>| Route::Managed {
+                    manager,
+                    command: command.map(str::to_owned),
+                };
+                let route = match surface {
+                    "update-aur" => Some(managed(Manager::Aur, Some("yay -Syu spotifast-bin"))),
+                    "update-homebrew" => Some(managed(
+                        Manager::HomebrewCask,
+                        Some("brew upgrade --cask spotifast"),
+                    )),
+                    "update-copr" => Some(managed(
+                        Manager::Dnf,
+                        Some("sudo dnf upgrade --refresh spotifast"),
+                    )),
+                    "update-nixos" => Some(managed(Manager::Nix, None)),
+                    "update-deb" => Some(Route::Deb {
+                        download: file("spotifast_0.18.0_amd64.deb"),
+                        command: "sudo apt install ~/Downloads/spotifast_0.18.0_amd64.deb".into(),
+                    }),
+                    "update-rpm" => Some(Route::Rpm {
+                        command: format!(
+                            "sudo dnf install {}",
+                            file("spotifast-0.18.0-1.x86_64.rpm")
+                        ),
+                    }),
+                    "update-flatpak" => Some(Route::FlatpakBundle {
+                        download: file("spotifast-v0.18.0-x86_64.flatpak"),
+                        command:
+                            "flatpak install --user ~/Downloads/spotifast-v0.18.0-x86_64.flatpak"
+                                .into(),
+                    }),
+                    _ => None,
+                };
+                let reason = if route.is_none() {
+                    crate::updates::Unsupported::NotWritable
+                } else {
+                    crate::updates::Unsupported::NotPortable
+                };
+                app.update = Some(crate::updates::Release {
+                    version: version.into(),
+                    url: format!("https://github.com/crmne/spotifast/releases/tag/v{version}"),
+                });
+                app.update_support = Some(Err(Notice {
+                    reason: reason.to_string(),
+                    route,
+                }));
+                app.show_update = true;
+            }
             "personal-app" => app.dialog = Some(Dialog::PersonalAppIntro),
             "slow-banner" => app.slow_banner = true,
             "audio-key-banner" => app.audio_key_banner = true,

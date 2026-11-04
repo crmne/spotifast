@@ -132,8 +132,9 @@ Install it with apt, which also installs the libraries it needs:
 sudo apt install ~/Downloads/spotifast_{{ v }}_amd64.deb   # or _arm64.deb
 ```
 
-To update, download and install the new release the same way. To remove
-it, run `sudo apt remove spotifast`.
+To update, download and install the new release the same way. When one is
+out, Spotifast's update button shows the command. To remove it, run
+`sudo apt remove spotifast`.
 
 ### Fedora
 
@@ -144,8 +145,9 @@ it, run `sudo apt remove spotifast`.
 sudo dnf install ~/Downloads/spotifast-{{ v }}-1.x86_64.rpm   # or .aarch64.rpm
 ```
 
-To update, download and install the new release the same way. To remove
-it, run `sudo dnf remove spotifast`.
+To update, install the new release the same way. When one is out,
+Spotifast's update button shows the command, which dnf runs straight from
+the release's address. To remove it, run `sudo dnf remove spotifast`.
 
 ### Arch Linux
 
@@ -175,7 +177,8 @@ flatpak run rocks.spotifast.Spotifast
 The application ID is **`rocks.spotifast.Spotifast`**.
 
 To update this Flatpak installation, download and install the new release.
-Flathub support is planned.
+When one is out, Spotifast's update button shows the command. Flathub
+support is planned.
 
 Packages from other stores are maintained by their publishers. Report
 problems specific to those packages to their maintainers.

@@ -3976,6 +3976,54 @@ mod playing_cover_tests {
     }
 }
 
+/// Text to paste somewhere else, such as a redirect address or a command,
+/// in monospace and selectable, with a Copy button that says Copied for a
+/// moment. A narrow column puts the button under the text.
+pub fn copyable_text(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    locale: Locale,
+    id: egui::Id,
+    text: &str,
+    size: f32,
+) {
+    let now = ui.input(|input| input.time);
+    let copied = ui
+        .data(|data| data.get_temp::<f64>(id))
+        .is_some_and(|at| now - at < 2.0);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
+        Frame::new()
+            .fill(palette.surface)
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(text)
+                            .font(egui::FontId::monospace(size))
+                            .color(palette.text),
+                    )
+                    .selectable(true),
+                );
+            });
+        let label = if copied {
+            // Translators: shown on the Copy button for a moment after it copied.
+            gettext(locale, "Copied")
+        } else {
+            gettext(locale, "Copy")
+        };
+        if theme::pill_button(ui, palette, &label, false).clicked() {
+            ui.ctx().copy_text(text.to_owned());
+            ui.data_mut(|data| data.insert_temp(id, now));
+        }
+    });
+    if copied {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(500));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

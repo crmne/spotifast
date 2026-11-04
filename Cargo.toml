@@ -90,6 +90,10 @@ fastframe-instance = { git = "https://github.com/crmne/fastframe", tag = "v0.16.
 # The config, state and cache folders: the per-user ones, or for a copy from
 # the portable Windows zip, spotifast-data next to the executable (#703).
 fastframe-dirs = { git = "https://github.com/crmne/fastframe", tag = "v0.16.1" }
+# The Downloads folder an update notice names (fastframe-dirs already builds
+# it). Tests also pin that installed copies keep the folders they had before
+# fastframe-dirs.
+directories = "6"
 # The desktop's media controls: MPRIS on Linux, the media overlay on
 # Windows, Now Playing on macOS. The media keys and those panels send
 # commands back, and closing the window keeps the music playing.
@@ -256,8 +260,6 @@ fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.16.1", 
 polib = "0.3"
 # Run connection-deadline regressions with a virtual clock.
 tokio = { version = "1", features = ["test-util"] }
-# Pins that installed copies keep the folders they had before fastframe-dirs.
-directories = "6"
 
 # The icon and version information Windows shows for the executable.
 [target.'cfg(windows)'.build-dependencies]
