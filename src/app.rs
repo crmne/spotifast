@@ -2264,7 +2264,15 @@ impl App {
         if now.is_episode {
             return None;
         }
-        if let Some(track) = now.id.as_deref().and_then(|id| self.track_cache.get(id)) {
+        // The cache answers by the Spotify track id. A local file's id is
+        // the URI's duration, so a queued local file with the same
+        // duration would stand in for it: only remote tracks look up.
+        let cached = if util::uri_kind(&now.uri) == Some("track") {
+            now.id.as_deref().and_then(|id| self.track_cache.get(id))
+        } else {
+            None
+        };
+        if let Some(track) = cached {
             return Some(PlayableItem::Track(track.clone()));
         }
         // The album and art go along, so a playlist row added from the
@@ -19686,6 +19694,53 @@ mod tests {
         assert_eq!(now.artists[0].name, "Live Artist");
         assert_eq!(now.artists[0].id, None);
         assert_eq!(now.album_id, None, "the cache does not name the album");
+        app.backend.shutdown();
+    }
+
+    /// The item built for the playing song reads the live tags too: the
+    /// queue's menus and drags take their track from here, so a duration
+    /// collision in the cache must not hand them another song.
+    #[test]
+    fn the_playing_item_of_a_local_file_never_borrows_the_cache() {
+        use crate::api::models::{ArtistRef, Track};
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "180".into(),
+            Track {
+                id: Some("whatever".into()),
+                uri: "spotify:local:Cached Artist:Cached Album:Cached Name:180".into(),
+                name: "Cached Name".into(),
+                artists: vec![ArtistRef {
+                    id: Some("cached-artist".into()),
+                    name: "Cached Artist".into(),
+                    uri: None,
+                }],
+                duration_ms: 180_000,
+                ..Default::default()
+            },
+        );
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:local:Live Artist:Live Album:Live Title:180".into(),
+            title: "Live Title".into(),
+            artists: vec![ArtistRef {
+                id: None,
+                name: "Live Artist".into(),
+                uri: None,
+            }],
+            album: "Live Album".into(),
+            duration_ms: 180_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let Some(crate::api::models::PlayableItem::Track(item)) = app.now_playing_item() else {
+            panic!("the local song has an item");
+        };
+        assert_eq!(item.name, "Live Title", "the tags name the item");
+        assert_eq!(
+            item.uri,
+            "spotify:local:Live Artist:Live Album:Live Title:180"
+        );
+        assert_eq!(item.artists[0].name, "Live Artist");
         app.backend.shutdown();
     }
 
