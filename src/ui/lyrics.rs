@@ -843,6 +843,8 @@ fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
     });
 }
 
+/// The narrow full-screen heading: the cover at 52 points with its title and
+/// artists beside it, clickable like the wide view's, above the words.
 fn track_heading(app: &mut App, ui: &mut egui::Ui) {
     if let Some(now) = app.now_playing() {
         ui.horizontal(|ui| {
