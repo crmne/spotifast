@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-04 17:12+0100\n"
+"POT-Creation-Date: 2026-11-04 17:57+0100\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Brazilian Portuguese\n"
@@ -669,7 +669,7 @@ msgstr "Erro de conexão de rede. Verifique sua conexão."
 msgid "Cut"
 msgstr "Recortar"
 
-#: src/ui/widgets.rs:3302 src/ui/widgets.rs:3773
+#: src/ui/widgets.rs:3302 src/ui/widgets.rs:3785
 msgid "Copy"
 msgstr "Copiar"
 
@@ -724,7 +724,7 @@ msgstr ""
 "conecta diretamente."
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/ui/widgets.rs:3775 src/app.rs:13156
+#: src/ui/widgets.rs:3787 src/app.rs:13156
 msgid "Copied"
 msgstr "Copiado"
 
@@ -1833,7 +1833,7 @@ msgstr ""
 "Desativado ignora as variáveis de ambiente. Sistema usa essas variáveis e, "
 "no macOS e no Windows, o proxy do sistema operacional."
 
-#: src/ui/settings.rs:1732 src/ui/login.rs:608
+#: src/ui/settings.rs:1732 src/ui/login.rs:609
 msgid "Apply settings"
 msgstr "Aplicar configurações"
 
@@ -3862,7 +3862,9 @@ msgstr ""
 
 #: src/ui/update.rs:131
 msgid "If you don't restart now, it installs the next time Spotifast starts."
-msgstr "Se você não reiniciar agora, ela será instalada na próxima vez que o Spotifast abrir."
+msgstr ""
+"Se você não reiniciar agora, ela será instalada na próxima vez que o "
+"Spotifast abrir."
 
 #: src/ui/update.rs:139
 msgid "Restart to update"
@@ -3872,42 +3874,42 @@ msgstr "Reiniciar para atualizar"
 msgid "Preparing to restart…"
 msgstr "Preparando para reiniciar…"
 
-#: src/ui/update.rs:199 src/ui/update.rs:203
+#: src/ui/update.rs:200 src/ui/update.rs:204
 msgid "Download from GitHub"
 msgstr "Baixar do GitHub"
 
-#: src/ui/update.rs:211
+#: src/ui/update.rs:212
 msgid "Retry download"
 msgstr "Tentar baixar novamente"
 
-#: src/ui/update.rs:213
+#: src/ui/update.rs:214
 msgid "Download update"
 msgstr "Baixar atualização"
 
 #. Translators: {manager} is a package manager such as Homebrew, dnf or Nix. A command to copy follows.
-#: src/ui/update.rs:253
+#: src/ui/update.rs:254
 #, rust-format
 msgid "Installed with {manager}. Update it with this command:"
 msgstr "Instalado com {manager}. Atualize com este comando:"
 
 #. Translators: {manager} is a package manager such as Nix.
-#: src/ui/update.rs:259
+#: src/ui/update.rs:260
 #, rust-format
 msgid "Installed with {manager}. Update it the way you installed it."
 msgstr "Instalado com {manager}. Atualize da mesma forma que você instalou."
 
 #. Translators: the AUR is the Arch User Repository. A command to copy follows.
-#: src/ui/update.rs:272
+#: src/ui/update.rs:273
 msgid "Installed from the AUR. Update it with this command:"
 msgstr "Instalado pelo AUR. Atualize com este comando:"
 
 #. Translators: COPR is Fedora's community package service. A command to copy follows.
-#: src/ui/update.rs:289
+#: src/ui/update.rs:290
 msgid "Installed from the Fedora COPR. Update it with this command:"
 msgstr "Instalado pelo COPR do Fedora. Atualize com este comando:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:295
+#: src/ui/update.rs:296
 msgid ""
 "Installed from a DEB package. Download the new one, then install it with "
 "this command:"
@@ -3915,12 +3917,12 @@ msgstr ""
 "Instalado por um pacote DEB. Baixe o novo e depois instale com este comando:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:300
+#: src/ui/update.rs:301
 msgid "Installed from an RPM package. Install the new one with this command:"
 msgstr "Instalado por um pacote RPM. Instale o novo com este comando:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:305
+#: src/ui/update.rs:306
 msgid ""
 "Installed from a Flatpak bundle. Download the new one, then install it with "
 "this command:"

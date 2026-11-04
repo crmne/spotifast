@@ -531,6 +531,7 @@ fn redirect_uri_row(app: &mut App, ui: &mut egui::Ui) {
         egui::Id::new("login-redirect-copied"),
         &uri,
         12.5,
+        crate::ui::widgets::CopyFit::Wrap,
     );
 }
 

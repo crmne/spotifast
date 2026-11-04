@@ -189,6 +189,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                     egui::Id::new("spotifast-update-command"),
                                     command,
                                     12.5,
+                                    crate::ui::widgets::CopyFit::OneLine,
                                 );
                             }
                             // A package manager's copy reads the notes; one

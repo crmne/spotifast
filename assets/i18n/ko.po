@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-04 17:12+0100\n"
+"POT-Creation-Date: 2026-11-04 17:57+0100\n"
 "PO-Revision-Date: 2026-10-15 12:00+0900\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Korean\n"
@@ -662,7 +662,7 @@ msgstr "네트워크 연결 오류입니다. 연결 상태를 확인하세요."
 msgid "Cut"
 msgstr "잘라내기"
 
-#: src/ui/widgets.rs:3302 src/ui/widgets.rs:3773
+#: src/ui/widgets.rs:3302 src/ui/widgets.rs:3785
 msgid "Copy"
 msgstr "복사"
 
@@ -716,7 +716,7 @@ msgstr ""
 "Spotify 호스트 이름은 프록시에서 확인합니다. 로컬 재생은 직접 연결합니다."
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/ui/widgets.rs:3775 src/app.rs:13156
+#: src/ui/widgets.rs:3787 src/app.rs:13156
 msgid "Copied"
 msgstr "복사됨"
 
@@ -1802,7 +1802,7 @@ msgstr ""
 "끄기는 환경 변수를 무시합니다. 시스템은 환경 변수를 사용하며, macOS와 Windows"
 "에서는 OS 프록시도 사용합니다."
 
-#: src/ui/settings.rs:1732 src/ui/login.rs:608
+#: src/ui/settings.rs:1732 src/ui/login.rs:609
 msgid "Apply settings"
 msgstr "설정 적용"
 
@@ -3810,42 +3810,42 @@ msgstr "다시 시작하여 업데이트"
 msgid "Preparing to restart…"
 msgstr "다시 시작 준비 중…"
 
-#: src/ui/update.rs:199 src/ui/update.rs:203
+#: src/ui/update.rs:200 src/ui/update.rs:204
 msgid "Download from GitHub"
 msgstr "GitHub에서 다운로드"
 
-#: src/ui/update.rs:211
+#: src/ui/update.rs:212
 msgid "Retry download"
 msgstr "다운로드 다시 시도"
 
-#: src/ui/update.rs:213
+#: src/ui/update.rs:214
 msgid "Download update"
 msgstr "업데이트 다운로드"
 
 #. Translators: {manager} is a package manager such as Homebrew, dnf or Nix. A command to copy follows.
-#: src/ui/update.rs:253
+#: src/ui/update.rs:254
 #, rust-format
 msgid "Installed with {manager}. Update it with this command:"
 msgstr "{manager}(으)로 설치되었습니다. 다음 명령으로 업데이트하세요:"
 
 #. Translators: {manager} is a package manager such as Nix.
-#: src/ui/update.rs:259
+#: src/ui/update.rs:260
 #, rust-format
 msgid "Installed with {manager}. Update it the way you installed it."
 msgstr "{manager}(으)로 설치되었습니다. 설치한 방법 그대로 업데이트하세요."
 
 #. Translators: the AUR is the Arch User Repository. A command to copy follows.
-#: src/ui/update.rs:272
+#: src/ui/update.rs:273
 msgid "Installed from the AUR. Update it with this command:"
 msgstr "AUR에서 설치되었습니다. 다음 명령으로 업데이트하세요:"
 
 #. Translators: COPR is Fedora's community package service. A command to copy follows.
-#: src/ui/update.rs:289
+#: src/ui/update.rs:290
 msgid "Installed from the Fedora COPR. Update it with this command:"
 msgstr "Fedora COPR에서 설치되었습니다. 다음 명령으로 업데이트하세요:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:295
+#: src/ui/update.rs:296
 msgid ""
 "Installed from a DEB package. Download the new one, then install it with "
 "this command:"
@@ -3854,12 +3854,12 @@ msgstr ""
 "요:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:300
+#: src/ui/update.rs:301
 msgid "Installed from an RPM package. Install the new one with this command:"
 msgstr "RPM 패키지로 설치되었습니다. 다음 명령으로 새 패키지를 설치하세요:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:305
+#: src/ui/update.rs:306
 msgid ""
 "Installed from a Flatpak bundle. Download the new one, then install it with "
 "this command:"

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-04 17:12+0100\n"
+"POT-Creation-Date: 2026-11-04 17:57+0100\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Russian\n"
@@ -674,7 +674,7 @@ msgstr "Ошибка сетевого подключения. Проверьте
 msgid "Cut"
 msgstr "Вырезать"
 
-#: src/ui/widgets.rs:3302 src/ui/widgets.rs:3773
+#: src/ui/widgets.rs:3302 src/ui/widgets.rs:3785
 msgid "Copy"
 msgstr "Копировать"
 
@@ -729,7 +729,7 @@ msgstr ""
 "подключается напрямую."
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/ui/widgets.rs:3775 src/app.rs:13156
+#: src/ui/widgets.rs:3787 src/app.rs:13156
 msgid "Copied"
 msgstr "Скопировано"
 
@@ -1844,7 +1844,7 @@ msgstr ""
 "«Выкл.» игнорирует переменные окружения. «Системный» использует их, а в "
 "macOS и Windows также прокси ОС."
 
-#: src/ui/settings.rs:1732 src/ui/login.rs:608
+#: src/ui/settings.rs:1732 src/ui/login.rs:609
 msgid "Apply settings"
 msgstr "Применить настройки"
 
@@ -3882,7 +3882,9 @@ msgstr "Музыка на этом компьютере остановится �
 
 #: src/ui/update.rs:131
 msgid "If you don't restart now, it installs the next time Spotifast starts."
-msgstr "Если не перезапустить сейчас, оно установится при следующем запуске Spotifast."
+msgstr ""
+"Если не перезапустить сейчас, оно установится при следующем запуске "
+"Spotifast."
 
 #: src/ui/update.rs:139
 msgid "Restart to update"
@@ -3892,43 +3894,43 @@ msgstr "Перезапустить и обновить"
 msgid "Preparing to restart…"
 msgstr "Подготовка к перезапуску…"
 
-#: src/ui/update.rs:199 src/ui/update.rs:203
+#: src/ui/update.rs:200 src/ui/update.rs:204
 msgid "Download from GitHub"
 msgstr "Скачать с GitHub"
 
-#: src/ui/update.rs:211
+#: src/ui/update.rs:212
 msgid "Retry download"
 msgstr "Повторить загрузку"
 
-#: src/ui/update.rs:213
+#: src/ui/update.rs:214
 msgid "Download update"
 msgstr "Скачать обновление"
 
 #. Translators: {manager} is a package manager such as Homebrew, dnf or Nix. A command to copy follows.
-#: src/ui/update.rs:253
+#: src/ui/update.rs:254
 #, rust-format
 msgid "Installed with {manager}. Update it with this command:"
 msgstr "Установлено через {manager}. Обнови этой командой:"
 
 #. Translators: {manager} is a package manager such as Nix.
-#: src/ui/update.rs:259
+#: src/ui/update.rs:260
 #, rust-format
 msgid "Installed with {manager}. Update it the way you installed it."
 msgstr ""
 "Установлено через {manager}. Обнови тем же способом, которым устанавливал."
 
 #. Translators: the AUR is the Arch User Repository. A command to copy follows.
-#: src/ui/update.rs:272
+#: src/ui/update.rs:273
 msgid "Installed from the AUR. Update it with this command:"
 msgstr "Установлено из AUR. Обнови этой командой:"
 
 #. Translators: COPR is Fedora's community package service. A command to copy follows.
-#: src/ui/update.rs:289
+#: src/ui/update.rs:290
 msgid "Installed from the Fedora COPR. Update it with this command:"
 msgstr "Установлено из Fedora COPR. Обнови этой командой:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:295
+#: src/ui/update.rs:296
 msgid ""
 "Installed from a DEB package. Download the new one, then install it with "
 "this command:"
@@ -3936,12 +3938,12 @@ msgstr ""
 "Установлено из пакета DEB. Скачай новый, затем установи его этой командой:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:300
+#: src/ui/update.rs:301
 msgid "Installed from an RPM package. Install the new one with this command:"
 msgstr "Установлено из пакета RPM. Установи новый этой командой:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:305
+#: src/ui/update.rs:306
 msgid ""
 "Installed from a Flatpak bundle. Download the new one, then install it with "
 "this command:"
