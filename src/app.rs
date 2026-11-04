@@ -2348,11 +2348,15 @@ impl App {
         if self.local.is_active() && self.local_transfer_sequence != Some(self.local.track_sequence)
         {
             let track = self.local.track.as_ref()?;
-            let cached = track
-                .uri
-                .rsplit(':')
-                .next()
-                .and_then(|id| self.track_cache.get(id));
+            // The cache answers by the Spotify track id, the URI's last
+            // segment. A local URI's last segment is a duration, so a hit
+            // there would be a different song a queue row happened to file
+            // under it: only remote tracks look their credits up.
+            let cached = if util::uri_kind(&track.uri) == Some("track") {
+                util::uri_id(&track.uri).and_then(|id| self.track_cache.get(id))
+            } else {
+                None
+            };
             // Playback already carries artist IDs. Keep those links available
             // while the Web API is loading (or its cached credits have no IDs).
             let artists = if track.artists.iter().any(|artist| artist.id.is_some()) {
@@ -19629,6 +19633,60 @@ mod tests {
             app.resume_position_ms, 19_566,
             "closing again must not lose the position"
         );
+    }
+
+    /// A local file plays under its own tags: the track cache answers by
+    /// the URI's last segment, and a local URI's last segment is a
+    /// duration, so a queue row filed under it must never stand in for
+    /// the live metadata.
+    #[test]
+    fn a_local_track_never_borrows_the_track_cache() {
+        use crate::api::models::{Album, ArtistRef, Track};
+        let mut app = headless_app();
+        // A queue row for a local file, cached by the duration the way
+        // popping the queue head does.
+        app.track_cache.insert(
+            "180".into(),
+            Track {
+                id: Some("whatever".into()),
+                name: "Cached Name".into(),
+                artists: vec![ArtistRef {
+                    id: Some("cached-artist".into()),
+                    name: "Cached Artist".into(),
+                    uri: None,
+                }],
+                album: Some(Album {
+                    id: "cached-album".into(),
+                    name: "Cached Album".into(),
+                    ..Default::default()
+                }),
+                duration_ms: 180_000,
+                ..Default::default()
+            },
+        );
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:local:Live Artist:Live Album:Live Title:180".into(),
+            title: "Live Title".into(),
+            artists: vec![ArtistRef {
+                id: None,
+                name: "Live Artist".into(),
+                uri: None,
+            }],
+            album: "Live Album".into(),
+            duration_ms: 180_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let now = app.now_playing_live().expect("the local song plays");
+        assert_eq!(
+            now.subtitle, "Live Artist",
+            "the tags name the song, not the cache"
+        );
+        assert_eq!(now.artists.len(), 1);
+        assert_eq!(now.artists[0].name, "Live Artist");
+        assert_eq!(now.artists[0].id, None);
+        assert_eq!(now.album_id, None, "the cache does not name the album");
+        app.backend.shutdown();
     }
 
     /// Dragging the bar before pressing play moves where play will land.
