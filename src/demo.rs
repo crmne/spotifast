@@ -2982,6 +2982,70 @@ mod tests {
         }
     }
 
+    /// The song's title and artists under the full screen cover are links,
+    /// as on the player bar: the title opens the album, an artist opens
+    /// their page, and either leaves the full screen.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn full_screen_lyrics_cover_text_links_to_the_album_and_the_artist() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+
+        // The player bar and the cover both link the title and the artist,
+        // and the bar's draw first in the tree. The cover's text sits under
+        // the cover, well above the bar, so bounds tell them apart.
+        let cover_link = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            let under_the_cover: Vec<_> = tree
+                .nodes
+                .iter()
+                .filter(|(_, node)| {
+                    node.role() == Role::Link
+                        && node.label() == Some(label)
+                        && node.bounds().is_some_and(|rect| rect.y1 < 700.0)
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            assert_eq!(
+                under_the_cover.len(),
+                1,
+                "one {label:?} link under the cover"
+            );
+            under_the_cover[0]
+        };
+
+        let (ctx, mut app) = accessible_app("lyrics-cover-links");
+        apply_flags(&mut app, None, Some("lyrics-fullscreen-view"));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let title = cover_link(&tree, "Rosewood");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(title, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.page(), &Page::Album("alb0".into()));
+        assert!(
+            app.lyrics_fullscreen.is_none(),
+            "opening leaves full screen"
+        );
+
+        // Back in the view, the artist's name opens the artist's page.
+        apply_flags(&mut app, None, Some("lyrics-fullscreen-view"));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let artist = cover_link(&tree, "Bonobo");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(artist, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.page(), &Page::Artist("art0".into()));
+        assert!(
+            app.lyrics_fullscreen.is_none(),
+            "opening leaves full screen"
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn translated_panel_states_keep_original_lyrics_and_failure_details() {
         use crate::i18n::{Locale, gettext};

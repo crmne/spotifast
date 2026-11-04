@@ -832,7 +832,9 @@ scroll smoothly and highlight the playing line automatically. Scrolling by
 hand pauses following; choose **Follow** to resume. Since 0.11.0, a wide
 window shows the song's cover beside the lyrics, the two centred together,
 and a song without words, such as an instrumental, shows just its cover in
-the middle of the screen.
+the middle of the screen. The song's title under the cover opens its album,
+and an artist's name opens that artist's page, the same as on the player bar;
+the full screen gives way to the page you chose.
 
 Press **V** in full screen lyrics, or click anywhere that isn't a line of
 lyrics or a control, to put MilkDrop behind the words instead of the cover's
