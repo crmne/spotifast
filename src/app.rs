@@ -360,6 +360,9 @@ pub struct App {
     pub dirs: AppDirs,
     pub(crate) storage_usage: crate::storage::Usage,
     pub(crate) clearing_audio_cache: bool,
+    storage_action: Option<crate::model::StorageAction>,
+    pub window_state_file: Option<std::path::PathBuf>,
+    pub storage_actions_allowed: bool,
     pub settings: Settings,
     /// Proxy policy actually handed to network workers. Manual form edits are
     /// drafts until Apply (or Sign in), so unrelated downloads and engine
@@ -1208,6 +1211,9 @@ impl App {
             custom_themes: theme::Catalog::default(),
             storage_usage: crate::storage::Usage::default(),
             clearing_audio_cache: false,
+            storage_action: None,
+            window_state_file: None,
+            storage_actions_allowed: true,
             dirs,
             settings,
             applied_proxy,
@@ -13710,6 +13716,22 @@ impl App {
                     }
                 });
             }
+            Action::ClearStorage(action) => {
+                if self.storage_actions_allowed
+                    && matches!(self.dialog, Some(Dialog::Storage(shown)) if shown == action)
+                {
+                    if self.custom_themes.loading() {
+                        self.toast_error(gettext(
+                            self.locale,
+                            "Themes are still loading. Try again in a moment.",
+                        ));
+                        return;
+                    }
+                    self.storage_action = Some(action);
+                    self.dialog = None;
+                    self.apply(Action::Quit, ctx);
+                }
+            }
             Action::ClearPlayHistory => {
                 self.storage_usage.invalidate();
                 self.plays.clear();
@@ -14950,8 +14972,79 @@ impl App {
             self.settings_dirty = true;
         }
         self.save_state();
-        self.flush_files();
-        self.backend.shutdown();
+        if let Some(action) = self.storage_action.take() {
+            let result = self.finish_storage_action(action);
+            if let Err(error) = result {
+                log::error!("storage cleanup incomplete: {error}");
+                rfd::MessageDialog::new()
+                    .set_title(gettext(self.locale, "Storage cleanup incomplete"))
+                    .set_description(format!(
+                        "{}\n\n{error}",
+                        gettext(
+                            self.locale,
+                            "Some local data could not be removed. Open Spotifast and try again."
+                        )
+                    ))
+                    .set_level(rfd::MessageLevel::Error)
+                    .show();
+            }
+        } else {
+            self.flush_files();
+            self.backend.shutdown();
+        }
+    }
+
+    fn finish_storage_action(&mut self, action: crate::model::StorageAction) -> Result<(), String> {
+        self.finish_storage_action_with_autostart(action, || {
+            let autostart = crate::backend::autostart();
+            if autostart.state() != fastframe_autostart::State::Unsupported {
+                autostart.set(None).map_err(|error| error.to_string())?;
+            }
+            Ok(())
+        })
+    }
+
+    fn finish_storage_action_with_autostart(
+        &mut self,
+        action: crate::model::StorageAction,
+        disable_autostart: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let reset = action == crate::model::StorageAction::ResetApp;
+        let validated = crate::storage::validate_roots(&self.dirs, reset).and_then(|()| {
+            if let Some(music) = self.settings.local_files_folder()
+                && crate::storage::contains_music_folder(&self.dirs, reset, &music)?
+            {
+                return Err(std::io::Error::other(gettext(
+                    self.locale,
+                    "Move your local music folder outside Spotifast storage before clearing it.",
+                )));
+            }
+            Ok(())
+        });
+        let prepared = validated.map_err(|error| error.to_string()).and_then(|()| {
+            if reset && self.autostart_live {
+                disable_autostart()?;
+            }
+            self.winamp.previews.stop_for_storage()
+        });
+        self.backend
+            .shutdown_for_storage(reset && prepared.is_ok())?;
+        self.winamp.finish_disk_jobs();
+        self.winamp.presets.finish_download();
+        if !self.flush_files() {
+            return Err("File writes have not finished. No storage folders were cleared.".into());
+        }
+        prepared?;
+        crate::storage::clear_after_shutdown(&self.dirs, reset)
+            .map_err(|error| error.to_string())?;
+        if reset && let Some(path) = &self.window_state_file {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+        Ok(())
     }
 }
 
@@ -27080,6 +27173,161 @@ mod tests {
             app.backend.art().prefetch(&ctx, url),
             "the loader still remembers artwork that has been deleted"
         );
+    }
+
+    #[test]
+    fn storage_cleanup_requires_the_matching_confirmation_and_an_allowed_profile() {
+        use crate::model::StorageAction;
+        for action in [StorageAction::ClearCaches, StorageAction::ResetApp] {
+            let mut app = headless_app();
+            let ctx = egui::Context::default();
+            app.apply(Action::ClearStorage(action), &ctx);
+            assert!(!app.quit_requested);
+            assert!(app.storage_action.is_none());
+            app.apply(Action::ShowDialog(Dialog::Storage(action)), &ctx);
+            app.apply(Action::CloseDialog, &ctx);
+            assert!(!app.quit_requested);
+            app.dialog = Some(Dialog::Storage(action));
+            app.storage_actions_allowed = false;
+            app.apply(Action::ClearStorage(action), &ctx);
+            assert!(!app.quit_requested);
+            app.storage_actions_allowed = true;
+            app.apply(Action::ClearStorage(action), &ctx);
+            assert!(app.quit_requested);
+            assert_eq!(app.storage_action, Some(action));
+            assert!(app.dialog.is_none());
+            app.backend.shutdown();
+        }
+    }
+
+    struct StorageTestDir(std::path::PathBuf);
+
+    impl Drop for StorageTestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn storage_test_app(name: &str) -> (StorageTestDir, App) {
+        let app = test_app(name);
+        let root = app.dirs.state.parent().unwrap().to_owned();
+        (StorageTestDir(root), app)
+    }
+
+    #[test]
+    fn cache_cleanup_finishes_workers_and_preserves_saved_data_offline() {
+        let (_cleanup, mut app) = storage_test_app("storage-cache-shutdown");
+        app.backend.set_offline(true);
+        std::fs::create_dir_all(app.dirs.audio_cache_dir()).unwrap();
+        std::fs::create_dir_all(&app.dirs.state).unwrap();
+        std::fs::write(app.dirs.audio_cache_dir().join("audio"), "fixture").unwrap();
+        std::fs::write(app.dirs.history_file(), "[]").unwrap();
+        app.finish_storage_action(crate::model::StorageAction::ClearCaches)
+            .unwrap();
+        assert!(!app.dirs.audio_cache_dir().join("audio").exists());
+        assert_eq!(
+            std::fs::read_to_string(app.dirs.history_file()).unwrap(),
+            "[]"
+        );
+    }
+
+    #[test]
+    fn failed_autostart_removal_keeps_credentials_and_profile_files() {
+        let (_cleanup, mut app) = storage_test_app("storage-autostart-failure");
+        app.backend.set_offline(true);
+        app.autostart_live = true;
+        app.dirs.ensure().unwrap();
+        let credential = app.dirs.credentials_dir().join("credentials.json");
+        std::fs::create_dir_all(credential.parent().unwrap()).unwrap();
+        std::fs::write(&credential, "dummy-playback-grant").unwrap();
+        std::fs::write(app.dirs.settings_file(), "{}").unwrap();
+        std::fs::write(app.dirs.history_file(), "[]").unwrap();
+        let result = app
+            .finish_storage_action_with_autostart(crate::model::StorageAction::ResetApp, || {
+                Err("Login item removal failed".into())
+            });
+        assert_eq!(result.unwrap_err(), "Login item removal failed");
+        assert_eq!(
+            std::fs::read_to_string(credential).unwrap(),
+            "dummy-playback-grant"
+        );
+        assert_eq!(
+            std::fs::read_to_string(app.dirs.settings_file()).unwrap(),
+            "{}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(app.dirs.history_file()).unwrap(),
+            "[]"
+        );
+        assert!(!app.dirs.state.join("credential-storage").exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn full_reset_works_when_the_running_copy_does_not_support_start_at_login() {
+        assert_eq!(
+            crate::backend::autostart().state(),
+            fastframe_autostart::State::Unsupported
+        );
+        let (_cleanup, mut app) = storage_test_app("storage-reset-unsupported-autostart");
+        app.backend.set_offline(true);
+        app.autostart_live = true;
+        app.dirs.ensure().unwrap();
+        std::fs::write(app.dirs.settings_file(), "{}").unwrap();
+        app.finish_storage_action(crate::model::StorageAction::ResetApp)
+            .unwrap();
+        assert!(!app.dirs.settings_file().exists());
+    }
+
+    #[test]
+    fn cleanup_refuses_to_remove_the_selected_original_music_folder() {
+        use crate::model::StorageAction::{ClearCaches, ResetApp};
+        for (index, (action, folder)) in [
+            (ResetApp, "config"),
+            (ResetApp, "state"),
+            (ResetApp, "cache"),
+            (ClearCaches, "cache"),
+            (ClearCaches, "state/soloist/accounts/account/cache"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let (_cleanup, mut app) = storage_test_app(&format!("storage-music-{index}"));
+            app.backend.set_offline(true);
+            app.dirs.ensure().unwrap();
+            let music = app
+                .dirs
+                .cache
+                .parent()
+                .unwrap()
+                .join(folder)
+                .join("original-music");
+            std::fs::create_dir_all(&music).unwrap();
+            std::fs::write(music.join("song.flac"), "original").unwrap();
+            app.settings.local_files_folder = Some(music.display().to_string());
+            assert!(app.finish_storage_action(action).is_err());
+            assert_eq!(
+                std::fs::read_to_string(music.join("song.flac")).unwrap(),
+                "original"
+            );
+        }
+    }
+
+    #[test]
+    fn full_reset_removes_profile_and_window_state_after_workers_stop() {
+        let (_cleanup, mut app) = storage_test_app("storage-full-reset");
+        app.backend.set_offline(true);
+        app.dirs.ensure().unwrap();
+        std::fs::write(app.dirs.settings_file(), "{}").unwrap();
+        std::fs::write(app.dirs.history_file(), "[]").unwrap();
+        let window = app.dirs.cache.parent().unwrap().join("window.ron");
+        std::fs::write(&window, "fixture").unwrap();
+        app.window_state_file = Some(window.clone());
+        app.finish_storage_action(crate::model::StorageAction::ResetApp)
+            .unwrap();
+        assert!(!app.dirs.settings_file().exists());
+        assert!(!app.dirs.history_file().exists());
+        assert!(!window.exists());
     }
 
     #[test]

@@ -375,6 +375,12 @@ impl Presets {
         }
     }
 
+    pub(crate) fn finish_download(&mut self) {
+        if let Some((_, receiver)) = self.download.take() {
+            let _ = receiver.recv();
+        }
+    }
+
     /// The pack on its way, if one is.
     pub fn downloading(&self) -> Option<&'static str> {
         self.download.as_ref().map(|(name, _)| *name)

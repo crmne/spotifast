@@ -2420,6 +2420,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 "Sign-ins are saved in the system credential store when available.",
             ),
         ),
+        RowText::new(
+            gettext(locale, "Clear caches"),
+            gettext(
+                locale,
+                "Remove cached artwork, audio, lyrics and library data. Keep sign-in, settings and play history.",
+            ),
+        ),
+        RowText::new(
+            gettext(locale, "Reset app"),
+            gettext(
+                locale,
+                "Remove all local data and saved sign-ins, and turn off start at login.",
+            ),
+        ),
     ];
     if section_matches(&needle, &storage, &storage_rows) {
         any_visible = true;
@@ -2476,6 +2490,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             filtered_row(ui, &palette, &needle, &storage, &storage_rows[3], |_| {});
+            for (row, action) in [
+                (&storage_rows[4], crate::model::StorageAction::ClearCaches),
+                (&storage_rows[5], crate::model::StorageAction::ResetApp),
+            ] {
+                filtered_row(ui, &palette, &needle, &storage, row, |ui| {
+                    if ui
+                        .add_enabled_ui(app.storage_actions_allowed, |ui| {
+                            theme::soft_button(ui, &palette, Some(Icon::Trash), &row.title, false)
+                        })
+                        .inner
+                        .clicked()
+                    {
+                        app.actions
+                            .push(Action::ShowDialog(crate::model::Dialog::Storage(action)));
+                    }
+                });
+            }
         });
     }
 

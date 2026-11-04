@@ -369,6 +369,8 @@ pub(crate) fn run() -> eframe::Result<()> {
 
     let cli = Cli::from_arg_matches(&Cli::command().get_matches_from(&launch.arguments))
         .unwrap_or_else(|error| error.exit());
+    #[cfg(feature = "demo")]
+    let demo_storage_actions = cli.demo_data.is_some();
     // Demo mode invents plays, settings, and a signed-in account. Without a
     // folder of its own it would write them into the real profile, where
     // they would pass for the user's history.
@@ -527,6 +529,12 @@ pub(crate) fn run() -> eframe::Result<()> {
     }
     #[allow(unused_mut)]
     let mut app = app::App::new(&waker, dirs, settings, options);
+    app.window_state_file = window_file.clone();
+    #[cfg(feature = "demo")]
+    if demo {
+        app.storage_actions_allowed = demo_storage_actions;
+        app.window_state_file = None;
+    }
     if guarded {
         app.enable_desktop_themes();
     }

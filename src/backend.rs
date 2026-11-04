@@ -783,6 +783,10 @@ pub enum Command {
     Accent {
         url: String,
     },
+    ShutdownForStorage {
+        reset: bool,
+        done: std::sync::mpsc::Sender<Result<(), String>>,
+    },
     Shutdown,
     /// Internal: the Web API browser flow produced a grant.
     WebSignedIn {
@@ -1192,6 +1196,8 @@ pub struct Backend {
     art: ArtLoader,
     activity: Arc<NetActivity>,
     thread: Option<std::thread::JoinHandle<()>>,
+    #[cfg(test)]
+    test_runtime: tokio::runtime::Handle,
     offline: bool,
     #[cfg(test)]
     network_statuses: std::sync::Mutex<Vec<bool>>,
@@ -1228,6 +1234,14 @@ pub struct Backend {
     top_tracks_requests: std::sync::Mutex<Vec<(TopPeriod, u32, bool, u64)>>,
 }
 
+enum WorkerExit {
+    Normal,
+    Storage {
+        done: std::sync::mpsc::Sender<Result<(), String>>,
+        result: Result<(), String>,
+    },
+}
+
 impl Backend {
     pub fn spawn(
         dirs: AppDirs,
@@ -1262,10 +1276,13 @@ impl Backend {
         let worker_activity = Arc::clone(&activity);
         let worker_art = art.clone();
         let worker_commands = command_tx.clone();
+        #[cfg(test)]
+        let test_runtime = runtime.handle().clone();
         let thread = std::thread::Builder::new()
             .name("spotifast-backend".to_string())
             .spawn(move || {
-                runtime.block_on(async move {
+                let storage_shutdown = runtime.block_on(async move {
+                    let credentials = credential_store(dirs.clone(), restore_sign_in);
                     let mut worker = Worker::new(
                         dirs,
                         engine_config,
@@ -1276,15 +1293,23 @@ impl Backend {
                         event_tx,
                         worker_commands,
                         waker,
+                        credentials,
                     );
                     worker.soloist_output_volume = worker_output_volume;
                     if restore_sign_in {
                         worker.restore_session();
                     }
-                    worker.run(command_rx).await;
+                    worker.run(command_rx).await
                 });
-                // Give librespot's own threads a moment to release the audio device.
-                runtime.shutdown_timeout(Duration::from_secs(2));
+                match storage_shutdown {
+                    WorkerExit::Storage { done, result } => {
+                        // The caller bounds this wait and keeps storage on timeout.
+                        // Success means blocking tasks have released their files.
+                        drop(runtime);
+                        let _ = done.send(result);
+                    }
+                    WorkerExit::Normal => runtime.shutdown_timeout(Duration::from_secs(2)),
+                }
             })
             .expect("unable to start the backend thread");
 
@@ -1295,6 +1320,8 @@ impl Backend {
             art,
             activity,
             thread: Some(thread),
+            #[cfg(test)]
+            test_runtime,
             offline: false,
             #[cfg(test)]
             network_statuses: std::sync::Mutex::new(Vec::new()),
@@ -1371,6 +1398,7 @@ impl Backend {
                 Command::Accent { .. }
                     | Command::ClearAudioCache
                     | Command::Shutdown
+                    | Command::ShutdownForStorage { .. }
                     | Command::CheckForUpdates { .. }
                     | Command::InspectUpdate
                     | Command::DownloadUpdate { .. }
@@ -1693,6 +1721,29 @@ impl Backend {
         &self.art
     }
 
+    pub(crate) fn shutdown_for_storage(&mut self, reset: bool) -> Result<(), String> {
+        self.shutdown_for_storage_with_timeout(reset, Duration::from_secs(10))
+    }
+
+    fn shutdown_for_storage_with_timeout(
+        &mut self,
+        reset: bool,
+        timeout: Duration,
+    ) -> Result<(), String> {
+        let (done, receive) = std::sync::mpsc::channel();
+        self.send(Command::ShutdownForStorage { reset, done });
+        let result = receive.recv_timeout(timeout).map_err(|error| match error {
+            std::sync::mpsc::RecvTimeoutError::Timeout => {
+                "Background work did not stop in time. No storage folders were cleared.".to_string()
+            }
+            std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                "The playback worker did not finish storage cleanup.".to_string()
+            }
+        });
+        drop(self.thread.take());
+        result?
+    }
+
     pub fn shutdown(&mut self) {
         self.send(Command::Shutdown);
         if let Some(thread) = self.thread.take() {
@@ -1962,6 +2013,23 @@ fn receiver_snapshot(
     }
 }
 
+fn credential_store(dirs: AppDirs, restore_sign_in: bool) -> CredentialStore {
+    #[cfg(feature = "demo")]
+    if !restore_sign_in {
+        return CredentialStore::demo(dirs);
+    }
+    #[cfg(not(feature = "demo"))]
+    let _ = restore_sign_in;
+    #[cfg(test)]
+    {
+        CredentialStore::in_memory(dirs)
+    }
+    #[cfg(not(test))]
+    {
+        CredentialStore::new(dirs)
+    }
+}
+
 impl Worker {
     /// Initialize account-scoped dispatch state, Home reader and session background budget.
     #[allow(clippy::too_many_arguments)]
@@ -1975,15 +2043,13 @@ impl Worker {
         events: std::sync::mpsc::Sender<Event>,
         commands: mpsc::UnboundedSender<Command>,
         waker: Waker,
+        credentials: CredentialStore,
     ) -> Self {
         Self {
             soloist_output_volume: crate::soloist::OutputVolume::default(),
             soloist: None,
             soloist_generation: 0,
-            #[cfg(not(test))]
-            credentials: CredentialStore::new(dirs.clone()),
-            #[cfg(test)]
-            credentials: CredentialStore::in_memory(dirs.clone()),
+            credentials,
             web_tokens: [None, None],
             playback_grant: None,
             pending_playback_grant: None,
@@ -2181,7 +2247,8 @@ impl Worker {
         }
     }
 
-    async fn run(&mut self, mut commands: mpsc::UnboundedReceiver<Command>) {
+    async fn run(&mut self, mut commands: mpsc::UnboundedReceiver<Command>) -> WorkerExit {
+        let mut storage_shutdown = None;
         let (cache_writes, cache_write_receiver) = mpsc::channel(1);
         let cache_writer = tokio::spawn(store_playlist_caches(
             cache_write_receiver,
@@ -2198,6 +2265,7 @@ impl Worker {
                         | Command::SignOut
                         | Command::CancelSignIn
                         | Command::Shutdown
+                        | Command::ShutdownForStorage { .. }
                 )
             {
                 self.waiting_for_proxy.push_back(command);
@@ -2390,6 +2458,10 @@ impl Worker {
                         });
                         waker.wake();
                     });
+                }
+                Command::ShutdownForStorage { reset, done } => {
+                    storage_shutdown = Some((reset, done));
+                    break;
                 }
                 Command::Shutdown => break,
                 Command::SignIn {
@@ -2985,6 +3057,19 @@ impl Worker {
         self.stop_soloist().await;
         drop(cache_writes);
         let _ = cache_writer.await;
+        if let Some((reset, done)) = storage_shutdown {
+            let result = if reset {
+                self.credentials
+                    .clear_all()
+                    .await
+                    .map_err(|error| error.to_string())
+            } else {
+                Ok(())
+            };
+            WorkerExit::Storage { done, result }
+        } else {
+            WorkerExit::Normal
+        }
     }
 
     async fn stop_soloist(&mut self) {
@@ -8777,6 +8862,7 @@ mod authorization_tests {
         let art = ArtLoader::new(http.clone(), runtime.handle().clone(), dirs.art_cache_dir());
         let (sender, events) = std::sync::mpsc::channel();
         let (commands, _) = mpsc::unbounded_channel();
+        let credentials = CredentialStore::in_memory(dirs.clone());
         let worker = Worker::new(
             dirs,
             config,
@@ -8787,6 +8873,7 @@ mod authorization_tests {
             sender,
             commands,
             Waker::default(),
+            credentials,
         );
         (runtime, worker, events)
     }
@@ -9932,6 +10019,48 @@ mod cover_routing_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_shutdown_times_out_instead_of_waiting_for_a_blocking_task() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-storage-shutdown-deadline-{}",
+            std::process::id()
+        ));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let config = crate::app::engine_config(
+            &dirs,
+            &crate::settings::Settings::default(),
+            ProxyConfig::Off,
+            crate::vis::AudioTap::new(),
+            crate::eq::shared(),
+        );
+        let mut backend = Backend::spawn(dirs, config, None, Waker::default(), false);
+        let (entered, waiting) = std::sync::mpsc::channel();
+        let (release, blocked) = std::sync::mpsc::channel();
+        backend.test_runtime.spawn_blocking(move || {
+            let _ = entered.send(());
+            let _ = blocked.recv();
+        });
+        waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+        let thread = backend.thread.take().unwrap();
+        let started = Instant::now();
+        let result = backend.shutdown_for_storage_with_timeout(false, Duration::from_millis(50));
+        let elapsed = started.elapsed();
+        let _ = release.send(());
+        let joined = thread.join();
+        let _ = std::fs::remove_dir_all(root);
+        assert!(joined.is_ok());
+        assert!(elapsed < Duration::from_secs(2));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("No storage folders were cleared")
+        );
+    }
 
     #[tokio::test]
     async fn soloist_without_a_playback_login_can_still_use_old_spotify_lyrics() {
