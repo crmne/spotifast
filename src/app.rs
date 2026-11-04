@@ -12141,10 +12141,11 @@ impl App {
         }
     }
 
-    /// Asks before adding songs a playlist already holds. A question still
-    /// open is answered first; this one follows it.
+    /// Asks before adding songs a playlist already holds. A dialog still
+    /// open, such as an earlier question or New playlist, is finished first;
+    /// this one follows it.
     fn confirm_duplicates(&mut self, prompt: Dialog) {
-        if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
+        if self.dialog.is_some() {
             self.duplicate_prompts.push_back(prompt);
         } else {
             self.dialog = Some(prompt);
@@ -12379,6 +12380,11 @@ impl App {
                 self.apply(action, ctx);
             }
             actions = std::mem::take(&mut self.actions);
+        }
+        // A waiting duplicate question shows once no other dialog is open,
+        // however that one closed.
+        if self.dialog.is_none() {
+            self.dialog = self.duplicate_prompts.pop_front();
         }
     }
 
@@ -30530,6 +30536,57 @@ mod tests {
         );
         assert!(app.dialog.is_none());
         assert_eq!(sent(&app), ["add run"]);
+    }
+
+    /// A duplicate question that arrives while New playlist is open waits
+    /// for it, so the name typed there and the songs it will add stay, and
+    /// shows once the playlist is created.
+    #[test]
+    fn a_duplicate_question_waits_for_new_playlist() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let ctx = egui::Context::default();
+        let item = cached_playlist_row("spotify:track:again")
+            .playable()
+            .unwrap()
+            .clone();
+        app.dialog = Some(Dialog::CreatePlaylist {
+            name: "Road trip".into(),
+            public: false,
+            add_uris: vec!["spotify:track:new".into()],
+        });
+
+        app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
+            position: None,
+            playlist_id: "mix".into(),
+            playlist_name: "Mix".into(),
+            items: vec![item],
+            result: Ok(vec!["spotify:track:again".into()]),
+        });
+        app.apply_actions(&ctx);
+        assert!(matches!(
+            app.dialog,
+            Some(Dialog::CreatePlaylist {
+                ref name,
+                ref add_uris,
+                ..
+            }) if name == "Road trip" && add_uris == &["spotify:track:new"]
+        ));
+
+        app.handle_api(ApiResponse::PlaylistCreated(Ok(Playlist {
+            id: "road".into(),
+            uri: "spotify:playlist:road".into(),
+            name: "Road trip".into(),
+            ..Playlist::default()
+        })));
+        app.apply_actions(&ctx);
+        assert!(matches!(
+            app.dialog,
+            Some(Dialog::ConfirmPlaylistDuplicates {
+                ref playlist_id,
+                ..
+            }) if playlist_id == "mix"
+        ));
     }
 
     /// Signing out drops the duplicate questions, the open one and those
