@@ -2271,7 +2271,7 @@ impl App {
             .id
             .as_deref()
             .and_then(|id| self.track_cache.get(id))
-            .filter(|cached| cached.uri == now.uri);
+            .filter(|cached| cached.answers_to(&now.uri));
         if let Some(track) = cached {
             return Some(PlayableItem::Track(track.clone()));
         }
@@ -2362,7 +2362,7 @@ impl App {
             // same length must not stand in.
             let cached = util::uri_id(&track.uri)
                 .and_then(|id| self.track_cache.get(id))
-                .filter(|cached| cached.uri == track.uri);
+                .filter(|cached| cached.answers_to(&track.uri));
             // Playback already carries artist IDs. Keep those links available
             // while the Web API is loading (or its cached credits have no IDs).
             let artists = if track.artists.iter().any(|artist| artist.id.is_some()) {
@@ -2543,7 +2543,7 @@ impl App {
         let track = self
             .track_cache
             .get(util::uri_id(uri)?)
-            .filter(|cached| cached.uri == uri)?;
+            .filter(|cached| cached.answers_to(uri))?;
         Some(NowPlaying {
             local: true,
             device_name: None,
@@ -4187,7 +4187,14 @@ impl App {
         let Some(id) = util::uri_id(uri) else {
             return;
         };
-        if self.track_cache.contains_key(id) {
+        // A local URI's id is its duration, so the entry under it may be
+        // another song of the same length: keep it only while it is this
+        // very song, and let the row found below replace it otherwise.
+        if self
+            .track_cache
+            .get(id)
+            .is_some_and(|cached| cached.answers_to(uri))
+        {
             self.track_used.insert(id.to_owned(), Instant::now());
             return;
         }
@@ -7592,6 +7599,16 @@ impl App {
         if let Some(track) = track
             && let Some(id) = util::uri_id(&uri)
         {
+            // A local URI's id is its duration, so the entry here may be
+            // another song of the same length: the row being played now
+            // replaces it, so the song's preview stays findable.
+            if self
+                .track_cache
+                .get(id)
+                .is_some_and(|cached| !cached.answers_to(&uri))
+            {
+                self.track_cache.remove(id);
+            }
             self.track_cache.entry(id.to_owned()).or_insert(track);
         }
         self.consume_manual_queue_head(&uri);
@@ -19828,6 +19845,34 @@ mod tests {
                 .is_none(),
             "a different song under the same duration stays out"
         );
+        app.backend.shutdown();
+    }
+
+    /// A market relink keeps its optimistic preview: the release Spotify
+    /// substituted for the requested track counts as that track, so the
+    /// strict URI match does not turn it away.
+    #[test]
+    fn a_relinked_track_answers_for_the_uri_it_was_asked_for() {
+        use crate::api::models::{LinkedTrack, Track};
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "old".into(),
+            Track {
+                id: Some("new".into()),
+                uri: "spotify:track:new".into(),
+                name: "Karma Police".into(),
+                linked_from: Some(LinkedTrack {
+                    id: Some("old".into()),
+                    uri: "spotify:track:old".into(),
+                }),
+                duration_ms: 264_000,
+                ..Default::default()
+            },
+        );
+        let now = app
+            .cached_track_preview("spotify:track:old", 0)
+            .expect("the relinked track previews");
+        assert_eq!(now.title, "Karma Police");
         app.backend.shutdown();
     }
 
