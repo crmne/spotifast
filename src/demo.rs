@@ -1255,7 +1255,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             | "soloist-playing"
             | "soloist-needs-key"
             | "soloist-reconnecting"
-            | "soloist-error" => {
+            | "soloist-error"
+            | "soloist-bad-build" => {
                 use crate::soloist::{Failure, Status};
                 if surface != "soloist-playing" {
                     app.open(Page::Settings);
@@ -1312,6 +1313,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                         }
                     }
                     "soloist-error" => Status::Failed(Failure::NotReady),
+                    "soloist-bad-build" => Status::Failed(Failure::BadBuild),
                     _ => Status::Off,
                 };
             }
@@ -10038,7 +10040,12 @@ mod tests {
             return;
         }
         for &locale in crate::i18n::Locale::value_variants() {
-            for flag in ["soloist-welcome", "soloist-pairing", "soloist-error"] {
+            for flag in [
+                "soloist-welcome",
+                "soloist-pairing",
+                "soloist-error",
+                "soloist-bad-build",
+            ] {
                 let (ctx, mut app) = accessible_app("soloist-narrow");
                 app.backend.set_offline(true);
                 apply_flags(&mut app, None, Some(&format!("soloist-onboarding,{flag}")));

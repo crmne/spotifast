@@ -3295,6 +3295,7 @@ impl App {
             }
             Update::UpdateReady(version) => self.soloist_update = Some(version),
             Update::UpdateFailed => self.toast_error(gettext(self.locale, "Soloist could not download its renewal. It will retry tomorrow; the current build is still installed.")),
+            Update::RolledBack => self.toast(gettext(self.locale, "Spotify's new Soloist build kept crashing on this computer, so Spotifast went back to the previous one.")),
         }
     }
 
@@ -23701,6 +23702,7 @@ mod tests {
             Failure::AudioLost,
             Failure::KeyStore,
             Failure::Expired,
+            Failure::BadBuild,
         ] {
             app.on_soloist(Update::Status(Status::Failed(failure)));
             assert_eq!(app.soloist_view(), SoloistView::App);
@@ -23748,7 +23750,12 @@ mod tests {
     fn soloist_failures_that_need_the_listener_do_not_restart() {
         use crate::soloist::{Failure, Status, Update};
         let (_ctx, mut app) = listening_on_soloist("soloist-no-restart");
-        for failure in [Failure::KeyStore, Failure::InvalidKey, Failure::Expired] {
+        for failure in [
+            Failure::KeyStore,
+            Failure::InvalidKey,
+            Failure::Expired,
+            Failure::BadBuild,
+        ] {
             app.on_soloist(Update::Status(Status::Failed(failure)));
             assert!(app.soloist_retry_at.is_none());
         }

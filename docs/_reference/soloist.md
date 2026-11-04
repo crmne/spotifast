@@ -118,6 +118,18 @@ preserve its queue. If Spotify has not published a usable replacement, the
 error is shown in the banner and in Settings; the built-in player remains
 available.
 
+A build Spotifast has not run here before is on trial until it plays or keeps
+running for five minutes. If it crashes twice in a row before then, after it
+has started, Spotifast stops using it on this computer and goes back to the
+build it replaced, which stays installed until the new one has proved itself.
+A clean exit, an expired build or a stop Spotifast asked for never counts. When
+there is no earlier build to go back to, as on a new installation, Soloist's
+status asks you to use the built-in player until Spotify publishes a new
+build. Spotifast never starts the crashing build again: while it runs an
+earlier build it checks daily for a newer one, and each time Soloist starts
+without a working build it checks Spotify's server, then tries any build other
+than the one that crashed.
+
 Downloads come directly from `soloist-builds.spotifycdn.com` over HTTPS.
 Spotifast does not bundle or mirror Spotify's executable. Archive extraction
 is bounded and rejects links and unsafe paths. A local SHA-256 digest detects

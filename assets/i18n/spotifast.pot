@@ -7,8 +7,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Spotifast\n"
-"Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
-"template=translation.yml\n"
+"Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?template=translation.yml\n"
 "POT-Creation-Date: 2026-11-04 17:57+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
@@ -709,15 +708,11 @@ msgid "Password"
 msgstr ""
 
 #: src/ui/widgets.rs:3700
-msgid ""
-"Proxy login applies to Web requests. Local playback uses this proxy only "
-"without a login."
+msgid "Proxy login applies to Web requests. Local playback uses this proxy only without a login."
 msgstr ""
 
 #: src/ui/widgets.rs:3704
-msgid ""
-"Spotify hostnames are resolved by the proxy. Local playback connects "
-"directly."
+msgid "Spotify hostnames are resolved by the proxy. Local playback connects directly."
 msgstr ""
 
 #. Translators: shown on the Copy button for a moment after it copied.
@@ -787,9 +782,7 @@ msgstr ""
 #. Translators: {error} is a sentence saying why the proxy password could not be stored.
 #: src/app.rs:3004
 #, rust-format
-msgid ""
-"{error} The original settings file is kept intact; changed preferences are "
-"not saved yet."
+msgid "{error} The original settings file is kept intact; changed preferences are not saved yet."
 msgstr ""
 
 #. Translators: {version} is a version number such as 1.4.0.
@@ -809,9 +802,7 @@ msgid "Couldn't check for updates: {error}"
 msgstr ""
 
 #: src/app.rs:3276
-msgid ""
-"Soloist could not download its renewal. It will retry tomorrow; the current "
-"build is still installed."
+msgid "Soloist could not download its renewal. It will retry tomorrow; the current build is still installed."
 msgstr ""
 
 #: src/app.rs:3524
@@ -890,14 +881,11 @@ msgstr ""
 #. Translators: {error} is an error message.
 #: src/app.rs:5451
 #, rust-format
-msgid ""
-"Proxy could not be applied: {error}. Previous connection settings are still "
-"in use."
+msgid "Proxy could not be applied: {error}. Previous connection settings are still in use."
 msgstr ""
 
 #: src/app.rs:7043
-msgid ""
-"Spotify hasn't confirmed your playlist changes yet. Try refreshing again."
+msgid "Spotify hasn't confirmed your playlist changes yet. Try refreshing again."
 msgstr ""
 
 #: src/app.rs:7521
@@ -1137,9 +1125,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: src/app.rs:13477
-msgid ""
-"Spotify doesn't let apps reorder your playlists, so this order is saved on "
-"this computer"
+msgid "Spotify doesn't let apps reorder your playlists, so this order is saved on this computer"
 msgstr ""
 
 #: src/app.rs:13648
@@ -1209,14 +1195,11 @@ msgid "Spotify won't let this computer play this song right now."
 msgstr ""
 
 #: src/app.rs:15347
-msgid ""
-"No audio output device was found. Connect or enable one, then press play "
-"again."
+msgid "No audio output device was found. Connect or enable one, then press play again."
 msgstr ""
 
 #: src/app.rs:15361
-msgid ""
-"Spotify doesn't make this playlist's songs available to third-party apps."
+msgid "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 
 #: src/app.rs:15492
@@ -1224,10 +1207,7 @@ msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 
 #: src/app.rs:15497
-msgid ""
-"Spotify refused this cover. Check that you own the playlist, then sign in "
-"again to grant image upload permission. If you use your own Client ID, "
-"authorize it again in Settings too."
+msgid "Spotify refused this cover. Check that you own the playlist, then sign in again to grant image upload permission. If you use your own Client ID, authorize it again in Settings too."
 msgstr ""
 
 #: src/app.rs:15501
@@ -1263,8 +1243,7 @@ msgid "Delete “{name}”"
 msgstr ""
 
 #: src/ui/settings.rs:396
-msgid ""
-"Play the local files your playlists list from a folder on this computer."
+msgid "Play the local files your playlists list from a folder on this computer."
 msgstr ""
 
 #. Translators: {count} is a number of songs, {folder} a folder on this computer.
@@ -1331,9 +1310,7 @@ msgid "Spotify registration"
 msgstr ""
 
 #: src/ui/settings.rs:541
-msgid ""
-"You're still on the shared sign-in Spotifast used before, which Spotify can "
-"stop accepting at any time. Register Spotifast to keep listening."
+msgid "You're still on the shared sign-in Spotifast used before, which Spotify can stop accepting at any time. Register Spotifast to keep listening."
 msgstr ""
 
 #: src/ui/settings.rs:546
@@ -1354,8 +1331,7 @@ msgid "Spotifast registered"
 msgstr ""
 
 #: src/ui/settings.rs:563
-msgid ""
-"Supported requests use your Client ID. Other requests use the shared sign-in."
+msgid "Supported requests use your Client ID. Other requests use the shared sign-in."
 msgstr ""
 
 #: src/ui/settings.rs:568
@@ -1513,13 +1489,11 @@ msgid "Play tracks without silence between them."
 msgstr ""
 
 #: src/ui/settings.rs:800
-msgid ""
-"Spotifast hides to the system tray. Quit from the tray menu or with Ctrl+Q."
+msgid "Spotifast hides to the system tray. Quit from the tray menu or with Ctrl+Q."
 msgstr ""
 
 #: src/ui/settings.rs:805
-msgid ""
-"Spotifast hides to the menu bar. Quit from its menu-bar icon or with Cmd+Q."
+msgid "Spotifast hides to the menu bar. Quit from its menu-bar icon or with Cmd+Q."
 msgstr ""
 
 #: src/ui/settings.rs:811
@@ -1527,9 +1501,7 @@ msgid "Output buffer"
 msgstr ""
 
 #: src/ui/settings.rs:814
-msgid ""
-"More buffering can prevent clicks on busy computers. Less buffering makes "
-"controls respond sooner."
+msgid "More buffering can prevent clicks on busy computers. Less buffering makes controls respond sooner."
 msgstr ""
 
 #: src/ui/settings.rs:820
@@ -1553,9 +1525,7 @@ msgid "Local files"
 msgstr ""
 
 #: src/ui/settings.rs:837
-msgid ""
-"When off, Spotifast lives in the menu bar and leaves Cmd+Tab. Open it from "
-"its menu-bar icon."
+msgid "When off, Spotifast lives in the menu bar and leaves Cmd+Tab. Open it from its menu-bar icon."
 msgstr ""
 
 #: src/ui/settings.rs:843
@@ -1658,8 +1628,7 @@ msgid "Light mode theme"
 msgstr ""
 
 #: src/ui/settings.rs:1218
-msgid ""
-"Used while your computer is in light mode. Only light themes are listed."
+msgid "Used while your computer is in light mode. Only light themes are listed."
 msgstr ""
 
 #: src/ui/settings.rs:1222
@@ -1683,8 +1652,7 @@ msgid "Language"
 msgstr ""
 
 #: src/ui/settings.rs:1254
-msgid ""
-"System follows your computer's language. Untranslated text stays in English."
+msgid "System follows your computer's language. Untranslated text stays in English."
 msgstr ""
 
 #: src/ui/settings.rs:1261
@@ -1712,19 +1680,15 @@ msgid "Cmd+Plus and Cmd+Minus work anywhere; Cmd+0 resets."
 msgstr ""
 
 #: src/ui/settings.rs:1290
-msgid ""
-"Middle-click a list, then move the pointer to scroll it. Off by default, "
-"because a middle click usually pastes on Linux."
+msgid "Middle-click a list, then move the pointer to scroll it. Off by default, because a middle click usually pastes on Linux."
 msgstr ""
 
 #: src/ui/settings.rs:1298
-msgid ""
-"Draw Spotifast's own title bar and window buttons instead of the desktop's."
+msgid "Draw Spotifast's own title bar and window buttons instead of the desktop's."
 msgstr ""
 
 #: src/ui/settings.rs:1306
-msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+msgid "Show the song moving behind the player bar's controls while it plays here."
 msgstr ""
 
 #: src/ui/settings.rs:1311
@@ -1736,9 +1700,7 @@ msgid "Frame rate"
 msgstr ""
 
 #: src/ui/settings.rs:1317
-msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
-"fewer resources. MilkDrop has its own."
+msgid "How often the player bar and mini player visualizers draw. Lower rates use fewer resources. MilkDrop has its own."
 msgstr ""
 
 #: src/ui/settings.rs:1465
@@ -1771,9 +1733,7 @@ msgid "Mode"
 msgstr ""
 
 #: src/ui/settings.rs:1680
-msgid ""
-"Off ignores environment variables. System uses them, and the OS proxy on "
-"macOS and Windows."
+msgid "Off ignores environment variables. System uses them, and the OS proxy on macOS and Windows."
 msgstr ""
 
 #: src/ui/settings.rs:1732 src/ui/login.rs:609
@@ -1817,15 +1777,11 @@ msgid "Show the mini player"
 msgstr ""
 
 #: src/ui/settings.rs:1778
-msgid ""
-"Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a "
-"skin on either window to add it."
+msgid "Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a skin on either window to add it."
 msgstr ""
 
 #: src/ui/settings.rs:1782
-msgid ""
-"Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop "
-"a skin on either window to add it."
+msgid "Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop a skin on either window to add it."
 msgstr ""
 
 #: src/ui/settings.rs:1793 src/ui/settings.rs:1880
@@ -1833,9 +1789,7 @@ msgid "Classic .wsz skins. Find more at the Winamp Skin Museum."
 msgstr ""
 
 #: src/ui/settings.rs:1804 src/ui/settings.rs:1933
-msgid ""
-"Windows Media Player .wmz skins. Find more in the Internet Archive's "
-"collection."
+msgid "Windows Media Player .wmz skins. Find more in the Internet Archive's collection."
 msgstr ""
 
 #: src/ui/settings.rs:1811
@@ -1859,9 +1813,7 @@ msgid "Show in taskbar"
 msgstr ""
 
 #: src/ui/settings.rs:1829
-msgid ""
-"Keep a taskbar button for the mini player. The tray icon stays available "
-"when hidden."
+msgid "Keep a taskbar button for the mini player. The tray icon stays available when hidden."
 msgstr ""
 
 #: src/ui/settings.rs:1834
@@ -1894,17 +1846,11 @@ msgid "MilkDrop window"
 msgstr ""
 
 #: src/ui/settings.rs:2061
-msgid ""
-"A projectM visualiser for local playback. Open it here, from the top bar, "
-"with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
-"shortcuts."
+msgid "A projectM visualiser for local playback. Open it here, from the top bar, with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its shortcuts."
 msgstr ""
 
 #: src/ui/settings.rs:2065
-msgid ""
-"A projectM visualiser for local playback. Open it here, from the top bar, "
-"with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its "
-"shortcuts."
+msgid "A projectM visualiser for local playback. Open it here, from the top bar, with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its shortcuts."
 msgstr ""
 
 #: src/ui/settings.rs:2071 src/ui/settings.rs:2250
@@ -1914,28 +1860,20 @@ msgstr ""
 #. Translators: {folder} is the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2076
 #, rust-format
-msgid ""
-"None yet in {folder}. Add .milk files here. Spotifast downloads presets when "
-"MilkDrop first opens with an empty folder."
+msgid "None yet in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
 msgstr ""
 
 #. Translators: {folder} is the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2082
 #, rust-format
-msgid ""
-"One preset in {folder}. Add .milk files here. Spotifast downloads presets "
-"when MilkDrop first opens with an empty folder."
+msgid "One preset in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
 msgstr ""
 
 #. Translators: {count} is the number of presets, {folder} the path of the MilkDrop presets folder.
 #: src/ui/settings.rs:2088
 #, rust-format
-msgid ""
-"{count} preset in {folder}. Add .milk files here. Spotifast downloads "
-"presets when MilkDrop first opens with an empty folder."
-msgid_plural ""
-"{count} presets in {folder}. Add .milk files here. Spotifast downloads "
-"presets when MilkDrop first opens with an empty folder."
+msgid "{count} preset in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
+msgid_plural "{count} presets in {folder}. Add .milk files here. Spotifast downloads presets when MilkDrop first opens with an empty folder."
 msgstr[0] ""
 msgstr[1] ""
 
@@ -1954,9 +1892,7 @@ msgstr ""
 #. Translators: {hz} is the screen's refresh rate in hertz.
 #: src/ui/settings.rs:2113
 #, rust-format
-msgid ""
-"Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. "
-"Uncapped draws as fast as possible."
+msgid "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. Uncapped draws as fast as possible."
 msgstr ""
 
 #: src/ui/settings.rs:2120
@@ -2002,9 +1938,7 @@ msgid "Equalizer"
 msgstr ""
 
 #: src/ui/settings.rs:2244
-msgid ""
-"A ten-band equalizer for playback on this computer. It does not affect other "
-"devices."
+msgid "A ten-band equalizer for playback on this computer. It does not affect other devices."
 msgstr ""
 
 #. Translators: a search keyword for the equalizer's preamplifier slider.
@@ -2096,9 +2030,7 @@ msgid "Checks GitHub once a day. No personal data is sent."
 msgstr ""
 
 #: src/ui/settings.rs:2460
-msgid ""
-"Downloads new releases in the background and installs them the next time "
-"Spotifast starts."
+msgid "Downloads new releases in the background and installs them the next time Spotifast starts."
 msgstr ""
 
 #: src/ui/settings.rs:2494 src/ui/show.rs:42
@@ -2158,15 +2090,11 @@ msgid "Allow Spotifast in System Settings, General, Login Items."
 msgstr ""
 
 #: src/ui/settings.rs:2641
-msgid ""
-"Starting in the menu bar needs Keep music playing when the window closes. "
-"Until then, the window opens."
+msgid "Starting in the menu bar needs Keep music playing when the window closes. Until then, the window opens."
 msgstr ""
 
 #: src/ui/settings.rs:2646
-msgid ""
-"Starting in the tray needs Keep music playing when the window closes. Until "
-"then, the window opens."
+msgid "Starting in the tray needs Keep music playing when the window closes. Until then, the window opens."
 msgstr ""
 
 #: src/ui/settings.rs:2652
@@ -2201,9 +2129,7 @@ msgid "Listen with Spotify Soloist"
 msgstr ""
 
 #: src/ui/soloist.rs:315
-msgid ""
-"Spotify's own player, running on this computer. Spotifast sets it up and "
-"keeps it updated."
+msgid "Spotify's own player, running on this computer. Spotifast sets it up and keeps it updated."
 msgstr ""
 
 #: src/ui/soloist.rs:321
@@ -2235,9 +2161,7 @@ msgid "Get your Soloist key"
 msgstr ""
 
 #: src/ui/soloist.rs:368
-msgid ""
-"Spotify gives each Premium account its own key. Spotifast keeps it in your "
-"system's credential store."
+msgid "Spotify gives each Premium account its own key. Spotifast keeps it in your system's credential store."
 msgstr ""
 
 #: src/ui/soloist.rs:384
@@ -2265,8 +2189,7 @@ msgid "Checking your key and starting Spotify's player."
 msgstr ""
 
 #: src/ui/soloist.rs:472
-msgid ""
-"This is taking longer than usual. Spotify may be busy, so it's safe to wait."
+msgid "This is taking longer than usual. Spotify may be busy, so it's safe to wait."
 msgstr ""
 
 #: src/ui/soloist.rs:488 src/ui/soloist.rs:755
@@ -2313,15 +2236,11 @@ msgid "Soloist isn't in the list"
 msgstr ""
 
 #: src/ui/soloist.rs:613
-msgid ""
-"Phones and the web player may not list it until it has been chosen once. "
-"Start with the desktop app, on this computer."
+msgid "Phones and the web player may not list it until it has been chosen once. Start with the desktop app, on this computer."
 msgstr ""
 
 #: src/ui/soloist.rs:617
-msgid ""
-"A firewall, VPN or guest Wi-Fi can hide it. Allow Soloist on your local "
-"network, or pair once over your phone's hotspot."
+msgid "A firewall, VPN or guest Wi-Fi can hide it. Allow Soloist on your local network, or pair once over your phone's hotspot."
 msgstr ""
 
 #: src/ui/soloist.rs:624
@@ -2337,9 +2256,7 @@ msgid "Soloist is connected. Spotify is confirming it's on your account."
 msgstr ""
 
 #: src/ui/soloist.rs:660
-msgid ""
-"Spotify is slow to answer. Playing a song on Soloist from the Spotify app "
-"can help."
+msgid "Spotify is slow to answer. Playing a song on Soloist from the Spotify app can help."
 msgstr ""
 
 #: src/ui/soloist.rs:674
@@ -2403,8 +2320,7 @@ msgid "Spotify hasn't listed Soloist yet"
 msgstr ""
 
 #: src/ui/soloist.rs:774
-msgid ""
-"Soloist is running. Playing a song on it from the Spotify app usually helps."
+msgid "Soloist is running. Playing a song on it from the Spotify app usually helps."
 msgstr ""
 
 #: src/ui/soloist.rs:802
@@ -2461,9 +2377,7 @@ msgid "Turn off"
 msgstr ""
 
 #: src/soloist/mod.rs:73
-msgid ""
-"Spotify has not published Soloist for this platform. The built-in player "
-"remains available."
+msgid "Spotify has not published Soloist for this platform. The built-in player remains available."
 msgstr ""
 
 #: src/soloist/mod.rs:77
@@ -2475,20 +2389,15 @@ msgid "That doesn't look like a Soloist key."
 msgstr ""
 
 #: src/soloist/mod.rs:82
-msgid ""
-"Spotifast couldn't reach your saved key. Unlock the system credential store "
-"and try again."
+msgid "Spotifast couldn't reach your saved key. Unlock the system credential store and try again."
 msgstr ""
 
 #: src/soloist/mod.rs:86
-msgid ""
-"Spotifast couldn't download Soloist. Check your connection and try again."
+msgid "Spotifast couldn't download Soloist. Check your connection and try again."
 msgstr ""
 
 #: src/soloist/mod.rs:90
-msgid ""
-"Soloist stopped while starting. Check your key and this computer's audio "
-"service."
+msgid "Soloist stopped while starting. Check your key and this computer's audio service."
 msgstr ""
 
 #: src/soloist/mod.rs:92
@@ -2508,8 +2417,7 @@ msgid "Soloist lost its audio output."
 msgstr ""
 
 #: src/soloist/mod.rs:98
-msgid ""
-"This Soloist build has expired, and Spotify hasn't published a new one yet."
+msgid "This Soloist build has expired, and Spotify hasn't published a new one yet."
 msgstr ""
 
 #: src/api/models.rs:296
@@ -2608,9 +2516,7 @@ msgid "Loading local themes…"
 msgstr ""
 
 #: src/theme.rs:209
-msgid ""
-"The selected theme is unavailable. Keeping the last usable appearance. See "
-"the log for details."
+msgid "The selected theme is unavailable. Keeping the last usable appearance. See the log for details."
 msgstr ""
 
 #: src/theme.rs:213
@@ -2618,26 +2524,19 @@ msgid "The themes folder could not be read. See the log for details."
 msgstr ""
 
 #: src/theme.rs:217
-msgid ""
-"The themes folder has more than 512 entries. Keep fewer files there to list "
-"the custom palettes."
+msgid "The themes folder has more than 512 entries. Keep fewer files there to list the custom palettes."
 msgstr ""
 
 #: src/theme.rs:221
-msgid ""
-"Only 128 custom palettes can be listed. Keep fewer JSON files in the themes "
-"folder to see the rest."
+msgid "Only 128 custom palettes can be listed. Keep fewer JSON files in the themes folder to see the rest."
 msgstr ""
 
 #: src/theme.rs:225
-msgid ""
-"The Omarchy palette could not be loaded. Keeping the last usable appearance. "
-"See the log for details."
+msgid "The Omarchy palette could not be loaded. Keeping the last usable appearance. See the log for details."
 msgstr ""
 
 #: src/theme.rs:229
-msgid ""
-"Custom themes could not be loaded. Run spotifast reload-themes to try again."
+msgid "Custom themes could not be loaded. Run spotifast reload-themes to try again."
 msgstr ""
 
 #: src/ui/artist.rs:35
@@ -2855,10 +2754,7 @@ msgid "Register Spotifast with Spotify"
 msgstr ""
 
 #: src/ui/dialogs.rs:46
-msgid ""
-"You're on the shared sign-in Spotifast used before. Spotifast no longer "
-"offers it, and Spotify can stop accepting it at any time. Register Spotifast "
-"so nothing stops your music. It takes about two minutes."
+msgid "You're on the shared sign-in Spotifast used before. Spotifast no longer offers it, and Spotify can stop accepting it at any time. Register Spotifast so nothing stops your music. It takes about two minutes."
 msgstr ""
 
 #: src/ui/dialogs.rs:64
@@ -2907,9 +2803,7 @@ msgid "This account cannot play music here"
 msgstr ""
 
 #: src/ui/dialogs.rs:213
-msgid ""
-"Playback needs Spotify Premium. Free accounts can browse and search, but "
-"cannot play music through Spotifast."
+msgid "Playback needs Spotify Premium. Free accounts can browse and search, but cannot play music through Spotifast."
 msgstr ""
 
 #: src/ui/dialogs.rs:222
@@ -2945,12 +2839,8 @@ msgstr ""
 #. Translators: {first} and {second} are song names, {count} is how many more songs are already in the playlist, and {playlist} is a playlist name.
 #: src/ui/dialogs.rs:301
 #, rust-format
-msgid ""
-"“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add "
-"them anyway?"
-msgid_plural ""
-"“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add "
-"them anyway?"
+msgid "“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add them anyway?"
+msgid_plural "“{first}”, “{second}”, and {count} more are already in “{playlist}”. Add them anyway?"
 msgstr[0] ""
 msgstr[1] ""
 
@@ -3277,27 +3167,19 @@ msgid "Spotifast {version} • not affiliated with Spotify"
 msgstr ""
 
 #: src/ui/login.rs:170
-msgid ""
-"That doesn't look like a Client ID. It is 32 letters and digits, shown on "
-"Spotify's page for your registration."
+msgid "That doesn't look like a Client ID. It is 32 letters and digits, shown on Spotify's page for your registration."
 msgstr ""
 
 #: src/ui/login.rs:174
-msgid ""
-"Spotify doesn't know this Client ID. Copy it again from Spotify's developer "
-"dashboard."
+msgid "Spotify doesn't know this Client ID. Copy it again from Spotify's developer dashboard."
 msgstr ""
 
 #: src/ui/login.rs:178
-msgid ""
-"Spotify didn't let this account use this Client ID. Sign in with the Spotify "
-"account that registered it, which needs Premium."
+msgid "Spotify didn't let this account use this Client ID. Sign in with the Spotify account that registered it, which needs Premium."
 msgstr ""
 
 #: src/ui/login.rs:182
-msgid ""
-"Spotify no longer accepts the shared sign-in Spotifast used before. Register "
-"Spotifast to keep listening."
+msgid "Spotify no longer accepts the shared sign-in Spotifast used before. Register Spotifast to keep listening."
 msgstr ""
 
 #: src/ui/login.rs:219
@@ -3314,9 +3196,7 @@ msgstr ""
 
 #: src/ui/login.rs:257
 #, rust-format
-msgid ""
-"If Spotify says “Invalid redirect URI”, add {uri} to your registration "
-"exactly, save, and sign in again."
+msgid "If Spotify says “Invalid redirect URI”, add {uri} to your registration exactly, save, and sign in again."
 msgstr ""
 
 #: src/ui/login.rs:310
@@ -3324,9 +3204,7 @@ msgid "Sign in with Spotify"
 msgstr ""
 
 #: src/ui/login.rs:321
-msgid ""
-"Sign in through your browser. Spotifast never sees your password. Local "
-"playback needs Spotify Premium."
+msgid "Sign in through your browser. Spotifast never sees your password. Local playback needs Spotify Premium."
 msgstr ""
 
 #: src/ui/login.rs:330
@@ -3338,15 +3216,11 @@ msgid "Proxy Settings"
 msgstr ""
 
 #: src/ui/login.rs:404
-msgid ""
-"A Client ID is 32 letters and digits. Copy it from Spotify's developer "
-"dashboard."
+msgid "A Client ID is 32 letters and digits. Copy it from Spotify's developer dashboard."
 msgstr ""
 
 #: src/ui/login.rs:464
-msgid ""
-"Spotify asks you to register Spotifast once, on an account with Premium. It "
-"takes about two minutes and gives you a Client ID."
+msgid "Spotify asks you to register Spotifast once, on an account with Premium. It takes about two minutes and gives you a Client ID."
 msgstr ""
 
 #: src/ui/login.rs:474
@@ -3354,8 +3228,7 @@ msgid "Open Spotify's developer dashboard."
 msgstr ""
 
 #: src/ui/login.rs:495
-msgid ""
-"Click Create app, Spotify's name for this registration. Any name will do."
+msgid "Click Create app, Spotify's name for this registration. Any name will do."
 msgstr ""
 
 #: src/ui/login.rs:503
@@ -3375,9 +3248,7 @@ msgid "Spotify is being slow on the shared sign-in."
 msgstr ""
 
 #: src/ui/mod.rs:412
-msgid ""
-"Spotifast no longer offers the shared sign-in, and Spotify can stop "
-"accepting it at any time. Register Spotifast and you won't have to wait."
+msgid "Spotifast no longer offers the shared sign-in, and Spotify can stop accepting it at any time. Register Spotifast and you won't have to wait."
 msgstr ""
 
 #. Translators: a button that opens a page explaining why
@@ -3387,10 +3258,7 @@ msgid "Why?"
 msgstr ""
 
 #: src/ui/mod.rs:446
-msgid ""
-"Spotify refused the key that unlocks the audio. Spotifast can't fix that, "
-"but it sometimes clears up on its own. You can still play on your phone or "
-"another Spotify device."
+msgid "Spotify refused the key that unlocks the audio. Spotifast can't fix that, but it sometimes clears up on its own. You can still play on your phone or another Spotify device."
 msgstr ""
 
 #: src/ui/mod.rs:451
@@ -3627,8 +3495,7 @@ msgid "What do you want to play?"
 msgstr ""
 
 #: src/ui/topbar.rs:546
-msgid ""
-"Spotifast is offline. Reconnecting automatically when connection returns."
+msgid "Spotifast is offline. Reconnecting automatically when connection returns."
 msgstr ""
 
 #: src/ui/topbar.rs:574
@@ -3729,9 +3596,7 @@ msgstr ""
 
 #. Translators: a command to copy follows.
 #: src/ui/update.rs:296
-msgid ""
-"Installed from a DEB package. Download the new one, then install it with "
-"this command:"
+msgid "Installed from a DEB package. Download the new one, then install it with this command:"
 msgstr ""
 
 #. Translators: a command to copy follows.
@@ -3741,9 +3606,7 @@ msgstr ""
 
 #. Translators: a command to copy follows.
 #: src/ui/update.rs:306
-msgid ""
-"Installed from a Flatpak bundle. Download the new one, then install it with "
-"this command:"
+msgid "Installed from a Flatpak bundle. Download the new one, then install it with this command:"
 msgstr ""
 
 #: src/ui/winamp/equalizer.rs:59
@@ -4056,18 +3919,28 @@ msgid "Open page"
 msgstr ""
 
 #: src/window.rs:51
-msgid ""
-"On Windows on ARM, the OpenGL that Spotifast draws with comes from "
-"Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft "
-"Store page to install or repair it?"
+msgid "On Windows on ARM, the OpenGL that Spotifast draws with comes from Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its Microsoft Store page to install or repair it?"
 msgstr ""
 
 #. Translators: Keep {url} exactly as written. It becomes the address
 #. of the Spotifast download page.
 #: src/window.rs:58
 #, rust-format
-msgid ""
-"Spotifast needs a graphics driver with OpenGL 2.0 or newer, and this PC or "
-"virtual machine does not provide one. Install the graphics driver, or turn "
-"on GPU acceleration for the virtual machine. Open {url} to read more?"
+msgid "Spotifast needs a graphics driver with OpenGL 2.0 or newer, and this PC or virtual machine does not provide one. Install the graphics driver, or turn on GPU acceleration for the virtual machine. Open {url} to read more?"
+msgstr ""
+
+#: src/app.rs:3261
+msgid "Spotify's new Soloist build kept crashing on this computer, so Spotifast went back to the previous one."
+msgstr ""
+
+#: src/ui/settings.rs:758
+msgid "Download updates automatically"
+msgstr ""
+
+#: src/ui/settings.rs:834
+msgid "Downloads in the background. You choose when to restart."
+msgstr ""
+
+#: src/soloist/mod.rs:105
+msgid "Spotify's current Soloist build keeps crashing on this computer. Use the built-in player until Spotify publishes a new one."
 msgstr ""

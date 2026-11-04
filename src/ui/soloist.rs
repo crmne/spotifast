@@ -138,13 +138,18 @@ pub fn onboarding(app: &mut App, ui: &mut egui::Ui) {
                             }
                             ui.add_space(6.0);
                         }
-                        if theme::link(
-                            ui,
-                            gettext(locale, "Use the built-in player"),
-                            theme::regular(13.0),
-                            palette.secondary,
-                        )
-                        .clicked()
+                        // A bad build's card offers the built-in player itself.
+                        let offered =
+                            matches!(app.soloist_status, Status::Failed(Failure::BadBuild))
+                                && app.soloist_retry_at.is_none();
+                        if !offered
+                            && theme::link(
+                                ui,
+                                gettext(locale, "Use the built-in player"),
+                                theme::regular(13.0),
+                                palette.secondary,
+                            )
+                            .clicked()
                         {
                             app.actions.push(Action::UseBuiltInPlayer);
                         }
@@ -692,6 +697,25 @@ fn failed(app: &mut App, ui: &mut egui::Ui, failure: &Failure) {
         &failure.message(locale),
     );
     ui.add_space(24.0);
+    // Only Spotify's next build helps a bad one, so the built-in player
+    // comes first, and trying again looks for that build.
+    if *failure == Failure::BadBuild {
+        if super::login::big_button(ui, app, &gettext(locale, "Use the built-in player")) {
+            app.actions.push(Action::UseBuiltInPlayer);
+        }
+        ui.add_space(12.0);
+        if theme::link(
+            ui,
+            gettext(locale, "Try again"),
+            theme::regular(13.0),
+            palette.secondary,
+        )
+        .clicked()
+        {
+            app.actions.push(Action::RetrySoloist);
+        }
+        return;
+    }
     if super::login::big_button(ui, app, &gettext(locale, "Try again")) {
         app.actions.push(Action::RetrySoloist);
     }
@@ -730,6 +754,15 @@ pub fn banner(app: &mut App, ui: &mut egui::Ui) {
             let text = format!("{} {browsing}", failure.message(locale));
             (reconnecting, text.into(), true, vec![])
         }
+        Status::Failed(Failure::BadBuild) => (
+            gettext(locale, "Soloist isn't running"),
+            Failure::BadBuild.message(locale),
+            false,
+            vec![
+                built_in,
+                (gettext(locale, "Try again"), Action::RetrySoloist),
+            ],
+        ),
         Status::Failed(failure) => (
             gettext(locale, "Soloist isn't running"),
             failure.message(locale),
