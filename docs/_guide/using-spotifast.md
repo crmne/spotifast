@@ -297,6 +297,12 @@ for six seconds the slider keeps your level over such a report. If the volume
 request fails, an error appears and the slider returns to the reported level.
 The seek slider previews on press and seeks on release.
 
+During podcast playback, the outer buttons skip backward or forward 15 seconds
+in place of Shuffle and Repeat. Previous and Next stay beside Play. Skipping
+keeps playback playing or paused and stops at the beginning or the known end of
+the episode. Skipping also works when the duration is unavailable. Music
+controls and keyboard shortcuts are unchanged.
+
 The default local output smooths volume and mute changes over 30 ms. Explicit
 track changes and play/pause/stop use nominal 50 ms fades. Stopping can shorten
 the fade to the queued audio. Natural track transitions remain gapless.

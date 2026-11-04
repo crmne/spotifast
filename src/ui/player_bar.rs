@@ -684,7 +684,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 const TRANSPORT_WIDTHS: [f32; 5] = [29.0, 30.0, 36.0, 30.0, 29.0];
 const TRANSPORT_GAP: f32 = 10.0;
 
-/// The transport's buttons from Shuffle to Repeat, centred in the bar.
+/// The five transport buttons, centred in the bar.
 fn transport_width() -> f32 {
     TRANSPORT_WIDTHS.iter().sum::<f32>() + TRANSPORT_GAP * 4.0
 }
@@ -704,6 +704,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     let enabled = now.is_some_and(|now| now.can_control) || app.is_connected();
     let playing = now.is_some_and(|now| now.playing);
     let loading = now.is_some_and(|now| now.loading);
+    let episode = now.is_some_and(|now| now.is_episode);
     let shuffle = now.map_or_else(|| app.playing_context_shuffle(), |now| now.shuffle);
     let repeat = now.map(|now| now.repeat).unwrap_or_default();
     let dim = if enabled {
@@ -727,30 +728,51 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         )
     };
 
-    let shuffle_color = if shuffle { palette.accent } else { dim };
+    let shuffle_color = if shuffle && !episode {
+        palette.accent
+    } else {
+        dim
+    };
     let mut cell = centered(ui, slot(widths[0]));
-    let shuffle_button = theme::icon_button(
+    if episode && now.is_some_and(|now| !now.can_control) {
+        cell.disable();
+    }
+    let back_button = theme::icon_button(
         &mut cell,
-        Icon::Shuffle,
+        if episode {
+            Icon::Rewind15
+        } else {
+            Icon::Shuffle
+        },
         17.0,
         shuffle_color,
-        if shuffle {
+        if shuffle && !episode {
             palette.accent_hover
         } else {
             palette.text
         },
-        &gettext(app.locale, "Shuffle"),
+        &if episode {
+            gettext(app.locale, "Skip backward 15 seconds")
+        } else {
+            gettext(app.locale, "Shuffle")
+        },
     );
-    shuffle_button.widget_info(|| {
-        egui::WidgetInfo::selected(
-            egui::WidgetType::Checkbox,
-            cell.is_enabled(),
-            shuffle,
-            gettext(app.locale, "Shuffle"),
-        )
-    });
-    if shuffle_button.clicked() {
-        app.actions.push(Action::ToggleShuffle);
+    if !episode {
+        back_button.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::Checkbox,
+                cell.is_enabled(),
+                shuffle,
+                gettext(app.locale, "Shuffle"),
+            )
+        });
+    }
+    if back_button.clicked() {
+        app.actions.push(if episode {
+            Action::SeekBy(-15_000)
+        } else {
+            Action::ToggleShuffle
+        });
     }
 
     let mut cell = centered(ui, slot(widths[1]));
@@ -822,26 +844,37 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         app.actions.push(Action::Next);
     }
 
-    let (repeat_icon, repeat_color, tooltip) = match repeat {
-        RepeatMode::Off => (Icon::Repeat, dim, gettext(app.locale, "Repeat")),
-        RepeatMode::Context => (
-            Icon::Repeat,
-            palette.accent,
-            gettext(app.locale, "Repeat one"),
-        ),
-        RepeatMode::Track => (
-            Icon::Repeat1,
-            palette.accent,
-            gettext(app.locale, "Repeat off"),
-        ),
+    let (repeat_icon, repeat_color, tooltip) = if episode {
+        (
+            Icon::Forward15,
+            dim,
+            gettext(app.locale, "Skip forward 15 seconds"),
+        )
+    } else {
+        match repeat {
+            RepeatMode::Off => (Icon::Repeat, dim, gettext(app.locale, "Repeat")),
+            RepeatMode::Context => (
+                Icon::Repeat,
+                palette.accent,
+                gettext(app.locale, "Repeat one"),
+            ),
+            RepeatMode::Track => (
+                Icon::Repeat1,
+                palette.accent,
+                gettext(app.locale, "Repeat off"),
+            ),
+        }
     };
     let mut cell = centered(ui, slot(widths[4]));
+    if episode && now.is_some_and(|now| !now.can_control) {
+        cell.disable();
+    }
     if theme::icon_button(
         &mut cell,
         repeat_icon,
         17.0,
         repeat_color,
-        if repeat == RepeatMode::Off {
+        if episode || repeat == RepeatMode::Off {
             palette.text
         } else {
             palette.accent_hover
@@ -850,7 +883,11 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     )
     .clicked()
     {
-        app.actions.push(Action::CycleRepeat);
+        app.actions.push(if episode {
+            Action::SeekBy(15_000)
+        } else {
+            Action::CycleRepeat
+        });
     }
 
     // Progress row, just below the buttons (disc bottom + 6px gap + half of
