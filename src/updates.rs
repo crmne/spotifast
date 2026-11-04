@@ -12,6 +12,15 @@
 //! then says how it was installed and shows the command that updates it,
 //! with a Copy button ([`Notice`]); Spotifast never runs it.
 
+//!
+//! A copy that can replace itself updates on its own, by fastframe-update's
+//! shared rules ([`policy`]): a newer release on the same major version
+//! downloads in the background (not on a metered connection or without
+//! internet) and installs at the next start, before the window opens,
+//! unless the person turned **Update automatically** off or went back to an
+//! older version on purpose. Restart to update still installs it at once.
+
+pub use fastframe_update::policy::{self, Offer};
 pub use fastframe_update::{
     CHECK_INTERVAL, DownloadState, Installation, Kind, Manager, Prepared, Release, Source,
     Unsupported, Updater,
@@ -19,6 +28,9 @@ pub use fastframe_update::{
 use fastframe_update::{MacConfig, ManagedUpdate, ReqwestTransport, UpdateConfig};
 use std::path::Path;
 use std::sync::Mutex;
+
+/// The version this build is.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Where the release files are.
 const DOWNLOADS: &str = "https://github.com/crmne/spotifast/releases/download";
@@ -82,6 +94,52 @@ fn cached_updater(
     let updater = create()?;
     *cached = Some((proxy.clone(), updater.clone()));
     Ok(updater)
+}
+
+/// How `release` reaches a copy that can install it: on its own
+/// ([`Offer::Automatic`]) or when the person asks. `newest_run` is the
+/// newest version that ran here ([`Settings::newest_run`](crate::settings::Settings::newest_run)).
+pub fn offer(release: &str, automatic: bool, newest_run: Option<&str>) -> Offer {
+    policy::offer(VERSION, release, automatic, Ok(()), newest_run)
+}
+
+/// At a start, before anything opens: hands the update an earlier run
+/// downloaded to the helper when it installs on its own. `true` when the
+/// helper took it and this process must quit now; it relaunches Spotifast
+/// with `arguments` once the new version is in place.
+pub fn install_kept(automatic: bool, newest_run: Option<&str>, arguments: Vec<String>) -> bool {
+    let updater = Updater::new(CONFIG, NoNetwork);
+    let prepared = match updater.kept() {
+        Ok(Some(prepared)) => prepared,
+        Ok(None) => return false,
+        Err(error) => {
+            log::warn!("the update downloaded earlier failed its checks: {error:#}");
+            return false;
+        }
+    };
+    let version = prepared.version().to_owned();
+    if !policy::installs_at_start(VERSION, &version, automatic, newest_run, true) {
+        log::info!("keeping the downloaded update {version} for when it is asked for");
+        return false;
+    }
+    log::info!("installing the update {version} downloaded earlier");
+    match updater.handoff(prepared, arguments) {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!("could not install the update {version} at start: {error:#}");
+            false
+        }
+    }
+}
+
+/// A transport for work that never reaches the network: a kept download
+/// and its handoff are checked against what was stored beside the app.
+struct NoNetwork;
+
+impl fastframe_update::Transport for NoNetwork {
+    fn get(&self, _: &fastframe_update::Request<'_>) -> anyhow::Result<fastframe_update::Response> {
+        anyhow::bail!("installing at start reads nothing from the network")
+    }
 }
 
 /// Whether this copy can install the release it was checked against, or
@@ -372,6 +430,39 @@ mod tests {
     #[test]
     fn appimages_update_themselves() {
         const { assert!(CONFIG.appimage) };
+    }
+
+    /// A start with nothing downloaded starts as usual.
+    #[test]
+    fn a_start_with_nothing_downloaded_installs_nothing() {
+        assert!(!install_kept(true, Some(VERSION), Vec::new()));
+    }
+
+    /// Spotifast's releases stay on major version 0, so every release
+    /// installs on its own until the person turns it off or goes back.
+    #[test]
+    fn a_newer_release_installs_on_its_own_unless_the_person_went_back() {
+        let major: u64 = VERSION.split('.').next().unwrap().parse().unwrap();
+        let next = format!("{major}.999.0");
+        assert_eq!(offer(&next, true, Some(VERSION)), Offer::Automatic);
+        assert_ne!(offer(&next, false, Some(VERSION)), Offer::Automatic);
+        // Went back from `next`: offered, never installed on its own, and
+        // its download is not installed at the next start either.
+        assert_ne!(offer(&next, true, Some(&next)), Offer::Automatic);
+        assert!(!policy::installs_at_start(
+            VERSION,
+            &next,
+            true,
+            Some(&next),
+            true
+        ));
+        assert!(policy::installs_at_start(
+            VERSION,
+            &next,
+            true,
+            Some(VERSION),
+            true
+        ));
     }
 
     fn managed(manager: Manager, command: &str) -> Option<Managed> {

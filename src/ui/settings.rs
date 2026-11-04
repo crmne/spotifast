@@ -755,7 +755,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let audio_cache = gettext(locale, "Audio cache");
     let apply_playback = gettext(locale, "Apply and restart playback");
     let apply_playback_note = gettext(locale, "Restart local playback to apply these settings.");
-    let download_updates = gettext(locale, "Download updates automatically");
+    let update_automatically_label = gettext(locale, "Update automatically");
     let show_in_dock = gettext(locale, "Show in Dock");
     let start_with_computer = gettext(locale, "Start with your computer");
     let start_choice = app.start_with_computer();
@@ -828,10 +828,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         RowText::new(apply_playback.clone(), apply_playback_note.clone()).when(playback_dirty),
         RowText::new(gettext(locale, "Playback settings applied"), "").when(!playback_dirty),
         RowText::new(
-            download_updates.clone(),
+            update_automatically_label.clone(),
             gettext(
                 locale,
-                "Downloads in the background. You choose when to restart.",
+                "Downloads new releases in the background and installs them the next time Spotifast starts.",
             ),
         ),
         RowText::new(
@@ -1106,8 +1106,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 if widgets::switch(
                     ui,
                     &palette,
-                    &download_updates,
-                    &mut app.settings.download_updates_automatically,
+                    &update_automatically_label,
+                    &mut app.settings.update_automatically,
                 )
                 .changed()
                 {

@@ -404,11 +404,21 @@ random token). Use the command rather than the channel itself.
 ## Updates
 
 The Windows installer, Mac app, AppImage, and portable Windows and Linux
-downloads update from inside Spotifast. Click the green update button to download a
-release, then choose when to restart and install it. Settings can enable
-automatic background downloads; restarting always waits for your click.
-Closing the update window keeps a download running. You can also check for a
-new release from Settings, or on macOS from the application menu.
+downloads update themselves. When Spotifast finds a new release, it
+downloads it in the background (not on a metered connection or without
+internet) and the green button at the top reads **Update ready**. Click it
+and choose **Restart to update** to install it now; otherwise it installs
+the next time Spotifast starts, before its window opens, and the new
+version opens in its place. Nothing restarts while you listen.
+
+Turn **Update automatically** off in Settings to decide each time: the green
+update button then downloads a release when you click it. A new major
+version always asks first. So does going back: if you install an older
+version than one you ran before, Spotifast still shows the newer releases
+but installs none of them on its own until one newer than the version you
+left comes out. Closing the update window keeps a download running. You can
+also check for a new release from Settings, or on macOS from the
+application menu.
 **Release notes** in **Settings > About** opens the GitHub release page of
 the version you are running, to read what changed.
 

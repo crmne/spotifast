@@ -122,6 +122,20 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         )
                         .wrap(),
                     );
+                    if app.update_offer() == Some(crate::updates::Offer::Automatic) {
+                        ui.add_space(6.0);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(gettext(
+                                    locale,
+                                    "Otherwise it installs the next time Spotifast starts.",
+                                ))
+                                .font(theme::regular(14.0))
+                                .color(palette.secondary),
+                            )
+                            .wrap(),
+                        );
+                    }
                     action = Some((gettext(locale, "Restart to update"), Action::InstallUpdate));
                 }
                 DownloadState::Installing => {

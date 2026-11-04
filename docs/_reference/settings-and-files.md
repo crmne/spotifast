@@ -430,6 +430,8 @@ main fields are:
 | `mac_notch_widget` | `false` | Show interactive Now Playing widget when hovering over the MacBook notch (macOS only) |
 | `mac_show_in_dock` | `true` | macOS only: show Spotifast in the Dock and Cmd+Tab. `false` keeps it in the menu bar only; the menu-bar icon always stays |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
+| `update_automatically` | `true` | Download a newer release on the same major version in the background and install it at the next start. Replaces `download_updates_automatically` (off by default, downloads only), which is no longer read |
+| `newest_run` | none | The newest version that ran on this computer, so a person who went back to an older one is not updated past it on its own. Kept by the app, not a preference |
 | `web_client_id` | none | The Client ID you got by registering Spotifast, which it signs in with |
 | `personal_app_nudge_at` | none | Legacy daily-reminder timestamp, retained for older releases |
 | `personal_app_intro_seen` | `false` | Whether the Premium personal-app introduction was dismissed or followed (available since 0.8.0) |

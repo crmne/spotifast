@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-04 16:20+0100\n"
+"POT-Creation-Date: 2026-11-04 16:29+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -28,12 +28,12 @@ msgstr "Pausa {name}"
 msgid "Play {name}"
 msgstr "Spela {name}"
 
-#: src/ui/sidebar.rs:302 src/app.rs:4062 src/app.rs:25893
+#: src/ui/sidebar.rs:302 src/app.rs:4065 src/app.rs:25922
 #: src/ui/collection.rs:2326 src/ui/collection.rs:2555
 msgid "Playlist"
 msgstr "Spellista"
 
-#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:4036 src/app.rs:25898
+#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:4039 src/app.rs:25927
 #: src/ui/collection.rs:2548 src/ui/home.rs:93 src/ui/keys.rs:376
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -79,7 +79,7 @@ msgstr "Spellista • {owner}"
 msgid "Home"
 msgstr "Hem"
 
-#: src/ui/sidebar.rs:1056 src/app.rs:9518 src/ui/keys.rs:355
+#: src/ui/sidebar.rs:1056 src/app.rs:9521 src/ui/keys.rs:355
 msgid "Search"
 msgstr "Sök"
 
@@ -111,7 +111,7 @@ msgstr "Sök i biblioteket"
 msgid "Library"
 msgstr "Bibliotek"
 
-#: src/ui/sidebar.rs:1172 src/app.rs:9492 src/model.rs:807 src/ui/search.rs:668
+#: src/ui/sidebar.rs:1172 src/app.rs:9495 src/model.rs:807 src/ui/search.rs:668
 msgid "Playlists"
 msgstr "Spellistor"
 
@@ -139,7 +139,7 @@ msgstr "Av dig"
 msgid "Search in Your Library"
 msgstr "Sök i ditt bibliotek"
 
-#: src/ui/sidebar.rs:1320 src/ui/widgets.rs:1211 src/app.rs:4097
+#: src/ui/sidebar.rs:1320 src/ui/widgets.rs:1211 src/app.rs:4100
 #: src/ui/artist.rs:267 src/ui/artist.rs:462 src/ui/home.rs:791
 #: src/ui/library.rs:101 src/ui/search.rs:159 src/ui/search.rs:491
 #: src/ui/winamp/playlist.rs:746
@@ -230,7 +230,7 @@ msgstr "Klicka för att byta visualisering"
 msgid "Nothing playing"
 msgstr "Inget spelas"
 
-#: src/ui/player_bar.rs:446 src/app.rs:11094
+#: src/ui/player_bar.rs:446 src/app.rs:11097
 msgid "Pick a song, album, or playlist"
 msgstr "Välj en låt, ett album eller en spellista"
 
@@ -258,7 +258,7 @@ msgid "Previous"
 msgstr "Föregående"
 
 #: src/ui/player_bar.rs:778 src/ui/lyrics.rs:475 src/ui/widgets.rs:2862
-#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:15118
+#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:15147
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "Läser in…"
@@ -659,7 +659,7 @@ msgstr "SPELNINGAR"
 msgid "Sort by duration"
 msgstr "Sortera efter längd"
 
-#: src/ui/widgets.rs:2975 src/app.rs:15327 src/app.rs:15341
+#: src/ui/widgets.rs:2975 src/app.rs:15356 src/app.rs:15370
 msgid "Network connection error. Check your connection."
 msgstr "Nätverksanslutningsfel. Kontrollera din anslutning."
 
@@ -721,7 +721,7 @@ msgstr ""
 "Spotifys värdnamn slås upp av proxyn. Lokal uppspelning ansluter direkt."
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/ui/widgets.rs:3787 src/app.rs:13153
+#: src/ui/widgets.rs:3787 src/app.rs:13156
 msgid "Copied"
 msgstr "Kopierat"
 
@@ -795,22 +795,22 @@ msgstr ""
 "inställningar sparas inte än."
 
 #. Translators: {version} is a version number such as 1.4.0.
-#: src/app.rs:3180
+#: src/app.rs:3183
 #, rust-format
 msgid "Spotifast {version} is available"
 msgstr "Spotifast {version} finns tillgänglig"
 
-#: src/app.rs:3191
+#: src/app.rs:3194
 msgid "Spotifast is up to date"
 msgstr "Spotifast är uppdaterat"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:3199
+#: src/app.rs:3202
 #, rust-format
 msgid "Couldn't check for updates: {error}"
 msgstr "Kunde inte söka efter uppdateringar: {error}"
 
-#: src/app.rs:3273
+#: src/app.rs:3276
 msgid ""
 "Soloist could not download its renewal. It will retry tomorrow; the current "
 "build is still installed."
@@ -818,43 +818,43 @@ msgstr ""
 "Soloist kunde inte hämta den nya versionen. Ett nytt försök görs i morgon; "
 "den nuvarande versionen är fortfarande installerad."
 
-#: src/app.rs:3521
+#: src/app.rs:3524
 #, rust-format
 msgid "Spotify connection: {error}"
 msgstr "Spotify-anslutning: {error}"
 
-#: src/app.rs:3523
+#: src/app.rs:3526
 #, rust-format
 msgid "Local playback: {error}"
 msgstr "Lokal uppspelning: {error}"
 
-#: src/app.rs:3531
+#: src/app.rs:3534
 msgid "Opening your browser to connect Spotify"
 msgstr "Öppnar webbläsaren för att ansluta Spotify"
 
-#: src/app.rs:3533
+#: src/app.rs:3536
 msgid "Opening your browser to set up local playback"
 msgstr "Öppnar webbläsaren för att konfigurera lokal uppspelning"
 
-#: src/app.rs:3926
+#: src/app.rs:3929
 msgid "Spotify audio disconnected. Reconnecting local playback"
 msgstr "Spotify-ljudet kopplades från. Återansluter lokal uppspelning"
 
-#: src/app.rs:4044 src/app/radio.rs:191 src/ui/radio.rs:35 src/ui/radio.rs:77
+#: src/app.rs:4047 src/app/radio.rs:191 src/ui/radio.rs:35 src/ui/radio.rs:77
 msgid "Radio"
 msgstr "Radio"
 
-#: src/app.rs:4078 src/api/models.rs:299 src/ui/artist.rs:379
+#: src/app.rs:4081 src/api/models.rs:299 src/ui/artist.rs:379
 #: src/ui/prerelease.rs:78
 msgid "Album"
 msgstr "Album"
 
-#: src/app.rs:4116 src/ui/show.rs:189
+#: src/app.rs:4119 src/ui/show.rs:189
 msgid "Podcast"
 msgstr "Podd"
 
 #. Translators: {count} is the number of visualizer presets added.
-#: src/app.rs:4753
+#: src/app.rs:4756
 #, rust-format
 msgid "Added {count} MilkDrop preset"
 msgid_plural "Added {count} MilkDrop presets"
@@ -862,37 +862,37 @@ msgstr[0] "{count} MilkDrop-förinställning tillagd"
 msgstr[1] "{count} MilkDrop-förinställningar tillagda"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:4769
+#: src/app.rs:4772
 #, rust-format
 msgid "Couldn't fetch presets: {error}"
 msgstr "Kunde inte hämta förinställningar: {error}"
 
-#: src/app.rs:4862
+#: src/app.rs:4865
 msgid "Downloading MilkDrop preset packs"
 msgstr "Laddar ned MilkDrop-förinställningspaket"
 
 #. Translators: {folder} is a folder path and {error} is an error message.
-#: src/app.rs:5053
+#: src/app.rs:5056
 #, rust-format
 msgid "Couldn't open {folder}: {error}"
 msgstr "Kunde inte öppna {folder}: {error}"
 
 #. Translators: {skin} is the name of a Winamp skin.
-#: src/app.rs:5338
+#: src/app.rs:5341
 #, rust-format
 msgid "Added {skin} skin"
 msgstr "Skin {skin} tillagd"
 
-#: src/app.rs:5439
+#: src/app.rs:5442
 msgid "Proxy applied. Restarting local playback."
 msgstr "Proxyn tillämpades. Startar om lokal uppspelning."
 
-#: src/app.rs:5441
+#: src/app.rs:5444
 msgid "Proxy settings applied"
 msgstr "Proxyinställningar tillämpade"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:5448
+#: src/app.rs:5451
 #, rust-format
 msgid ""
 "Proxy could not be applied: {error}. Previous connection settings are still "
@@ -901,201 +901,201 @@ msgstr ""
 "Proxyn kunde inte tillämpas: {error}. De tidigare anslutningsinställningarna "
 "används fortfarande."
 
-#: src/app.rs:7040
+#: src/app.rs:7043
 msgid ""
 "Spotify hasn't confirmed your playlist changes yet. Try refreshing again."
 msgstr ""
 "Spotify har inte bekräftat ändringarna i din spellista än. Försök uppdatera "
 "igen."
 
-#: src/app.rs:7518
+#: src/app.rs:7521
 msgid "Queue cleared"
 msgstr "Kön rensad"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7548 src/app.rs:25883
+#: src/app.rs:7551 src/app.rs:25912
 #, rust-format
 msgid "Queue {date}"
 msgstr "Kö {date}"
 
-#: src/app.rs:8182 src/ui/login.rs:185
+#: src/app.rs:8185 src/ui/login.rs:185
 msgid "Your Spotify sign-in expired. Please sign in again."
 msgstr "Din Spotify-inloggning har gått ut. Logga in igen."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8189
+#: src/app.rs:8192
 #, rust-format
 msgid "Couldn't load your profile: {error}"
 msgstr "Kunde inte läsa in din profil: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8251
+#: src/app.rs:8254
 #, rust-format
 msgid "Couldn't list devices: {error}"
 msgstr "Kunde inte lista enheter: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:8736
+#: src/app.rs:8739
 #, rust-format
 msgid "Couldn't load more playlists: {error}"
 msgstr "Kunde inte läsa in fler spellistor: {error}"
 
 #. Translators: {name} is a playlist name.
-#: src/app.rs:8984
+#: src/app.rs:8987
 #, rust-format
 msgid "Created {name}"
 msgstr "Skapade {name}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9010
+#: src/app.rs:9013
 #, rust-format
 msgid "Couldn't create the playlist: {error}"
 msgstr "Kunde inte skapa spellistan: {error}"
 
-#: src/app.rs:9064
+#: src/app.rs:9067
 msgid "Playlist cover updated"
 msgstr "Spellistans omslag uppdaterat"
 
-#: src/app.rs:9073
+#: src/app.rs:9076
 msgid "Playlist updated"
 msgstr "Spellistan uppdaterad"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9083 src/app.rs:9202
+#: src/app.rs:9086 src/app.rs:9205
 #, rust-format
 msgid "Couldn't update the playlist: {error}"
 msgstr "Kunde inte uppdatera spellistan: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9158
+#: src/app.rs:9161
 #, rust-format
 msgid "Playlist change failed: {error}"
 msgstr "Ändringen av spellistan misslyckades: {error}"
 
-#: src/app.rs:9186
+#: src/app.rs:9189
 msgid "Added to Your Library"
 msgstr "Tillagt i Ditt bibliotek"
 
-#: src/app.rs:9188 src/app.rs:9396
+#: src/app.rs:9191 src/app.rs:9399
 msgid "Removed from Your Library"
 msgstr "Borttaget från Ditt bibliotek"
 
-#: src/app.rs:9389
+#: src/app.rs:9392
 msgid "Added to Liked Songs"
 msgstr "Tillagd i Gillade låtar"
 
-#: src/app.rs:9391
+#: src/app.rs:9394
 msgid "Removed from Liked Songs"
 msgstr "Borttagen från Gillade låtar"
 
-#: src/app.rs:9393
+#: src/app.rs:9396
 msgid "Following artist"
 msgstr "Följer artisten"
 
-#: src/app.rs:9394
+#: src/app.rs:9397
 msgid "Unfollowed artist"
 msgstr "Slutade följa artisten"
 
-#: src/app.rs:9395
+#: src/app.rs:9398
 msgid "Saved to Your Library"
 msgstr "Sparat i Ditt bibliotek"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9410
+#: src/app.rs:9413
 #, rust-format
 msgid "Couldn't update your library: {error}"
 msgstr "Kunde inte uppdatera ditt bibliotek: {error}"
 
 #. Translators: {query} is the words someone searched for.
-#: src/app.rs:9462
+#: src/app.rs:9465
 #, rust-format
 msgid "Nothing on Spotify matches “{query}”"
 msgstr "Inget på Spotify matchar ”{query}”"
 
 #. Translators: {query} is the words someone searched for; {error} is an error message.
-#: src/app.rs:9470
+#: src/app.rs:9473
 #, rust-format
 msgid "Couldn't search for “{query}”: {error}"
 msgstr "Kunde inte söka efter ”{query}”: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9746
+#: src/app.rs:9749
 #, rust-format
 msgid "Cannot open this song: {error}"
 msgstr "Kan inte öppna den här låten: {error}"
 
-#: src/app.rs:9760
+#: src/app.rs:9763
 msgid "This episode's podcast is not on Spotify"
 msgstr "Podden för det här avsnittet finns inte på Spotify"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9765
+#: src/app.rs:9768
 #, rust-format
 msgid "Cannot open this episode: {error}"
 msgstr "Kan inte öppna det här avsnittet: {error}"
 
-#: src/app.rs:9818
+#: src/app.rs:9821
 msgid "Choose a device from the devices menu first."
 msgstr "Välj först en enhet i enhetsmenyn."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9842
+#: src/app.rs:9845
 #, rust-format
 msgid "Couldn't switch device: {error}"
 msgstr "Kunde inte byta enhet: {error}"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:9853 src/app.rs:9877
+#: src/app.rs:9856 src/app.rs:9880
 #, rust-format
 msgid "Couldn't add to queue: {error}"
 msgstr "Kunde inte lägga till i kön: {error}"
 
-#: src/app.rs:10020
+#: src/app.rs:10023
 msgid "This song's album is not on Spotify"
 msgstr "Albumet för den här låten finns inte på Spotify"
 
-#: src/app.rs:10037
+#: src/app.rs:10040
 msgid "Spotifast cannot open this kind of Spotify link"
 msgstr "Spotifast kan inte öppna den här typen av Spotify-länk"
 
-#: src/app.rs:10285
+#: src/app.rs:10288
 msgid "Nothing is playing. Pick something first"
 msgstr "Inget spelas. Välj något först"
 
-#: src/app.rs:10693
+#: src/app.rs:10696
 msgid "Choose a device, or enable playback on this computer"
 msgstr "Välj en enhet eller aktivera uppspelning på den här datorn"
 
-#: src/app.rs:11077 src/app.rs:11082
+#: src/app.rs:11080 src/app.rs:11085
 msgid "Pick something to play"
 msgstr "Välj något att spela"
 
 #. Translators: {name} is an album name.
-#: src/app.rs:11506
+#: src/app.rs:11509
 #, rust-format
 msgid "Loading {name} to queue…"
 msgstr "Lägger till {name} i kön…"
 
-#: src/app.rs:11525
+#: src/app.rs:11528
 msgid "Playback device changed. Add the album to queue again"
 msgstr "Uppspelningsenheten ändrades. Lägg till albumet i kön igen"
 
-#: src/app.rs:11534 src/app.rs:11552 src/app.rs:11561
+#: src/app.rs:11537 src/app.rs:11555 src/app.rs:11564
 msgid "Couldn't load the album's songs in order. Try again"
 msgstr "Kunde inte läsa in albumets låtar i ordning. Försök igen"
 
 #. Translators: {name} is an album name and {error} is an error message.
-#: src/app.rs:11541
+#: src/app.rs:11544
 #, rust-format
 msgid "Couldn't add {name} to queue: {error}"
 msgstr "Kunde inte lägga till {name} i kön: {error}"
 
-#: src/app.rs:11599
+#: src/app.rs:11602
 msgid "This album has no playable songs to queue"
 msgstr "Albumet har inga spelbara låtar att lägga i kön"
 
 #. Translators: {count} is a number of songs and {name} is an album name.
-#: src/app.rs:11608
+#: src/app.rs:11611
 #, rust-format
 msgid "{count} song from {name} added to queue"
 msgid_plural "{count} songs from {name} added to queue"
@@ -1103,7 +1103,7 @@ msgstr[0] "{count} låt från {name} har lagts till i kön"
 msgstr[1] "{count} låtar från {name} har lagts till i kön"
 
 #. Translators: {count} is a number of songs.
-#: src/app.rs:11656
+#: src/app.rs:11659
 #, rust-format
 msgid "{count} song added to queue"
 msgid_plural "{count} songs added to queue"
@@ -1111,41 +1111,41 @@ msgstr[0] "{count} låt har lagts till i kön"
 msgstr[1] "{count} låtar har lagts till i kön"
 
 #. Translators: {name} is a song, episode, album, or playlist name.
-#: src/app.rs:11696
+#: src/app.rs:11699
 #, rust-format
 msgid "{name} added to queue"
 msgstr "{name} har lagts till i kön"
 
-#: src/app.rs:12246
+#: src/app.rs:12249
 msgid "The clipboard has no Spotify song links"
 msgstr "Urklippet innehåller inga länkar till Spotify-låtar"
 
 #. Translators: {count} is the number of pasted links that failed.
-#: src/app.rs:12327
+#: src/app.rs:12330
 #, rust-format
 msgid "{count} pasted link could not be added"
 msgid_plural "{count} pasted links could not be added"
 msgstr[0] "{count} inklistrad länk kunde inte läggas till"
 msgstr[1] "{count} inklistrade länkar kunde inte läggas till"
 
-#: src/app.rs:13085
+#: src/app.rs:13088
 msgid "Spotify doesn't let apps remove a playlist description, so it was kept"
 msgstr ""
 "Spotify låter inte appar ta bort en spellistas beskrivning, så den behölls"
 
-#: src/app.rs:13147 src/app.rs:13166
+#: src/app.rs:13150 src/app.rs:13169
 msgid "Link copied"
 msgstr "Länken kopierad"
 
 #. Translators: {count} is a number of song links, always more than one.
-#: src/app.rs:13170
+#: src/app.rs:13173
 #, rust-format
 msgid "{count} link copied"
 msgid_plural "{count} links copied"
 msgstr[0] "{count} länk kopierad"
 msgstr[1] "{count} länkar kopierade"
 
-#: src/app.rs:13474
+#: src/app.rs:13477
 msgid ""
 "Spotify doesn't let apps reorder your playlists, so this order is saved on "
 "this computer"
@@ -1153,73 +1153,73 @@ msgstr ""
 "Spotify låter inte appar ändra ordningen på dina spellistor, så den här "
 "ordningen sparas på den här datorn"
 
-#: src/app.rs:13645
+#: src/app.rs:13648
 msgid "Restarting local playback"
 msgstr "Startar om lokal uppspelning"
 
-#: src/app.rs:13681
+#: src/app.rs:13684
 msgid "Local playback needs Spotify Premium"
 msgstr "Lokal uppspelning kräver Spotify Premium"
 
-#: src/app.rs:13733
+#: src/app.rs:13736
 msgid "Play history cleared"
 msgstr "Uppspelningshistoriken rensad"
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:13752
+#: src/app.rs:13755
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr "Rensade {size} MB omslagsbilder"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:13758
+#: src/app.rs:13761
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr "Kunde inte rensa omslagsbilder: {error}"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:14071
+#: src/app.rs:14074
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "Laddar ned förinställningar från {name}"
 
-#: src/app.rs:15261
+#: src/app.rs:15290
 msgid "Couldn't start playback"
 msgstr "Kunde inte starta uppspelningen"
 
-#: src/app.rs:15262
+#: src/app.rs:15291
 msgid "Couldn't pause"
 msgstr "Kunde inte pausa"
 
-#: src/app.rs:15263
+#: src/app.rs:15292
 msgid "Couldn't skip"
 msgstr "Kunde inte hoppa framåt"
 
-#: src/app.rs:15264
+#: src/app.rs:15293
 msgid "Couldn't go back"
 msgstr "Kunde inte gå tillbaka"
 
-#: src/app.rs:15265
+#: src/app.rs:15294
 msgid "Couldn't seek"
 msgstr "Kunde inte spola"
 
-#: src/app.rs:15266
+#: src/app.rs:15295
 msgid "Couldn't change the volume"
 msgstr "Kunde inte ändra volymen"
 
-#: src/app.rs:15267
+#: src/app.rs:15296
 msgid "Couldn't change shuffle"
 msgstr "Kunde inte ändra blandning"
 
-#: src/app.rs:15268
+#: src/app.rs:15297
 msgid "Couldn't change repeat"
 msgstr "Kunde inte ändra upprepning"
 
-#: src/app.rs:15311 src/ui/mod.rs:442
+#: src/app.rs:15340 src/ui/mod.rs:442
 msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify låter inte den här datorn spela den här låten just nu."
 
-#: src/app.rs:15318
+#: src/app.rs:15347
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1227,19 +1227,19 @@ msgstr ""
 "Ingen ljudutgång hittades. Anslut eller aktivera en och tryck sedan på Spela "
 "igen."
 
-#: src/app.rs:15332
+#: src/app.rs:15361
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify gör inte den här spellistans låtar tillgängliga för tredjepartsappar."
 
-#: src/app.rs:15463
+#: src/app.rs:15492
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "Spotify-inloggningen har gått ut. Logga in igen och försök sedan ladda upp "
 "omslaget igen."
 
-#: src/app.rs:15468
+#: src/app.rs:15497
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
@@ -1249,19 +1249,19 @@ msgstr ""
 "sedan in igen för att ge behörighet att ladda upp bilder. Om du använder "
 "ditt eget Client ID, auktorisera det också igen i Inställningar."
 
-#: src/app.rs:15472
+#: src/app.rs:15501
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotify avvisade bildens storlek. Välj en mindre bild."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:15475
+#: src/app.rs:15504
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Kunde inte ladda upp omslaget: {error}. Försök igen."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:25903 src/app/radio.rs:38
+#: src/app.rs:25932 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track}-radio"
@@ -1500,8 +1500,8 @@ msgid "Restart local playback to apply these settings."
 msgstr "Starta om lokal uppspelning för att tillämpa inställningarna."
 
 #: src/ui/settings.rs:758
-msgid "Download updates automatically"
-msgstr "Ladda ned uppdateringar automatiskt"
+msgid "Update automatically"
+msgstr "Uppdatera automatiskt"
 
 #: src/ui/settings.rs:759
 msgid "Show in Dock"
@@ -1584,8 +1584,10 @@ msgid "Playback settings applied"
 msgstr "Uppspelningsinställningar tillämpade"
 
 #: src/ui/settings.rs:834
-msgid "Downloads in the background. You choose when to restart."
-msgstr "Laddas ned i bakgrunden. Du väljer när du startar om."
+msgid ""
+"Downloads new releases in the background and installs them the next time "
+"Spotifast starts."
+msgstr "Laddar ner nya versioner i bakgrunden och installerar dem nästa gång Spotifast startar."
 
 #: src/ui/settings.rs:838 src/ui/settings.rs:1085
 msgid "MacBook notch widget"
@@ -3824,34 +3826,38 @@ msgstr "Redo att installera"
 msgid "Music playing on this computer will stop when Spotifast restarts."
 msgstr "Musik som spelas på den här datorn stoppas när Spotifast startar om."
 
-#: src/ui/update.rs:125
+#: src/ui/update.rs:131
+msgid "Otherwise it installs the next time Spotifast starts."
+msgstr "Annars installeras den nästa gång Spotifast startar."
+
+#: src/ui/update.rs:139
 msgid "Restart to update"
 msgstr "Starta om för att uppdatera"
 
-#: src/ui/update.rs:132
+#: src/ui/update.rs:146
 msgid "Preparing to restart…"
 msgstr "Förbereder omstart…"
 
-#: src/ui/update.rs:185 src/ui/update.rs:189
+#: src/ui/update.rs:199 src/ui/update.rs:203
 msgid "Download from GitHub"
 msgstr "Ladda ned från GitHub"
 
-#: src/ui/update.rs:197
+#: src/ui/update.rs:211
 msgid "Retry download"
 msgstr "Försök ladda ned igen"
 
-#: src/ui/update.rs:199
+#: src/ui/update.rs:213
 msgid "Download update"
 msgstr "Ladda ned uppdatering"
 
 #. Translators: {manager} is a package manager such as Homebrew, dnf or Nix. A command to copy follows.
-#: src/ui/update.rs:239
+#: src/ui/update.rs:253
 #, rust-format
 msgid "Installed with {manager}. Update it with this command:"
 msgstr "Installerad med {manager}. Uppdatera den med det här kommandot:"
 
 #. Translators: {manager} is a package manager such as Nix.
-#: src/ui/update.rs:245
+#: src/ui/update.rs:259
 #, rust-format
 msgid "Installed with {manager}. Update it the way you installed it."
 msgstr ""
@@ -3859,12 +3865,12 @@ msgstr ""
 "den."
 
 #. Translators: the AUR is the Arch User Repository. A command to copy follows.
-#: src/ui/update.rs:258
+#: src/ui/update.rs:272
 msgid "Installed from the AUR. Update it with this command:"
 msgstr "Installerad från AUR. Uppdatera den med det här kommandot:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:275
+#: src/ui/update.rs:289
 msgid ""
 "Installed from a DEB package. Download the new one, then install it with "
 "this command:"
@@ -3873,13 +3879,13 @@ msgstr ""
 "med det här kommandot:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:280
+#: src/ui/update.rs:294
 msgid "Installed from an RPM package. Install the new one with this command:"
 msgstr ""
 "Installerad från ett RPM-paket. Installera det nya med det här kommandot:"
 
 #. Translators: a command to copy follows.
-#: src/ui/update.rs:285
+#: src/ui/update.rs:299
 msgid ""
 "Installed from a Flatpak bundle. Download the new one, then install it with "
 "this command:"
@@ -4221,6 +4227,12 @@ msgstr ""
 "här datorn eller virtuella maskinen har ingen. Installera grafikdrivrutinen "
 "eller slå på GPU-acceleration för den virtuella maskinen. Öppna {url} för "
 "att läsa mer?"
+
+#~ msgid "Downloads in the background. You choose when to restart."
+#~ msgstr "Laddas ned i bakgrunden. Du väljer när du startar om."
+
+#~ msgid "Download updates automatically"
+#~ msgstr "Ladda ned uppdateringar automatiskt"
 
 #~ msgid "3. Pair once in Spotify"
 #~ msgstr "3. Parkoppla en gång i Spotify"

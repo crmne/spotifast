@@ -4524,10 +4524,7 @@ mod tests {
             ("without a cover", "Compact track list"),
             ("Ctrl+0", "Interface zoom"),
             ("Rust", "About"),
-            (
-                "Downloads in the background",
-                "Download updates automatically",
-            ),
+            ("installs them the next time", "Update automatically"),
         ] {
             let query = if cfg!(target_os = "macos") && query == "Ctrl+0" {
                 "Cmd+0"
@@ -9373,7 +9370,7 @@ mod tests {
                 "Keep music playing when the window closes",
                 "Start with your computer",
                 "Automatic update checks",
-                "Download updates automatically",
+                "Update automatically",
             ] {
                 let text = settings_text(&ctx, &mut app, title);
                 assert!(

@@ -3148,8 +3148,11 @@ impl App {
                 Event::WebApp { client_id } => self.web_app = client_id,
                 Event::SharedGrant(signed_in) => self.shared_grant = signed_in,
                 Event::UpdateSupport(result) => {
+                    // A release that installs on its own downloads in the
+                    // background; a new major version, the setting off or a
+                    // person who went back waits for the update window.
                     if result.is_ok()
-                        && self.settings.download_updates_automatically
+                        && self.update_offer() == Some(crate::updates::Offer::Automatic)
                         && matches!(self.update_download, crate::updates::DownloadState::Idle)
                     {
                         self.take_update_step(HeldUpdate::Download);
@@ -4580,10 +4583,10 @@ impl App {
         {
             self.check_for_updates(false);
         }
-        // The step stays held while automatic downloads are off, so turning
+        // The step stays held while automatic updates are off, so turning
         // them back on picks it up.
         if !self.downloads_wait()
-            && self.settings.download_updates_automatically
+            && self.update_offer() == Some(crate::updates::Offer::Automatic)
             && matches!(self.update_download, crate::updates::DownloadState::Idle)
             && let Some(step) = self.held_update.take()
         {
@@ -14591,6 +14594,32 @@ impl App {
     fn downloads_wait(&self) -> bool {
         let conditions = self.power.conditions();
         conditions.metered || (self.follows_reachability && !conditions.online)
+    }
+
+    /// How the release [`App::update`] names reaches this copy, if it can
+    /// install it: on its own, or when the person asks.
+    pub fn update_offer(&self) -> Option<crate::updates::Offer> {
+        self.update.as_ref().map(|release| {
+            crate::updates::offer(
+                &release.version,
+                self.settings.update_automatically,
+                self.settings.newest_run.as_deref(),
+            )
+        })
+    }
+
+    /// Remembers the newest version that ran here, for
+    /// [`crate::updates::policy`]: a person who went back to an older
+    /// version is not updated past the one they left on its own.
+    pub fn remember_newest_run(&mut self) {
+        let newest = crate::updates::policy::newest_run(
+            crate::updates::VERSION,
+            self.settings.newest_run.as_deref(),
+        );
+        if self.settings.newest_run.as_deref() != Some(newest.as_str()) {
+            self.settings.newest_run = Some(newest);
+            self.mark_settings_dirty();
+        }
     }
 
     /// Takes an automatic update step now, or holds it until the connection
@@ -27200,12 +27229,12 @@ mod tests {
     fn an_update_held_on_a_metered_connection_downloads_when_it_is_not() {
         use crate::updates::{DownloadState, Installation, Kind};
         let mut app = headless_app();
-        app.settings.download_updates_automatically = true;
+        app.settings.update_automatically = true;
         app.settings.check_for_updates = false;
         // Where the app follows the system's word on reaching the internet.
         app.follows_reachability = true;
         app.update = Some(crate::updates::Release {
-            version: "9.9.9".into(),
+            version: "0.999.0".into(),
             url: "https://example.invalid/release".into(),
         });
         change_power(&app, |conditions| conditions.metered = true);
@@ -27246,16 +27275,71 @@ mod tests {
         ));
     }
 
+    /// Only a release that installs on its own downloads in the background:
+    /// not a new major version, not with Update automatically off, and not
+    /// the version a person went back from. Those wait for the window.
+    #[test]
+    fn only_a_release_that_installs_on_its_own_downloads_by_itself() {
+        use crate::updates::{DownloadState, Installation, Kind, Offer, VERSION, policy};
+        let major: u64 = VERSION.split('.').next().unwrap().parse().unwrap();
+        let next = format!("{major}.999.0");
+        let left = format!("{major}.998.0");
+        let cases = [
+            ("same major", next.clone(), true, None, true),
+            ("new major", format!("{}.0.0", major + 1), true, None, false),
+            ("switched off", next.clone(), false, None, false),
+            // Went back from `left`: it is offered, never installed on its own.
+            ("went back", left.clone(), true, Some(left.clone()), false),
+            // A release newer than the one they left is automatic again.
+            ("past it", next.clone(), true, Some(left.clone()), true),
+        ];
+        for (why, version, automatic, newest_run, downloads) in cases {
+            let mut app = headless_app();
+            app.settings.update_automatically = automatic;
+            app.settings.newest_run = newest_run;
+            app.update = Some(crate::updates::Release {
+                version,
+                url: "https://example.invalid/release".into(),
+            });
+            app.handle_backend_events(vec![Event::UpdateSupport(Ok(Installation {
+                executable: "/test/spotifast".into(),
+                kind: Kind::Portable,
+            }))]);
+            app.apply_actions(&egui::Context::default());
+            assert_eq!(
+                matches!(app.update_download, DownloadState::Downloading { .. }),
+                downloads,
+                "{why}"
+            );
+            assert_eq!(
+                app.update_offer() == Some(Offer::Automatic),
+                downloads,
+                "{why}"
+            );
+        }
+        // The newest version that ran only moves forward.
+        let mut app = headless_app();
+        app.settings.newest_run = Some(format!("{major}.998.0"));
+        app.remember_newest_run();
+        assert_eq!(
+            app.settings.newest_run,
+            Some(policy::newest_run(VERSION, Some(&left)))
+        );
+        app.settings.newest_run = Some("0.0.1".into());
+        app.remember_newest_run();
+        assert_eq!(app.settings.newest_run.as_deref(), Some(VERSION));
+    }
+
     /// A step held while automatic downloads are off waits for them to be
     /// turned back on, rather than being dropped when the network comes back.
     #[test]
     fn a_held_update_waits_for_automatic_downloads_to_be_turned_on() {
         use crate::updates::{DownloadState, Installation, Kind};
         let mut app = headless_app();
-        app.settings.download_updates_automatically = true;
+        app.settings.update_automatically = true;
         app.settings.check_for_updates = false;
         app.update = Some(crate::updates::Release {
-            version: "9.9.9".into(),
+            version: "0.999.0".into(),
             url: "https://example.invalid/release".into(),
         });
         change_power(&app, |conditions| conditions.metered = true);
@@ -27273,13 +27357,13 @@ mod tests {
         pass(&mut app);
         assert!(app.held_update.is_some());
 
-        app.settings.download_updates_automatically = false;
+        app.settings.update_automatically = false;
         change_power(&app, |conditions| conditions.metered = false);
         pass(&mut app);
         assert!(matches!(app.update_download, DownloadState::Idle));
         assert!(app.held_update.is_some(), "dropped while turned off");
 
-        app.settings.download_updates_automatically = true;
+        app.settings.update_automatically = true;
         pass(&mut app);
         assert!(matches!(
             app.update_download,
