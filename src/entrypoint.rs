@@ -620,120 +620,140 @@ pub(crate) fn run() -> eframe::Result<()> {
         let creator_waker = waker.clone();
         #[cfg(feature = "demo")]
         let creator_shot = shot.clone();
-        let mini = lease.peek(MiniWindow::wanted);
-        let geometry = lease.peek(main_geometry);
         let locale = lease.peek(|app| app.locale);
-        #[cfg(feature = "demo")]
-        let options = {
-            let options = native_options(
-                shot.is_some() && mini.is_none() && demo_inner.is_none(),
-                mini,
-                demo_inner,
-                geometry,
-            );
-            if demo {
-                demo_native_options(options, demo_storage.clone())
-            } else {
-                options
-            }
-        };
-        #[cfg(not(feature = "demo"))]
-        let options = native_options(false, mini, None, geometry);
-        let options = profile_options(options, window_file.clone());
-        #[cfg(windows)]
-        let thumbbar_enabled = desktop_surfaces && options.viewport.taskbar != Some(false);
-        #[cfg(target_os = "linux")]
-        let hide_from_taskbar = options.viewport.taskbar == Some(false);
-        // Without the wgpu feature OpenGL is the only renderer, so there is
-        // one try and each of these is asked for once. When it cannot draw,
-        // fastframe-graphics says why in a native dialog rather than letting
-        // the app quit without a word.
-        let mut options = Some(options);
-        let mut creator: Option<eframe::AppCreator<'_>> = Some(Box::new(move |cc| {
-            if let Some(gl) = &cc.gl {
-                use eframe::glow::HasContext;
-                // eframe has made this window's GL context current
-                // before calling the app creator. These identify the
-                // renderer actually selected, which may differ from
-                // the listed GPU.
-                unsafe {
-                    log::info!(
-                        "OpenGL renderer: {}; vendor: {}; version: {}",
-                        gl.get_parameter_string(eframe::glow::RENDERER),
-                        gl.get_parameter_string(eframe::glow::VENDOR),
-                        gl.get_parameter_string(eframe::glow::VERSION)
-                    );
+        // The window's options, built again for every renderer that
+        // fastframe-graphics tries: wgpu (Metal) and then OpenGL on macOS,
+        // OpenGL alone elsewhere. A try that fails before the window starts
+        // consumes its options and its app creator.
+        let build_options = || {
+            let mini = lease.peek(MiniWindow::wanted);
+            let geometry = lease.peek(main_geometry);
+            #[cfg(feature = "demo")]
+            let options = {
+                let options = native_options(
+                    shot.is_some() && mini.is_none() && demo_inner.is_none(),
+                    mini,
+                    demo_inner,
+                    geometry,
+                );
+                if demo {
+                    demo_native_options(options, demo_storage.clone())
+                } else {
+                    options
                 }
-            }
-            let mut app = lease.take(&cc.egui_ctx);
-            // Built once per window, before the first frame; the
-            // handler wakes the loop so a menu pick is not held until
-            // the next repaint.
-            #[cfg(target_os = "macos")]
-            {
-                spotifast::mac_touchbar_crash_guard::install();
-                spotifast::mac_menu::init();
-                let ctx = cc.egui_ctx.clone();
-                spotifast::mac_menu::set_waker(move || ctx.request_repaint());
-
-                spotifast::notch::init();
-                let ctx_notch = cc.egui_ctx.clone();
-                spotifast::notch::set_waker(move || ctx_notch.request_repaint());
-            }
-            {
-                use raw_window_handle::HasDisplayHandle;
-                if let Ok(display) = cc.display_handle() {
-                    app.window_level_supported =
-                        spotifast::window::supports_window_level(display.as_raw());
-                    app.taskbar_hiding_supported =
-                        spotifast::window::supports_hiding_from_taskbar(display.as_raw());
-                }
-            }
-            // winit hides a taskbar button on Windows only; X11 is
-            // asked here, while the window is still unmapped.
-            #[cfg(target_os = "linux")]
-            if hide_from_taskbar {
-                use raw_window_handle::HasWindowHandle;
-                if let Ok(handle) = cc.window_handle() {
-                    spotifast::window::skip_x11_taskbar(handle.as_raw());
-                }
-            }
-            app.attach(&cc.egui_ctx);
-            #[cfg(windows)]
-            let thumbbar = {
-                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-                let mut toolbar = spotifast::thumbbar::ThumbBar::new();
-                if thumbbar_enabled
-                    && let Ok(handle) = cc.window_handle()
-                    && let RawWindowHandle::Win32(window) = handle.as_raw()
-                {
-                    let wake = creator_waker.clone();
-                    // The shell and toolbar share this window's thread
-                    // and lifetime; the toolbar is detached on shell
-                    // drop.
-                    unsafe { toolbar.attach(window.hwnd.get(), move || wake.wake()) };
-                }
-                toolbar
             };
-            Ok(Box::new(Shell {
-                app,
-                recovery_checked: false,
+            #[cfg(not(feature = "demo"))]
+            let options = native_options(false, mini, None, geometry);
+            profile_options(options, window_file.clone())
+        };
+        let first_options = build_options();
+        #[cfg(windows)]
+        let thumbbar_enabled = desktop_surfaces && first_options.viewport.taskbar != Some(false);
+        #[cfg(target_os = "linux")]
+        let hide_from_taskbar = first_options.viewport.taskbar == Some(false);
+        let mut first_options = Some(first_options);
+        // When it cannot draw with any renderer, fastframe-graphics says why
+        // in a native dialog rather than letting the app quit without a word.
+        let new_creator = || {
+            let lease = lease.clone();
+            #[cfg(windows)]
+            let creator_waker = creator_waker.clone();
+            #[cfg(feature = "demo")]
+            let creator_shot = creator_shot.clone();
+            let creator: eframe::AppCreator<'static> = Box::new(move |cc| {
+                if let Some(gl) = &cc.gl {
+                    use eframe::glow::HasContext;
+                    // eframe has made this window's GL context current
+                    // before calling the app creator. These identify the
+                    // renderer actually selected, which may differ from
+                    // the listed GPU.
+                    unsafe {
+                        log::info!(
+                            "OpenGL renderer: {}; vendor: {}; version: {}",
+                            gl.get_parameter_string(eframe::glow::RENDERER),
+                            gl.get_parameter_string(eframe::glow::VENDOR),
+                            gl.get_parameter_string(eframe::glow::VERSION)
+                        );
+                    }
+                }
+                // On macOS the window draws with wgpu, through Metal,
+                // unless Metal could not open it.
+                #[cfg(target_os = "macos")]
+                if let Some(render_state) = &cc.wgpu_render_state {
+                    let info = render_state.adapter.get_info();
+                    log::info!("wgpu renderer: {}; backend: {:?}", info.name, info.backend);
+                }
+                let mut app = lease.take(&cc.egui_ctx);
+                // Built once per window, before the first frame; the
+                // handler wakes the loop so a menu pick is not held until
+                // the next repaint.
+                #[cfg(target_os = "macos")]
+                {
+                    spotifast::mac_touchbar_crash_guard::install();
+                    spotifast::mac_menu::init();
+                    let ctx = cc.egui_ctx.clone();
+                    spotifast::mac_menu::set_waker(move || ctx.request_repaint());
+
+                    spotifast::notch::init();
+                    let ctx_notch = cc.egui_ctx.clone();
+                    spotifast::notch::set_waker(move || ctx_notch.request_repaint());
+                }
+                {
+                    use raw_window_handle::HasDisplayHandle;
+                    if let Ok(display) = cc.display_handle() {
+                        app.window_level_supported =
+                            spotifast::window::supports_window_level(display.as_raw());
+                        app.taskbar_hiding_supported =
+                            spotifast::window::supports_hiding_from_taskbar(display.as_raw());
+                    }
+                }
+                // winit hides a taskbar button on Windows only; X11 is
+                // asked here, while the window is still unmapped.
+                #[cfg(target_os = "linux")]
+                if hide_from_taskbar {
+                    use raw_window_handle::HasWindowHandle;
+                    if let Ok(handle) = cc.window_handle() {
+                        spotifast::window::skip_x11_taskbar(handle.as_raw());
+                    }
+                }
+                app.attach(&cc.egui_ctx);
                 #[cfg(windows)]
-                thumbbar,
-                #[cfg(feature = "demo")]
-                shot: creator_shot.clone(),
-                #[cfg(feature = "demo")]
-                drag: demo_drag,
-                stalls: fastframe_shell::StallWatch::default(),
-                screen_asked: None,
-            }))
-        }));
+                let thumbbar = {
+                    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                    let mut toolbar = spotifast::thumbbar::ThumbBar::new();
+                    if thumbbar_enabled
+                        && let Ok(handle) = cc.window_handle()
+                        && let RawWindowHandle::Win32(window) = handle.as_raw()
+                    {
+                        let wake = creator_waker.clone();
+                        // The shell and toolbar share this window's thread
+                        // and lifetime; the toolbar is detached on shell
+                        // drop.
+                        unsafe { toolbar.attach(window.hwnd.get(), move || wake.wake()) };
+                    }
+                    toolbar
+                };
+                Ok(Box::new(Shell {
+                    app,
+                    recovery_checked: false,
+                    #[cfg(windows)]
+                    thumbbar,
+                    #[cfg(feature = "demo")]
+                    shot: creator_shot.clone(),
+                    #[cfg(feature = "demo")]
+                    drag: demo_drag,
+                    stalls: fastframe_shell::StallWatch::default(),
+                    screen_asked: None,
+                }))
+            });
+            creator
+        };
         fastframe_graphics::Graphics::new("Spotifast")
             .help(spotifast::window::DOWNLOAD_PAGE)
             .dialog(move |trouble| spotifast::window::no_window_dialog(locale, trouble))
             .run_native(
-                || options.take().expect("one try opens the window"),
-                || creator.take().expect("one try opens the window"),
+                || first_options.take().unwrap_or_else(&build_options),
+                new_creator,
             )
             .inspect_err(|error| log::error!("Native window failed: {error}"))
     })
@@ -1117,6 +1137,23 @@ mod native_window_tests {
         assert_eq!(options.viewport.fullsize_content_view, Some(true));
         assert_eq!(options.viewport.titlebar_shown, Some(false));
         assert_eq!(options.viewport.title_shown, Some(false));
+    }
+
+    /// macOS can draw with Metal (wgpu), with OpenGL as the fallback, so a
+    /// ProMotion display scrolls at its full rate (#711). Linux and Windows
+    /// draw with OpenGL alone, which keeps their binaries small.
+    #[test]
+    fn only_macos_can_draw_with_metal_and_every_platform_keeps_opengl() {
+        let names: Vec<String> = fastframe_graphics::RENDERERS
+            .iter()
+            .map(|renderer| format!("{renderer:?}"))
+            .collect();
+        assert!(names.iter().any(|name| name == "Glow"), "{names:?}");
+        assert_eq!(
+            names.iter().any(|name| name == "Wgpu"),
+            cfg!(target_os = "macos"),
+            "{names:?}"
+        );
     }
 
     /// Both windows ask for vsync: AppKit resize animations need it, and on
