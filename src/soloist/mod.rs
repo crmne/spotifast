@@ -2,6 +2,7 @@
 //! started, and keeps its files and credentials separate from librespot.
 mod audio;
 pub mod install;
+mod owned;
 #[cfg(target_os = "linux")]
 mod priority;
 mod protocol;
@@ -544,7 +545,9 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     // Soloist currently requires the key in argv. Never log this command or
     // the child's output: it stays in the private data directory, without the
     // key. See the documented upstream limitation.
-    let mut child = command.spawn().context(Failure::NotReady)?;
+    // The bond ends the child with Spotifast however Spotifast exits, and
+    // is let go only after the child has been reaped below.
+    let (mut child, bond) = owned::spawn(command).await.context(Failure::NotReady)?;
     let started = Instant::now();
     keep_output(&data.join("soloist-output.log"), &key.value, &mut child).await;
     #[cfg(target_os = "macos")]
@@ -794,6 +797,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     // Always reap our own child before another launch or sign-out cleanup.
     let _ = child.kill().await;
     let _ = child.wait().await;
+    bond.release();
     #[cfg(target_os = "macos")]
     exit_guard::watch(None);
     drop(bridge);
@@ -804,6 +808,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
 /// Cmd+Q ends the process inside AppKit's `terminate:`, so the event loop
 /// never returns, `App::shutdown` never runs, and this task never gets to stop
 /// its child (#1157). `exit` still runs its handlers, so one stops it there.
+/// A kill or a crash runs none: `owned`'s watcher stops the child then.
 #[cfg(target_os = "macos")]
 mod exit_guard {
     use std::sync::{

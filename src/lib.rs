@@ -58,6 +58,7 @@ pub mod soloist;
 pub mod sonos;
 mod storage;
 pub mod system_fonts;
+pub mod terminate;
 pub mod theme;
 pub mod thumbbar;
 pub mod ui;

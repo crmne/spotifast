@@ -630,6 +630,9 @@ pub(crate) fn run() -> eframe::Result<()> {
     let start_hidden = start_hidden(cli.start_hidden, link_given, demo, receipt_shown);
     #[cfg(not(feature = "demo"))]
     let start_hidden = start_hidden(cli.start_hidden, link_given, false, receipt_shown);
+    // From here a polite SIGTERM quits like Quit, stopping Soloist and
+    // saving the state, rather than ending the process where it stands.
+    spotifast::terminate::listen(waker.clone());
     let shell = fastframe_shell::Shell::new(app, &waker).start_hidden(start_hidden);
     // The menu-bar item answers only while AppKit's loop runs. Elsewhere
     // nothing needs the main thread between headless ticks, so the shell

@@ -99,8 +99,15 @@ One short device list from Spotify does not unbind a running, signed-in Soloist.
 **Use the built-in player** stays available as a small link below each setup card.
 The saved key and pairing are retained for next time; signing out of Spotifast
 removes them. Closing Spotifast completely stops the child player. Closing to
-the tray leaves both running. If an earlier Spotifast left its player running,
-the next start stops that player first, so it cannot block the new one.
+the tray leaves both running. A polite request to end Spotifast (SIGTERM from
+`kill`, a logout or systemd, Ctrl+C in a terminal, or the terminal closing)
+quits it the same way, saving its state; a second request ends it at once.
+The player also ends with Spotifast when Spotifast is killed outright or
+crashes: on Linux the kernel stops it when its parent dies, on Windows it runs
+in a job object that closes with Spotifast, and on macOS a small watcher
+process stops it once Spotifast is gone. If an earlier Spotifast still left
+its player running, the next start stops that player first, so it cannot
+block the new one.
 
 Spotify publishes Linux x86_64, ARM64 and ARM32 builds, Apple Silicon builds
 for macOS 13 or newer, and Windows x86_64 builds. Intel Macs and native

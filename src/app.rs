@@ -5750,6 +5750,14 @@ impl App {
         }
     }
 
+    /// A SIGTERM, SIGINT or SIGHUP quits as the Quit command does, so the
+    /// shutdown stops Soloist and saves the state (`crate::terminate`).
+    fn quit_when_asked(&mut self, asked: bool) {
+        if asked && !self.quit_requested {
+            self.actions.push(Action::Quit);
+        }
+    }
+
     fn handle_media_commands(&mut self) {
         let Some(commands) = self.media_controls.as_ref().map(MediaControls::commands) else {
             return;
@@ -14522,6 +14530,7 @@ impl App {
             self.scrolling.stop();
         }
         self.handle_control_commands();
+        self.quit_when_asked(crate::terminate::requested());
         self.handle_events();
         self.open_pending_link();
         self.handle_media_commands();
@@ -24852,6 +24861,26 @@ mod tests {
         app.quit_requested = true;
         app.note_close_request(true, true);
         assert_eq!(app.closed(), Closed::Quit, "Quit from the tray wins");
+    }
+
+    /// A SIGTERM quits the way the Quit command does, so the shutdown stops
+    /// Soloist and saves the state, from the window or the tray alike.
+    #[test]
+    fn a_request_to_end_the_process_quits_once() {
+        use fastframe_shell::{Headless, Resident};
+        let mut app = headless_app();
+        app.quit_when_asked(false);
+        assert!(app.actions.is_empty());
+        app.quit_when_asked(true);
+        assert!(matches!(app.actions.as_slice(), [Action::Quit]));
+        let ctx = egui::Context::default();
+        Resident::window_gone(&mut app);
+        assert_eq!(app.headless_frame(&ctx), Headless::Quit);
+        app.quit_when_asked(true);
+        assert!(
+            app.actions.is_empty(),
+            "a quit under way is not asked again"
+        );
     }
 
     /// In the tray the app sleeps as long as nothing is due: until the next
