@@ -4171,6 +4171,13 @@ impl App {
             return;
         };
         if self.track_cache.contains_key(id) {
+            // Another list may have cached it without its album.
+            if self.track_cache[id].album.is_none()
+                && let Some(album) = self.context_album(context_uri)
+                && let Some(track) = self.track_cache.get_mut(id)
+            {
+                track.album = Some(album);
+            }
             self.track_used.insert(id.to_owned(), Instant::now());
             return;
         }
@@ -4185,26 +4192,21 @@ impl App {
                     })
             })
         } else if let Some(aid) = context_uri.strip_prefix("spotify:album:") {
-            self.album_pages.get(aid).and_then(|page| {
-                let mut track = page
-                    .tracks
+            let mut track = self.album_pages.get(aid).and_then(|page| {
+                page.tracks
                     .items
                     .iter()
                     .find(|track| track.uri == uri)
-                    .cloned()?;
-                // An album's track list leaves out each song's album. Give
-                // it this one, so the player bar links the title to it.
-                if track.album.is_none() {
-                    let mut album = page.album.get().cloned().unwrap_or_else(|| Album {
-                        id: aid.to_owned(),
-                        uri: context_uri.to_owned(),
-                        ..Album::default()
-                    });
-                    album.tracks = None;
-                    track.album = Some(album);
-                }
-                Some(track)
-            })
+                    .cloned()
+            });
+            // An album's track list leaves out each song's album. Give it
+            // this one, so the player bar links the title to it.
+            if let Some(track) = track.as_mut()
+                && track.album.is_none()
+            {
+                track.album = self.context_album(context_uri);
+            }
+            track
         } else if context_uri.ends_with(":collection") {
             self.library
                 .liked
@@ -4220,6 +4222,23 @@ impl App {
             self.track_cache.insert(id.to_owned(), track);
             self.track_used.insert(id.to_owned(), Instant::now());
         }
+    }
+
+    /// The album an album context plays, without its track list: the loaded
+    /// album, or its ID and URI while the page is still loading.
+    fn context_album(&self, context_uri: &str) -> Option<Album> {
+        let aid = context_uri.strip_prefix("spotify:album:")?;
+        let mut album = self
+            .album_pages
+            .get(aid)
+            .and_then(|page| page.album.get().cloned())
+            .unwrap_or_else(|| Album {
+                id: aid.to_owned(),
+                uri: context_uri.to_owned(),
+                ..Album::default()
+            });
+        album.tracks = None;
+        Some(album)
     }
 
     /// Older playlist caches predate recording identities. Once the current
@@ -32964,6 +32983,35 @@ mod tests {
         let album = app.track_cache["ballad"].album.as_ref().unwrap();
         assert_eq!(album.id, "either-or");
         assert_eq!(album.uri, "spotify:album:either-or");
+        app.backend.shutdown();
+    }
+
+    /// A song another list cached without its album gets the album when it
+    /// is played from that album's page.
+    #[test]
+    fn a_song_cached_without_its_album_gets_it_from_the_album_played() {
+        use crate::api::models::Track;
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "ballad".into(),
+            Track {
+                id: Some("ballad".into()),
+                uri: "spotify:track:ballad".into(),
+                ..Default::default()
+            },
+        );
+        app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
+        let album = app.track_cache["ballad"].album.as_ref().unwrap();
+        assert_eq!(album.id, "either-or");
+        assert!(
+            app.track_used.contains_key("ballad"),
+            "the use still counts"
+        );
+
+        // A playlist context names no album to give it.
+        app.track_cache.get_mut("ballad").unwrap().album = None;
+        app.cache_track_from_context("spotify:playlist:mix", "spotify:track:ballad");
+        assert!(app.track_cache["ballad"].album.is_none());
         app.backend.shutdown();
     }
 
