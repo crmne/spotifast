@@ -2332,7 +2332,7 @@ pub fn table_header(
     let font = theme::regular(12.0);
     let color = palette.secondary;
     let mut clicked = None;
-    let mut heading = |ui: &mut Ui, x: f32, text: &str, column: SortColumn| {
+    let mut heading = |ui: &mut Ui, x: f32, text: &str, label: &str, column: SortColumn| {
         let active = sort.filter(|sort| sort.column == column);
         let galley =
             ui.painter()
@@ -2344,17 +2344,9 @@ pub fn table_header(
             Rect::from_min_size(top_left, size + vec2(arrow_room, 0.0)).expand2(vec2(4.0, 8.0));
         let response = ui.interact(head, ui.id().with(("table-header", text)), Sense::click());
         response.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::Button,
-                ui.is_enabled(),
-                gettext(
-                    locale,
-                    // Translators: {column} is a column heading of a song list, such as Title.
-                    "Sort by {column}",
-                )
-                .replace("{column}", text),
-            )
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
         });
+        let response = response.on_hover_text(label);
         theme::focus_ring(ui, &response);
         let color = if active.is_some() {
             palette.accent
@@ -2449,6 +2441,7 @@ pub fn table_header(
         ui,
         x,
         &pgettext(locale, "column heading", "TITLE"),
+        &gettext(locale, "Sort by title"),
         SortColumn::Title,
     );
     let medium = width > 560.0;
@@ -2478,6 +2471,7 @@ pub fn table_header(
             ui,
             cx,
             &pgettext(locale, "column heading", "ALBUM"),
+            &gettext(locale, "Sort by album"),
             SortColumn::Album,
         );
         cx += album_width;
@@ -2487,6 +2481,7 @@ pub fn table_header(
             ui,
             cx,
             &pgettext(locale, "column heading", "ADDED BY"),
+            &gettext(locale, "Sort by who added"),
             SortColumn::AddedBy,
         );
         cx += added_by_width;
@@ -2496,6 +2491,7 @@ pub fn table_header(
             ui,
             cx,
             &pgettext(locale, "column heading", "DATE ADDED"),
+            &gettext(locale, "Sort by date added"),
             SortColumn::Added,
         );
         cx += added_width;
@@ -2505,6 +2501,7 @@ pub fn table_header(
             ui,
             cx,
             &pgettext(locale, "column heading", "PLAYS"),
+            &gettext(locale, "Sort by plays"),
             SortColumn::Plays,
         );
     }
@@ -4109,6 +4106,72 @@ mod tests {
             f(ui);
         });
         output.textures_delta.clear();
+    }
+
+    /// A column heading sorts by that column, and hovering it says so.
+    #[test]
+    fn a_column_heading_names_its_sort_on_hover() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        let mut time = 0.0;
+        let mut draw = |pointer: egui::Pos2| {
+            time += 1.0;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1200.0, 300.0))),
+                    time: Some(time),
+                    events: vec![egui::Event::PointerMoved(pointer)],
+                    ..Default::default()
+                },
+                |ui| {
+                    table_header(
+                        ui,
+                        &Palette::dark(),
+                        Locale::English,
+                        true,
+                        true,
+                        false,
+                        false,
+                        true,
+                        None,
+                    );
+                },
+            );
+            output.textures_delta.clear();
+            fn texts(shape: &egui::epaint::Shape, found: &mut Vec<(String, Rect)>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => found.push((
+                        text.galley.job.text.clone(),
+                        text.galley.rect.translate(text.pos.to_vec2()),
+                    )),
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| texts(shape, found));
+                    }
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            output
+                .shapes
+                .iter()
+                .for_each(|clipped| texts(&clipped.shape, &mut found));
+            found
+        };
+
+        // #given a song list header showing the album column
+        let album = draw(pos2(0.0, 299.0))
+            .into_iter()
+            .find_map(|(text, rect)| (text == "ALBUM").then_some(rect.center()))
+            .expect("the album heading");
+
+        // #when the pointer rests on it
+        for _ in 0..3 {
+            draw(album);
+        }
+
+        // #then its tooltip says what a click does
+        assert!(draw(album).iter().any(|(text, _)| text == "Sort by album"));
     }
 
     #[test]

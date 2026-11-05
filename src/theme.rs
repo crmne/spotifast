@@ -768,18 +768,20 @@ pub fn soft_button(
     label: &str,
     active: bool,
 ) -> Response {
-    soft_button_inner(ui, palette, icon, label, active, false).0
+    soft_button_inner(ui, palette, icon, label, active, None).0
 }
 
 /// A [`soft_button`] whose icon turns into a cross on hover, allowing the
-/// entry to be dismissed. The returned flag reports clicks on that cross.
+/// entry to be dismissed. The returned flag reports clicks on that cross,
+/// which shows `dismiss_tooltip` on hover.
 pub fn soft_button_dismiss(
     ui: &mut egui::Ui,
     palette: &Palette,
     icon: Icon,
     label: &str,
+    dismiss_tooltip: &str,
 ) -> (Response, bool) {
-    soft_button_inner(ui, palette, Some(icon), label, false, true)
+    soft_button_inner(ui, palette, Some(icon), label, false, Some(dismiss_tooltip))
 }
 
 /// The width `soft_button` gives a button without an icon, for laying out
@@ -795,7 +797,7 @@ fn soft_button_inner(
     icon: Option<Icon>,
     label: &str,
     active: bool,
-    dismissible: bool,
+    dismiss_tooltip: Option<&str>,
 ) -> (Response, bool) {
     let font = medium(13.0);
     let color = if active { palette.window } else { palette.text };
@@ -813,7 +815,7 @@ fn soft_button_inner(
         Vec2::splat(icon_size),
     );
     // Claimed after the button, so the cross sits on top and keeps its own click.
-    let dismiss = (dismissible && icon.is_some()).then(|| {
+    let dismiss = dismiss_tooltip.filter(|_| icon.is_some()).map(|tooltip| {
         let dismiss = ui.interact(
             icon_rect.expand(3.0),
             response.id.with("dismiss"),
@@ -826,7 +828,7 @@ fn soft_button_inner(
                 format!("Remove {label}"),
             )
         });
-        dismiss
+        dismiss.on_hover_text(tooltip)
     });
     let dismissed = dismiss.as_ref().is_some_and(Response::clicked);
     let over_dismiss = dismiss
@@ -1189,6 +1191,72 @@ mod tests {
         assert_eq!(over_button, egui::CursorIcon::Default);
         let (_, over_link) = draw(&ctx, Some(link_rect.center()));
         assert_eq!(over_link, egui::CursorIcon::PointingHand);
+    }
+
+    /// The cross that dismisses a soft button is an icon alone, so it says
+    /// what it does on hover; the button's own label needs no tooltip.
+    #[test]
+    fn a_soft_button_names_its_dismiss_cross_on_hover() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        let palette = Palette::dark();
+        let mut time = 0.0;
+        let mut draw = |pointer: egui::Pos2| {
+            time += 1.0;
+            let mut rect = egui::Rect::NOTHING;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(400.0, 200.0),
+                    )),
+                    time: Some(time),
+                    events: vec![egui::Event::PointerMoved(pointer)],
+                    ..Default::default()
+                },
+                |ui| {
+                    rect = soft_button_dismiss(ui, &palette, Icon::Clock, "Bonobo", "Remove")
+                        .0
+                        .rect;
+                },
+            );
+            output.textures_delta.clear();
+            fn texts(shape: &egui::epaint::Shape, found: &mut Vec<String>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => found.push(text.galley.job.text.clone()),
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| texts(shape, found));
+                    }
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            output
+                .shapes
+                .iter()
+                .for_each(|clipped| texts(&clipped.shape, &mut found));
+            (rect, found)
+        };
+
+        // #given a recent search drawn as a dismissible soft button
+        let (button, _) = draw(egui::Pos2::ZERO);
+        let cross = egui::pos2(button.left() + 12.0 + 7.5, button.center().y);
+
+        // #when the pointer rests on the cross
+        for _ in 0..3 {
+            draw(cross);
+        }
+
+        // #then its tooltip says what it does
+        assert!(draw(cross).1.iter().any(|text| text == "Remove"));
+
+        // #and the label beside it shows no tooltip
+        let label = egui::pos2(button.right() - 16.0, button.center().y);
+        for _ in 0..3 {
+            draw(label);
+        }
+        assert!(!draw(label).1.iter().any(|text| text == "Remove"));
     }
 
     #[test]

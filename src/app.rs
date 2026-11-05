@@ -14678,7 +14678,7 @@ impl App {
                 repeat: now.repeat,
             }
         });
-        crate::notch::sync_state(enabled, is_background, track_info.as_ref());
+        crate::notch::sync_state(enabled, is_background, self.locale, track_info.as_ref());
         // Only schedule a fast repaint while the card is actively expanded or
         // animating. Hover and state-change callbacks already call notch::wake()
         // which triggers a repaint via the waker, so idle frames are not needed.

@@ -260,7 +260,13 @@ pub use crate::mac_notch::{init, is_active, sync_state};
 pub fn init() {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn sync_state(_enabled: bool, _is_background: bool, _track: Option<&NotchTrackInfo>) {}
+pub fn sync_state(
+    _enabled: bool,
+    _is_background: bool,
+    _locale: crate::i18n::Locale,
+    _track: Option<&NotchTrackInfo>,
+) {
+}
 
 #[cfg(not(target_os = "macos"))]
 pub fn is_active() -> bool {
