@@ -835,8 +835,9 @@ in the playlist removes nothing; the playlist reloads and shows the error.
 Spotifast downloads it directly from Spotify, stores its personal key in the
 system credential store, and starts one child with a loopback-only WebSocket.
 The device must appear in the signed-in account's Spotify device list before
-local control is enabled. Basic commands and state use the local API;
-collection starts keep their offset through the existing playback request.
+local control is enabled. For the first ten seconds after Soloist signs in,
+Spotifast asks for that list once a second, then every twelve seconds. Basic
+commands and state use the local API; collection starts keep their offset through the existing playback request.
 Library and metadata connections remain available through the existing Web
 API and librespot session. Signing out stops the child and deletes its saved
 key and pairing data. Soloist's own streaming traffic is not routed by

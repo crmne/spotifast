@@ -1017,6 +1017,9 @@ const STARTS_WINDOWED: bool =
 /// How long a returning listener may see the loading screen for one step of
 /// Soloist's start. Past this the app opens and a banner carries on.
 const SOLOIST_LOADING_GRACE: Duration = Duration::from_secs(10);
+/// How soon to look again for a Soloist that just signed in: Spotify lists it
+/// about a second later.
+const SOLOIST_DEVICE_RETRY: Duration = Duration::from_secs(1);
 /// Every start reports pairing until Soloist answers, and a dropped session
 /// usually comes back. Only past this does it need the listener.
 pub(crate) const SOLOIST_PAIRING_GRACE: Duration = Duration::from_secs(20);
@@ -4604,15 +4607,23 @@ impl App {
                 }
                 self.poll_remote(true);
             }
-            if (self.show_devices
-                || (matches!(self.soloist_status, crate::soloist::Status::Ready { .. })
-                    && self.soloist_device_id.is_none()))
+            let awaited = matches!(self.soloist_status, crate::soloist::Status::Ready { .. })
+                && self.soloist_device_id.is_none();
+            let fresh = if awaited && self.soloist_status_at.elapsed() < SOLOIST_LOADING_GRACE {
+                SOLOIST_DEVICE_RETRY
+            } else {
+                DEVICES_FRESH
+            };
+            if (self.show_devices || awaited)
                 && !self.devices_loading
                 && self
                     .devices_fetched_at
-                    .is_none_or(|at| at.elapsed() > DEVICES_FRESH)
+                    .is_none_or(|at| at.elapsed() > fresh)
             {
                 self.refresh_devices();
+            }
+            if fresh < DEVICES_FRESH {
+                ctx.request_repaint_after(fresh);
             }
             let playlist_open = self.settings.winamp_window && self.settings.playlist_open;
             if (self.show_queue_panel || matches!(self.page(), Page::Queue) || playlist_open)
@@ -23506,6 +23517,34 @@ mod tests {
         app.bind_soloist_device();
         assert_eq!(app.soloist_device_id.as_deref(), Some("own"));
         assert!(!app.soloist_waiting());
+        app.backend.shutdown();
+    }
+
+    /// The list asked for as Soloist signs in comes back without it.
+    #[test]
+    fn a_soloist_that_just_signed_in_is_looked_for_again_soon() {
+        use crate::soloist::{Status, Update};
+        let ctx = egui::Context::default();
+        let mut app = test_app("soloist-device-retry");
+        app.backend.set_offline(true);
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.settings.soloist_enabled = true;
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        app.devices_loading = false;
+        app.devices_fetched_at = Some(Instant::now() - SOLOIST_DEVICE_RETRY * 2);
+        app.tick(&ctx);
+        assert!(app.devices_loading);
+        // Past the grace, a player Spotify is slow to list gets the usual pace.
+        app.devices_loading = false;
+        app.soloist_status_at = Instant::now() - SOLOIST_LOADING_GRACE;
+        app.tick(&ctx);
+        assert!(!app.devices_loading);
         app.backend.shutdown();
     }
 
