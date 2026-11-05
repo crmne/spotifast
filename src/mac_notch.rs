@@ -804,6 +804,8 @@ pub fn init() {
     window.setHasShadow(true);
     window.setIgnoresMouseEvents(false);
     window.setAcceptsMouseMovedEvents(true);
+    // The notch is mostly used over other apps, where AppKit hides tooltips.
+    window.setAllowsToolTipsWhenApplicationIsInactive(true);
     window.setCollectionBehavior(
         NSWindowCollectionBehavior::CanJoinAllSpaces
             | NSWindowCollectionBehavior::Stationary
