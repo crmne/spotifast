@@ -1140,7 +1140,7 @@ mod native_window_tests {
     }
 
     /// macOS can draw with Metal (wgpu), with OpenGL as the fallback, so a
-    /// ProMotion display scrolls at its full rate (#711). Linux and Windows
+    /// ProMotion display scrolls more evenly (#711). Linux and Windows
     /// draw with OpenGL alone, which keeps their binaries small.
     #[test]
     fn only_macos_can_draw_with_metal_and_every_platform_keeps_opengl() {
