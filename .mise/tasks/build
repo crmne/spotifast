@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Build the release binary into target/release"
+exec cargo build --release --locked

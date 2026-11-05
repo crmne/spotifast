@@ -1,0 +1,64 @@
+# Run with prek, installed by `mise install`: formatting, clippy and the
+# policy checks on every commit, the all-features clippy and tests on push
+# (`prek run --all-files` to run them now). CI still runs the full list in
+# CONTRIBUTING.md.
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: builtin
+    hooks:
+      # Vendored licenses, test fixtures and signatures stay byte for byte.
+      - id: trailing-whitespace
+        exclude: ^(assets|src/testdata|packaging/icons)/
+      - id: end-of-file-fixer
+        exclude: ^(assets|src/testdata|packaging/icons)/
+      - id: check-toml
+      - id: check-yaml
+      - id: check-merge-conflict
+
+  # Security audit of the GitHub Actions workflows.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: 06a39750ec31860bb44f2acf67182c40016cd1e7 # frozen: v1.32.0
+    hooks:
+      - id: zizmor
+        args: [--min-severity=high]
+
+  - repo: local
+    hooks:
+      - id: fmt
+        name: cargo fmt --check
+        entry: cargo fmt --all --check
+        language: system
+        files: \.rs$
+        pass_filenames: false
+      - id: clippy
+        name: cargo clippy
+        entry: cargo clippy --locked --all-targets -- -D warnings
+        language: system
+        files: \.rs$|Cargo\.(toml|lock)$|^build\.rs$
+        pass_filenames: false
+      - id: dependency-sources
+        name: Dependency sources
+        entry: python3 .github/scripts/check-dependency-sources.py
+        language: system
+        files: Cargo\.(toml|lock)$
+        pass_filenames: false
+      - id: review-evidence
+        name: No review evidence in the repository
+        entry: python3 .github/scripts/check-review-evidence.py
+        language: system
+        pass_filenames: false
+      - id: clippy-all-features
+        name: cargo clippy --all-features
+        entry: cargo clippy --locked --all-targets --all-features -- -D warnings
+        language: system
+        files: \.rs$|Cargo\.(toml|lock)$
+        pass_filenames: false
+        stages: [pre-push]
+      - id: test
+        name: cargo test --all-features
+        entry: cargo test --locked --all-targets --all-features
+        language: system
+        files: \.rs$|Cargo\.(toml|lock)$|^(assets|src/testdata)/
+        pass_filenames: false
+        stages: [pre-push]
