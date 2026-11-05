@@ -406,7 +406,7 @@ jobs:
             --key-env SPOTIFAST_UPDATE_SIGNING_KEY
           native-packages verify-checksums dist/checksums.txt \
             --public-key assets/update-public-key.hex
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           name: Spotifast ${{ github.ref_name }}
