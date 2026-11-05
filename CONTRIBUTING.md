@@ -238,6 +238,12 @@ RUSTDOCFLAGS='-D warnings' cargo doc --locked --all-features --no-deps
 (cd docs && bundle exec jekyll build)
 ```
 
+With mise, `mise install` also installs [prek](https://prek.j178.dev) and its
+Git hooks: formatting, clippy, the dependency and review-evidence checks and a
+zizmor audit of the workflows on every commit, the all-features clippy and
+tests on push. `prek run --all-files` runs them now. They are a subset of
+the list above, which CI still runs in full.
+
 Linux needs the development packages listed under
 [Build from source](https://spotifast.rocks/getting-started/#build-from-source); `nix develop`
 provides the complete development environment. The command compatibility test
