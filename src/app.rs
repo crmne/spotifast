@@ -4171,8 +4171,15 @@ impl App {
             return;
         };
         if self.track_cache.contains_key(id) {
-            // Another list may have cached it without its album.
-            if self.track_cache[id].album.is_none()
+            // Another list may have cached it without its album. Give it this
+            // one only when the album lists the song: a queued or resumed
+            // song can play under an album it is not on.
+            if lacks_album(&self.track_cache[id])
+                && let Some(aid) = context_uri.strip_prefix("spotify:album:")
+                && self
+                    .album_pages
+                    .get(aid)
+                    .is_some_and(|page| page.tracks.items.iter().any(|track| track.uri == uri))
                 && let Some(album) = self.context_album(context_uri)
                 && let Some(track) = self.track_cache.get_mut(id)
             {
@@ -4363,7 +4370,7 @@ impl App {
             && self
                 .track_cache
                 .get(id)
-                .is_none_or(|track| track.album.is_none())
+                .is_none_or(lacks_album)
             && self.track_requests.insert(id.clone())
         {
             self.backend.api(ApiRequest::Track { id: id.clone() });
@@ -15147,6 +15154,16 @@ impl App {
         }
         true
     }
+}
+
+/// Whether a cached song still needs its album: none at all, or the
+/// placeholder an album page gives while its details load, which has no
+/// name or cover.
+fn lacks_album(track: &Track) -> bool {
+    track
+        .album
+        .as_ref()
+        .is_none_or(|album| album.name.is_empty())
 }
 
 fn same_recording_hint(left: &Track, right: &Track) -> bool {
@@ -32987,31 +33004,95 @@ mod tests {
     }
 
     /// A song another list cached without its album gets the album when it
-    /// is played from that album's page.
+    /// is played from that album's page, and only an album that lists it.
     #[test]
     fn a_song_cached_without_its_album_gets_it_from_the_album_played() {
         use crate::api::models::Track;
         let mut app = headless_app();
-        app.track_cache.insert(
-            "ballad".into(),
-            Track {
-                id: Some("ballad".into()),
-                uri: "spotify:track:ballad".into(),
-                ..Default::default()
-            },
-        );
+        let ballad = Track {
+            id: Some("ballad".into()),
+            uri: "spotify:track:ballad".into(),
+            ..Default::default()
+        };
+        app.track_cache.insert("ballad".into(), ballad.clone());
+        for (id, name, tracks) in [
+            ("either-or", "Either/Or", vec![ballad.clone()]),
+            ("xo", "XO", Vec::new()),
+        ] {
+            app.album_pages.insert(
+                id.into(),
+                AlbumPage {
+                    album: Loadable::Loaded(Album {
+                        id: id.into(),
+                        name: name.into(),
+                        ..Default::default()
+                    }),
+                    tracks: PagedList {
+                        items: tracks,
+                        loaded_once: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+        }
+
+        // A queued or resumed song can play under an album it is not on.
+        app.cache_track_from_context("spotify:album:xo", "spotify:track:ballad");
+        assert!(app.track_cache["ballad"].album.is_none());
+        // A playlist context names no album to give it.
+        app.cache_track_from_context("spotify:playlist:mix", "spotify:track:ballad");
+        assert!(app.track_cache["ballad"].album.is_none());
+
         app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
         let album = app.track_cache["ballad"].album.as_ref().unwrap();
         assert_eq!(album.id, "either-or");
+        assert_eq!(album.name, "Either/Or");
         assert!(
             app.track_used.contains_key("ballad"),
             "the use still counts"
         );
+        app.backend.shutdown();
+    }
 
-        // A playlist context names no album to give it.
-        app.track_cache.get_mut("ballad").unwrap().album = None;
-        app.cache_track_from_context("spotify:playlist:mix", "spotify:track:ballad");
-        assert!(app.track_cache["ballad"].album.is_none());
+    /// The placeholder album a loading page gives is replaced once the
+    /// album's details are known.
+    #[test]
+    fn a_placeholder_album_is_completed() {
+        use crate::api::models::Track;
+        let mut app = headless_app();
+        let ballad = Track {
+            id: Some("ballad".into()),
+            uri: "spotify:track:ballad".into(),
+            ..Default::default()
+        };
+        app.album_pages.insert(
+            "either-or".into(),
+            AlbumPage {
+                tracks: PagedList {
+                    items: vec![ballad],
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
+        assert!(lacks_album(&app.track_cache["ballad"]), "a placeholder");
+
+        // Starting the song asks for its details.
+        play_locally(&mut app, "spotify:track:ballad");
+        assert!(app.track_requests.contains("ballad"));
+
+        // Playing it again once the album has loaded fills the name in.
+        app.album_pages.get_mut("either-or").unwrap().album = Loadable::Loaded(Album {
+            id: "either-or".into(),
+            name: "Either/Or".into(),
+            ..Default::default()
+        });
+        app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
+        let album = app.track_cache["ballad"].album.as_ref().unwrap();
+        assert_eq!(album.name, "Either/Or");
         app.backend.shutdown();
     }
 
@@ -33046,6 +33127,7 @@ mod tests {
             result: Ok(Track {
                 album: Some(Album {
                     id: "either-or".into(),
+                    name: "Either/Or".into(),
                     ..Default::default()
                 }),
                 ..bare
@@ -33070,6 +33152,7 @@ mod tests {
                 uri: "spotify:track:bars".into(),
                 album: Some(Album {
                     id: "either-or".into(),
+                    name: "Either/Or".into(),
                     ..Default::default()
                 }),
                 ..Default::default()
