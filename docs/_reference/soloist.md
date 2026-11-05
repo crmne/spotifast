@@ -208,13 +208,14 @@ Regular builds include native process capture on macOS 14.2 or newer and
 Windows build 20348 or newer (including Windows 11). On Mac, allow **System Audio
 Recording** for Spotifast, then play a song: a private Core Audio tap passes
 only Spotifast's Soloist child through its EQ, limiter and visualizers,
-including MilkDrop. The tap reads Soloist on the default output's own stream
-and keeps the pair of channels that device plays stereo on. A stereo mixdown
-would fold every channel of a multichannel interface into two at a fraction of
-their level, about 22 dB down on a 24-output interface. Until capture receives
-audio, Soloist's ordinary output continues. Denying permission leaves ordinary
-playback available. Once routed,
-an output-device or sample-rate change stops the player, and Spotifast
+including MilkDrop. The tap reads Soloist on the default output's stream that
+holds the pair of channels the device plays stereo on, and keeps that pair. A
+stereo mixdown would fold every channel of a multichannel interface into two at
+a fraction of their level, about 22 dB down on a 24-output interface. A mono
+output, or a stereo pair split across two streams, still uses the mixdown.
+Until capture receives audio, Soloist's ordinary output continues. Denying
+permission leaves ordinary playback available. Once routed, an output-device,
+sample-rate or speaker-configuration change stops the player, and Spotifast
 restarts it.
 
 On Windows, WASAPI captures only the owned Soloist process and its children
