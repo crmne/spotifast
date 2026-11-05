@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 13:34+0100\n"
+"POT-Creation-Date: 2026-11-05 19:03+0100\n"
 "PO-Revision-Date: 2026-10-15 12:00+0900\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Korean\n"
@@ -228,6 +228,7 @@ msgid "Click to change the visualizer"
 msgstr "클릭하여 시각화 변경"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
+#: src/mac_notch.rs:446 src/mac_notch.rs:1691
 msgid "Nothing playing"
 msgstr "재생 중인 항목 없음"
 
@@ -254,11 +255,11 @@ msgid "Remove from Liked Songs"
 msgstr "좋아요 표시한 곡에서 삭제"
 
 #: src/ui/player_bar.rs:744 src/ui/player_bar.rs:751 src/ui/collection.rs:427
-#: src/ui/new_releases.rs:146
+#: src/ui/new_releases.rs:146 src/mac_notch.rs:378
 msgid "Shuffle"
 msgstr "셔플"
 
-#: src/ui/player_bar.rs:765
+#: src/ui/player_bar.rs:765 src/mac_notch.rs:405
 msgid "Previous"
 msgstr "이전"
 
@@ -272,7 +273,7 @@ msgstr "불러오는 중…"
 msgid "Pause"
 msgstr "일시정지"
 
-#: src/ui/player_bar.rs:820
+#: src/ui/player_bar.rs:820 src/mac_notch.rs:410
 msgid "Next"
 msgstr "다음"
 
@@ -316,7 +317,7 @@ msgstr "음소거"
 msgid "This device's volume can't be changed from Spotifast"
 msgstr "Spotifast에서 이 기기의 볼륨을 변경할 수 없습니다"
 
-#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401
+#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401 src/mac_notch.rs:367
 msgid "Connect to a device"
 msgstr "기기에 연결"
 
@@ -4157,6 +4158,14 @@ msgstr ""
 "데, 이 PC 또는 가상 머신에서는 제공되지 않습니다. 그래픽 드라이버를 설치하거"
 "나 가상 머신의 GPU 가속을 켜세요. 자세한 내용을 보려면 {url}을(를) 여시겠습니"
 "까?"
+
+#: src/mac_notch.rs:412
+msgid "Playback position"
+msgstr "재생 위치"
+
+#: src/mac_notch.rs:413
+msgid "Album artwork"
+msgstr "앨범 아트워크"
 
 #~ msgid "Sort by {column}"
 #~ msgstr "{column} 기준으로 정렬"

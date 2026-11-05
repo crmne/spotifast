@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 13:34+0100\n"
+"POT-Creation-Date: 2026-11-05 19:03+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: German\n"
@@ -232,6 +232,7 @@ msgid "Click to change the visualizer"
 msgstr "Klicken, um den Visualizer zu wechseln"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
+#: src/mac_notch.rs:446 src/mac_notch.rs:1691
 msgid "Nothing playing"
 msgstr "Keine Wiedergabe"
 
@@ -258,11 +259,11 @@ msgid "Remove from Liked Songs"
 msgstr "Aus Lieblingssongs entfernen"
 
 #: src/ui/player_bar.rs:744 src/ui/player_bar.rs:751 src/ui/collection.rs:427
-#: src/ui/new_releases.rs:146
+#: src/ui/new_releases.rs:146 src/mac_notch.rs:378
 msgid "Shuffle"
 msgstr "Zufallswiedergabe"
 
-#: src/ui/player_bar.rs:765
+#: src/ui/player_bar.rs:765 src/mac_notch.rs:405
 msgid "Previous"
 msgstr "Zurück"
 
@@ -276,7 +277,7 @@ msgstr "Laden…"
 msgid "Pause"
 msgstr "Pause"
 
-#: src/ui/player_bar.rs:820
+#: src/ui/player_bar.rs:820 src/mac_notch.rs:410
 msgid "Next"
 msgstr "Weiter"
 
@@ -320,7 +321,7 @@ msgstr "Stummschalten"
 msgid "This device's volume can't be changed from Spotifast"
 msgstr "Die Lautstärke dieses Geräts lässt sich nicht von Spotifast aus ändern"
 
-#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401
+#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401 src/mac_notch.rs:367
 msgid "Connect to a device"
 msgstr "Mit einem Gerät verbinden"
 
@@ -4256,6 +4257,14 @@ msgstr ""
 "PC oder diese virtuelle Maschine bietet keinen. Installiere den "
 "Grafiktreiber oder schalte die GPU-Beschleunigung der virtuellen Maschine "
 "ein. {url} öffnen, um mehr zu erfahren?"
+
+#: src/mac_notch.rs:412
+msgid "Playback position"
+msgstr "Wiedergabeposition"
+
+#: src/mac_notch.rs:413
+msgid "Album artwork"
+msgstr "Albumcover"
 
 #~ msgid "Sort by {column}"
 #~ msgstr "Nach {column} sortieren"

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 13:34+0100\n"
+"POT-Creation-Date: 2026-11-05 19:03+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -228,6 +228,7 @@ msgid "Click to change the visualizer"
 msgstr "クリックでビジュアライザーを切り替え"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
+#: src/mac_notch.rs:446 src/mac_notch.rs:1691
 msgid "Nothing playing"
 msgstr "再生していません"
 
@@ -254,11 +255,11 @@ msgid "Remove from Liked Songs"
 msgstr "お気に入りの曲から削除"
 
 #: src/ui/player_bar.rs:744 src/ui/player_bar.rs:751 src/ui/collection.rs:427
-#: src/ui/new_releases.rs:146
+#: src/ui/new_releases.rs:146 src/mac_notch.rs:378
 msgid "Shuffle"
 msgstr "シャッフル"
 
-#: src/ui/player_bar.rs:765
+#: src/ui/player_bar.rs:765 src/mac_notch.rs:405
 msgid "Previous"
 msgstr "前へ"
 
@@ -272,7 +273,7 @@ msgstr "読み込み中…"
 msgid "Pause"
 msgstr "一時停止"
 
-#: src/ui/player_bar.rs:820
+#: src/ui/player_bar.rs:820 src/mac_notch.rs:410
 msgid "Next"
 msgstr "次へ"
 
@@ -316,7 +317,7 @@ msgstr "ミュート"
 msgid "This device's volume can't be changed from Spotifast"
 msgstr "このデバイスの音量は Spotifast から変更できません"
 
-#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401
+#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401 src/mac_notch.rs:367
 msgid "Connect to a device"
 msgstr "デバイスに接続"
 
@@ -4199,6 +4200,14 @@ msgstr ""
 "この PC または仮想マシンにはありません。グラフィックドライバーをインストール"
 "するか、仮想マシンの GPU アクセラレーションを有効にしてください。詳しくは "
 "{url} を開きますか？"
+
+#: src/mac_notch.rs:412
+msgid "Playback position"
+msgstr "再生位置"
+
+#: src/mac_notch.rs:413
+msgid "Album artwork"
+msgstr "アルバムアートワーク"
 
 #~ msgid "Sort by {column}"
 #~ msgstr "{column}で並べ替え"

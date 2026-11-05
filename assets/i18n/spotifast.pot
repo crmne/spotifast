@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 13:34+0100\n"
+"POT-Creation-Date: 2026-11-05 19:03+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -235,6 +235,7 @@ msgid "Click to change the visualizer"
 msgstr ""
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
+#: src/mac_notch.rs:446 src/mac_notch.rs:1691
 msgid "Nothing playing"
 msgstr ""
 
@@ -261,11 +262,11 @@ msgid "Remove from Liked Songs"
 msgstr ""
 
 #: src/ui/player_bar.rs:744 src/ui/player_bar.rs:751 src/ui/collection.rs:427
-#: src/ui/new_releases.rs:146
+#: src/ui/new_releases.rs:146 src/mac_notch.rs:378
 msgid "Shuffle"
 msgstr ""
 
-#: src/ui/player_bar.rs:765
+#: src/ui/player_bar.rs:765 src/mac_notch.rs:405
 msgid "Previous"
 msgstr ""
 
@@ -279,7 +280,7 @@ msgstr ""
 msgid "Pause"
 msgstr ""
 
-#: src/ui/player_bar.rs:820
+#: src/ui/player_bar.rs:820 src/mac_notch.rs:410
 msgid "Next"
 msgstr ""
 
@@ -323,7 +324,7 @@ msgstr ""
 msgid "This device's volume can't be changed from Spotifast"
 msgstr ""
 
-#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401
+#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401 src/mac_notch.rs:367
 msgid "Connect to a device"
 msgstr ""
 
@@ -4038,4 +4039,12 @@ msgid ""
 "Spotifast needs a graphics driver with OpenGL 2.0 or newer, and this PC or "
 "virtual machine does not provide one. Install the graphics driver, or turn "
 "on GPU acceleration for the virtual machine. Open {url} to read more?"
+msgstr ""
+
+#: src/mac_notch.rs:412
+msgid "Playback position"
+msgstr ""
+
+#: src/mac_notch.rs:413
+msgid "Album artwork"
 msgstr ""

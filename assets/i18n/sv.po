@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 13:34+0100\n"
+"POT-Creation-Date: 2026-11-05 19:03+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -232,6 +232,7 @@ msgid "Click to change the visualizer"
 msgstr "Klicka för att byta visualisering"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
+#: src/mac_notch.rs:446 src/mac_notch.rs:1691
 msgid "Nothing playing"
 msgstr "Inget spelas"
 
@@ -258,11 +259,11 @@ msgid "Remove from Liked Songs"
 msgstr "Ta bort från Gillade låtar"
 
 #: src/ui/player_bar.rs:744 src/ui/player_bar.rs:751 src/ui/collection.rs:427
-#: src/ui/new_releases.rs:146
+#: src/ui/new_releases.rs:146 src/mac_notch.rs:378
 msgid "Shuffle"
 msgstr "Blanda"
 
-#: src/ui/player_bar.rs:765
+#: src/ui/player_bar.rs:765 src/mac_notch.rs:405
 msgid "Previous"
 msgstr "Föregående"
 
@@ -276,7 +277,7 @@ msgstr "Läser in…"
 msgid "Pause"
 msgstr "Pausa"
 
-#: src/ui/player_bar.rs:820
+#: src/ui/player_bar.rs:820 src/mac_notch.rs:410
 msgid "Next"
 msgstr "Nästa"
 
@@ -320,7 +321,7 @@ msgstr "Stäng av ljudet"
 msgid "This device's volume can't be changed from Spotifast"
 msgstr "Volymen på den här enheten kan inte ändras från Spotifast"
 
-#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401
+#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401 src/mac_notch.rs:367
 msgid "Connect to a device"
 msgstr "Anslut till en enhet"
 
@@ -4197,6 +4198,14 @@ msgstr ""
 "här datorn eller virtuella maskinen har ingen. Installera grafikdrivrutinen "
 "eller slå på GPU-acceleration för den virtuella maskinen. Öppna {url} för "
 "att läsa mer?"
+
+#: src/mac_notch.rs:412
+msgid "Playback position"
+msgstr "Uppspelningsposition"
+
+#: src/mac_notch.rs:413
+msgid "Album artwork"
+msgstr "Albumomslag"
 
 #~ msgid "Sort by {column}"
 #~ msgstr "Sortera efter {column}"

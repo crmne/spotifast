@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 13:34+0100\n"
+"POT-Creation-Date: 2026-11-05 19:03+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Simplified Chinese\n"
@@ -228,6 +228,7 @@ msgid "Click to change the visualizer"
 msgstr "点击切换可视化效果"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
+#: src/mac_notch.rs:446 src/mac_notch.rs:1691
 msgid "Nothing playing"
 msgstr "暂无播放曲目"
 
@@ -254,11 +255,11 @@ msgid "Remove from Liked Songs"
 msgstr "从已点赞的歌曲中移除"
 
 #: src/ui/player_bar.rs:744 src/ui/player_bar.rs:751 src/ui/collection.rs:427
-#: src/ui/new_releases.rs:146
+#: src/ui/new_releases.rs:146 src/mac_notch.rs:378
 msgid "Shuffle"
 msgstr "随机播放"
 
-#: src/ui/player_bar.rs:765
+#: src/ui/player_bar.rs:765 src/mac_notch.rs:405
 msgid "Previous"
 msgstr "上一首"
 
@@ -272,7 +273,7 @@ msgstr "加载中…"
 msgid "Pause"
 msgstr "暂停"
 
-#: src/ui/player_bar.rs:820
+#: src/ui/player_bar.rs:820 src/mac_notch.rs:410
 msgid "Next"
 msgstr "下一首"
 
@@ -316,7 +317,7 @@ msgstr "静音"
 msgid "This device's volume can't be changed from Spotifast"
 msgstr "无法从 Spotifast 更改此设备的音量"
 
-#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401
+#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401 src/mac_notch.rs:367
 msgid "Connect to a device"
 msgstr "连接到设备"
 
@@ -4074,6 +4075,14 @@ msgstr ""
 "Spotifast 需要支持 OpenGL 2.0 或更高版本的显卡驱动程序，而这台电脑或虚拟机没"
 "有提供。请安装显卡驱动程序，或为虚拟机开启 GPU 加速。要打开 {url} 了解更多"
 "吗？"
+
+#: src/mac_notch.rs:412
+msgid "Playback position"
+msgstr "播放进度"
+
+#: src/mac_notch.rs:413
+msgid "Album artwork"
+msgstr "专辑封面"
 
 #~ msgid "Sort by {column}"
 #~ msgstr "按{column}排序"

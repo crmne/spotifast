@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 13:34+0100\n"
+"POT-Creation-Date: 2026-11-05 19:03+0100\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Russian\n"
@@ -237,6 +237,7 @@ msgid "Click to change the visualizer"
 msgstr "Нажмите, чтобы сменить визуализатор"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
+#: src/mac_notch.rs:446 src/mac_notch.rs:1691
 msgid "Nothing playing"
 msgstr "Ничего не играет"
 
@@ -263,11 +264,11 @@ msgid "Remove from Liked Songs"
 msgstr "Удалить из Любимых треков"
 
 #: src/ui/player_bar.rs:744 src/ui/player_bar.rs:751 src/ui/collection.rs:427
-#: src/ui/new_releases.rs:146
+#: src/ui/new_releases.rs:146 src/mac_notch.rs:378
 msgid "Shuffle"
 msgstr "Перемешать"
 
-#: src/ui/player_bar.rs:765
+#: src/ui/player_bar.rs:765 src/mac_notch.rs:405
 msgid "Previous"
 msgstr "Предыдущий"
 
@@ -281,7 +282,7 @@ msgstr "Загрузка…"
 msgid "Pause"
 msgstr "Пауза"
 
-#: src/ui/player_bar.rs:820
+#: src/ui/player_bar.rs:820 src/mac_notch.rs:410
 msgid "Next"
 msgstr "Следующий"
 
@@ -325,7 +326,7 @@ msgstr "Выключить звук"
 msgid "This device's volume can't be changed from Spotifast"
 msgstr "Громкость этого устройства нельзя изменить из Spotifast"
 
-#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401
+#: src/ui/player_bar.rs:1033 src/ui/devices.rs:401 src/mac_notch.rs:367
 msgid "Connect to a device"
 msgstr "Подключиться к устройству"
 
@@ -4250,6 +4251,14 @@ msgstr ""
 "или эта виртуальная машина его не предоставляет. Установите графический "
 "драйвер или включите GPU-ускорение для виртуальной машины. Открыть {url}, "
 "чтобы узнать больше?"
+
+#: src/mac_notch.rs:412
+msgid "Playback position"
+msgstr "Позиция воспроизведения"
+
+#: src/mac_notch.rs:413
+msgid "Album artwork"
+msgstr "Обложка альбома"
 
 #~ msgid "Sort by {column}"
 #~ msgstr "Сортировка: {column}"
