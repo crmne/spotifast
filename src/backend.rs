@@ -6015,9 +6015,16 @@ async fn handle(
         }
         ApiRequest::ShufflePlay { device_id, play } => {
             let device = device_id.as_deref();
-            let result = match routed!(set_shuffle(true, device)) {
-                Ok(()) => routed!(play(device, Some(&play))),
-                Err(error) => Err(error),
+            let result = if shuffle_after_start(&play) {
+                match routed!(play(device, Some(&play))) {
+                    Ok(()) => routed!(set_shuffle(true, device)),
+                    Err(error) => Err(error),
+                }
+            } else {
+                match routed!(set_shuffle(true, device)) {
+                    Ok(()) => routed!(play(device, Some(&play))),
+                    Err(error) => Err(error),
+                }
             };
             ApiResponse::Remote {
                 action: RemoteAction::Play,
@@ -6189,6 +6196,16 @@ async fn over_connect(
         }
         _ => return None,
     })
+}
+
+/// Whether a shuffled start sends play before shuffle. Liked Songs started
+/// with shuffle already on comes up in Smart Shuffle, and Soloist then
+/// loads no song from it: it reports playing with nothing to play. Started
+/// first and shuffled after, it plays the chosen song and shuffles the rest.
+fn shuffle_after_start(play: &PlayRequest) -> bool {
+    play.context_uri
+        .as_deref()
+        .is_some_and(|context| context.ends_with(":collection"))
 }
 
 /// Waits for shuffle to succeed before starting playback, preserving either error.
@@ -10088,6 +10105,20 @@ mod tests {
         playlist.owner.id = Some("spotify".into());
         playlist.uri = UNSUPPORTED_DJ_URI.into();
         assert!(!shared_made_for_you_match(&playlist, "Daily Mix"));
+    }
+
+    #[test]
+    fn only_liked_songs_starts_before_shuffle() {
+        let liked = PlayRequest::context("spotify:user:someone:collection")
+            .starting_at_uri("spotify:track:a");
+        assert!(shuffle_after_start(&liked));
+        for other in [
+            PlayRequest::context("spotify:playlist:abc"),
+            PlayRequest::context("spotify:album:abc"),
+            PlayRequest::tracks(vec!["spotify:track:a".into()]),
+        ] {
+            assert!(!shuffle_after_start(&other), "{other:?}");
+        }
     }
 
     #[tokio::test]

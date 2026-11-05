@@ -142,6 +142,9 @@ restarts the player, as described under Setup.
 Starting a collection at a chosen row goes
 through the existing Spotify playback request, retaining its context and
 position; it does not skip through earlier songs or shorten the playlist.
+With shuffle on, Liked Songs starts first and is shuffled after. Started
+with shuffle already on, Spotify brings it up in Smart Shuffle, and Soloist
+then loads no song from it.
 
 Lyrics also keep their existing sources. Spotify's own lyrics are tried when
 the separate librespot session is signed in, even while Soloist plays. Soloist
