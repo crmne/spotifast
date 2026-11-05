@@ -4608,7 +4608,7 @@ impl App {
                 self.poll_remote(true);
             }
             let awaited = self.soloist_device_awaited();
-            let fresh = if awaited && self.soloist_status_at.elapsed() < SOLOIST_LOADING_GRACE {
+            let fresh = if awaited && self.soloist_status_at.elapsed() < SOLOIST_PAIRING_GRACE {
                 SOLOIST_DEVICE_RETRY
             } else {
                 DEVICES_FRESH
@@ -14565,7 +14565,7 @@ impl App {
             && self.is_connected()
             && !self.offline
             && !self.devices_loading
-            && self.soloist_status_at.elapsed() < SOLOIST_LOADING_GRACE)
+            && self.soloist_status_at.elapsed() < SOLOIST_PAIRING_GRACE)
             .then(|| {
                 self.devices_fetched_at.map_or(Duration::ZERO, |at| {
                     SOLOIST_DEVICE_RETRY.saturating_sub(at.elapsed())
@@ -23560,9 +23560,14 @@ mod tests {
         app.tick(&ctx);
         assert!(app.devices_loading);
         assert_ne!(app.next_pass(), Some(Duration::ZERO), "no timer spin");
-        // Past the grace, a player Spotify is slow to list gets the usual pace.
+        // A song chosen once the app opens waits on this look.
         app.devices_loading = false;
         app.soloist_status_at = Instant::now() - SOLOIST_LOADING_GRACE;
+        app.tick(&ctx);
+        assert!(app.devices_loading);
+        // Past the grace, a player Spotify is slow to list gets the usual pace.
+        app.devices_loading = false;
+        app.soloist_status_at = Instant::now() - SOLOIST_PAIRING_GRACE;
         app.tick(&ctx);
         assert!(!app.devices_loading);
         app.backend.shutdown();
