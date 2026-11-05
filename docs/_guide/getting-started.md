@@ -228,3 +228,15 @@ vcpkg (`vcpkg install glew:x64-windows-static`, with
 
 With [Nix](https://nixos.org), `nix develop` in a checkout provides all of it,
 along with the exact toolchain `rust-toolchain.toml` pins.
+
+With [mise](https://mise.jdx.dev), a checkout installs the pinned Rust and
+CMake. The system libraries above still come from your package manager, and
+on a Mac the C++ compiler and libclang from the Xcode Command Line Tools.
+`mise run install` builds Spotifast and installs it into `~/.cargo/bin`;
+`mise run build` only builds it into `target/release`:
+
+```bash
+git clone https://github.com/crmne/spotifast && cd spotifast
+mise trust && mise install
+mise run install
+```

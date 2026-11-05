@@ -1,0 +1,9 @@
+# `mise run dev`: the app never exits on its own, so kill it and start the
+# new build on each change. Assets are embedded, so they count as a change.
+[jobs.run]
+command = ["cargo", "run", "--color", "always"]
+watch = ["assets"]
+need_stdout = true
+allow_warnings = true
+background = false
+on_change_strategy = "kill_then_restart"
