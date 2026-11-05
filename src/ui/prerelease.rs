@@ -275,7 +275,9 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
                     )));
                     ui.close();
                 }
-            });
+            })
+            .response
+            .on_hover_text(gettext(locale, "More"));
         });
     });
     if let Some(error) = &data.save_error {
@@ -364,6 +366,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
             play.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::Button, true, gettext(locale, "Play"))
             });
+            let play = play.on_hover_text(gettext(locale, "Play"));
             play_clicked = play.clicked();
         } else {
             ui.painter().text(

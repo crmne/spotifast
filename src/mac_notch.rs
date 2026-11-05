@@ -295,9 +295,10 @@ fn inactive_button_tint() -> Retained<NSColor> {
     NSColor::colorWithWhite_alpha(1.0, 0.70)
 }
 
-fn set_button_accessibility_label(button: &NSButton, label: &str) {
+fn set_button_label(button: &NSButton, label: &str) {
     let s = NSString::from_str(label);
     let () = unsafe { objc2::msg_send![button, setAccessibilityLabel: &*s] };
+    let () = unsafe { objc2::msg_send![button, setToolTip: &*s] };
 }
 
 fn set_button_tint(button: &NSButton, tint: &NSColor) {
@@ -323,7 +324,7 @@ fn setup_svg_button(button: &NSButton, image: &NSImage, accessibility: &str) {
     button.setBordered(false);
     button.setImage(Some(image));
     button.setTitle(&NSString::from_str(""));
-    set_button_accessibility_label(button, accessibility);
+    set_button_label(button, accessibility);
 }
 
 fn update_play_button_ui(button: &NSButton, icons: &NotchIcons, playing: bool) {

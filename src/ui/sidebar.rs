@@ -84,11 +84,21 @@ fn cover_play_button(
     // paused one keeps the play glyph, but pressing it resumes in place
     // instead of restarting the context.
     let playing = current_context && app.believed_playing();
-    let play = ui.interact(
-        cover_rect,
-        ui.id().with(("library-cover-play", index)),
-        Sense::click(),
-    );
+    let tooltip = if playing {
+        // Translators: The play button on a Library card. {name} is the playlist, album, artist, or podcast.
+        gettext(app.locale, "Pause {name}")
+    } else {
+        // Translators: The play button on a Library card. {name} is the playlist, album, artist, or podcast.
+        gettext(app.locale, "Play {name}")
+    }
+    .replace("{name}", &entry.name);
+    let play = ui
+        .interact(
+            cover_rect,
+            ui.id().with(("library-cover-play", index)),
+            Sense::click(),
+        )
+        .on_hover_text(tooltip);
     let play_hover = play.hovered();
     if play_hover || parent.hovered() {
         let radius = if entry.round {
@@ -180,6 +190,7 @@ fn grid_play_button(
     button.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label.clone())
     });
+    let button = button.on_hover_text(label);
     if parent.hovered() || playing_here || button.has_focus() {
         let fill = if button.hovered() {
             app.palette.accent_hover
@@ -684,11 +695,13 @@ fn paint_expanded_art(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
     );
     let over_chevron = ui.rect_contains_pointer(chevron_rect);
     if art.hovered() || over_chevron {
-        let chevron = ui.interact(
-            chevron_rect,
-            egui::Id::new("sidebar-art-collapse"),
-            Sense::click(),
-        );
+        let chevron = ui
+            .interact(
+                chevron_rect,
+                egui::Id::new("sidebar-art-collapse"),
+                Sense::click(),
+            )
+            .on_hover_text(gettext(app.locale, "Shrink cover"));
         ui.painter().circle_filled(
             chevron_rect.center(),
             10.0,
