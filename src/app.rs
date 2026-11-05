@@ -4607,8 +4607,7 @@ impl App {
                 }
                 self.poll_remote(true);
             }
-            let awaited = matches!(self.soloist_status, crate::soloist::Status::Ready { .. })
-                && self.soloist_device_id.is_none();
+            let awaited = self.soloist_device_awaited();
             let fresh = if awaited && self.soloist_status_at.elapsed() < SOLOIST_LOADING_GRACE {
                 SOLOIST_DEVICE_RETRY
             } else {
@@ -4621,9 +4620,6 @@ impl App {
                     .is_none_or(|at| at.elapsed() > fresh)
             {
                 self.refresh_devices();
-            }
-            if fresh < DEVICES_FRESH {
-                ctx.request_repaint_after(fresh);
             }
             let playlist_open = self.settings.winamp_window && self.settings.playlist_open;
             if (self.show_queue_panel || matches!(self.page(), Page::Queue) || playlist_open)
@@ -14542,6 +14538,12 @@ impl App {
         }
     }
 
+    /// Soloist is signed in and Spotify's account has yet to list it.
+    fn soloist_device_awaited(&self) -> bool {
+        matches!(self.soloist_status, crate::soloist::Status::Ready { .. })
+            && self.soloist_device_id.is_none()
+    }
+
     /// The soonest that playback, a pending play or polling needs the logic
     /// to run again, if any of them does.
     fn next_pass(&self) -> Option<Duration> {
@@ -14558,7 +14560,18 @@ impl App {
         let pushed = self
             .remote_push_due()
             .map(|due| due.saturating_duration_since(Instant::now()));
-        [playing, pending, polling, pushed]
+        // No wait while a list is on its way: its answer wakes the logic.
+        let soloist = (self.soloist_device_awaited()
+            && self.is_connected()
+            && !self.offline
+            && !self.devices_loading
+            && self.soloist_status_at.elapsed() < SOLOIST_LOADING_GRACE)
+            .then(|| {
+                self.devices_fetched_at.map_or(Duration::ZERO, |at| {
+                    SOLOIST_DEVICE_RETRY.saturating_sub(at.elapsed())
+                })
+            });
+        [playing, pending, polling, pushed, soloist]
             .into_iter()
             .flatten()
             .min()
@@ -23537,9 +23550,16 @@ mod tests {
             expires: u64::MAX,
         }));
         app.devices_loading = false;
+        app.devices_fetched_at = Some(Instant::now());
+        assert!(
+            app.next_pass()
+                .is_some_and(|due| due <= SOLOIST_DEVICE_RETRY)
+        );
         app.devices_fetched_at = Some(Instant::now() - SOLOIST_DEVICE_RETRY * 2);
+        assert_eq!(app.next_pass(), Some(Duration::ZERO));
         app.tick(&ctx);
         assert!(app.devices_loading);
+        assert_ne!(app.next_pass(), Some(Duration::ZERO), "no timer spin");
         // Past the grace, a player Spotify is slow to list gets the usual pace.
         app.devices_loading = false;
         app.soloist_status_at = Instant::now() - SOLOIST_LOADING_GRACE;
