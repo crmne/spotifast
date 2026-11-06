@@ -718,6 +718,8 @@ pub(crate) fn run() -> eframe::Result<()> {
             Ok(Box::new(Shell {
                 app,
                 recovery_checked: false,
+                #[cfg(target_os = "macos")]
+                on_all_desktops: false,
                 #[cfg(windows)]
                 thumbbar,
                 #[cfg(feature = "demo")]
@@ -1294,6 +1296,9 @@ struct Shell {
     app: fastframe_shell::Held<app::App>,
     /// Whether this window's first frame checked that a monitor shows it.
     recovery_checked: bool,
+    /// Whether this window was last put on every desktop.
+    #[cfg(target_os = "macos")]
+    on_all_desktops: bool,
     #[cfg(windows)]
     thumbbar: spotifast::thumbbar::ThumbBar,
     /// A pending `--demo-shot` capture, if this is a screenshot run.
@@ -1341,6 +1346,8 @@ impl Shell {
             fastframe_shell::window::recover_offscreen(ctx, frame);
         }
         self.read_screen_hz(ctx, frame);
+        #[cfg(target_os = "macos")]
+        self.follow_all_desktops(frame);
         let app = &mut *self.app;
         #[cfg(target_os = "macos")]
         for command in spotifast::mac_menu::drain_commands() {
@@ -1533,6 +1540,23 @@ impl Shell {
         }
         self.shot = None;
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Shell {
+    /// Keeps the mini player's window on every desktop while the setting asks
+    /// for it. The big window, a new one each switch, stays where it opens.
+    fn follow_all_desktops(&mut self, frame: &eframe::Frame) {
+        use raw_window_handle::HasWindowHandle;
+        let settings = &self.app.settings;
+        let wanted = settings.winamp_window && settings.winamp_all_desktops;
+        if self.on_all_desktops != wanted
+            && let Ok(handle) = frame.window_handle()
+        {
+            spotifast::window::show_on_all_desktops(handle.as_raw(), wanted);
+            self.on_all_desktops = wanted;
+        }
     }
 }
 

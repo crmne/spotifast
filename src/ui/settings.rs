@@ -1793,6 +1793,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     app.winamp.refresh_choices(&skins_folder, ui.ctx());
     let mini_player = gettext(locale, "Mini player");
     let always_on_top = gettext(locale, "Always on top");
+    let all_desktops = gettext(locale, "Show on all desktops");
     let show_in_taskbar = gettext(locale, "Show the mini player in taskbar");
     let random_skin = gettext(locale, "Random skin");
     let winamp_title = gettext(locale, "Winamp");
@@ -1874,6 +1875,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 "Winamp and Windows Media Player skins are both kept here.",
             ),
         ),
+        RowText::new(
+            all_desktops.clone(),
+            gettext(
+                locale,
+                "Keep the mini player on every desktop, not just the one it opened on.",
+            ),
+        )
+        .when(crate::window::supports_all_desktops()),
     ];
     if section_matches(&needle, &mini_player, &mini_rows) {
         any_visible = true;
@@ -2061,6 +2070,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     }
                 });
             });
+            if crate::window::supports_all_desktops() {
+                filtered_row(ui, &palette, &needle, &mini_player, &mini_rows[8], |ui| {
+                    let mut all = app.settings.winamp_all_desktops;
+                    if widgets::switch(ui, &palette, &all_desktops, &mut all).changed() {
+                        app.actions.push(Action::SetWinampAllDesktops(all));
+                    }
+                });
+            }
             if app.taskbar_setting_visible() {
                 filtered_row(ui, &palette, &needle, &mini_player, &mini_rows[6], |ui| {
                     let mut visible = app.settings.winamp_show_taskbar;

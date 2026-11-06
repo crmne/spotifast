@@ -397,6 +397,8 @@ pub struct Settings {
     pub skin_scale: Option<u8>,
     /// The Winamp window stays above other windows.
     pub winamp_on_top: bool,
+    /// macOS: the Winamp window shows on every desktop (Space).
+    pub winamp_all_desktops: bool,
     /// The mini player's visualiser: bars, scope, or off.
     pub vis: VisMode,
     /// The playlist window is open under the mini player.
@@ -549,6 +551,7 @@ impl Default for Settings {
             random_skin: false,
             skin_scale: None,
             winamp_on_top: false,
+            winamp_all_desktops: false,
             vis: VisMode::default(),
             playlist_open: false,
             playlist_height: 174,
@@ -1368,6 +1371,7 @@ mod tests {
         );
         assert_eq!(settings.skin_scale, None);
         assert!(!settings.winamp_on_top);
+        assert!(!settings.winamp_all_desktops);
         assert_eq!(settings.vis, super::VisMode::Bars);
         assert!(!settings.playlist_open);
         assert_eq!(settings.playlist_height, 174);
