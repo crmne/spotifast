@@ -405,6 +405,7 @@ main fields are:
 | `random_skin` | `false` | Since 0.11.0: pick a different skin (built-in or installed) each time the mini player opens; `skin` holds the one picked |
 | `skin_scale` | by display | Screen pixels per skin pixel, 1 to 4 |
 | `winamp_on_top` | `false` | Keep the mini player above other windows |
+| `winamp_all_desktops` | `false` | macOS only: show the mini player on every desktop (Space). Other systems ignore it |
 | `vis` | `bars` | The mini player's visualiser: `bars`, `scope`, or `off` |
 | `playlist_open` | `false` | The playlist window is open under the mini player |
 | `playlist_height` | `174` | The playlist window's height in skin pixels |
