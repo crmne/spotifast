@@ -3385,7 +3385,7 @@ impl App {
                     // mid-song, and its song should carry on when it is back.
                     self.soloist_resume |= self.soloist_device_id.is_some()
                         && self.targets_own_soloist()
-                        && self.now_playing().is_some_and(|now| now.playing);
+                        && self.now_playing_heard().is_some_and(|now| now.playing);
                     self.soloist_audio = false;
                     self.clear_soloist_target();
                     self.backend.send(Command::SoloistDevice(None));
@@ -3512,7 +3512,7 @@ impl App {
                 self.selected_device = Some(id);
                 self.replay_queued_play();
             } else if std::mem::take(&mut self.soloist_select) {
-                let play = resume || self.now_playing().is_some_and(|now| now.playing);
+                let play = resume || self.now_playing_heard().is_some_and(|now| now.playing);
                 self.transfer_remote(id, play);
             } else if resume {
                 self.transfer_remote(id, true);

@@ -5100,4 +5100,78 @@ mod tests {
         );
         app.backend.shutdown();
     }
+
+    /// What `device` reports: the song from before the click, playing or not.
+    fn song_on(app: &mut App, device: &str, is_playing: bool) {
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(Device {
+                    id: Some(device.into()),
+                    name: device.into(),
+                    ..Default::default()
+                }),
+                is_playing,
+                item: Some(PlayableItem::Track(song("x"))),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+    }
+
+    fn transfers(app: &App) -> Vec<(String, bool)> {
+        app.backend
+            .take_transfer_requests()
+            .into_iter()
+            .map(|request| match request {
+                ApiRequest::Transfer { device_id, play } => (device_id, play),
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    /// Turning Soloist on moves what is heard. A waiting play shows its song
+    /// as playing while nothing plays it, and that must not start the song
+    /// the listener paused; one really playing moves across playing.
+    #[test]
+    fn turning_soloist_on_during_a_wait_moves_what_is_heard() {
+        let ctx = egui::Context::default();
+        for is_playing in [false, true] {
+            let mut app = soloist_app(&format!("soloist-on-wait-{is_playing}"));
+            song_on(&mut app, "phone", is_playing);
+            waiting_play(&mut app, &ctx);
+            assert!(app.now_playing().is_some_and(|now| now.playing));
+            app.apply(Action::SetSoloist(true), &ctx);
+            soloist_ready(&mut app);
+            assert_eq!(transfers(&app), [("own".to_string(), is_playing)]);
+            app.backend.shutdown();
+        }
+    }
+
+    /// Soloist carries on after a restart only what it was really playing,
+    /// not the song a waiting play shows over a paused one.
+    #[test]
+    fn a_soloist_restart_during_a_wait_resumes_only_what_was_heard() {
+        use crate::soloist::{Failure, Status, Update};
+        let ctx = egui::Context::default();
+        for is_playing in [false, true] {
+            let mut app = soloist_app(&format!("soloist-restart-wait-{is_playing}"));
+            app.settings.soloist_enabled = true;
+            soloist_ready(&mut app);
+            app.selected_device = Some("own".into());
+            song_on(&mut app, "own", is_playing);
+            waiting_play(&mut app, &ctx);
+            assert!(app.targets_own_soloist());
+            assert!(app.now_playing().is_some_and(|now| now.playing));
+            app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+            assert_eq!(app.soloist_resume, is_playing);
+            soloist_ready(&mut app);
+            let expected: &[(String, bool)] = if is_playing {
+                &[("own".to_string(), true)]
+            } else {
+                &[]
+            };
+            assert_eq!(transfers(&app), expected);
+            app.backend.shutdown();
+        }
+    }
 }
