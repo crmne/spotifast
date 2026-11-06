@@ -5024,4 +5024,80 @@ mod tests {
         );
         app.backend.shutdown();
     }
+
+    /// A verified Soloist named "owned", with a speaker beside it in the list.
+    fn soloist_ready(app: &mut App) {
+        use crate::soloist::{Status, Update};
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        app.devices = vec![
+            Device {
+                id: Some("own".into()),
+                name: "owned".into(),
+                ..Default::default()
+            },
+            Device {
+                id: Some("kitchen".into()),
+                name: "Kitchen".into(),
+                ..Default::default()
+            },
+        ];
+        app.bind_soloist_device();
+    }
+
+    /// As [`app`], for a listener who finished Soloist's setup.
+    fn soloist_app(name: &str) -> App {
+        let mut app = app(name);
+        app.user = Some(crate::api::models::User {
+            id: "listener".into(),
+            product: Some("premium".into()),
+            ..Default::default()
+        });
+        app.soloist_onboarding = crate::settings::SoloistOnboarding::Complete;
+        app
+    }
+
+    /// A play kept for a woken speaker can reach its start while Soloist
+    /// needs the listener, and the start is dropped. The speaker goes with
+    /// it: the next play starts where the listener has since pointed the app.
+    #[test]
+    fn a_dropped_start_leaves_its_speaker_out_of_the_next_play() {
+        use crate::soloist::{Failure, Status, Update};
+        let ctx = egui::Context::default();
+        let mut app = soloist_app("dropped-start-speaker");
+        app.settings.soloist_enabled = true;
+        soloist_ready(&mut app);
+        waiting_play(&mut app, &ctx);
+        app.pending_discography_play.as_mut().unwrap().device = Some("kitchen".into());
+        app.on_soloist(Update::Status(Status::Failed(Failure::KeyStore)));
+        assert!(app.soloist_waiting() && !app.soloist_recovering());
+
+        songs_arrive(&mut app, "a", vec![song("a1")]);
+        assert!(app.pending_discography_play.is_none());
+        assert!(app.queued_play.is_none(), "the start was dropped");
+        assert_eq!(app.start_on, None);
+
+        soloist_ready(&mut app);
+        app.selected_device = Some("phone".into());
+        app.backend.take_remote_play_requests();
+        app.apply(
+            Action::PlayUris {
+                uris: vec!["spotify:track:later".into()],
+                index: 0,
+            },
+            &ctx,
+        );
+        let requests = app.backend.take_remote_play_requests();
+        assert!(
+            matches!(
+                requests.as_slice(),
+                [ApiRequest::Remote { device_id: Some(id), .. }] if id == "phone"
+            ),
+            "{requests:?}"
+        );
+        app.backend.shutdown();
+    }
 }
