@@ -781,6 +781,15 @@ fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
             app.actions.push(Action::ToggleWinampOnTop);
         }
     });
+    if crate::window::supports_all_desktops() {
+        let mut all = app.settings.winamp_all_desktops;
+        if ui
+            .checkbox(&mut all, gettext(locale, "Show on all desktops").as_ref())
+            .changed()
+        {
+            app.actions.push(Action::SetWinampAllDesktops(all));
+        }
+    }
     if app.taskbar_setting_visible() {
         let mut visible = app.settings.winamp_show_taskbar;
         if ui

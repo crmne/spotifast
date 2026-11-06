@@ -5064,6 +5064,42 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Only macOS keeps a window on one desktop, so only macOS offers the
+    /// row. Using it there saves the choice without closing Settings.
+    #[test]
+    fn the_all_desktops_setting_is_offered_on_macos_alone() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("winamp-all-desktops");
+        let text = settings_text(&ctx, &mut app, "Show on all desktops");
+        assert_eq!(
+            text.iter().any(|text| text == "Mini player"),
+            cfg!(target_os = "macos")
+        );
+        if cfg!(target_os = "macos") {
+            app.open(Page::Settings);
+            for _ in 0..4 {
+                accessible_frame(&ctx, &mut app, vec![]);
+            }
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let control = accessible_node(&tree, "Show on all desktops", Role::CheckBox);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(
+                    control,
+                    egui::accesskit::Action::Click,
+                    None,
+                )],
+            );
+            assert!(app.settings.winamp_all_desktops);
+            assert!(!app.settings.winamp_window && !app.switch_intent);
+            let path = app.dirs.config.join("winamp-all-desktops.json");
+            app.settings.save(&path);
+            assert!(Settings::load(&path).winamp_all_desktops);
+        }
+        app.backend.shutdown();
+    }
+
     #[test]
     fn wayland_on_top_setting_is_disabled_and_does_not_look_active() {
         use egui::accesskit::{Role, Toggled};
