@@ -382,6 +382,10 @@ pub struct App {
     /// every frame, so the answer is kept until the artwork changes.
     media_art: Option<(String, PathBuf)>,
     tray: Option<fastframe_tray::Tray>,
+    /// macOS: the menu-bar item that names the song beside the tray's
+    /// (#1259), while Settings asks for it.
+    #[cfg(target_os = "macos")]
+    menu_bar: Option<crate::mac_menu_bar::MenuBar>,
     /// A hidden start's deadline for a panel to show the tray item: a start
     /// at login can beat the desktop's tray host, and without one by then
     /// the window opens, since nothing else could bring it back.
@@ -1189,6 +1193,19 @@ impl App {
         if let Some(tray) = &mut tray {
             tray.set_icon_colour(tray_icon_colour(settings.tray_icon));
         }
+        #[cfg(target_os = "macos")]
+        let menu_bar = options.tray.then(|| {
+            let wake = waker.clone();
+            crate::mac_menu_bar::MenuBar::spawn(
+                crate::mac_menu_bar::Controls {
+                    previous: TRAY_PREVIOUS,
+                    play_pause: TRAY_PLAY_PAUSE,
+                    next: TRAY_NEXT,
+                    window: TRAY_MAIN_WINDOW,
+                },
+                move || wake.wake(),
+            )
+        });
         let power = if options.media_controls {
             let wake = waker.clone();
             crate::power::Power::spawn(move || wake.wake())
@@ -1224,6 +1241,8 @@ impl App {
             system_appearance,
             media_art: None,
             tray,
+            #[cfg(target_os = "macos")]
+            menu_bar,
             tray_wait: None,
             autostart: None,
             autostart_wanted: None,
@@ -5602,9 +5621,17 @@ impl App {
 
     fn handle_tray(&mut self) {
         use fastframe_tray::Event;
-        let Some(events) = self.tray.as_ref().map(fastframe_tray::Tray::events) else {
-            return;
-        };
+        #[allow(unused_mut)]
+        let mut events = self
+            .tray
+            .as_ref()
+            .map(fastframe_tray::Tray::events)
+            .unwrap_or_default();
+        // The buttons on the song item's card send the tray's own entries.
+        #[cfg(target_os = "macos")]
+        if let Some(menu_bar) = &self.menu_bar {
+            events.extend(menu_bar.events());
+        }
         for event in events {
             let action = match event {
                 Event::Show => Action::ShowWindow,
@@ -14679,6 +14706,13 @@ impl App {
             }
         });
         crate::notch::sync_state(enabled, is_background, track_info.as_ref());
+        if let Some(menu_bar) = &mut self.menu_bar {
+            menu_bar.show(
+                self.settings.mac_menu_bar_now_playing,
+                track_info.as_ref(),
+                self.locale,
+            );
+        }
         // Only schedule a fast repaint while the card is actively expanded or
         // animating. Hover and state-change callbacks already call notch::wake()
         // which triggers a repaint via the waker, so idle frames are not needed.
