@@ -590,7 +590,7 @@ struct NotchController {
 
 unsafe impl Send for NotchController {}
 
-fn set_view_corner_radius(view: &NSView, radius: f64) {
+pub(crate) fn set_view_corner_radius(view: &NSView, radius: f64) {
     unsafe {
         let layer: Option<Retained<NSObject>> = objc2::msg_send![view, layer];
         if let Some(layer) = layer {

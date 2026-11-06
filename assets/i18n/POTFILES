@@ -36,3 +36,4 @@ src/ui/winamp/mod.rs
 src/ui/winamp/playlist.rs
 src/util.rs
 src/window.rs
+src/mac_menu_bar.rs

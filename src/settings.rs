@@ -360,6 +360,9 @@ pub struct Settings {
     pub tray_icon: TrayIcon,
     /// Show the interactive Now Playing widget when hovering over the MacBook notch.
     pub mac_notch_widget: bool,
+    /// macOS: the menu-bar item names the playing song, and a click on it
+    /// opens a card with the cover and the playback buttons (#1259).
+    pub mac_menu_bar_now_playing: bool,
     /// macOS: keep Spotifast in the Dock and Cmd-Tab. Off makes it a
     /// menu-bar app, whose menu-bar icon is the way back (#837).
     pub mac_show_in_dock: bool,
@@ -531,6 +534,7 @@ impl Default for Settings {
             keep_playing_in_background: true,
             tray_icon: TrayIcon::Colour,
             mac_notch_widget: false,
+            mac_menu_bar_now_playing: false,
             mac_show_in_dock: true,
             check_for_updates: true,
             download_updates_automatically: false,
@@ -1151,6 +1155,18 @@ mod tests {
         let encoded = serde_json::to_string(&enabled).unwrap();
         let decoded: Settings = serde_json::from_str(&encoded).unwrap();
         assert!(decoded.mac_notch_widget);
+    }
+
+    #[test]
+    fn mac_menu_bar_now_playing_defaults_to_false_when_absent_and_round_trips_true() {
+        let empty: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!empty.mac_menu_bar_now_playing);
+        let enabled: Settings =
+            serde_json::from_str(r#"{"mac_menu_bar_now_playing": true}"#).unwrap();
+        assert!(enabled.mac_menu_bar_now_playing);
+        let encoded = serde_json::to_string(&enabled).unwrap();
+        let decoded: Settings = serde_json::from_str(&encoded).unwrap();
+        assert!(decoded.mac_menu_bar_now_playing);
     }
 
     #[test]
