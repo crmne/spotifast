@@ -10847,6 +10847,8 @@ impl App {
     }
 
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
+        // Taken first: a start dropped below must not steer the next play.
+        let start_on = self.start_on.take();
         if self.soloist_waiting() && !self.soloist_recovering() {
             self.clear_play_pending();
             return;
@@ -10857,7 +10859,7 @@ impl App {
         self.queue_shuffle_pending = None;
         // Whatever plays now replaces a discography play still waiting.
         self.abandon_discography_play();
-        let target = match self.start_on.take() {
+        let target = match start_on {
             Some(device) => Target::Remote(Some(device)),
             None => self.target(),
         };
