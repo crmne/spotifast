@@ -28,8 +28,8 @@ log = "0.4"
 # One protected-store API, with only each target's native provider below.
 # Durable Spotify grants must not be copied into ordinary state JSON.
 keyring-core = "1"
-# The whole UI. glow keeps the binary and the dependency tree small; wgpu is
-# not needed for a 2D music client.
+# The whole UI. glow keeps the binary and the dependency tree small on Linux
+# and Windows. macOS draws with wgpu (see fastframe-graphics below).
 # AccessKit connects egui's control names, states, and actions to native screen readers.
 eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "glow", "default_fonts", "links", "wayland", "x11", "persistence"] }
 egui = "0.36.2"
@@ -57,7 +57,8 @@ fastframe-tray = { git = "https://github.com/crmne/fastframe", tag = "v0.15.4" }
 # Keeps the app running without a window around eframe::run_native.
 fastframe-shell = { git = "https://github.com/crmne/fastframe", tag = "v0.15.4" }
 # Opens the window, and says in a native dialog why when the computer has no
-# OpenGL 2. Without its wgpu feature: MilkDrop draws in the window with glow.
+# OpenGL 2. Without its wgpu feature on Linux and Windows: MilkDrop draws in
+# its own process with glow, and the main window draws with glow there.
 fastframe-graphics = { git = "https://github.com/crmne/fastframe", tag = "v0.15.4" }
 # The title bar the app draws itself: the header drag and double-click on
 # every platform, and on Windows and Linux the caption buttons and resizable
@@ -209,6 +210,12 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 # The packaged Dock artwork also identifies unbundled Cargo runs.
 fastframe-dock = { git = "https://github.com/crmne/fastframe", tag = "v0.15.4" }
+# The main window draws through Metal, with OpenGL as the fallback. Apple
+# deprecated OpenGL, and on a 120 Hz ProMotion display a glow window missed
+# refreshes while it scrolled: a p95 frame interval of 13 to 18 ms with glow
+# against 9 to 10 ms with Metal, on the same MacBook (#711). MilkDrop runs in
+# its own process and keeps its own OpenGL context.
+fastframe-graphics = { git = "https://github.com/crmne/fastframe", tag = "v0.15.4", features = ["wgpu"] }
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 # The application menus and Dock menu (src/mac_menu.rs). "exception" lets
 # src/mac_touchbar_crash_guard.rs catch a specific AppKit Objective-C
