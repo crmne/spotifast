@@ -99,7 +99,7 @@ fastframe-now-playing = { git = "https://github.com/crmne/fastframe", tag = "v0.
 # rasterizes with, and the version has to track epaint's or the binary
 # compiles two copies of it; memmap2 keeps the search for the playlist face
 # to the few pages of each font that name it. fastframe-fonts uses both.
-skrifa = "0.44"
+skrifa = "0.49"
 memmap2 = "0.9"
 # bmp is for Winamp skins, whose bitmaps are BMP files; gif is for Windows
 # Media Player skins, which are often drawn as GIFs. webp is for cover
@@ -112,7 +112,7 @@ flate2 = "1"
 # Filling glyph outlines with no anti-aliasing for the Winamp playlist's
 # text (src/ui/winamp/pixel_text.rs). Already compiled for the SVG icons
 # through egui_extras and resvg, so this adds no code to the build.
-tiny-skia = "0.11"
+tiny-skia = "0.12"
 # MilkDrop, as libprojectM reimplements it, for the MilkDrop window
 # (src/milkdrop.rs). Built into the binary, so it stays one file.
 projectm-sys = { version = "1.2.2", default-features = false, features = ["static"], optional = true }
@@ -145,17 +145,17 @@ protobuf = "3"
 # Reads a local file's embedded cover and lyrics. The same decoder librespot
 # already plays local files with, with the formats it enables, so nothing
 # new is built.
-symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac"] }
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "flac"] }
 # Local playback's audio sink is this crate's own (src/sink.rs): librespot's
 # rodio backend unwraps the device open on the player thread, and a release
 # build aborts on panic, so it is left out. rodio supplies the mixer and the
 # queue only; fastframe-audio below owns the device stream.
-rodio = { version = "0.21", default-features = false }
+rodio = { version = "0.23", default-features = false }
 # `socks` is SOCKS5 proxy support for the Web API, artwork, lyrics, and
 # update checks. HTTP proxies work without it. `system-proxy` reads the OS
 # proxy on macOS and Windows when the mode is System; Linux uses environment
 # variables either way.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "gzip", "http2", "blocking", "socks", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-tls-native-roots", "json", "gzip", "http2", "blocking", "socks", "system-proxy"] }
 # Same System-proxy matcher reqwest uses, so local playback follows the same
 # HTTP proxy (environment, and the OS proxy on macOS and Windows).
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
@@ -165,18 +165,18 @@ http = "1"
 # there and nowhere else. `net` is the local HTTP-proxy tests.
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs", "net", "io-util", "process"] }
 # Soloist's loopback control API. Both already arrive through librespot.
-tokio-tungstenite = "0.28"
+tokio-tungstenite = "0.30"
 futures-util = { version = "0.3", features = ["sink"] }
 # Extract only the executable and notices from Spotify's official Soloist builds.
 tar = { version = "0.4", default-features = false }
 zip = { version = "9.1.3", default-features = false, features = ["deflate-flate2"] }
-sha1 = "0.10"
-sha2 = "0.10"
+sha1 = "0.11"
+sha2 = "0.11"
 # Stops a Soloist that an earlier run left holding its data directory
 # (`soloist/mod.rs`). Already in the tree through librespot, same features.
-sysinfo = { version = "0.36", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
 # Spotify names a Cast device by the MD5 of its friendly name (`cast.rs`).
-md-5 = "0.10"
+md-5 = "0.11"
 # Cast v2 runs over TLS with a certificate from Google's device CA, which
 # needs a custom verifier (`cast.rs`). Already in the tree through reqwest.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -186,20 +186,20 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # rustls.
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 ring = "0.17"
-base64 = "0.22"
+base64 = "0.23"
 # Native asynchronous file selection on macOS, Windows and Linux desktop portals.
 rfd = "0.17.2"
-rand = "0.9"
+rand = "0.10"
 open = "5"
 percent-encoding = "2"
 urlencoding = "2"
 jiff = "0.2"
 mdns-sd = "0.21"
 unicode-bidi = "0.3"
-hmac = "0.12"
-pbkdf2 = "0.12"
-aes = "0.8"
-ctr = "0.9"
+hmac = "0.13"
+pbkdf2 = "0.13"
+aes = "0.9"
+ctr = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 # Tells a Soloist that has fully exited from one still dying (`soloist/mod.rs`).
@@ -227,7 +227,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 windows-native-keyring-store = { version = "1.1", default-features = false }
 # Message loops, the taskbar thumbnail buttons and window styles, and DPAPI
 # for the sealed copies of the grants (src/credentials.rs).
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Routes only the owned Soloist player through EQ and visualizers. Already
@@ -242,7 +242,7 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 # Keeps the X11 mini player out of the taskbar with _NET_WM_STATE_SKIP_TASKBAR
 # (src/window.rs), which winit only offers on Windows. winit already
 # compiles this version.
-x11rb = { version = "0.13", default-features = false }
+x11rb = { version = "0.14", default-features = false }
 
 [build-dependencies]
 # Compile the small macOS and Windows Soloist audio adapters.

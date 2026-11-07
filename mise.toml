@@ -2,5 +2,5 @@
 # through mbx (https://mr-boxington.jdx.dev). Keep the version in step with
 # rust-toolchain.toml. Plain rustup and cargo work without it.
 [tools]
-rust = { version = "1.98.0", components = ["rustfmt", "clippy"], mr_boxington = true }
+rust = { version = "1.99.1", components = ["rustfmt", "clippy"], mr_boxington = true }
 mr-boxington = "latest"
