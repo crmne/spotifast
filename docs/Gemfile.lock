@@ -78,7 +78,7 @@ GEM
       jekyll (>= 3.3, < 5.0)
     jekyll-sass-converter (3.1.0)
       sass-embedded (~> 1.75)
-    jekyll-vitepress-theme (1.11.0)
+    jekyll-vitepress-theme (1.11.1)
       cgi (>= 0.3, < 1.0)
       jekyll (>= 4.3, < 5.0)
       rouge (>= 4.1, < 6.0)
@@ -206,7 +206,7 @@ CHECKSUMS
   jekyll (4.4.1) sha256=4c1144d857a5b2b80d45b8cf5138289579a9f8136aadfa6dd684b31fe2bc18c1
   jekyll-redirect-from (0.16.0) sha256=6635cae569ef9b0f90ffb71ec014ba977177fafb44d32a2b0526288d4d9be6db
   jekyll-sass-converter (3.1.0) sha256=83925d84f1d134410c11d0c6643b0093e82e3a3cf127e90757a85294a3862443
-  jekyll-vitepress-theme (1.11.0) sha256=20d8da79ace4d86ec3cc902a6be7631764c602fbf7da16bdcdb22d39c231b87c
+  jekyll-vitepress-theme (1.11.1) sha256=089d125d49f75d7a41d3cf49e677fe0b3cdc1fe33c1e2170a2fa49d673693c79
   jekyll-watch (2.2.1) sha256=bc44ed43f5e0a552836245a54dbff3ea7421ecc2856707e8a1ee203a8387a7e1
   json (2.21.2) sha256=1f1d3b7cf2b3ba1a69beca0bb6db13d5438b80bff3cd54cdaaa620b9b07c1c6a
   kramdown (2.5.2) sha256=1ba542204c66b6f9111ff00dcc26075b95b220b07f2905d8261740c82f7f02fa
