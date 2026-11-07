@@ -303,7 +303,7 @@ pub async fn download(
     })
     .await?;
     if let Err(error) = result {
-        let _ = tokio::fs::remove_dir_all(&stage).await;
+        let _ = patiently(|| tokio::fs::remove_dir_all(&stage)).await;
         return Err(error);
     }
     let result = async {
@@ -316,13 +316,53 @@ pub async fn download(
         let digest = format!("{:x}", Sha256::digest(tokio::fs::read(stage.join(executable())).await?));
         let build = Build { version, built, checked: now(), digest };
         let destination = root.join(&build.digest);
-        if !destination.exists() { tokio::fs::rename(&stage, &destination).await?; }
+        if !destination.exists() { patiently(|| tokio::fs::rename(&stage, &destination)).await?; }
         else if saved_build_matches(&build, root).await { /* The same official build is already present. */ }
         else { bail!("The installed Soloist build failed its integrity check. Remove it and try again."); }
         Ok(build)
     }.await;
-    let _ = tokio::fs::remove_dir_all(&stage).await;
+    let _ = patiently(|| tokio::fs::remove_dir_all(&stage)).await;
     result
+}
+
+/// How long to wait between attempts while another program holds a file in
+/// the staging folder: a little over five seconds in all.
+const BUSY_WAITS: [Duration; 8] = [
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(400),
+    Duration::from_millis(800),
+    Duration::from_millis(1200),
+    Duration::from_millis(1200),
+    Duration::from_millis(1200),
+];
+
+/// Windows refuses to rename or delete a folder while another program still
+/// holds a file inside it open, and antivirus commonly opens a freshly
+/// written or freshly run executable for a moment. That refusal is brief, so
+/// try again for a few seconds before giving up with the original error.
+async fn patiently<T, F, Fut>(mut attempt: F) -> std::io::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::io::Result<T>>,
+{
+    let mut waits = BUSY_WAITS.iter();
+    loop {
+        match attempt().await {
+            Err(error) if busy(&error) => match waits.next() {
+                Some(wait) => tokio::time::sleep(*wait).await,
+                _ => return Err(error),
+            },
+            result => return result,
+        }
+    }
+}
+
+/// Access denied, sharing violation and lock violation: what Windows answers
+/// while another handle is open on a file in the folder.
+fn busy(error: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33))
 }
 async fn saved_build_matches(build: &Build, root: &Path) -> bool {
     tokio::fs::read(build.path(root))
@@ -505,5 +545,66 @@ mod tests {
         std::fs::write(build.path(&root), b"modified").unwrap();
         assert!(saved(&root, "current.json").await.is_none());
         std::fs::remove_dir_all(root).unwrap();
+    }
+    /// Antivirus holding the freshly run player for a moment made the install
+    /// fail with "Access is denied" and left its staging folder behind.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_briefly_held_player_still_moves_into_place() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = scratch();
+        let stage = root.join("staging-held");
+        let destination = root.join("build");
+        private_dir(&stage).unwrap();
+        std::fs::write(stage.join(executable()), b"executable").unwrap();
+        // Shares reading only, like a scanner: the folder can be neither
+        // renamed nor removed while it is open.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(stage.join(executable()))
+            .unwrap();
+        assert_eq!(
+            std::fs::rename(&stage, &destination)
+                .unwrap_err()
+                .raw_os_error(),
+            Some(5)
+        );
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+        patiently(|| tokio::fs::rename(&stage, &destination))
+            .await
+            .unwrap();
+        release.join().unwrap();
+        assert_eq!(
+            std::fs::read(destination.join(executable())).unwrap(),
+            b"executable"
+        );
+        assert!(!stage.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(windows)]
+    #[tokio::test(start_paused = true)]
+    async fn a_lasting_refusal_or_another_error_is_reported() {
+        let attempts = std::cell::Cell::new(0);
+        let error = patiently(|| async {
+            attempts.set(attempts.get() + 1);
+            Err::<(), _>(std::io::Error::from_raw_os_error(5))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(5));
+        assert_eq!(attempts.get(), BUSY_WAITS.len() + 1);
+        attempts.set(0);
+        let error = patiently(|| async {
+            attempts.set(attempts.get() + 1);
+            Err::<(), _>(std::io::Error::from(std::io::ErrorKind::NotFound))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(attempts.get(), 1, "only a busy file is worth waiting for");
     }
 }
