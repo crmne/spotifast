@@ -253,6 +253,11 @@ fn extract(bytes: &[u8], zipped: bool, destination: &Path, exe: &str) -> Result<
     Ok(())
 }
 
+/// Downloads Spotify's Soloist archive for this platform, extracts the player
+/// into a staging folder, checks that it runs and that its build has not
+/// expired, then moves it into `root` under its SHA-256 digest unless that
+/// build is already there. Recording the returned build as current or pending
+/// is left to the caller.
 pub async fn download(
     root: &Path,
     http: &crate::http::Http,
