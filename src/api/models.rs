@@ -882,6 +882,15 @@ pub struct SnapshotId {
     pub snapshot_id: Option<String>,
 }
 
+/// One of Spotify's playlist reorders: `length` rows from `start` go before
+/// the row at `before`, both positions counted before the move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RangeMove {
+    pub start: u32,
+    pub length: u32,
+    pub before: u32,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct ApiErrorBody {
     #[serde(default)]

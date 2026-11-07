@@ -1060,7 +1060,7 @@ fn item_menu_at(
             {
                 app.actions.push(Action::MoveInPlaylist {
                     playlist_id: playlist_id.clone(),
-                    from: index as u32,
+                    rows: vec![index as u32],
                     to: index as u32 - 1,
                 });
             }
@@ -1072,7 +1072,7 @@ fn item_menu_at(
             ) {
                 app.actions.push(Action::MoveInPlaylist {
                     playlist_id: playlist_id.clone(),
-                    from: index as u32,
+                    rows: vec![index as u32],
                     to: index as u32 + 2,
                 });
             }
@@ -1562,11 +1562,20 @@ fn track_row_contents(
         && response.drag_started_by(egui::PointerButton::Primary)
     {
         let items = dragged_items(row.item, row.picked, row.picked_songs);
+        // The rows' positions travel with them, so dropped back between
+        // their own playlist's rows they move instead of adding copies.
         let source_playlist = match row.context {
             RowContext::Context {
                 editable_playlist: Some((id, _)),
                 ..
-            } => Some(id.clone()),
+            } => Some((
+                id.clone(),
+                if row.picked && !row.picked_songs.is_empty() {
+                    row.picked_positions.to_vec()
+                } else {
+                    row.position.into_iter().collect()
+                },
+            )),
             _ => None,
         };
         // Keep the source index for moves within an editable playlist, or

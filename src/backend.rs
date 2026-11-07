@@ -263,8 +263,9 @@ pub enum ApiRequest {
     },
     ReorderPlaylist {
         playlist_id: String,
-        range_start: u32,
-        insert_before: u32,
+        /// Made in order in one task, so each counts the list as the one
+        /// before left it.
+        moves: Vec<RangeMove>,
         snapshot_id: Option<String>,
     },
     FollowPlaylist {
@@ -1458,6 +1459,7 @@ impl Backend {
             ApiRequest::AddToPlaylist { .. }
                 | ApiRequest::CheckPlaylistDuplicates { .. }
                 | ApiRequest::UpdatePlaylist { .. }
+                | ApiRequest::ReorderPlaylist { .. }
         ) {
             self.playlist_add_requests
                 .lock()
@@ -5769,14 +5771,12 @@ async fn handle(
         },
         ApiRequest::ReorderPlaylist {
             playlist_id,
-            range_start,
-            insert_before,
+            moves,
             snapshot_id,
         } => ApiResponse::PlaylistItemsChanged {
             result: routed!(reorder_playlist(
                 &playlist_id,
-                range_start,
-                insert_before,
+                &moves,
                 snapshot_id.as_deref()
             )),
             id: playlist_id,
