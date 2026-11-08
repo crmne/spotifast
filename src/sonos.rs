@@ -44,6 +44,9 @@ struct Known {
     /// The device Spotify last reported as playing, when it is restricted.
     active_restricted: Option<String>,
     playback_seq: Option<u64>,
+    /// The device the Connect cluster named as playing when each playback
+    /// poll still unanswered went out.
+    polls_sent: HashMap<u64, Option<String>>,
 }
 
 /// Receiver identities and queue writes belong to one signed-in backend.
@@ -99,16 +102,38 @@ impl Controller {
         self.known().restricted.insert(device_id.to_string());
     }
 
+    /// Notes the device Spotify's Connect cluster names as playing as a
+    /// playback poll goes out.
+    pub fn poll_sent(&self, seq: u64, playing: Option<String>) {
+        self.known().polls_sent.insert(seq, playing);
+    }
+
+    /// Forgets a playback poll that failed.
+    pub fn poll_failed(&self, seq: u64) {
+        self.known().polls_sent.remove(&seq);
+    }
+
     /// Updates the active restricted device, ignoring older playback polls.
-    pub fn observe_playing(&self, seq: u64, device: Option<&Device>) {
+    /// The Web API reports a Sonos without its id, so `playing`, the device
+    /// Spotify's Connect cluster names as playing, stands in for a missing
+    /// one if the cluster named it as the poll went out too.
+    pub fn observe_playing(&self, seq: u64, device: Option<&Device>, playing: Option<String>) {
         let mut known = self.known();
+        // Older polls' answers are ignored from here on.
+        let sent_with = known.polls_sent.remove(&seq).flatten();
+        known.polls_sent.retain(|&sent, _| sent > seq);
         if known.playback_seq.is_some_and(|latest| seq < latest) {
             return;
         }
         known.playback_seq = Some(seq);
+        // Playback may have moved while the poll was out, and its answer
+        // then describes another device than the cluster names now.
+        let playing = playing.filter(|now| sent_with.as_ref() == Some(now));
+        // Spotify does not always flag a Sonos as restricted, and a device
+        // without an id cannot be named in a Web API command either.
         known.active_restricted = device
-            .filter(|device| device.is_restricted)
-            .and_then(|device| device.id.clone());
+            .filter(|device| device.is_restricted || device.id.is_none())
+            .and_then(|device| device.id.clone().or(playing));
         if let Some(id) = known.active_restricted.clone() {
             known.restricted.insert(id);
         }
@@ -123,6 +148,16 @@ impl Controller {
             }
             Some(_) => None,
             None => known.active_restricted.clone(),
+        }
+    }
+
+    /// The restricted device a command goes to. One naming no device goes
+    /// to the device Spotify's Connect cluster names as playing, `playing`,
+    /// which is current where the last playback poll may not be.
+    pub fn command_target(&self, device: Option<&str>, playing: Option<&str>) -> Option<String> {
+        match device {
+            None if playing.is_some() => self.restricted_target(playing),
+            _ => self.restricted_target(device),
         }
     }
 }
@@ -408,7 +443,7 @@ mod tests {
             is_restricted: true,
             ..Device::default()
         };
-        controller.observe_playing(2, Some(&device));
+        controller.observe_playing(2, Some(&device), None);
         assert_eq!(
             controller.restricted_target(None).as_deref(),
             Some("restricted-one")
@@ -420,13 +455,92 @@ mod tests {
             Some("restricted-one")
         );
         assert_eq!(controller.restricted_target(Some("someone-else")), None);
-        controller.observe_playing(1, None);
+        controller.observe_playing(1, None, None);
         assert_eq!(
             controller.restricted_target(None).as_deref(),
             Some("restricted-one")
         );
-        controller.observe_playing(3, None);
+        controller.observe_playing(3, None, None);
         assert_eq!(controller.restricted_target(None), None);
+    }
+
+    /// The Web API reports a Sonos the phone started without an id; the
+    /// Connect cluster has it.
+    #[test]
+    fn commands_reach_a_sonos_the_web_api_reports_without_an_id() {
+        let controller = Controller::default();
+        let sonos = Device {
+            id: None,
+            is_restricted: true,
+            volume_percent: Some(30),
+            ..Device::default()
+        };
+        controller.observe_playing(1, Some(&sonos), None);
+        assert_eq!(controller.command_target(None, None), None);
+        controller.poll_sent(2, Some("d0c4".into()));
+        controller.observe_playing(2, Some(&sonos), Some("d0c4".into()));
+        assert_eq!(
+            controller.command_target(None, Some("d0c4")).as_deref(),
+            Some("d0c4")
+        );
+        assert_eq!(
+            controller.command_target(None, None).as_deref(),
+            Some("d0c4")
+        );
+        // Playback moved to the phone, which takes Web API commands.
+        assert_eq!(controller.command_target(None, Some("phone")), None);
+        assert_eq!(
+            controller
+                .command_target(Some("d0c4"), Some("phone"))
+                .as_deref(),
+            Some("d0c4")
+        );
+
+        // Playback moved to the phone while a poll was out. Its answer still
+        // names the Sonos, which the phone does not stand in for.
+        let controller = Controller::default();
+        controller.poll_sent(1, Some("d0c4".into()));
+        controller.observe_playing(1, Some(&sonos), Some("phone".into()));
+        assert_eq!(controller.command_target(None, None), None);
+        assert_eq!(controller.command_target(None, Some("phone")), None);
+
+        // Reported without an id but not flagged as restricted.
+        let controller = Controller::default();
+        let unflagged = Device {
+            is_restricted: false,
+            ..sonos
+        };
+        controller.poll_sent(1, Some("d0c4".into()));
+        controller.observe_playing(1, Some(&unflagged), Some("d0c4".into()));
+        assert_eq!(
+            controller.command_target(None, None).as_deref(),
+            Some("d0c4")
+        );
+    }
+
+    /// Polls leave nothing behind once answered, or once they fail.
+    #[test]
+    fn finished_playback_polls_are_forgotten() {
+        let controller = Controller::default();
+        controller.poll_sent(1, Some("d0c4".into()));
+        controller.poll_sent(2, None);
+        controller.poll_sent(3, None);
+        controller.poll_failed(1);
+        assert_eq!(controller.known().polls_sent.len(), 2);
+        controller.observe_playing(3, None, None);
+        assert!(controller.known().polls_sent.is_empty());
+    }
+
+    /// A refusal before any playback poll marks the cluster's device.
+    #[test]
+    fn a_refused_command_naming_no_device_finds_the_playing_one() {
+        let controller = Controller::default();
+        assert_eq!(controller.command_target(None, Some("d0c4")), None);
+        controller.mark_restricted("d0c4");
+        assert_eq!(
+            controller.command_target(None, Some("d0c4")).as_deref(),
+            Some("d0c4")
+        );
     }
 
     #[test]
