@@ -112,9 +112,14 @@ You can rename it in Settings.
   If the playlist already contains the song, Spotifast asks before adding
   another copy.
 - **The heart likes, then adds to a playlist.** In the player bar, the heart
-  saves the playing song to Liked Songs. Once it is liked, the heart opens
-  **Add to playlist** instead, as in Spotify, with **Remove from Liked Songs**
-  below the playlists.
+  saves the playing song to Liked Songs. Once it is liked, the heart opens a
+  list of your playlists with their covers, Liked Songs checked at the top.
+  Check the playlists the song belongs in, uncheck Liked Songs to remove it
+  there, then choose **Done**. A playlist Spotifast has loaded shows a check
+  when it already holds the song; unchecking it takes the song out. A fainter
+  circle marks a playlist not read in full yet, which may already hold the
+  song: Done asks before adding another copy there, one playlist after
+  another. A click outside the list changes nothing.
 - **Spotify links open in Spotifast.** A `spotify:` link shared from another
   app opens its page, starting Spotifast if it is not running. Links to
   `open.spotify.com` go through the browser first, which hands them over the

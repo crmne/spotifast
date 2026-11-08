@@ -649,6 +649,9 @@ pub struct App {
     accent_pending: HashSet<String>,
 
     pub dialog: Option<Dialog>,
+    /// Duplicate confirmations waiting for the open one to be answered, as
+    /// the heart's Done can raise one for each playlist it adds to.
+    duplicate_prompts: std::collections::VecDeque<Dialog>,
     cover_request: u64,
     cover_uploads: HashMap<String, u64>,
     /// Successful uploads stay visible while Spotify propagates the new image.
@@ -1374,6 +1377,7 @@ impl App {
             art_palettes: HashMap::new(),
             accent_pending: HashSet::new(),
             dialog: None,
+            duplicate_prompts: Default::default(),
             cover_request: 0,
             cover_uploads: HashMap::new(),
             uploaded_covers: Default::default(),
@@ -3704,6 +3708,11 @@ impl App {
         self.last_album_queue = None;
         self.cover_uploads.clear();
         self.uploaded_covers.clear();
+        // Questions about the signed-out account's playlists go with it.
+        self.duplicate_prompts.clear();
+        if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
+            self.dialog = None;
+        }
         // Pages still on their way belong to the signed-out account's load.
         self.library = Library {
             playlists_generation: self.library.playlists_generation,
@@ -9085,7 +9094,7 @@ impl App {
                 }
                 Ok(duplicate_uris) => {
                     self.playlist_busy = false;
-                    self.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
+                    self.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
                         playlist_id,
                         playlist_name,
                         items,
@@ -11911,7 +11920,11 @@ impl App {
     /// Answer from the rows already held locally. A found duplicate is
     /// definitive even for a partial playlist; an empty answer is definitive
     /// only when the whole playlist is present.
-    fn local_playlist_duplicates(&self, id: &str, items: &[PlayableItem]) -> Option<Vec<String>> {
+    pub(crate) fn local_playlist_duplicates(
+        &self,
+        id: &str,
+        items: &[PlayableItem],
+    ) -> Option<Vec<String>> {
         let page = self.playlist_pages.get(id)?;
         let existing: HashSet<&str> = page
             .items
@@ -12108,7 +12121,7 @@ impl App {
                 self.add_to_playlist_now(playlist_id, playlist_name, items, position);
             }
             Some(duplicate_uris) => {
-                self.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
+                self.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
                     playlist_id,
                     playlist_name,
                     items,
@@ -12128,6 +12141,17 @@ impl App {
         }
     }
 
+    /// Asks before adding songs a playlist already holds. A dialog still
+    /// open, such as an earlier question or New playlist, is finished first;
+    /// this one follows it.
+    fn confirm_duplicates(&mut self, prompt: Dialog) {
+        if self.dialog.is_some() {
+            self.duplicate_prompts.push_back(prompt);
+        } else {
+            self.dialog = Some(prompt);
+        }
+    }
+
     fn add_to_playlist_now(
         &mut self,
         playlist_id: String,
@@ -12138,7 +12162,6 @@ impl App {
         if items.is_empty() {
             return;
         }
-        self.dialog = None;
         self.playlist_busy = true;
         for item in &items {
             if let PlayableItem::Track(track) = item {
@@ -12357,6 +12380,11 @@ impl App {
                 self.apply(action, ctx);
             }
             actions = std::mem::take(&mut self.actions);
+        }
+        // A waiting duplicate question shows once no other dialog is open,
+        // however that one closed.
+        if self.dialog.is_none() {
+            self.dialog = self.duplicate_prompts.pop_front();
         }
     }
 
@@ -12878,7 +12906,25 @@ impl App {
                 items,
                 position,
             } => {
+                // Answering one question opens the next. An add that needed
+                // none leaves whatever dialog is open alone.
+                self.dialog = self.duplicate_prompts.pop_front();
                 self.add_to_playlist_now(playlist_id, playlist_name, items, position);
+            }
+            Action::UpdatePlaylists { item, add, remove } => {
+                let item = *item;
+                let uris = vec![item.uri().to_string()];
+                for playlist_id in remove {
+                    let removal = Action::RemoveFromPlaylist {
+                        playlist_id,
+                        uris: uris.clone(),
+                        positions: Vec::new(),
+                    };
+                    self.apply(removal, ctx);
+                }
+                for (playlist_id, playlist_name) in add {
+                    self.request_playlist_add(playlist_id, playlist_name, vec![item.clone()], None);
+                }
             }
             Action::RemoveFromPlaylist {
                 playlist_id,
@@ -13024,7 +13070,7 @@ impl App {
                 if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
                     self.intro_answered(jiff::Timestamp::now());
                 }
-                self.dialog = None;
+                self.dialog = self.duplicate_prompts.pop_front();
             }
             Action::CloseAudioKeyBanner => {
                 self.audio_key_banner = false;
@@ -30408,6 +30454,161 @@ mod tests {
 
         assert!(app.dialog.is_none());
         assert!(app.playlist_busy, "the playlist write follows the check");
+    }
+
+    /// Done in the heart's checklist can add to several playlists that were
+    /// never read in full. Each one that already holds the song asks in
+    /// turn rather than replacing the question before it, and one without
+    /// it gets the song without closing the open question.
+    #[test]
+    fn duplicate_questions_for_several_playlists_follow_one_another() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let ctx = egui::Context::default();
+        let item = cached_playlist_row("spotify:track:again")
+            .playable()
+            .unwrap()
+            .clone();
+        let playlists = [("mix", "Mix"), ("day", "Daylight"), ("run", "Run")];
+        let sent = |app: &App| -> Vec<String> {
+            app.backend
+                .take_playlist_add_requests()
+                .into_iter()
+                .map(|request| match request {
+                    ApiRequest::CheckPlaylistDuplicates { playlist_id, .. } => {
+                        format!("check {playlist_id}")
+                    }
+                    ApiRequest::AddToPlaylist { playlist_id, .. } => format!("add {playlist_id}"),
+                    _ => "other".into(),
+                })
+                .collect()
+        };
+        let asking = |app: &App| match &app.dialog {
+            Some(Dialog::ConfirmPlaylistDuplicates { playlist_id, .. }) => {
+                Some(playlist_id.clone())
+            }
+            _ => None,
+        };
+
+        app.apply(
+            Action::UpdatePlaylists {
+                item: Box::new(item.clone()),
+                add: playlists
+                    .iter()
+                    .map(|(id, name)| (id.to_string(), name.to_string()))
+                    .collect(),
+                remove: Vec::new(),
+            },
+            &ctx,
+        );
+        assert_eq!(sent(&app), ["check mix", "check day", "check run"]);
+
+        // Spotify finds the song in all but one of them.
+        for (id, name) in playlists {
+            let duplicates = if id == "day" {
+                Vec::new()
+            } else {
+                vec![item.uri().to_string()]
+            };
+            app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
+                position: None,
+                playlist_id: id.into(),
+                playlist_name: name.into(),
+                items: vec![item.clone()],
+                result: Ok(duplicates),
+            });
+        }
+        assert_eq!(asking(&app).as_deref(), Some("mix"));
+        assert_eq!(sent(&app), ["add day"]);
+
+        app.apply(Action::CloseDialog, &ctx);
+        assert_eq!(asking(&app).as_deref(), Some("run"));
+        assert!(sent(&app).is_empty(), "declining adds nothing");
+
+        app.apply(
+            Action::ConfirmAddToPlaylist {
+                position: None,
+                playlist_id: "run".into(),
+                playlist_name: "Run".into(),
+                items: vec![item.clone()],
+            },
+            &ctx,
+        );
+        assert!(app.dialog.is_none());
+        assert_eq!(sent(&app), ["add run"]);
+    }
+
+    /// A duplicate question that arrives while New playlist is open waits
+    /// for it, so the name typed there and the songs it will add stay, and
+    /// shows once the playlist is created.
+    #[test]
+    fn a_duplicate_question_waits_for_new_playlist() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let ctx = egui::Context::default();
+        let item = cached_playlist_row("spotify:track:again")
+            .playable()
+            .unwrap()
+            .clone();
+        app.dialog = Some(Dialog::CreatePlaylist {
+            name: "Road trip".into(),
+            public: false,
+            add_uris: vec!["spotify:track:new".into()],
+        });
+
+        app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
+            position: None,
+            playlist_id: "mix".into(),
+            playlist_name: "Mix".into(),
+            items: vec![item],
+            result: Ok(vec!["spotify:track:again".into()]),
+        });
+        app.apply_actions(&ctx);
+        assert!(matches!(
+            app.dialog,
+            Some(Dialog::CreatePlaylist {
+                ref name,
+                ref add_uris,
+                ..
+            }) if name == "Road trip" && add_uris == &["spotify:track:new"]
+        ));
+
+        app.handle_api(ApiResponse::PlaylistCreated(Ok(Playlist {
+            id: "road".into(),
+            uri: "spotify:playlist:road".into(),
+            name: "Road trip".into(),
+            ..Playlist::default()
+        })));
+        app.apply_actions(&ctx);
+        assert!(matches!(
+            app.dialog,
+            Some(Dialog::ConfirmPlaylistDuplicates {
+                ref playlist_id,
+                ..
+            }) if playlist_id == "mix"
+        ));
+    }
+
+    /// Signing out drops the duplicate questions, the open one and those
+    /// waiting, so none of them adds to the old account's playlists later.
+    #[test]
+    fn reset_data_drops_duplicate_questions() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        for playlist_id in ["mix", "run"] {
+            app.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
+                playlist_id: playlist_id.into(),
+                playlist_name: playlist_id.into(),
+                items: Vec::new(),
+                position: None,
+                duplicate_uris: Vec::new(),
+            });
+        }
+
+        app.reset_data();
+        assert!(app.dialog.is_none());
+        app.apply(Action::CloseDialog, &ctx);
+        assert!(app.dialog.is_none(), "no question from before follows");
     }
 
     #[test]
