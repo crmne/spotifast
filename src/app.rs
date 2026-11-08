@@ -8726,9 +8726,19 @@ impl App {
                 // A choice made meanwhile goes next; the list reloads once
                 // the last one is answered. Its revision changed, so the
                 // session reads the current one first.
+                let failed = result.is_err();
                 let next = self.playlist_pages.get_mut(&id).and_then(|page| {
                     let next = page.chip_queued.take();
                     page.chip_sending = next.is_some();
+                    // A last choice Spotify did not take is no longer known
+                    // to be the chosen one: the shown chips stay until the
+                    // session reads them again, now or once it is back.
+                    if failed
+                        && next.is_none()
+                        && let Loadable::Loaded(playlist) = &mut page.playlist
+                    {
+                        playlist.chips_read = false;
+                    }
                     next
                 });
                 if let Err(error) = result {
@@ -8937,9 +8947,10 @@ impl App {
                         page.items.total = Some(playlist.track_total());
                     }
                     // An older header must not undo a chip just chosen, nor
-                    // a Web API header drop the chips the session read.
+                    // a Web API header drop the chips shown, which only the
+                    // session can name.
                     if let (Ok(header), Loadable::Loaded(shown)) = (&mut result, &page.playlist)
-                        && (page.chip_sending || (shown.chips_read && !header.chips_read))
+                        && (page.chip_sending || (!header.chips_read && !shown.chips.is_empty()))
                     {
                         header.chips = shown.chips.clone();
                         header.chips_read = shown.chips_read;
@@ -30113,6 +30124,63 @@ mod tests {
         let shown = app.playlist_pages["radar"].playlist.get().unwrap();
         assert_eq!(shown.chips.len(), 2);
         assert!(shown.chips_read);
+    }
+
+    /// A last chip Spotify turned away stays shown, but unconfirmed: the
+    /// reload's Web API header keeps it, and the session reads the real
+    /// choice, at once or when playback comes up.
+    #[test]
+    fn a_failed_chip_is_read_again_over_the_session() {
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.playlist_pages.insert(
+            "radar".into(),
+            PlaylistPage {
+                generation: 7,
+                playlist: Loadable::Loaded(spotify_mix(vec![chip("a", true), chip("b", false)])),
+                ..Default::default()
+            },
+        );
+        app.choose_playlist_chip("radar".into(), "session_control_display$c$b".into());
+        app.take_header_requests_for_test();
+        app.handle_api(ApiResponse::PlaylistChipSent {
+            id: "radar".into(),
+            result: Err(crate::api::ApiError::Network("offline".into())),
+        });
+        let headers = app.backend.take_playlist_header_requests();
+        assert_eq!(headers.len(), 1);
+        let generation = headers[0].1;
+        assert!(
+            !app.playlist_pages["radar"]
+                .playlist
+                .get()
+                .unwrap()
+                .chips_read
+        );
+        app.handle_api(ApiResponse::Playlist {
+            id: "radar".into(),
+            generation,
+            result: Ok(Playlist {
+                chips: Vec::new(),
+                chips_read: false,
+                ..spotify_mix(Vec::new())
+            }),
+        });
+        assert_eq!(chosen(&app), ["b"]);
+        assert!(app.backend.take_playlist_header_requests().is_empty());
+        // The session comes up and reads what Spotify kept.
+        app.local_ready = true;
+        app.reread_playlist_chips();
+        assert_eq!(
+            app.backend.take_playlist_header_requests(),
+            [("radar".into(), generation)]
+        );
+        app.handle_api(ApiResponse::Playlist {
+            id: "radar".into(),
+            generation,
+            result: Ok(spotify_mix(vec![chip("a", true), chip("b", false)])),
+        });
+        assert_eq!(chosen(&app), ["a"]);
     }
 
     #[test]
