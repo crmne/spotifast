@@ -3702,6 +3702,138 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// #1278: an artist's page opens the artist's songs in Liked Songs, as
+    /// Spotify's mobile app does. The page lists only the songs that credit
+    /// the artist, and its Play starts them on their own, as a view of Liked
+    /// Songs. Liked Songs playing another artist's song is not playing here.
+    #[test]
+    fn an_artists_liked_songs_open_from_their_page_and_play_on_their_own() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("artist-liked-songs");
+        let liked: Vec<String> = crate::liked::by_artist(&app.library.liked.items, "art0")
+            .map(|saved| saved.track.uri.clone())
+            .collect();
+        let other = app
+            .library
+            .liked
+            .items
+            .iter()
+            .find(|saved| !liked.contains(&saved.track.uri))
+            .map(|saved| saved.track.clone())
+            .expect("the demo likes songs by other artists too");
+        assert!(liked.len() > 1, "the demo likes several songs by art0");
+        let collection = format!(
+            "spotify:user:{}:collection",
+            app.user_id().expect("the demo account")
+        );
+        let play_from_liked = |app: &mut App, track: &crate::api::models::Track| {
+            let state = &mut app.remote.as_mut().expect("demo playback").state;
+            state.context = Some(Context {
+                uri: collection.clone(),
+                kind: "collection".into(),
+            });
+            state.item = Some(PlayableItem::Track(track.clone()));
+            state.is_playing = true;
+        };
+        play_from_liked(&mut app, &other);
+
+        app.open(Page::Artist("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let row = accessible_node(
+            &tree,
+            &format!("Liked Songs: {} songs", liked.len()),
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(row, AccessibleAction::Click, None)],
+        );
+        let page = Page::ArtistLikedSongs("art0".into());
+        assert_eq!(app.page(), &page);
+        assert_eq!(Page::decode(&page.encode()), Some(page.clone()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let shown: Vec<String> = app.table_rows[&page]
+            .items
+            .iter()
+            .map(|(item, _, _)| item.uri().to_string())
+            .collect();
+        assert_eq!(shown, liked, "the artist's songs, in Liked Songs' order");
+
+        // Only the page: its actions stay queued instead of being applied.
+        let page_frame = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::collection::artist_liked(app, ui, "art0"),
+            );
+            output.textures_delta.clear();
+            output
+                .platform_output
+                .accesskit_update
+                .expect("screen-reader tree")
+        };
+        app.actions.clear();
+        let tree = page_frame(&mut app, vec![]);
+        let play = accessible_node(&tree, "Play", Role::Button);
+        page_frame(
+            &mut app,
+            vec![accessible_action(play, AccessibleAction::Click, None)],
+        );
+        let plays: Vec<_> = app
+            .actions
+            .iter()
+            .filter_map(|action| match action {
+                Action::PlayFromRow {
+                    context:
+                        RowContext::View {
+                            uris, context_uri, ..
+                        },
+                    uri,
+                    index: 0,
+                } if uri.is_empty() => Some((uris.to_vec(), context_uri.clone())),
+                Action::PlayFromRow { .. } | Action::PlayContext { .. } | Action::TogglePlay => {
+                    panic!("Play must start the artist's songs: {action:?}")
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(plays, [(liked.clone(), collection.clone())]);
+
+        // One of the artist's songs playing from Liked Songs plays here.
+        let theirs = app.table_rows[&page].items[1].0.clone();
+        let PlayableItem::Track(theirs) = theirs else {
+            panic!("a song");
+        };
+        play_from_liked(&mut app, &theirs);
+        app.actions.clear();
+        let tree = page_frame(&mut app, vec![]);
+        let pause = accessible_node(&tree, "Pause", Role::Button);
+        page_frame(
+            &mut app,
+            vec![accessible_action(pause, AccessibleAction::Click, None)],
+        );
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::TogglePlay))
+                && !app.actions.iter().any(|action| matches!(
+                    action,
+                    Action::PlayFromRow { .. } | Action::PlayContext { .. }
+                )),
+            "Pause pauses what plays: {:?}",
+            app.actions
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn library_grid_cards_navigate_and_their_corner_buttons_play() {
         use egui::accesskit::{Action as AccessibleAction, Role};
@@ -10058,6 +10190,7 @@ mod tests {
             Page::Playlist("missing".into()),
             Page::Album("alb0".into()),
             Page::Artist("art0".into()),
+            Page::ArtistLikedSongs("art0".into()),
             Page::Show("sh0".into()),
             Page::Queue,
             Page::Settings,

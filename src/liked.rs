@@ -406,6 +406,21 @@ fn track_timestamp(track: &SavedTrack) -> Option<jiff::Timestamp> {
     track.added_at.as_deref()?.parse().ok()
 }
 
+/// The liked songs that credit the artist with this id, first or featured,
+/// in Liked Songs' order: an artist's page counts them and lists them.
+pub fn by_artist<'a>(
+    items: &'a [SavedTrack],
+    artist_id: &'a str,
+) -> impl Iterator<Item = &'a SavedTrack> {
+    items.iter().filter(move |saved| {
+        saved
+            .track
+            .artists
+            .iter()
+            .any(|artist| artist.id.as_deref() == Some(artist_id))
+    })
+}
+
 pub async fn read(path: &std::path::Path, account: &str) -> Option<Cache> {
     let bytes = tokio::fs::read(path).await.ok()?;
     let cache: Cache = serde_json::from_slice(&bytes).ok()?;
@@ -454,6 +469,45 @@ mod tests {
         songs.start_refresh(1);
         songs.absorb(0, page(0, count, total), 10_000);
         songs
+    }
+
+    #[test]
+    fn an_artist_has_the_liked_songs_that_credit_them_in_liked_order() {
+        let by = |n: u32, ids: &[&str]| {
+            let mut saved = item(n);
+            saved.track.artists = ids
+                .iter()
+                .map(|id| crate::api::models::ArtistRef {
+                    id: Some((*id).into()),
+                    name: format!("Artist {id}"),
+                    uri: Some(format!("spotify:artist:{id}")),
+                })
+                .collect();
+            saved
+        };
+        let mut local = item(5);
+        local.track.artists = vec![crate::api::models::ArtistRef {
+            id: None,
+            name: "Artist a".into(),
+            uri: None,
+        }];
+        let items = [
+            by(1, &["a"]),
+            by(2, &["b"]),
+            by(3, &["b", "a"]),
+            by(4, &["ab"]),
+            local,
+        ];
+        let uris = |id| {
+            by_artist(&items, id)
+                .map(|saved| saved.track.uri.as_str())
+                .collect::<Vec<_>>()
+        };
+        // A featured credit counts, a local file with the same name and an
+        // id that only starts the same do not.
+        assert_eq!(uris("a"), ["spotify:track:1", "spotify:track:3"]);
+        assert_eq!(uris("b"), ["spotify:track:2", "spotify:track:3"]);
+        assert!(uris("c").is_empty());
     }
 
     #[test]
