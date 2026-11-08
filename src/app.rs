@@ -6763,6 +6763,8 @@ impl App {
         if shows.is_empty() {
             self.home.podcasts.clear();
             self.home.podcasts_answered = true;
+            // Shows saved again soon are read afresh, not taken as fresh.
+            self.home.podcasts_asked = None;
             return;
         }
         let ids: Vec<String> = shows.iter().map(|show| show.id.clone()).collect();
@@ -9362,6 +9364,16 @@ impl App {
             ApiResponse::HomeEpisodes { generation, .. } if generation != self.home.generation => {}
             ApiResponse::HomeEpisodes { result, .. } => match result {
                 Ok(podcasts) => {
+                    // A show missing from the answer failed to load: keep
+                    // what did, and ask again on the next refresh.
+                    let complete = self.home.podcasts_asked.as_ref().is_some_and(|(_, asked)| {
+                        asked
+                            .iter()
+                            .all(|id| podcasts.iter().any(|(show, _)| show.id == *id))
+                    });
+                    if !complete {
+                        self.home.podcasts_asked = None;
+                    }
                     self.home.podcasts = podcasts;
                     self.home.podcasts_answered = true;
                     self.store_home_cache();
@@ -28458,6 +28470,60 @@ mod tests {
         assert!(app.remote_polled_at.elapsed() >= app.remote_poll_interval().0);
     }
 
+    /// A podcast read that left a show out, or a shelf emptied and filled
+    /// again, is not fresh: the next Home refresh asks again.
+    #[test]
+    fn home_podcasts_stay_unfresh_after_a_partial_read_or_an_emptied_shelf() {
+        use crate::api::models::{Page as ApiPage, SavedShow};
+        let mut app = test_app("home-podcasts-partial");
+        let show = |id: &str| Show {
+            id: id.into(),
+            uri: format!("spotify:show:{id}"),
+            ..Show::default()
+        };
+        let saved = |ids: &[&str]| ApiPage {
+            items: ids
+                .iter()
+                .map(|id| SavedShow {
+                    show: show(id),
+                    ..SavedShow::default()
+                })
+                .collect(),
+            total: ids.len() as u32,
+            limit: 50,
+            offset: 0,
+            next: None,
+        };
+        app.load_home(false);
+        app.handle_api(ApiResponse::SavedShows {
+            offset: 0,
+            result: Ok(saved(&["a", "b"])),
+        });
+        assert_eq!(app.backend.take_home_episode_requests().len(), 1);
+        // Only "a" answered.
+        app.handle_api(ApiResponse::HomeEpisodes {
+            generation: app.home.generation,
+            result: Ok(vec![(show("a"), Vec::new())]),
+        });
+        assert!(app.home.podcasts_asked.is_none());
+        app.home.loaded_at = Some(Instant::now() - Duration::from_secs(601));
+        app.load_home(false);
+        assert_eq!(app.backend.take_home_episode_requests().len(), 1);
+
+        // Every show unsaved, then saved again: the shelf is read afresh.
+        app.handle_api(ApiResponse::HomeEpisodes {
+            generation: app.home.generation,
+            result: Ok(vec![(show("a"), Vec::new()), (show("b"), Vec::new())]),
+        });
+        assert!(app.home.podcasts_asked.is_some());
+        app.library.shows.items.clear();
+        app.home.generation += 1;
+        app.request_home_episodes(false);
+        assert!(app.home.podcasts_asked.is_none());
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+    }
+
     /// The Home podcast shelf asks Spotify for episodes at most once an
     /// hour on its own; Refresh asks again at once.
     #[test]
@@ -28483,9 +28549,10 @@ mod tests {
             }),
         });
         assert_eq!(app.backend.take_home_episode_requests().len(), 1);
+        let answered = app.library.shows.items[0].show.clone();
         app.handle_api(ApiResponse::HomeEpisodes {
             generation: app.home.generation,
-            result: Ok(Vec::new()),
+            result: Ok(vec![(answered, Vec::new())]),
         });
         // Home's own ten-minute refresh leaves fresh episodes alone.
         app.home.loaded_at = Some(Instant::now() - Duration::from_secs(601));

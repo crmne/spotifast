@@ -170,10 +170,14 @@ seconds, every 30 while the
 window cannot be seen and nothing plays, every 4 while the window is visible
 for ten seconds after a command or a switch to another device, once more
 just after a song on another device should end, and as soon as this computer's
-player stops. While local playback is signed in, Spotify pushes every change on
-another device over the session, each of which checks at once, so the regular
-check runs only every 60 seconds as a safety net. The Home podcast shelf reads
-its episodes at most once an hour unless you refresh. See
+player stops. While local playback is signed in, Spotify pushes changes on
+another device over the session: a switch, play or pause, another song,
+shuffle or repeat prompts a check soon after (pushes that arrive close
+together, or while a check is under way, share one; a volume change needs
+none), so the regular check runs only every 60 seconds as a safety net. The
+Home podcast shelf reads its episodes at most once an hour for the same saved
+shows, unless you refresh; a read that failed for any show, or a change to the
+saved shows, reads them again on the next Home refresh. See
 [Make It Even Faster](/make-it-even-faster/#api-rate-limits).
 
 Since 0.8.0, a search runs as two requests when a
