@@ -1212,6 +1212,8 @@ pub struct Backend {
     #[cfg(test)]
     playlist_header_requests: std::sync::Mutex<Vec<(String, u64)>>,
     #[cfg(test)]
+    playlist_chip_requests: std::sync::Mutex<Vec<(String, String)>>,
+    #[cfg(test)]
     playlist_sample_requests: std::sync::Mutex<Vec<(String, u32, u64)>>,
     #[cfg(test)]
     playlist_add_requests: std::sync::Mutex<Vec<ApiRequest>>,
@@ -1317,6 +1319,8 @@ impl Backend {
             #[cfg(test)]
             playlist_header_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
+            playlist_chip_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
             playlist_sample_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             playlist_add_requests: std::sync::Mutex::new(Vec::new()),
@@ -1357,6 +1361,11 @@ impl Backend {
     #[cfg_attr(not(any(test, feature = "demo")), allow(dead_code))]
     pub fn set_offline(&mut self, offline: bool) {
         self.offline = offline;
+    }
+
+    /// Whether requests go nowhere, as in demo mode.
+    pub fn is_offline(&self) -> bool {
+        self.offline
     }
 
     pub fn send(&self, command: Command) {
@@ -1481,6 +1490,13 @@ impl Backend {
                 .push(request.clone());
         }
         #[cfg(test)]
+        if let ApiRequest::PlaylistChip { id, signal, .. } = &request {
+            self.playlist_chip_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push((id.clone(), signal.clone()));
+        }
+        #[cfg(test)]
         if let ApiRequest::Playlist { id, generation } = &request {
             self.playlist_header_requests
                 .lock()
@@ -1588,6 +1604,16 @@ impl Backend {
         std::mem::take(
             &mut *self
                 .top_tracks_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    #[cfg(test)]
+    pub fn take_playlist_chip_requests(&self) -> Vec<(String, String)> {
+        std::mem::take(
+            &mut *self
+                .playlist_chip_requests
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
@@ -5598,9 +5624,15 @@ async fn handle(
     } = request
     {
         let result = match playback_session(api, engine) {
-            Ok(session) => session_reads::send_chip(session, &id, &signal, snapshot.as_deref())
-                .await
-                .map_err(|error| ApiError::Network(format!("{error:#}"))),
+            Ok(session) => {
+                let sent = session_reads::send_chip(session, &id, &signal, snapshot.as_deref());
+                match tokio::time::timeout(SESSION_READ_TIMEOUT, sent).await {
+                    Ok(sent) => sent.map_err(|error| ApiError::Network(format!("{error:#}"))),
+                    Err(_) => Err(ApiError::Network(
+                        "Spotify did not answer the filter in time".into(),
+                    )),
+                }
+            }
             Err(error) => Err(error),
         };
         return (ApiResponse::PlaylistChipSent { id, result }, Vec::new());

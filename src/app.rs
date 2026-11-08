@@ -3448,7 +3448,7 @@ impl App {
                 let became_ready = !self.local_ready;
                 self.local_ready = true;
                 if became_ready
-                    && self.home.requested
+                    && (self.home.requested || *self.page() == Page::MadeForYou)
                     && (!self.home.made_for_you_personalized
                         || !self.home.made_for_you_session_requested)
                 {
@@ -3600,7 +3600,9 @@ impl App {
                 }
             }
             Page::MadeForYou => {
-                if self.home.made_for_you.get().is_none() && !self.home.made_for_you_loading {
+                // Cards shown from before the outage may be stale or the
+                // remains of a failed refresh: read them again.
+                if !self.home.made_for_you_loading {
                     self.load_made_for_you(false);
                 }
             }
@@ -6397,7 +6399,13 @@ impl App {
                 }
             }
             Page::MadeForYou => {
-                if self.network_reachable && !self.home.made_for_you_loading {
+                // Read once, and again only to replace the search fallback
+                // with the session's own shelves; Retry and Refresh read anew.
+                let fallback = self.local_ready && !self.home.made_for_you_personalized;
+                if self.network_reachable
+                    && !self.home.made_for_you_loading
+                    && (matches!(self.home.made_for_you, Loadable::NotLoaded) || fallback)
+                {
                     self.load_made_for_you(false);
                 }
             }
@@ -6733,13 +6741,22 @@ impl App {
         for chip in &mut playlist.chips {
             chip.selected = !clearing && chip.signal == signal;
         }
-        page.items.loading = true;
-        page.items.error = None;
         let signal = if clearing {
             crate::session_reads::CHIP_RESET.to_string()
         } else {
             signal
         };
+        // Nothing would answer in demo mode: the chosen chip is the result.
+        if self.backend.is_offline() {
+            return;
+        }
+        page.items.loading = true;
+        page.items.error = None;
+        if page.chip_sending {
+            page.chip_queued = Some(signal);
+            return;
+        }
+        page.chip_sending = true;
         self.backend.api(ApiRequest::PlaylistChip {
             id,
             signal,
@@ -8706,12 +8723,26 @@ impl App {
             }
             ApiResponse::HiddenInPlaylistSet { .. } => {}
             ApiResponse::PlaylistChipSent { id, result } => {
+                // A choice made meanwhile goes next; the list reloads once
+                // the last one is answered. Its revision changed, so the
+                // session reads the current one first.
+                let next = self.playlist_pages.get_mut(&id).and_then(|page| {
+                    let next = page.chip_queued.take();
+                    page.chip_sending = next.is_some();
+                    next
+                });
                 if let Err(error) = result {
                     self.toast_error(error.to_string());
                 }
-                // Either way the list now holds what Spotify kept: the
-                // rebuilt rows, or the chip that was chosen before.
-                if self.playlist_pages.contains_key(&id) {
+                if let Some(signal) = next {
+                    self.backend.api(ApiRequest::PlaylistChip {
+                        id,
+                        signal,
+                        snapshot: None,
+                    });
+                } else if self.playlist_pages.contains_key(&id) {
+                    // Either way the list now holds what Spotify kept: the
+                    // rebuilt rows, or the chip that was chosen before.
                     self.reload(Page::Playlist(id));
                 }
             }
@@ -8904,6 +8935,14 @@ impl App {
                         && page.items.loaded_once
                     {
                         page.items.total = Some(playlist.track_total());
+                    }
+                    // An older header must not undo a chip just chosen, nor
+                    // a Web API header drop the chips the session read.
+                    if let (Ok(header), Loadable::Loaded(shown)) = (&mut result, &page.playlist)
+                        && (page.chip_sending || (shown.chips_read && !header.chips_read))
+                    {
+                        header.chips = shown.chips.clone();
+                        header.chips_read = shown.chips_read;
                     }
                     // A Spotify mix's header without chips may have come from
                     // the Web API, which never carries them, while the session
@@ -27549,6 +27588,12 @@ mod tests {
         );
     }
 
+    impl App {
+        fn take_header_requests_for_test(&self) {
+            self.backend.take_playlist_header_requests();
+        }
+    }
+
     fn headless_app() -> App {
         let root =
             std::env::temp_dir().join(format!("spotifast-volume-test-{}", std::process::id()));
@@ -29973,6 +30018,122 @@ mod tests {
             }])),
         });
         assert!(app.backend.take_playlist_header_requests().is_empty());
+    }
+
+    fn chip(key: &str, selected: bool) -> crate::api::models::PlaylistChip {
+        crate::api::models::PlaylistChip {
+            signal: format!("session_control_display$c${key}"),
+            label: key.into(),
+            selected,
+        }
+    }
+
+    fn radar_with_chips(app: &mut App) {
+        app.playlist_pages.insert(
+            "radar".into(),
+            PlaylistPage {
+                generation: 7,
+                playlist: Loadable::Loaded(spotify_mix(vec![chip("a", false), chip("b", false)])),
+                ..Default::default()
+            },
+        );
+    }
+
+    fn chosen(app: &App) -> Vec<String> {
+        app.playlist_pages["radar"]
+            .playlist
+            .get()
+            .unwrap()
+            .chips
+            .iter()
+            .filter(|chip| chip.selected)
+            .map(|chip| chip.label.clone())
+            .collect()
+    }
+
+    #[test]
+    fn chip_choices_reach_spotify_one_at_a_time_and_in_order() {
+        let mut app = headless_app();
+        radar_with_chips(&mut app);
+        let signal = |key: &str| format!("session_control_display$c${key}");
+        app.choose_playlist_chip("radar".into(), signal("a"));
+        app.choose_playlist_chip("radar".into(), signal("b"));
+        // The newer choice shows at once but waits for the first answer.
+        assert_eq!(chosen(&app), ["b"]);
+        assert_eq!(
+            app.backend.take_playlist_chip_requests(),
+            [("radar".into(), signal("a"))]
+        );
+        app.take_header_requests_for_test();
+        app.handle_api(ApiResponse::PlaylistChipSent {
+            id: "radar".into(),
+            result: Ok(()),
+        });
+        assert_eq!(
+            app.backend.take_playlist_chip_requests(),
+            [("radar".into(), signal("b"))]
+        );
+        assert!(app.backend.take_playlist_header_requests().is_empty());
+        app.handle_api(ApiResponse::PlaylistChipSent {
+            id: "radar".into(),
+            result: Ok(()),
+        });
+        // Only the last answer reloads the list.
+        assert!(app.backend.take_playlist_chip_requests().is_empty());
+        assert_eq!(app.backend.take_playlist_header_requests().len(), 1);
+        assert!(!app.playlist_pages["radar"].chip_sending);
+    }
+
+    #[test]
+    fn an_older_header_keeps_the_chip_just_chosen() {
+        let mut app = headless_app();
+        radar_with_chips(&mut app);
+        app.choose_playlist_chip("radar".into(), "session_control_display$c$b".into());
+        app.handle_api(ApiResponse::Playlist {
+            id: "radar".into(),
+            generation: 7,
+            result: Ok(spotify_mix(vec![chip("a", true), chip("b", false)])),
+        });
+        assert_eq!(chosen(&app), ["b"]);
+    }
+
+    #[test]
+    fn a_web_api_header_keeps_the_chips_the_session_read() {
+        let mut app = headless_app();
+        radar_with_chips(&mut app);
+        app.handle_api(ApiResponse::Playlist {
+            id: "radar".into(),
+            generation: 7,
+            result: Ok(Playlist {
+                chips: Vec::new(),
+                chips_read: false,
+                ..spotify_mix(Vec::new())
+            }),
+        });
+        let shown = app.playlist_pages["radar"].playlist.get().unwrap();
+        assert_eq!(shown.chips.len(), 2);
+        assert!(shown.chips_read);
+    }
+
+    #[test]
+    fn a_chip_in_demo_mode_is_chosen_without_waiting() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        radar_with_chips(&mut app);
+        app.choose_playlist_chip("radar".into(), "session_control_display$c$a".into());
+        assert_eq!(chosen(&app), ["a"]);
+        let page = &app.playlist_pages["radar"];
+        assert!(!page.items.loading && !page.chip_sending);
+    }
+
+    #[test]
+    fn a_failed_made_for_you_page_waits_for_retry() {
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.home.made_for_you = Loadable::Failed("quota".into());
+        app.ensure_loaded(Page::MadeForYou);
+        assert!(!app.home.made_for_you_loading);
+        assert!(matches!(app.home.made_for_you, Loadable::Failed(_)));
     }
 
     #[test]

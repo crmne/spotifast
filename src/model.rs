@@ -849,6 +849,12 @@ pub struct PlaylistPage {
     /// session, for the filter chips only it carries. Once per generation,
     /// so a mix without chips is not asked about forever.
     pub chips_asked: Option<u64>,
+    /// A chip choice Spotify has not answered yet. Choices go one at a time,
+    /// so they reach Spotify in the order they were made.
+    pub chip_sending: bool,
+    /// The latest choice made while another was on its way, sent once that
+    /// one is answered; a newer choice replaces it.
+    pub chip_queued: Option<String>,
     /// Generation that produced the rows, which may lag during refresh.
     pub items_generation: u64,
     pub playlist: Loadable<Playlist>,

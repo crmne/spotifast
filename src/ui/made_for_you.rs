@@ -12,7 +12,8 @@ use super::widgets;
 pub fn page(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
-    if app.home.made_for_you.get().is_none() && !app.home.made_for_you.is_loading() {
+    // Only a page that never asked: a failure keeps its Retry.
+    if matches!(app.home.made_for_you, Loadable::NotLoaded) {
         app.ensure_loaded(Page::MadeForYou);
     }
     ui.add_space(12.0);
