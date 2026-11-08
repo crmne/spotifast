@@ -238,8 +238,34 @@ fn playlist(index: usize) -> Playlist {
                 12_345 + index as u64
             },
         }),
+        chips: if name == "Release Radar" {
+            release_radar_chips()
+        } else {
+            Vec::new()
+        },
+        chips_read: true,
         ..Playlist::default()
     }
+}
+
+/// The filter chips Spotify offers on Release Radar, the first one chosen.
+fn release_radar_chips() -> Vec<crate::api::models::PlaylistChip> {
+    [
+        ("new_artists_for_me", "Discover new artists"),
+        ("editors_pick", "Editors' picks"),
+        ("video_first_with_icon", "Video"),
+        ("german_hip_hop", "German Hip Hop"),
+        ("new_wave", "New Wave"),
+        ("highlife", "Highlife"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (key, label))| crate::api::models::PlaylistChip {
+        signal: format!("session_control_display$demo${key}"),
+        label: label.into(),
+        selected: index == 0,
+    })
+    .collect()
 }
 
 fn top_mix(index: usize) -> Playlist {
@@ -433,6 +459,29 @@ pub fn populate(app: &mut App) {
         ),
     );
     app.playlist_pages.insert("pl0".into(), discover_page);
+    // Release Radar with Spotify's filter chips, the first one chosen.
+    let mut radar_page = PlaylistPage {
+        playlist: Loadable::Loaded(playlists[4].clone()),
+        ..PlaylistPage::default()
+    };
+    radar_page.items.absorb(
+        0,
+        page(
+            tracks
+                .iter()
+                .skip(10)
+                .take(30)
+                .map(|track| PlaylistItem {
+                    added_at: Some("1970-01-01T00:00:00Z".into()),
+                    is_local: false,
+                    added_by: None,
+                    item: Some(PlayableItem::Track(track.clone())),
+                    track: None,
+                })
+                .collect(),
+        ),
+    );
+    app.playlist_pages.insert("pl4".into(), radar_page);
     // Two songs hidden in Discover Weekly, greyed out and skipped.
     app.hidden_songs.insert(
         playlists[0].uri.clone(),
