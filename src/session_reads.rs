@@ -1724,6 +1724,74 @@ async fn metadata_tolerating(
     answers_tolerating(&asked, tolerated, response)
 }
 
+/// Song details looked up for queues, by URI. Bounded: a long session
+/// starts over rather than grow without end.
+static DETAILS: std::sync::Mutex<Option<HashMap<String, PlayableItem>>> =
+    std::sync::Mutex::new(None);
+const DETAILS_LIMIT: usize = 2000;
+
+/// Whether an item is only a URI: Soloist sends its later queue entries
+/// without names or lengths.
+fn bare(item: &PlayableItem) -> bool {
+    match item {
+        PlayableItem::Track(track) => track.name.is_empty(),
+        PlayableItem::Episode(episode) => episode.name.is_empty(),
+    }
+}
+
+/// Fills in the details of queue entries that came as bare URIs, from the
+/// cache or one batched metadata read. What cannot be read stays as it was.
+pub async fn fill_details(session: &Session, queue: &mut crate::api::models::Queue) {
+    let mut found: HashMap<String, PlayableItem> = HashMap::new();
+    let mut missing = Vec::new();
+    {
+        let cache = DETAILS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for item in queue.currently_playing.iter().chain(&queue.queue) {
+            if !bare(item) || found.contains_key(item.uri()) {
+                continue;
+            }
+            match cache.as_ref().and_then(|cache| cache.get(item.uri())) {
+                Some(details) => {
+                    found.insert(item.uri().to_string(), details.clone());
+                }
+                None => missing.extend(SpotifyUri::from_uri(item.uri()).ok()),
+            }
+        }
+    }
+    if !missing.is_empty() {
+        let tolerated = missing.iter().map(SpotifyUri::to_uri).collect();
+        match metadata_tolerating(session, missing.iter(), &tolerated).await {
+            Ok(read) => {
+                let mut cache = DETAILS
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let cache = cache.get_or_insert_with(HashMap::new);
+                if cache.len() + read.len() > DETAILS_LIMIT {
+                    cache.clear();
+                }
+                for (uri, details) in read {
+                    cache.insert(uri.clone(), details.clone());
+                    found.insert(uri, details);
+                }
+            }
+            Err(error) => log::debug!("queue details unavailable: {error:?}"),
+        }
+    }
+    for item in queue
+        .currently_playing
+        .iter_mut()
+        .chain(queue.queue.iter_mut())
+    {
+        if bare(item)
+            && let Some(details) = found.get(item.uri())
+        {
+            *item = details.clone();
+        }
+    }
+}
+
 /// Every song of `albums`, album by album in the order given and each in its
 /// own order, with the album as the list knows it. Two metadata batches: one
 /// for the albums' track lists, one for the songs.
@@ -2000,6 +2068,26 @@ mod tests {
     /// Pathfinder's counts arrive as strings of digits; rows without a
     /// track URI or a count are left out, and every row counts toward the
     /// page's length.
+    #[test]
+    fn only_queue_entries_without_a_name_are_looked_up() {
+        let bare_track = PlayableItem::Track(Track {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        let named = PlayableItem::Track(Track {
+            uri: "spotify:track:b".into(),
+            name: "Song".into(),
+            ..Default::default()
+        });
+        let bare_episode = PlayableItem::Episode(Episode {
+            uri: "spotify:episode:c".into(),
+            ..Default::default()
+        });
+        assert!(bare(&bare_track));
+        assert!(bare(&bare_episode));
+        assert!(!bare(&named));
+    }
+
     #[test]
     fn play_counts_read_pathfinder_rows() {
         let list = serde_json::json!({"items": [

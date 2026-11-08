@@ -155,6 +155,12 @@ Temporary LRCLIB overloads are retried, then search is tried if the exact lookup
 is still unavailable. Previously cached lyrics remain available during an
 outage; a failed request is never saved as "no lyrics".
 
+Soloist names only the first songs of its queue and sends the rest as bare
+song links. While the separate librespot session is signed in to the same
+account, Spotifast looks those songs up there in one batched read and keeps
+them for later reads, so every queued song shows its title, artist and
+length. Without that session, the unnamed songs show as they arrive.
+
 Soloist exposes queue additions and reads, but no public command to remove,
 reorder, clear or insert at the front of its queue. Those editing controls
 remain available with the built-in player. Spotifast does not pretend to
