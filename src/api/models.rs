@@ -534,6 +534,10 @@ pub struct Playlist {
     /// the streaming session carries them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chips: Vec<PlaylistChip>,
+    /// Whether this header was read over the streaming session, the only
+    /// read that carries the chips: a session header without any has none.
+    #[serde(skip)]
+    pub chips_read: bool,
 }
 
 /// One of Spotify's filter chips on a playlist. Choosing it sends its

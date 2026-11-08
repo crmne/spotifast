@@ -86,6 +86,14 @@ fn main() -> anyhow::Result<()> {
                 .as_ref()
                 .map_or(0, |a| a.format_attributes.len())
         );
+        println!(
+            "header read: {} signals, {} rows",
+            range
+                .contents
+                .as_ref()
+                .map_or(0, |c| c.available_signals.len()),
+            range.contents.as_ref().map_or(0, |c| c.items.len()),
+        );
         let bytes = session.spclient().get_playlist(&playlist).await?;
         println!("raw answer: {} bytes", bytes.len());
         let content = SelectedListContent::parse_from_bytes(&bytes)?;

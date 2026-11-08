@@ -731,15 +731,29 @@ fn removal_changes(
 
 /// A playlist's header: name, owner, cover, and snapshot.
 pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> {
-    let list = window(session, id, 0, 0).await?;
+    // The header window also carries the list's signals, which the
+    // metadata parse drops: read it once and take the chips from it too.
+    let uri = SpotifyUri::Playlist {
+        id: SpotifyId::from_base62(id)?,
+        user: None,
+    };
+    let SpotifyUri::Playlist {
+        id: playlist_id, ..
+    } = &uri
+    else {
+        unreachable!("built as a playlist above");
+    };
+    let bytes = session
+        .spclient()
+        .get_playlist_range(playlist_id, 0, 0)
+        .await
+        .map_err(refused)?;
+    let content = SelectedListContent::parse_from_bytes(&bytes)
+        .map_err(|error| Failure::Retry(error.into()))?;
+    let list = <SessionPlaylist as librespot_metadata::Metadata>::parse(&content, &uri)?;
     let mut playlist = header(id, &list);
-    // Only lists that name chips carry them, so other lists cost no read.
-    if offers_chips(&list.attributes.format_attributes.0) {
-        match chips(session, id).await {
-            Ok(chips) => playlist.chips = chips,
-            Err(error) => log::warn!("playlist chips unavailable: {error:#}"),
-        }
-    }
+    playlist.chips = chips_of(&content);
+    playlist.chips_read = true;
     log::debug!(
         "playlist header over session: {} chips",
         playlist.chips.len()
@@ -765,22 +779,8 @@ const CHIP_SELECTED: &str = "session_control.selected_signals";
 /// The list attribute prefix naming each chip, by its key.
 const CHIP_NAME: &str = "session_control_display.displayName.";
 
-fn offers_chips(attributes: &HashMap<String, String>) -> bool {
-    attributes.keys().any(|key| key.starts_with(CHIP_NAME))
-}
-
-/// The filter chips of one of Spotify's mixes. The chips' order lives only
-/// in the list's signals, which the metadata read drops, so this reads the
-/// list's protobuf itself.
-async fn chips(session: &Session, id: &str) -> anyhow::Result<Vec<PlaylistChip>> {
-    let bytes = session
-        .spclient()
-        .get_playlist(&SpotifyId::from_base62(id)?)
-        .await?;
-    let content = SelectedListContent::parse_from_bytes(&bytes)?;
-    Ok(chips_of(&content))
-}
-
+/// The filter chips of one of Spotify's mixes, in the order of the list's
+/// signals, named by its format attributes. Lists without chips have none.
 fn chips_of(content: &SelectedListContent) -> Vec<PlaylistChip> {
     let attributes: HashMap<&str, &str> = content
         .attributes
@@ -820,15 +820,46 @@ fn chips_of(content: &SelectedListContent) -> Vec<PlaylistChip> {
 /// Chooses one of a mix's filter chips, or clears the choice with
 /// [`CHIP_RESET`], as Spotify's apps do: Spotify rebuilds the playlist
 /// around it and keeps the choice for the account's other apps.
-pub async fn send_chip(session: &Session, id: &str, signal: &str) -> anyhow::Result<()> {
-    let playlist = SpotifyId::from_base62(id)?;
+///
+/// `snapshot` is the revision the page shows, as its snapshot id; it saves
+/// reading the list first. Should Spotify turn it away, as when the list was
+/// rebuilt since, the current revision is read and the signal sent again.
+pub async fn send_chip(
+    session: &Session,
+    id: &str,
+    signal: &str,
+    snapshot: Option<&str>,
+) -> anyhow::Result<()> {
+    if let Some(revision) = snapshot.and_then(revision_of) {
+        match post_signal(session, id, signal, revision).await {
+            Ok(()) => return Ok(()),
+            Err(error) => log::debug!("chip signal on the shown revision failed: {error:#}"),
+        }
+    }
     let header = session
         .spclient()
-        .get_playlist_range(&playlist, 0, 0)
+        .get_playlist_range(&SpotifyId::from_base62(id)?, 0, 0)
         .await?;
     let header = SelectedListContent::parse_from_bytes(&header)?;
+    post_signal(session, id, signal, header.revision().to_vec()).await
+}
+
+/// The revision a snapshot id names; see [`snapshot`].
+fn revision_of(snapshot: &str) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::STANDARD_NO_PAD
+        .decode(snapshot.trim_end_matches('='))
+        .ok()
+        .filter(|revision| !revision.is_empty())
+}
+
+async fn post_signal(
+    session: &Session,
+    id: &str,
+    signal: &str,
+    revision: Vec<u8>,
+) -> anyhow::Result<()> {
     let mut body = ListSignals::new();
-    body.set_base_revision(header.revision().to_vec());
+    body.set_base_revision(revision);
     let mut emitted = Signal::new();
     emitted.identifier = signal.to_string();
     body.emitted_signals.push(emitted);
@@ -2251,6 +2282,14 @@ mod tests {
             ]
         );
         assert_eq!(chips[0].signal, "session_control_display$c2$highlife");
+    }
+
+    #[test]
+    fn a_chip_signal_names_the_revision_the_page_shows() {
+        let revision = vec![0, 1, 2, 250, 251, 252, 9];
+        assert_eq!(revision_of(&snapshot(&revision)), Some(revision));
+        assert_eq!(revision_of(""), None);
+        assert_eq!(revision_of("not base64!"), None);
     }
 
     #[test]

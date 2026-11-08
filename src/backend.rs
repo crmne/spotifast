@@ -212,6 +212,8 @@ pub enum ApiRequest {
     PlaylistChip {
         id: String,
         signal: String,
+        /// The snapshot the page shows, which saves reading the list first.
+        snapshot: Option<String>,
     },
     MyPlaylists {
         offset: u32,
@@ -5589,9 +5591,14 @@ async fn handle(
             Vec::new(),
         );
     }
-    if let ApiRequest::PlaylistChip { id, signal } = request {
+    if let ApiRequest::PlaylistChip {
+        id,
+        signal,
+        snapshot,
+    } = request
+    {
         let result = match playback_session(api, engine) {
-            Ok(session) => session_reads::send_chip(session, &id, &signal)
+            Ok(session) => session_reads::send_chip(session, &id, &signal, snapshot.as_deref())
                 .await
                 .map_err(|error| ApiError::Network(format!("{error:#}"))),
             Err(error) => Err(error),
