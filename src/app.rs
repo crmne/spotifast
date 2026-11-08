@@ -3599,6 +3599,11 @@ impl App {
                     self.load_new_release_page(true);
                 }
             }
+            Page::MadeForYou => {
+                if self.home.made_for_you.get().is_none() && !self.home.made_for_you_loading {
+                    self.load_made_for_you(false);
+                }
+            }
             Page::Search => {}
             Page::LikedSongs => {
                 if !self.liked_songs.cache_checked {
@@ -6391,6 +6396,11 @@ impl App {
                     self.load_new_release_page(false);
                 }
             }
+            Page::MadeForYou => {
+                if self.network_reachable && !self.home.made_for_you_loading {
+                    self.load_made_for_you(false);
+                }
+            }
             Page::Search => {}
             Page::LikedSongs => self.ensure_liked_songs(),
             Page::Albums => {
@@ -7192,6 +7202,7 @@ impl App {
         match &page {
             Page::Home => self.load_home(true),
             Page::TopSongs => self.load_top_songs(true),
+            Page::MadeForYou => self.load_made_for_you(true),
             Page::NewReleases => {
                 self.load_new_releases();
                 self.load_new_release_page(true);

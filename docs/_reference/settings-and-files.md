@@ -553,7 +553,8 @@ restart it. Add this field to hide both:
 
 Set either `visible` value to `true` to show that shelf again. Omitted
 preferences keep both shelves visible. **Your top mixes** comes from the same
-personalized read as Made for you, so `made_for_you` hides it too. Other Home
+personalized read as Made for you, so `made_for_you` hides it too, along
+with the **Made for you** entry in the sidebar. Other Home
 sections keep their normal order and contents. This changes what is displayed; hidden shelves still
 refresh in the background.
 

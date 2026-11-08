@@ -12,6 +12,7 @@ mod keys;
 pub mod library;
 pub mod login;
 mod lyrics;
+pub mod made_for_you;
 pub mod new_releases;
 pub mod player_bar;
 mod prerelease;
@@ -366,6 +367,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                             Page::Home => home::show(app, ui),
                             Page::TopSongs => collection::top_songs(app, ui),
                             Page::NewReleases => new_releases::page(app, ui),
+                            Page::MadeForYou => made_for_you::page(app, ui),
                             Page::Search => search::show(app, ui),
                             Page::LikedSongs => collection::liked(app, ui),
                             Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {

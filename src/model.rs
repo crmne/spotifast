@@ -112,6 +112,9 @@ pub enum Page {
     TopSongs,
     /// The songs of the latest releases from followed artists.
     NewReleases,
+    /// Every playlist Spotify made for the account: Made for you and Your
+    /// top mixes, on a page of their own.
+    MadeForYou,
     Search,
     LikedSongs,
     Albums,
@@ -135,6 +138,7 @@ impl Page {
             Page::Home => "home".into(),
             Page::TopSongs => "top-songs".into(),
             Page::NewReleases => "new-releases".into(),
+            Page::MadeForYou => "made-for-you".into(),
             Page::Search => "search".into(),
             Page::LikedSongs => "liked".into(),
             Page::Albums => "albums".into(),
@@ -156,6 +160,7 @@ impl Page {
             "home" => Page::Home,
             "top-songs" => Page::TopSongs,
             "new-releases" => Page::NewReleases,
+            "made-for-you" => Page::MadeForYou,
             "search" => Page::Search,
             "liked" => Page::LikedSongs,
             "albums" => Page::Albums,

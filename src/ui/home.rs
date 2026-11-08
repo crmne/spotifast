@@ -451,7 +451,7 @@ fn release_card(app: &mut App, ui: &mut egui::Ui, album: &Album) {
         });
 }
 
-fn playlist_cards(app: &mut App, ui: &mut egui::Ui, menu: &str, playlists: &[Playlist]) {
+pub(super) fn playlist_cards(app: &mut App, ui: &mut egui::Ui, menu: &str, playlists: &[Playlist]) {
     let palette = app.palette;
     for playlist in playlists {
         let subtitle = playlist
