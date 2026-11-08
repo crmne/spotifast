@@ -122,6 +122,14 @@ clients. Spotifast uses its session for:
   When it fails, the Web API's followed artists and their latest albums and
   singles stand in, for up to 50 artists. The songs on the New releases page
   come from two batched metadata reads over the session.
+- **Filter chips** on Spotify's own mixes, such as Release Radar's
+  "Discover new artists", "Editors' picks", "Video" and genres. The playlist
+  read over the session carries them: the list's `session_control_display`
+  signals give the chips in order, its format attributes their names and
+  the chosen one. Choosing a chip posts that signal to the playlist's
+  `signals` endpoint, as Spotify's apps do, and Spotify rebuilds the list.
+  The chips are only read for lists whose attributes name some, so other
+  playlists cost no extra request.
 - **Hide in this playlist** for songs in Spotify's own playlists, such as
   Discover Weekly and the other mixes made for you, through the session's
   collection service: the account's `playcontextbans` set, one item per
