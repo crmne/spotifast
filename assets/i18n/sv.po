@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-08 20:16-0500\n"
+"POT-Creation-Date: 2026-11-09 11:51-0500\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -28,13 +28,13 @@ msgstr "Pausa {name}"
 msgid "Play {name}"
 msgstr "Spela {name}"
 
-#: src/ui/sidebar.rs:302 src/app.rs:4080 src/app.rs:26147
+#: src/ui/sidebar.rs:302 src/app.rs:4080 src/app.rs:26241
 #: src/ui/collection.rs:2326 src/ui/collection.rs:2555
 msgid "Playlist"
 msgstr "Spellista"
 
 #: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/ui/widgets.rs:1006
-#: src/app.rs:4054 src/app.rs:26152 src/ui/collection.rs:2548 src/ui/home.rs:93
+#: src/app.rs:4054 src/app.rs:26246 src/ui/collection.rs:2548 src/ui/home.rs:93
 #: src/ui/keys.rs:376 src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "Gillade låtar"
@@ -257,7 +257,7 @@ msgid "Previous"
 msgstr "Föregående"
 
 #: src/ui/player_bar.rs:801 src/ui/lyrics.rs:475 src/ui/widgets.rs:3087
-#: src/ui/widgets.rs:3161 src/ui/widgets.rs:3189 src/app.rs:15262
+#: src/ui/widgets.rs:3161 src/ui/widgets.rs:3189 src/app.rs:15272
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "Läser in…"
@@ -662,7 +662,7 @@ msgstr "SPELNINGAR"
 msgid "Sort by duration"
 msgstr "Sortera efter längd"
 
-#: src/ui/widgets.rs:3200 src/app.rs:15471 src/app.rs:15485
+#: src/ui/widgets.rs:3200 src/app.rs:15481 src/app.rs:15495
 msgid "Network connection error. Check your connection."
 msgstr "Nätverksanslutningsfel. Kontrollera din anslutning."
 
@@ -911,7 +911,7 @@ msgid "Queue cleared"
 msgstr "Kön rensad"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7572 src/app.rs:26137
+#: src/app.rs:7572 src/app.rs:26231
 #, rust-format
 msgid "Queue {date}"
 msgstr "Kö {date}"
@@ -1156,73 +1156,73 @@ msgstr ""
 "Spotify låter inte appar ändra ordningen på dina spellistor, så den här "
 "ordningen sparas på den här datorn"
 
-#: src/app.rs:13788
+#: src/app.rs:13798
 msgid "Restarting local playback"
 msgstr "Startar om lokal uppspelning"
 
-#: src/app.rs:13824
+#: src/app.rs:13834
 msgid "Local playback needs Spotify Premium"
 msgstr "Lokal uppspelning kräver Spotify Premium"
 
-#: src/app.rs:13876
+#: src/app.rs:13886
 msgid "Play history cleared"
 msgstr "Uppspelningshistoriken rensad"
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:13895
+#: src/app.rs:13905
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr "Rensade {size} MB omslagsbilder"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:13901
+#: src/app.rs:13911
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr "Kunde inte rensa omslagsbilder: {error}"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:14214
+#: src/app.rs:14224
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "Laddar ned förinställningar från {name}"
 
-#: src/app.rs:15405
+#: src/app.rs:15415
 msgid "Couldn't start playback"
 msgstr "Kunde inte starta uppspelningen"
 
-#: src/app.rs:15406
+#: src/app.rs:15416
 msgid "Couldn't pause"
 msgstr "Kunde inte pausa"
 
-#: src/app.rs:15407
+#: src/app.rs:15417
 msgid "Couldn't skip"
 msgstr "Kunde inte hoppa framåt"
 
-#: src/app.rs:15408
+#: src/app.rs:15418
 msgid "Couldn't go back"
 msgstr "Kunde inte gå tillbaka"
 
-#: src/app.rs:15409
+#: src/app.rs:15419
 msgid "Couldn't seek"
 msgstr "Kunde inte spola"
 
-#: src/app.rs:15410
+#: src/app.rs:15420
 msgid "Couldn't change the volume"
 msgstr "Kunde inte ändra volymen"
 
-#: src/app.rs:15411
+#: src/app.rs:15421
 msgid "Couldn't change shuffle"
 msgstr "Kunde inte ändra blandning"
 
-#: src/app.rs:15412
+#: src/app.rs:15422
 msgid "Couldn't change repeat"
 msgstr "Kunde inte ändra upprepning"
 
-#: src/app.rs:15455 src/ui/mod.rs:442
+#: src/app.rs:15465 src/ui/mod.rs:442
 msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify låter inte den här datorn spela den här låten just nu."
 
-#: src/app.rs:15462
+#: src/app.rs:15472
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1230,19 +1230,19 @@ msgstr ""
 "Ingen ljudutgång hittades. Anslut eller aktivera en och tryck sedan på Spela "
 "igen."
 
-#: src/app.rs:15476
+#: src/app.rs:15486
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify gör inte den här spellistans låtar tillgängliga för tredjepartsappar."
 
-#: src/app.rs:15607
+#: src/app.rs:15617
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "Spotify-inloggningen har gått ut. Logga in igen och försök sedan ladda upp "
 "omslaget igen."
 
-#: src/app.rs:15612
+#: src/app.rs:15622
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
@@ -1252,19 +1252,19 @@ msgstr ""
 "sedan in igen för att ge behörighet att ladda upp bilder. Om du använder "
 "ditt eget Client ID, auktorisera det också igen i Inställningar."
 
-#: src/app.rs:15616
+#: src/app.rs:15626
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotify avvisade bildens storlek. Välj en mindre bild."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:15619
+#: src/app.rs:15629
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Kunde inte ladda upp omslaget: {error}. Försök igen."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:26157 src/app/radio.rs:38
+#: src/app.rs:26251 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track}-radio"
@@ -3579,6 +3579,11 @@ msgstr "Förspara på Spotify"
 msgid "Track list preview"
 msgstr "Förhandsvisning av låtlista"
 
+#: src/ui/prerelease.rs:304
+msgctxt "column"
+msgid "Title"
+msgstr "Titel"
+
 #: src/ui/prerelease.rs:320
 msgid "Plays"
 msgstr "Spelningar"
@@ -4176,10 +4181,6 @@ msgstr ""
 "här datorn eller virtuella maskinen har ingen. Installera grafikdrivrutinen "
 "eller slå på GPU-acceleration för den virtuella maskinen. Öppna {url} för "
 "att läsa mer?"
-
-#~ msgctxt "column"
-#~ msgid "Title"
-#~ msgstr "Titel"
 
 #~ msgid "3. Pair once in Spotify"
 #~ msgstr "3. Parkoppla en gång i Spotify"

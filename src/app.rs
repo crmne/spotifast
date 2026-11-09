@@ -13720,12 +13720,22 @@ impl App {
             Action::SaveSoloistKey => {
                 if let Some(key) = self.soloist_key_edit.take() {
                     self.soloist_key = key;
+                    // A new key is not a choice of player: what a working
+                    // player was doing, and where, stays as it was once it
+                    // is back. One still being set up is chosen as usual.
+                    let bound = self.soloist_device_id.is_some();
+                    let ours = self.targets_own_soloist();
+                    let playing = ours && self.now_playing().is_some_and(|now| now.playing);
                     let start = if self.settings.soloist_enabled {
                         Action::SetSoloist(true)
                     } else {
                         Action::EnableSoloist
                     };
                     self.apply(start, ctx);
+                    if bound {
+                        self.soloist_select = ours;
+                        self.soloist_resume = playing;
+                    }
                 }
             }
             Action::SetSoloist(enabled) => {
@@ -23896,6 +23906,90 @@ mod tests {
         app.soloist_key_edit = Some("typed".into());
         app.handle_auth(AuthStatus::SignedOut);
         assert_eq!(app.soloist_key_edit, None);
+        app.backend.shutdown();
+    }
+
+    /// Saves a key through the Settings field, then lets the player come back.
+    fn replace_soloist_key_and_rebind(app: &mut App, ctx: &egui::Context) {
+        use crate::soloist::{Status, Update};
+        app.soloist_key_edit = Some("new-key".into());
+        app.apply(Action::SaveSoloistKey, ctx);
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        app.bind_soloist_device();
+    }
+
+    fn playing_on(device: &str) -> RemoteSnapshot {
+        RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(Device {
+                    id: Some(device.into()),
+                    ..Default::default()
+                }),
+                is_playing: true,
+                item: Some(PlayableItem::Track(Track {
+                    uri: "spotify:track:playing".into(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        }
+    }
+
+    /// A new key is not a choice of player: music on a phone stays there.
+    #[test]
+    fn replacing_the_soloist_key_leaves_music_on_another_device() {
+        let (ctx, mut app) = listening_on_soloist("soloist-key-elsewhere");
+        app.selected_device = Some("phone".into());
+        app.remote = Some(playing_on("phone"));
+        replace_soloist_key_and_rebind(&mut app, &ctx);
+        assert_eq!(app.selected_device.as_deref(), Some("phone"));
+        assert!(app.backend.take_transfer_requests().is_empty());
+        app.backend.shutdown();
+    }
+
+    /// Clearing the old player's target would forget it was playing.
+    #[test]
+    fn replacing_the_soloist_key_resumes_what_it_was_playing() {
+        let (ctx, mut app) = listening_on_soloist("soloist-key-resumes");
+        assert_eq!(app.selected_device.as_deref(), Some("own"));
+        app.remote = Some(playing_on("own"));
+        replace_soloist_key_and_rebind(&mut app, &ctx);
+        let transfers = app.backend.take_transfer_requests();
+        assert!(
+            matches!(
+                transfers.as_slice(),
+                [ApiRequest::Transfer { device_id, play: true }] if device_id == "own"
+            ),
+            "{transfers:?}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A player still waiting to pair has no playback to protect, so setup's
+    /// choice of it stands.
+    #[test]
+    fn replacing_the_soloist_key_of_an_unpaired_player_still_selects_it() {
+        use crate::soloist::{Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-key-unpaired");
+        app.on_soloist(Update::Status(Status::Pairing {
+            name: "owned".into(),
+            version: "test".into(),
+        }));
+        assert_eq!(app.soloist_device_id, None);
+        replace_soloist_key_and_rebind(&mut app, &ctx);
+        let transfers = app.backend.take_transfer_requests();
+        assert!(
+            matches!(
+                transfers.as_slice(),
+                [ApiRequest::Transfer { device_id, .. }] if device_id == "own"
+            ),
+            "{transfers:?}"
+        );
         app.backend.shutdown();
     }
 

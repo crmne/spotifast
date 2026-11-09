@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-08 20:16-0500\n"
+"POT-Creation-Date: 2026-11-09 11:51-0500\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Spanish\n"
@@ -28,13 +28,13 @@ msgstr "Pausar {name}"
 msgid "Play {name}"
 msgstr "Reproducir {name}"
 
-#: src/ui/sidebar.rs:302 src/app.rs:4080 src/app.rs:26147
+#: src/ui/sidebar.rs:302 src/app.rs:4080 src/app.rs:26241
 #: src/ui/collection.rs:2326 src/ui/collection.rs:2555
 msgid "Playlist"
 msgstr "Playlist"
 
 #: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/ui/widgets.rs:1006
-#: src/app.rs:4054 src/app.rs:26152 src/ui/collection.rs:2548 src/ui/home.rs:93
+#: src/app.rs:4054 src/app.rs:26246 src/ui/collection.rs:2548 src/ui/home.rs:93
 #: src/ui/keys.rs:376 src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr "Canciones favoritas"
@@ -257,7 +257,7 @@ msgid "Previous"
 msgstr "Anterior"
 
 #: src/ui/player_bar.rs:801 src/ui/lyrics.rs:475 src/ui/widgets.rs:3087
-#: src/ui/widgets.rs:3161 src/ui/widgets.rs:3189 src/app.rs:15262
+#: src/ui/widgets.rs:3161 src/ui/widgets.rs:3189 src/app.rs:15272
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "Cargando…"
@@ -664,7 +664,7 @@ msgstr "REPRODUCCIONES"
 msgid "Sort by duration"
 msgstr "Ordenar por duración"
 
-#: src/ui/widgets.rs:3200 src/app.rs:15471 src/app.rs:15485
+#: src/ui/widgets.rs:3200 src/app.rs:15481 src/app.rs:15495
 msgid "Network connection error. Check your connection."
 msgstr "Error de conexión de red. Comprueba tu conexión."
 
@@ -914,7 +914,7 @@ msgid "Queue cleared"
 msgstr "Cola vaciada"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7572 src/app.rs:26137
+#: src/app.rs:7572 src/app.rs:26231
 #, rust-format
 msgid "Queue {date}"
 msgstr "Cola {date}"
@@ -1162,74 +1162,74 @@ msgstr ""
 "Spotify no permite a las apps reordenar tus playlists, así que este orden se "
 "guarda en esta computadora"
 
-#: src/app.rs:13788
+#: src/app.rs:13798
 msgid "Restarting local playback"
 msgstr "Reiniciando la reproducción local"
 
-#: src/app.rs:13824
+#: src/app.rs:13834
 msgid "Local playback needs Spotify Premium"
 msgstr "La reproducción local necesita Spotify Premium"
 
-#: src/app.rs:13876
+#: src/app.rs:13886
 msgid "Play history cleared"
 msgstr "Historial de reproducción borrado"
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:13895
+#: src/app.rs:13905
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr "Se liberaron {size} MB de carátulas"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:13901
+#: src/app.rs:13911
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr "No se pudieron borrar las carátulas: {error}"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:14214
+#: src/app.rs:14224
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "Descargando los presets de {name}"
 
-#: src/app.rs:15405
+#: src/app.rs:15415
 msgid "Couldn't start playback"
 msgstr "No se pudo iniciar la reproducción"
 
-#: src/app.rs:15406
+#: src/app.rs:15416
 msgid "Couldn't pause"
 msgstr "No se pudo pausar"
 
-#: src/app.rs:15407
+#: src/app.rs:15417
 msgid "Couldn't skip"
 msgstr "No se pudo saltar"
 
-#: src/app.rs:15408
+#: src/app.rs:15418
 msgid "Couldn't go back"
 msgstr "No se pudo volver atrás"
 
-#: src/app.rs:15409
+#: src/app.rs:15419
 msgid "Couldn't seek"
 msgstr "No se pudo cambiar la posición"
 
-#: src/app.rs:15410
+#: src/app.rs:15420
 msgid "Couldn't change the volume"
 msgstr "No se pudo cambiar el volumen"
 
-#: src/app.rs:15411
+#: src/app.rs:15421
 msgid "Couldn't change shuffle"
 msgstr "No se pudo cambiar el modo aleatorio"
 
-#: src/app.rs:15412
+#: src/app.rs:15422
 msgid "Couldn't change repeat"
 msgstr "No se pudo cambiar la repetición"
 
-#: src/app.rs:15455 src/ui/mod.rs:442
+#: src/app.rs:15465 src/ui/mod.rs:442
 msgid "Spotify won't let this computer play this song right now."
 msgstr ""
 "Spotify no deja que esta computadora reproduzca esta canción ahora mismo."
 
-#: src/app.rs:15462
+#: src/app.rs:15472
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1237,20 +1237,20 @@ msgstr ""
 "No se encontró ningún dispositivo de salida de audio. Conecta o activa uno y "
 "vuelve a pulsar Reproducir."
 
-#: src/app.rs:15476
+#: src/app.rs:15486
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify no pone las canciones de esta playlist a disposición de apps de "
 "terceros."
 
-#: src/app.rs:15607
+#: src/app.rs:15617
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "La sesión de Spotify caducó. Vuelve a iniciar sesión y reintenta subir la "
 "portada."
 
-#: src/app.rs:15612
+#: src/app.rs:15622
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
@@ -1260,19 +1260,19 @@ msgstr ""
 "iniciar sesión para conceder el permiso de subir imágenes. Si usas tu propio "
 "Client ID, vuelve a autorizarlo también en Ajustes."
 
-#: src/app.rs:15616
+#: src/app.rs:15626
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotify rechazó el tamaño de la imagen. Elige una imagen más pequeña."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:15619
+#: src/app.rs:15629
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "No se pudo subir la portada: {error}. Vuelve a intentarlo."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:26157 src/app/radio.rs:38
+#: src/app.rs:26251 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Radio de {track}"
@@ -3620,6 +3620,11 @@ msgstr "Preguardar en Spotify"
 msgid "Track list preview"
 msgstr "Vista previa de canciones"
 
+#: src/ui/prerelease.rs:304
+msgctxt "column"
+msgid "Title"
+msgstr "Título"
+
 #: src/ui/prerelease.rs:320
 msgid "Plays"
 msgstr "Reproducciones"
@@ -4217,10 +4222,6 @@ msgstr ""
 "Spotifast necesita un controlador gráfico con OpenGL 2.0 o posterior, y este "
 "PC o máquina virtual no lo ofrece. Instala el controlador gráfico o activa "
 "la aceleración por GPU de la máquina virtual. ¿Abrir {url} para saber más?"
-
-#~ msgctxt "column"
-#~ msgid "Title"
-#~ msgstr "Título"
 
 #~ msgid "3. Pair once in Spotify"
 #~ msgstr "3. Empareja una vez en Spotify"

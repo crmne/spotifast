@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-08 20:16-0500\n"
+"POT-Creation-Date: 2026-11-09 11:51-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -31,13 +31,13 @@ msgstr ""
 msgid "Play {name}"
 msgstr ""
 
-#: src/ui/sidebar.rs:302 src/app.rs:4080 src/app.rs:26147
+#: src/ui/sidebar.rs:302 src/app.rs:4080 src/app.rs:26241
 #: src/ui/collection.rs:2326 src/ui/collection.rs:2555
 msgid "Playlist"
 msgstr ""
 
 #: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/ui/widgets.rs:1006
-#: src/app.rs:4054 src/app.rs:26152 src/ui/collection.rs:2548 src/ui/home.rs:93
+#: src/app.rs:4054 src/app.rs:26246 src/ui/collection.rs:2548 src/ui/home.rs:93
 #: src/ui/keys.rs:376 src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
 msgstr ""
@@ -260,7 +260,7 @@ msgid "Previous"
 msgstr ""
 
 #: src/ui/player_bar.rs:801 src/ui/lyrics.rs:475 src/ui/widgets.rs:3087
-#: src/ui/widgets.rs:3161 src/ui/widgets.rs:3189 src/app.rs:15262
+#: src/ui/widgets.rs:3161 src/ui/widgets.rs:3189 src/app.rs:15272
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr ""
@@ -665,7 +665,7 @@ msgstr ""
 msgid "Sort by duration"
 msgstr ""
 
-#: src/ui/widgets.rs:3200 src/app.rs:15471 src/app.rs:15485
+#: src/ui/widgets.rs:3200 src/app.rs:15481 src/app.rs:15495
 msgid "Network connection error. Check your connection."
 msgstr ""
 
@@ -903,7 +903,7 @@ msgid "Queue cleared"
 msgstr ""
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7572 src/app.rs:26137
+#: src/app.rs:7572 src/app.rs:26231
 #, rust-format
 msgid "Queue {date}"
 msgstr ""
@@ -1145,107 +1145,107 @@ msgid ""
 "this computer"
 msgstr ""
 
-#: src/app.rs:13788
+#: src/app.rs:13798
 msgid "Restarting local playback"
 msgstr ""
 
-#: src/app.rs:13824
+#: src/app.rs:13834
 msgid "Local playback needs Spotify Premium"
 msgstr ""
 
-#: src/app.rs:13876
+#: src/app.rs:13886
 msgid "Play history cleared"
 msgstr ""
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:13895
+#: src/app.rs:13905
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr ""
 
 #. Translators: {error} is an error message.
-#: src/app.rs:13901
+#: src/app.rs:13911
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr ""
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:14214
+#: src/app.rs:14224
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr ""
 
-#: src/app.rs:15405
+#: src/app.rs:15415
 msgid "Couldn't start playback"
 msgstr ""
 
-#: src/app.rs:15406
+#: src/app.rs:15416
 msgid "Couldn't pause"
 msgstr ""
 
-#: src/app.rs:15407
+#: src/app.rs:15417
 msgid "Couldn't skip"
 msgstr ""
 
-#: src/app.rs:15408
+#: src/app.rs:15418
 msgid "Couldn't go back"
 msgstr ""
 
-#: src/app.rs:15409
+#: src/app.rs:15419
 msgid "Couldn't seek"
 msgstr ""
 
-#: src/app.rs:15410
+#: src/app.rs:15420
 msgid "Couldn't change the volume"
 msgstr ""
 
-#: src/app.rs:15411
+#: src/app.rs:15421
 msgid "Couldn't change shuffle"
 msgstr ""
 
-#: src/app.rs:15412
+#: src/app.rs:15422
 msgid "Couldn't change repeat"
 msgstr ""
 
-#: src/app.rs:15455 src/ui/mod.rs:442
+#: src/app.rs:15465 src/ui/mod.rs:442
 msgid "Spotify won't let this computer play this song right now."
 msgstr ""
 
-#: src/app.rs:15462
+#: src/app.rs:15472
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
 msgstr ""
 
-#: src/app.rs:15476
+#: src/app.rs:15486
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 
-#: src/app.rs:15607
+#: src/app.rs:15617
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 
-#: src/app.rs:15612
+#: src/app.rs:15622
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
 "authorize it again in Settings too."
 msgstr ""
 
-#: src/app.rs:15616
+#: src/app.rs:15626
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr ""
 
 #. Translators: {error} is an error message.
-#: src/app.rs:15619
+#: src/app.rs:15629
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr ""
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:26157 src/app/radio.rs:38
+#: src/app.rs:26251 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr ""
@@ -3432,6 +3432,11 @@ msgstr ""
 
 #: src/ui/prerelease.rs:290
 msgid "Track list preview"
+msgstr ""
+
+#: src/ui/prerelease.rs:304
+msgctxt "column"
+msgid "Title"
 msgstr ""
 
 #: src/ui/prerelease.rs:320
