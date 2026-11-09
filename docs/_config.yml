@@ -47,6 +47,8 @@ defaults:
       layout: default
 
 jekyll_vitepress:
+  versions:
+    next: true
   seo:
     page_type: TechArticle
     image:

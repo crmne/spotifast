@@ -124,6 +124,14 @@ struct PendingRemoteVolume {
     mismatches: u8,
 }
 
+impl PendingRemoteVolume {
+    /// Whether `device`, the one the Web API reports playing, may be the one
+    /// this volume was set on. It reports a Sonos without an id.
+    fn may_be_on(&self, device: Option<&Device>) -> bool {
+        device.is_some_and(|device| device.id.is_none() || device.id == self.device_id)
+    }
+}
+
 /// A volume Spotify pushed for the remote device.
 struct PushedVolume {
     percent: u8,
@@ -649,6 +657,9 @@ pub struct App {
     accent_pending: HashSet<String>,
 
     pub dialog: Option<Dialog>,
+    /// Duplicate confirmations waiting for the open one to be answered, as
+    /// the heart's Done can raise one for each playlist it adds to.
+    duplicate_prompts: std::collections::VecDeque<Dialog>,
     cover_request: u64,
     cover_uploads: HashMap<String, u64>,
     /// Successful uploads stay visible while Spotify propagates the new image.
@@ -1303,15 +1314,22 @@ impl App {
             output_devices: Loadable::NotLoaded,
             devices_fetched_at: None,
             selected_device: None,
-            queue: if session.last_track.is_some() && !session.last_queue_rows.is_empty() {
-                // The queue as it was at close, shown until something
-                // plays; then the live queue takes over.
-                Loadable::Loaded(Queue {
-                    currently_playing: None,
-                    queue: session.last_queue_rows.clone(),
-                })
-            } else {
-                Loadable::NotLoaded
+            queue: match &session.last_track {
+                Some(current) if !session.last_queue_rows.is_empty() => {
+                    // The queue as it was at close, shown until something
+                    // plays; then the live queue takes over. One saved by
+                    // an earlier version may still hold Spotify's padding.
+                    let mut rows = session.last_queue_rows.clone();
+                    if RepeatMode::from_api(&session.repeat) == RepeatMode::Off {
+                        let queued = Self::end_of_queued_rows(&rows, &session.last_added_queue);
+                        Self::drop_wraparound(&mut rows, queued, current);
+                    }
+                    Loadable::Loaded(Queue {
+                        currently_playing: None,
+                        queue: rows,
+                    })
+                }
+                _ => Loadable::NotLoaded,
             },
             queue_fetched_at: None,
             queue_seq: 0,
@@ -1374,6 +1392,7 @@ impl App {
             art_palettes: HashMap::new(),
             accent_pending: HashSet::new(),
             dialog: None,
+            duplicate_prompts: Default::default(),
             cover_request: 0,
             cover_uploads: HashMap::new(),
             uploaded_covers: Default::default(),
@@ -1937,6 +1956,18 @@ impl App {
             .filter(|remote| remote.received_at.elapsed() < REMOTE_FRESH)
     }
 
+    /// Playback on another device, playing or holding a song to resume. The
+    /// Web API reports a Sonos without its device id.
+    fn remote_elsewhere(&self) -> Option<&RemoteSnapshot> {
+        self.remote_fresh().filter(|remote| {
+            let device = remote.state.device.as_ref();
+            let is_local = device
+                .and_then(|device| device.id.as_deref())
+                .is_some_and(|id| Some(id) == self.local_device_id.as_deref());
+            !is_local && (remote.state.is_playing || remote.state.item.is_some())
+        })
+    }
+
     /// Where playback commands go: this computer's player or a remote device.
     pub fn target(&self) -> Target {
         if self.local_ready && self.local.is_active() {
@@ -1947,14 +1978,9 @@ impl App {
         {
             return Target::Remote(Some(selected.clone()));
         }
-        if let Some(remote) = self.remote_fresh() {
+        if let Some(remote) = self.remote_elsewhere() {
             let device = remote.state.device.as_ref();
-            let is_local = device
-                .and_then(|device| device.id.as_deref())
-                .is_some_and(|id| Some(id) == self.local_device_id.as_deref());
-            if !is_local && (remote.state.is_playing || remote.state.item.is_some()) {
-                return Target::Remote(device.and_then(|device| device.id.clone()));
-            }
+            return Target::Remote(device.and_then(|device| device.id.clone()));
         }
         if self.local_ready {
             Target::Local
@@ -2452,12 +2478,7 @@ impl App {
             percent
         } else {
             match &self.pending_remote_volume {
-                Some(pending)
-                    if pending.device_id.as_deref()
-                        == device.and_then(|device| device.id.as_deref()) =>
-                {
-                    pending.percent
-                }
+                Some(pending) if pending.may_be_on(device) => pending.percent,
                 _ => device
                     .and_then(|device| device.volume_percent)
                     .unwrap_or(50),
@@ -3704,6 +3725,11 @@ impl App {
         self.last_album_queue = None;
         self.cover_uploads.clear();
         self.uploaded_covers.clear();
+        // Questions about the signed-out account's playlists go with it.
+        self.duplicate_prompts.clear();
+        if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
+            self.dialog = None;
+        }
         // Pages still on their way belong to the signed-out account's load.
         self.library = Library {
             playlists_generation: self.library.playlists_generation,
@@ -7357,15 +7383,21 @@ impl App {
     /// How many leading rows of Next up are songs the user queued here,
     /// so the view can give them their own section.
     pub fn queued_rows_len(&self) -> usize {
-        // Before resume, use the saved manual queue to split restored rows.
-        let manual = if self.manual_queue.is_empty() && self.resume_only() {
+        match &self.queue {
+            Loadable::Loaded(queue) => {
+                Self::end_of_queued_rows(&queue.queue, self.queued_by_hand())
+            }
+            _ => 0,
+        }
+    }
+
+    /// The songs the user queued here. Before resume, the saved manual
+    /// queue, which splits the restored rows.
+    fn queued_by_hand(&self) -> &[String] {
+        if self.manual_queue.is_empty() && self.resume_only() {
             &self.resume_queue
         } else {
             &self.manual_queue
-        };
-        match &self.queue {
-            Loadable::Loaded(queue) => Self::end_of_queued_rows(&queue.queue, manual),
-            _ => 0,
         }
     }
 
@@ -8342,10 +8374,13 @@ impl App {
                     Err(error) => log::debug!("playback state unavailable: {error}"),
                 }
             }
-            ApiResponse::Queue { seq, result } => {
+            ApiResponse::Queue { seq, mut result } => {
                 if seq != self.queue_seq {
                     // A newer request supersedes this response.
                     return;
+                }
+                if let Ok(fetched) = &mut result {
+                    self.drop_queue_padding(fetched);
                 }
                 // Partial reads and read failures must preserve optimistic
                 // additions while Spotify is still accepting their writes.
@@ -9085,7 +9120,7 @@ impl App {
                 }
                 Ok(duplicate_uris) => {
                     self.playlist_busy = false;
-                    self.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
+                    self.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
                         playlist_id,
                         playlist_name,
                         items,
@@ -9893,6 +9928,16 @@ impl App {
             device_id: device_id.to_owned(),
             poll_seq: self.remote_poll_seq,
         });
+        // Once the hold has run out, a pushed volume is as current as a
+        // fresh poll's, and ends it without waiting for one.
+        let held = self
+            .pending_remote_volume
+            .as_ref()
+            .and_then(|pending| pending.written_at)
+            .is_none_or(|at| at.elapsed() < PLAYBACK_HOLD);
+        if !held {
+            self.pending_remote_volume = None;
+        }
     }
 
     /// When to poll for a change Spotify pushed: after a pending poll
@@ -10471,7 +10516,13 @@ impl App {
         if let Some(uri) = self.random_track_in(context_uri) {
             return (Some(uri), None);
         }
-        if matches!(self.target(), Target::Remote(Some(_)))
+        // A remote device without an id, a Sonos, plays through the Web API
+        // too; with neither, the play waits for this computer's player.
+        let web_api = match self.target() {
+            Target::Local => false,
+            Target::Remote(device_id) => device_id.is_some() || self.remote_elsewhere().is_some(),
+        };
+        if web_api
             && let Some(len) = self.context_len(context_uri)
             && len > 0
         {
@@ -10535,6 +10586,17 @@ impl App {
         if let Some(request) = self.queued_play.take() {
             self.start_play(request, false);
         }
+    }
+
+    /// Whether this computer's player is still connecting.
+    fn local_player_coming(&self) -> bool {
+        matches!(
+            self.local_playback,
+            LocalPlayback::Connecting
+                | LocalPlayback::Authorizing
+                | LocalPlayback::WaitingForNetwork
+        ) || (self.settings.playback_authorized
+            && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
     }
 
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
@@ -10638,17 +10700,40 @@ impl App {
                 }
                 self.optimistic_playing = Some((true, Instant::now()));
             }
-            Target::Remote(Some(device_id)) => {
+            // Wait for this computer's connecting player. With no remote
+            // device the play goes to it, and a device the Web API reports
+            // without an id, a Sonos, may take the play only over its
+            // session.
+            Target::Remote(None) if !self.local_ready && self.local_player_coming() => {
+                self.queued_play = Some(request);
+            }
+            Target::Remote(None) if self.remote_elsewhere().is_none() => {
+                // No remote device is active, and this computer's player is
+                // not coming. Never ask Spotify to play "nowhere": ask for a
+                // device.
+                self.queue_start_pending = None;
+                self.clear_play_pending();
+                self.queued_play = None;
+                self.toast(gettext(
+                    self.locale,
+                    "Choose a device, or enable playback on this computer",
+                ));
+                self.show_devices = true;
+                self.refresh_devices();
+            }
+            // With no id, the play names no device and goes to the one
+            // playing, which a Sonos is.
+            Target::Remote(device_id) => {
                 self.queued_play = None;
                 if shuffle {
                     self.backend.api(ApiRequest::ShufflePlay {
-                        device_id: Some(device_id),
+                        device_id,
                         play: request,
                     });
                 } else {
                     self.backend.api(ApiRequest::Remote {
                         action: RemoteAction::Play,
-                        device_id: Some(device_id),
+                        device_id,
                         play: Some(request),
                         position_ms: 0,
                         percent: 0,
@@ -10657,31 +10742,6 @@ impl App {
                     });
                 }
                 self.optimistic_playing = Some((true, Instant::now()));
-            }
-            Target::Remote(None) => {
-                // No remote device is active, and this computer's player is
-                // not ready. Never ask Spotify to play "nowhere": either
-                // wait for the connecting engine or ask for a device.
-                if matches!(
-                    self.local_playback,
-                    LocalPlayback::Connecting
-                        | LocalPlayback::Authorizing
-                        | LocalPlayback::WaitingForNetwork
-                ) || (self.settings.playback_authorized
-                    && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
-                {
-                    self.queued_play = Some(request);
-                } else {
-                    self.queue_start_pending = None;
-                    self.clear_play_pending();
-                    self.queued_play = None;
-                    self.toast(gettext(
-                        self.locale,
-                        "Choose a device, or enable playback on this computer",
-                    ));
-                    self.show_devices = true;
-                    self.refresh_devices();
-                }
             }
         }
     }
@@ -11233,23 +11293,25 @@ impl App {
             return;
         }
         let device = state.and_then(|state| state.device.as_ref());
-        // A device change ends this intent. Missing volume on the same
-        // device confirms neither the write nor a change made elsewhere.
-        if device.and_then(|device| device.id.as_deref()) != pending.device_id.as_deref()
-            || device.is_none()
-        {
+        // A device change ends this intent.
+        if !pending.may_be_on(device) {
             self.pending_remote_volume = None;
             return;
         }
-        let Some(reported) = device.and_then(|device| device.volume_percent) else {
-            return;
-        };
         // Polls after a successful write can lag, a Sonos's by seconds.
         // Check once more, and hold the chosen volume as long as play and
         // pause are held, before accepting a volume set elsewhere.
         let held = pending
             .written_at
             .is_some_and(|at| at.elapsed() < PLAYBACK_HOLD);
+        // Missing volume on the same device confirms neither the write nor
+        // a change made elsewhere, so the hold only runs out.
+        let Some(reported) = device.and_then(|device| device.volume_percent) else {
+            if !held {
+                self.pending_remote_volume = None;
+            }
+            return;
+        };
         if reported == pending.percent || (pending.mismatches > 0 && !held) {
             self.pending_remote_volume = None;
         } else {
@@ -11363,6 +11425,8 @@ impl App {
     }
 
     fn set_repeat(&mut self, mode: RepeatMode) {
+        // Next up leaves Spotify's padding out only with Repeat off.
+        self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
         match self.target() {
             Target::Local => {
                 self.local.repeat = mode;
@@ -11815,6 +11879,39 @@ impl App {
         at
     }
 
+    /// Spotify pads a short queue out to a fixed length by going round it
+    /// again, back to the playing song and on, whatever the Repeat mode.
+    /// With Repeat off playback stops where the list ends, so a song
+    /// started on its own was listed ten times under Next up though it
+    /// plays once. Those rows go; songs queued by hand always stay.
+    fn drop_queue_padding(&self, fetched: &mut Queue) {
+        let repeat = self.now_playing().map(|now| now.repeat);
+        if repeat.unwrap_or(self.repeat_wanted) != RepeatMode::Off {
+            return;
+        }
+        let Some(current) = &fetched.currently_playing else {
+            return;
+        };
+        let queued = Self::end_of_queued_rows(&fetched.queue, self.queued_by_hand());
+        Self::drop_wraparound(&mut fetched.queue, queued, current.uri());
+    }
+
+    /// Drops the rows after the first `queued` from where they come back
+    /// round to `current`, the playing song, and repeat what came before.
+    /// The playing song and the row after it must both come round: one
+    /// late copy of the playing song may be the list's own.
+    fn drop_wraparound(rows: &mut Vec<PlayableItem>, queued: usize, current: &str) {
+        let order: Vec<&str> = std::iter::once(current)
+            .chain(rows[queued..].iter().map(PlayableItem::uri))
+            .collect();
+        // From a wrap on, the list lines up with its own start.
+        let lines_up = |at: usize| order[at..] == order[..order.len() - at];
+        let wrap = (1..order.len().saturating_sub(1)).find(|&at| lines_up(at));
+        if let Some(at) = wrap {
+            rows.truncate(queued + at - 1);
+        }
+    }
+
     /// Queue row built from cached details or a temporary label.
     fn optimistic_queue_item(&self, uri: &str, label: &str) -> PlayableItem {
         let cached = util::uri_id(uri)
@@ -11911,7 +12008,11 @@ impl App {
     /// Answer from the rows already held locally. A found duplicate is
     /// definitive even for a partial playlist; an empty answer is definitive
     /// only when the whole playlist is present.
-    fn local_playlist_duplicates(&self, id: &str, items: &[PlayableItem]) -> Option<Vec<String>> {
+    pub(crate) fn local_playlist_duplicates(
+        &self,
+        id: &str,
+        items: &[PlayableItem],
+    ) -> Option<Vec<String>> {
         let page = self.playlist_pages.get(id)?;
         let existing: HashSet<&str> = page
             .items
@@ -12108,7 +12209,7 @@ impl App {
                 self.add_to_playlist_now(playlist_id, playlist_name, items, position);
             }
             Some(duplicate_uris) => {
-                self.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
+                self.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
                     playlist_id,
                     playlist_name,
                     items,
@@ -12128,6 +12229,17 @@ impl App {
         }
     }
 
+    /// Asks before adding songs a playlist already holds. A dialog still
+    /// open, such as an earlier question or New playlist, is finished first;
+    /// this one follows it.
+    fn confirm_duplicates(&mut self, prompt: Dialog) {
+        if self.dialog.is_some() {
+            self.duplicate_prompts.push_back(prompt);
+        } else {
+            self.dialog = Some(prompt);
+        }
+    }
+
     fn add_to_playlist_now(
         &mut self,
         playlist_id: String,
@@ -12138,7 +12250,6 @@ impl App {
         if items.is_empty() {
             return;
         }
-        self.dialog = None;
         self.playlist_busy = true;
         for item in &items {
             if let PlayableItem::Track(track) = item {
@@ -12357,6 +12468,11 @@ impl App {
                 self.apply(action, ctx);
             }
             actions = std::mem::take(&mut self.actions);
+        }
+        // A waiting duplicate question shows once no other dialog is open,
+        // however that one closed.
+        if self.dialog.is_none() {
+            self.dialog = self.duplicate_prompts.pop_front();
         }
     }
 
@@ -12878,7 +12994,25 @@ impl App {
                 items,
                 position,
             } => {
+                // Answering one question opens the next. An add that needed
+                // none leaves whatever dialog is open alone.
+                self.dialog = self.duplicate_prompts.pop_front();
                 self.add_to_playlist_now(playlist_id, playlist_name, items, position);
+            }
+            Action::UpdatePlaylists { item, add, remove } => {
+                let item = *item;
+                let uris = vec![item.uri().to_string()];
+                for playlist_id in remove {
+                    let removal = Action::RemoveFromPlaylist {
+                        playlist_id,
+                        uris: uris.clone(),
+                        positions: Vec::new(),
+                    };
+                    self.apply(removal, ctx);
+                }
+                for (playlist_id, playlist_name) in add {
+                    self.request_playlist_add(playlist_id, playlist_name, vec![item.clone()], None);
+                }
             }
             Action::RemoveFromPlaylist {
                 playlist_id,
@@ -13024,7 +13158,7 @@ impl App {
                 if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
                     self.intro_answered(jiff::Timestamp::now());
                 }
-                self.dialog = None;
+                self.dialog = self.duplicate_prompts.pop_front();
             }
             Action::CloseAudioKeyBanner => {
                 self.audio_key_banner = false;
@@ -20309,6 +20443,106 @@ mod tests {
         }
         let (current, _) = queue_uris(&app);
         assert_eq!(current.as_deref(), Some("spotify:track:a"));
+    }
+
+    /// Spotify pads a short queue by going round it again, even with Repeat
+    /// off, so a song started on its own, as a Recent row starts it, showed
+    /// ten times under Next up though it plays once. Only the padding goes:
+    /// a playlist's own later copy of the song, a copy queued by hand, and
+    /// a real loop with Repeat on stay.
+    #[test]
+    fn spotify_padding_a_short_queue_is_not_next_up() {
+        fn answer(app: &mut App, next: &[&str]) -> Vec<String> {
+            app.handle_api(ApiResponse::Queue {
+                seq: app.queue_seq,
+                result: Ok(Queue {
+                    currently_playing: Some(queued_song("spotify:track:a")),
+                    queue: next.iter().map(|uri| queued_song(uri)).collect(),
+                }),
+            });
+            queue_uris(app).1
+        }
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let (a, b, c) = ("spotify:track:a", "spotify:track:b", "spotify:track:c");
+
+        assert!(
+            answer(&mut app, &[a; 10]).is_empty(),
+            "a song started on its own plays once"
+        );
+        assert_eq!(
+            answer(&mut app, &[b, a, b, a, b, a, b, a, b, a]),
+            vec![b],
+            "a list of two plays through once"
+        );
+        assert_eq!(
+            answer(&mut app, &[b, a, c]),
+            vec![b, a, c],
+            "a playlist holding the song again"
+        );
+        assert_eq!(
+            answer(&mut app, &[b, c, a]),
+            vec![b, c, a],
+            "one late copy may be the playlist's own"
+        );
+
+        app.manual_queue = vec![a.into()];
+        assert_eq!(
+            answer(&mut app, &[a; 10]),
+            vec![a],
+            "a copy queued by hand plays"
+        );
+
+        app.manual_queue.clear();
+        app.queue_recheck_at = None;
+        app.set_repeat(RepeatMode::Context);
+        assert!(app.queue_recheck_at.is_some(), "Next up is fetched again");
+        assert_eq!(
+            answer(&mut app, &[a; 10]),
+            vec![a; 10],
+            "with Repeat on it does play again"
+        );
+    }
+
+    /// A queue saved with Spotify's padding, as earlier versions saved it,
+    /// comes back without it.
+    #[test]
+    fn a_saved_queue_comes_back_without_spotifys_padding() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-queue-padding-test-{}",
+            std::process::id()
+        ));
+        let dirs = || AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        std::fs::create_dir_all(&dirs().state).unwrap();
+        SessionState {
+            last_track: Some("spotify:track:a".into()),
+            last_queue_rows: vec![queued_song("spotify:track:a"); 10],
+            repeat: "off".into(),
+            ..SessionState::default()
+        }
+        .save(&dirs().session_file());
+        let mut app = App::new(
+            &Waker::default(),
+            dirs(),
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        assert!(queue_uris(&app).1.is_empty());
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A pending addition is not restored after its track starts.
@@ -30410,6 +30644,161 @@ mod tests {
         assert!(app.playlist_busy, "the playlist write follows the check");
     }
 
+    /// Done in the heart's checklist can add to several playlists that were
+    /// never read in full. Each one that already holds the song asks in
+    /// turn rather than replacing the question before it, and one without
+    /// it gets the song without closing the open question.
+    #[test]
+    fn duplicate_questions_for_several_playlists_follow_one_another() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let ctx = egui::Context::default();
+        let item = cached_playlist_row("spotify:track:again")
+            .playable()
+            .unwrap()
+            .clone();
+        let playlists = [("mix", "Mix"), ("day", "Daylight"), ("run", "Run")];
+        let sent = |app: &App| -> Vec<String> {
+            app.backend
+                .take_playlist_add_requests()
+                .into_iter()
+                .map(|request| match request {
+                    ApiRequest::CheckPlaylistDuplicates { playlist_id, .. } => {
+                        format!("check {playlist_id}")
+                    }
+                    ApiRequest::AddToPlaylist { playlist_id, .. } => format!("add {playlist_id}"),
+                    _ => "other".into(),
+                })
+                .collect()
+        };
+        let asking = |app: &App| match &app.dialog {
+            Some(Dialog::ConfirmPlaylistDuplicates { playlist_id, .. }) => {
+                Some(playlist_id.clone())
+            }
+            _ => None,
+        };
+
+        app.apply(
+            Action::UpdatePlaylists {
+                item: Box::new(item.clone()),
+                add: playlists
+                    .iter()
+                    .map(|(id, name)| (id.to_string(), name.to_string()))
+                    .collect(),
+                remove: Vec::new(),
+            },
+            &ctx,
+        );
+        assert_eq!(sent(&app), ["check mix", "check day", "check run"]);
+
+        // Spotify finds the song in all but one of them.
+        for (id, name) in playlists {
+            let duplicates = if id == "day" {
+                Vec::new()
+            } else {
+                vec![item.uri().to_string()]
+            };
+            app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
+                position: None,
+                playlist_id: id.into(),
+                playlist_name: name.into(),
+                items: vec![item.clone()],
+                result: Ok(duplicates),
+            });
+        }
+        assert_eq!(asking(&app).as_deref(), Some("mix"));
+        assert_eq!(sent(&app), ["add day"]);
+
+        app.apply(Action::CloseDialog, &ctx);
+        assert_eq!(asking(&app).as_deref(), Some("run"));
+        assert!(sent(&app).is_empty(), "declining adds nothing");
+
+        app.apply(
+            Action::ConfirmAddToPlaylist {
+                position: None,
+                playlist_id: "run".into(),
+                playlist_name: "Run".into(),
+                items: vec![item.clone()],
+            },
+            &ctx,
+        );
+        assert!(app.dialog.is_none());
+        assert_eq!(sent(&app), ["add run"]);
+    }
+
+    /// A duplicate question that arrives while New playlist is open waits
+    /// for it, so the name typed there and the songs it will add stay, and
+    /// shows once the playlist is created.
+    #[test]
+    fn a_duplicate_question_waits_for_new_playlist() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let ctx = egui::Context::default();
+        let item = cached_playlist_row("spotify:track:again")
+            .playable()
+            .unwrap()
+            .clone();
+        app.dialog = Some(Dialog::CreatePlaylist {
+            name: "Road trip".into(),
+            public: false,
+            add_uris: vec!["spotify:track:new".into()],
+        });
+
+        app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
+            position: None,
+            playlist_id: "mix".into(),
+            playlist_name: "Mix".into(),
+            items: vec![item],
+            result: Ok(vec!["spotify:track:again".into()]),
+        });
+        app.apply_actions(&ctx);
+        assert!(matches!(
+            app.dialog,
+            Some(Dialog::CreatePlaylist {
+                ref name,
+                ref add_uris,
+                ..
+            }) if name == "Road trip" && add_uris == &["spotify:track:new"]
+        ));
+
+        app.handle_api(ApiResponse::PlaylistCreated(Ok(Playlist {
+            id: "road".into(),
+            uri: "spotify:playlist:road".into(),
+            name: "Road trip".into(),
+            ..Playlist::default()
+        })));
+        app.apply_actions(&ctx);
+        assert!(matches!(
+            app.dialog,
+            Some(Dialog::ConfirmPlaylistDuplicates {
+                ref playlist_id,
+                ..
+            }) if playlist_id == "mix"
+        ));
+    }
+
+    /// Signing out drops the duplicate questions, the open one and those
+    /// waiting, so none of them adds to the old account's playlists later.
+    #[test]
+    fn reset_data_drops_duplicate_questions() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        for playlist_id in ["mix", "run"] {
+            app.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
+                playlist_id: playlist_id.into(),
+                playlist_name: playlist_id.into(),
+                items: Vec::new(),
+                position: None,
+                duplicate_uris: Vec::new(),
+            });
+        }
+
+        app.reset_data();
+        assert!(app.dialog.is_none());
+        app.apply(Action::CloseDialog, &ctx);
+        assert!(app.dialog.is_none(), "no question from before follows");
+    }
+
     #[test]
     fn playlist_cache_count_must_match_spotify_before_it_can_choose_the_first_song() {
         for cache_first in [true, false] {
@@ -32210,6 +32599,70 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[test]
+    fn a_play_goes_to_remote_playback_without_a_device_id() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local_ready = false;
+        app.local_playback = LocalPlayback::Unavailable;
+        app.selected_device = None;
+        app.shuffle_wanted = false;
+        app.remote
+            .as_mut()
+            .unwrap()
+            .state
+            .device
+            .as_mut()
+            .unwrap()
+            .id = None;
+        assert!(matches!(app.target(), Target::Remote(None)));
+
+        app.play_request(PlayRequest::context("spotify:playlist:pl0"), false);
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id: None,
+                play: Some(play),
+                ..
+            }] if play.context_uri.as_deref() == Some("spotify:playlist:pl0")
+        ));
+        assert!(app.queued_play.is_none());
+        assert!(app.toasts.is_empty(), "the device playing is the one asked");
+
+        app.play_request(PlayRequest::context("spotify:playlist:pl0"), true);
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::ShufflePlay {
+                device_id: None,
+                ..
+            }]
+        ));
+
+        // While this computer's player connects, the play waits for it, so
+        // a Sonos that refuses the Web API's play still gets it over the
+        // session.
+        app.shuffle_wanted = false;
+        app.local_playback = LocalPlayback::Connecting;
+        app.play_request(PlayRequest::context("spotify:playlist:pl0"), false);
+        assert!(app.queued_play.is_some());
+        assert!(app.backend.take_remote_play_requests().is_empty());
+        app.handle_playback(LocalPlayback::Ready {
+            device_id: "local-demo".into(),
+        });
+        assert!(app.queued_play.is_none());
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id: None,
+                play: Some(play),
+                ..
+            }] if play.context_uri.as_deref() == Some("spotify:playlist:pl0")
+        ));
+        app.backend.shutdown();
+    }
+
     fn remote_volume_app() -> App {
         let mut app = headless_app();
         crate::demo::populate(&mut app);
@@ -32547,6 +33000,94 @@ mod tests {
         report_remote_volume(&mut app, 5, Some(65));
         assert!(app.pending_remote_volume.is_none());
         assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+        app.backend.shutdown();
+    }
+
+    /// The Web API reports a Sonos without an id, also one chosen here by
+    /// its Connect id. Its volume holds the same way.
+    #[test]
+    fn remote_volume_holds_on_a_sonos_the_web_api_reports_without_an_id() {
+        let mut app = remote_volume_app();
+        let device = app.remote.as_mut().unwrap().state.device.as_mut().unwrap();
+        device.id = None;
+        device.is_restricted = true;
+        app.local_ready = true;
+        app.selected_device = Some("sonos".into());
+        assert_eq!(app.target(), Target::Remote(Some("sonos".into())));
+        app.set_volume(65, true);
+        assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        app.handle_remote_volume("sonos", percent_to_volume(65));
+        for seq in 1..4 {
+            report_remote_volume(&mut app, seq, Some(35));
+            assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+            assert!(app.pending_remote_volume.is_some());
+        }
+        report_remote_volume(&mut app, 4, Some(65));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+        // Playback moved on to a device the Web API names: the hold ends.
+        app.set_volume(80, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        let device = app.remote.as_mut().unwrap().state.device.as_mut().unwrap();
+        device.id = Some("phone".into());
+        report_remote_volume(&mut app, 5, Some(35));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 35);
+        app.backend.shutdown();
+    }
+
+    /// Polls that leave the volume out confirm nothing, so the hold runs out
+    /// as usual. Once it has, a volume Spotify pushes shows at once, without
+    /// waiting for the next poll.
+    #[test]
+    fn remote_volume_hold_runs_out_when_polls_omit_the_volume() {
+        let mut app = remote_volume_app();
+        let device = app.remote.as_mut().unwrap().state.device.as_mut().unwrap();
+        device.id = None;
+        app.local_ready = true;
+        app.selected_device = Some("sonos".into());
+        app.set_volume(65, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        report_remote_volume(&mut app, 1, None);
+        assert!(app.pending_remote_volume.is_some());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 65);
+        app.pending_remote_volume.as_mut().unwrap().written_at =
+            Some(Instant::now() - PLAYBACK_HOLD);
+        report_remote_volume(&mut app, 2, None);
+        assert!(app.pending_remote_volume.is_none());
+        app.handle_remote_volume("sonos", percent_to_volume(35));
+        assert_eq!(app.now_playing().unwrap().volume_percent, 35);
+
+        app.set_volume(80, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        app.handle_remote_volume("sonos", percent_to_volume(70));
+        assert_eq!(app.now_playing().unwrap().volume_percent, 80);
+        app.pending_remote_volume.as_mut().unwrap().written_at =
+            Some(Instant::now() - PLAYBACK_HOLD);
+        app.handle_remote_volume("sonos", percent_to_volume(70));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 70);
         app.backend.shutdown();
     }
 
@@ -33924,6 +34465,20 @@ mod tests {
             (None, None),
             "librespot is left to draw its own"
         );
+
+        // A Sonos the Web API reports without an id needs the offset too.
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(crate::api::models::Device::default()),
+                is_playing: true,
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        assert!(matches!(app.target(), Target::Remote(None)));
+        let (_, position) = app.shuffle_start("spotify:playlist:unopened");
+        assert!(position.is_some_and(|position| position < 57));
     }
 
     /// A failed refresh retains visible cards and stale responses cannot replace them.

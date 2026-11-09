@@ -301,8 +301,14 @@ jobs:
     name: docs
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Pull requests and the merge queue check that the docs build; the Docs
+    # workflow builds and deploys them from main.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The newest release tag is built at / and needs the full history.
+          fetch-depth: 0
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -315,4 +321,4 @@ jobs:
         env:
           JEKYLL_ENV: production
         run: |
-          bundle exec jekyll build --destination "$RUNNER_TEMP/spotifast-site"
+          bundle exec jekyll-vitepress build --destination "$RUNNER_TEMP/spotifast-site"

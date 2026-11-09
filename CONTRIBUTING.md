@@ -235,7 +235,7 @@ cargo test --locked --all-targets
 cargo test --locked --all-targets --all-features
 cargo test --locked --all-features --doc
 RUSTDOCFLAGS='-D warnings' cargo doc --locked --all-features --no-deps
-(cd docs && bundle exec jekyll build)
+(cd docs && bundle exec jekyll-vitepress build)
 ```
 
 Linux needs the development packages listed under

@@ -789,7 +789,7 @@ fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
                 .filter(|(last_frame, _)| frame.saturating_sub(*last_frame) <= 1);
             let fresh = previous.is_none();
             let mut query = previous.map(|(_, query)| query).unwrap_or_default();
-            let field = playlist_picker(ui, app, items, &mut query);
+            let field = playlist_picker(ui, app, items, &mut query, None);
             if fresh {
                 field.request_focus();
             }
@@ -801,13 +801,106 @@ fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
     }
 }
 
+/// The heart's choices while its menu is open: whether the playing song
+/// stays in Liked Songs and which playlists should hold it. Nothing changes
+/// until Done.
+#[derive(Clone)]
+pub(crate) struct PlaylistChecks {
+    /// The song the menu opened for.
+    pub uri: String,
+    pub liked: bool,
+    /// The playlists known to hold the song when the menu opened.
+    holding: std::collections::BTreeSet<String>,
+    /// The playlists not read far enough to tell. Done never takes the song
+    /// out of one, and adding to one first looks for it there.
+    unread: std::collections::BTreeSet<String>,
+    chosen: std::collections::BTreeSet<String>,
+}
+
+/// The mark at the end of a checklist row.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Mark {
+    Checked,
+    Unchecked,
+    /// Unchecked, though the playlist may already hold the song.
+    Unknown,
+}
+
+impl PlaylistChecks {
+    /// A liked song, with a check on each playlist known to hold it.
+    pub(crate) fn new(app: &App, item: &PlayableItem) -> Self {
+        let mut holding = std::collections::BTreeSet::new();
+        let mut unread = std::collections::BTreeSet::new();
+        for (id, _) in app.editable_playlists() {
+            match app.local_playlist_duplicates(&id, std::slice::from_ref(item)) {
+                Some(found) if found.is_empty() => {}
+                Some(_) => {
+                    holding.insert(id);
+                }
+                None => {
+                    unread.insert(id);
+                }
+            }
+        }
+        Self {
+            uri: item.uri().to_string(),
+            liked: true,
+            chosen: holding.clone(),
+            holding,
+            unread,
+        }
+    }
+
+    pub(crate) fn mark(&self, id: &str) -> Mark {
+        if self.chosen.contains(id) {
+            Mark::Checked
+        } else if self.unread.contains(id) {
+            Mark::Unknown
+        } else {
+            Mark::Unchecked
+        }
+    }
+
+    fn toggle(&mut self, id: &str) {
+        if !self.chosen.remove(id) {
+            self.chosen.insert(id.to_string());
+        }
+    }
+
+    /// What Done asks of the playlists, as one action: `item` added to each
+    /// newly checked one and taken out of each unchecked one that held it.
+    /// None when no playlist changes.
+    pub(crate) fn changes(&self, app: &App, item: &PlayableItem) -> Option<Action> {
+        let mut add = Vec::new();
+        let mut remove = Vec::new();
+        for (id, name) in app.editable_playlists() {
+            match (self.holding.contains(&id), self.chosen.contains(&id)) {
+                (false, true) => add.push((id, name)),
+                (true, false) => remove.push(id),
+                _ => {}
+            }
+        }
+        if add.is_empty() && remove.is_empty() {
+            return None;
+        }
+        Some(Action::UpdatePlaylists {
+            item: Box::new(item.clone()),
+            add,
+            remove,
+        })
+    }
+}
+
 /// Shared by single-item and selection menus. Filtering is local and keeps
-/// the existing playlist edit permissions and library order.
+/// the existing playlist edit permissions and library order. With `checks`,
+/// as the heart's menu, Liked Songs leads the list and a click or Enter
+/// checks a playlist instead of adding to it.
 pub(crate) fn playlist_picker(
     ui: &mut Ui,
     app: &mut App,
     items: &[PlayableItem],
     query: &mut String,
+    mut checks: Option<&mut PlaylistChecks>,
 ) -> egui::Response {
     let palette = app.palette;
     let locale = app.locale;
@@ -894,12 +987,33 @@ pub(crate) fn playlist_picker(
     highlighted = highlighted.filter(|index| *index < matches.len());
     ui.data_mut(|data| data.insert_temp(highlight_id, (frame, highlighted, query.clone())));
     if enter && let Some((id, name)) = highlighted.and_then(|index| matches.get(index)) {
-        app.actions.push(Action::AddToPlaylist {
-            playlist_id: id.clone(),
-            playlist_name: name.clone(),
-            items: items.to_vec(),
-        });
-        ui.close();
+        if let Some(checks) = checks.as_deref_mut() {
+            checks.toggle(id);
+        } else {
+            app.actions.push(Action::AddToPlaylist {
+                playlist_id: id.clone(),
+                playlist_name: name.clone(),
+                items: items.to_vec(),
+            });
+            ui.close();
+        }
+    }
+    if let Some(checks) = checks.as_deref_mut() {
+        let (_, clicked) = picker_row(
+            ui,
+            &palette,
+            |ui, rect| super::sidebar::liked_cover(ui, rect, 4.0),
+            &gettext(locale, "Liked Songs"),
+            false,
+            Some(if checks.liked {
+                Mark::Checked
+            } else {
+                Mark::Unchecked
+            }),
+        );
+        if clicked {
+            checks.liked = !checks.liked;
+        }
     }
     if matches.is_empty() {
         theme::subtle(
@@ -916,6 +1030,19 @@ pub(crate) fn playlist_picker(
     // shrunk would stay that short once the filter is cleared. Asking for
     // the full height lets it grow back; it still shrinks to fit its rows.
     let list_height = 320.0;
+    let art = app.backend.art().clone();
+    // Every row's cover, read in one pass over the library.
+    let covers: std::collections::HashMap<String, String> = app
+        .library
+        .playlists
+        .get()
+        .into_iter()
+        .flatten()
+        .filter_map(|playlist| {
+            let image = pick_image(&playlist.images, 64)?;
+            Some((playlist.id.clone(), image.to_string()))
+        })
+        .collect();
     crate::autoscroll::show(
         ui,
         egui::ScrollArea::vertical()
@@ -927,23 +1054,121 @@ pub(crate) fn playlist_picker(
             for (index, (id, name)) in matches.into_iter().enumerate() {
                 ui.push_id(id, |ui| {
                     let chosen = highlighted == Some(index);
-                    let (row, clicked) =
-                        menu_item_response(ui, &palette, Some(Icon::ListMusic), name, true, chosen);
+                    let image = covers.get(id).map(String::as_str);
+                    let (row, clicked) = picker_row(
+                        ui,
+                        &palette,
+                        |ui, rect| {
+                            paint_cover(ui, &palette, image, rect, 4.0, Icon::Music, Some(&art))
+                        },
+                        name,
+                        chosen,
+                        checks.as_deref().map(|checks| checks.mark(id)),
+                    );
                     if chosen && moved {
                         row.scroll_to_me(None);
                     }
                     if clicked {
-                        app.actions.push(Action::AddToPlaylist {
-                            playlist_id: id.clone(),
-                            playlist_name: name.clone(),
-                            items: items.to_vec(),
-                        });
+                        if let Some(checks) = checks.as_deref_mut() {
+                            checks.toggle(id);
+                        } else {
+                            app.actions.push(Action::AddToPlaylist {
+                                playlist_id: id.clone(),
+                                playlist_name: name.clone(),
+                                items: items.to_vec(),
+                            });
+                        }
                     }
                 });
             }
         },
     );
     field
+}
+
+/// A playlist in the picker, with its cover. A row with a `mark` shows a
+/// check that a click turns on or off, leaving the menu open; otherwise a
+/// click closes the menu.
+fn picker_row(
+    ui: &mut Ui,
+    palette: &Palette,
+    cover: impl FnOnce(&Ui, Rect),
+    label: &str,
+    highlighted: bool,
+    mark: Option<Mark>,
+) -> (egui::Response, bool) {
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 36.0), Sense::click());
+    if ui.is_rect_visible(rect) {
+        if response.hovered() || highlighted {
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(6), palette.surface_hover);
+        }
+        let cover_rect =
+            Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), Vec2::splat(28.0));
+        cover(ui, cover_rect);
+        let x = cover_rect.right() + 10.0;
+        let right = rect.right() - if mark.is_some() { 36.0 } else { 10.0 };
+        let galley = crate::bidi::layout(
+            ui.painter(),
+            label,
+            theme::regular(13.5),
+            palette.text,
+            (right - x).max(0.0),
+            1,
+            Some(crate::bidi::ELLIPSIS),
+        );
+        let text_rect = Rect::from_min_max(
+            pos2(x, rect.center().y - galley.size().y / 2.0),
+            pos2(right, rect.center().y + galley.size().y / 2.0),
+        );
+        ui.painter().galley(
+            crate::bidi::galley_pos(text_rect, &galley),
+            galley,
+            palette.text,
+        );
+        if let Some(mark) = mark {
+            let center = pos2(rect.right() - 20.0, rect.center().y);
+            match mark {
+                Mark::Checked => {
+                    ui.painter().circle_filled(center, 9.0, palette.accent);
+                    Icon::Check
+                        .image(palette.on_accent, 12.0)
+                        .paint_at(ui, Rect::from_center_size(center, Vec2::splat(12.0)));
+                }
+                Mark::Unchecked => {
+                    ui.painter()
+                        .circle_stroke(center, 8.5, Stroke::new(1.5, palette.secondary));
+                }
+                Mark::Unknown => {
+                    let faint = palette.secondary.gamma_multiply(0.4);
+                    ui.painter()
+                        .circle_stroke(center, 8.5, Stroke::new(1.5, faint));
+                }
+            }
+        }
+    }
+    response.widget_info(|| match mark {
+        Some(mark) => {
+            let checked = mark == Mark::Checked;
+            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), checked, label)
+        }
+        None => {
+            let mut info =
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label);
+            if highlighted {
+                info.selected = Some(true);
+            }
+            info
+        }
+    });
+    theme::focus_ring(ui, &response);
+    crate::autoscroll::row(ui, &response);
+    let clicked = response.clicked();
+    if clicked && mark.is_none() {
+        ui.close();
+    }
+    (response, clicked)
 }
 
 pub fn item_menu(

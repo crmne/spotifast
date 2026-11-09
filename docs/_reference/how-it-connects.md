@@ -531,13 +531,17 @@ as Spotify's own apps do: a transfer, then player commands (play, pause,
 resume, skip, seek, shuffle, repeat, queue) and volume, all sent from this
 computer's Connect device to that one. This needs local playback enabled,
 because the session belongs to it. Playback state is still read from the Web
-API, which reports a restricted device while it plays.
+API, which reports a restricted device while it plays. It may report a Sonos
+without its device id. Commands for it, starting a song or playlist included,
+then name no device and go to the device the session's Connect cluster names
+as playing, which the session knows from the moment it connects.
 
 Spotify does not always report a restricted device as such, for example a
 Sonos that another app is already steering when Spotifast starts. When the Web
-API refuses a command for a named device as restricted, Spotifast remembers
-that device as restricted and sends the same command over the Connect route
-once, so later commands go there directly.
+API refuses a command as restricted, Spotifast remembers the device it named,
+or for a command naming none the device the Connect cluster names as playing,
+as restricted and sends the same command over the Connect route once, so later
+commands go there directly.
 
 Shuffle Play enables shuffle before starting the context, as it does for
 Web API devices. If enabling shuffle fails, playback does not start.

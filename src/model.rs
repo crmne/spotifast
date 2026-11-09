@@ -1246,6 +1246,14 @@ pub enum Action {
         items: Vec<PlayableItem>,
         position: Option<u32>,
     },
+    /// Done in the heart's checklist, for all its playlists at once: `item`
+    /// goes into each of `add` (id and name) and out of each of `remove`.
+    /// Playlists that may hold it already ask in turn, one after another.
+    UpdatePlaylists {
+        item: Box<PlayableItem>,
+        add: Vec<(String, String)>,
+        remove: Vec<String>,
+    },
     RemoveFromPlaylist {
         playlist_id: String,
         uris: Vec<String>,
