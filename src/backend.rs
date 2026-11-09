@@ -1226,6 +1226,8 @@ pub struct Backend {
         std::sync::Mutex<Vec<crate::account_cache::Cache<crate::model::HomeSnapshot>>>,
     #[cfg(test)]
     top_tracks_requests: std::sync::Mutex<Vec<(TopPeriod, u32, bool, u64)>>,
+    #[cfg(test)]
+    soloist_commands: std::sync::Mutex<Vec<(bool, Option<String>)>>,
 }
 
 impl Backend {
@@ -1328,6 +1330,8 @@ impl Backend {
             home_cache_stores: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             top_tracks_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            soloist_commands: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -1364,6 +1368,13 @@ impl Backend {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(cache.clone());
+        }
+        #[cfg(test)]
+        if let Command::Soloist { enabled, key } = &command {
+            self.soloist_commands
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push((*enabled, key.clone()));
         }
         if self.offline
             && !matches!(
@@ -1512,6 +1523,16 @@ impl Backend {
                 .push((*period, *offset, *full, *generation));
         }
         self.send(Command::Api(request));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_soloist_commands(&self) -> Vec<(bool, Option<String>)> {
+        std::mem::take(
+            &mut *self
+                .soloist_commands
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
     }
 
     #[cfg(test)]

@@ -9896,8 +9896,14 @@ mod tests {
         apply_flags(&mut app, None, Some("soloist-ready"));
         press_soloist_key_button(&ctx, &mut app, "Edit key");
         accessible_frame(&ctx, &mut app, vec![egui::Event::Text("new-key".into())]);
+        app.backend.take_soloist_commands();
         press_soloist_key_button(&ctx, &mut app, "Save");
         assert_eq!(app.soloist_key, "new-key");
+        // Told nothing of the key, the backend would keep the running player.
+        assert_eq!(
+            app.backend.take_soloist_commands(),
+            [(true, Some("new-key".to_owned()))]
+        );
         assert!(matches!(
             app.soloist_status,
             crate::soloist::Status::Starting
