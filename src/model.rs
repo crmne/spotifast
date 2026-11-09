@@ -1408,6 +1408,9 @@ pub enum Action {
     EnableSoloist,
     LeaveSoloistSetup,
     FinishSoloistSetup,
+    /// Opens or closes the Settings field that replaces the Soloist key.
+    EditSoloistKey(bool),
+    SaveSoloistKey,
     UseBuiltInPlayer,
     RestartEngine,
     /// Rebuild the HTTP client with the proxy in settings. Local playback

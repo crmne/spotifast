@@ -72,9 +72,14 @@ audio route is established, even while paused. This is automatic and separate
 from account verification. Shared controls for the tray, startup and Spotifast updates remain
 under **Application**. **Settings → Spotify Soloist** holds its rows: status,
 with the one action that helps when it needs you, version and expiry, audio
-quality, **Spotify access** and **Turn off Soloist**, with a link to this guide.
+quality, **Spotify access**, **Soloist key** and **Turn off Soloist**, with a
+link to this guide.
 Setup itself stays in setup: with Soloist off, **Set up Soloist** there tries
 your saved key first and asks for one only if it has none.
+If you reroll your key on Spotify's page, choose **Edit key** on the
+**Soloist key** row, paste the new one and choose **Save**. Spotifast replaces
+the saved key and restarts Soloist with it. The row is there with Soloist off
+too, and saving then sets Soloist up with the new key.
 At launch, starting and account verification use the same loading screen as
 Spotify sign-in, with **Starting Soloist…** or **Verifying Soloist…** as its
 status, for a few seconds at most. If it takes longer, the app opens and a

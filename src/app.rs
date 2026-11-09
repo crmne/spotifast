@@ -494,6 +494,9 @@ pub struct App {
     pub soloist_audio: bool,
     pub soloist_onboarding: crate::settings::SoloistOnboarding,
     pub soloist_key: String,
+    /// The Settings key field while it is open. Separate from `soloist_key`,
+    /// which a status update clears, so typing never loses what was typed.
+    pub soloist_key_edit: Option<String>,
     pub soloist_device_id: Option<String>,
     pub soloist_update: Option<String>,
     soloist_select: bool,
@@ -1282,6 +1285,7 @@ impl App {
             soloist_audio: false,
             soloist_onboarding,
             soloist_key: String::new(),
+            soloist_key_edit: None,
             soloist_device_id: None,
             soloist_update: None,
             soloist_select: false,
@@ -3416,6 +3420,7 @@ impl App {
             AuthStatus::WaitingForBrowser { url } => self.sign_in_url = Some(url.clone()),
             AuthStatus::SignedOut => {
                 self.soloist_key.clear();
+                self.soloist_key_edit = None;
                 self.soloist_device_id = None;
                 self.soloist_status = crate::soloist::Status::Off;
                 self.soloist_audio = false;
@@ -13709,8 +13714,27 @@ impl App {
                 self.save_session();
                 self.apply(Action::EnablePlayback, ctx);
             }
+            Action::EditSoloistKey(open) => {
+                self.soloist_key_edit = open.then(String::new);
+            }
+            Action::SaveSoloistKey => {
+                if let Some(key) = self.soloist_key_edit.take() {
+                    self.soloist_key = key;
+                    let start = if self.settings.soloist_enabled {
+                        Action::SetSoloist(true)
+                    } else {
+                        Action::EnableSoloist
+                    };
+                    self.apply(start, ctx);
+                }
+            }
             Action::SetSoloist(enabled) => {
-                if enabled && self.settings.soloist_enabled && !self.soloist_waiting() {
+                // A player that is running only restarts for a new key.
+                if enabled
+                    && self.settings.soloist_enabled
+                    && !self.soloist_waiting()
+                    && self.soloist_key.trim().is_empty()
+                {
                     return;
                 }
                 self.clear_soloist_target();
@@ -23862,6 +23886,16 @@ mod tests {
         }));
         app.bind_soloist_device();
         assert_eq!(app.soloist_onboarding, SoloistOnboarding::Setup);
+        app.backend.shutdown();
+    }
+
+    /// Signing out deletes the saved key; a typed one must not outlive it.
+    #[test]
+    fn signing_out_closes_the_soloist_key_field() {
+        let mut app = test_app("soloist-key-sign-out");
+        app.soloist_key_edit = Some("typed".into());
+        app.handle_auth(AuthStatus::SignedOut);
+        assert_eq!(app.soloist_key_edit, None);
         app.backend.shutdown();
     }
 

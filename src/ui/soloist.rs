@@ -30,6 +30,8 @@ const STEPS: usize = 3;
 /// Set when a listener whose start failed chooses to enter another key.
 const KEY_AGAIN: &str = "soloist-key-again";
 const HELP_OPEN: &str = "soloist-help-open";
+/// Set for one frame when **Edit key** opens the field, which takes the keyboard.
+const KEY_EDIT_FOCUS: &str = "soloist-key-edit-focus";
 
 /// The one thing setup is doing now.
 enum Stage {
@@ -356,6 +358,15 @@ fn guide_link(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// Whether what was typed could be a key. Only Soloist can tell if it works.
+fn well_formed(typed: &str) -> bool {
+    crate::soloist::Key {
+        account: "typed".into(),
+        value: typed.trim().into(),
+    }
+    .valid()
+}
+
 fn key(app: &mut App, ui: &mut egui::Ui, failure: Option<Failure>) {
     let palette = app.palette;
     let locale = app.locale;
@@ -371,11 +382,7 @@ fn key(app: &mut App, ui: &mut egui::Ui, failure: Option<Failure>) {
     ui.add_space(20.0);
     let mut typed = std::mem::take(&mut app.soloist_key);
     let mut submit = false;
-    let valid = crate::soloist::Key {
-        account: "typed".into(),
-        value: typed.trim().into(),
-    }
-    .valid();
+    let valid = well_formed(&typed);
     left_aligned(ui, |ui| {
         super::login::step(
             ui,
@@ -786,10 +793,11 @@ const STATUS: usize = 1;
 const VERSION: usize = 2;
 const QUALITY: usize = 3;
 const ACCESS: usize = 4;
-const TURN_OFF: usize = 5;
+const KEY: usize = 5;
+const TURN_OFF: usize = 6;
 
 /// What the Settings section's rows say, for drawing and for searching.
-pub(super) fn rows(app: &App) -> [RowText<'static>; 6] {
+pub(super) fn rows(app: &App) -> [RowText<'static>; 7] {
     let locale = app.locale;
     let enabled = app.settings.soloist_enabled;
     let supported = crate::soloist::install::supported();
@@ -830,6 +838,14 @@ pub(super) fn rows(app: &App) -> [RowText<'static>; 6] {
             ),
         )
         .when(enabled),
+        RowText::new(
+            gettext(locale, "Soloist key"),
+            gettext(
+                locale,
+                "Spotify gives each Premium account its own key. Spotifast keeps it in your system's credential store.",
+            ),
+        )
+        .when(supported),
         RowText::new(
             gettext(locale, "Turn off Soloist"),
             gettext(
@@ -901,7 +917,7 @@ pub(super) fn settings(
     ui: &mut egui::Ui,
     needle: &str,
     section: &str,
-    rows: &[RowText<'static>; 6],
+    rows: &[RowText<'static>; 7],
 ) {
     let palette = app.palette;
     let locale = app.locale;
@@ -924,6 +940,23 @@ pub(super) fn settings(
     filtered_row(ui, &palette, needle, section, &rows[ACCESS], |ui| {
         super::settings::spotify_access_control(app, ui);
     });
+    filtered_row(ui, &palette, needle, section, &rows[KEY], |ui| {
+        let editing = app.soloist_key_edit.is_some();
+        let label = if editing {
+            gettext(locale, "Cancel")
+        } else {
+            gettext(locale, "Edit key")
+        };
+        if theme::pill_button(ui, &palette, &label, false).clicked() {
+            if !editing {
+                ui.data_mut(|data| data.insert_temp(egui::Id::new(KEY_EDIT_FOCUS), true));
+            }
+            app.actions.push(Action::EditSoloistKey(!editing));
+        }
+    });
+    if rows[KEY].matches(needle, section) {
+        key_editor(app, ui);
+    }
     filtered_row(ui, &palette, needle, section, &rows[TURN_OFF], |ui| {
         if theme::pill_button(ui, &palette, &gettext(locale, "Turn off"), false).clicked() {
             app.actions.push(Action::SetSoloist(false));
@@ -941,6 +974,74 @@ pub(super) fn settings(
             app.actions.push(Action::OpenUrl(GUIDE_URL.into()));
         }
         ui.add_space(10.0);
+    }
+}
+
+/// The field under the key's row while **Edit key** has it open.
+fn key_editor(app: &mut App, ui: &mut egui::Ui) {
+    let Some(mut typed) = app.soloist_key_edit.take() else {
+        return;
+    };
+    let palette = app.palette;
+    let locale = app.locale;
+    let valid = well_formed(&typed);
+    let mut submit = false;
+    ui.horizontal(|ui| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let save = ui
+                .add_enabled_ui(valid, |ui| {
+                    theme::pill_button(ui, &palette, &gettext(locale, "Save"), true)
+                })
+                .inner
+                .clicked();
+            let response = Frame::new()
+                .fill(palette.surface)
+                .stroke(Stroke::new(1.0, palette.outline))
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(Margin::symmetric(10, 6))
+                .show(ui, |ui| {
+                    super::widgets::text_edit(
+                        ui,
+                        locale,
+                        egui::TextEdit::singleline(&mut typed)
+                            .id(egui::Id::new("soloist-key-edit"))
+                            .password(true)
+                            .hint_text(
+                                egui::RichText::new(gettext(locale, "Soloist key"))
+                                    .color(palette.dim),
+                            )
+                            .font(theme::regular(13.0))
+                            .frame(egui::Frame::NONE)
+                            .desired_width(ui.available_width()),
+                    )
+                })
+                .inner;
+            if ui
+                .data_mut(|data| data.remove_temp::<bool>(egui::Id::new(KEY_EDIT_FOCUS)))
+                .unwrap_or(false)
+            {
+                response.request_focus();
+            }
+            let entered =
+                response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+            submit = save || (valid && entered);
+        });
+    });
+    if !typed.trim().is_empty() && !valid {
+        ui.add_space(4.0);
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(Failure::InvalidKey.message(locale))
+                    .font(theme::regular(12.5))
+                    .color(palette.danger),
+            )
+            .wrap(),
+        );
+    }
+    ui.add_space(10.0);
+    app.soloist_key_edit = Some(typed);
+    if submit {
+        app.actions.push(Action::SaveSoloistKey);
     }
 }
 
