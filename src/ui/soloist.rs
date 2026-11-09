@@ -1024,7 +1024,7 @@ fn key_editor(app: &mut App, ui: &mut egui::Ui) {
             }
             let entered =
                 response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-            submit = save || (valid && entered);
+            submit = (save || entered) && well_formed(&typed);
         });
     });
     if !typed.trim().is_empty() && !valid {

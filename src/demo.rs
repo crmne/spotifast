@@ -9968,6 +9968,69 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A paste and Enter can land in one frame. The check has to see the text
+    /// the paste left, or a malformed key stops a working player.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_soloist_key_broken_in_the_frame_it_is_submitted_is_not_saved() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("soloist-key-broken-same-frame");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-ready"));
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Text("well-formed".into())],
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::Text(" broken".into()),
+                keyboard(egui::Key::Enter, egui::Modifiers::NONE),
+            ],
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(app.soloist_key.is_empty());
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Ready { .. }
+        ));
+        app.backend.shutdown();
+    }
+
+    /// The same frame the other way round: a good key pasted into an empty
+    /// field and entered at once is saved.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_soloist_key_pasted_and_entered_in_one_frame_is_saved() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("soloist-key-good-same-frame");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-ready"));
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::Text("new-key".into()),
+                keyboard(egui::Key::Enter, egui::Modifiers::NONE),
+            ],
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(app.soloist_key, "new-key");
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Starting
+        ));
+        app.backend.shutdown();
+    }
+
     /// Leaving a stuck setup for the built-in player turns Soloist off, so the
     /// field has to be there too. Saving goes through setup, which pairs it.
     #[cfg(feature = "demo")]
