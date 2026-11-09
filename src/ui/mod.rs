@@ -253,6 +253,8 @@ where
     }
 }
 
+/// The colour of the open page's header wash: from the page's own cover art, or
+/// from the playing song when the page has none.
 fn page_tint(app: &mut App) -> Option<Color32> {
     let page = app.page().clone();
     let image = match &page {
@@ -322,6 +324,7 @@ fn page_tint(app: &mut App) -> Option<Color32> {
     }
 }
 
+/// Draws the central panel: the open page, under its header wash.
 fn central(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let tint = page_tint(app);

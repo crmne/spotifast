@@ -41,6 +41,7 @@ enum Line {
 }
 
 impl Line {
+    /// The index of the release this line belongs to.
     fn release(self) -> usize {
         match self {
             Line::Heading(index)
@@ -52,6 +53,8 @@ impl Line {
     }
 }
 
+/// Draws an artist's discography page, asking for it first when it is not
+/// loaded.
 pub fn show(app: &mut App, ui: &mut egui::Ui, artist_id: &str) {
     if !app.discography_pages.contains_key(artist_id) {
         app.ensure_loaded(Page::Discography(artist_id.to_string()));
@@ -69,6 +72,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, artist_id: &str) {
     app.discography_pages.insert(artist_id.to_string(), page);
 }
 
+/// Draws the page: its heading, then the lines of its releases that are on
+/// screen, with the offline, loading, error and empty states.
 fn draw(app: &mut App, ui: &mut egui::Ui, artist_id: &str, page: &DiscographyPage, title: &str) {
     let palette = app.palette;
     let locale = app.locale;

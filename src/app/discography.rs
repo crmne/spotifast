@@ -181,6 +181,8 @@ impl App {
         self.pump_discography(artist_id);
     }
 
+    /// Puts the newest or the oldest release first, and asks for the songs that
+    /// order brings on screen.
     pub(super) fn set_discography_order(&mut self, artist_id: &str, newest_first: bool) {
         if let Some(page) = self.discography_pages.get_mut(artist_id) {
             page.newest_first = newest_first;
@@ -287,6 +289,10 @@ impl App {
         });
     }
 
+    /// Takes one page of an artist's releases for a filter. An answer for an
+    /// older load is ignored, and one out of order fails the list with Retry.
+    /// The list on screen asks for its next page; once it is whole, its songs
+    /// are asked for and a waiting play can go on.
     pub(super) fn receive_discography_albums(
         &mut self,
         artist_id: String,
@@ -346,6 +352,7 @@ impl App {
         self.resolve_discography_play();
     }
 
+    /// Whether this artist's discography page is the page open.
     fn discography_open(&self, artist_id: &str) -> bool {
         matches!(self.page(), Page::Discography(id) if id == artist_id)
     }
@@ -507,6 +514,9 @@ impl App {
         }
     }
 
+    /// Takes one page of a release's songs from the Web API. The release asks
+    /// for its next page, is done, or fails with its own Retry; an error every
+    /// release would meet halts the page instead.
     pub(super) fn receive_discography_tracks(
         &mut self,
         artist_id: String,
@@ -1054,6 +1064,8 @@ impl App {
         ));
     }
 
+    /// Keeps a song from a release's list in the track cache, unless a fuller
+    /// answer is already there.
     fn cache_song(&mut self, song: Track) {
         let Some(id) = song
             .id
@@ -1391,6 +1403,7 @@ mod tests {
         ids.iter().map(|id| format!("spotify:track:{id}")).collect()
     }
 
+    /// One page of a Web API list, as Spotify answers it.
     fn page<T>(items: Vec<T>, offset: u32, limit: u32, total: u32) -> ApiPage<T> {
         ApiPage {
             items,
@@ -1524,6 +1537,8 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    /// The release list is read page by page to its end before any release's
+    /// songs are asked for, and then newest first.
     #[test]
     fn the_release_list_loads_every_page_before_any_song_list() {
         let ctx = egui::Context::default();
@@ -2373,6 +2388,9 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A play whose following releases are still loading shows the clicked song
+    /// as playing at once, with a Pause that cancels the wait, and starts the
+    /// whole list when the last release arrives.
     #[test]
     fn a_play_waits_for_the_songs_after_it_and_keeps_showing_the_click() {
         let ctx = egui::Context::default();
@@ -2477,6 +2495,8 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Next, Previous, a move to another device or a queue row's play each
+    /// cancel a waiting play, and its list is never sent.
     #[test]
     fn next_previous_another_device_or_a_queue_row_cancel_a_waiting_play() {
         let ctx = egui::Context::default();
@@ -4190,6 +4210,8 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A release whose following releases failed plays on its own, without the
+    /// notice that the queue ends early: there was nothing more to add.
     #[test]
     fn a_release_played_alone_says_nothing_when_the_rest_failed() {
         let ctx = egui::Context::default();
@@ -4309,6 +4331,7 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Opening other discographies never drops the page a waiting play needs.
     #[test]
     fn a_waiting_play_keeps_its_page_from_eviction() {
         let ctx = egui::Context::default();
@@ -4415,6 +4438,8 @@ mod tests {
         )
     }
 
+    /// With local playback ready, the releases' songs are asked for over the
+    /// session in one batch, the releases on screen first.
     #[test]
     fn song_lists_come_over_the_session_in_a_batch_from_the_screen_down() {
         let ctx = egui::Context::default();
@@ -4624,6 +4649,8 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A release the session lists no songs for is read from the Web API, while
+    /// the other releases keep the session's songs.
     #[test]
     fn a_release_the_session_lists_no_songs_for_is_read_from_the_web_api_alone() {
         let ctx = egui::Context::default();
@@ -4708,6 +4735,8 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A batch with no answer is asked for again once its wait runs out, and
+    /// the first batch's late answer changes nothing.
     #[test]
     fn a_batch_whose_answer_never_comes_is_asked_again_and_a_late_answer_changes_nothing() {
         let ctx = egui::Context::default();
@@ -4867,6 +4896,8 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A release the session lists fewer songs for than it has is read from the
+    /// Web API, so the rows below do not move.
     #[test]
     fn a_release_the_session_lists_fewer_songs_for_is_read_from_the_web_api_alone() {
         let ctx = egui::Context::default();
@@ -4908,6 +4939,8 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// An expired sign-in halts the Web API's song lists, but releases already
+    /// on their way over the session still arrive.
     #[test]
     fn an_expired_sign_in_keeps_releases_on_their_way_over_the_session() {
         let ctx = egui::Context::default();
@@ -5118,6 +5151,8 @@ mod tests {
         });
     }
 
+    /// The transfers the app asked the backend for, as the device and whether
+    /// it plays.
     fn transfers(app: &App) -> Vec<(String, bool)> {
         app.backend
             .take_transfer_requests()

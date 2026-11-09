@@ -1744,6 +1744,8 @@ pub(crate) fn track_row_response(
     .inner
 }
 
+/// Draws a song row's contents. Returns the row's response and the selection a
+/// click on it asks for.
 fn track_row_contents(
     ui: &mut Ui,
     app: &mut App,
