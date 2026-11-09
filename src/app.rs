@@ -1184,6 +1184,8 @@ fn link_recording(
 }
 
 impl App {
+    /// Builds the app from the saved settings and the start-up options, and
+    /// starts the backend that does its network and playback work.
     pub fn new(waker: &Waker, dirs: AppDirs, mut settings: Settings, options: AppOptions) -> Self {
         let milkdrop_backdrop = settings.lyrics_milkdrop;
         // The legacy password file has no endpoint of its own. Keep the old
@@ -2845,6 +2847,9 @@ impl App {
             })
     }
 
+    /// An album the app already holds from another answer: the library, Home's
+    /// new releases, search results, a discography, liked songs, or a playlist
+    /// or artist page. A page can show it before its own answer arrives.
     pub fn known_album(&self, id: &str) -> Option<&Album> {
         self.library
             .albums
@@ -2993,6 +2998,7 @@ impl App {
         self.handle_backend_events(events);
     }
 
+    /// Applies the events the backend has sent since the last frame.
     fn handle_backend_events(&mut self, events: Vec<Event>) {
         for event in events {
             // Offline, as in demo mode, disk-only audio clearing, colours
@@ -3371,6 +3377,8 @@ impl App {
         }
     }
 
+    /// Applies an update from Soloist: a new status, audio becoming available
+    /// or not, a change on its player, or news of its renewal.
     fn on_soloist(&mut self, update: crate::soloist::Update) {
         use crate::soloist::{Status, Update};
         match update {
@@ -3468,6 +3476,10 @@ impl App {
         });
     }
 
+    /// Finds the paired Soloist player among the account's devices by its name
+    /// and makes it Soloist's device when exactly one matches. On first
+    /// binding, a play chosen while it was away, or the song it was playing,
+    /// moves to it.
     fn bind_soloist_device(&mut self) {
         let crate::soloist::Status::Ready { name, .. } = &self.soloist_status else {
             return;
@@ -3702,6 +3714,7 @@ impl App {
         }
     }
 
+    /// Reads again what the app could not read while the network was gone.
     fn on_network_restored(&mut self) {
         if !self.is_connected() {
             return;
@@ -4416,6 +4429,9 @@ impl App {
         }
     }
 
+    /// Follows a change in confirmed playback: the queue moves on and the saved
+    /// session follows. A song only shown while a command is pending changes
+    /// neither.
     fn on_now_playing_changed(&mut self) {
         // Queue consumption and saved session state follow confirmed playback,
         // not the song shown optimistically while a command is still pending.
@@ -4637,6 +4653,8 @@ impl App {
         }
     }
 
+    /// The work due on every frame: retries, timeouts and waits that have come
+    /// due.
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
         self.retry_soloist_when_due(ctx);
@@ -5999,6 +6017,8 @@ impl App {
         self.taskbar_hiding_supported || self.windows_controls_visible()
     }
 
+    /// Tells the desktop's media controls what is playing, with its cover art,
+    /// position and state.
     fn sync_media_controls(&mut self, ctx: &egui::Context) {
         let art_file = self
             .now_playing()
@@ -6532,6 +6552,8 @@ impl App {
             )));
     }
 
+    /// Asks for what a page needs, unless it is loaded or on its way. Nothing
+    /// is asked for before the session connects.
     pub fn ensure_loaded(&mut self, page: Page) {
         if !self.is_connected() {
             return;
@@ -7325,6 +7347,7 @@ impl App {
         });
     }
 
+    /// Reads a page's content from Spotify again, as a refresh does.
     fn reload(&mut self, page: Page) {
         match &page {
             Page::Home => self.load_home(true),
@@ -10846,6 +10869,8 @@ impl App {
             && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
     }
 
+    /// Starts a play on the chosen target: this device, a Connect device or
+    /// Soloist. It is held while Soloist or a speaker is not ready yet.
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
         // Taken first: a start dropped below must not steer the next play.
         let start_on = self.start_on.take();
@@ -11415,6 +11440,9 @@ impl App {
         }
     }
 
+    /// Moves the current song to a position. For a song a discography play
+    /// shows while it waits, or a remembered song with nothing playing, it
+    /// moves where that song will start.
     fn seek(&mut self, position_ms: u32) {
         // Nor is there for the song a discography play shows while it waits:
         // the seek moves where that song will start.
@@ -11731,6 +11759,8 @@ impl App {
         }
     }
 
+    /// Moves playback to another device. A discography play still waiting is
+    /// abandoned: the listener moved on.
     fn transfer(&mut self, device_id: String) {
         if self
             .pending_remote_volume

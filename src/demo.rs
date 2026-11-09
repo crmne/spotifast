@@ -13870,6 +13870,8 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A saved album, a liked song, the player bar's song and a saved
+    /// discography release keep their green on state under the pointer.
     #[test]
     fn saved_toggles_stay_green_while_hovered() {
         // alb0 is saved, its first song is liked, and so is the song in

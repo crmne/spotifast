@@ -132,6 +132,7 @@ pub enum Page {
 }
 
 impl Page {
+    /// The page as a short text for the saved session; `decode` reads it back.
     pub fn encode(&self) -> String {
         match self {
             Page::Home => "home".into(),
@@ -154,6 +155,7 @@ impl Page {
         }
     }
 
+    /// Reads a page saved by `encode`. Text it does not know gives `None`.
     pub fn decode(text: &str) -> Option<Self> {
         Some(match text {
             "home" => Page::Home,
@@ -999,6 +1001,7 @@ pub enum ReleaseTracks {
 }
 
 impl ReleaseTracks {
+    /// The songs, once all of them are loaded.
     pub fn songs(&self) -> Option<&[Track]> {
         match self {
             Self::Loaded(songs) => Some(songs),
@@ -1052,6 +1055,7 @@ impl ReleaseSongLists {
         self.lists.insert(album_id, tracks)
     }
 
+    /// Drops a release's songs, which counts as a change.
     pub fn remove(&mut self, album_id: &str) -> Option<ReleaseTracks> {
         let removed = self.lists.remove(album_id);
         if removed.is_some() {
@@ -1077,6 +1081,8 @@ impl ReleaseSongLists {
         }
     }
 
+    /// Drops every release's songs, which counts as a change when there were
+    /// any.
     pub fn clear(&mut self) {
         if !self.lists.is_empty() {
             self.lists.clear();
@@ -1142,6 +1148,8 @@ struct ReleaseOrder {
 }
 
 impl ReleaseOrder {
+    /// Whether this order was made for the same filter, direction and releases,
+    /// so it can be kept.
     fn fits(&self, filter: DiscographyFilter, newest_first: bool, list: &PagedList<Album>) -> bool {
         self.filter == filter
             && self.newest_first == newest_first
@@ -1280,6 +1288,8 @@ fn release_places(list: &PagedList<Album>, newest_first: bool) -> Vec<usize> {
     places
 }
 
+/// Orders two release dates, newest or oldest first. An undated release goes
+/// after every dated one.
 fn release_order(
     a: Option<(u16, u8, u8)>,
     b: Option<(u16, u8, u8)>,

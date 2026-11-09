@@ -1342,6 +1342,8 @@ fn navigate_song_rows(
     None
 }
 
+/// A row holding a list's place with a message, such as a load or an error, and
+/// a Retry button when `retry` is set. Returns whether Retry was clicked.
 pub(super) fn placeholder_row(
     ui: &mut egui::Ui,
     palette: &Palette,

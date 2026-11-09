@@ -1279,6 +1279,8 @@ pub struct Backend {
 }
 
 impl Backend {
+    /// Starts the backend's runtime and player engine, and returns the handle
+    /// the app sends its requests through.
     pub fn spawn(
         dirs: AppDirs,
         engine_config: EngineConfig,
@@ -1464,6 +1466,8 @@ impl Backend {
         });
     }
 
+    /// Sends a Web API request to the runtime. Tests also record the requests
+    /// they check.
     pub fn api(&self, request: ApiRequest) {
         #[cfg(test)]
         if matches!(
@@ -10161,6 +10165,8 @@ mod cover_routing_tests {
         );
     }
 
+    /// The discography's Web API reads take the catalogue routing, as reads the
+    /// user waits for, never as background work.
     #[test]
     fn discography_reads_are_catalogue_reads_the_user_waits_for() {
         let api = ApiGateway::new(
