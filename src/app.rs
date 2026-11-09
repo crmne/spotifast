@@ -3565,6 +3565,8 @@ impl App {
         }
     }
 
+    /// Reads again what the open page is missing once the network is back,
+    /// so a page the outage left half loaded or failed fills in by itself.
     fn on_network_restored(&mut self) {
         if !self.is_connected() {
             return;
@@ -6375,6 +6377,8 @@ impl App {
             )));
     }
 
+    /// Asks for what `page` needs and does not hold yet. Nothing is asked
+    /// before the account connects.
     pub fn ensure_loaded(&mut self, page: Page) {
         if !self.is_connected() {
             return;
@@ -7173,6 +7177,8 @@ impl App {
         });
     }
 
+    /// Reads `page` again from Spotify, for its Refresh and for Retry. Some
+    /// pages keep their rows on screen until the new answer replaces them.
     fn reload(&mut self, page: Page) {
         match &page {
             Page::Home => self.load_home(true),
@@ -15144,6 +15150,9 @@ impl App {
         self.load_more(Page::LikedSongs);
     }
 
+    /// Takes the Liked Songs the disk cache held for `account`, unless the
+    /// account or the request changed since. A stale cache is then read
+    /// again, and the rest is read while the open page needs every song.
     fn receive_liked_cache(
         &mut self,
         account: &str,

@@ -132,6 +132,8 @@ pub enum Page {
 }
 
 impl Page {
+    /// The page as text, which `decode` reads back: for the saved session
+    /// and for keys kept per page.
     pub fn encode(&self) -> String {
         match self {
             Page::Home => "home".into(),
@@ -154,6 +156,7 @@ impl Page {
         }
     }
 
+    /// The page `encode` wrote, or `None` for text it never writes.
     pub fn decode(text: &str) -> Option<Self> {
         Some(match text {
             "home" => Page::Home,

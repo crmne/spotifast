@@ -252,6 +252,8 @@ where
     }
 }
 
+/// The colour washed behind the open page's header, from the page's
+/// artwork or from what is playing.
 fn page_tint(app: &mut App) -> Option<Color32> {
     let page = app.page().clone();
     let image = match &page {
@@ -301,6 +303,8 @@ fn page_tint(app: &mut App) -> Option<Color32> {
     }
 }
 
+/// The central panel: the open page in its scroll area, under the header
+/// wash its artwork tints.
 fn central(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let tint = page_tint(app);
