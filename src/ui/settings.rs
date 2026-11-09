@@ -1248,12 +1248,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         && !(app.settings.theme == ThemeChoice::System && app.custom_themes.follows_omarchy());
     let shows_base = |base: fastframe_theme::Base| {
         show_pair
-            && match (app.settings.theme, base) {
-                (ThemeChoice::System, _) => true,
-                (ThemeChoice::Light, fastframe_theme::Base::Light) => true,
-                (ThemeChoice::Dark, fastframe_theme::Base::Dark) => true,
-                _ => false,
-            }
+            && matches!(
+                (app.settings.theme, base),
+                (ThemeChoice::System, _)
+                    | (ThemeChoice::Light, fastframe_theme::Base::Light)
+                    | (ThemeChoice::Dark, fastframe_theme::Base::Dark)
+            )
     };
     let pair_row = |base: fastframe_theme::Base| {
         let fixed = app.settings.theme != ThemeChoice::System;
