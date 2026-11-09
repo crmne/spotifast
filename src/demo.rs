@@ -7299,6 +7299,17 @@ mod tests {
             painted.iter().any(|(text, _)| text == "Dark mode theme"),
             "a fixed Dark offers its own dark mode theme"
         );
+
+        app.apply(Action::SetTheme(crate::settings::ThemeChoice::Light), &ctx);
+        let painted = view_frame(&ctx, &mut app, vec![], App::frame_ui);
+        assert!(
+            painted.iter().any(|(text, _)| text == "Light mode theme"),
+            "a fixed Light offers its own light mode theme"
+        );
+        assert!(
+            painted.iter().all(|(text, _)| text != "Dark mode theme"),
+            "a fixed Light has no dark mode theme"
+        );
     }
 
     #[test]

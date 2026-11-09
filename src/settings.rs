@@ -1233,6 +1233,18 @@ mod tests {
         assert_eq!(fixed.cached_palette(false), Some(latte));
         fixed.theme = ThemeChoice::Dark;
         assert_eq!(fixed.cached_palette(true), None);
+        // A saved Dark palette is the one fixed Dark shows.
+        let mut mocha = Palette::dark();
+        mocha.window = egui::Color32::from_rgb(0x1e, 0x1e, 0x2e);
+        assert!(fixed.theme_pair.set(
+            Base::Dark,
+            Some(&CustomTheme {
+                filename: "Catppuccin Mocha.json".into(),
+                palette: mocha,
+            })
+        ));
+        assert_eq!(fixed.cached_palette(true), Some(mocha));
+        assert_eq!(fixed.cached_palette(false), Some(latte));
 
         // A damaged cache keeps the choice and the other settings.
         let mut damaged = serde_json::to_value(&paired).unwrap();
