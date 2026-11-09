@@ -609,14 +609,17 @@ impl Settings {
     }
 
     /// The palette to show while the system is `dark` or light: the fixed
-    /// one, else Follow system's choice for that appearance. `None` leaves
-    /// Spotifast's own Light or Dark.
+    /// one, else the chosen palette for that appearance (Follow system's, or
+    /// the one for the fixed Light or Dark). `None` leaves Spotifast's own
+    /// Light or Dark.
     pub(crate) fn cached_palette(&self, dark: bool) -> Option<crate::theme::Palette> {
         if let Some(palette) = self.fixed_palette() {
             return Some(palette);
         }
         let base = fastframe_theme::Base::from_dark(dark);
-        (self.theme == ThemeChoice::System && self.theme_pair.slot(base).is_some())
+        self.theme_pair
+            .slot(base)
+            .is_some()
             .then(|| self.theme_pair.palette(base))
     }
 
@@ -1224,12 +1227,12 @@ mod tests {
         let decoded: Settings = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, paired);
 
-        // A pair waits behind a fixed choice and comes back with Follow system.
+        // A fixed Light or Dark keeps choosing its own palette.
         let mut fixed = paired.clone();
-        fixed.theme = ThemeChoice::Dark;
-        assert_eq!(fixed.cached_palette(false), None);
-        fixed.theme = ThemeChoice::System;
+        fixed.theme = ThemeChoice::Light;
         assert_eq!(fixed.cached_palette(false), Some(latte));
+        fixed.theme = ThemeChoice::Dark;
+        assert_eq!(fixed.cached_palette(true), None);
 
         // A damaged cache keeps the choice and the other settings.
         let mut damaged = serde_json::to_value(&paired).unwrap();
