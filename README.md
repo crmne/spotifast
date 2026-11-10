@@ -187,7 +187,8 @@ precedence. Push-triggered refreshes are at least a second apart and wait for
 a pending playback read to finish. Changes received during that read are
 folded into one follow-up.
 Connect pushes are ignored when this computer is the active device both
-before and after; position-only updates cause no requests. Regular polling
+before and after. A seek on another device triggers a refresh; the position
+updates Spotify sends as a song plays on cause no requests. Regular polling
 remains the fallback.
 
 ## Sonos playback

@@ -319,7 +319,7 @@ pub enum EngineEvent {
         id: String,
     },
     /// Spotify pushed a change to playback on another device: a switch,
-    /// play or pause, another song or collection, shuffle or repeat.
+    /// play or pause, a seek, another song or collection, shuffle or repeat.
     RemoteChanged,
     /// Spotify pushed a new volume for the device playing elsewhere, and
     /// nothing else changed. It carries the value, so no poll is needed.
@@ -332,7 +332,8 @@ pub enum EngineEvent {
 /// The parts of a Connect cluster push that the interface shows for
 /// another device. Spotify pushes the whole cluster on every change
 /// anywhere, including position heartbeats and this device's own updates,
-/// so only a difference here is worth asking the Web API about.
+/// so only a difference here, or a seek ([`ClusterPosition`]), is worth
+/// asking the Web API about.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ClusterView {
     active_device: String,
@@ -382,12 +383,58 @@ impl ClusterView {
     }
 }
 
+/// How far another device's song may be from where the push before put it
+/// before that counts as a seek. A seek lands further off than this; a
+/// device that reports whole seconds, or a short stall, does not.
+const SEEK_TOLERANCE_MS: f64 = 2_000.0;
+
+/// Where the song in a Connect cluster push is, and how fast it moves.
+/// Spotify pushes a new position as a song plays on, so a position alone
+/// says nothing: a seek shows only as a position away from where the push
+/// before put the song by then.
+#[derive(Clone, Copy, Debug)]
+struct ClusterPosition {
+    /// Spotify's clock when the position was read, in milliseconds.
+    at_ms: f64,
+    position_ms: f64,
+    /// Song milliseconds per clock millisecond: none while paused.
+    rate: f64,
+}
+
+impl ClusterPosition {
+    /// Reads where a push has the song and how fast it moves: at its
+    /// playback speed while it plays, not at all while it is paused.
+    fn of(cluster: &Cluster) -> Self {
+        let state = &cluster.player_state;
+        let rate = if !state.is_playing || state.is_paused {
+            0.0
+        } else if state.playback_speed > 0.0 {
+            state.playback_speed
+        } else {
+            // A device that names no speed plays at the usual one.
+            1.0
+        };
+        Self {
+            at_ms: state.timestamp as f64,
+            position_ms: state.position_as_of_timestamp as f64,
+            rate,
+        }
+    }
+
+    /// Whether `next` has the song somewhere other than where it would have
+    /// played on to, or stayed, since `self`.
+    fn jumped_to(&self, next: &Self) -> bool {
+        let expected = self.position_ms + (next.at_ms - self.at_ms) * self.rate;
+        (next.position_ms - expected).abs() > SEEK_TOLERANCE_MS
+    }
+}
+
 /// Forwards cluster pushes that change another device's playback, so the
 /// interface shows them at once instead of on its next poll: a new volume
-/// as it is, anything else as a reason to poll. Spotify pushes no cluster
-/// back for this device's own announcement, so the first push often is the
-/// next change on another device, and it counts as one: at most one extra
-/// poll per connect.
+/// as it is, a seek or anything else as a reason to poll. Spotify pushes no
+/// cluster back for this device's own announcement, so the first push often
+/// is the next change on another device, and it counts as one: at most one
+/// extra poll per connect.
 async fn watch_cluster(
     mut updates: BoxedStreamResult<ClusterUpdate>,
     own_device: String,
@@ -395,21 +442,28 @@ async fn watch_cluster(
 ) {
     use futures_util::StreamExt as _;
     let mut shown = ClusterView::default();
+    // Nothing to measure a seek from until a push has said where the song is.
+    let mut position: Option<ClusterPosition> = None;
     while let Some(update) = updates.next().await {
         let Some(cluster) = update.ok().and_then(|update| update.cluster.into_option()) else {
             continue;
         };
         let view = ClusterView::of(&cluster);
-        if shown.changed_elsewhere(&view, &own_device) {
+        let now = ClusterPosition::of(&cluster);
+        // This device's own seek comes with the engine's events.
+        let sought = view.active_device != own_device
+            && position.is_some_and(|before| before.jumped_to(&now));
+        if shown.changed_elsewhere(&view, &own_device) || sought {
             notify(match shown.volume_only(&view) {
-                Some(volume) => EngineEvent::RemoteVolume {
+                Some(volume) if !sought => EngineEvent::RemoteVolume {
                     device_id: view.active_device.clone(),
                     volume,
                 },
-                None => EngineEvent::RemoteChanged,
+                _ => EngineEvent::RemoteChanged,
             });
         }
         shown = view;
+        position = Some(now);
     }
 }
 
@@ -2169,6 +2223,129 @@ mod tests {
         let elsewhere = ClusterView::of(&cluster("sonos", "spotify:track:b", true, 20_000));
         assert!(ours.changed_elsewhere(&elsewhere, "this"));
         assert!(elsewhere.changed_elsewhere(&ours, "this"));
+    }
+
+    /// `cluster` with its song at `position_ms` when Spotify's clock read
+    /// `at_ms`.
+    fn at(mut cluster: Cluster, at_ms: i64, position_ms: i64) -> Cluster {
+        let state = cluster.player_state.mut_or_insert_default();
+        state.timestamp = at_ms;
+        state.position_as_of_timestamp = position_ms;
+        cluster
+    }
+
+    /// What the interface is told for `next`, pushed after `before`: nothing,
+    /// to poll (`changed`), or a `volume`.
+    fn told_after(before: Cluster, next: Cluster) -> Option<&'static str> {
+        use futures_util::FutureExt as _;
+        let told = Arc::new(Mutex::new(Vec::new()));
+        let notify: Notify = {
+            let told = told.clone();
+            Arc::new(move |event| {
+                told.lock().unwrap().push(match event {
+                    EngineEvent::RemoteChanged => "changed",
+                    EngineEvent::RemoteVolume { .. } => "volume",
+                    _ => "something else",
+                });
+            })
+        };
+        let updates = [before, next].into_iter().map(|cluster| {
+            let mut update = ClusterUpdate::new();
+            update.cluster = Some(cluster).into();
+            Ok::<_, librespot_core::Error>(update)
+        });
+        watch_cluster(
+            Box::pin(futures_util::stream::iter(updates)),
+            "this".into(),
+            notify,
+        )
+        .now_or_never()
+        .expect("both pushes are there to read");
+        let told = told.lock().unwrap();
+        assert_eq!(told.first(), Some(&"changed"), "the first push is news");
+        assert!(told.len() <= 2, "one push tells one thing: {told:?}");
+        told.get(1).copied()
+    }
+
+    /// #1288: a seek on the phone is news. The song playing on, a stall
+    /// too short to be a seek, and a paused song staying put are not.
+    #[test]
+    fn a_seek_on_another_device_is_news_and_playing_on_is_not() {
+        let playing = |at_ms, position_ms| {
+            at(
+                cluster("phone", "spotify:track:a", true, 30_000),
+                at_ms,
+                position_ms,
+            )
+        };
+        let before = playing(0, 30_000);
+        assert_eq!(told_after(before.clone(), playing(60_000, 90_000)), None);
+        assert_eq!(told_after(before.clone(), playing(60_000, 88_500)), None);
+        for sought in [playing(5_000, 95_000), playing(5_000, 0)] {
+            assert_eq!(told_after(before.clone(), sought), Some("changed"));
+        }
+
+        let paused = |at_ms, position_ms| {
+            at(
+                cluster("phone", "spotify:track:a", false, 30_000),
+                at_ms,
+                position_ms,
+            )
+        };
+        let before = paused(0, 30_000);
+        assert_eq!(told_after(before.clone(), paused(60_000, 30_000)), None);
+        assert_eq!(told_after(before, paused(60_000, 90_000)), Some("changed"));
+    }
+
+    /// A podcast at one and a half times its speed plays on at that speed.
+    #[test]
+    fn a_song_plays_on_at_the_speed_its_device_names() {
+        let fast = |at_ms, position_ms| {
+            let mut cluster = at(
+                cluster("phone", "spotify:episode:a", true, 30_000),
+                at_ms,
+                position_ms,
+            );
+            cluster.player_state.mut_or_insert_default().playback_speed = 1.5;
+            cluster
+        };
+        assert_eq!(told_after(fast(0, 30_000), fast(10_000, 45_000)), None);
+        assert_eq!(
+            told_after(fast(0, 30_000), fast(10_000, 40_000)),
+            Some("changed")
+        );
+    }
+
+    /// A seek waits for the poll even when a new volume comes with it, and
+    /// the volume alone is still carried.
+    #[test]
+    fn a_seek_with_a_new_volume_is_polled() {
+        let before = at(cluster("sonos", "spotify:track:a", true, 30_000), 0, 30_000);
+        let louder = |at_ms, position_ms| {
+            at(
+                cluster("sonos", "spotify:track:a", true, 32_000),
+                at_ms,
+                position_ms,
+            )
+        };
+        assert_eq!(
+            told_after(before.clone(), louder(5_000, 35_000)),
+            Some("volume")
+        );
+        assert_eq!(told_after(before, louder(5_000, 95_000)), Some("changed"));
+    }
+
+    /// This device's own seek comes with the engine's events, not a poll.
+    #[test]
+    fn this_devices_own_seek_is_not_news() {
+        let ours = |at_ms, position_ms| {
+            at(
+                cluster("this", "spotify:track:a", true, 30_000),
+                at_ms,
+                position_ms,
+            )
+        };
+        assert_eq!(told_after(ours(0, 30_000), ours(5_000, 95_000)), None);
     }
 
     /// The log says which of the ways to no lyrics it was, without the words.
