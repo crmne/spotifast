@@ -402,6 +402,8 @@ struct ClusterPosition {
 }
 
 impl ClusterPosition {
+    /// Reads where a push has the song and how fast it moves: at its
+    /// playback speed while it plays, not at all while it is paused.
     fn of(cluster: &Cluster) -> Self {
         let state = &cluster.player_state;
         let rate = if !state.is_playing || state.is_paused {
