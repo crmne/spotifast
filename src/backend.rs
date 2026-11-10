@@ -1525,7 +1525,7 @@ impl Backend {
         self.send(Command::Api(request));
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "demo"))]
     pub(crate) fn take_soloist_commands(&self) -> Vec<(bool, Option<String>)> {
         std::mem::take(
             &mut *self
