@@ -441,6 +441,8 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     // the child's output: it stays in the private data directory, without the
     // key. See the documented upstream limitation.
     let mut child = command.spawn().context(Failure::NotReady)?;
+    #[cfg(windows)]
+    job::bind(&child);
     keep_output(&data.join("soloist-output.log"), &key.value, &mut child).await;
     #[cfg(target_os = "macos")]
     exit_guard::watch(child.id());
@@ -693,6 +695,80 @@ mod exit_guard {
     }
 }
 
+/// Ending Spotifast from Task Manager, with `taskkill /F`, or by a crash never
+/// runs its shutdown, so the player it started would keep playing, stay listed
+/// in Spotify and hold its lock until the next start reclaims it. Windows
+/// closes every handle of a process that ends, however it ends, and a job made
+/// to kill on close takes its members with it. Only the Soloist child joins:
+/// what Spotifast opens otherwise, such as the browser for sign-in, stays out.
+#[cfg(windows)]
+mod job {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE},
+        System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        },
+    };
+
+    /// Never closed: Windows closes it when Spotifast ends.
+    pub struct Job(pub HANDLE);
+    // SAFETY: a job handle may be used from any thread.
+    unsafe impl Send for Job {}
+    unsafe impl Sync for Job {}
+
+    pub fn create() -> std::io::Result<Job> {
+        // SAFETY: the limits outlive the call that copies them, and the
+        // handle is closed if the job cannot be configured.
+        unsafe {
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job.is_null() {
+                return Err(std::io::Error::last_os_error());
+            }
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                (&raw const limits).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ) == 0
+            {
+                let error = std::io::Error::last_os_error();
+                CloseHandle(job);
+                return Err(error);
+            }
+            Ok(Job(job))
+        }
+    }
+
+    pub fn assign(job: &Job, process: HANDLE) -> std::io::Result<()> {
+        // SAFETY: both handles are open; the process is our own child.
+        if unsafe { AssignProcessToJobObject(job.0, process) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// Best effort: if this fails, the next start still reclaims the player.
+    pub fn bind(child: &tokio::process::Child) {
+        static JOB: OnceLock<Option<Job>> = OnceLock::new();
+        let job = JOB.get_or_init(|| {
+            create()
+                .inspect_err(|error| log::warn!("Couldn't create Soloist's job object: {error}"))
+                .ok()
+        });
+        let (Some(job), Some(process)) = (job, child.raw_handle()) else {
+            return;
+        };
+        if let Err(error) = assign(job, process) {
+            log::warn!("Couldn't tie Soloist to Spotifast's lifetime: {error}");
+        }
+    }
+}
+
 /// Soloist's own account of why it stopped goes to a file beside its data.
 /// Each start replaces the file, and a long run stops at `OUTPUT_LIMIT`, so
 /// what led to an early exit is what stays.
@@ -865,6 +941,174 @@ mod tests {
             .valid()
         );
     }
+    /// Spotifast ending closes its job handle, however it ends. Closing the
+    /// handle here stands in for that, and the player must go with it.
+    #[cfg(windows)]
+    #[test]
+    fn closing_the_job_ends_the_player_in_it() {
+        use std::os::windows::io::AsRawHandle;
+        let job = job::create().unwrap();
+        let mut player = stand_in_player().spawn().unwrap();
+        let assigned = job::assign(&job, player.as_raw_handle());
+        let process = watch(player.id());
+        let running = !ends_within(process, Duration::ZERO);
+
+        // SAFETY: the test owns the handle and closes it once.
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(job.0) };
+
+        let ended = ends_within(process, Duration::from_secs(5));
+        release(process);
+        let _ = player.wait();
+        assigned.unwrap();
+        assert!(running, "the stand-in player ended by itself");
+        assert!(ended, "the player outlived its job");
+    }
+
+    /// Task Manager, Process Explorer and `taskkill /F` end Spotifast with
+    /// `TerminateProcess`, so its shutdown never stops the player. Each start
+    /// of the player, including the restarts after it stops, joins the same
+    /// job, and every one of them must end with Spotifast.
+    #[cfg(windows)]
+    #[test]
+    fn killing_spotifast_ends_every_player_it_started() {
+        use std::io::BufRead;
+        let mut parent = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "soloist::tests::stand_in_spotifast",
+                "--exact",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env(STAND_IN, "spotifast")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let players: Vec<_> = std::io::BufReader::new(parent.stdout.take().unwrap())
+            .lines()
+            .map_while(Result::ok)
+            .filter_map(|line| line.strip_prefix("stand-in player ")?.parse().ok())
+            .take(STAND_IN_PLAYERS)
+            .map(watch)
+            .collect();
+        let running = players
+            .iter()
+            .all(|&player| !ends_within(player, Duration::ZERO));
+
+        parent.kill().unwrap();
+        let _ = parent.wait();
+
+        let ended = players
+            .iter()
+            .all(|&player| ends_within(player, Duration::from_secs(5)));
+        let started = players.len();
+        players.into_iter().for_each(release);
+        assert_eq!(
+            started, STAND_IN_PLAYERS,
+            "the stand-in Spotifast didn't start its players"
+        );
+        assert!(running, "a stand-in player ended by itself");
+        assert!(ended, "a player outlived the Spotifast that started it");
+    }
+
+    /// Selects the role of a copy of this test binary started as a stand-in.
+    #[cfg(windows)]
+    const STAND_IN: &str = "SPOTIFAST_TEST_STAND_IN";
+    /// How many players the stand-in Spotifast starts: a first, and one
+    /// restart.
+    #[cfg(windows)]
+    const STAND_IN_PLAYERS: usize = 2;
+
+    /// Starts a copy of this test binary that only waits until it is ended,
+    /// the way Soloist runs. It needs no other program, and nothing it
+    /// inherits from its parent can end it early, so only the job can.
+    #[cfg(windows)]
+    fn stand_in_player() -> std::process::Command {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "soloist::tests::stand_in_player_waits",
+                "--exact",
+                "--ignored",
+            ])
+            .env(STAND_IN, "player")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        command
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "started by the job tests as a stand-in Soloist"]
+    fn stand_in_player_waits() {
+        if std::env::var_os(STAND_IN).is_some_and(|role| role == "player") {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+
+    /// Binds its players the way `process` binds Soloist, says which they
+    /// are, and waits to be killed.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "started by the job tests as a stand-in Spotifast"]
+    fn stand_in_spotifast() {
+        if std::env::var_os(STAND_IN).is_none_or(|role| role != "spotifast") {
+            return;
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut players = Vec::new();
+            for _ in 0..STAND_IN_PLAYERS {
+                let player = tokio::process::Command::from(stand_in_player())
+                    .spawn()
+                    .unwrap();
+                job::bind(&player);
+                println!("stand-in player {}", player.id().unwrap());
+                players.push(player);
+            }
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+    }
+
+    /// Opens a process to wait on. The open handle keeps its PID from being
+    /// reused by another program meanwhile.
+    #[cfg(windows)]
+    fn watch(pid: u32) -> windows_sys::Win32::Foundation::HANDLE {
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+        };
+        // SAFETY: only opens a handle, and a null one is rejected.
+        let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_TERMINATE, 0, pid) };
+        assert!(!process.is_null(), "the stand-in player is not running");
+        process
+    }
+
+    /// Whether the watched process ends within `timeout`.
+    #[cfg(windows)]
+    fn ends_within(process: windows_sys::Win32::Foundation::HANDLE, timeout: Duration) -> bool {
+        use windows_sys::Win32::{
+            Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject,
+        };
+        // SAFETY: the handle is open with SYNCHRONIZE.
+        unsafe { WaitForSingleObject(process, timeout.as_millis() as u32) == WAIT_OBJECT_0 }
+    }
+
+    /// Stops a watched process that is still running, so a failing test
+    /// leaves nothing behind, and closes its handle.
+    #[cfg(windows)]
+    fn release(process: windows_sys::Win32::Foundation::HANDLE) {
+        // SAFETY: the handle is open with PROCESS_TERMINATE, and closed once.
+        unsafe {
+            windows_sys::Win32::System::Threading::TerminateProcess(process, 1);
+            windows_sys::Win32::Foundation::CloseHandle(process);
+        }
+    }
+
     /// A Soloist from an earlier run holds the data directory's lock, so a
     /// new one would exit before it is ready (#1140).
     #[cfg(unix)]
