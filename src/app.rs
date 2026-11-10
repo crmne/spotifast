@@ -3402,6 +3402,9 @@ impl App {
         match &status {
             AuthStatus::Connected { .. } => {
                 self.sign_in_url = None;
+                // A failed sign-in is not a sign-out, so the account may
+                // have changed with the key field still open.
+                self.soloist_key_edit = None;
                 if self.settings.soloist_enabled {
                     self.soloist_status_at = Instant::now();
                     self.backend.send(Command::Soloist {
@@ -23906,6 +23909,47 @@ mod tests {
         app.soloist_key_edit = Some("typed".into());
         app.handle_auth(AuthStatus::SignedOut);
         assert_eq!(app.soloist_key_edit, None);
+        app.backend.shutdown();
+    }
+
+    /// A sign-in can fail and be followed by another account's without a
+    /// sign-out between them; a key typed for the first is not the second's.
+    #[test]
+    fn signing_in_closes_the_soloist_key_field() {
+        let mut app = test_app("soloist-key-sign-in");
+        app.soloist_key_edit = Some("typed".into());
+        app.handle_auth(AuthStatus::Connected {
+            username: "bob".into(),
+        });
+        assert_eq!(app.soloist_key_edit, None);
+        app.backend.shutdown();
+    }
+
+    /// The player reports in while a key is being typed, and each report
+    /// clears the key setup holds. What Settings holds has to outlast them.
+    #[test]
+    fn a_soloist_report_leaves_a_half_typed_key_alone() {
+        use crate::soloist::{Status, Update};
+        let ctx = egui::Context::default();
+        let mut app = test_app("soloist-key-report");
+        app.settings.soloist_enabled = true;
+        app.soloist_key_edit = Some("new-".into());
+        app.on_soloist(Update::Status(Status::Pairing {
+            name: "owned".into(),
+            version: "test".into(),
+        }));
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        assert_eq!(app.soloist_key_edit.as_deref(), Some("new-"));
+        app.soloist_key_edit
+            .as_mut()
+            .expect("the field is still open")
+            .push_str("key");
+        app.apply(Action::SaveSoloistKey, &ctx);
+        assert_eq!(app.soloist_key, "new-key");
         app.backend.shutdown();
     }
 
