@@ -682,12 +682,14 @@ player bar take the theme's `dark_background`, selected rows its `selection`,
 dividers sit halfway between its `background` and `muted`, menus and dialogs
 take its `lighter_background`, and shadows its `darker_background`. Pages
 without album art fade in a faint wash of the theme's `accent` at the top.
-Hovers and secondary text keep their blends. A template installed by an
-earlier version and never edited is upgraded on the next launch; an edited
-one is left alone.
+Hovers and secondary text keep their blends. When a native package installed
+the template and it was never edited, the first launch after updating the
+package replaces it with this one; an edited template is left alone. Portable
+archives and Cargo builds do not install or upgrade the template: one copied
+in by hand keeps its shades until it is copied again.
 
-Setup never replaces an existing template, hook or palette, and never changes
-your selected theme. Other users are set up independently when they launch the
+Apart from that upgrade, setup never replaces an existing template, hook or
+palette, and it never changes your selected theme. Other users are set up independently when they launch the
 app. Demo mode, portable archives and Cargo builds do not install the template
 or hook. A package uninstall removes the shared integration assets; your user
 configuration remains, like the rest of your preferences.
