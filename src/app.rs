@@ -2290,7 +2290,15 @@ impl App {
         if now.is_episode {
             return None;
         }
-        if let Some(track) = now.id.as_deref().and_then(|id| self.track_cache.get(id)) {
+        // The cache answers by the Spotify track id, and a local file's id
+        // is its URI's duration, so a hit only counts when it is this very
+        // song; another file of the same length must not stand in.
+        let cached = now
+            .id
+            .as_deref()
+            .and_then(|id| self.track_cache.get(id))
+            .filter(|cached| cached.answers_to(&now.uri));
+        if let Some(track) = cached {
             return Some(PlayableItem::Track(track.clone()));
         }
         // The album and art go along, so a playlist row added from the
@@ -2374,11 +2382,13 @@ impl App {
         if self.local.is_active() && self.local_transfer_sequence != Some(self.local.track_sequence)
         {
             let track = self.local.track.as_ref()?;
-            let cached = track
-                .uri
-                .rsplit(':')
-                .next()
-                .and_then(|id| self.track_cache.get(id));
+            // The cache answers by the Spotify track id, the URI's last
+            // segment. A local URI's last segment is a duration, so a hit
+            // only counts when it is this very song; another file of the
+            // same length must not stand in.
+            let cached = util::uri_id(&track.uri)
+                .and_then(|id| self.track_cache.get(id))
+                .filter(|cached| cached.answers_to(&track.uri));
             // Playback already carries artist IDs. Keep those links available
             // while the Web API is loading (or its cached credits have no IDs).
             let artists = if track.artists.iter().any(|artist| artist.id.is_some()) {
@@ -2404,7 +2414,8 @@ impl App {
                 album_name: track.album.clone(),
                 album_id: cached
                     .and_then(|cached| cached.album.as_ref())
-                    .map(|album| album.id.clone()),
+                    .map(|album| album.id.clone())
+                    .filter(|id| !id.is_empty()),
                 show_id: None,
                 art_url: track.art_url.clone().or_else(|| self.local_art(&track.uri)),
                 art_small: track
@@ -2547,7 +2558,13 @@ impl App {
     }
 
     fn cached_track_preview(&self, uri: &str, position_ms: u32) -> Option<NowPlaying> {
-        let track = self.track_cache.get(util::uri_id(uri)?)?;
+        // The cache answers by the Spotify track id, and a local URI's
+        // id is its duration, so a hit only counts when it is this very
+        // song; another file of the same length must not stand in.
+        let track = self
+            .track_cache
+            .get(util::uri_id(uri)?)
+            .filter(|cached| cached.answers_to(uri))?;
         Some(NowPlaying {
             local: true,
             device_name: None,
@@ -4196,7 +4213,14 @@ impl App {
         let Some(id) = util::uri_id(uri) else {
             return;
         };
-        if self.track_cache.contains_key(id) {
+        // A local URI's id is its duration, so the entry under it may be
+        // another song of the same length: keep it only while it is this
+        // very song, and let the row found below replace it otherwise.
+        if self
+            .track_cache
+            .get(id)
+            .is_some_and(|cached| cached.answers_to(uri))
+        {
             self.track_used.insert(id.to_owned(), Instant::now());
             return;
         }
@@ -7607,6 +7631,16 @@ impl App {
         if let Some(track) = track
             && let Some(id) = util::uri_id(&uri)
         {
+            // A local URI's id is its duration, so the entry here may be
+            // another song of the same length: the row being played now
+            // replaces it, so the song's preview stays findable.
+            if self
+                .track_cache
+                .get(id)
+                .is_some_and(|cached| !cached.answers_to(&uri))
+            {
+                self.track_cache.remove(id);
+            }
             self.track_cache.entry(id.to_owned()).or_insert(track);
         }
         self.consume_manual_queue_head(&uri);
@@ -19763,6 +19797,217 @@ mod tests {
             app.resume_position_ms, 19_566,
             "closing again must not lose the position"
         );
+    }
+
+    /// A local file plays under its own tags: the track cache answers by
+    /// the URI's last segment, and a local URI's last segment is a
+    /// duration, so a queue row filed under it must never stand in for
+    /// the live metadata.
+    #[test]
+    fn a_local_track_never_borrows_the_track_cache() {
+        use crate::api::models::{Album, ArtistRef, Track};
+        let mut app = headless_app();
+        // A queue row for a local file, cached by the duration the way
+        // popping the queue head does.
+        app.track_cache.insert(
+            "180".into(),
+            Track {
+                id: Some("whatever".into()),
+                name: "Cached Name".into(),
+                artists: vec![ArtistRef {
+                    id: Some("cached-artist".into()),
+                    name: "Cached Artist".into(),
+                    uri: None,
+                }],
+                album: Some(Album {
+                    id: "cached-album".into(),
+                    name: "Cached Album".into(),
+                    ..Default::default()
+                }),
+                duration_ms: 180_000,
+                ..Default::default()
+            },
+        );
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:local:Live Artist:Live Album:Live Title:180".into(),
+            title: "Live Title".into(),
+            artists: vec![ArtistRef {
+                id: None,
+                name: "Live Artist".into(),
+                uri: None,
+            }],
+            album: "Live Album".into(),
+            duration_ms: 180_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let now = app.now_playing_live().expect("the local song plays");
+        assert_eq!(
+            now.subtitle, "Live Artist",
+            "the tags name the song, not the cache"
+        );
+        assert_eq!(now.artists.len(), 1);
+        assert_eq!(now.artists[0].name, "Live Artist");
+        assert_eq!(now.artists[0].id, None);
+        assert_eq!(now.album_id, None, "the cache does not name the album");
+        app.backend.shutdown();
+    }
+
+    /// The item built for the playing song reads the live tags too: the
+    /// queue's menus and drags take their track from here, so a duration
+    /// collision in the cache must not hand them another song.
+    #[test]
+    fn the_playing_item_of_a_local_file_never_borrows_the_cache() {
+        use crate::api::models::{ArtistRef, Track};
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "180".into(),
+            Track {
+                id: Some("whatever".into()),
+                uri: "spotify:local:Cached Artist:Cached Album:Cached Name:180".into(),
+                name: "Cached Name".into(),
+                artists: vec![ArtistRef {
+                    id: Some("cached-artist".into()),
+                    name: "Cached Artist".into(),
+                    uri: None,
+                }],
+                duration_ms: 180_000,
+                ..Default::default()
+            },
+        );
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:local:Live Artist:Live Album:Live Title:180".into(),
+            title: "Live Title".into(),
+            artists: vec![ArtistRef {
+                id: None,
+                name: "Live Artist".into(),
+                uri: None,
+            }],
+            album: "Live Album".into(),
+            duration_ms: 180_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let Some(crate::api::models::PlayableItem::Track(item)) = app.now_playing_item() else {
+            panic!("the local song has an item");
+        };
+        assert_eq!(item.name, "Live Title", "the tags name the item");
+        assert_eq!(
+            item.uri,
+            "spotify:local:Live Artist:Live Album:Live Title:180"
+        );
+        assert_eq!(item.artists[0].name, "Live Artist");
+        app.backend.shutdown();
+    }
+
+    /// The optimistic preview keeps working for a local file whose queue
+    /// row is already cached: the row is the same song, so its album id
+    /// and artists stand in until the file's own tags load.
+    #[test]
+    fn a_matching_local_queue_row_still_lends_its_credits() {
+        use crate::api::models::{Album, ArtistRef, Track};
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "180".into(),
+            Track {
+                id: Some("whatever".into()),
+                uri: "spotify:local:Live Artist:Live Album:Live Title:180".into(),
+                name: "Live Title".into(),
+                artists: vec![ArtistRef {
+                    id: None,
+                    name: "Live Artist".into(),
+                    uri: None,
+                }],
+                album: Some(Album {
+                    id: "row-album".into(),
+                    ..Default::default()
+                }),
+                duration_ms: 180_000,
+                ..Default::default()
+            },
+        );
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:local:Live Artist:Live Album:Live Title:180".into(),
+            title: "Live Title".into(),
+            artists: vec![ArtistRef {
+                id: None,
+                name: "Live Artist".into(),
+                uri: None,
+            }],
+            album: "Live Album".into(),
+            duration_ms: 180_000,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let now = app.now_playing_live().expect("the local song plays");
+        assert_eq!(
+            now.album_id,
+            Some("row-album".to_string()),
+            "the matching row's album stands in"
+        );
+        assert_eq!(now.artists[0].name, "Live Artist");
+        app.backend.shutdown();
+    }
+
+    /// The resume and double-click previews read the cache only for the
+    /// song they were asked about: a row cached under another local
+    /// file's matching duration stays out.
+    #[test]
+    fn the_preview_reads_the_cache_only_for_the_same_song() {
+        use crate::api::models::{ArtistRef, Track};
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "180".into(),
+            Track {
+                uri: "spotify:local:Live Artist:Live Album:Live Title:180".into(),
+                name: "Live Title".into(),
+                artists: vec![ArtistRef {
+                    id: None,
+                    name: "Live Artist".into(),
+                    uri: None,
+                }],
+                duration_ms: 180_000,
+                ..Default::default()
+            },
+        );
+        let now = app
+            .cached_track_preview("spotify:local:Live Artist:Live Album:Live Title:180", 0)
+            .expect("the same song's row is used");
+        assert_eq!(now.title, "Live Title");
+        assert!(
+            app.cached_track_preview("spotify:local:Other Artist:Other Album:Other Title:180", 0)
+                .is_none(),
+            "a different song under the same duration stays out"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A market relink keeps its optimistic preview: the release Spotify
+    /// substituted for the requested track counts as that track, so the
+    /// strict URI match does not turn it away.
+    #[test]
+    fn a_relinked_track_answers_for_the_uri_it_was_asked_for() {
+        use crate::api::models::{LinkedTrack, Track};
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "old".into(),
+            Track {
+                id: Some("new".into()),
+                uri: "spotify:track:new".into(),
+                name: "Karma Police".into(),
+                linked_from: Some(LinkedTrack {
+                    id: Some("old".into()),
+                    uri: "spotify:track:old".into(),
+                }),
+                duration_ms: 264_000,
+                ..Default::default()
+            },
+        );
+        let now = app
+            .cached_track_preview("spotify:track:old", 0)
+            .expect("the relinked track previews");
+        assert_eq!(now.title, "Karma Police");
+        app.backend.shutdown();
     }
 
     /// Dragging the bar before pressing play moves where play will land.
