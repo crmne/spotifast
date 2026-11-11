@@ -72,6 +72,17 @@ const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
 /// from delayed repaints, so 33 ms drives roughly one frame per 16 ms.
 const TOAST_FRAME: Duration = Duration::from_millis(33);
 const OPTIMISTIC_HOLD: Duration = Duration::from_millis(2500);
+/// How long a cover whose colour could not be read waits to be asked again,
+/// doubling after each failure, and how many times it is read in all.
+const ACCENT_RETRY: Duration = Duration::from_secs(5);
+const ACCENT_READS: u32 = 3;
+
+/// A cover whose colour could not be read: how often it failed, and when to
+/// ask for it again.
+struct AccentFailure {
+    failures: u32,
+    retry_at: Instant,
+}
 /// The banner suggesting a personal app appears at most this often.
 const SLOW_BANNER_INTERVAL: jiff::SignedDuration = jiff::SignedDuration::from_hours(24);
 /// A "too many requests" answer older than this no longer brings up the
@@ -655,6 +666,10 @@ pub struct App {
     /// Each cover's colours, as read from the art, by the same URL.
     art_palettes: HashMap<String, Vec<[u8; 3]>>,
     accent_pending: HashSet<String>,
+    /// Covers that gave no colour, so nothing reads them again.
+    accent_missing: HashSet<String>,
+    /// Covers that could not be read, for now or for good.
+    accent_failed: HashMap<String, AccentFailure>,
 
     pub dialog: Option<Dialog>,
     /// Duplicate confirmations waiting for the open one to be answered, as
@@ -1391,6 +1406,8 @@ impl App {
             accents: HashMap::new(),
             art_palettes: HashMap::new(),
             accent_pending: HashSet::new(),
+            accent_missing: HashSet::new(),
+            accent_failed: HashMap::new(),
             dialog: None,
             duplicate_prompts: Default::default(),
             cover_request: 0,
@@ -2678,12 +2695,32 @@ impl App {
         if let Some(color) = self.accents.get(url) {
             return Some(*color);
         }
+        // Pages ask every frame: a cover found to have no colour is not read
+        // again, and one that could not be read waits before the next try,
+        // longer each time, and is given up on after a few.
+        if self.accent_missing.contains(url)
+            || self.accent_failed.get(url).is_some_and(|failed| {
+                failed.failures >= ACCENT_READS || Instant::now() < failed.retry_at
+            })
+        {
+            return None;
+        }
         if self.accent_pending.insert(url.to_string()) {
             self.backend.send(Command::Accent {
                 url: url.to_string(),
             });
         }
         None
+    }
+
+    /// How long until the next read of a cover whose colour could not be
+    /// read is due, so a frame comes for it even while the window is idle.
+    fn next_accent_retry(&self, now: Instant) -> Option<Duration> {
+        self.accent_failed
+            .values()
+            .filter(|failed| failed.failures < ACCENT_READS && failed.retry_at > now)
+            .map(|failed| failed.retry_at - now)
+            .min()
     }
 
     /// Finds a playlist already loaded in the library, search, or a Home shelf.
@@ -3003,15 +3040,29 @@ impl App {
                     self.handle_remote_volume(&device_id, volume);
                 }
                 Event::Api(response) => self.handle_api(*response),
-                Event::Accent {
-                    url,
-                    color,
-                    palette,
-                } => {
+                Event::Accent { url, palette } => {
                     self.accent_pending.remove(&url);
-                    let tint = self.palette.tint_from_art(color);
-                    self.art_palettes.insert(url.clone(), palette);
-                    self.accents.insert(url, tint);
+                    match palette {
+                        Ok(palette) => {
+                            self.accent_failed.remove(&url);
+                            if let Some(&color) = palette.first() {
+                                let tint = self.palette.tint_from_art(color);
+                                self.art_palettes.insert(url.clone(), palette);
+                                self.accents.insert(url, tint);
+                            } else {
+                                self.accent_missing.insert(url);
+                            }
+                        }
+                        Err(_) => {
+                            let failed = self.accent_failed.entry(url).or_insert(AccentFailure {
+                                failures: 0,
+                                retry_at: Instant::now(),
+                            });
+                            failed.failures += 1;
+                            failed.retry_at =
+                                Instant::now() + ACCENT_RETRY * 2u32.pow(failed.failures - 1);
+                        }
+                    }
                 }
                 Event::ProxyRestored { config, password } => {
                     self.handle_proxy_restored(config, password)
@@ -3566,6 +3617,8 @@ impl App {
     }
 
     fn on_network_restored(&mut self) {
+        // Covers that could not be read while offline can be read now.
+        self.accent_failed.clear();
         if !self.is_connected() {
             return;
         }
@@ -5623,6 +5676,8 @@ impl App {
             self.applied_dark = Some(dark);
             self.accents.clear();
             self.accent_pending.clear();
+            self.accent_missing.clear();
+            self.accent_failed.clear();
         }
     }
 
@@ -14905,6 +14960,9 @@ impl App {
 
         if !self.toasts.is_empty() {
             ctx.request_repaint_after(TOAST_FRAME);
+        }
+        if let Some(wait) = self.next_accent_retry(Instant::now()) {
+            ctx.request_repaint_after(wait);
         }
         self.theme_transition.paint(ctx);
         self.frame_now = None;
@@ -24245,8 +24303,7 @@ mod tests {
         let url = "https://i.scdn.co/image/offline-accent";
         app.handle_backend_events(vec![Event::Accent {
             url: url.into(),
-            color: [200, 40, 40],
-            palette: vec![[200, 40, 40], [40, 40, 200]],
+            palette: Ok(vec![[200, 40, 40], [40, 40, 200]]),
         }]);
         assert_eq!(
             app.tint_for(Some(url)),
@@ -24256,6 +24313,58 @@ mod tests {
             app.art_palettes.get(url).map(Vec::as_slice),
             Some(&[[200, 40, 40], [40, 40, 200]][..])
         );
+    }
+
+    /// A page asks for its cover's colour on every frame. A cover that has
+    /// none is read once, not again on each of those frames.
+    #[test]
+    fn a_cover_without_a_colour_is_read_once() {
+        let mut app = test_app("accent-once");
+        let url = "http://127.0.0.1:9/grey";
+        assert_eq!(app.tint_for(Some(url)), None);
+        assert!(app.accent_pending.contains(url), "the first frame asks");
+        app.handle_backend_events(vec![Event::Accent {
+            url: url.into(),
+            palette: Ok(Vec::new()),
+        }]);
+        assert_eq!(app.tint_for(Some(url)), None);
+        assert!(!app.accent_pending.contains(url), "later frames do not");
+    }
+
+    /// A cover that could not be read, its bytes not decoding say, is asked
+    /// for again after a pause, a few times at most, and once more when the
+    /// network comes back.
+    #[test]
+    fn a_cover_that_could_not_be_read_is_asked_for_again_a_few_times() {
+        let mut app = test_app("accent-retry");
+        let url = "http://127.0.0.1:9/offline";
+        let mut reads = 0;
+        for _ in 0..ACCENT_READS + 2 {
+            app.tint_for(Some(url));
+            if app.accent_pending.contains(url) {
+                reads += 1;
+                app.handle_backend_events(vec![Event::Accent {
+                    url: url.into(),
+                    palette: Err("the cover's bytes do not decode".into()),
+                }]);
+                app.tint_for(Some(url));
+                assert!(!app.accent_pending.contains(url), "not at once");
+                if reads < ACCENT_READS {
+                    let wake = app
+                        .next_accent_retry(Instant::now())
+                        .expect("a frame comes for the next read");
+                    assert!(wake <= ACCENT_RETRY * 2, "{wake:?}");
+                }
+            }
+            if let Some(failed) = app.accent_failed.get_mut(url) {
+                failed.retry_at = Instant::now() - Duration::from_millis(1);
+            }
+        }
+        assert_eq!(reads, ACCENT_READS);
+        assert_eq!(app.next_accent_retry(Instant::now()), None, "given up on");
+        app.on_network_restored();
+        app.tint_for(Some(url));
+        assert!(app.accent_pending.contains(url), "the network came back");
     }
 
     /// Two lookups of one adder can overlap; the one that found nothing

@@ -23,7 +23,7 @@ use crate::credentials::{
     Store as CredentialStore,
 };
 use crate::http::Http;
-use crate::images::{ArtLoader, art_palette};
+use crate::images::ArtLoader;
 use crate::model::{PlaylistCache, TopPeriod};
 use crate::paths::AppDirs;
 use crate::player::{
@@ -1055,11 +1055,12 @@ pub enum Event {
         volume: u16,
     },
     Api(Box<ApiResponse>),
+    /// The colours drawn from a cover, the accent first, for the
+    /// visualizer: none when it has none to give, so nothing asks again, or
+    /// why it could not be read for now.
     Accent {
         url: String,
-        color: [u8; 3],
-        /// The cover's colours, the accent first, for the visualizer.
-        palette: Vec<[u8; 3]>,
+        palette: Result<Vec<[u8; 3]>, String>,
     },
     Error(String),
     /// GitHub answered an update check, or the request failed.
@@ -5033,19 +5034,12 @@ impl Worker {
         let events = self.events.clone();
         let waker = self.waker.clone();
         tokio::spawn(async move {
-            if let Ok(bytes) = art.fetch(&url).await {
-                let palette = tokio::task::spawn_blocking(move || art_palette(&bytes))
-                    .await
-                    .unwrap_or_default();
-                if let Some(&color) = palette.first() {
-                    let _ = events.send(Event::Accent {
-                        url,
-                        color,
-                        palette,
-                    });
-                    waker.wake();
-                }
-            }
+            // A read that could not finish is a failure to retry, not a
+            // cover without a colour; bytes that do not decode are dropped
+            // first, so the retry downloads the cover again.
+            let palette = art.palette(&url).await;
+            let _ = events.send(Event::Accent { url, palette });
+            waker.wake();
         });
     }
 }
