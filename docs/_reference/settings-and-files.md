@@ -676,6 +676,16 @@ Since 0.10.2, portable archives and Cargo builds follow Omarchy too: Spotifast
 reads the palette Omarchy rendered for it, or renders the template itself from
 the current theme's colours, and picks up theme changes without the hook.
 
+The template takes the shades each Omarchy theme defines for itself rather
+than blending them all from its background and foreground: the sidebar and
+player bar take the theme's `dark_background`, selected rows its `selection`,
+dividers sit halfway between its `background` and `muted`, menus and dialogs
+take its `lighter_background`, and shadows its `darker_background`. Pages
+without album art fade in a faint wash of the theme's `accent` at the top.
+Hovers and secondary text keep their blends. A template installed by an
+earlier version and never edited is upgraded on the next launch; an edited
+one is left alone.
+
 Setup never replaces an existing template, hook or palette, and never changes
 your selected theme. Other users are set up independently when they launch the
 app. Demo mode, portable archives and Cargo builds do not install the template

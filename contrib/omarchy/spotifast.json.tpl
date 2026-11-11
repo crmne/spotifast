@@ -2,11 +2,11 @@
   "base": "{{ mode }}",
   "colors": {
     "window": "{{ background }}",
-    "panel": "{{ mix background foreground 3% }}",
+    "panel": "{{ dark_background }}",
     "surface": "{{ mix background foreground 8% }}",
     "surface_hover": "{{ mix background foreground 12% }}",
-    "surface_active": "{{ mix background foreground 18% }}",
-    "outline": "{{ mix background foreground 20% }}",
+    "surface_active": "{{ selection }}",
+    "outline": "{{ mix background muted 50% }}",
     "text": "{{ foreground }}",
     "secondary": "{{ mix background foreground 70% }}",
     "dim": "{{ mix background foreground 50% }}",
@@ -14,6 +14,9 @@
     "accent_hover": "{{ mix accent foreground 15% }}",
     "on_accent": "{{ background }}",
     "danger": "{{ red }}",
-    "warning": "{{ yellow }}"
+    "warning": "{{ yellow }}",
+    "overlay": "{{ mix lighter_background foreground 3% }}",
+    "shadow": "{{ darker_background }}80",
+    "tint": "{{ accent }}12"
   }
 }
