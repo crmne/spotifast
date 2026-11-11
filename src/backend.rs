@@ -6,7 +6,7 @@
 //! the interface with `request_repaint`, so the app stays event-driven and
 //! idle when nothing is happening.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -341,6 +341,31 @@ pub enum ApiRequest {
         offset: u32,
         request: u64,
     },
+    /// A page of an artist's releases for the discography page, kept apart
+    /// from the artist page's own list.
+    DiscographyAlbums {
+        artist_id: String,
+        groups: String,
+        offset: u32,
+        generation: u64,
+    },
+    /// A page of one release's songs for the discography page, from the
+    /// Web API: for every release while the playback session cannot read
+    /// them, and for a release the session listed no songs for.
+    DiscographyTracks {
+        artist_id: String,
+        album_id: String,
+        offset: u32,
+        generation: u64,
+    },
+    /// A batch of a discography page's releases whose songs the playback
+    /// session reads together; the albums are stubs of the page's releases.
+    DiscographySongs {
+        artist_id: String,
+        albums: Vec<Album>,
+        batch: u64,
+        generation: u64,
+    },
     Show {
         id: String,
     },
@@ -608,6 +633,29 @@ pub enum ApiResponse {
         offset: u32,
         request: u64,
         result: ApiResult<Page<Track>>,
+    },
+    DiscographyAlbums {
+        artist_id: String,
+        groups: String,
+        offset: u32,
+        generation: u64,
+        result: ApiResult<Page<Album>>,
+    },
+    DiscographyTracks {
+        artist_id: String,
+        album_id: String,
+        offset: u32,
+        generation: u64,
+        result: ApiResult<Page<Track>>,
+    },
+    DiscographySongs {
+        artist_id: String,
+        batch: u64,
+        generation: u64,
+        /// Each release asked for, in the order asked, with its songs; an
+        /// empty list for one the session listed none for. `None` when no
+        /// playback session of this account could read the batch.
+        songs: Option<Vec<(String, Vec<Track>)>>,
     },
     Show {
         id: String,
@@ -1226,9 +1274,13 @@ pub struct Backend {
         std::sync::Mutex<Vec<crate::account_cache::Cache<crate::model::HomeSnapshot>>>,
     #[cfg(test)]
     top_tracks_requests: std::sync::Mutex<Vec<(TopPeriod, u32, bool, u64)>>,
+    #[cfg(test)]
+    discography_requests: std::sync::Mutex<Vec<ApiRequest>>,
 }
 
 impl Backend {
+    /// Starts the backend's runtime and player engine, and returns the handle
+    /// the app sends its requests through.
     pub fn spawn(
         dirs: AppDirs,
         engine_config: EngineConfig,
@@ -1328,6 +1380,8 @@ impl Backend {
             home_cache_stores: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             top_tracks_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            discography_requests: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -1412,7 +1466,21 @@ impl Backend {
         });
     }
 
+    /// Sends a Web API request to the runtime. Tests also record the requests
+    /// they check.
     pub fn api(&self, request: ApiRequest) {
+        #[cfg(test)]
+        if matches!(
+            request,
+            ApiRequest::DiscographyAlbums { .. }
+                | ApiRequest::DiscographyTracks { .. }
+                | ApiRequest::DiscographySongs { .. }
+        ) {
+            self.discography_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(request.clone());
+        }
         #[cfg(test)]
         if matches!(
             request,
@@ -1605,6 +1673,18 @@ impl Backend {
         std::mem::take(
             &mut *self
                 .remote_play_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    /// Release lists, song lists and session batches the discography page
+    /// asked for.
+    #[cfg(test)]
+    pub fn take_discography_requests(&self) -> Vec<ApiRequest> {
+        std::mem::take(
+            &mut *self
+                .discography_requests
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
@@ -5152,6 +5232,9 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         | ApiRequest::Album { .. }
         | ApiRequest::AlbumTracks { .. }
         | ApiRequest::AlbumQueueTracks { .. }
+        | ApiRequest::DiscographyAlbums { .. }
+        | ApiRequest::DiscographyTracks { .. }
+        | ApiRequest::DiscographySongs { .. }
         | ApiRequest::Show { .. }
         | ApiRequest::ShowEpisodes { .. }
         | ApiRequest::HomeEpisodes { .. }
@@ -5379,6 +5462,82 @@ async fn read_new_release_tracks(
     }
 }
 
+/// A batch of a discography page's songs over the playback session, by
+/// release in the order asked; `None` when no playback session of this
+/// account could read them, so the page asks the Web API.
+async fn read_discography_songs(
+    engine: Option<&Engine>,
+    albums: &[Album],
+) -> Option<Vec<(String, Vec<Track>)>> {
+    let Some(engine) = engine else {
+        log::debug!("no playback session for discography songs; the page asks the Web API");
+        return None;
+    };
+    session_songs(
+        albums,
+        session_reads::album_tracks(engine.session(), albums),
+    )
+    .await
+}
+
+/// The session's answer for a discography batch, given up after
+/// [`DISCOGRAPHY_SESSION_TIMEOUT`]. Separate from the read so tests need no
+/// session.
+async fn session_songs(
+    albums: &[Album],
+    read: impl std::future::Future<Output = Result<Vec<Track>, session_reads::Failure>>,
+) -> Option<Vec<(String, Vec<Track>)>> {
+    match tokio::time::timeout(DISCOGRAPHY_SESSION_TIMEOUT, read).await {
+        Ok(Ok(tracks)) => {
+            log::debug!(
+                "Spotify route operation=DiscographySongs source=session releases={}",
+                albums.len()
+            );
+            Some(release_songs(albums, tracks))
+        }
+        // A refusal of the whole batch speaks for no release in particular:
+        // each release's own Web API answer decides. album_tracks gives none
+        // today.
+        Ok(Err(session_reads::Failure::Definitive(error))) => {
+            log::debug!(
+                "discography songs session read refused: {error}; the page asks the Web API"
+            );
+            None
+        }
+        Ok(Err(session_reads::Failure::Retry(error))) => {
+            log::debug!(
+                "discography songs session read failed: {error:#}; the page asks the Web API"
+            );
+            None
+        }
+        Err(_) => {
+            log::debug!("discography songs session read timed out; the page asks the Web API");
+            None
+        }
+    }
+}
+
+/// The songs `album_tracks` read, back under the releases they belong to:
+/// one list per release in the order asked, empty for a release with none.
+/// It gives each song the album it was asked with.
+fn release_songs(albums: &[Album], tracks: Vec<Track>) -> Vec<(String, Vec<Track>)> {
+    let mut by_release: HashMap<String, Vec<Track>> = HashMap::new();
+    for track in tracks {
+        if let Some(id) = track.album.as_ref().map(|album| album.id.clone()) {
+            by_release.entry(id).or_default().push(track);
+        }
+    }
+    albums
+        .iter()
+        .map(|album| {
+            (
+                album.id.clone(),
+                by_release.remove(&album.id).unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
 /// The playback session of the signed-in account, for what only it can do.
 fn playback_session<'a>(
     api: &ApiGateway,
@@ -5536,6 +5695,24 @@ async fn handle(
             expired,
         );
     }
+    if let ApiRequest::DiscographySongs {
+        artist_id,
+        albums,
+        batch,
+        generation,
+    } = request
+    {
+        let songs = read_discography_songs(session_engine, &albums).await;
+        return (
+            ApiResponse::DiscographySongs {
+                artist_id,
+                batch,
+                generation,
+                songs,
+            },
+            Vec::new(),
+        );
+    }
     if let ApiRequest::HiddenSongs { generation } = request {
         let result = match playback_session(api, engine) {
             Ok(session) => {
@@ -5685,6 +5862,7 @@ async fn handle(
         ApiRequest::MadeForYou { .. }
         | ApiRequest::NewReleases { .. }
         | ApiRequest::NewReleaseTracks { .. }
+        | ApiRequest::DiscographySongs { .. }
         | ApiRequest::HiddenSongs { .. }
         | ApiRequest::SetHiddenInPlaylist { .. } => unreachable!("handled before Web API routing"),
         ApiRequest::MyPlaylists { offset, generation } => ApiResponse::MyPlaylists {
@@ -5936,6 +6114,30 @@ async fn handle(
             result: routed!(album_tracks(&id, offset, 50)),
             offset,
             request,
+        },
+        ApiRequest::DiscographyAlbums {
+            artist_id,
+            groups,
+            offset,
+            generation,
+        } => ApiResponse::DiscographyAlbums {
+            result: routed!(artist_albums(&artist_id, &groups, offset, 50)),
+            artist_id,
+            groups,
+            offset,
+            generation,
+        },
+        ApiRequest::DiscographyTracks {
+            artist_id,
+            album_id,
+            offset,
+            generation,
+        } => ApiResponse::DiscographyTracks {
+            result: routed!(album_tracks(&album_id, offset, 50)),
+            artist_id,
+            album_id,
+            offset,
+            generation,
         },
         ApiRequest::Show { id } => ApiResponse::Show {
             result: routed!(show(&id)),
@@ -6244,6 +6446,13 @@ fn same_account(username: &str, account: Option<&AccountId>) -> bool {
 /// what the Web API's own requests get. A stalled line otherwise waits on
 /// the operating system, which is far longer than a page should spin.
 const SESSION_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long the playback session may take over a batch of a discography's
+/// songs before the page reads them from the Web API: under the ten seconds
+/// a waiting play goes without a new song list before it starts with what
+/// it has, so the hand-over comes first. librespot waits out short rate
+/// limits and retries server errors on its own, with no time limit.
+pub(crate) const DISCOGRAPHY_SESSION_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Whether the playlist library is read from the playback session's
 /// rootlist: when the shared app, which lists it with every field, cannot
@@ -9955,6 +10164,91 @@ mod cover_routing_tests {
             Operation::PlaylistMutation(PlaylistAccess::Collaborative)
         );
     }
+
+    /// The discography's Web API reads take the catalogue routing, as reads the
+    /// user waits for, never as background work.
+    #[test]
+    fn discography_reads_are_catalogue_reads_the_user_waits_for() {
+        let api = ApiGateway::new(
+            reqwest::Client::new(),
+            std::sync::Arc::new(NetActivity::default()),
+        );
+        api.install(ApiSource::Shared, AccountId::new("me"))
+            .unwrap();
+        for request in [
+            ApiRequest::DiscographyAlbums {
+                artist_id: "art".into(),
+                groups: "album,single,compilation".into(),
+                offset: 0,
+                generation: 1,
+            },
+            ApiRequest::DiscographyTracks {
+                artist_id: "art".into(),
+                album_id: "alb".into(),
+                offset: 50,
+                generation: 1,
+            },
+            ApiRequest::DiscographySongs {
+                artist_id: "art".into(),
+                albums: Vec::new(),
+                batch: 1,
+                generation: 1,
+            },
+        ] {
+            // Like the artist and album pages' own reads: the personal app
+            // when it is ready, else the shared one, and never held back as
+            // background work. A session batch never reaches that routing,
+            // but the user waits for it all the same.
+            assert_eq!(operation_for(&api, &request), Operation::Catalog);
+            assert!(!request.background());
+        }
+    }
+
+    /// Without a playback session of this account a discography batch is
+    /// answered at once, so the page asks the Web API, even while the
+    /// background session reads hold every permit.
+    #[tokio::test]
+    async fn without_a_playback_session_a_discography_batch_is_answered_at_once() {
+        let api = ApiGateway::new(reqwest::Client::new(), Arc::new(NetActivity::default()));
+        let background_session = tokio::sync::Semaphore::new(4);
+        let _held_session = background_session.acquire_many(4).await.unwrap();
+        let (response, expired) = tokio::time::timeout(
+            Duration::from_secs(1),
+            handle(
+                &api,
+                &crate::made_for_you::MadeForYou::new(crate::http::Http::default()),
+                &crate::new_releases::NewReleases::new(crate::http::Http::default()),
+                &crate::sonos::Controller::default(),
+                None,
+                &background_session,
+                ApiRequest::DiscographySongs {
+                    artist_id: "art".into(),
+                    albums: vec![Album {
+                        id: "alb".into(),
+                        uri: "spotify:album:alb".into(),
+                        ..Album::default()
+                    }],
+                    batch: 2,
+                    generation: 3,
+                },
+            ),
+        )
+        .await
+        .expect("a batch with no session must not wait");
+        assert!(
+            matches!(
+                &response,
+                ApiResponse::DiscographySongs {
+                    artist_id,
+                    batch: 2,
+                    generation: 3,
+                    songs: None,
+                } if artist_id == "art"
+            ),
+            "{response:?}"
+        );
+        assert!(expired.is_empty());
+    }
 }
 
 #[cfg(test)]
@@ -10035,6 +10329,101 @@ mod tests {
             .unwrap();
         assert_eq!(crate::lyrics::cached(&none), None, "and gone in a week");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn release_song(id: &str, album_id: &str) -> Track {
+        Track {
+            id: Some(id.into()),
+            uri: format!("spotify:track:{id}"),
+            album: Some(Album {
+                id: album_id.into(),
+                ..Album::default()
+            }),
+            ..Track::default()
+        }
+    }
+
+    fn release_stub(id: &str) -> Album {
+        Album {
+            id: id.into(),
+            uri: format!("spotify:album:{id}"),
+            ..Album::default()
+        }
+    }
+
+    fn song_ids(lists: &[(String, Vec<Track>)]) -> Vec<(&str, Vec<&str>)> {
+        lists
+            .iter()
+            .map(|(album, songs)| {
+                (
+                    album.as_str(),
+                    songs
+                        .iter()
+                        .map(|song| song.id.as_deref().unwrap_or_default())
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// The songs a session batch reads go back under their releases, one
+    /// list per release in the order asked, an empty one for a release
+    /// with none; a song of a release not asked for is dropped.
+    #[test]
+    fn discography_songs_are_grouped_by_release_in_the_order_asked() {
+        let albums = [release_stub("c"), release_stub("b"), release_stub("a")];
+        let lists = release_songs(
+            &albums,
+            vec![
+                release_song("c1", "c"),
+                release_song("a1", "a"),
+                release_song("c2", "c"),
+                release_song("x", "zz"),
+            ],
+        );
+        assert_eq!(
+            song_ids(&lists),
+            [("c", vec!["c1", "c2"]), ("b", vec![]), ("a", vec!["a1"])]
+        );
+    }
+
+    /// A batch the session refuses, fails or takes too long over is left
+    /// to the Web API; one it reads is answered by release.
+    #[tokio::test(start_paused = true)]
+    async fn a_discography_batch_the_session_cannot_read_in_time_is_left_to_the_web_api() {
+        let albums = [release_stub("c")];
+        assert!(
+            session_songs(&albums, async {
+                Err(crate::session_reads::Failure::Retry(anyhow::anyhow!(
+                    "connection reset"
+                )))
+            })
+            .await
+            .is_none()
+        );
+        assert!(
+            session_songs(&albums, async {
+                Err(crate::session_reads::Failure::Definitive(
+                    ApiError::Status {
+                        status: 404,
+                        message: "Not found".into(),
+                    },
+                ))
+            })
+            .await
+            .is_none()
+        );
+        let started = tokio::time::Instant::now();
+        assert!(
+            session_songs(&albums, std::future::pending())
+                .await
+                .is_none()
+        );
+        assert_eq!(started.elapsed(), DISCOGRAPHY_SESSION_TIMEOUT);
+        let read = session_songs(&albums, async { Ok(vec![release_song("c1", "c")]) })
+            .await
+            .expect("the session's songs");
+        assert_eq!(song_ids(&read), [("c", vec!["c1"])]);
     }
 
     /// Avoids shared playlist search after a successful session read.

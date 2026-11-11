@@ -801,6 +801,36 @@ The browser's **Open in app** action uses the registered `spotify:` handler.
 Pasting an HTTPS address into the browser opens Spotify's website; Spotifast
 does not take over HTTP or HTTPS associations.
 
+## An artist's discography
+
+**Show all**, beside the filters under an artist's **Discography**, opens a
+page with every release of that kind, each with its songs. It opens on the
+filter the artist page showed; the menu at the top switches between
+**All**, **Albums**, **Singles & EPs**, and **Appears On**. Releases are listed
+newest first, and the clock button turns the order round to oldest first.
+Every version of a release is listed, including clean and explicit editions
+of the same album.
+
+Double-click a song, or click its number, to play the page from that song to
+the last song of the last release shown. **Next up** follows the page: the
+rest of that release, then each release below it, songs in album order. A
+release's play button does the same from its first song; while one of its
+songs is the current song, playing or paused, the button pauses or resumes it
+instead. Unavailable songs and local files are left out, and one play holds
+at most 500 songs. If the songs
+below the one you chose are still loading, the song shows as starting and
+the play waits for them; **Pause** cancels it. Until a release's own songs
+arrive there is no song to show yet, so the player bar keeps the song from
+before, and **Play** or **Pause** there cancels the release and acts on that
+song. **Play** in a release's **…** menu plays only that release.
+
+Songs on this page have their usual menu, liked hearts, and drag and drop.
+Tab moves between songs; the arrow-key and selection shortcuts of playlist
+tables are not offered here. The page has no **Plays** column: a release's
+play counts show on its own album page (see [Play counts](#play-counts)).
+Spotify gives other apps no downloads, so the page has none (see
+[What Spotify allows](/what-spotify-allows/)).
+
 ## Playlist covers
 
 **In development, not included in 0.8.0:** open a playlist you own and choose

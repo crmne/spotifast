@@ -51,6 +51,50 @@ Liked Songs view
 plays its matching songs in displayed order, including duplicates. An empty or entirely
 unplayable view disables Play instead of starting the unfiltered context.
 
+An artist's discography page, opened with **Show all**, plays the page
+itself. A double-clicked song, or a release's play button, plays the releases
+from that one to the end of the page in the order shown, newest or oldest
+first, with each release's songs in album order and unavailable songs and
+local files left out. A song read over the playback session carries no
+availability flag, so if it cannot play it is skipped when reached instead.
+**Next up** is that list. While one of a release's songs is the current song,
+its play button pauses and resumes that song where it is, as the player bar
+does, instead of starting the release over. The page's list is not kept
+when Spotifast closes, so after a restart that song resumes
+without the rest of the page. A song on
+two releases starts from the copy that was chosen. The list begins with the chosen release's
+first song, so **Previous** steps back within it, and Shuffle and Repeat keep
+to the releases from the chosen one on. When the songs after the chosen one
+have not all loaded, the play waits for them and shows the chosen song as
+playing; Pause, Next, Previous, a queue row, another device or another play
+cancels the wait, and a seek meanwhile moves where the chosen song will
+start. A play chosen while a sleeping speaker wakes is meant for that
+speaker: it keeps waiting when the speaker appears and starts there. Until
+the chosen release's own songs arrive there is no song to show yet, so the
+player bar keeps the song from before, and Play or Pause there cancels the
+wait and acts on that song. What was playing goes on during the wait. If it
+comes within two seconds of its end, if the songs stop arriving for ten
+seconds once the chosen release is in, or after thirty seconds in all, or if
+a Web API read stops the song lists (a rate limit, an exhausted quota, an
+expired sign-in, a network failure or a Spotify server error), the play
+starts with the songs that came, up to the first release that did not, and
+says the queue ends early. Starting before the old song ends keeps it from
+moving on to its next
+song, perhaps one of yours under **Playing next**, which the play would then
+cut off, so the play starts then even if the chosen release's own songs have
+not come. A song on Repeat one starts over instead, and the wait goes on.
+Offline the page's songs and release
+buttons cannot be used, as in other lists of songs. If the chosen release's own songs
+never arrive, that release plays on its own, as Spotify knows it, and the
+play says the queue ends early when that leaves out later releases with
+songs. Once Spotify cannot list the chosen release's songs, this happens at
+once rather than after the wait. A play holds
+at most 500 songs, counted from the chosen release's first song; a song chosen
+further down than that starts the 500 from itself. Like other lists of songs,
+it shows no **Playing from** line. The tests in `src/app/discography.rs`, and
+the discography tests in `src/demo.rs` for the page's buttons, check these
+rules.
+
 Since 0.9.0, starting another song on this computer keeps the
 selected Repeat mode, with Shuffle on or off. Loading a playlist no longer
 silently disables repeat in the playback engine.

@@ -230,6 +230,19 @@ pub struct NowPlaying {
     pub resuming: bool,
 }
 
+impl NowPlaying {
+    /// A preview names the song; the device playing now, and what it
+    /// allows, come from the live state.
+    fn take_device_from(&mut self, live: NowPlaying) {
+        self.device_name = live.device_name;
+        self.device_kind = live.device_kind;
+        self.repeat = live.repeat;
+        self.volume_percent = live.volume_percent;
+        self.can_control = live.can_control;
+        self.can_set_volume = live.can_set_volume;
+    }
+}
+
 /// What Soloist's state does to the window: see `App::soloist_view`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SoloistView {
@@ -250,6 +263,32 @@ struct PendingAlbumQueue {
     target: Target,
     offset: u32,
     tracks: Vec<Track>,
+}
+
+/// A play from the discography page waiting for the song lists it needs.
+/// The page shows the song as starting meanwhile.
+#[derive(Clone, Debug)]
+struct PendingDiscographyPlay {
+    artist_id: String,
+    /// The releases from the clicked one to the end of the page, in the
+    /// order shown at the click: the play follows what was on screen even if
+    /// the filter or the order changes while it waits.
+    releases: Vec<String>,
+    start: Option<(u32, String)>,
+    generation: u64,
+    /// The song shown as starting, once known, and the keys whose spinners
+    /// turn. The play holds them itself, so reports about the song still
+    /// playing cannot take them away while it waits.
+    shown: Option<String>,
+    keys: Vec<String>,
+    clicked: Instant,
+    /// When a song list last arrived for the page: a wait that keeps
+    /// moving is not cut short.
+    progress: Instant,
+    /// Where the shown song starts: a seek while the play waits moves it.
+    position_ms: u32,
+    /// The woken speaker the play was kept waiting for: it starts there.
+    device: Option<String>,
 }
 
 struct PendingQueueAdd {
@@ -389,6 +428,10 @@ pub struct App {
     /// from. Finding the file touches the disk and the controls are synced
     /// every frame, so the answer is kept until the artwork changes.
     media_art: Option<(String, PathBuf)>,
+    /// The position the media controls show jumped in a way an update
+    /// cannot carry, as they take a new position only with a new song or
+    /// playback state. The next sync sends where the song now is as a jump.
+    media_seek: bool,
     tray: Option<fastframe_tray::Tray>,
     /// A hidden start's deadline for a panel to show the tray item: a start
     /// at login can beat the desktop's tray host, and without one by then
@@ -547,6 +590,10 @@ pub struct App {
     /// can stop playback before the receiver is ready, so the transfer after
     /// it plays if music played then or plays now.
     activating_play: bool,
+    /// When the receiver being handed the account was chosen. It goes along
+    /// to `pending_transfer_to` once that receiver is ready, so a receiver
+    /// chosen after it cannot change when it was chosen.
+    activating_since: Option<Instant>,
     pub devices_loading: bool,
     /// This computer's audio outputs, listed when the device picker asks.
     pub output_devices: Loadable<Vec<fastframe_audio::DeviceInfo>>,
@@ -599,6 +646,8 @@ pub struct App {
     pub artist_pages: HashMap<String, ArtistPage>,
     /// Never reset on page eviction or account reset, so old replies cannot match.
     artist_top_tracks_generation: u64,
+    /// Discography pages by the artist's id.
+    pub discography_pages: HashMap<String, DiscographyPage>,
     pub show_pages: HashMap<String, ShowPage>,
     /// Radio pages by the seed's URI.
     pub radio_pages: HashMap<String, RadioPage>,
@@ -707,11 +756,19 @@ pub struct App {
     /// A play request made while the local engine was still connecting; it
     /// starts the moment the engine reports ready.
     queued_play: Option<PlayRequest>,
+    /// The device the next play started goes to, rather than where
+    /// `target` points; set just before that start. A discography play kept
+    /// for a woken speaker starts there, though the player here holds the
+    /// song from before until Spotify's handoff stops it.
+    start_on: Option<String>,
     /// Last list sent to local playback. Used for autoplay because librespot
     /// cannot continue a list without a context URI.
     local_list: Option<Vec<String>>,
-    /// Activated receiver waiting to appear in Spotify's device list.
-    pending_transfer_to: Option<(String, Instant)>,
+    /// Activated receiver waiting to appear in Spotify's device list, since
+    /// when, and when it was chosen. A discography play clicked before the
+    /// choice is left behind by the switch to it; one clicked since is meant
+    /// for the receiver and waits on.
+    pending_transfer_to: Option<(String, Instant, Option<Instant>)>,
     /// When to take a confirming look at remote playback after a command.
     remote_recheck_at: Option<Instant>,
     /// When Spotify pushed a change to another device that no poll since
@@ -864,6 +921,11 @@ pub struct App {
     /// Queue additions shown before Spotify confirms them, with request time.
     pending_queue_adds: Vec<PendingQueueAdd>,
     pending_album_queues: HashMap<u64, PendingAlbumQueue>,
+    pending_discography_play: Option<PendingDiscographyPlay>,
+    /// When the playback session last could not read a batch of discography
+    /// songs. The pages then read them from the Web API, until local
+    /// playback is next ready or `SESSION_SONGS_AGAIN_AFTER` has passed.
+    discography_session_failed_at: Option<Instant>,
     pending_queue_batches: HashMap<u64, Target>,
     album_queue_serial: u64,
     /// The latest `play-search` command. Its answer plays only while this
@@ -1122,6 +1184,8 @@ fn link_recording(
 }
 
 impl App {
+    /// Builds the app from the saved settings and the start-up options, and
+    /// starts the backend that does its network and playback work.
     pub fn new(waker: &Waker, dirs: AppDirs, mut settings: Settings, options: AppOptions) -> Self {
         let milkdrop_backdrop = settings.lyrics_milkdrop;
         // The legacy password file has no endpoint of its own. Keep the old
@@ -1234,6 +1298,7 @@ impl App {
             #[cfg(target_os = "linux")]
             system_appearance,
             media_art: None,
+            media_seek: false,
             tray,
             tray_wait: None,
             autostart: None,
@@ -1310,6 +1375,7 @@ impl App {
             device_history: session.device_history.clone(),
             activating_receiver: None,
             activating_play: false,
+            activating_since: None,
             devices_loading: false,
             output_devices: Loadable::NotLoaded,
             devices_fetched_at: None,
@@ -1362,6 +1428,7 @@ impl App {
             album_pages: HashMap::new(),
             artist_pages: HashMap::new(),
             artist_top_tracks_generation: 0,
+            discography_pages: HashMap::new(),
             show_pages: HashMap::new(),
             radio_pages: HashMap::new(),
             hidden_songs: HashMap::new(),
@@ -1422,6 +1489,7 @@ impl App {
             pending_play_keys: Vec::new(),
             pending_play_at: None,
             queued_play: None,
+            start_on: None,
             local_list: None,
             pending_transfer_to: None,
             remote_recheck_at: None,
@@ -1503,6 +1571,8 @@ impl App {
             manual_queue: Vec::new(),
             pending_queue_adds: Vec::new(),
             pending_album_queues: HashMap::new(),
+            pending_discography_play: None,
+            discography_session_failed_at: None,
             pending_queue_batches: HashMap::new(),
             album_queue_serial: 0,
             play_search_serial: 0,
@@ -2059,6 +2129,23 @@ impl App {
 
     /// Context shown as playing, including pending local play requests.
     pub fn playing_context_uri(&self) -> Option<String> {
+        // A discography play shows its song before it starts, and starts as
+        // a plain list without a context: nothing else is lit as playing
+        // meanwhile.
+        if self
+            .pending_discography_play
+            .as_ref()
+            .is_some_and(|play| play.shown.is_some())
+        {
+            return None;
+        }
+        self.live_context_uri()
+    }
+
+    /// The context of what plays now, as `playing_context_uri` names it
+    /// before a waiting discography play hides it. The song that plays
+    /// meanwhile comes from it, so its resume point does too.
+    fn live_context_uri(&self) -> Option<String> {
         let remote = self
             .remote
             .as_ref()
@@ -2098,6 +2185,13 @@ impl App {
 
     /// Track shown as current, including a recent unconfirmed play request.
     pub fn current_track_uri(&self) -> Option<String> {
+        if let Some(uri) = self
+            .pending_discography_play
+            .as_ref()
+            .and_then(|play| play.shown.clone())
+        {
+            return Some(uri);
+        }
         if let Some(intent) = &self.intent_track
             && (intent.at.elapsed() < PLAYBACK_HOLD || self.queued_play.is_some())
         {
@@ -2125,7 +2219,18 @@ impl App {
         {
             return false;
         }
-        let Some(played) = self.played_row.as_ref().filter(|played| played.uri == uri) else {
+        // A discography play waiting to start this song chose none of its
+        // copies, so every one shows it at the click; the remembered row
+        // is kept for a wait that ends in nothing.
+        let waiting = self
+            .pending_discography_play
+            .as_ref()
+            .and_then(|play| play.shown.as_deref());
+        let Some(played) = self
+            .played_row
+            .as_ref()
+            .filter(|played| played.uri == uri && waiting != Some(uri))
+        else {
             return true;
         };
         let applies = match context {
@@ -2145,7 +2250,7 @@ impl App {
                         .get(played.index as usize)
                         .is_some_and(|held| held == uri)
             }
-            RowContext::Uris(_) | RowContext::Queue => false,
+            RowContext::Uris(_) | RowContext::Queue | RowContext::Discography { .. } => false,
         };
         !applies || played.index as usize == index
     }
@@ -2214,7 +2319,13 @@ impl App {
     /// Shows a user-requested track until the responsible playback surface
     /// has had a chance to report what really started.
     fn expect_track(&mut self, uri: String, position_ms: u32) {
-        let confirmation = match self.target() {
+        let target = self.target();
+        self.expect_track_on(uri, position_ms, &target);
+    }
+
+    /// As [`Self::expect_track`], for a song asked of `target`.
+    fn expect_track_on(&mut self, uri: String, position_ms: u32, target: &Target) {
+        let confirmation = match target {
             Target::Local => TrackConfirmation::Local,
             Target::Remote(_) => TrackConfirmation::Remote {
                 after_poll: self.remote_poll_seq,
@@ -2345,6 +2456,13 @@ impl App {
     /// Keep the player bar on the same requested song as the playlist marker
     /// while the responsible playback surface catches up.
     fn requested_track_preview(&self) -> Option<NowPlaying> {
+        if let Some((uri, position_ms)) = self
+            .pending_discography_play
+            .as_ref()
+            .and_then(|play| Some((play.shown.as_deref()?, play.position_ms)))
+        {
+            return self.waiting_track_preview(uri, position_ms);
+        }
         let intent = self.intent_track.as_ref()?;
         if intent.at.elapsed() >= PLAYBACK_HOLD && self.queued_play.is_none() {
             return None;
@@ -2359,12 +2477,7 @@ impl App {
         now.loading = true;
         now.resuming = false;
         if let Some(actual) = actual {
-            now.device_name = actual.device_name;
-            now.device_kind = actual.device_kind;
-            now.repeat = actual.repeat;
-            now.volume_percent = actual.volume_percent;
-            now.can_control = actual.can_control;
-            now.can_set_volume = actual.can_set_volume;
+            now.take_device_from(actual);
         }
         Some(now)
     }
@@ -2583,6 +2696,27 @@ impl App {
     /// The play request for `key` (a context or track URI) is still waiting
     /// for Spotify to react.
     pub fn play_pending(&self, key: &str) -> bool {
+        self.pending_discography_play
+            .as_ref()
+            .is_some_and(|play| play.keys.iter().any(|k| k == key))
+            || self.request_pending(key)
+    }
+
+    /// Whether a row holding `uri` in `context` shows its song starting.
+    /// A queue row is a place in the queue: a discography play waiting for
+    /// its songs takes no queue row, so a queued copy of its song is an
+    /// ordinary row and only Now playing spins. A play sent to Spotify,
+    /// one started from a queue row among them, still marks its rows until
+    /// Spotify answers.
+    pub fn row_play_pending(&self, context: &RowContext, uri: &str) -> bool {
+        match context {
+            RowContext::Queue => self.request_pending(uri),
+            _ => self.play_pending(uri),
+        }
+    }
+
+    /// The play request sent for `key` is still waiting for Spotify.
+    fn request_pending(&self, key: &str) -> bool {
         self.pending_fresh() && self.pending_play_keys.iter().any(|k| k == key)
     }
 
@@ -2713,6 +2847,9 @@ impl App {
             })
     }
 
+    /// An album the app already holds from another answer: the library, Home's
+    /// new releases, search results, a discography, liked songs, or a playlist
+    /// or artist page. A page can show it before its own answer arrives.
     pub fn known_album(&self, id: &str) -> Option<&Album> {
         self.library
             .albums
@@ -2770,6 +2907,7 @@ impl App {
                         .find_map(|albums| albums.items.iter().find(|album| album.id == id))
                 })
             })
+            .or_else(|| self.known_discography_release(id))
             .or_else(|| {
                 [
                     &self.home.top_tracks,
@@ -2860,6 +2998,7 @@ impl App {
         self.handle_backend_events(events);
     }
 
+    /// Applies the events the backend has sent since the last frame.
     fn handle_backend_events(&mut self, events: Vec<Event>) {
         for event in events {
             // Offline, as in demo mode, disk-only audio clearing, colours
@@ -2988,7 +3127,8 @@ impl App {
                                 gettext(self.locale, "{name} is ready").replace("{name}", &name),
                             );
                             // It takes a moment to appear in the device list.
-                            self.pending_transfer_to = Some((name, Instant::now()));
+                            self.pending_transfer_to =
+                                Some((name, Instant::now(), self.activating_since));
                             self.devices_fetched_at = None;
                             self.refresh_devices();
                         }
@@ -3237,6 +3377,8 @@ impl App {
         }
     }
 
+    /// Applies an update from Soloist: a new status, audio becoming available
+    /// or not, a change on its player, or news of its renewal.
     fn on_soloist(&mut self, update: crate::soloist::Update) {
         use crate::soloist::{Status, Update};
         match update {
@@ -3251,7 +3393,7 @@ impl App {
                     // mid-song, and its song should carry on when it is back.
                     self.soloist_resume |= self.soloist_device_id.is_some()
                         && self.targets_own_soloist()
-                        && self.now_playing().is_some_and(|now| now.playing);
+                        && self.now_playing_heard().is_some_and(|now| now.playing);
                     self.soloist_audio = false;
                     self.clear_soloist_target();
                     self.backend.send(Command::SoloistDevice(None));
@@ -3334,6 +3476,10 @@ impl App {
         });
     }
 
+    /// Finds the paired Soloist player among the account's devices by its name
+    /// and makes it Soloist's device when exactly one matches. On first
+    /// binding, a play chosen while it was away, or the song it was playing,
+    /// moves to it.
     fn bind_soloist_device(&mut self) {
         let crate::soloist::Status::Ready { name, .. } = &self.soloist_status else {
             return;
@@ -3378,7 +3524,7 @@ impl App {
                 self.selected_device = Some(id);
                 self.replay_queued_play();
             } else if std::mem::take(&mut self.soloist_select) {
-                let play = resume || self.now_playing().is_some_and(|now| now.playing);
+                let play = resume || self.now_playing_heard().is_some_and(|now| now.playing);
                 self.transfer_remote(id, play);
             } else if resume {
                 self.transfer_remote(id, true);
@@ -3511,6 +3657,9 @@ impl App {
                         }
                     }
                 }
+                // A new playback session may read discography songs again
+                // at once.
+                self.discography_session_failed_at = None;
                 self.replay_queued_play();
             }
             LocalPlayback::Unavailable => {
@@ -3565,6 +3714,7 @@ impl App {
         }
     }
 
+    /// Reads again what the app could not read while the network was gone.
     fn on_network_restored(&mut self) {
         if !self.is_connected() {
             return;
@@ -3681,6 +3831,9 @@ impl App {
                     self.ensure_loaded(Page::Artist(id));
                 }
             }
+            // Asks only for what the page lacks, so a whole page asks for
+            // nothing.
+            Page::Discography(id) => self.resume_discography(&id),
             Page::Show(id) => {
                 let incomplete = match self.show_pages.get(&id) {
                     None => true,
@@ -3712,6 +3865,13 @@ impl App {
                 }
             }
             Page::Settings => {}
+        }
+        // A discography play goes on loading after its page is left, and
+        // nothing was asked for it offline: ask now, with a fresh stall clock.
+        if let Some(play) = self.pending_discography_play.as_mut() {
+            play.progress = Instant::now();
+            let artist_id = play.artist_id.clone();
+            self.pump_discography(&artist_id);
         }
     }
 
@@ -3775,6 +3935,9 @@ impl App {
         self.play_counts.clear();
         self.play_count_reads.clear();
         self.play_count_generation = self.play_count_generation.wrapping_add(1);
+        self.discography_pages.clear();
+        self.pending_discography_play = None;
+        self.discography_session_failed_at = None;
         self.show_pages.clear();
         self.album_types_requested.clear();
         self.audiobook_shows.clear();
@@ -4266,6 +4429,9 @@ impl App {
         }
     }
 
+    /// Follows a change in confirmed playback: the queue moves on and the saved
+    /// session follows. A song only shown while a command is pending changes
+    /// neither.
     fn on_now_playing_changed(&mut self) {
         // Queue consumption and saved session state follow confirmed playback,
         // not the song shown optimistically while a command is still pending.
@@ -4346,7 +4512,9 @@ impl App {
         if now.local {
             self.last_now_playing_sequence = self.local.track_sequence;
         }
-        self.resume_context = self.playing_context_uri();
+        // The song that changed is the live one, so its context is too,
+        // even while a waiting discography play lights none.
+        self.resume_context = self.live_context_uri();
         self.resume_track = Some(now.uri.clone());
         self.resume_position_ms = 0;
         if now.local
@@ -4485,6 +4653,8 @@ impl App {
         }
     }
 
+    /// The work due on every frame: retries, timeouts and waits that have come
+    /// due.
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
         self.retry_soloist_when_due(ctx);
@@ -4516,6 +4686,8 @@ impl App {
         })) {
             ctx.request_repaint_after(wait);
         }
+        self.settle_overdue_discography_play();
+        self.forget_lost_song_lists();
         let now = Instant::now();
         if self.winamp_level_reassert > 0 {
             self.winamp_level_reassert -= 1;
@@ -4540,11 +4712,13 @@ impl App {
         self.toasts
             .retain(|toast| toast.created.elapsed() < TOAST_LIFETIME);
         // The chosen row stays marked only while its song is the current
-        // one; a later return to that song may be another copy.
+        // one; a later return to that song may be another copy. A
+        // discography play's song, shown while the play waits, does not
+        // count until that play starts.
         if self
             .played_row
             .as_ref()
-            .is_some_and(|played| self.current_track_uri().as_ref() != Some(&played.uri))
+            .is_some_and(|played| self.started_track_uri().as_ref() != Some(&played.uri))
         {
             self.played_row = None;
         }
@@ -5843,6 +6017,8 @@ impl App {
         self.taskbar_hiding_supported || self.windows_controls_visible()
     }
 
+    /// Tells the desktop's media controls what is playing, with its cover art,
+    /// position and state.
     fn sync_media_controls(&mut self, ctx: &egui::Context) {
         let art_file = self
             .now_playing()
@@ -5891,8 +6067,15 @@ impl App {
                 ..MediaState::default()
             },
         };
+        // The jump is to where this update puts the song, so it never
+        // contradicts it: with a new song it only says the same again.
+        let seek = (std::mem::take(&mut self.media_seek) && state.track.is_some())
+            .then_some(state.position);
         if let Some(controls) = &mut self.media_controls {
             controls.update(state);
+            if let Some(position) = seek {
+                controls.seeked(position);
+            }
         }
         let playing = self.now_playing().is_some_and(|now| now.playing);
         if let Some(tray) = &mut self.tray
@@ -6369,6 +6552,8 @@ impl App {
             )));
     }
 
+    /// Asks for what a page needs, unless it is loaded or on its way. Nothing
+    /// is asked for before the session connects.
     pub fn ensure_loaded(&mut self, page: Page) {
         if !self.is_connected() {
             return;
@@ -6493,6 +6678,7 @@ impl App {
                     self.request_contains(vec![format!("spotify:artist:{id}")]);
                 }
             }
+            Page::Discography(id) => self.ensure_discography(&id),
             Page::Show(id) => {
                 let page = self.show_pages.entry(id.clone()).or_default();
                 if page.show.needs_load() && self.network_reachable {
@@ -7161,6 +7347,7 @@ impl App {
         });
     }
 
+    /// Reads a page's content from Spotify again, as a refresh does.
     fn reload(&mut self, page: Page) {
         match &page {
             Page::Home => self.load_home(true),
@@ -7230,6 +7417,7 @@ impl App {
                     self.play_count_reads.remove(&uri);
                 }
             }
+            Page::Discography(id) => self.reload_discography(id),
             Page::Show(id) => {
                 // Refresh keeps the podcast and its episodes on screen; the
                 // new episode list replaces them when it arrives.
@@ -7310,6 +7498,7 @@ impl App {
     /// context away, and left Spotify's copy of the queue to reappear.
     fn play_queue_item(&mut self, index: usize, uri: String) {
         self.resume_load = None;
+        self.abandon_discography_play();
         if self.resume_only() {
             // Nothing is playing anywhere, so there is no live queue to
             // consume: play the shown rows as a plain list.
@@ -7537,15 +7726,41 @@ impl App {
         self.toast(gettext(self.locale, "Queue cleared"));
     }
 
+    /// The queue rows that follow the playing song into a saved playlist.
+    /// While a discography play waits with its song shown, the fetched
+    /// queue's Next up still belongs to the play before it, which the
+    /// waiting play replaces; only the songs queued under Playing next stay
+    /// ahead. Right after launch, the last session's Playing next comes
+    /// back only with the remembered song resuming here, so a play of any
+    /// other song leaves it out too.
+    pub fn saved_queue_rows(&self) -> &[PlayableItem] {
+        let rows = self
+            .queue
+            .get()
+            .map_or(&[][..], |queue| queue.queue.as_slice());
+        let Some(waiting) = self.waiting_discography_song() else {
+            return rows;
+        };
+        let manual = if self.manual_queue.is_empty()
+            && self.resume_only()
+            && self.resume_track.as_deref() == Some(waiting)
+            && matches!(self.target(), Target::Local)
+        {
+            &self.resume_queue
+        } else {
+            &self.manual_queue
+        };
+        &rows[..Self::end_of_queued_rows(rows, manual)]
+    }
+
     /// Current and upcoming track URIs, deduplicated in playback order.
     pub fn queue_playlist_uris(&self) -> Vec<String> {
         let mut seen = std::collections::HashSet::new();
         let mut uris = Vec::new();
-        let queued = self.queue.get();
         let rows = self.now_playing().map(|now| now.uri).into_iter().chain(
-            queued
+            self.saved_queue_rows()
                 .iter()
-                .flat_map(|queue| queue.queue.iter().map(|item| item.uri().to_string())),
+                .map(|item| item.uri().to_string()),
         );
         for uri in rows {
             if seen.insert(uri.clone()) {
@@ -8219,7 +8434,7 @@ impl App {
                         self.devices = devices;
                         self.bind_soloist_device();
                         self.control_devices_stale = true;
-                        if let Some((name, since)) = self.pending_transfer_to.clone() {
+                        if let Some((name, since, chosen)) = self.pending_transfer_to.clone() {
                             // The receiver's own id keeps another device of the
                             // same name from taking over. A rescan can drop the
                             // receiver; then the name has to do.
@@ -8243,8 +8458,24 @@ impl App {
                                 .and_then(|device| device.id.clone());
                             if let Some(id) = matching {
                                 self.pending_transfer_to = None;
+                                // Switching to it, though no Action asked for
+                                // the switch, still means the user moved on
+                                // from a play clicked before the receiver was
+                                // chosen. One clicked since is meant for the
+                                // receiver: it waits on and starts there,
+                                // whatever the player here still holds.
+                                match &mut self.pending_discography_play {
+                                    Some(play)
+                                        if chosen.is_some_and(|chosen| play.clicked >= chosen) =>
+                                    {
+                                        play.device = Some(id.clone());
+                                    }
+                                    _ => self.abandon_discography_play(),
+                                }
+                                // What moves across is what is heard, not the
+                                // song a waiting play only shows.
                                 let play = self.activating_play
-                                    || self.now_playing().is_some_and(|now| now.playing);
+                                    || self.now_playing_heard().is_some_and(|now| now.playing);
                                 self.transfer_remote(id, play);
                             } else if since.elapsed() > Duration::from_secs(20) {
                                 self.pending_transfer_to = None;
@@ -9545,6 +9776,9 @@ impl App {
                     if let Some(image) = pick_image(&artist.images, 64) {
                         self.tint_for(Some(image));
                     }
+                    if let Some(page) = self.discography_pages.get_mut(&id) {
+                        page.artist = Some(artist.clone());
+                    }
                     if self
                         .artist_pages
                         .get(&id)
@@ -9623,6 +9857,26 @@ impl App {
                     };
                 }
             }
+            ApiResponse::DiscographyAlbums {
+                artist_id,
+                groups,
+                offset,
+                generation,
+                result,
+            } => self.receive_discography_albums(artist_id, groups, offset, generation, result),
+            ApiResponse::DiscographyTracks {
+                artist_id,
+                album_id,
+                offset,
+                generation,
+                result,
+            } => self.receive_discography_tracks(artist_id, album_id, offset, generation, result),
+            ApiResponse::DiscographySongs {
+                artist_id,
+                batch,
+                generation,
+                songs,
+            } => self.receive_discography_songs(artist_id, batch, generation, songs),
             ApiResponse::Album { id, result } => {
                 // An earlier Web API header has no page generation. Once the
                 // session resolves a countdown page, its preview and playable
@@ -10183,6 +10437,7 @@ impl App {
         const MAX_PLAYLIST_PAGES: usize = 12;
         const MAX_ALBUM_PAGES: usize = 16;
         const MAX_ARTIST_PAGES: usize = 10;
+        const MAX_DISCOGRAPHY_PAGES: usize = 3;
         const MAX_SHOW_PAGES: usize = 8;
         const MAX_RADIO_PAGES: usize = 6;
         const MAX_TRACK_CACHE: usize = 800;
@@ -10195,6 +10450,10 @@ impl App {
         }
         let mut protected_albums = HashSet::new();
         let mut protected_artists = HashSet::new();
+        let mut protected_discographies = HashSet::new();
+        if let Some(play) = &self.pending_discography_play {
+            protected_discographies.insert(play.artist_id.clone());
+        }
         let mut protected_shows = HashSet::new();
         let mut protected_radios = HashSet::new();
         if let Some(seed) = self
@@ -10212,6 +10471,9 @@ impl App {
             }
             Page::Artist(id) => {
                 protected_artists.insert(id.clone());
+            }
+            Page::Discography(id) => {
+                protected_discographies.insert(id.clone());
             }
             Page::Show(id) => {
                 protected_shows.insert(id.clone());
@@ -10263,6 +10525,13 @@ impl App {
             MAX_ARTIST_PAGES,
         );
         evict_lru_map(
+            &mut self.discography_pages,
+            &self.page_used,
+            |id| Page::Discography(id.to_string()),
+            &protected_discographies,
+            MAX_DISCOGRAPHY_PAGES,
+        );
+        evict_lru_map(
             &mut self.show_pages,
             &self.page_used,
             |id| Page::Show(id.to_string()),
@@ -10280,6 +10549,7 @@ impl App {
             Page::Playlist(id) => self.playlist_pages.contains_key(id),
             Page::Album(id) => self.album_pages.contains_key(id),
             Page::Artist(id) => self.artist_pages.contains_key(id),
+            Page::Discography(id) => self.discography_pages.contains_key(id),
             Page::Show(id) => self.show_pages.contains_key(id),
             Page::Radio(seed) => self.radio_pages.contains_key(seed),
             _ => true,
@@ -10599,7 +10869,11 @@ impl App {
             && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
     }
 
+    /// Starts a play on the chosen target: this device, a Connect device or
+    /// Soloist. It is held while Soloist or a speaker is not ready yet.
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
+        // Taken first: a start dropped below must not steer the next play.
+        let start_on = self.start_on.take();
         if self.soloist_waiting() && !self.soloist_recovering() {
             self.clear_play_pending();
             return;
@@ -10608,6 +10882,12 @@ impl App {
         // starts first; otherwise choose a random starting track.
         let mut request = request;
         self.queue_shuffle_pending = None;
+        // Whatever plays now replaces a discography play still waiting.
+        self.abandon_discography_play();
+        let target = match start_on {
+            Some(device) => Target::Remote(Some(device)),
+            None => self.target(),
+        };
         if shuffle_first {
             self.shuffle_wanted = true;
             self.shuffle_set_at = Some(Instant::now());
@@ -10662,7 +10942,7 @@ impl App {
             if let Some(context) = &request.context_uri {
                 self.cache_track_from_context(context, &uri);
             }
-            self.expect_track(uri, request.position_ms);
+            self.expect_track_on(uri, request.position_ms, &target);
         } else {
             self.intent_track = None;
         }
@@ -10677,13 +10957,13 @@ impl App {
             shuffle: shuffle.then_some(true),
             at: Instant::now(),
         });
-        self.queue_start_pending = Some(self.target());
+        self.queue_start_pending = Some(target.clone());
         // Held for Soloist, never handed to the built-in player meanwhile.
         if self.soloist_waiting() {
             self.queued_play = Some(request);
             return;
         }
-        match self.target() {
+        match target {
             Target::Local if !self.local.connected => {
                 // Hold the request while the local engine reconnects.
                 self.queued_play = Some(request);
@@ -10711,15 +10991,7 @@ impl App {
                 // No remote device is active, and this computer's player is
                 // not coming. Never ask Spotify to play "nowhere": ask for a
                 // device.
-                self.queue_start_pending = None;
-                self.clear_play_pending();
-                self.queued_play = None;
-                self.toast(gettext(
-                    self.locale,
-                    "Choose a device, or enable playback on this computer",
-                ));
-                self.show_devices = true;
-                self.refresh_devices();
+                self.ask_for_device();
             }
             // With no id, the play names no device and goes to the one
             // playing, which a Sonos is.
@@ -10744,6 +11016,19 @@ impl App {
                 self.optimistic_playing = Some((true, Instant::now()));
             }
         }
+    }
+
+    /// Nowhere to play: drop what was starting and offer the devices.
+    fn ask_for_device(&mut self) {
+        self.queue_start_pending = None;
+        self.clear_play_pending();
+        self.queued_play = None;
+        self.toast(gettext(
+            self.locale,
+            "Choose a device, or enable playback on this computer",
+        ));
+        self.show_devices = true;
+        self.refresh_devices();
     }
 
     /// A playlist's disk cache has been read. Whether or not the page
@@ -11155,7 +11440,22 @@ impl App {
         }
     }
 
+    /// Moves the current song to a position. For a song a discography play
+    /// shows while it waits, or a remembered song with nothing playing, it
+    /// moves where that song will start.
     fn seek(&mut self, position_ms: u32) {
+        // Nor is there for the song a discography play shows while it waits:
+        // the seek moves where that song will start.
+        if let Some(play) = self
+            .pending_discography_play
+            .as_mut()
+            .filter(|play| play.shown.is_some())
+        {
+            play.position_ms = position_ms;
+            // The desktop's controls move with it at once.
+            self.media_seek = true;
+            return;
+        }
         // Dragging the bar under the remembered song moves the point a press
         // of play will resume from; there is no stream to seek yet.
         if self.now_playing_live().is_none() && self.resume_track.is_some() {
@@ -11459,6 +11759,8 @@ impl App {
         }
     }
 
+    /// Moves playback to another device. A discography play still waiting is
+    /// abandoned: the listener moved on.
     fn transfer(&mut self, device_id: String) {
         if self
             .pending_remote_volume
@@ -11467,6 +11769,8 @@ impl App {
         {
             self.pending_remote_volume = None;
         }
+        // Another device means the user moved on.
+        self.abandon_discography_play();
         if Some(device_id.as_str()) == self.local_device_id.as_deref() {
             self.selected_device = None;
             self.show_devices = false;
@@ -12579,6 +12883,31 @@ impl App {
         ) {
             self.supersede_play_search();
         }
+        if let Some(play) = &self.pending_discography_play {
+            let shown = play.shown.is_some();
+            match &action {
+                // Pause on a song still on its way stops it from starting,
+                // and stops whatever plays meanwhile instead of resuming it.
+                Action::TogglePlay if shown => {
+                    self.abandon_discography_play();
+                    if self.believed_playing() {
+                        self.toggle_play();
+                    }
+                    return;
+                }
+                // With no song from before either, the bar is empty and the
+                // release on its way is the only play Play can mean.
+                Action::TogglePlay if self.now_playing().is_none() => return,
+                // Next, Previous or another device mean the user moved on,
+                // and so does Play or Pause before the play has a song to
+                // show: the bar still shows the song from before, and the
+                // press is for that one.
+                Action::TogglePlay | Action::Next | Action::Previous | Action::Transfer(_) => {
+                    self.abandon_discography_play();
+                }
+                _ => {}
+            }
+        }
         match action {
             Action::Open(page) => self.open(page),
             Action::OpenSongRadio { uri, track } => self.open_song_radio(&uri, &track),
@@ -12713,6 +13042,10 @@ impl App {
                     self.play_request(request, false);
                 }
                 RowContext::Queue => self.play_queue_item(index as usize, uri),
+                RowContext::Discography {
+                    artist_id,
+                    album_id,
+                } => self.play_discography(artist_id, album_id, Some((index, uri))),
                 RowContext::View {
                     uris, context_uri, ..
                 } => {
@@ -13244,7 +13577,10 @@ impl App {
                         self.remember_device_choice(&key);
                     }
                     self.activating_receiver = Some(receiver.name.clone());
-                    self.activating_play = self.now_playing().is_some_and(|now| now.playing);
+                    self.activating_since = Some(Instant::now());
+                    // The speaker takes over what really plays, not the song
+                    // a waiting discography play only shows.
+                    self.activating_play = self.now_playing_heard().is_some_and(|now| now.playing);
                     self.backend.send(Command::ActivateReceiver(receiver));
                 }
             }
@@ -13368,6 +13704,30 @@ impl App {
                 }
                 self.load_artist_albums(&artist_id, filter);
             }
+            Action::OpenDiscography { artist_id, filter } => {
+                self.open_discography(artist_id, filter);
+            }
+            Action::SetDiscographyPageFilter { artist_id, filter } => {
+                self.set_discography_page_filter(&artist_id, filter);
+            }
+            Action::SetDiscographyOrder {
+                artist_id,
+                newest_first,
+            } => self.set_discography_order(&artist_id, newest_first),
+            Action::PlayDiscography {
+                artist_id,
+                album_id,
+                start,
+            } => self.play_discography(artist_id, album_id, start),
+            Action::RetryDiscography {
+                artist_id,
+                album_id,
+            } => self.retry_discography(&artist_id, album_id),
+            Action::DiscographyInView {
+                artist_id,
+                first,
+                last,
+            } => self.discography_in_view(&artist_id, first, last),
             Action::ToggleShowAllTop(id) => {
                 if let Some(page) = self.artist_pages.get_mut(&id) {
                     page.show_all_top = !page.show_all_top;
@@ -15004,7 +15364,14 @@ impl App {
     fn save_session(&mut self) {
         self.session_dirty = false;
         self.last_session_save = Instant::now();
-        if let Some(now) = self.now_playing() {
+        // A discography play shows its song before anything plays it. Until
+        // it starts, the resume point stays on what is loaded, so a wait
+        // cancelled with Pause leaves it where it was.
+        let waiting = self
+            .pending_discography_play
+            .as_ref()
+            .is_some_and(|play| play.shown.is_some());
+        if !waiting && let Some(now) = self.now_playing() {
             // A paused song from a sorted view has no context to report, but
             // its playlist is still what it plays from (#1013).
             let same_song = self.resume_track.as_deref() == Some(now.uri.as_str());
@@ -15597,6 +15964,7 @@ fn cover_error(locale: Locale, error: &crate::api::client::ApiError) -> String {
     }
 }
 
+mod discography;
 mod radio;
 
 #[cfg(test)]

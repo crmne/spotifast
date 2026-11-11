@@ -291,6 +291,59 @@ fn show(index: usize) -> Show {
     }
 }
 
+/// Show all for art0: the artist page's releases credited to the artist,
+/// albums with five songs and singles with one or two, every filter loaded
+/// since demo mode asks Spotify for nothing.
+fn discography() -> DiscographyPage {
+    let releases: Vec<Album> = (0..ALBUMS.len())
+        .map(|index| Album {
+            artists: vec![artist_ref(0)],
+            ..album(index)
+        })
+        .collect();
+    let mut discography = DiscographyPage::new(0, Some(artist(0)), DiscographyFilter::All);
+    for filter in DiscographyFilter::ALL {
+        let shown: Vec<Album> = releases
+            .iter()
+            .filter(|release| match filter {
+                DiscographyFilter::All => true,
+                DiscographyFilter::Albums => !release.is_single_release(),
+                DiscographyFilter::Singles => release.is_single_release(),
+                DiscographyFilter::Compilations | DiscographyFilter::AppearsOn => false,
+            })
+            .cloned()
+            .collect();
+        let mut list = PagedList::default();
+        list.absorb(0, page(shown));
+        discography
+            .releases
+            .insert(filter.groups().to_string(), list);
+    }
+    for (index, release) in releases.iter().enumerate() {
+        let count = if release.is_single_release() {
+            1 + index % 2
+        } else {
+            5
+        };
+        let songs = (0..count)
+            .map(|number| {
+                let mut song = track(index * 5 + number);
+                song.artists = vec![artist_ref(0)];
+                song.track_number = Some(number as u32 + 1);
+                song.album = Some(Album {
+                    tracks: None,
+                    ..release.clone()
+                });
+                song
+            })
+            .collect();
+        discography
+            .tracks
+            .insert(release.id.clone(), ReleaseTracks::Loaded(songs));
+    }
+    discography
+}
+
 fn page<T>(items: Vec<T>) -> ApiPage<T> {
     let total = items.len() as u32;
     ApiPage {
@@ -472,6 +525,7 @@ pub fn populate(app: &mut App) {
         .insert(DiscographyFilter::All.groups().to_string(), albums);
     app.artist_pages.insert("art0".into(), artist_page);
     app.saved.insert("spotify:artist:art0".into(), true);
+    app.discography_pages.insert("art0".into(), discography());
 
     // Play counts for the album's songs and the artist's popular ones.
     for (index, track) in tracks.iter().take(12).enumerate() {
@@ -1468,8 +1522,43 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     app.artist_pages.get_mut(&id).unwrap().artist = Loadable::Loading
                 }
                 Page::Show(id) => app.show_pages.get_mut(&id).unwrap().show = Loadable::Loading,
+                // The first two releases' songs still on their way.
+                Page::Discography(id) => {
+                    let page = app.discography_pages.get_mut(&id).unwrap();
+                    let loading: Vec<String> = page
+                        .ordered()
+                        .iter()
+                        .take(2)
+                        .map(|album| album.id.clone())
+                        .collect();
+                    for album in loading {
+                        page.tracks.insert(
+                            album,
+                            ReleaseTracks::Loading {
+                                songs: Vec::new(),
+                                next: 0,
+                                asked: Instant::now(),
+                            },
+                        );
+                    }
+                }
                 _ => {}
             },
+            // A release whose songs Spotify would not give.
+            "discography-failed" => {
+                let page = app.discography_pages.get_mut("art0").unwrap();
+                let first = page.ordered()[0].id.clone();
+                page.tracks.insert(
+                    first,
+                    ReleaseTracks::Failed("Spotify returned 404 Not Found".into()),
+                );
+            }
+            // Song lists stopped by a rate limit before any arrived.
+            "discography-halted" => {
+                let page = app.discography_pages.get_mut("art0").unwrap();
+                page.tracks.clear();
+                page.halted = Some(crate::api::ApiError::RateLimited.to_string());
+            }
             "lyrics-follow"
             | "lyrics-empty"
             | "lyrics-loading"
@@ -2306,6 +2395,473 @@ mod tests {
             repeat: false,
             modifiers,
         }
+    }
+
+    #[test]
+    fn show_all_opens_the_discography_on_the_chip_shown() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("show-all");
+        app.open(Page::Artist("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let show_all = accessible_node(&tree, "Show all", Role::Link);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(show_all, Action::Click, None)],
+        );
+        assert_eq!(app.page(), &Page::Discography("art0".into()));
+        assert_eq!(app.discography_pages["art0"].filter, DiscographyFilter::All);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn show_all_follows_the_chips_in_tab_order() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("show-all-order");
+        app.open(Page::Artist("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let last_chip = accessible_node(&tree, "Appears On", Role::Button);
+        let show_all = accessible_node(&tree, "Show all", Role::Link);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(last_chip, Action::Focus, None)],
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::Tab, egui::Modifiers::NONE)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(tree.focus, show_all, "Tab reads the row as it is laid out");
+        app.backend.shutdown();
+    }
+
+    /// While its release list loads, the page keeps its title above
+    /// skeleton rows, heard as Loading…, not a spinner row (#674).
+    #[test]
+    fn a_loading_discography_waits_in_skeleton_rows_below_its_title() {
+        fn discography(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::discography::show(app, ui, "art0");
+        }
+        let (ctx, mut app) = accessible_app("discography-loading");
+        let page = app.discography_pages.get_mut("art0").unwrap();
+        let groups = page.filter.groups().to_string();
+        page.releases.insert(
+            groups,
+            crate::model::PagedList {
+                loading: true,
+                ..Default::default()
+            },
+        );
+        let painted = view_frame(&ctx, &mut app, vec![], discography);
+        let title = painted.iter().find(|(text, _)| text == "Bonobo").unwrap().1;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 2200.0),
+                )),
+                ..Default::default()
+            },
+            |ui| discography(&mut app, ui),
+        );
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let loading = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Loading…") || node.value() == Some("Loading…"))
+            .and_then(|(_, node)| node.bounds())
+            .expect("a loading skeleton");
+        assert!(loading.y0 as f32 > title.bottom());
+        assert!(
+            !painted.iter().any(|(text, _)| text == "Loading…"),
+            "no spinner row"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn the_discography_page_names_its_controls_and_plays_from_a_song() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("discography");
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        // The filter announces itself and what it shows, not just "All".
+        let filter = accessible_node(&tree, "Filter", Role::ComboBox);
+        let filter = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == filter)
+            .map(|(_, node)| node.value().map(str::to_string));
+        assert_eq!(filter, Some(Some("All".into())));
+        accessible_node(&tree, "Newest first", Role::Button);
+        // Releases newest first: Fragments (2022) above Promises (2021).
+        let top = |label: &str| {
+            let id = accessible_node(&tree, label, Role::Link);
+            tree.nodes
+                .iter()
+                .find(|(node, _)| *node == id)
+                .and_then(|(_, node)| node.bounds())
+                .expect("a placed title")
+                .y0
+        };
+        assert!(top("Fragments") < top("Promises"));
+        app.backend.take_remote_play_requests();
+        let row = accessible_node(&tree, "Play Otomo, Bonobo", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(row, Action::Click, None)],
+        );
+        let requests = app.backend.take_remote_play_requests();
+        let Some(crate::backend::ApiRequest::Remote {
+            play: Some(request),
+            ..
+        }) = requests.first()
+        else {
+            panic!("a play request: {requests:?}");
+        };
+        // From the second song of the newest release to the last song of
+        // the oldest: every release's songs, the clicked one second.
+        assert_eq!(request.uris.len(), 34);
+        assert_eq!(
+            request.uris[..2],
+            ["spotify:track:trk0", "spotify:track:trk1"]
+        );
+        assert_eq!(request.offset_position, Some(1));
+        assert_eq!(
+            request.uris.last().map(String::as_str),
+            Some("spotify:track:trk36")
+        );
+        app.backend.shutdown();
+    }
+
+    /// The order button turns the releases round on the very next frame:
+    /// the order the page keeps from one frame to the next is let go.
+    #[test]
+    fn the_discography_order_turns_round_on_the_next_frame() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("discography-order");
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        // The page draws from the order it keeps, not a sort each frame.
+        assert!(app.discography_pages["art0"].order_kept());
+        let order = accessible_node(&tree, "Newest first", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(order, Action::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(app.discography_pages["art0"].order_kept());
+        accessible_node(&tree, "Oldest first", Role::Button);
+        // Oldest first: There Is Love in You (2010), last of the eight
+        // newest first, now heads the page above Immunity (2013).
+        let top = |label: &str| {
+            let id = accessible_node(&tree, label, Role::Link);
+            tree.nodes
+                .iter()
+                .find(|(node, _)| *node == id)
+                .and_then(|(_, node)| node.bounds())
+                .expect("a placed title")
+                .y0
+        };
+        assert!(top("There Is Love in You") < top("Immunity"));
+        app.backend.shutdown();
+    }
+
+    /// The page keeps its lines from frame to frame while nothing they show
+    /// changes, and lays them out again the frame a release's songs come.
+    #[test]
+    fn discography_songs_take_their_rows_on_the_frame_they_come() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("discography-lines");
+        let songs = app
+            .discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .insert(
+                "alb0".into(),
+                ReleaseTracks::Loading {
+                    songs: Vec::new(),
+                    next: 0,
+                    asked: Instant::now(),
+                },
+            )
+            .expect("Fragments' songs");
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let has_row = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Play Otomo, Bonobo") && node.role() == Role::Button
+            })
+        };
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!has_row(&tree), "Fragments' songs are on their way");
+        let kept = crate::ui::discography::kept_lines(&ctx).expect("the page's lines");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let again = crate::ui::discography::kept_lines(&ctx).expect("the page's lines");
+        assert!(Arc::ptr_eq(&kept, &again), "nothing changed");
+        app.discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .insert("alb0".into(), songs);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(has_row(&tree), "Fragments' songs have their rows");
+        app.backend.shutdown();
+    }
+
+    /// A release whose songs are on their way in a session batch is drawn
+    /// as one read from the Web API, keeping the same room for its songs,
+    /// and its songs take their rows on the frame they come.
+    #[test]
+    fn a_release_in_a_session_batch_takes_its_rows_when_its_songs_come() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("discography-batched");
+        let wait = |app: &mut App, tracks: ReleaseTracks| {
+            app.discography_pages
+                .get_mut("art0")
+                .unwrap()
+                .tracks
+                .insert("alb0".into(), tracks)
+        };
+        let songs = wait(
+            &mut app,
+            ReleaseTracks::Loading {
+                songs: Vec::new(),
+                next: 0,
+                asked: Instant::now(),
+            },
+        )
+        .expect("Fragments' songs");
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let has_row = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Play Otomo, Bonobo") && node.role() == Role::Button
+            })
+        };
+        let loading = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.role() == Role::Label && node.value() == Some("Loading…"))
+        };
+        // Where the next release starts, below the room Fragments keeps.
+        let promises = |tree: &egui::accesskit::TreeUpdate| {
+            let id = accessible_node(tree, "Promises", Role::Link);
+            tree.nodes
+                .iter()
+                .find(|(node, _)| *node == id)
+                .and_then(|(_, node)| node.bounds())
+                .expect("a placed title")
+                .y0
+        };
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let read_alone = promises(&tree);
+        wait(
+            &mut app,
+            ReleaseTracks::Batched {
+                batch: 1,
+                asked: Instant::now(),
+            },
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(loading(&tree), "Fragments shows its songs loading");
+        assert_eq!(promises(&tree), read_alone, "the same room for its songs");
+        assert!(!has_row(&tree), "Fragments' songs are on their way");
+        wait(&mut app, songs);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(has_row(&tree), "Fragments' songs have their rows");
+        app.backend.shutdown();
+    }
+
+    /// A release whose song is paused resumes it where it was, as the song's
+    /// number and the player bar do, instead of starting the page over from
+    /// the release's first song.
+    #[test]
+    fn a_discography_releases_play_button_resumes_its_paused_song() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("discography-resume");
+        // The page's own play, a plain list with no context, paused on
+        // Fragments' fourth song: any of the release's songs, not only its
+        // first, makes it the current release.
+        let song = app.discography_pages["art0"].tracks["alb0"]
+            .songs()
+            .expect("Fragments' songs")[3]
+            .clone();
+        let state = &mut app.remote.as_mut().unwrap().state;
+        state.is_playing = false;
+        state.context = None;
+        state.item = Some(PlayableItem::Track(song));
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play Fragments", Role::Button);
+        app.backend.take_remote_play_requests();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, Action::Click, None)],
+        );
+        let requests = app.backend.take_remote_play_requests();
+        assert!(
+            matches!(
+                requests.as_slice(),
+                [crate::backend::ApiRequest::Remote {
+                    action: crate::backend::RemoteAction::Play,
+                    play: None,
+                    ..
+                }]
+            ),
+            "a resume of the paused song, not a new list: {requests:?}"
+        );
+        // The button shows the result at once.
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Pause Fragments", Role::Button);
+        app.backend.shutdown();
+    }
+
+    /// While a song is paused, a release that does not hold it still plays
+    /// the page from its own first song rather than resuming that song.
+    #[test]
+    fn another_discography_release_plays_from_its_first_song_after_a_pause() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("discography-other-release");
+        // The demo plays Rosewood, the first song of Fragments; pause it.
+        app.remote.as_mut().unwrap().state.is_playing = false;
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play Promises", Role::Button);
+        app.backend.take_remote_play_requests();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, Action::Click, None)],
+        );
+        let requests = app.backend.take_remote_play_requests();
+        let [
+            crate::backend::ApiRequest::Remote {
+                play: Some(request),
+                ..
+            },
+        ] = requests.as_slice()
+        else {
+            panic!("a new list from Promises, not a resume: {requests:?}");
+        };
+        assert_eq!(
+            request.uris.first().map(String::as_str),
+            Some("spotify:track:trk20"),
+            "the list starts at Promises' first song"
+        );
+        app.backend.shutdown();
+    }
+
+    /// Offline, the releases already there stay readable, and a list still
+    /// to come says the page is waiting for the network rather than loading.
+    #[test]
+    fn the_discography_page_says_when_it_waits_for_the_network() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("discography-offline");
+        app.network_reachable = false;
+        app.open(Page::Discography("art0".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Fragments", Role::Link);
+        // Its songs and release buttons cannot be used, as in other lists.
+        let disabled = |label: &str| {
+            let id = accessible_node(&tree, label, Role::Button);
+            tree.nodes
+                .iter()
+                .any(|(node, info)| *node == id && info.is_disabled())
+        };
+        assert!(disabled("Play Otomo, Bonobo"), "a song row");
+        assert!(disabled("Pause Fragments"), "a release's play button");
+        assert!(
+            disabled("Remove from Your Library"),
+            "a release's save button"
+        );
+        app.discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .releases
+            .clear();
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        // A label reads out its text as its value.
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.role() == Role::Label
+                    && node.value() == Some("You're offline")),
+            "the page says it is offline"
+        );
+        assert!(app.backend.take_discography_requests().is_empty());
+        app.backend.shutdown();
+    }
+
+    /// Song lists load first for the releases the page reports on screen,
+    /// so a release drawn above the view only for Tab is not among them.
+    #[test]
+    fn the_discography_page_loads_from_the_release_whose_heading_tops_the_view() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("discography-in-view");
+        app.open(Page::Discography("art0".into()));
+        let frame = |app: &mut App, offset: f32| {
+            app.actions.clear();
+            let mut viewport = None;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900.0, 900.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    let shown = egui::ScrollArea::vertical()
+                        .id_salt("discography-in-view")
+                        .auto_shrink([false, false])
+                        .vertical_scroll_offset(offset)
+                        .show(ui, |ui| crate::ui::discography::show(app, ui, "art0"));
+                    viewport = Some(shown.inner_rect);
+                },
+            );
+            output.textures_delta.clear();
+            // A frame drawn in more than one pass reports in each.
+            let first = app.actions.iter().rev().find_map(|action| match action {
+                crate::model::Action::DiscographyInView { first, .. } => Some(*first),
+                _ => None,
+            });
+            (
+                viewport.unwrap(),
+                output.platform_output.accesskit_update.unwrap(),
+                first,
+            )
+        };
+        let (viewport, tree, first) = frame(&mut app, 0.0);
+        assert_eq!(first, Some(0), "the top of the page shows Fragments");
+        // Newest first, Promises is the second release.
+        let promises = accessible_node(&tree, "Promises", Role::Link);
+        let title = tree
+            .nodes
+            .iter()
+            .find(|(node, _)| *node == promises)
+            .and_then(|(_, node)| node.bounds())
+            .expect("a placed title")
+            .y0 as f32;
+        // Start the view at Promises' title, inside its heading: Fragments'
+        // last song and spacing are drawn just above it, for Tab alone.
+        let (_, _, first) = frame(&mut app, title - viewport.top());
+        assert_eq!(first, Some(1), "Promises tops the view");
+        app.backend.shutdown();
     }
 
     #[test]
@@ -10058,6 +10614,7 @@ mod tests {
             Page::Playlist("missing".into()),
             Page::Album("alb0".into()),
             Page::Artist("art0".into()),
+            Page::Discography("art0".into()),
             Page::Show("sh0".into()),
             Page::Queue,
             Page::Settings,
@@ -11216,6 +11773,55 @@ mod tests {
             app.manual_queue,
             vec![uris[1].clone(), uris[2].clone()],
             "the dragged song stays put instead of the wrong row moving"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A discography play waiting for its songs takes no queue row: the
+    /// queued copy of its song keeps its number in Next up, no spinner.
+    #[test]
+    fn a_waiting_discography_play_spins_no_queue_row() {
+        let (ctx, mut app) = accessible_app("queue-waiting-discography");
+        // Fragments holds the playing Rosewood and the queued Otomo; the
+        // next release's songs are still on their way.
+        let (first, later) = {
+            let ordered = app.discography_pages["art0"].ordered();
+            (ordered[0].id.clone(), ordered[1].id.clone())
+        };
+        app.discography_pages
+            .get_mut("art0")
+            .unwrap()
+            .tracks
+            .remove(&later);
+        app.apply(
+            crate::model::Action::PlayFromRow {
+                context: crate::model::RowContext::Discography {
+                    artist_id: "art0".into(),
+                    album_id: first,
+                },
+                uri: "spotify:track:trk1".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert_eq!(app.waiting_discography_song(), Some("spotify:track:trk1"));
+        view_frame(&ctx, &mut app, vec![], crate::ui::queue::page);
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::queue::page);
+        // Otomo shows twice: in Now playing, then as Next up's first row.
+        let otomo: Vec<egui::Rect> = painted
+            .iter()
+            .filter(|(text, _)| text == "Otomo")
+            .map(|(_, rect)| *rect)
+            .collect();
+        let [now_playing, queued] = otomo[..] else {
+            panic!("Otomo in Now playing and Next up: {otomo:?}");
+        };
+        assert!(now_playing.top() < queued.top());
+        assert!(
+            painted.iter().any(|(text, rect)| text == "1"
+                && rect.right() < queued.left()
+                && (rect.center().y - queued.center().y).abs() < 20.0),
+            "the queued copy keeps its number"
         );
         app.backend.shutdown();
     }
@@ -13264,20 +13870,33 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A saved album, a liked song, the player bar's song and a saved
+    /// discography release keep their green on state under the pointer.
     #[test]
     fn saved_toggles_stay_green_while_hovered() {
         // alb0 is saved, its first song is liked, and so is the song in
-        // the player bar, so all three save toggles show their on state.
+        // the player bar, so all their save toggles show their on state.
         type Pick = fn(&egui::accesskit::Rect) -> bool;
-        let targets: [(&str, &str, Pick); 3] = [
-            ("album header", "Remove from Your Library", |_| true),
-            ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
-            ("player bar", "Add to playlist", |b| b.y0 > 700.0),
+        let album = || Page::Album("alb0".into());
+        let targets: [(&str, Page, &str, Pick); 4] = [
+            ("album header", album(), "Remove from Your Library", |_| {
+                true
+            }),
+            ("song row", album(), "Remove from Liked Songs", |b| {
+                b.y1 < 700.0
+            }),
+            ("player bar", album(), "Add to playlist", |b| b.y0 > 700.0),
+            (
+                "discography release",
+                Page::Discography("art0".into()),
+                "Remove from Your Library",
+                |_| true,
+            ),
         ];
         for theme in ["dark", "light"] {
-            for (place, label, pick) in targets {
+            for (place, page, label, pick) in &targets {
                 let (ctx, mut app) = accessible_app(&format!("saved-hover-{theme}"));
-                app.open(Page::Album("alb0".into()));
+                app.open(page.clone());
                 app.settings.theme = if theme == "light" {
                     crate::settings::ThemeChoice::Light
                 } else {
@@ -13308,7 +13927,7 @@ mod tests {
                     .nodes
                     .iter()
                     .filter(|(_, node)| {
-                        node.label() == Some(label) && node.role() == egui::accesskit::Role::Button
+                        node.label() == Some(*label) && node.role() == egui::accesskit::Role::Button
                     })
                     .filter_map(|(_, node)| node.bounds())
                     .find(pick)
@@ -13717,7 +14336,8 @@ mod tests {
                 settle!();
                 continue;
             };
-            if bounds.y0 >= 60.0 && bounds.y1 <= 200.0 {
+            // Wider than a wheel notch (120), or the steps could jump over it.
+            if bounds.y0 >= 60.0 && bounds.y1 <= 240.0 {
                 before = offset;
                 at = Some(egui::pos2(
                     ((bounds.x0 + bounds.x1) / 2.0) as f32,
