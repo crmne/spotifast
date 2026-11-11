@@ -1735,6 +1735,14 @@ msgstr ""
 "Wird verwendet, solange dein Computer im dunklen Modus ist. Nur dunkle "
 "Designs werden angezeigt."
 
+#: src/ui/settings.rs:1240
+msgid "Only light themes are listed."
+msgstr "Nur helle Designs werden angezeigt."
+
+#: src/ui/settings.rs:1244
+msgid "Only dark themes are listed."
+msgstr "Nur dunkle Designs werden angezeigt."
+
 #: src/ui/settings.rs:1242
 msgid "Follow system uses your Omarchy colours."
 msgstr "„System folgen“ verwendet deine Omarchy-Farben."
