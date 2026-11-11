@@ -115,7 +115,7 @@ flate2 = "1"
 tiny-skia = "0.11"
 # MilkDrop, as libprojectM reimplements it, for the MilkDrop window
 # (src/milkdrop.rs). Built into the binary, so it stays one file.
-projectm-sys = { version = "1.2.2", default-features = false, features = ["static"], optional = true }
+projectm-sys = { version = "4.0.0", default-features = false, features = ["static"], optional = true }
 # The MilkDrop window runs as a child process with its own winit event loop
 # and OpenGL context (src/milkdrop/child.rs), because winit allows one event
 # loop per process and eframe owns the app's. These are the same versions
