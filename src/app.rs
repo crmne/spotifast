@@ -7331,26 +7331,36 @@ impl App {
             self.play_request(PlayRequest::tracks(uris).starting_at_index(index), false);
             return;
         }
-        let mut skips = index + 1;
-        let mut consumed: Vec<String> = Vec::new();
-        if let Loadable::Loaded(queue) = &mut self.queue {
-            // The click names a song; if the rows shifted under the
-            // pointer, the song wins over the row number.
-            let position = match queue.queue.get(index) {
-                Some(item) if item.uri() == uri => Some(index),
-                _ => queue.queue.iter().position(|item| item.uri() == uri),
-            };
-            let Some(position) = position else {
-                self.refresh_queue(true);
-                return;
-            };
-            skips = position + 1;
-            let mut items: Vec<_> = queue.queue.drain(..=position).collect();
-            let chosen = items.pop().expect("the chosen row was just drained");
-            consumed = items.iter().map(|item| item.uri().to_string()).collect();
-            consumed.push(chosen.uri().to_string());
-            queue.currently_playing = Some(chosen);
+        let local = matches!(self.target(), Target::Local);
+        let current = self.current_track_uri();
+        let Loadable::Loaded(queue) = &mut self.queue else {
+            self.refresh_queue(true);
+            return;
+        };
+        // The engine drops rows by their place in its own queue, so the
+        // shown rows must start at the song it is playing. A restored or
+        // stale queue does not: fetch the live one instead of guessing.
+        if local && current.as_deref() != queue.currently_playing.as_ref().map(PlayableItem::uri) {
+            self.refresh_queue(true);
+            return;
         }
+        // The click names a song; if the rows shifted under the pointer,
+        // the song wins over the row number.
+        let position = match queue.queue.get(index) {
+            Some(item) if item.uri() == uri => Some(index),
+            _ => queue.queue.iter().position(|item| item.uri() == uri),
+        };
+        let Some(position) = position else {
+            self.refresh_queue(true);
+            return;
+        };
+        let skips = position + 1;
+        let mut items: Vec<_> = queue.queue.drain(..=position).collect();
+        let chosen = items.pop().expect("the chosen row was just drained");
+        let skipped: Vec<String> = items.iter().map(|item| item.uri().to_string()).collect();
+        let mut consumed = skipped.clone();
+        consumed.push(chosen.uri().to_string());
+        queue.currently_playing = Some(chosen);
         for gone in &consumed {
             if let Some(at) = self.manual_queue.iter().position(|queued| queued == gone) {
                 self.remove_manual_queue_row(at);
@@ -7362,11 +7372,19 @@ impl App {
         self.optimistic_playing = Some((true, Instant::now()));
         match self.target() {
             Target::Local => {
-                for _ in 0..skips {
-                    self.backend.player(PlayerCommand::Next);
+                // Every Next loads and starts the next song, so a skip per
+                // row played each song in between. The engine drops the
+                // rows above the chosen one from its own queue instead, and
+                // one skip starts the chosen song.
+                for uri in skipped {
+                    self.backend
+                        .player(PlayerCommand::RemoveNextTrack { index: 0, uri });
                 }
+                self.backend.player(PlayerCommand::Next);
             }
             Target::Remote(device_id) => {
+                // The Web API and Soloist cannot take a song out of a live
+                // queue, so another device steps down to the row.
                 // With nothing to act on, one call earns the "pick
                 // something first" toast; a skip per row would repeat it.
                 if device_id.is_none() && self.remote_fresh().is_none() {
@@ -7421,10 +7439,10 @@ impl App {
         self.queue_locally_reorderable() && index < self.queued_rows_len()
     }
 
-    /// Takes the chosen rows out of Playing next. Neither the Web API nor
-    /// librespot can remove one queued song, so like a move this rewrites
-    /// the local engine's queue, and only that one. A row whose index no
-    /// longer holds its song is left alone.
+    /// Takes the chosen rows out of Playing next. The Web API cannot remove
+    /// one queued song, so like a move this rewrites the local engine's
+    /// queue by clearing it and re-adding the rest, and only that one. A
+    /// row whose index no longer holds its song is left alone.
     fn remove_from_queue(&mut self, rows: Vec<(usize, String)>) {
         if !self.queue_locally_reorderable() {
             return;
@@ -11713,8 +11731,8 @@ impl App {
     }
 
     /// Replays the manually queued songs on the local engine in their
-    /// current order. librespot can only append to or clear a live queue,
-    /// so a move or positional insert clears it and re-adds every song.
+    /// current order. A move or positional insert clears the queue and
+    /// re-adds every song.
     fn resync_local_queue(&mut self) {
         self.backend.player(PlayerCommand::ClearQueue);
         for uri in self.manual_queue.clone() {
@@ -20610,6 +20628,81 @@ mod tests {
             "hand-queued songs consumed by the jump are let go"
         );
         assert!(app.play_pending("spotify:track:c"));
+    }
+
+    /// Every Next loads and starts the next song, so a skip per row played
+    /// each song in between. The engine drops the rows above the chosen
+    /// one from its own queue and skips once.
+    #[test]
+    fn a_chosen_queue_row_on_this_computer_starts_one_song_not_every_one_above_it() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:d".into(),
+                index: 2,
+            },
+            &ctx,
+        );
+        let commands = app.backend.take_player_commands();
+        assert!(
+            matches!(
+                commands.as_slice(),
+                [
+                    PlayerCommand::RemoveNextTrack { index: 0, uri: first },
+                    PlayerCommand::RemoveNextTrack { index: 0, uri: second },
+                    PlayerCommand::Next,
+                ] if first == "spotify:track:b" && second == "spotify:track:c"
+            ),
+            "the rows above leave the queue, then one skip: {commands:?}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A queue that does not start at the playing song, such as the saved
+    /// rows restored at startup, is not the engine's queue: a click on it
+    /// fetches the live queue and sends the engine nothing.
+    #[test]
+    fn a_queue_click_on_rows_that_do_not_follow_the_playing_song_sends_nothing() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.auth = AuthStatus::Connected {
+            username: "test".into(),
+        };
+        app.manual_queue = vec!["spotify:track:b".into()];
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.backend.take_player_commands();
+        let seq = app.queue_seq;
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(app.backend.take_player_commands().is_empty());
+        // refresh_queue counts a request when it sends one.
+        assert_eq!(app.queue_seq, seq + 1, "the live queue was asked for");
+        assert_eq!(app.manual_queue, vec!["spotify:track:b".to_string()]);
+        assert_eq!(queue_uris(&app).1.len(), 2, "no row was dropped");
+        app.backend.shutdown();
     }
 
     /// The click names a song: when the rows have shifted under the
