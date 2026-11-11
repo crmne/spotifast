@@ -236,6 +236,12 @@ fn setting_slider<N: egui::emath::Numeric>(
                 ui.add(slider(egui::Slider::new(number, range.clone())).show_value(false))
             })
             .inner;
+        let cursor = if moved.dragged() {
+            egui::CursorIcon::Grabbing
+        } else {
+            egui::CursorIcon::PointingHand
+        };
+        let moved = moved.on_hover_cursor(cursor);
         let typed = ui
             .scope(|ui| {
                 slider_value_style(ui.style_mut(), palette);
@@ -1393,6 +1399,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                                 && app.settings.theme == choice,
                                             choice.label(locale).as_ref(),
                                         )
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand)
                                         .clicked()
                                     {
                                         app.actions.push(Action::SetTheme(choice));
@@ -1408,6 +1415,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                                 == Some(theme.filename.as_str()),
                                             fastframe_theme::display_name(&theme.filename),
                                         )
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand)
                                         .clicked()
                                     {
                                         app.actions
@@ -1415,7 +1423,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                     }
                                 }
                             });
-                        response.response.widget_info(|| {
+                        let combo_response = response
+                            .response
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        combo_response.widget_info(|| {
                             let mut info = egui::WidgetInfo::labeled(
                                 egui::WidgetType::ComboBox,
                                 ui.is_enabled(),
@@ -2718,6 +2729,7 @@ fn pair_picker(app: &mut App, ui: &mut egui::Ui, base: fastframe_theme::Base, na
         .show_ui(ui, |ui| {
             if ui
                 .selectable_label(current.is_none(), own.as_ref())
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
                 && current.is_some()
             {
@@ -2731,6 +2743,7 @@ fn pair_picker(app: &mut App, ui: &mut egui::Ui, base: fastframe_theme::Base, na
                 let chosen = current.as_deref() == Some(theme.filename.as_str());
                 if ui
                     .selectable_label(chosen, fastframe_theme::display_name(&theme.filename))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                     && !chosen
                 {
@@ -2739,11 +2752,15 @@ fn pair_picker(app: &mut App, ui: &mut egui::Ui, base: fastframe_theme::Base, na
                 }
             }
         });
-    response.response.widget_info(|| {
-        let mut info = egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), name);
-        info.current_text_value = Some(selected.to_string());
-        info
-    });
+    response
+        .response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .widget_info(|| {
+            let mut info =
+                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), name);
+            info.current_text_value = Some(selected.to_string());
+            info
+        });
 }
 
 fn language_picker(app: &mut App, ui: &mut egui::Ui) {
@@ -2768,6 +2785,7 @@ fn language_picker(app: &mut App, ui: &mut egui::Ui) {
             for (choice, label) in choices {
                 if ui
                     .selectable_label(current == choice, label.as_ref())
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                     && current != choice
                 {
@@ -2776,12 +2794,18 @@ fn language_picker(app: &mut App, ui: &mut egui::Ui) {
             }
         });
     let name = gettext(locale, "Language");
-    response.response.widget_info(|| {
-        let mut info =
-            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), name.as_ref());
-        info.current_text_value = Some(selected.to_string());
-        info
-    });
+    response
+        .response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .widget_info(|| {
+            let mut info = egui::WidgetInfo::labeled(
+                egui::WidgetType::ComboBox,
+                ui.is_enabled(),
+                name.as_ref(),
+            );
+            info.current_text_value = Some(selected.to_string());
+            info
+        });
 }
 
 fn hertz(hz: f32) -> String {
@@ -2801,6 +2825,12 @@ fn eq_slider(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut f32,
     ui.vertical(|ui| {
         let (rect, response) =
             ui.allocate_exact_size(vec2(30.0, 118.0), egui::Sense::click_and_drag());
+        let cursor = if response.dragged() {
+            egui::CursorIcon::Grabbing
+        } else {
+            egui::CursorIcon::PointingHand
+        };
+        let response = response.on_hover_and_drag_cursor(cursor);
         let track = Rect::from_center_size(rect.center(), vec2(4.0, rect.height() - 20.0));
         let y_of = |db: f32| track.bottom() - (db + range) / (2.0 * range) * track.height();
         let mut changed = false;
@@ -2900,6 +2930,66 @@ fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettin
 #[cfg(test)]
 mod tests {
     use super::{RELEASE_NOTES_URL, RowText, row_matches, section_matches};
+
+    #[test]
+    fn equalizer_cursor_follows_hover_drag_and_disabled_state() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let palette = crate::theme::Palette::dark();
+        let mut value = 0.0;
+        let mut draw = |events, enabled| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(400.0, 300.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    ui.add_enabled_ui(enabled, |ui| {
+                        super::eq_slider(ui, &palette, "60", &mut value, true);
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.cursor_icon
+        };
+        draw(vec![], true);
+        let at = egui::pos2(20.0, 60.0);
+        assert_eq!(
+            draw(vec![egui::Event::PointerMoved(at)], true),
+            egui::CursorIcon::PointingHand
+        );
+        draw(
+            vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            true,
+        );
+        let outside = egui::pos2(80.0, 30.0);
+        assert_eq!(
+            draw(vec![egui::Event::PointerMoved(outside)], true),
+            egui::CursorIcon::Grabbing
+        );
+        draw(
+            vec![egui::Event::PointerButton {
+                pos: outside,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            true,
+        );
+        assert_eq!(
+            draw(vec![egui::Event::PointerMoved(at)], false),
+            egui::CursorIcon::Default
+        );
+    }
 
     /// macOS has a menu bar where Linux and Windows have a tray, and the
     /// start-up choices say so (#1006).

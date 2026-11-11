@@ -298,6 +298,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                 if response.clicked() {
                     app.actions.push(Action::Open(page.clone()));
                 }
+                let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
                 if !liked && let Some(uri) = uri {
                     egui::Popup::context_menu(&response)
                         .id(ui.make_persistent_id(("quick-access-menu", uri)))
