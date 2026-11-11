@@ -1104,6 +1104,11 @@ pub enum Event {
         name: Option<String>,
         image: Option<String>,
     },
+    /// The lookup of a user id got no answer, as when Spotify rate limits
+    /// it. Unlike a profile without a name, it is worth asking again.
+    UserNameFailed {
+        id: String,
+    },
     /// Play counts by track URI for the album or artist `uri`, or why they
     /// could not be read.
     PlayCounts {
@@ -4854,12 +4859,15 @@ impl Worker {
         let waker = self.waker.clone();
         tokio::spawn(async move {
             for id in ids {
-                let profile = session_reads::user_profile(engine.session(), &id).await;
-                let (name, image) = match profile {
-                    Some(profile) => (profile.name, profile.image_url),
-                    None => (None, None),
+                let event = match session_reads::user_profile(engine.session(), &id).await {
+                    Some(profile) => Event::UserName {
+                        id,
+                        name: profile.name,
+                        image: profile.image_url,
+                    },
+                    None => Event::UserNameFailed { id },
                 };
-                let _ = events.send(Event::UserName { id, name, image });
+                let _ = events.send(event);
                 waker.wake();
             }
         });

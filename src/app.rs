@@ -344,6 +344,13 @@ pub enum PlayCountRead {
 /// How long a failed play count read waits before a visit asks again.
 const PLAY_COUNT_RETRY: Duration = Duration::from_secs(60);
 
+/// How long a user name lookup that failed waits before it is asked again,
+/// as for a rate limit; each further wait doubles.
+const USER_NAME_RETRY: Duration = Duration::from_secs(60);
+
+/// How many times in all a user name is asked for before the bare id stays.
+const USER_NAME_TRIES: u32 = 5;
+
 /// Successful artist overviews are revalidated while viewed, at most every ten minutes.
 const ARTIST_METADATA_REFRESH: Duration = Duration::from_secs(10 * 60);
 
@@ -831,9 +838,12 @@ pub struct App {
     pub selection: Option<(Page, String, RowSelection)>,
     pub table_sorts: HashMap<Page, TableSort>,
     /// User ids resolved to display names; `None` while unknown, so an id
-    /// is asked about only once per run.
+    /// is asked about only once per run, unless the lookup failed.
     pub user_names: HashMap<String, Option<String>>,
     pub user_names_revision: u64,
+    /// Lookups that got no answer: how many times the id was asked, and
+    /// when the last one failed. See `retry_user_names_when_due`.
+    user_name_failures: HashMap<String, (u32, Instant)>,
     /// How often Spotify says each song was played, by track URI, for the
     /// albums and artists in `play_count_reads`, and each of those artists'
     /// monthly listeners by artist URI.
@@ -1493,6 +1503,7 @@ impl App {
             artist_metadata_reads: HashMap::new(),
             play_count_generation: 0,
             user_names_revision: 0,
+            user_name_failures: HashMap::new(),
             user_images: HashMap::new(),
             recent_contexts: session.recent_contexts.clone(),
             resume_context: session.last_context.clone(),
@@ -3107,8 +3118,15 @@ impl App {
                     self.receive_friends(generation, result)
                 }
                 Event::UserName { id, name, image } => {
+                    self.user_name_failures.remove(&id);
                     self.set_user_name(id.clone(), name);
                     self.set_user_image(id, image);
+                }
+                Event::UserNameFailed { id } => {
+                    // The first ask counts as one; later ones are counted
+                    // when they are sent.
+                    let now = Instant::now();
+                    self.user_name_failures.entry(id).or_insert((1, now)).1 = now;
                 }
                 Event::PlayCounts {
                     uri,
@@ -3988,6 +4006,8 @@ impl App {
             for id in &unresolved {
                 self.user_names.remove(id);
             }
+            // A new session starts the tries afresh.
+            self.user_name_failures.clear();
             self.request_user_names(unresolved);
         }
     }
@@ -4716,6 +4736,9 @@ impl App {
         self.sync_skin(ctx);
         self.retry_lyrics_when_due(Instant::now());
         if let Some(at) = self.lyrics_retry_at {
+            ctx.request_repaint_after(at.saturating_duration_since(Instant::now()));
+        }
+        if let Some(at) = self.retry_user_names_when_due(Instant::now()) {
             ctx.request_repaint_after(at.saturating_duration_since(Instant::now()));
         }
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
@@ -7839,6 +7862,34 @@ impl App {
             self.user_names.insert(id.clone(), None);
         }
         self.backend.send(Command::UserNames(unknown));
+    }
+
+    /// Asks again for the user names whose lookup failed, each after a wait
+    /// that doubles from `USER_NAME_RETRY`, up to `USER_NAME_TRIES` asks in
+    /// all. Until then the id stays shown, and scrolling in more rows by
+    /// the same adder does not ask. Returns when the next ask is due.
+    fn retry_user_names_when_due(&mut self, now: Instant) -> Option<Instant> {
+        if !self.local_ready || !self.network_reachable {
+            return None;
+        }
+        let wait = |asked: u32| USER_NAME_RETRY * 2u32.pow(asked - 1);
+        let (mut due, mut next) = (Vec::new(), None::<Instant>);
+        for (id, (asked, failed_at)) in &mut self.user_name_failures {
+            if *asked < USER_NAME_TRIES && now >= *failed_at + wait(*asked) {
+                // Restarting the clock keeps the next tick from asking
+                // again while this lookup is still out.
+                (*asked, *failed_at) = (*asked + 1, now);
+                due.push(id.clone());
+            }
+            if *asked < USER_NAME_TRIES {
+                let at = *failed_at + wait(*asked);
+                next = Some(next.map_or(at, |next| next.min(at)));
+            }
+        }
+        if !due.is_empty() {
+            self.backend.send(Command::UserNames(due));
+        }
+        next
     }
 
     /// Asks for the play counts of the album or artist `uri`, while
@@ -24281,6 +24332,65 @@ mod tests {
         // An id nobody could name stays unnamed, to be shown as the id.
         app.set_user_name("nobody".into(), None);
         assert_eq!(app.user_names.get("nobody"), Some(&None));
+        app.backend.shutdown();
+    }
+
+    /// A lookup Spotify did not answer is not the end: the id is asked
+    /// again after a wait that doubles, five asks in all, and a name that
+    /// arrives at last is shown.
+    #[test]
+    fn a_name_lookup_with_no_answer_is_asked_again_with_growing_waits() {
+        let mut app = test_app("adder-name-retry");
+        app.local_ready = true;
+        app.network_reachable = true;
+        let id = "kasia-id";
+        let failures = |app: &App| app.user_name_failures.get(id).map(|(asked, _)| *asked);
+        let fail = |app: &mut App| {
+            app.handle_backend_events(vec![Event::UserNameFailed { id: id.into() }])
+        };
+
+        app.request_user_names(vec![id.into()]);
+        let revision = app.user_names_revision;
+        fail(&mut app);
+        assert_eq!(failures(&app), Some(1));
+        assert_eq!(app.user_names.get(id), Some(&None), "the id stays shown");
+        assert_eq!(app.user_names_revision, revision, "nothing to redraw");
+
+        let minute = USER_NAME_RETRY;
+        let failed_ago = |app: &mut App, ago: Duration| {
+            let now = Instant::now();
+            app.user_name_failures.get_mut(id).unwrap().1 = now - ago;
+            now
+        };
+        for (asked, wait) in [
+            (1, minute),
+            (2, minute * 2),
+            (3, minute * 4),
+            (4, minute * 8),
+        ] {
+            let now = failed_ago(&mut app, wait - Duration::from_secs(1));
+            let next = app.retry_user_names_when_due(now);
+            assert_eq!(failures(&app), Some(asked), "{wait:?} is not up yet");
+            assert!(next.is_some_and(|at| at > now));
+            let now = failed_ago(&mut app, wait);
+            app.retry_user_names_when_due(now);
+            assert_eq!(failures(&app), Some(asked + 1), "asked after {wait:?}");
+            fail(&mut app);
+        }
+        // The fifth failure is final: nothing more is asked or scheduled.
+        assert_eq!(failures(&app), Some(USER_NAME_TRIES));
+        let now = failed_ago(&mut app, minute * 100);
+        assert_eq!(app.retry_user_names_when_due(now), None);
+        assert_eq!(failures(&app), Some(USER_NAME_TRIES));
+
+        // An answer, whenever it comes, shows the name and ends the tries.
+        app.handle_backend_events(vec![Event::UserName {
+            id: id.into(),
+            name: Some("Kasia".into()),
+            image: None,
+        }]);
+        assert_eq!(failures(&app), None);
+        assert_eq!(app.user_names.get(id), Some(&Some("Kasia".to_string())));
         app.backend.shutdown();
     }
 
