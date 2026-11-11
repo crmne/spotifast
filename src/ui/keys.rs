@@ -37,7 +37,36 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     // its caret.
     let editing_text = ctx.text_edit_focused();
     let songs_picked = app.picked_rows(app.page()).is_some();
+    let sidebar_hovered = app.settings.sidebar_visible
+        && app.lyrics_fullscreen.is_none()
+        && ctx
+            .pointer_latest_pos()
+            .zip(ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("sidebar-rect"))))
+            .is_some_and(|(pointer, rect)| rect.contains(pointer));
+    let pointer = ctx.pointer_latest_pos();
+    let pointer_over = |id: &str| {
+        pointer.is_some_and(|pointer| {
+            ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new(id)))
+                .is_some_and(|rect| rect.contains(pointer))
+        })
+    };
+    let global_search_hovered = pointer_over("global-search-rect");
+    let settings_search_hovered = matches!(app.page(), Page::Settings)
+        && app.lyrics_fullscreen.is_none()
+        && pointer_over("settings-search-rect");
+    let playlist_filter_available = app.network_reachable
+        && match app.page() {
+            Page::Playlist(id) => app
+                .playlist_pages
+                .get(id)
+                .is_some_and(|page| page.playlist.get().is_some()),
+            _ => false,
+        };
+    let collection_filter_id = super::collection::collection_filter_widget_id(app.page());
     let mut actions = Vec::new();
+    let mut focus_sidebar_search = false;
+    let mut focus_playlist_filter = false;
+    let mut focus_settings_search = false;
     ctx.input_mut(|input| {
         // With songs picked, Shift+Q is the song list's: it queues them.
         let queue_key_is_the_lists = songs_picked
@@ -45,6 +74,28 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 matches!(event, egui::Event::Key { key: Key::Q, pressed: true, modifiers, .. }
                     if modifiers.shift_only())
             });
+        let mut focus_local_search = || {
+            if sidebar_hovered {
+                focus_sidebar_search = true;
+            } else if settings_search_hovered {
+                focus_settings_search = true;
+            } else if global_search_hovered {
+                actions.push(Action::FocusSearch);
+            } else if playlist_filter_available {
+                focus_playlist_filter = true;
+            } else {
+                actions.push(Action::FocusSearch);
+            }
+        };
+        if input.consume_key(Modifiers::COMMAND, Key::F) {
+            focus_local_search();
+        }
+        if !editing_text && app.dialog.is_none() && input.consume_key(Modifiers::NONE, Key::Slash) {
+            input
+                .events
+                .retain(|event| !matches!(event, egui::Event::Text(text) if text == "/"));
+            focus_local_search();
+        }
         let mut key = |modifiers: Modifiers, key: Key, action: Action| {
             if input.consume_key(modifiers, key) {
                 actions.push(action);
@@ -73,7 +124,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 Action::ToggleQueuePanel,
             );
         }
-        key(Modifiers::COMMAND, Key::F, Action::FocusSearch);
         key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
         key(Modifiers::COMMAND, Key::Q, Action::Quit);
@@ -148,7 +198,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
             }
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
-            key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
             key(
                 Modifiers::NONE,
                 Key::F,
@@ -168,6 +217,25 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             }
         }
     });
+    if focus_sidebar_search {
+        ctx.data_mut(|data| {
+            data.insert_temp(egui::Id::new("sidebar-show-search"), true);
+        });
+        ctx.memory_mut(|memory| {
+            memory.request_focus(egui::Id::new("sidebar-search"));
+        });
+    } else if focus_playlist_filter {
+        ctx.memory_mut(|memory| {
+            memory.request_focus(collection_filter_id);
+        });
+        ctx.data_mut(|data| {
+            data.insert_temp(egui::Id::new("scroll-to-collection-filter"), true);
+        });
+    } else if focus_settings_search {
+        ctx.memory_mut(|memory| {
+            memory.request_focus(egui::Id::new("settings-search-field"));
+        });
+    }
     if !editing_text
         && app.dialog.is_none()
         && ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::B))
@@ -431,6 +499,229 @@ mod tests {
     use crate::app::AppOptions;
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    #[test]
+    fn search_shortcuts_focus_the_search_for_the_pointer_context() {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-search-shortcuts-test-{}",
+            std::process::id()
+        ));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let mut app = App::new(
+            &crate::backend::Waker::default(),
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        app.settings.sidebar_visible = true;
+
+        let command = if cfg!(target_os = "macos") {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        let cases = [
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(50.0, 80.0),
+                Key::F,
+                command,
+                Some("sidebar-search"),
+                None,
+                false,
+            ),
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(800.0, 500.0),
+                Key::Slash,
+                Modifiers::NONE,
+                Some("playlist-filter"),
+                None,
+                true,
+            ),
+            (
+                Page::Settings,
+                egui::pos2(550.0, 80.0),
+                Key::F,
+                command,
+                Some("settings-search-field"),
+                None,
+                false,
+            ),
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(310.0, 80.0),
+                Key::F,
+                command,
+                None,
+                Some(Action::FocusSearch),
+                false,
+            ),
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(550.0, 80.0),
+                Key::F,
+                command,
+                Some("playlist-filter"),
+                None,
+                true,
+            ),
+            (
+                Page::Playlist("playlist-test".into()),
+                egui::pos2(800.0, 500.0),
+                Key::Slash,
+                Modifiers::NONE,
+                None,
+                Some(Action::FocusSearch),
+                false,
+            ),
+        ];
+
+        for (page, pointer, key, modifiers, focused_id, expected_action, filter_available) in cases
+        {
+            let focus_id = focused_id.map(|id| match id {
+                "playlist-filter" => crate::ui::collection::collection_filter_widget_id(&page),
+                id => egui::Id::new(id),
+            });
+            if let Page::Playlist(id) = &page {
+                let mut playlist_page = crate::model::PlaylistPage::default();
+                if filter_available {
+                    playlist_page.playlist = crate::model::Loadable::Loaded(Default::default());
+                }
+                app.playlist_pages.insert(id.clone(), playlist_page);
+            }
+            app.open(page);
+            app.actions.clear();
+            let ctx = egui::Context::default();
+            ctx.data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new("sidebar-rect"),
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 800.0)),
+                );
+                data.insert_temp(
+                    egui::Id::new("global-search-rect"),
+                    egui::Rect::from_min_size(egui::pos2(300.0, 50.0), egui::vec2(200.0, 60.0)),
+                );
+                data.insert_temp(
+                    egui::Id::new("settings-search-rect"),
+                    egui::Rect::from_min_size(egui::pos2(500.0, 50.0), egui::vec2(200.0, 60.0)),
+                );
+                data.insert_temp(
+                    egui::Id::new("playlist-filter-page"),
+                    "playlist-test".to_string(),
+                );
+            });
+            let events = vec![
+                egui::Event::PointerMoved(pointer),
+                egui::Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+            ];
+            let mut events = events;
+            if key == Key::Slash {
+                events.push(egui::Event::Text("/".into()));
+            }
+            let mut field_text = String::new();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    handle(&mut app, ui.ctx());
+                    if let Some(id) = focus_id {
+                        ui.add(egui::TextEdit::singleline(&mut field_text).id(id));
+                    }
+                },
+            );
+            output.textures_delta.clear();
+
+            if let Some(id) = focus_id {
+                assert!(
+                    ctx.memory(|memory| memory.has_focus(id)),
+                    "{key:?} should focus {focused_id:?}"
+                );
+            }
+            if let Some(action) = expected_action {
+                assert_eq!(
+                    format!("{:?}", app.actions),
+                    format!("{:?}", [action]),
+                    "{key:?} should retain global search"
+                );
+            } else {
+                assert!(app.actions.is_empty());
+            }
+            if key == Key::Slash {
+                assert!(
+                    field_text.is_empty(),
+                    "the shortcut slash must not be typed"
+                );
+            }
+            if focused_id == Some("sidebar-search") {
+                assert!(ctx.data(|data| {
+                    data.get_temp::<bool>(egui::Id::new("sidebar-show-search"))
+                        .unwrap_or(false)
+                }));
+            }
+        }
+
+        app.open(Page::Settings);
+        app.lyrics_fullscreen = Some(false);
+        app.actions.clear();
+        let ctx = egui::Context::default();
+        ctx.data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new("settings-search-rect"),
+                egui::Rect::from_min_size(egui::pos2(500.0, 50.0), egui::vec2(200.0, 60.0)),
+            );
+        });
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 800.0),
+                )),
+                events: vec![
+                    egui::Event::PointerMoved(egui::pos2(550.0, 80.0)),
+                    egui::Event::Key {
+                        key: Key::F,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: command,
+                    },
+                ],
+                ..Default::default()
+            },
+            |ui| handle(&mut app, ui.ctx()),
+        );
+        output.textures_delta.clear();
+        assert_eq!(
+            format!("{:?}", app.actions),
+            format!("{:?}", [Action::FocusSearch]),
+            "fullscreen lyrics must not route to hidden Settings search"
+        );
+
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     /// A text field edits with the arrow keys: Ctrl or Alt moves a word,
     /// Cmd moves to the end of the line, and Ctrl or Cmd with Up or Down

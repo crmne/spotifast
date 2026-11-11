@@ -585,6 +585,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
     });
     let width = response.response.rect.width();
+    ui.ctx().data_mut(|data| {
+        data.insert_temp(egui::Id::new("sidebar-rect"), response.response.rect);
+    });
     if (width - app.settings.sidebar_width).abs() > 1.0
         && super::panel_width_chosen(ui.ctx(), "sidebar", &fit)
     {
