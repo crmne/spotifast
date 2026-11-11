@@ -112,10 +112,12 @@ fn recent(app: &mut App, ui: &mut egui::Ui) {
     theme::section_title(ui, &palette, &gettext(app.locale, "Recent searches"));
     ui.add_space(6.0);
     let history = app.settings.search_history.clone();
+    let remove = gettext(app.locale, "Remove");
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
         for query in &history {
-            let (response, forget) = theme::soft_button_dismiss(ui, &palette, Icon::Clock, query);
+            let (response, forget) =
+                theme::soft_button_dismiss(ui, &palette, Icon::Clock, query, &remove);
             if forget {
                 app.actions.push(Action::ForgetSearch(query.clone()));
             } else if response.clicked() {
