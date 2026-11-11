@@ -2614,7 +2614,6 @@ mod tests {
             accessible_frame(&ctx, &mut app, vec![]);
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let home = accessible_node(&tree, &gettext(locale, "Home"), Role::Button);
-            let search = accessible_node(&tree, &gettext(locale, "Search"), Role::Button);
             accessible_node(&tree, &gettext(locale, "Create a playlist"), Role::Button);
             accessible_node(&tree, &gettext(locale, "Albums"), Role::Button);
             accessible_node(&tree, &gettext(locale, "Artists"), Role::Button);
@@ -2629,7 +2628,25 @@ mod tests {
                 &mut app,
                 vec![keyboard(egui::Key::Tab, egui::Modifiers::NONE)],
             );
-            assert_eq!(tree.focus, search, "Tab order must survive translation");
+            // After Home, Tab lands on the sidebar's next control, the
+            // panel toggle. Its label names the platform's shortcut, as
+            // the drawn one does.
+            let panel_toggle = accessible_node(
+                &tree,
+                &gettext(
+                    locale,
+                    if cfg!(target_os = "macos") {
+                        "Hide sidebar (Cmd+B)"
+                    } else {
+                        "Hide sidebar (Ctrl+B)"
+                    },
+                ),
+                Role::Button,
+            );
+            assert_eq!(
+                tree.focus, panel_toggle,
+                "Tab order must survive translation"
+            );
             accessible_frame(
                 &ctx,
                 &mut app,
