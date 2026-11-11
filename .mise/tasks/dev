@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run the app from source, rebuilt and restarted on every change"
+set -e
+command -v bacon >/dev/null || cargo install --locked bacon@3.26.0
+exec bacon run
