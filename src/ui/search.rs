@@ -463,6 +463,7 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
                 context: &context,
                 show_cover: true,
                 show_album: limit == usize::MAX,
+                show_artist: false,
                 added_at: None,
                 added_by: None,
                 show_added_by: false,
