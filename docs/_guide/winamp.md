@@ -142,6 +142,10 @@ mini player's own position. It does not inherit the main window's fullscreen
 or maximized state. On Linux desktops using Wayland, the desktop chooses where
 windows appear and may ignore the saved position.
 
+On macOS, the mini player stays on the desktop it opened on. To have it follow
+you, turn on **Show on all desktops** in Settings under **Mini player** or in
+the right-click menu.
+
 The left display shows bars that react to the sound (a spectrum analyser).
 Click it to switch to a moving sound wave (an oscilloscope), then off.
 You can also use the **V** menu. Changes to the equalizer affect the picture;

@@ -107,6 +107,43 @@ pub fn supports_hiding_from_taskbar(display: raw_window_handle::RawDisplayHandle
     )
 }
 
+/// Whether the mini player can be shown on every desktop. Only macOS gets the
+/// choice: its windows stay on the desktop they opened on until the app asks
+/// otherwise.
+pub const fn supports_all_desktops() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// Puts a macOS window on every desktop (Space), or back on just one. AppKit
+/// does not allow joining all of them together with moving to the active one.
+#[cfg(target_os = "macos")]
+fn all_desktops_behavior(
+    current: objc2_app_kit::NSWindowCollectionBehavior,
+    all: bool,
+) -> objc2_app_kit::NSWindowCollectionBehavior {
+    use objc2_app_kit::NSWindowCollectionBehavior as Behavior;
+    if all {
+        (current & !Behavior::MoveToActiveSpace) | Behavior::CanJoinAllSpaces
+    } else {
+        current & !Behavior::CanJoinAllSpaces
+    }
+}
+
+/// Shows this window on every desktop, or only on the one it is on. Any other
+/// handle is left alone.
+#[cfg(target_os = "macos")]
+pub fn show_on_all_desktops(window: raw_window_handle::RawWindowHandle, all: bool) {
+    let raw_window_handle::RawWindowHandle::AppKit(handle) = window else {
+        return;
+    };
+    // SAFETY: the handle comes from the live window this frame belongs to, and
+    // frames run on the main thread, where the view is valid.
+    let view = unsafe { handle.ns_view.cast::<objc2_app_kit::NSView>().as_ref() };
+    if let Some(window) = view.window() {
+        window.setCollectionBehavior(all_desktops_behavior(window.collectionBehavior(), all));
+    }
+}
+
 /// Keeps an X11 window out of the taskbar with `_NET_WM_STATE_SKIP_TASKBAR`.
 ///
 /// winit can only do this on Windows, so this asks the window manager
@@ -266,6 +303,21 @@ mod tests {
         assert!(supports_window_level(RawDisplayHandle::Xcb(
             XcbDisplayHandle::new(None, 0)
         )));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn all_desktops_can_be_turned_on_and_back_off() {
+        use objc2_app_kit::NSWindowCollectionBehavior as Behavior;
+        let on = super::all_desktops_behavior(
+            Behavior::MoveToActiveSpace | Behavior::IgnoresCycle,
+            true,
+        );
+        assert_eq!(on, Behavior::CanJoinAllSpaces | Behavior::IgnoresCycle);
+        assert_eq!(
+            super::all_desktops_behavior(on, false),
+            Behavior::IgnoresCycle
+        );
     }
 
     #[test]

@@ -1437,6 +1437,7 @@ pub enum Action {
     SetSkinScale(u8),
     ToggleWinampOnTop,
     SetWinampTaskbar(bool),
+    SetWinampAllDesktops(bool),
     /// Windows: draw Spotifast's own title bar instead of the standard one.
     SetCustomTitlebar(bool),
     OpenSkinsFolder,
