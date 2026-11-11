@@ -494,6 +494,9 @@ pub struct App {
     pub soloist_audio: bool,
     pub soloist_onboarding: crate::settings::SoloistOnboarding,
     pub soloist_key: String,
+    /// The Settings key field while it is open. Separate from `soloist_key`,
+    /// which a status update clears, so typing never loses what was typed.
+    pub soloist_key_edit: Option<String>,
     pub soloist_device_id: Option<String>,
     pub soloist_update: Option<String>,
     soloist_select: bool,
@@ -1282,6 +1285,7 @@ impl App {
             soloist_audio: false,
             soloist_onboarding,
             soloist_key: String::new(),
+            soloist_key_edit: None,
             soloist_device_id: None,
             soloist_update: None,
             soloist_select: false,
@@ -3398,6 +3402,9 @@ impl App {
         match &status {
             AuthStatus::Connected { .. } => {
                 self.sign_in_url = None;
+                // A failed sign-in is not a sign-out, so the account may
+                // have changed with the key field still open.
+                self.soloist_key_edit = None;
                 if self.settings.soloist_enabled {
                     self.soloist_status_at = Instant::now();
                     self.backend.send(Command::Soloist {
@@ -3416,6 +3423,7 @@ impl App {
             AuthStatus::WaitingForBrowser { url } => self.sign_in_url = Some(url.clone()),
             AuthStatus::SignedOut => {
                 self.soloist_key.clear();
+                self.soloist_key_edit = None;
                 self.soloist_device_id = None;
                 self.soloist_status = crate::soloist::Status::Off;
                 self.soloist_audio = false;
@@ -13709,8 +13717,37 @@ impl App {
                 self.save_session();
                 self.apply(Action::EnablePlayback, ctx);
             }
+            Action::EditSoloistKey(open) => {
+                self.soloist_key_edit = open.then(String::new);
+            }
+            Action::SaveSoloistKey => {
+                if let Some(key) = self.soloist_key_edit.take() {
+                    self.soloist_key = key;
+                    // A new key is not a choice of player: what a working
+                    // player was doing, and where, stays as it was once it
+                    // is back. One still being set up is chosen as usual.
+                    let bound = self.soloist_device_id.is_some();
+                    let ours = self.targets_own_soloist();
+                    let playing = ours && self.now_playing().is_some_and(|now| now.playing);
+                    let start = if self.settings.soloist_enabled {
+                        Action::SetSoloist(true)
+                    } else {
+                        Action::EnableSoloist
+                    };
+                    self.apply(start, ctx);
+                    if bound {
+                        self.soloist_select = ours;
+                        self.soloist_resume = playing;
+                    }
+                }
+            }
             Action::SetSoloist(enabled) => {
-                if enabled && self.settings.soloist_enabled && !self.soloist_waiting() {
+                // A player that is running only restarts for a new key.
+                if enabled
+                    && self.settings.soloist_enabled
+                    && !self.soloist_waiting()
+                    && self.soloist_key.trim().is_empty()
+                {
                     return;
                 }
                 self.clear_soloist_target();
@@ -23862,6 +23899,141 @@ mod tests {
         }));
         app.bind_soloist_device();
         assert_eq!(app.soloist_onboarding, SoloistOnboarding::Setup);
+        app.backend.shutdown();
+    }
+
+    /// Signing out deletes the saved key; a typed one must not outlive it.
+    #[test]
+    fn signing_out_closes_the_soloist_key_field() {
+        let mut app = test_app("soloist-key-sign-out");
+        app.soloist_key_edit = Some("typed".into());
+        app.handle_auth(AuthStatus::SignedOut);
+        assert_eq!(app.soloist_key_edit, None);
+        app.backend.shutdown();
+    }
+
+    /// A sign-in can fail and be followed by another account's without a
+    /// sign-out between them; a key typed for the first is not the second's.
+    #[test]
+    fn signing_in_closes_the_soloist_key_field() {
+        let mut app = test_app("soloist-key-sign-in");
+        app.soloist_key_edit = Some("typed".into());
+        app.handle_auth(AuthStatus::Connected {
+            username: "bob".into(),
+        });
+        assert_eq!(app.soloist_key_edit, None);
+        app.backend.shutdown();
+    }
+
+    /// The player reports in while a key is being typed, and each report
+    /// clears the key setup holds. What Settings holds has to outlast them.
+    #[test]
+    fn a_soloist_report_leaves_a_half_typed_key_alone() {
+        use crate::soloist::{Status, Update};
+        let ctx = egui::Context::default();
+        let mut app = test_app("soloist-key-report");
+        app.settings.soloist_enabled = true;
+        app.soloist_key_edit = Some("new-".into());
+        app.on_soloist(Update::Status(Status::Pairing {
+            name: "owned".into(),
+            version: "test".into(),
+        }));
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        assert_eq!(app.soloist_key_edit.as_deref(), Some("new-"));
+        app.soloist_key_edit
+            .as_mut()
+            .expect("the field is still open")
+            .push_str("key");
+        app.apply(Action::SaveSoloistKey, &ctx);
+        assert_eq!(app.soloist_key, "new-key");
+        app.backend.shutdown();
+    }
+
+    /// Saves a key through the Settings field, then lets the player come back.
+    fn replace_soloist_key_and_rebind(app: &mut App, ctx: &egui::Context) {
+        use crate::soloist::{Status, Update};
+        app.soloist_key_edit = Some("new-key".into());
+        app.apply(Action::SaveSoloistKey, ctx);
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        app.bind_soloist_device();
+    }
+
+    fn playing_on(device: &str) -> RemoteSnapshot {
+        RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(Device {
+                    id: Some(device.into()),
+                    ..Default::default()
+                }),
+                is_playing: true,
+                item: Some(PlayableItem::Track(Track {
+                    uri: "spotify:track:playing".into(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        }
+    }
+
+    /// A new key is not a choice of player: music on a phone stays there.
+    #[test]
+    fn replacing_the_soloist_key_leaves_music_on_another_device() {
+        let (ctx, mut app) = listening_on_soloist("soloist-key-elsewhere");
+        app.selected_device = Some("phone".into());
+        app.remote = Some(playing_on("phone"));
+        replace_soloist_key_and_rebind(&mut app, &ctx);
+        assert_eq!(app.selected_device.as_deref(), Some("phone"));
+        assert!(app.backend.take_transfer_requests().is_empty());
+        app.backend.shutdown();
+    }
+
+    /// Clearing the old player's target would forget it was playing.
+    #[test]
+    fn replacing_the_soloist_key_resumes_what_it_was_playing() {
+        let (ctx, mut app) = listening_on_soloist("soloist-key-resumes");
+        assert_eq!(app.selected_device.as_deref(), Some("own"));
+        app.remote = Some(playing_on("own"));
+        replace_soloist_key_and_rebind(&mut app, &ctx);
+        let transfers = app.backend.take_transfer_requests();
+        assert!(
+            matches!(
+                transfers.as_slice(),
+                [ApiRequest::Transfer { device_id, play: true }] if device_id == "own"
+            ),
+            "{transfers:?}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A player still waiting to pair has no playback to protect, so setup's
+    /// choice of it stands.
+    #[test]
+    fn replacing_the_soloist_key_of_an_unpaired_player_still_selects_it() {
+        use crate::soloist::{Status, Update};
+        let (ctx, mut app) = listening_on_soloist("soloist-key-unpaired");
+        app.on_soloist(Update::Status(Status::Pairing {
+            name: "owned".into(),
+            version: "test".into(),
+        }));
+        assert_eq!(app.soloist_device_id, None);
+        replace_soloist_key_and_rebind(&mut app, &ctx);
+        let transfers = app.backend.take_transfer_requests();
+        assert!(
+            matches!(
+                transfers.as_slice(),
+                [ApiRequest::Transfer { device_id, .. }] if device_id == "own"
+            ),
+            "{transfers:?}"
+        );
         app.backend.shutdown();
     }
 

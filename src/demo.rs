@@ -1237,6 +1237,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             }
             "soloist-settled" => app.soloist_settled = true,
             "soloist-optional" => app.soloist_setup_optional = true,
+            "soloist-key-edit" => app.soloist_key_edit = Some(String::new()),
+            "soloist-key-invalid" => app.soloist_key_edit = Some("has a space".into()),
             "soloist-home" => app.open(Page::Home),
             // Past the waits that change what a step says.
             "soloist-slow" => {
@@ -9857,6 +9859,201 @@ mod tests {
         );
         assert!(app.settings.soloist_enabled);
         assert!(app.soloist_key.is_empty());
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Starting
+        ));
+        assert_eq!(app.soloist_view(), crate::app::SoloistView::Setup);
+        app.backend.shutdown();
+    }
+
+    /// Presses a button in the Soloist settings and lets the frames after it
+    /// settle, so a field it opened has the keyboard.
+    #[cfg(feature = "demo")]
+    fn press_soloist_key_button(ctx: &egui::Context, app: &mut App, label: &str) {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let tree = accessible_frame(ctx, app, vec![]);
+        let button = accessible_node(&tree, label, Role::Button);
+        accessible_frame(
+            ctx,
+            app,
+            vec![accessible_action(button, AccessibleAction::Click, None)],
+        );
+        accessible_frame(ctx, app, vec![]);
+        accessible_frame(ctx, app, vec![]);
+    }
+
+    /// A key rerolled on Spotify's site leaves the saved one useless (#1230).
+    /// Settings takes the new one and restarts the player with it.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_saved_soloist_key_can_be_replaced_from_settings() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("soloist-edit-key");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-ready"));
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("new-key".into())]);
+        app.backend.take_soloist_commands();
+        press_soloist_key_button(&ctx, &mut app, "Save");
+        assert_eq!(app.soloist_key, "new-key");
+        // Told nothing of the key, the backend would keep the running player.
+        assert_eq!(
+            app.backend.take_soloist_commands(),
+            [(true, Some("new-key".to_owned()))]
+        );
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Starting
+        ));
+        assert!(app.settings.soloist_enabled);
+        assert_eq!(app.soloist_view(), crate::app::SoloistView::App);
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn cancelling_a_soloist_key_edit_leaves_the_player_alone() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("soloist-cancel-key");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-ready"));
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("abandoned".into())]);
+        press_soloist_key_button(&ctx, &mut app, "Cancel");
+        assert!(app.soloist_key.is_empty());
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Ready { .. }
+        ));
+        // Nothing typed survives: the field opens empty, with nothing to save.
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let save = accessible_node(&tree, "Save", Role::Button);
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(id, node)| *id == save && node.is_disabled())
+        );
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_malformed_soloist_key_cannot_be_saved() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("soloist-malformed-key");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-ready"));
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Text("has a space".into())],
+        );
+        let size = egui::vec2(640.0, 800.0);
+        view_frame_sized(&ctx, &mut app, vec![], App::frame_ui, size);
+        let text = view_frame_sized(&ctx, &mut app, vec![], App::frame_ui, size);
+        assert!(
+            text.iter()
+                .any(|(s, _)| s == "That doesn't look like a Soloist key.")
+        );
+        press_soloist_key_button(&ctx, &mut app, "Save");
+        assert!(app.soloist_key.is_empty());
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Ready { .. }
+        ));
+        app.backend.shutdown();
+    }
+
+    /// A paste and Enter can land in one frame. The check has to see the text
+    /// the paste left, or a malformed key stops a working player.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_soloist_key_broken_in_the_frame_it_is_submitted_is_not_saved() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("soloist-key-broken-same-frame");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-ready"));
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Text("well-formed".into())],
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::Text(" broken".into()),
+                keyboard(egui::Key::Enter, egui::Modifiers::NONE),
+            ],
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(app.soloist_key.is_empty());
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Ready { .. }
+        ));
+        app.backend.shutdown();
+    }
+
+    /// The same frame the other way round: a good key pasted into an empty
+    /// field and entered at once is saved.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_soloist_key_pasted_and_entered_in_one_frame_is_saved() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("soloist-key-good-same-frame");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-ready"));
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::Text("new-key".into()),
+                keyboard(egui::Key::Enter, egui::Modifiers::NONE),
+            ],
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(app.soloist_key, "new-key");
+        assert!(matches!(
+            app.soloist_status,
+            crate::soloist::Status::Starting
+        ));
+        app.backend.shutdown();
+    }
+
+    /// Leaving a stuck setup for the built-in player turns Soloist off, so the
+    /// field has to be there too. Saving goes through setup, which pairs it.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_new_soloist_key_sets_up_a_player_that_is_off() {
+        if !crate::soloist::install::supported() {
+            return;
+        }
+        let (ctx, mut app) = accessible_app("soloist-key-while-off");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-setup"));
+        assert!(!app.settings.soloist_enabled);
+        press_soloist_key_button(&ctx, &mut app, "Edit key");
+        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("new-key".into())]);
+        press_soloist_key_button(&ctx, &mut app, "Save");
+        assert!(app.settings.soloist_enabled);
+        assert_eq!(app.soloist_key, "new-key");
         assert!(matches!(
             app.soloist_status,
             crate::soloist::Status::Starting
