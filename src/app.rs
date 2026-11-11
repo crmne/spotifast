@@ -4197,6 +4197,20 @@ impl App {
             return;
         };
         if self.track_cache.contains_key(id) {
+            // Another list may have cached it without its album. Give it this
+            // one only when the album lists the song: a queued or resumed
+            // song can play under an album it is not on.
+            if lacks_album(&self.track_cache[id])
+                && let Some(aid) = context_uri.strip_prefix("spotify:album:")
+                && self
+                    .album_pages
+                    .get(aid)
+                    .is_some_and(|page| page.tracks.items.iter().any(|track| track.uri == uri))
+                && let Some(album) = self.context_album(context_uri)
+                && let Some(track) = self.track_cache.get_mut(id)
+            {
+                track.album = Some(album);
+            }
             self.track_used.insert(id.to_owned(), Instant::now());
             return;
         }
@@ -4211,13 +4225,21 @@ impl App {
                     })
             })
         } else if let Some(aid) = context_uri.strip_prefix("spotify:album:") {
-            self.album_pages.get(aid).and_then(|page| {
+            let mut track = self.album_pages.get(aid).and_then(|page| {
                 page.tracks
                     .items
                     .iter()
                     .find(|track| track.uri == uri)
                     .cloned()
-            })
+            });
+            // An album's track list leaves out each song's album. Give it
+            // this one, so the player bar links the title to it.
+            if let Some(track) = track.as_mut()
+                && track.album.is_none()
+            {
+                track.album = self.context_album(context_uri);
+            }
+            track
         } else if context_uri.ends_with(":collection") {
             self.library
                 .liked
@@ -4233,6 +4255,23 @@ impl App {
             self.track_cache.insert(id.to_owned(), track);
             self.track_used.insert(id.to_owned(), Instant::now());
         }
+    }
+
+    /// The album an album context plays, without its track list: the loaded
+    /// album, or its ID and URI while the page is still loading.
+    fn context_album(&self, context_uri: &str) -> Option<Album> {
+        let aid = context_uri.strip_prefix("spotify:album:")?;
+        let mut album = self
+            .album_pages
+            .get(aid)
+            .and_then(|page| page.album.get().cloned())
+            .unwrap_or_else(|| Album {
+                id: aid.to_owned(),
+                uri: context_uri.to_owned(),
+                ..Album::default()
+            });
+        album.tracks = None;
+        Some(album)
     }
 
     /// Older playlist caches predate recording identities. Once the current
@@ -4352,7 +4391,12 @@ impl App {
         if now.local
             && !now.is_episode
             && let Some(id) = &now.id
-            && !self.track_cache.contains_key(id)
+            // A song cached without its album still needs its details, or
+            // the title has no album to open.
+            && self
+                .track_cache
+                .get(id)
+                .is_none_or(lacks_album)
             && self.track_requests.insert(id.clone())
         {
             self.backend.api(ApiRequest::Track { id: id.clone() });
@@ -15244,6 +15288,16 @@ impl App {
         }
         true
     }
+}
+
+/// Whether a cached song still needs its album: none at all, or the
+/// placeholder an album page gives while its details load, which has no
+/// name or cover.
+fn lacks_album(track: &Track) -> bool {
+    track
+        .album
+        .as_ref()
+        .is_none_or(|album| album.name.is_empty())
 }
 
 fn same_recording_hint(left: &Track, right: &Track) -> bool {
@@ -33414,6 +33468,239 @@ mod tests {
         assert_eq!(Some(&album.id), now.album_id.as_ref());
         assert_eq!(track.image(64), now.art_small.as_deref());
         assert_eq!(track.image(640), now.art_url.as_deref());
+        app.backend.shutdown();
+    }
+
+    /// A song played from an album page links its title to that album,
+    /// though the album's track list does not name each song's album.
+    #[test]
+    fn a_song_played_from_an_album_links_its_title_to_the_album() {
+        use crate::api::models::Track;
+        let mut app = headless_app();
+        app.album_pages.insert(
+            "either-or".into(),
+            AlbumPage {
+                album: Loadable::Loaded(Album {
+                    id: "either-or".into(),
+                    name: "Either/Or".into(),
+                    uri: "spotify:album:either-or".into(),
+                    ..Default::default()
+                }),
+                tracks: PagedList {
+                    items: vec![Track {
+                        id: Some("ballad".into()),
+                        uri: "spotify:track:ballad".into(),
+                        name: "Ballad of Big Nothing".into(),
+                        ..Default::default()
+                    }],
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
+        app.local.connected = true;
+        app.local.playback = Playback::Playing;
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:ballad".into(),
+            title: "Ballad of Big Nothing".into(),
+            album: "Either/Or".into(),
+            ..Default::default()
+        });
+
+        let now = app.now_playing().expect("the song plays");
+        assert_eq!(now.album_id.as_deref(), Some("either-or"));
+        let cached = app.track_cache["ballad"].album.as_ref().unwrap();
+        assert!(cached.tracks.is_none(), "the album's own tracks stay out");
+        app.backend.shutdown();
+    }
+
+    /// Played before the album's details arrive, the song still links to the
+    /// album it was played from.
+    #[test]
+    fn a_song_played_from_a_loading_album_links_to_it() {
+        use crate::api::models::Track;
+        let mut app = headless_app();
+        app.album_pages.insert(
+            "either-or".into(),
+            AlbumPage {
+                tracks: PagedList {
+                    items: vec![Track {
+                        id: Some("ballad".into()),
+                        uri: "spotify:track:ballad".into(),
+                        ..Default::default()
+                    }],
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
+        let album = app.track_cache["ballad"].album.as_ref().unwrap();
+        assert_eq!(album.id, "either-or");
+        assert_eq!(album.uri, "spotify:album:either-or");
+        app.backend.shutdown();
+    }
+
+    /// A song another list cached without its album gets the album when it
+    /// is played from that album's page, and only an album that lists it.
+    #[test]
+    fn a_song_cached_without_its_album_gets_it_from_the_album_played() {
+        use crate::api::models::Track;
+        let mut app = headless_app();
+        let ballad = Track {
+            id: Some("ballad".into()),
+            uri: "spotify:track:ballad".into(),
+            ..Default::default()
+        };
+        app.track_cache.insert("ballad".into(), ballad.clone());
+        for (id, name, tracks) in [
+            ("either-or", "Either/Or", vec![ballad.clone()]),
+            ("xo", "XO", Vec::new()),
+        ] {
+            app.album_pages.insert(
+                id.into(),
+                AlbumPage {
+                    album: Loadable::Loaded(Album {
+                        id: id.into(),
+                        name: name.into(),
+                        ..Default::default()
+                    }),
+                    tracks: PagedList {
+                        items: tracks,
+                        loaded_once: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+        }
+
+        // A queued or resumed song can play under an album it is not on.
+        app.cache_track_from_context("spotify:album:xo", "spotify:track:ballad");
+        assert!(app.track_cache["ballad"].album.is_none());
+        // A playlist context names no album to give it.
+        app.cache_track_from_context("spotify:playlist:mix", "spotify:track:ballad");
+        assert!(app.track_cache["ballad"].album.is_none());
+
+        app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
+        let album = app.track_cache["ballad"].album.as_ref().unwrap();
+        assert_eq!(album.id, "either-or");
+        assert_eq!(album.name, "Either/Or");
+        assert!(
+            app.track_used.contains_key("ballad"),
+            "the use still counts"
+        );
+        app.backend.shutdown();
+    }
+
+    /// The placeholder album a loading page gives is replaced once the
+    /// album's details are known.
+    #[test]
+    fn a_placeholder_album_is_completed() {
+        use crate::api::models::Track;
+        let mut app = headless_app();
+        let ballad = Track {
+            id: Some("ballad".into()),
+            uri: "spotify:track:ballad".into(),
+            ..Default::default()
+        };
+        app.album_pages.insert(
+            "either-or".into(),
+            AlbumPage {
+                tracks: PagedList {
+                    items: vec![ballad],
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
+        assert!(lacks_album(&app.track_cache["ballad"]), "a placeholder");
+
+        // Starting the song asks for its details.
+        play_locally(&mut app, "spotify:track:ballad");
+        assert!(app.track_requests.contains("ballad"));
+
+        // Playing it again once the album has loaded fills the name in.
+        app.album_pages.get_mut("either-or").unwrap().album = Loadable::Loaded(Album {
+            id: "either-or".into(),
+            name: "Either/Or".into(),
+            ..Default::default()
+        });
+        app.cache_track_from_context("spotify:album:either-or", "spotify:track:ballad");
+        let album = app.track_cache["ballad"].album.as_ref().unwrap();
+        assert_eq!(album.name, "Either/Or");
+        app.backend.shutdown();
+    }
+
+    fn play_locally(app: &mut App, uri: &str) {
+        app.local.connected = true;
+        app.local.playback = Playback::Playing;
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: uri.into(),
+            ..Default::default()
+        });
+        app.on_now_playing_changed();
+    }
+
+    /// A song cached without its album asks for its details when it starts,
+    /// and its title links to the album once they arrive.
+    #[test]
+    fn a_song_cached_without_its_album_asks_for_its_details() {
+        use crate::api::models::Track;
+        let mut app = headless_app();
+        let bare = Track {
+            id: Some("ballad".into()),
+            uri: "spotify:track:ballad".into(),
+            ..Default::default()
+        };
+        app.track_cache.insert("ballad".into(), bare.clone());
+        play_locally(&mut app, "spotify:track:ballad");
+        assert!(app.track_requests.contains("ballad"));
+        assert_eq!(app.now_playing().unwrap().album_id, None);
+
+        app.handle_api(ApiResponse::Track {
+            id: "ballad".into(),
+            result: Ok(Track {
+                album: Some(Album {
+                    id: "either-or".into(),
+                    name: "Either/Or".into(),
+                    ..Default::default()
+                }),
+                ..bare
+            }),
+        });
+        assert_eq!(
+            app.now_playing().unwrap().album_id.as_deref(),
+            Some("either-or")
+        );
+        app.backend.shutdown();
+    }
+
+    /// A song already cached with its album is not asked for again.
+    #[test]
+    fn a_song_cached_with_its_album_is_not_asked_for_again() {
+        use crate::api::models::Track;
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "bars".into(),
+            Track {
+                id: Some("bars".into()),
+                uri: "spotify:track:bars".into(),
+                album: Some(Album {
+                    id: "either-or".into(),
+                    name: "Either/Or".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        play_locally(&mut app, "spotify:track:bars");
+        assert!(!app.track_requests.contains("bars"));
         app.backend.shutdown();
     }
 
