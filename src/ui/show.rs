@@ -56,8 +56,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             }
             theme::section_title(ui, &palette, &gettext(locale, "All episodes"));
             ui.add_space(6.0);
-            let episodes = page.episodes.items.clone();
-            let show_image = pick_image(&show.images, app.art_px(EPISODE_ART)).map(str::to_string);
+            let episodes = &page.episodes.items;
+            let show_image = pick_image(&show.images, app.art_px(EPISODE_ART));
             if episodes.is_empty() && !app.network_reachable {
                 widgets::empty_state(
                     ui,
@@ -72,7 +72,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             } else {
                 let render_episodes = |ui: &mut egui::Ui, app: &mut App| {
                     widgets::virtual_rows(ui, episodes.len(), EPISODE_ROW_HEIGHT, |ui, index| {
-                        episode_row(app, ui, &episodes[index], show_image.as_deref());
+                        episode_row(app, ui, &episodes[index], show_image);
                     });
                 };
                 if !app.network_reachable {
