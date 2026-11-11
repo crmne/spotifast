@@ -202,7 +202,7 @@ jobs:
             msvc-arch: amd64_arm64
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.target }}
           path: target/${{ matrix.target }}/release
@@ -343,7 +343,7 @@ jobs:
       options: --privileged
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: x86_64-unknown-linux-gnu
           path: dist
@@ -377,7 +377,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
