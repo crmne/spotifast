@@ -20682,9 +20682,13 @@ mod tests {
             ..Default::default()
         });
         app.local.playback = Playback::Playing;
+        app.auth = AuthStatus::Connected {
+            username: "test".into(),
+        };
         app.manual_queue = vec!["spotify:track:b".into()];
         app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
         app.backend.take_player_commands();
+        let seq = app.queue_seq;
         app.apply(
             Action::PlayFromRow {
                 context: RowContext::Queue,
@@ -20694,6 +20698,8 @@ mod tests {
             &ctx,
         );
         assert!(app.backend.take_player_commands().is_empty());
+        // refresh_queue counts a request when it sends one.
+        assert_eq!(app.queue_seq, seq + 1, "the live queue was asked for");
         assert_eq!(app.manual_queue, vec!["spotify:track:b".to_string()]);
         assert_eq!(queue_uris(&app).1.len(), 2, "no row was dropped");
         app.backend.shutdown();
