@@ -172,8 +172,10 @@ pub fn enable_desktop_themes(catalog: &mut Catalog) {
     catalog.enable_desktop_themes(fastframe_theme::DesktopThemes {
         slug: "spotifast",
         omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"),
-        // The template has not changed since it first shipped.
-        omarchy_previous_templates: &[],
+        // The first template blended every shade from the background and
+        // foreground; an unchanged copy of it is upgraded to Omarchy's own
+        // semantic shades.
+        omarchy_previous_templates: &[include_str!("omarchy_template_v1.json.tpl")],
         presets: true,
     });
 }
@@ -1118,10 +1120,36 @@ mod tests {
             lines(include_str!("../contrib/omarchy/spotifast-theme")),
             lines(&fastframe_theme::omarchy::hook_script("spotifast"))
         );
+        // The first template was the shared one, so an unchanged copy of it
+        // is recognised and upgraded.
         assert_eq!(
-            lines(include_str!("../contrib/omarchy/spotifast.json.tpl")),
+            lines(include_str!("omarchy_template_v1.json.tpl")),
             lines(fastframe_theme::omarchy::BASE_TEMPLATE)
         );
+    }
+
+    /// Spotifast's own template takes Omarchy's semantic shades: the panels
+    /// its darker background, selections its selection, outlines its muted
+    /// colour, menus its lighter background.
+    #[test]
+    fn the_omarchy_template_uses_the_themes_own_shades() {
+        let colors = "accent\t#7fbbb3\nbackground\t#2d353b\ndark_background\t#21272c\n\
+            darker_background\t#181d20\nlighter_background\t#343f44\nforeground\t#d3c6aa\n\
+            muted\t#475258\nselection\t#3d484d\nred\t#e67e80\nyellow\t#dbbc7f\nmode\tdark\n";
+        let text = fastframe_theme::omarchy::render_seed::<Palette>(
+            include_str!("../contrib/omarchy/spotifast.json.tpl"),
+            colors,
+        )
+        .unwrap();
+        let palette: Palette = fastframe_theme::parse_palette(&text).unwrap();
+        assert!(palette.dark);
+        assert_eq!(palette.window, Color32::from_rgb(0x2d, 0x35, 0x3b));
+        assert_eq!(palette.panel, Color32::from_rgb(0x21, 0x27, 0x2c));
+        assert_eq!(palette.surface_active, Color32::from_rgb(0x3d, 0x48, 0x4d));
+        assert_eq!(palette.outline, Color32::from_rgb(0x3a, 0x44, 0x4a));
+        assert_eq!(palette.accent, Color32::from_rgb(0x7f, 0xbb, 0xb3));
+        assert!(palette.tint.a() > 0 && palette.tint.a() < 64);
+        assert!(palette.shadow.a() < 255);
     }
 
     #[test]
