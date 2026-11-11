@@ -428,6 +428,7 @@ main fields are:
 | `keep_playing_in_background` | `true` | Close to tray |
 | `tray_icon` | `colour` | Linux and Windows: the tray icon in `colour`, or in `white` or `black` to match the panel or taskbar. macOS ignores it: the menu bar draws its icon black or white to match itself |
 | `mac_notch_widget` | `false` | Show interactive Now Playing widget when hovering over the MacBook notch (macOS only) |
+| `mac_menu_bar_now_playing` | `false` | macOS only: add a menu-bar item beside the usual icon that names the loaded song, playing or paused, and opens a card filled by the cover, with the playback buttons over it, when it is clicked |
 | `mac_show_in_dock` | `true` | macOS only: show Spotifast in the Dock and Cmd+Tab. `false` keeps it in the menu bar only; the menu-bar icon always stays |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | The Client ID you got by registering Spotifast, which it signs in with |
