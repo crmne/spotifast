@@ -114,6 +114,8 @@ pub enum Page {
     NewReleases,
     Search,
     LikedSongs,
+    /// One artist's songs in Liked Songs, by the artist's id.
+    ArtistLikedSongs(String),
     Albums,
     Artists,
     Podcasts,
@@ -130,6 +132,8 @@ pub enum Page {
 }
 
 impl Page {
+    /// The page as text, which `decode` reads back: for the saved session
+    /// and for keys kept per page.
     pub fn encode(&self) -> String {
         match self {
             Page::Home => "home".into(),
@@ -137,6 +141,7 @@ impl Page {
             Page::NewReleases => "new-releases".into(),
             Page::Search => "search".into(),
             Page::LikedSongs => "liked".into(),
+            Page::ArtistLikedSongs(id) => format!("liked-artist:{id}"),
             Page::Albums => "albums".into(),
             Page::Artists => "artists".into(),
             Page::Podcasts => "podcasts".into(),
@@ -151,6 +156,7 @@ impl Page {
         }
     }
 
+    /// The page `encode` wrote, or `None` for text it never writes.
     pub fn decode(text: &str) -> Option<Self> {
         Some(match text {
             "home" => Page::Home,
@@ -170,6 +176,7 @@ impl Page {
                     "playlist" => Page::Playlist(id.into()),
                     "album" => Page::Album(id.into()),
                     "artist" => Page::Artist(id.into()),
+                    "liked-artist" => Page::ArtistLikedSongs(id.into()),
                     "show" => Page::Show(id.into()),
                     "radio" if crate::util::station_uri(id).is_some() => Page::Radio(id.into()),
                     _ => return None,

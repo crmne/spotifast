@@ -3565,6 +3565,8 @@ impl App {
         }
     }
 
+    /// Reads again what the open page is missing once the network is back,
+    /// so a page the outage left half loaded or failed fills in by itself.
     fn on_network_restored(&mut self) {
         if !self.is_connected() {
             return;
@@ -3602,6 +3604,10 @@ impl App {
                     self.library.liked.error = None;
                     self.load_more(Page::LikedSongs);
                 }
+            }
+            Page::ArtistLikedSongs(_) => {
+                self.library.liked.error = None;
+                self.ensure_all_liked_songs(true);
             }
             Page::Albums => {
                 if !self.library.albums.loaded_once || self.library.albums.error.is_some() {
@@ -3679,6 +3685,8 @@ impl App {
                         }
                     }
                     self.ensure_loaded(Page::Artist(id));
+                } else {
+                    self.ensure_all_liked_songs(false);
                 }
             }
             Page::Show(id) => {
@@ -6369,6 +6377,8 @@ impl App {
             )));
     }
 
+    /// Asks for what `page` needs and does not hold yet. Nothing is asked
+    /// before the account connects.
     pub fn ensure_loaded(&mut self, page: Page) {
         if !self.is_connected() {
             return;
@@ -6393,6 +6403,7 @@ impl App {
             }
             Page::Search => {}
             Page::LikedSongs => self.ensure_liked_songs(),
+            Page::ArtistLikedSongs(_) => self.ensure_all_liked_songs(true),
             Page::Albums => {
                 if self.network_reachable && !self.library.albums.loaded_once {
                     self.load_more(Page::Albums);
@@ -6491,6 +6502,11 @@ impl App {
                             .api(ApiRequest::RelatedArtists { id: id.clone() });
                     }
                     self.request_contains(vec![format!("spotify:artist:{id}")]);
+                }
+                // The page on screen counts the artist's songs among Liked
+                // Songs; an artist context resumed in the background does not.
+                if matches!(self.page(), Page::Artist(shown) if *shown == id) {
+                    self.ensure_all_liked_songs(false);
                 }
             }
             Page::Show(id) => {
@@ -7161,6 +7177,8 @@ impl App {
         });
     }
 
+    /// Reads `page` again from Spotify, for its Refresh and for Retry. Some
+    /// pages keep their rows on screen until the new answer replaces them.
     fn reload(&mut self, page: Page) {
         match &page {
             Page::Home => self.load_home(true),
@@ -7169,7 +7187,7 @@ impl App {
                 self.load_new_releases();
                 self.load_new_release_page(true);
             }
-            Page::LikedSongs => {
+            Page::LikedSongs | Page::ArtistLikedSongs(_) => {
                 self.refresh_liked_songs();
                 return;
             }
@@ -9264,7 +9282,7 @@ impl App {
                     self.sync_liked_songs();
                     self.checkpoint_liked_songs(false);
                 }
-                if succeeded && (more || self.table_sorts.contains_key(&Page::LikedSongs)) {
+                if succeeded && (more || self.wants_all_liked_songs()) {
                     self.load_more(Page::LikedSongs);
                 }
             }
@@ -15113,6 +15131,28 @@ impl App {
         }
     }
 
+    /// Whether the open page needs every liked song: Liked Songs sorted by
+    /// a column, or an artist's page and its Liked Songs, which find that
+    /// artist's songs among them.
+    fn wants_all_liked_songs(&self) -> bool {
+        self.table_sorts.contains_key(&Page::LikedSongs)
+            || matches!(self.page(), Page::Artist(_) | Page::ArtistLikedSongs(_))
+    }
+
+    /// Reads Liked Songs to the end, for a page that finds one artist's
+    /// songs among them. `refresh` reads songs older than a refresh allows
+    /// again, as opening Liked Songs does; an artist's page, which opens far
+    /// more often, keeps what the cache and this session already hold.
+    fn ensure_all_liked_songs(&mut self, refresh: bool) {
+        if refresh || !self.liked_songs.cache_checked {
+            self.ensure_liked_songs();
+        }
+        self.load_more(Page::LikedSongs);
+    }
+
+    /// Takes the Liked Songs the disk cache held for `account`, unless the
+    /// account or the request changed since. A stale cache is then read
+    /// again, and the rest is read while the open page needs every song.
     fn receive_liked_cache(
         &mut self,
         account: &str,
@@ -15151,7 +15191,7 @@ impl App {
             && self.network_reachable
         {
             self.refresh_liked_songs();
-        } else if self.table_sorts.contains_key(&Page::LikedSongs) && self.network_reachable {
+        } else if self.wants_all_liked_songs() && self.network_reachable {
             self.load_more(Page::LikedSongs);
         }
     }

@@ -774,6 +774,21 @@ count sort last.
 The same answer gives an artist's monthly listeners, which the top of the
 artist page then shows first.
 
+## Liked songs by an artist
+
+When you have liked songs by an artist, the artist page shows a **Liked Songs**
+row under its buttons, with the artist's picture and how many of their songs
+you have liked, as Spotify's mobile app does. Songs where the artist is
+featured count too. Select the row to open those songs, newest like first.
+They can be filtered and sorted like Liked Songs. **Play** starts only these
+songs, shuffled when Shuffle is on, and the queue names Liked Songs as where
+they play from. While Liked Songs plays one of them, the button pauses it
+instead; Liked Songs playing another artist's song does not count.
+
+To find an artist's songs, Spotifast reads all of Liked Songs while an artist
+page is open, from its cache first and then from Spotify, so the count can
+grow while a large library loads.
+
 ## Discography
 
 An artist's discography can be narrowed to Albums, Singles & EPs, Compilations

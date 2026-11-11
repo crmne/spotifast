@@ -208,6 +208,15 @@ every 5 seconds, so an order changed in another Spotify app appears without a
 restart. A return sooner than that reads once the 5 seconds have passed. This
 read uses no Web API quota.
 
+An artist page, and the artist's Liked Songs opened from it, load the
+remaining Liked Songs pages the same way, one at a time through the Web API
+request Liked Songs makes, because they look for the artist's songs among all
+of them. Loading stops when the page closes or a page fails. The first of
+them in a session reads Liked Songs from its cache, which refreshes a cache
+older than 15 minutes, as opening Liked Songs does. After that, an artist page
+only reads pages not loaded yet, while the artist's Liked Songs refreshes
+loaded pages after 15 minutes, like Liked Songs.
+
 Since 0.9.0, a playlist-folder and invitation-permission read requested
 before local playback connects waits for that connection instead of being lost.
 Sign-out discards the waiting read and any result from the previous session.
