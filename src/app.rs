@@ -11208,11 +11208,22 @@ impl App {
 
     fn set_volume(&mut self, percent: u8, settle: bool) {
         let percent = percent.min(100);
+        // On a Mac, Soloist's player is the audible level until capture takes
+        // over and the fader after it. Both keep the level chosen last, so the
+        // handover in either direction plays what the slider shows.
+        let mac_fader = cfg!(all(target_os = "macos", feature = "soloist-native-audio"))
+            && self.settings.soloist_enabled
+            && self.targets_own_soloist();
         if self.has_soloist_output_volume() && self.targets_own_soloist() {
             self.backend.soloist_output_volume.set(percent);
+            self.backend.soloist_output_volume.remember(percent);
             self.pending_remote_volume = None;
             self.session_dirty = true;
             return;
+        }
+        if mac_fader {
+            self.backend.soloist_output_volume.set(percent);
+            self.session_dirty = true;
         }
         if self.soloist_route_volume().is_some()
             && self.targets_own_soloist()
@@ -32797,8 +32808,59 @@ mod tests {
             app.soloist_device_id = Some("different-device".into());
             app.set_volume(60, true);
             assert_eq!(app.remote_volume_request, 2);
-            assert_eq!(app.backend.soloist_output_volume.percent(), 5);
+            assert_eq!(
+                app.backend.soloist_output_volume.percent(),
+                40,
+                "the fader keeps the level chosen while capture was down"
+            );
         }
+        app.backend.shutdown();
+    }
+
+    /// A level chosen before Mac capture takes over is the level heard after
+    /// it, and one chosen after it is where Soloist's player starts next time:
+    /// the handover never jumps the volume away from the slider.
+    #[test]
+    fn soloist_volume_survives_the_mac_capture_handover() {
+        if !cfg!(all(target_os = "macos", feature = "soloist-native-audio")) {
+            return;
+        }
+        let mut app = remote_volume_app();
+        let id = app
+            .remote
+            .as_ref()
+            .unwrap()
+            .state
+            .device
+            .as_ref()
+            .unwrap()
+            .id
+            .clone();
+        app.settings.soloist_enabled = true;
+        app.soloist_device_id = id;
+        app.soloist_status = crate::soloist::Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        };
+
+        // #given Soloist playing before capture is ready, at the default fader
+        app.soloist_audio = false;
+        assert_eq!(app.backend.soloist_output_volume.percent(), 100);
+
+        // #when the slider moves to 30% and capture then takes over
+        app.set_volume(30, true);
+        app.soloist_audio = true;
+
+        // #then the fader plays the 30% that was chosen
+        assert_eq!(app.backend.soloist_output_volume.percent(), 30);
+        assert_eq!(app.now_playing().unwrap().volume_percent, 30);
+
+        // #when the slider moves after the handover
+        app.set_volume(55, true);
+
+        // #then Soloist's player will start at 55% next time, too
+        assert_eq!(app.backend.soloist_output_volume.remembered(), Some(55));
         app.backend.shutdown();
     }
 

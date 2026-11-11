@@ -242,7 +242,9 @@ Spotifast restarts it.
 
 Spotify's player starts at a level of its own every launch, so Spotifast keeps
 the level you left it at and gives it back once the player is signed in. This
-is saved in the session file.
+is saved in the session file. On Mac, Spotifast's slider keeps that level and
+the output level together, so the handover to capture plays what the slider
+shows whichever side of it the slider moved.
 
 Windows capture comes after Soloist's volume, so Spotifast undoes Soloist's
 volume curve for the visualizers: they keep their level as the volume falls.
