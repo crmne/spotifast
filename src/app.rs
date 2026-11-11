@@ -13059,9 +13059,13 @@ impl App {
             }
             Action::MoveInPlaylist {
                 playlist_id,
-                from,
+                rows,
                 to,
             } => {
+                let moves = crate::model::range_moves(&rows, to);
+                if moves.is_empty() {
+                    return;
+                }
                 let snapshot_id = self
                     .playlist_pages
                     .get(&playlist_id)
@@ -13070,16 +13074,20 @@ impl App {
                 self.prepare_playlist_mutation(&playlist_id);
                 if let Some(page) = self.playlist_pages.get_mut(&playlist_id) {
                     let base = page.items.base_offset;
-                    if from >= base && to >= base {
-                        page.items
-                            .reorder((from - base) as usize, (to - base) as usize);
+                    for moved in &moves {
+                        if moved.start >= base && moved.before >= base {
+                            page.items.reorder(
+                                (moved.start - base) as usize,
+                                moved.length as usize,
+                                (moved.before - base) as usize,
+                            );
+                        }
                     }
                 }
                 self.playlist_busy = true;
                 self.backend.api(ApiRequest::ReorderPlaylist {
                     playlist_id,
-                    range_start: from,
-                    insert_before: to,
+                    moves,
                     snapshot_id,
                 });
             }

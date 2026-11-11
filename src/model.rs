@@ -453,11 +453,14 @@ impl<T> PagedList<T> {
         self.revision = self.revision.wrapping_add(1);
     }
 
-    pub fn reorder(&mut self, from: usize, to: usize) {
-        if from < self.items.len() && to <= self.items.len() {
-            let item = self.items.remove(from);
-            let insert_at = if to > from { to - 1 } else { to };
-            self.items.insert(insert_at.min(self.items.len()), item);
+    /// Moves `len` items from `from` to before `to`, both counted before
+    /// the move, as Spotify's playlist reorder does.
+    pub fn reorder(&mut self, from: usize, len: usize, to: usize) {
+        let end = from.saturating_add(len);
+        if end <= self.items.len() && to <= self.items.len() && (to <= from || to >= end) {
+            let moved: Vec<T> = self.items.drain(from..end).collect();
+            let insert_at = if to >= end { to - len } else { to };
+            self.items.splice(insert_at..insert_at, moved);
             self.revision = self.revision.wrapping_add(1);
         }
     }
@@ -505,6 +508,59 @@ impl<T> PagedList<T> {
 }
 
 type Page_<T> = crate::api::models::Page<T>;
+
+/// The reorders that bring the playlist rows at `rows` together before the
+/// row at `to`, in their playlist order, as Spotify's own apps move a
+/// selection. Each run of consecutive rows is one range, and a run already
+/// beside the others stays put, so a block of rows is one request and a
+/// drop on its own edges is none. Each move counts positions in the list
+/// as the moves before it leave it.
+pub fn range_moves(rows: &[u32], to: u32) -> Vec<RangeMove> {
+    let mut rows = rows.to_vec();
+    rows.sort_unstable();
+    rows.dedup();
+    let mut runs: Vec<(u32, u32)> = Vec::new();
+    for row in rows {
+        match runs.last_mut() {
+            Some((start, length)) if *start + *length == row => *length += 1,
+            _ => runs.push((row, 1)),
+        }
+    }
+    // The block grows from the run the slot falls inside, or from the
+    // empty slot: runs above it join its top, nearest first, and runs
+    // below it join its bottom. Neither moves a row the other has to find.
+    let (mut top, mut bottom) = runs
+        .iter()
+        .find(|(start, length)| *start < to && to < start + length)
+        .map_or((to, to), |(start, length)| (*start, start + length));
+    let above = runs
+        .iter()
+        .rev()
+        .filter(|(start, length)| start + length <= to);
+    let below = runs.iter().filter(|(start, _)| *start >= to);
+    let mut moves = Vec::new();
+    for &(start, length) in above {
+        if start + length != top {
+            moves.push(RangeMove {
+                start,
+                length,
+                before: top,
+            });
+        }
+        top -= length;
+    }
+    for &(start, length) in below {
+        if start != bottom {
+            moves.push(RangeMove {
+                start,
+                length,
+                before: bottom,
+            });
+        }
+        bottom += length;
+    }
+    moves
+}
 
 /// Selected track-table rows for batch actions.
 ///
@@ -1046,9 +1102,11 @@ pub struct DragTrack {
     /// Source playlist ID and row index for moves within an editable playlist.
     pub from: Option<(String, u32)>,
     /// The editable playlist the rows were dragged from, however many there
-    /// are. Several rows have no `from`, and dropping them back into their
-    /// own playlist must not add copies of them (#669).
-    pub source_playlist: Option<String>,
+    /// are, with each row's position in it in the order of `items` (none
+    /// when the table does not know them). Several rows have no `from`:
+    /// dropped back between their own playlist's rows they move with these,
+    /// and they must never add copies of themselves (#669).
+    pub source_playlist: Option<(String, Vec<u32>)>,
 }
 
 /// Where the playing songs come from, as the queue's header names it.
@@ -1262,9 +1320,11 @@ pub enum Action {
         /// holds more than once loses only the picked copies.
         positions: Vec<u32>,
     },
+    /// Move the rows at these playlist positions, together and in playlist
+    /// order, to before the row at `to`.
     MoveInPlaylist {
         playlist_id: String,
-        from: u32,
+        rows: Vec<u32>,
         to: u32,
     },
     ShowDialog(Dialog),
@@ -1633,5 +1693,82 @@ mod finite_scroll_tests {
         assert_eq!(list.window_at(150, 50), None);
         list.fail("offline".into());
         assert_eq!(list.window_at(150, 50), None);
+    }
+}
+
+#[cfg(test)]
+mod range_move_tests {
+    use super::*;
+
+    /// #646: every pick of rows in a short list, dropped at every slot,
+    /// ends as one block in playlist order where it was dropped, with the
+    /// other rows in their own order, and no run moves more than once.
+    #[test]
+    fn picked_rows_land_together_at_the_slot() {
+        for len in 0..=7u32 {
+            for mask in 0u32..(1 << len) {
+                let rows: Vec<u32> = (0..len).filter(|row| mask & (1 << row) != 0).collect();
+                let runs = rows
+                    .windows(2)
+                    .filter(|pair| pair[1] != pair[0] + 1)
+                    .count()
+                    + usize::from(!rows.is_empty());
+                for to in 0..=len {
+                    let mut list = PagedList {
+                        items: (0..len).collect::<Vec<u32>>(),
+                        ..Default::default()
+                    };
+                    let moves = range_moves(&rows, to);
+                    for moved in &moves {
+                        let revision = list.revision;
+                        list.reorder(
+                            moved.start as usize,
+                            moved.length as usize,
+                            moved.before as usize,
+                        );
+                        assert_ne!(list.revision, revision, "{moved:?} does not fit");
+                    }
+                    let (above, below): (Vec<u32>, Vec<u32>) = (0..len)
+                        .filter(|row| !rows.contains(row))
+                        .partition(|row| *row < to);
+                    let expected: Vec<u32> = above
+                        .into_iter()
+                        .chain(rows.iter().copied())
+                        .chain(below)
+                        .collect();
+                    assert_eq!(list.items, expected, "{rows:?} dropped before {to}");
+                    assert!(moves.len() <= runs, "{rows:?} before {to}: {moves:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_block_moves_once_and_not_at_all_onto_its_own_edges() {
+        let block = |start, before| RangeMove {
+            start,
+            length: 3,
+            before,
+        };
+        // Picked in any order, the rows go in playlist order.
+        assert_eq!(range_moves(&[5, 3, 4], 0), [block(3, 0)]);
+        assert_eq!(range_moves(&[5, 3, 4], 9), [block(3, 9)]);
+        for to in 3..=6 {
+            assert_eq!(range_moves(&[5, 3, 4], to), [], "dropped before {to}");
+        }
+        // One row is the single move the menu and a lone drag always sent.
+        let row = |start, before| RangeMove {
+            start,
+            length: 1,
+            before,
+        };
+        assert_eq!(range_moves(&[5], 2), [row(5, 2)]);
+        assert_eq!(range_moves(&[5], 8), [row(5, 8)]);
+        assert_eq!(range_moves(&[5], 5), []);
+        assert_eq!(range_moves(&[5], 6), []);
+        // Rows above the slot join it nearest first, rows below in order,
+        // and a run already beside the block stays put.
+        assert_eq!(range_moves(&[1, 3], 6), [row(3, 6), row(1, 5)]);
+        assert_eq!(range_moves(&[1, 4, 5, 8], 4), [row(1, 4), row(8, 6)]);
     }
 }

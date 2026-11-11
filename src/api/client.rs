@@ -1049,30 +1049,36 @@ impl ApiClient {
         Ok(Self::snapshot(value))
     }
 
+    /// Makes `moves` one after another, each on the snapshot the one before
+    /// made, since its positions count the list as that one left it. The
+    /// first refusal stops the rest; the moves before it stay made.
     pub async fn reorder_playlist(
         &self,
         id: &str,
-        range_start: u32,
-        insert_before: u32,
+        moves: &[RangeMove],
         snapshot_id: Option<&str>,
     ) -> Result<Option<String>> {
-        let mut body = json!({
-            "range_start": range_start,
-            "insert_before": insert_before,
-            "range_length": 1,
-        });
-        if let Some(snapshot) = snapshot_id {
-            body["snapshot_id"] = json!(snapshot);
+        let mut snapshot = snapshot_id.map(str::to_string);
+        for moved in moves {
+            let mut body = json!({
+                "range_start": moved.start,
+                "insert_before": moved.before,
+                "range_length": moved.length,
+            });
+            if let Some(snapshot) = &snapshot {
+                body["snapshot_id"] = json!(snapshot);
+            }
+            let value = self
+                .write(
+                    Method::PUT,
+                    &format!("/playlists/{id}/items"),
+                    &[],
+                    Some(&body),
+                )
+                .await?;
+            snapshot = Self::snapshot(value);
         }
-        let value = self
-            .write(
-                Method::PUT,
-                &format!("/playlists/{id}/items"),
-                &[],
-                Some(&body),
-            )
-            .await?;
-        Ok(Self::snapshot(value))
+        Ok(snapshot)
     }
 
     fn snapshot(value: Option<Value>) -> Option<String> {
@@ -2032,5 +2038,109 @@ mod tests {
         shared.extend_cooldown(Duration::from_secs(10)).await;
         assert!(*shared.cooldown_until.lock().await > Instant::now());
         assert!(*personal.cooldown_until.lock().await <= Instant::now());
+    }
+
+    /// #646: the range moves of one drag reach Spotify one after another,
+    /// each on the snapshot the one before made, and a refusal stops the
+    /// rest rather than sending them against a list they no longer fit.
+    #[tokio::test]
+    async fn range_moves_follow_each_other_on_their_snapshots() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        async fn answer(
+            listener: &tokio::net::TcpListener,
+            status: &str,
+            body: &str,
+        ) -> (String, Value) {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                head.push(socket.read_u8().await.unwrap());
+            }
+            let head = String::from_utf8(head).unwrap();
+            let length = head
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap();
+            let mut request = vec![0; length];
+            socket.read_exact(&mut request).await.unwrap();
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let line = head.lines().next().unwrap().to_string();
+            (line, serde_json::from_slice(&request).unwrap())
+        }
+        let moves = [
+            RangeMove {
+                start: 3,
+                length: 1,
+                before: 6,
+            },
+            RangeMove {
+                start: 1,
+                length: 2,
+                before: 5,
+            },
+        ];
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = client_with_token(
+            Some(format!("http://{}", listener.local_addr().unwrap())),
+            "test-only",
+        );
+        let server = tokio::spawn(async move {
+            let first = answer(&listener, "200 OK", r#"{"snapshot_id":"after-first"}"#).await;
+            let second = answer(&listener, "200 OK", r#"{"snapshot_id":"after-second"}"#).await;
+            (first, second)
+        });
+        let result = client.reorder_playlist("pl1", &moves, Some("before")).await;
+        assert_eq!(result.unwrap().as_deref(), Some("after-second"));
+        let ((first_line, first), (second_line, second)) = server.await.unwrap();
+        assert!(
+            first_line.starts_with("PUT /playlists/pl1/items "),
+            "{first_line}"
+        );
+        assert!(
+            second_line.starts_with("PUT /playlists/pl1/items "),
+            "{second_line}"
+        );
+        assert_eq!(
+            first,
+            json!({ "range_start": 3, "range_length": 1, "insert_before": 6, "snapshot_id": "before" })
+        );
+        assert_eq!(
+            second,
+            json!({ "range_start": 1, "range_length": 2, "insert_before": 5, "snapshot_id": "after-first" })
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = client_with_token(
+            Some(format!("http://{}", listener.local_addr().unwrap())),
+            "test-only",
+        );
+        let server = tokio::spawn(async move {
+            answer(
+                &listener,
+                "403 Forbidden",
+                r#"{"error":{"status":403,"message":"Forbidden"}}"#,
+            )
+            .await;
+            // Nothing else may arrive after the refusal.
+            tokio::time::timeout(Duration::from_millis(300), listener.accept())
+                .await
+                .is_err()
+        });
+        assert!(client.reorder_playlist("pl1", &moves, None).await.is_err());
+        assert!(server.await.unwrap(), "a move was sent after a refusal");
     }
 }

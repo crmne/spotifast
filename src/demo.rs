@@ -12191,6 +12191,7 @@ mod tests {
             "empty",
             "multiple",
             "own-multiple",
+            "own-moved",
             "readonly",
             "sorted",
             "filtered",
@@ -12276,13 +12277,8 @@ mod tests {
                     bounds.y0 as f32 + 2.0
                 },
             );
-            let dragged =
-                app.queue.get().unwrap().queue[..if matches!(mode, "multiple" | "own-multiple") {
-                    2
-                } else {
-                    1
-                }]
-                    .to_vec();
+            let several = matches!(mode, "multiple" | "own-multiple" | "own-moved");
+            let dragged = app.queue.get().unwrap().queue[..if several { 2 } else { 1 }].to_vec();
             let expected: Vec<_> = dragged.iter().map(|item| item.uri().to_string()).collect();
             egui::DragAndDrop::set_payload(
                 &ctx,
@@ -12291,9 +12287,12 @@ mod tests {
                     image: None,
                     items: dragged,
                     from: (mode == "foreign").then(|| ("pl2".into(), 5)),
+                    // Several rows from this playlist move with their
+                    // positions; without them they are refused (#669).
                     source_playlist: match mode {
-                        "foreign" => Some("pl2".into()),
-                        "own-multiple" => Some("pl1".into()),
+                        "foreign" => Some(("pl2".into(), vec![5])),
+                        "own-multiple" => Some(("pl1".into(), Vec::new())),
+                        "own-moved" => Some(("pl1".into(), vec![102, 104])),
                         _ => None,
                     },
                 },
@@ -12325,6 +12324,12 @@ mod tests {
             if matches!(mode, "foreign" | "empty" | "multiple") {
                 assert!(
                     matches!(app.actions.as_slice(), [Action::InsertInPlaylist { playlist_id, position, items }] if playlist_id == "pl1" && *position == if mode == "empty" { 0 } else { 100 } && items.iter().map(PlayableItem::uri).collect::<Vec<_>>() == expected),
+                    "{mode}: {:?}",
+                    app.actions
+                );
+            } else if mode == "own-moved" {
+                assert!(
+                    matches!(app.actions.as_slice(), [Action::MoveInPlaylist { playlist_id, rows, to }] if playlist_id == "pl1" && rows == &[102, 104] && *to == 100),
                     "{mode}: {:?}",
                     app.actions
                 );
@@ -12500,7 +12505,7 @@ mod tests {
                     None,
                 );
                 assert!(
-                    matches!(app.actions.as_slice(), [Action::MoveInPlaylist { playlist_id, from: actual_from, to }] if playlist_id == "pl1" && *actual_from == from as u32 && *to == if upwards { 0 } else { count as u32 })
+                    matches!(app.actions.as_slice(), [Action::MoveInPlaylist { playlist_id, rows, to }] if playlist_id == "pl1" && rows == &[from as u32] && *to == if upwards { 0 } else { count as u32 })
                 );
                 for action in std::mem::take(&mut app.actions) {
                     app.apply(action, &ctx);
@@ -12645,7 +12650,7 @@ mod tests {
                 ..Default::default()
             })],
             from: Some(("pl1".into(), from as u32)),
-            source_playlist: Some("pl1".into()),
+            source_playlist: Some(("pl1".into(), vec![from as u32])),
         };
 
         // Sweep the held row down the page; above the table nothing
@@ -12725,6 +12730,136 @@ mod tests {
         assert_eq!(order(&app), expected);
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// #646: rows picked with Ctrl and dragged together move within their
+    /// own playlist to where they are dropped, in playlist order, through
+    /// one request with a range move for each run, and the picks let go
+    /// of rows that now hold other songs.
+    #[test]
+    fn dragging_picked_rows_within_a_playlist_moves_them_together() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("playlist-picked-move");
+        let page = Page::Playlist("pl1".into());
+        app.open(page.clone());
+        let order = |app: &App| -> Vec<String> {
+            app.playlist_pages["pl1"]
+                .items
+                .items
+                .iter()
+                .filter_map(|row| row.playable().map(|item| item.uri().to_string()))
+                .collect()
+        };
+        let items = &mut app.playlist_pages.get_mut("pl1").unwrap().items.items;
+        for (index, name) in [(1, "Picked first"), (3, "Picked second"), (6, "Landing")] {
+            if let Some(PlayableItem::Track(track)) = &mut items[index].item {
+                track.name = name.into();
+            }
+        }
+        let original = order(&app);
+        // Tall enough that every row the test touches is drawn.
+        let draw = |app: &mut App, mut events: Vec<egui::Event>, modifiers| {
+            events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            accessible_frame_height(&ctx, app, events, 1600.0)
+        };
+        draw(&mut app, vec![], egui::Modifiers::NONE);
+        let tree = draw(&mut app, vec![], egui::Modifiers::NONE);
+        let row = |name: &str| {
+            let prefix = format!("Play {name},");
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == Role::Button
+                        && node.label().is_some_and(|label| label.starts_with(&prefix))
+                })
+                .unwrap_or_else(|| panic!("missing {name}"))
+                .1
+                .bounds()
+                .unwrap();
+            egui::Rect::from_min_max(
+                egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        };
+        let first = row("Picked first").left_top() + egui::vec2(160.0, 8.0);
+        let second = row("Picked second").left_top() + egui::vec2(160.0, 8.0);
+        let landing = row("Landing").left_top() + egui::vec2(160.0, 2.0);
+        draw(
+            &mut app,
+            pointer_click(first, egui::PointerButton::Primary),
+            egui::Modifiers::NONE,
+        );
+        let modifier = egui::Modifiers {
+            command: true,
+            mac_cmd: cfg!(target_os = "macos"),
+            ctrl: !cfg!(target_os = "macos"),
+            ..Default::default()
+        };
+        let mut click = pointer_click(second, egui::PointerButton::Primary);
+        for event in &mut click {
+            if let egui::Event::PointerButton { modifiers, .. } = event {
+                *modifiers = modifier;
+            }
+        }
+        draw(&mut app, click, modifier);
+        assert_eq!(
+            app.picked_rows(&page)
+                .map(|rows| rows.iter().copied().collect::<Vec<_>>()),
+            Some(vec![1, 3])
+        );
+        draw(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(second),
+                egui::Event::PointerButton {
+                    pos: second,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+        draw(
+            &mut app,
+            vec![egui::Event::PointerMoved(second + egui::vec2(15.0, 0.0))],
+            egui::Modifiers::NONE,
+        );
+        let payload =
+            egui::DragAndDrop::payload::<DragTrack>(&ctx).expect("drag from a picked row");
+        assert_eq!(payload.from, None);
+        assert_eq!(payload.source_playlist, Some(("pl1".into(), vec![1, 3])));
+        draw(
+            &mut app,
+            vec![egui::Event::PointerMoved(landing)],
+            egui::Modifiers::NONE,
+        );
+        draw(
+            &mut app,
+            vec![egui::Event::PointerButton {
+                pos: landing,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            egui::Modifiers::NONE,
+        );
+        // Shown at once: the picked rows sit together before the row they
+        // were dropped on, everything else keeps its order, nothing is copied.
+        let mut expected = original.clone();
+        let picked = [expected.remove(3), expected.remove(1)];
+        let at = expected.iter().position(|uri| *uri == original[6]).unwrap();
+        expected.splice(at..at, [picked[1].clone(), picked[0].clone()]);
+        assert_eq!(order(&app), expected);
+        let sent = app.backend.take_playlist_add_requests();
+        assert!(
+            matches!(sent.as_slice(), [crate::backend::ApiRequest::ReorderPlaylist { playlist_id, moves, .. }] if playlist_id == "pl1" && *moves == crate::model::range_moves(&[1, 3], 6)),
+            "{sent:?}"
+        );
+        draw(&mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(app.picked_rows(&page), None);
+        app.backend.shutdown();
     }
 
     #[test]
