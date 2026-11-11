@@ -1243,28 +1243,46 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let player_bar_vis_click = gettext(locale, "Click player bar to change visualizer");
     // Follow system's own light and dark palettes. Omarchy's palette already
     // follows the desktop, so they are offered only without it.
+    // A fixed Light or Dark offers just its own mode's palette.
     let show_pair = app.settings.custom_theme.is_none()
-        && app.settings.theme == ThemeChoice::System
-        && !app.custom_themes.follows_omarchy();
+        && !(app.settings.theme == ThemeChoice::System && app.custom_themes.follows_omarchy());
+    let shows_base = |base: fastframe_theme::Base| {
+        show_pair
+            && matches!(
+                (app.settings.theme, base),
+                (ThemeChoice::System, _)
+                    | (ThemeChoice::Light, fastframe_theme::Base::Light)
+                    | (ThemeChoice::Dark, fastframe_theme::Base::Dark)
+            )
+    };
     let pair_row = |base: fastframe_theme::Base| {
-        let (title, usage) = match base {
-            fastframe_theme::Base::Light => (
+        let fixed = app.settings.theme != ThemeChoice::System;
+        let (title, usage) = match (base, fixed) {
+            (fastframe_theme::Base::Light, false) => (
                 gettext(locale, "Light mode theme"),
                 gettext(
                     locale,
                     "Used while your computer is in light mode. Only light themes are listed.",
                 ),
             ),
-            fastframe_theme::Base::Dark => (
+            (fastframe_theme::Base::Dark, false) => (
                 gettext(locale, "Dark mode theme"),
                 gettext(
                     locale,
                     "Used while your computer is in dark mode. Only dark themes are listed.",
                 ),
             ),
+            (fastframe_theme::Base::Light, true) => (
+                gettext(locale, "Light mode theme"),
+                gettext(locale, "Only light themes are listed."),
+            ),
+            (fastframe_theme::Base::Dark, true) => (
+                gettext(locale, "Dark mode theme"),
+                gettext(locale, "Only dark themes are listed."),
+            ),
         };
         let detail = theme::pair_detail(&app.custom_themes, locale, &app.settings.theme_pair, base);
-        RowText::new(title, if detail.is_empty() { usage } else { detail }).when(show_pair)
+        RowText::new(title, if detail.is_empty() { usage } else { detail }).when(shows_base(base))
     };
     let mut appearance_rows = [
         RowText::new(theme_title.clone(), {

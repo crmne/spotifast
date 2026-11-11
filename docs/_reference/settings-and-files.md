@@ -384,7 +384,7 @@ main fields are:
 | `custom_theme` | `null` | Selected JSON filename from the `themes` folder |
 | `custom_theme_cache` | absent | Last accepted custom palette; preserves appearance if its file is missing or invalid |
 | `system_theme_cache` | absent | Last accepted Omarchy palette for Follow system; retained across restarts |
-| `theme_pair` | absent | The themes Follow system uses in light and dark mode: `{"light": {"filename": "Catppuccin Latte.json", "palette": {...}}, "dark": {...}}`. Each `palette` is the last accepted copy of that file's colours. A missing side, or the whole field, is Spotifast's own Light or Dark; it is written only once you choose one |
+| `theme_pair` | absent | The themes used in light and dark mode, under Follow system, Light and Dark alike: `{"light": {"filename": "Catppuccin Latte.json", "palette": {...}}, "dark": {...}}`. Each `palette` is the last accepted copy of that file's colours. A missing side, or the whole field, is Spotifast's own Light or Dark; it is written only once you choose one |
 | `accent_from_art` | `true` | Tint pages with album art, and colour the player bar visualizer with the cover's colours |
 | `player_bar_vis` | `off` | Since 0.11.0: what moves behind the player bar while a song plays on this computer: `off`, `spectrum` or `waveform` |
 | `player_bar_vis_click` | `true` | Allow clicks on empty player bar space to cycle visualizer modes |
@@ -585,14 +585,14 @@ next when the integration is available, followed by the other local palettes.
 Themes change colors and keep the app's existing fonts.
 
 While **Follow system** is selected, two more pickers appear below the Theme
-row: **Light mode theme** and **Dark mode theme**. Each starts with
+row (with **Light** or **Dark** selected, only the picker for that mode): **Light mode theme** and **Dark mode theme**. Each starts with
 Spotifast's own **Light** or **Dark**, then lists the palettes whose `base`
 matches: only light palettes for light mode and only dark ones for dark
 mode, because the base also decides whether the standard controls are drawn
 light or dark, and they follow the system. Spotifast then shows one or the
 other as your system switches between light and dark, while it stays open
-and without interrupting playback. Your choices are kept when you pick a
-single theme and come back when you choose Follow system again. On an
+and without interrupting playback. Your choices are kept when you switch between
+Follow system, Light and Dark; a single custom theme replaces them while it is selected. On an
 Omarchy desktop, Follow system uses the Omarchy palette instead, which
 already follows your desktop theme, so the two pickers are not shown.
 **How to make a theme**, beside the picker, opens this section. The

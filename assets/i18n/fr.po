@@ -1740,6 +1740,14 @@ msgstr ""
 "Utilisé lorsque votre ordinateur est en mode sombre. Seuls les thèmes "
 "sombres sont proposés."
 
+#: src/ui/settings.rs:1277
+msgid "Only light themes are listed."
+msgstr "Seuls les thèmes clairs sont proposés."
+
+#: src/ui/settings.rs:1281
+msgid "Only dark themes are listed."
+msgstr "Seuls les thèmes sombres sont proposés."
+
 #: src/ui/settings.rs:1279
 msgid "Follow system uses your Omarchy colours."
 msgstr "Suivre le système utilise vos couleurs Omarchy."

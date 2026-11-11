@@ -1726,6 +1726,14 @@ msgid "Used while your computer is in dark mode. Only dark themes are listed."
 msgstr ""
 "Bilgisayarınız koyu moddayken kullanılır. Yalnızca koyu temalar listelenir."
 
+#: src/ui/settings.rs:1277
+msgid "Only light themes are listed."
+msgstr "Yalnızca açık temalar listelenir."
+
+#: src/ui/settings.rs:1281
+msgid "Only dark themes are listed."
+msgstr "Yalnızca koyu temalar listelenir."
+
 #: src/ui/settings.rs:1279
 msgid "Follow system uses your Omarchy colours."
 msgstr "Sistemi takip et seçeneği Omarchy renklerinizi kullanır."

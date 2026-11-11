@@ -7221,7 +7221,7 @@ mod tests {
     }
 
     /// Follow system offers a light and a dark theme, each listing only the
-    /// palettes of its base; a fixed choice hides them (#619).
+    /// palettes of its base; a fixed Light or Dark offers just its own (#619).
     #[test]
     fn follow_system_offers_a_light_and_a_dark_theme_of_their_own_base() {
         let (ctx, mut app) = accessible_app("theme-pair-picker");
@@ -7293,7 +7293,22 @@ mod tests {
         let painted = view_frame(&ctx, &mut app, vec![], App::frame_ui);
         assert!(
             painted.iter().all(|(text, _)| text != "Light mode theme"),
-            "a fixed theme has no light and dark themes"
+            "a fixed Dark has no light mode theme"
+        );
+        assert!(
+            painted.iter().any(|(text, _)| text == "Dark mode theme"),
+            "a fixed Dark offers its own dark mode theme"
+        );
+
+        app.apply(Action::SetTheme(crate::settings::ThemeChoice::Light), &ctx);
+        let painted = view_frame(&ctx, &mut app, vec![], App::frame_ui);
+        assert!(
+            painted.iter().any(|(text, _)| text == "Light mode theme"),
+            "a fixed Light offers its own light mode theme"
+        );
+        assert!(
+            painted.iter().all(|(text, _)| text != "Dark mode theme"),
+            "a fixed Light has no dark mode theme"
         );
     }
 

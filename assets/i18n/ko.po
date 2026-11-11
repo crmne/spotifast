@@ -1702,6 +1702,14 @@ msgstr "다크 모드 테마"
 msgid "Used while your computer is in dark mode. Only dark themes are listed."
 msgstr "컴퓨터가 다크 모드일 때 사용합니다. 다크 테마만 표시됩니다."
 
+#: src/ui/settings.rs:1277
+msgid "Only light themes are listed."
+msgstr "라이트 테마만 표시됩니다."
+
+#: src/ui/settings.rs:1281
+msgid "Only dark themes are listed."
+msgstr "다크 테마만 표시됩니다."
+
 #: src/ui/settings.rs:1279
 msgid "Follow system uses your Omarchy colours."
 msgstr "시스템 설정 따르기는 Omarchy 색상을 사용합니다."
