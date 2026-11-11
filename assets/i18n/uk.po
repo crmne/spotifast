@@ -1739,6 +1739,14 @@ msgid "Used while your computer is in dark mode. Only dark themes are listed."
 msgstr ""
 "Використовується, коли комп’ютер у темному режимі. Показано лише темні теми."
 
+#: src/ui/settings.rs:1277
+msgid "Only light themes are listed."
+msgstr "Показано лише світлі теми."
+
+#: src/ui/settings.rs:1281
+msgid "Only dark themes are listed."
+msgstr "Показано лише темні теми."
+
 #: src/ui/settings.rs:1279
 msgid "Follow system uses your Omarchy colours."
 msgstr "«Як у системі» використовує ваші кольори Omarchy."

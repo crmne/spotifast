@@ -1719,6 +1719,14 @@ msgstr "Tema för mörkt läge"
 msgid "Used while your computer is in dark mode. Only dark themes are listed."
 msgstr "Används när datorn är i mörkt läge. Bara mörka teman visas."
 
+#: src/ui/settings.rs:1277
+msgid "Only light themes are listed."
+msgstr "Bara ljusa teman visas."
+
+#: src/ui/settings.rs:1281
+msgid "Only dark themes are listed."
+msgstr "Bara mörka teman visas."
+
 #: src/ui/settings.rs:1279
 msgid "Follow system uses your Omarchy colours."
 msgstr "”Följ systemet” använder dina Omarchy-färger."
