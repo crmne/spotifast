@@ -719,6 +719,7 @@ mod job {
     unsafe impl Send for Job {}
     unsafe impl Sync for Job {}
 
+    /// Makes a job that ends every process in it once its last handle closes.
     pub fn create() -> std::io::Result<Job> {
         // SAFETY: the limits outlive the call that copies them, and the
         // handle is closed if the job cannot be configured.
@@ -744,6 +745,7 @@ mod job {
         }
     }
 
+    /// Puts a running process in the job, so it ends when the job does.
     pub fn assign(job: &Job, process: HANDLE) -> std::io::Result<()> {
         // SAFETY: both handles are open; the process is our own child.
         if unsafe { AssignProcessToJobObject(job.0, process) } == 0 {
@@ -1038,6 +1040,8 @@ mod tests {
         command
     }
 
+    /// The stand-in Soloist: waits until the job ends it. Run on its own,
+    /// without its role, it returns at once instead of holding up the run.
     #[cfg(windows)]
     #[test]
     #[ignore = "started by the job tests as a stand-in Soloist"]
