@@ -7331,10 +7331,19 @@ impl App {
             self.play_request(PlayRequest::tracks(uris).starting_at_index(index), false);
             return;
         }
+        let local = matches!(self.target(), Target::Local);
+        let current = self.current_track_uri();
         let Loadable::Loaded(queue) = &mut self.queue else {
             self.refresh_queue(true);
             return;
         };
+        // The engine drops rows by their place in its own queue, so the
+        // shown rows must start at the song it is playing. A restored or
+        // stale queue does not: fetch the live one instead of guessing.
+        if local && current.as_deref() != queue.currently_playing.as_ref().map(PlayableItem::uri) {
+            self.refresh_queue(true);
+            return;
+        }
         // The click names a song; if the rows shifted under the pointer,
         // the song wins over the row number.
         let position = match queue.queue.get(index) {
@@ -20658,6 +20667,35 @@ mod tests {
             ),
             "the rows above leave the queue, then one skip: {commands:?}"
         );
+        app.backend.shutdown();
+    }
+
+    /// A queue that does not start at the playing song, such as the saved
+    /// rows restored at startup, is not the engine's queue: a click on it
+    /// fetches the live queue and sends the engine nothing.
+    #[test]
+    fn a_queue_click_on_rows_that_do_not_follow_the_playing_song_sends_nothing() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.manual_queue = vec!["spotify:track:b".into()];
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(app.backend.take_player_commands().is_empty());
+        assert_eq!(app.manual_queue, vec!["spotify:track:b".to_string()]);
+        assert_eq!(queue_uris(&app).1.len(), 2, "no row was dropped");
         app.backend.shutdown();
     }
 
