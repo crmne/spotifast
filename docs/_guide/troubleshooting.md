@@ -7,6 +7,13 @@ nav_order: 7
 Each section starts with the words you see in Spotifast or in its log, so you
 can search this page for them.
 
+## Scrolling on a ProMotion display
+
+On macOS, Spotifast automatically uses Metal to keep scrolling smooth, with
+OpenGL as a fallback when Metal cannot open the window. In **System Settings
+→ Displays**, choose **ProMotion** to let the built-in display use its full
+refresh rate.
+
 ## Spotify refused the audio key {#audio-key}
 
 You may see this banner when you press play:

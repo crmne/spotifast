@@ -56,6 +56,9 @@ carry over. If an older version reports that its update helper exited before
 it was ready, install the DMG above manually once. The helper changes take
 effect for updates started from 0.9.1 onward.
 
+On macOS Spotifast draws its window with Metal for smoother scrolling on
+ProMotion displays. If Metal cannot open the window, it falls back to OpenGL.
+
 ## Windows
 
 Download and run the installer. It adds Spotifast to the Start menu and does
