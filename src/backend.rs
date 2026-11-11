@@ -5009,6 +5009,22 @@ impl Worker {
                 _ = session.changed() => return,
                 result = async {
                     if let Some(soloist) = soloist && let Some(response) = soloist.dispatch(&request).await {
+                        // Soloist describes only the first songs of its
+                        // queue; the session looks up the rest, if it is
+                        // signed in to the same account.
+                        let session = engine.as_deref().filter(|engine| {
+                            same_account(&engine.session().username(), api.account().as_ref())
+                        });
+                        let response = match (response, session) {
+                            (ApiResponse::Queue { seq, result: Ok(mut queue) }, Some(engine)) => {
+                                let fill = session_reads::fill_details(engine.session(), &mut queue);
+                                if tokio::time::timeout(SESSION_READ_TIMEOUT, fill).await.is_err() {
+                                    log::debug!("queue details timed out");
+                                }
+                                ApiResponse::Queue { seq, result: Ok(queue) }
+                            }
+                            (response, _) => response,
+                        };
                         return (response, Vec::new());
                     }
                     handle(&api, &made_for_you, &new_releases, &connect, engine.as_deref(), &background_session, request).await
