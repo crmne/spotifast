@@ -285,9 +285,7 @@ fn commands(request: &ApiRequest) -> Option<Vec<Value>> {
     };
     let command = match action {
         RemoteAction::Play if play.is_none() => json!({"command":"play"}),
-        RemoteAction::Play
-            if let Some(uri) = play.as_ref().and_then(soloist_single_track_uri) =>
-        {
+        RemoteAction::Play if let Some(uri) = play.as_ref().and_then(soloist_single_track_uri) => {
             json!({"command":"play", "uri":uri})
         }
         RemoteAction::Play => return None, // Preserve context, ordering and selected occurrence.
@@ -532,8 +530,8 @@ mod tests {
 
     #[test]
     fn shuffle_play_sets_shuffle_before_starting_the_single_track() {
-        let play = crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()])
-            .starting_at_index(0);
+        let play =
+            crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()]).starting_at_index(0);
         assert_eq!(
             soloist_shuffle_play_commands(&play).unwrap(),
             vec![
@@ -541,10 +539,10 @@ mod tests {
                 json!({"command":"play", "uri":"spotify:track:one"}),
             ]
         );
-        assert!(soloist_shuffle_play_commands(&crate::api::PlayRequest::context(
-            "spotify:album:album"
-        ))
-        .is_none());
+        assert!(
+            soloist_shuffle_play_commands(&crate::api::PlayRequest::context("spotify:album:album"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -562,8 +560,7 @@ mod tests {
             },
             crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()])
                 .starting_at_uri("spotify:track:other"),
-            crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()])
-                .starting_at_index(1),
+            crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()]).starting_at_index(1),
         ] {
             let mut request = remote(RemoteAction::Play);
             if let ApiRequest::Remote { play: slot, .. } = &mut request {
