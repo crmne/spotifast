@@ -35,6 +35,16 @@ const REMOTE_POLL_IDLE: Duration = Duration::from_secs(20);
 /// The shortest regular gap between playback polls, which spend the Web API
 /// quota.
 const REMOTE_POLL_MIN: Duration = Duration::from_secs(15);
+/// The regular gap between playback polls while the playback session is up:
+/// Spotify then pushes every change on another device, each of which polls
+/// at once, so the regular poll is only a safety net.
+const REMOTE_POLL_PUSHED: Duration = Duration::from_secs(60);
+/// The longest regular gap between playback polls, which a poll asked for
+/// soon counts back from.
+const REMOTE_POLL_LONGEST: Duration = REMOTE_POLL_PUSHED;
+/// How long the Home podcast shelf's episodes stay fresh: new episodes come
+/// out rarely, and each saved show costs a Web API request.
+const HOME_PODCASTS_FRESH: Duration = Duration::from_secs(60 * 60);
 /// How long after a command to another device, or a switch to one, polls are
 /// not held to `REMOTE_POLL_MIN`, so the result is confirmed before the
 /// optimistic holds run out.
@@ -1295,7 +1305,7 @@ impl App {
             soloist_setup_optional: false,
             local: LocalState::default(),
             remote: None,
-            remote_polled_at: Instant::now() - REMOTE_POLL_UNSEEN,
+            remote_polled_at: Instant::now() - REMOTE_POLL_LONGEST,
             remote_poll_pending: false,
             remote_end_polled_at: None,
             remote_command_at: None,
@@ -6608,7 +6618,7 @@ impl App {
         // The podcast shelf reads from the saved shows. The first page of
         // them is the one the Podcasts shelf of the library asks for.
         if self.library.shows.loaded_once {
-            self.request_home_episodes();
+            self.request_home_episodes(force);
         } else if !self.library.shows.loading && self.library.shows.error.is_none() {
             self.load_more(Page::Podcasts);
         }
@@ -6735,7 +6745,7 @@ impl App {
     /// Asks for the newest episodes of the most recently saved podcasts,
     /// once per Home refresh. Known audiobooks are skipped: librespot cannot
     /// play them.
-    fn request_home_episodes(&mut self) {
+    fn request_home_episodes(&mut self, force: bool) {
         if self.home.podcasts_generation == self.home.generation {
             return;
         }
@@ -6753,8 +6763,21 @@ impl App {
         if shows.is_empty() {
             self.home.podcasts.clear();
             self.home.podcasts_answered = true;
+            // Shows saved again soon are read afresh, not taken as fresh.
+            self.home.podcasts_asked = None;
             return;
         }
+        let ids: Vec<String> = shows.iter().map(|show| show.id.clone()).collect();
+        let fresh = self.home.podcasts_answered
+            && self
+                .home
+                .podcasts_asked
+                .as_ref()
+                .is_some_and(|(at, asked)| at.elapsed() < HOME_PODCASTS_FRESH && *asked == ids);
+        if fresh && !force {
+            return;
+        }
+        self.home.podcasts_asked = Some((Instant::now(), ids));
         self.backend.api(ApiRequest::HomeEpisodes {
             shows,
             generation: self.home.generation,
@@ -9330,7 +9353,7 @@ impl App {
                     }
                     self.library.shows.absorb(offset, page);
                     if offset == 0 && self.home.requested {
-                        self.request_home_episodes();
+                        self.request_home_episodes(false);
                     }
                 }
                 Err(error) => self
@@ -9341,13 +9364,27 @@ impl App {
             ApiResponse::HomeEpisodes { generation, .. } if generation != self.home.generation => {}
             ApiResponse::HomeEpisodes { result, .. } => match result {
                 Ok(podcasts) => {
+                    // A show missing from the answer failed to load: keep
+                    // what did, and ask again on the next refresh.
+                    let complete = self.home.podcasts_asked.as_ref().is_some_and(|(_, asked)| {
+                        asked
+                            .iter()
+                            .all(|id| podcasts.iter().any(|(show, _)| show.id == *id))
+                    });
+                    if !complete {
+                        self.home.podcasts_asked = None;
+                    }
                     self.home.podcasts = podcasts;
                     self.home.podcasts_answered = true;
                     self.store_home_cache();
                 }
                 // The shelf is an extra: without an answer it keeps what it
                 // showed, or stays hidden.
-                Err(error) => log::debug!("podcast episodes for Home unavailable: {error}"),
+                Err(error) => {
+                    // A failed read is not fresh: the next refresh asks again.
+                    self.home.podcasts_asked = None;
+                    log::debug!("podcast episodes for Home unavailable: {error}");
+                }
             },
             ApiResponse::SavedEpisodes { offset, .. }
                 if self.library.episodes.next_offset != Some(offset) => {}
@@ -9951,11 +9988,11 @@ impl App {
         Some(pushed.max(self.remote_polled_at + REMOTE_PUSH_SPACING))
     }
 
-    /// Makes the next poll due within 700 ms, whatever the interval: it
-    /// counts back from the longest one, so a window hidden meanwhile does
-    /// not put a follow-up poll off.
+    /// Makes the next poll due now, whatever the interval: it counts back
+    /// from the longest one, so a window hidden meanwhile, or the session's
+    /// longer pace, does not put a follow-up poll off.
     fn poll_remote_soon(&mut self) {
-        self.remote_polled_at = Instant::now() - REMOTE_POLL_UNSEEN + Duration::from_millis(700);
+        self.remote_polled_at = Instant::now() - REMOTE_POLL_LONGEST;
     }
 
     // ---- navigation ------------------------------------------------------------
@@ -14933,14 +14970,17 @@ impl App {
     }
 
     /// The regular gap between playback polls: never shorter than
-    /// `REMOTE_POLL_MIN`, except within `REMOTE_COMMAND_WINDOW` of a command
-    /// or a switch to another device.
+    /// `REMOTE_POLL_MIN`, or `REMOTE_POLL_PUSHED` while the playback session
+    /// pushes other devices' changes, except within `REMOTE_COMMAND_WINDOW`
+    /// of a command or a switch to another device.
     fn regular_poll_interval(&self) -> Duration {
         let floor = if self
             .remote_command_at
             .is_some_and(|at| at.elapsed() < REMOTE_COMMAND_WINDOW)
         {
             Duration::ZERO
+        } else if self.local_ready {
+            REMOTE_POLL_PUSHED
         } else {
             REMOTE_POLL_MIN
         };
@@ -28414,9 +28454,122 @@ mod tests {
 
     /// Playback polls, which spend the Web API quota, run at most every 15s
     /// even while the logic wakes more often.
+    /// While the playback session pushes other devices' changes, the
+    /// regular poll is a safety net once a minute; a command still polls
+    /// at once, and a poll asked for soon is due at once.
+    #[test]
+    fn playback_polls_slow_to_a_minute_while_the_session_pushes() {
+        let mut app = headless_app();
+        app.local_ready = true;
+        assert_eq!(app.remote_poll_interval(), (REMOTE_POLL_PUSHED, false));
+        app.remote_command_at = Some(Instant::now());
+        assert!(app.regular_poll_interval() < REMOTE_POLL_MIN);
+        app.remote_command_at = None;
+        app.remote_polled_at = Instant::now();
+        app.poll_remote_soon();
+        assert!(app.remote_polled_at.elapsed() >= app.remote_poll_interval().0);
+    }
+
+    /// A podcast read that left a show out, or a shelf emptied and filled
+    /// again, is not fresh: the next Home refresh asks again.
+    #[test]
+    fn home_podcasts_stay_unfresh_after_a_partial_read_or_an_emptied_shelf() {
+        use crate::api::models::{Page as ApiPage, SavedShow};
+        let mut app = test_app("home-podcasts-partial");
+        let show = |id: &str| Show {
+            id: id.into(),
+            uri: format!("spotify:show:{id}"),
+            ..Show::default()
+        };
+        let saved = |ids: &[&str]| ApiPage {
+            items: ids
+                .iter()
+                .map(|id| SavedShow {
+                    show: show(id),
+                    ..SavedShow::default()
+                })
+                .collect(),
+            total: ids.len() as u32,
+            limit: 50,
+            offset: 0,
+            next: None,
+        };
+        app.load_home(false);
+        app.handle_api(ApiResponse::SavedShows {
+            offset: 0,
+            result: Ok(saved(&["a", "b"])),
+        });
+        assert_eq!(app.backend.take_home_episode_requests().len(), 1);
+        // Only "a" answered.
+        app.handle_api(ApiResponse::HomeEpisodes {
+            generation: app.home.generation,
+            result: Ok(vec![(show("a"), Vec::new())]),
+        });
+        assert!(app.home.podcasts_asked.is_none());
+        app.home.loaded_at = Some(Instant::now() - Duration::from_secs(601));
+        app.load_home(false);
+        assert_eq!(app.backend.take_home_episode_requests().len(), 1);
+
+        // Every show unsaved, then saved again: the shelf is read afresh.
+        app.handle_api(ApiResponse::HomeEpisodes {
+            generation: app.home.generation,
+            result: Ok(vec![(show("a"), Vec::new()), (show("b"), Vec::new())]),
+        });
+        assert!(app.home.podcasts_asked.is_some());
+        app.library.shows.items.clear();
+        app.home.generation += 1;
+        app.request_home_episodes(false);
+        assert!(app.home.podcasts_asked.is_none());
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+    }
+
+    /// The Home podcast shelf asks Spotify for episodes at most once an
+    /// hour on its own; Refresh asks again at once.
+    #[test]
+    fn home_podcasts_are_read_at_most_hourly_unless_refreshed() {
+        use crate::api::models::{Page as ApiPage, SavedShow};
+        let mut app = test_app("home-podcasts-hourly");
+        app.load_home(false);
+        app.handle_api(ApiResponse::SavedShows {
+            offset: 0,
+            result: Ok(ApiPage {
+                items: vec![SavedShow {
+                    show: Show {
+                        id: "s0".into(),
+                        uri: "spotify:show:s0".into(),
+                        ..Show::default()
+                    },
+                    ..SavedShow::default()
+                }],
+                total: 1,
+                limit: 50,
+                offset: 0,
+                next: None,
+            }),
+        });
+        assert_eq!(app.backend.take_home_episode_requests().len(), 1);
+        let answered = app.library.shows.items[0].show.clone();
+        app.handle_api(ApiResponse::HomeEpisodes {
+            generation: app.home.generation,
+            result: Ok(vec![(answered, Vec::new())]),
+        });
+        // Home's own ten-minute refresh leaves fresh episodes alone.
+        app.home.loaded_at = Some(Instant::now() - Duration::from_secs(601));
+        app.load_home(false);
+        assert!(app.backend.take_home_episode_requests().is_empty());
+        // Refresh reads them again.
+        app.load_home(true);
+        assert_eq!(app.backend.take_home_episode_requests().len(), 1);
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+    }
+
     #[test]
     fn playback_polls_run_at_most_every_fifteen_seconds() {
         let mut app = headless_app();
+        // Without the session's pushes, polls are the only news.
+        app.local_ready = false;
         assert_eq!(app.remote_poll_interval(), (REMOTE_POLL_MIN, false));
         app.budget = crate::power::Budget::Background;
         assert_eq!(app.remote_poll_interval(), (REMOTE_POLL_UNSEEN, false));
@@ -28438,7 +28591,10 @@ mod tests {
             ..Default::default()
         });
         app.local.playback = Playback::Paused;
-        assert_eq!(app.remote_poll_interval(), (REMOTE_POLL_IDLE, false));
+        // Paused here needs the playback session, whose pushes slow the
+        // regular poll to a safety net.
+        app.local_ready = true;
+        assert_eq!(app.remote_poll_interval(), (REMOTE_POLL_PUSHED, false));
     }
 
     /// A command or switch another device accepted keeps the usual pace for a
@@ -28447,6 +28603,8 @@ mod tests {
     #[test]
     fn a_remote_command_keeps_the_usual_poll_pace_for_a_while() {
         let mut app = headless_app();
+        // Without the session's pushes, polls are the only news.
+        app.local_ready = false;
         app.auth = AuthStatus::Connected {
             username: "alice".into(),
         };
@@ -28492,6 +28650,8 @@ mod tests {
     #[test]
     fn a_remote_song_end_is_polled_early_once() {
         let mut app = headless_app();
+        // Without the session's pushes, polls are the only news.
+        app.local_ready = false;
         app.auth = AuthStatus::Connected {
             username: "alice".into(),
         };

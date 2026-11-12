@@ -166,11 +166,18 @@ signing in again.
 Each personal app has its own Development Mode quota; a shared grant shares
 its app's quota with everyone still signed in through it. Playback state is
 checked every 15
-seconds, every 20 while this computer's player is active, every 30 while the
+seconds, every 30 while the
 window cannot be seen and nothing plays, every 4 while the window is visible
 for ten seconds after a command or a switch to another device, once more
 just after a song on another device should end, and as soon as this computer's
-player stops. See
+player stops. While local playback is signed in, Spotify pushes changes on
+another device over the session: a switch, play or pause, another song,
+shuffle or repeat prompts a check soon after (pushes that arrive close
+together, or while a check is under way, share one; a volume change needs
+none), so the regular check runs only every 60 seconds as a safety net. The
+Home podcast shelf reads its episodes at most once an hour for the same saved
+shows, unless you refresh; a read that failed for any show, or a change to the
+saved shows, reads them again on the next Home refresh. See
 [Make It Even Faster](/make-it-even-faster/#api-rate-limits).
 
 Since 0.8.0, a search runs as two requests when a
@@ -449,8 +456,10 @@ eight most recently saved shows, all at once within the Web API session's
 concurrency limit, through the normal personal/shared app routing. Spotify includes each episode's resume point in
 those answers. Play uses that position so an in-progress episode continues
 rather than starting over. Shows known to be audiobooks are not asked for. These requests
-run when Home refreshes: on opening Home, at most once every ten minutes, and
-on a manual refresh. A rate limit, exhausted quota or expired sign-in stops the
+can run when Home refreshes (on opening Home, at most once every ten minutes),
+but episodes read for the same saved shows are reused for an hour; a manual
+refresh always reads them again, and so does the next Home refresh after a read
+that failed for any show or a change to the saved shows. A rate limit, exhausted quota or expired sign-in stops the
 remaining shows for that refresh; the shelf keeps what it showed before.
 
 ## Album queueing
