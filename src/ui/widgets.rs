@@ -3111,6 +3111,7 @@ fn carousel_cards(
         ),
     ] {
         if available <= 0.5 {
+            ui.skip_ahead_auto_ids(1);
             continue;
         }
         let center = pos2(
@@ -4101,6 +4102,7 @@ mod tests {
             theme::install(&ctx);
             let mut time = 0.0;
             let mut activated = 0;
+            let mut initial_page_offset = Some(80.0);
             let mut frame = |width: f32, events| {
                 time += 0.1;
                 let mut first = Rect::NOTHING;
@@ -4116,29 +4118,44 @@ mod tests {
                         ..Default::default()
                     },
                     |ui| {
-                        carousel_shelf(ui, &palette, Locale::English, "one", "One", |ui| {
-                            for index in 0..8 {
-                                let response = ui.add_sized(
-                                    vec2(CARD_WIDTH, 140.0),
-                                    egui::Button::new(format!("Card {index}")),
-                                );
-                                if index == 0 {
-                                    first = response.rect;
+                        let mut page = egui::ScrollArea::vertical()
+                            .id_salt("shelf-test-page")
+                            .max_height(500.0);
+                        if let Some(offset) = initial_page_offset.take() {
+                            page = page.vertical_scroll_offset(offset);
+                        }
+                        let page = page.show(ui, |ui| {
+                            ui.add_space(100.0);
+                            carousel_shelf(ui, &palette, Locale::English, "one", "One", |ui| {
+                                for index in 0..8 {
+                                    let response = ui.add_sized(
+                                        vec2(CARD_WIDTH, 140.0),
+                                        egui::Button::new(format!("Card {index}")),
+                                    );
+                                    if index == 0 {
+                                        first = response.rect;
+                                    }
+                                    activated += usize::from(response.clicked());
                                 }
-                                activated += usize::from(response.clicked());
-                            }
-                        });
-                        carousel_shelf(ui, &palette, Locale::English, "two", "Two", |ui| {
-                            for index in 0..8 {
-                                let response = ui.add_sized(
-                                    vec2(CARD_WIDTH, 140.0),
-                                    egui::Button::new(format!("Other {index}")),
-                                );
-                                if index == 0 {
-                                    other = response.rect;
+                            });
+                            carousel_shelf(ui, &palette, Locale::English, "two", "Two", |ui| {
+                                for index in 0..8 {
+                                    let response = ui.add_sized(
+                                        vec2(CARD_WIDTH, 140.0),
+                                        egui::Button::new(format!("Other {index}")),
+                                    );
+                                    if index == 0 {
+                                        other = response.rect;
+                                    }
                                 }
-                            }
+                            });
+                            ui.add_space(1000.0);
                         });
+                        assert!(page.content_size.y > page.inner_rect.height());
+                        assert_eq!(
+                            page.state.offset.y, 80.0,
+                            "shelf navigation must not scroll the containing page"
+                        );
                     },
                 );
                 output.textures_delta.clear();
@@ -4263,6 +4280,85 @@ mod tests {
                 activated, 0,
                 "an overlaid arrow must intercept the card's click"
             );
+        }
+    }
+
+    #[test]
+    fn shelf_arrows_keep_lower_card_ids_and_focus_when_visibility_changes() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let palette = Palette::dark();
+        let mut time = 0.0;
+        let mut frame = |events| {
+            time += 0.1;
+            let mut upper = Rect::NOTHING;
+            let mut lower_ids = Vec::new();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(520.0, 500.0))),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    carousel_shelf(ui, &palette, Locale::English, "upper", "Upper", |ui| {
+                        for index in 0..8 {
+                            let response = ui.add_sized(
+                                vec2(CARD_WIDTH, 140.0),
+                                egui::Button::new(format!("Upper {index}")),
+                            );
+                            if index == 0 {
+                                upper = response.rect;
+                            }
+                        }
+                    });
+                    carousel_shelf(ui, &palette, Locale::English, "lower", "Lower", |ui| {
+                        for index in 0..8 {
+                            lower_ids.push(
+                                ui.add_sized(
+                                    vec2(CARD_WIDTH, 140.0),
+                                    egui::Button::new(format!("Lower {index}")),
+                                )
+                                .id,
+                            );
+                        }
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            (upper, lower_ids)
+        };
+        frame(vec![]);
+        let (start, ids) = frame(vec![]);
+        ctx.memory_mut(|memory| memory.request_focus(ids[0]));
+        frame(vec![]);
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(ids[0]));
+
+        let mut previous_left = start.left();
+        for delta in [-240.0, -10_000.0, 10_000.0] {
+            let events = vec![
+                egui::Event::PointerMoved(start.center()),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, delta),
+                    modifiers: egui::Modifiers::SHIFT,
+                    phase: egui::TouchPhase::Move,
+                },
+            ];
+            let (mut upper, lower_ids) = frame(events);
+            assert_eq!(lower_ids, ids, "other shelves keep their card IDs");
+            for _ in 0..12 {
+                let (rect, lower_ids) = frame(vec![]);
+                upper = rect;
+                assert_eq!(lower_ids, ids, "arrow visibility must not change card IDs");
+                assert_eq!(ctx.memory(|memory| memory.focused()), Some(ids[0]));
+            }
+            if delta < 0.0 {
+                assert!(upper.left() < previous_left, "the upper shelf must scroll");
+            } else {
+                assert_eq!(upper.left(), start.left(), "returned to the first card");
+            }
+            previous_left = upper.left();
         }
     }
 
