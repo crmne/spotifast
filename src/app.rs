@@ -34593,6 +34593,23 @@ mod tests {
         assert!(!app.home.top_mixes.is_loading());
     }
 
+    /// The Made for you page tells a failed Your top mixes read apart from
+    /// an empty one while the session is up, and keeps quiet without it.
+    #[test]
+    fn a_failed_top_mixes_read_shows_on_the_made_for_you_page() {
+        let mut app = headless_app();
+        app.home.top_mixes = Loadable::Failed("quota".into());
+        app.local_ready = false;
+        assert_eq!(crate::ui::made_for_you::top_mixes_error(&app), None);
+        app.local_ready = true;
+        assert_eq!(
+            crate::ui::made_for_you::top_mixes_error(&app).as_deref(),
+            Some("quota")
+        );
+        app.home.top_mixes = Loadable::Loaded(Vec::new());
+        assert_eq!(crate::ui::made_for_you::top_mixes_error(&app), None);
+    }
+
     /// Playback readiness upgrades fallback cards without blanking or double-counting the shelf.
     #[test]
     fn playback_ready_replaces_fallback_cards_and_ignores_late_fallbacks() {

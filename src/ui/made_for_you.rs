@@ -48,7 +48,8 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
         }
     };
     let top_mixes = app.home.top_mixes.get().cloned().unwrap_or_default();
-    if made_for_you.is_empty() && top_mixes.is_empty() {
+    let top_mixes_error = top_mixes_error(app);
+    if made_for_you.is_empty() && top_mixes.is_empty() && top_mixes_error.is_none() {
         widgets::empty_state(
             ui,
             &palette,
@@ -66,7 +67,17 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
             playlist_cards(app, ui, "made_for_you-page-menu", &made_for_you)
         });
     }
-    if !top_mixes.is_empty() {
+    if let Some(error) = top_mixes_error {
+        ui.add_space(24.0);
+        theme::text(
+            ui,
+            gettext(locale, "Your top mixes"),
+            theme::bold(22.0),
+            palette.text,
+        );
+        ui.add_space(12.0);
+        widgets::error_row(ui, app, &error, Some(Page::MadeForYou));
+    } else if !top_mixes.is_empty() {
         ui.add_space(24.0);
         theme::text(
             ui,
@@ -78,5 +89,15 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
         widgets::grid(ui, |ui| {
             playlist_cards(app, ui, "top_mixes-page-menu", &top_mixes)
         });
+    }
+}
+
+/// Why Your top mixes could not be read, while the playback session is up.
+/// Without it the shelf has no source at all, so, as on Home, it stays
+/// hidden and is read once playback comes up.
+pub(crate) fn top_mixes_error(app: &App) -> Option<String> {
+    match &app.home.top_mixes {
+        Loadable::Failed(error) if app.local_ready => Some(error.clone()),
+        _ => None,
     }
 }
