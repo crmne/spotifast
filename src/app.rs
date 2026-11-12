@@ -10606,10 +10606,10 @@ impl App {
         let context = request.context_uri.clone();
         let page = self.take_page_shuffle(context.as_deref());
         let chosen = shuffle_first || self.modes_chosen || page.is_some();
-        let shuffle_first = shuffle_first
-            || context
-                .as_deref()
-                .is_some_and(|context| self.apply_play_modes(context, page));
+        let shuffle_first = context
+            .as_deref()
+            .is_some_and(|context| self.apply_play_modes(context, page, shuffle_first))
+            || shuffle_first;
         self.start_play(request, shuffle_first);
         // Without a device nothing started, so the choice waits for a play
         // that does.
@@ -10632,7 +10632,14 @@ impl App {
     /// Brings shuffle and repeat to what was last chosen for this kind of
     /// context, unless a choice made with nothing playing is still waiting
     /// for its play. Returns whether the play must start shuffled.
-    fn apply_play_modes(&mut self, context: &str, page_shuffle: Option<bool>) -> bool {
+    /// A play that is already shuffled (`shuffle_first`) still takes the
+    /// saved repeat, but its shuffle is not overridden.
+    fn apply_play_modes(
+        &mut self,
+        context: &str,
+        page_shuffle: Option<bool>,
+        shuffle_first: bool,
+    ) -> bool {
         if self.modes_chosen {
             return false;
         }
@@ -10640,7 +10647,7 @@ impl App {
         let modes = ContextKind::of(context).and_then(|kind| self.modes_for(kind));
         let folder = self.folder_shuffle_for(context);
         let Some(saved) = folder.or(modes.as_ref().map(|modes| modes.shuffle)) else {
-            return page_shuffle == Some(true);
+            return shuffle_first || page_shuffle == Some(true);
         };
         let shuffle = page_shuffle.unwrap_or(saved);
         let with_play = self.remote_play_sends_modes();
@@ -10658,6 +10665,9 @@ impl App {
                     self.play_with.repeat = Some(repeat);
                 }
             }
+        }
+        if shuffle_first {
+            return true;
         }
         // A remote device's own shuffle can differ from the last one read
         // here, so it is told off whatever is believed.
@@ -10935,6 +10945,7 @@ impl App {
                 self.queue_start_pending = None;
                 self.clear_play_pending();
                 self.queued_play = None;
+                self.play_with = PlayWith::default();
                 // Nothing plays, so the context asked for must not pass as
                 // playing: a mode chosen now is for the next play.
                 self.assumed_context = None;
@@ -12974,7 +12985,7 @@ impl App {
                     // `shuffle_start`; a clicked row still plays first.
                     let page = self.take_page_shuffle(Some(&context_uri));
                     let chosen = self.modes_chosen || page.is_some();
-                    let shuffle_first = self.apply_play_modes(&context_uri, page);
+                    let shuffle_first = self.apply_play_modes(&context_uri, page, false);
                     let shuffled_start = uri.is_empty() && self.shuffle_wanted && !uris.is_empty();
                     let index = if shuffled_start {
                         rand::random_range(0..uris.len()) as u32
@@ -33105,6 +33116,7 @@ mod tests {
         app.play_request(PlayRequest::context("spotify:playlist:p"), false);
         assert!(app.assumed_context.is_none());
         assert!(app.intent_track.is_none());
+        assert!(app.play_with.repeat.is_none() && app.play_with.shuffle.is_none());
         app.apply(Action::SetShuffle(true), &egui::Context::default());
         assert!(app.modes_chosen);
         assert_eq!(app.playlist_modes, Some(saved));
@@ -34425,11 +34437,26 @@ mod tests {
             repeat: "off".into(),
         });
         app.set_folder_shuffle("artist", Some(false), false);
-        assert!(!app.apply_play_modes("spotify:playlist:b", None));
-        assert!(app.apply_play_modes("spotify:playlist:b", Some(true)));
-        assert!(app.apply_play_modes("spotify:playlist:c", None));
+        assert!(!app.apply_play_modes("spotify:playlist:b", None, false));
+        assert!(app.apply_play_modes("spotify:playlist:b", Some(true), false));
+        assert!(app.apply_play_modes("spotify:playlist:c", None, false));
         assert!(!app.page_shuffle_shown("spotify:playlist:b"));
         assert!(app.page_shuffle_shown("spotify:playlist:c"));
+    }
+
+    /// Shuffle Play keeps its shuffle but still takes the saved repeat, and
+    /// asks for no shuffle-off.
+    #[test]
+    fn shuffle_play_still_applies_the_saved_repeat() {
+        let mut app = headless_app();
+        app.playlist_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        assert!(app.apply_play_modes("spotify:playlist:p", None, true));
+        assert_eq!(app.repeat_wanted, RepeatMode::Context);
+        assert!(app.play_with.shuffle.is_none());
+        app.backend.shutdown();
     }
 
     /// An album that was last played unshuffled starts at its first song,
