@@ -13021,9 +13021,11 @@ impl App {
                         self.cache_track_from_context(&context_uri, uri);
                     }
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
+                    let resolved_repeat = self.applied_repeat;
                     self.play_request(request, shuffle_first);
                     // A sorted view plays as plain songs, so the request
                     // carries no context to file a held choice under.
+                    self.applied_repeat = resolved_repeat;
                     if chosen
                         && self.queue_start_pending.is_some()
                         && let Some(kind) = ContextKind::of(&context_uri)
@@ -34507,6 +34509,39 @@ mod tests {
         });
         app.play_request(PlayRequest::context("spotify:album:a"), false);
         assert!(app.applied_repeat.is_none());
+        app.backend.shutdown();
+    }
+
+    /// A sorted view plays as plain songs, yet still files the repeat its
+    /// context resolved, with a remote device and no snapshot.
+    #[test]
+    fn a_sorted_view_play_files_the_resolved_repeat_without_a_remote_snapshot() {
+        let mut app = headless_app();
+        app.remote = None;
+        app.local_ready = false;
+        app.selected_device = Some("remote-device".into());
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        app.page_shuffle = Some(("spotify:album:a".into(), false));
+        let uris: Arc<[String]> = vec!["spotify:track:t0".to_string()].into();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::View {
+                    context_uri: "spotify:album:a".into(),
+                    uris,
+                    editable_playlist: None,
+                },
+                uri: String::new(),
+                index: 0,
+            },
+            &egui::Context::default(),
+        );
+        assert_eq!(
+            app.album_modes.as_ref().map(|modes| modes.repeat.as_str()),
+            Some("context")
+        );
         app.backend.shutdown();
     }
 
