@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 10:04+1300\n"
+"POT-Creation-Date: 2026-11-12 22:41+1300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Spanish\n"
@@ -28,12 +28,12 @@ msgstr "Pausar {name}"
 msgid "Play {name}"
 msgstr "Reproducir {name}"
 
-#: src/ui/sidebar.rs:302 src/app.rs:4055 src/app.rs:25972
+#: src/ui/sidebar.rs:302 src/app.rs:4055 src/app.rs:25978
 #: src/ui/collection.rs:2326 src/ui/collection.rs:2555
 msgid "Playlist"
 msgstr "Playlist"
 
-#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:4029 src/app.rs:25977
+#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:4029 src/app.rs:25983
 #: src/ui/collection.rs:2548 src/ui/home.rs:93 src/ui/keys.rs:376
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -258,7 +258,7 @@ msgid "Previous"
 msgstr "Anterior"
 
 #: src/ui/player_bar.rs:778 src/ui/lyrics.rs:475 src/ui/widgets.rs:2862
-#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:15197
+#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:15203
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "Cargando…"
@@ -661,7 +661,7 @@ msgstr "REPRODUCCIONES"
 msgid "Sort by duration"
 msgstr "Ordenar por duración"
 
-#: src/ui/widgets.rs:2975 src/app.rs:15406 src/app.rs:15420
+#: src/ui/widgets.rs:2975 src/app.rs:15412 src/app.rs:15426
 msgid "Network connection error. Check your connection."
 msgstr "Error de conexión de red. Comprueba tu conexión."
 
@@ -911,7 +911,7 @@ msgid "Queue cleared"
 msgstr "Cola vaciada"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7541 src/app.rs:25962
+#: src/app.rs:7541 src/app.rs:25968
 #, rust-format
 msgid "Queue {date}"
 msgstr "Cola {date}"
@@ -1203,51 +1203,51 @@ msgstr ""
 "No se pudieron eliminar algunos datos locales. Abre Spotifast e inténtalo de "
 "nuevo."
 
-#: src/app.rs:15019
+#: src/app.rs:15020
 msgid ""
 "Move your local music folder outside Spotifast storage before clearing it."
 msgstr ""
 "Mueve tu carpeta de música local fuera del almacenamiento de Spotifast antes "
 "de borrarlo."
 
-#: src/app.rs:15340
+#: src/app.rs:15346
 msgid "Couldn't start playback"
 msgstr "No se pudo iniciar la reproducción"
 
-#: src/app.rs:15341
+#: src/app.rs:15347
 msgid "Couldn't pause"
 msgstr "No se pudo pausar"
 
-#: src/app.rs:15342
+#: src/app.rs:15348
 msgid "Couldn't skip"
 msgstr "No se pudo saltar"
 
-#: src/app.rs:15343
+#: src/app.rs:15349
 msgid "Couldn't go back"
 msgstr "No se pudo volver atrás"
 
-#: src/app.rs:15344
+#: src/app.rs:15350
 msgid "Couldn't seek"
 msgstr "No se pudo cambiar la posición"
 
-#: src/app.rs:15345
+#: src/app.rs:15351
 msgid "Couldn't change the volume"
 msgstr "No se pudo cambiar el volumen"
 
-#: src/app.rs:15346
+#: src/app.rs:15352
 msgid "Couldn't change shuffle"
 msgstr "No se pudo cambiar el modo aleatorio"
 
-#: src/app.rs:15347
+#: src/app.rs:15353
 msgid "Couldn't change repeat"
 msgstr "No se pudo cambiar la repetición"
 
-#: src/app.rs:15390 src/ui/mod.rs:442
+#: src/app.rs:15396 src/ui/mod.rs:442
 msgid "Spotify won't let this computer play this song right now."
 msgstr ""
 "Spotify no deja que esta computadora reproduzca esta canción ahora mismo."
 
-#: src/app.rs:15397
+#: src/app.rs:15403
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1255,20 +1255,20 @@ msgstr ""
 "No se encontró ningún dispositivo de salida de audio. Conecta o activa uno y "
 "vuelve a pulsar Reproducir."
 
-#: src/app.rs:15411
+#: src/app.rs:15417
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify no pone las canciones de esta playlist a disposición de apps de "
 "terceros."
 
-#: src/app.rs:15542
+#: src/app.rs:15548
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "La sesión de Spotify caducó. Vuelve a iniciar sesión y reintenta subir la "
 "portada."
 
-#: src/app.rs:15547
+#: src/app.rs:15553
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
@@ -1278,19 +1278,19 @@ msgstr ""
 "iniciar sesión para conceder el permiso de subir imágenes. Si usas tu propio "
 "Client ID, vuelve a autorizarlo también en Ajustes."
 
-#: src/app.rs:15551
+#: src/app.rs:15557
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotify rechazó el tamaño de la imagen. Elige una imagen más pequeña."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:15554
+#: src/app.rs:15560
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "No se pudo subir la portada: {error}. Vuelve a intentarlo."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:25982 src/app/radio.rs:38
+#: src/app.rs:25988 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Radio de {track}"
@@ -2692,12 +2692,12 @@ msgstr "Recopilatorio"
 msgid "Appears On"
 msgstr "Aparece en"
 
-#: src/milkdrop.rs:73
+#: src/milkdrop.rs:77
 msgid "Uncapped"
 msgstr "Sin límite"
 
 #. Translators: A frame rate that matches the display. Keep {rate}.
-#: src/milkdrop.rs:77
+#: src/milkdrop.rs:81
 #, rust-format
 msgid "{rate} fps, your screen"
 msgstr "{rate} fps, tu pantalla"

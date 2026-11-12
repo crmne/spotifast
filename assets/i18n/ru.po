@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 10:04+1300\n"
+"POT-Creation-Date: 2026-11-12 22:41+1300\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Russian\n"
@@ -29,12 +29,12 @@ msgstr "Приостановить {name}"
 msgid "Play {name}"
 msgstr "Воспроизвести {name}"
 
-#: src/ui/sidebar.rs:302 src/app.rs:4055 src/app.rs:25972
+#: src/ui/sidebar.rs:302 src/app.rs:4055 src/app.rs:25978
 #: src/ui/collection.rs:2326 src/ui/collection.rs:2555
 msgid "Playlist"
 msgstr "Плейлист"
 
-#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:4029 src/app.rs:25977
+#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:4029 src/app.rs:25983
 #: src/ui/collection.rs:2548 src/ui/home.rs:93 src/ui/keys.rs:376
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -263,7 +263,7 @@ msgid "Previous"
 msgstr "Предыдущий"
 
 #: src/ui/player_bar.rs:778 src/ui/lyrics.rs:475 src/ui/widgets.rs:2862
-#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:15197
+#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:15203
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "Загрузка…"
@@ -666,7 +666,7 @@ msgstr "ПРОСЛУШИВАНИЯ"
 msgid "Sort by duration"
 msgstr "Сортировать по длительности"
 
-#: src/ui/widgets.rs:2975 src/app.rs:15406 src/app.rs:15420
+#: src/ui/widgets.rs:2975 src/app.rs:15412 src/app.rs:15426
 msgid "Network connection error. Check your connection."
 msgstr "Ошибка сетевого подключения. Проверьте соединение."
 
@@ -918,7 +918,7 @@ msgid "Queue cleared"
 msgstr "Очередь очищена"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7541 src/app.rs:25962
+#: src/app.rs:7541 src/app.rs:25968
 #, rust-format
 msgid "Queue {date}"
 msgstr "Очередь {date}"
@@ -1212,50 +1212,50 @@ msgstr ""
 "Не удалось удалить часть локальных данных. Откройте Spotifast и повторите "
 "попытку."
 
-#: src/app.rs:15019
+#: src/app.rs:15020
 msgid ""
 "Move your local music folder outside Spotifast storage before clearing it."
 msgstr ""
 "Перед очисткой переместите папку с локальной музыкой за пределы хранилища "
 "Spotifast."
 
-#: src/app.rs:15340
+#: src/app.rs:15346
 msgid "Couldn't start playback"
 msgstr "Не удалось начать воспроизведение"
 
-#: src/app.rs:15341
+#: src/app.rs:15347
 msgid "Couldn't pause"
 msgstr "Не удалось поставить на паузу"
 
-#: src/app.rs:15342
+#: src/app.rs:15348
 msgid "Couldn't skip"
 msgstr "Не удалось переключить трек"
 
-#: src/app.rs:15343
+#: src/app.rs:15349
 msgid "Couldn't go back"
 msgstr "Не удалось вернуться назад"
 
-#: src/app.rs:15344
+#: src/app.rs:15350
 msgid "Couldn't seek"
 msgstr "Не удалось перемотать"
 
-#: src/app.rs:15345
+#: src/app.rs:15351
 msgid "Couldn't change the volume"
 msgstr "Не удалось изменить громкость"
 
-#: src/app.rs:15346
+#: src/app.rs:15352
 msgid "Couldn't change shuffle"
 msgstr "Не удалось изменить режим перемешивания"
 
-#: src/app.rs:15347
+#: src/app.rs:15353
 msgid "Couldn't change repeat"
 msgstr "Не удалось изменить режим повтора"
 
-#: src/app.rs:15390 src/ui/mod.rs:442
+#: src/app.rs:15396 src/ui/mod.rs:442
 msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify сейчас не даёт этому компьютеру воспроизвести эту песню."
 
-#: src/app.rs:15397
+#: src/app.rs:15403
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1263,16 +1263,16 @@ msgstr ""
 "Устройство вывода звука не найдено. Подключи или включи его, затем снова "
 "нажми «Воспроизвести»."
 
-#: src/app.rs:15411
+#: src/app.rs:15417
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr "Spotify не открывает треки этого плейлиста сторонним приложениям."
 
-#: src/app.rs:15542
+#: src/app.rs:15548
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr "Срок входа в Spotify истёк. Войди снова и повтори загрузку обложки."
 
-#: src/app.rs:15547
+#: src/app.rs:15553
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
@@ -1282,20 +1282,20 @@ msgstr ""
 "войди снова, чтобы разрешить загрузку изображений. Если используешь свой "
 "Client ID, авторизуй его заново и в настройках."
 
-#: src/app.rs:15551
+#: src/app.rs:15557
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr ""
 "Spotify отклонил изображение из-за размера. Выбери изображение поменьше."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:15554
+#: src/app.rs:15560
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Не удалось загрузить обложку: {error}. Попробуй ещё раз."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:25982 src/app/radio.rs:38
+#: src/app.rs:25988 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Радио по треку «{track}»"
@@ -2206,7 +2206,7 @@ msgid ""
 "settings and play history."
 msgstr ""
 "Удалить обложки, аудио, тексты песен и данные медиатеки из кэша. Сохранить "
-"вход, настройки и историю воспроизведения."
+"данные входа, настройки и историю воспроизведения."
 
 #: src/ui/settings.rs:2431
 msgid "Reset app"
@@ -2698,12 +2698,12 @@ msgstr "Сборник"
 msgid "Appears On"
 msgstr "Встречается в"
 
-#: src/milkdrop.rs:73
+#: src/milkdrop.rs:77
 msgid "Uncapped"
 msgstr "Без ограничения"
 
 #. Translators: A frame rate that matches the display. Keep {rate}.
-#: src/milkdrop.rs:77
+#: src/milkdrop.rs:81
 #, rust-format
 msgid "{rate} fps, your screen"
 msgstr "{rate} кадр/с, как у экрана"
@@ -3071,8 +3071,8 @@ msgid ""
 "files stay unchanged. This cannot be undone."
 msgstr ""
 "Spotifast закроется, удалит все локальные данные (включая настройки, историю "
-"воспроизведения, темы, обложки интерфейса и загруженные файлы Soloist), "
-"удалит сохранённые данные входа и отключит запуск при входе в систему. Ваша "
+"воспроизведения, темы, скины и загруженные файлы Soloist), удалит "
+"сохранённые данные входа и отключит запуск при входе в систему. Ваша "
 "медиатека Spotify и исходные локальные музыкальные файлы останутся без "
 "изменений. Это действие нельзя отменить."
 
@@ -3084,8 +3084,8 @@ msgid ""
 msgstr ""
 "Spotifast закроется и удалит обложки, аудио, тексты песен и данные медиатеки "
 "из кэша, включая аудио Soloist. Данные входа, настройки, история "
-"воспроизведения, темы и обложки интерфейса сохранятся. Кэши снова заполнятся "
-"при следующем открытии Spotifast."
+"воспроизведения, темы и скины сохранятся. Кэши снова заполнятся при "
+"следующем открытии Spotifast."
 
 #: src/ui/dialogs.rs:70
 msgid "Reset and quit"

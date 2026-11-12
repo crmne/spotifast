@@ -91,12 +91,12 @@ is inside storage that would be cleared, cleanup refuses before deleting
 credentials or files. Move that folder outside Spotifast storage first.
 Reopen Spotifast to set it up again. This cannot be undone.
 
-Both actions wait for playback, downloads and handed-over file writes to stop
-before clearing files, including the skin-preview cache writer. If the
-playback runtime has not stopped within ten seconds, cleanup reports an error
-and leaves the storage folders in place;
-work already running may finish while the app exits. A failed attempt to turn
-off start at login stops reset before deleting credentials or profile files.
+Both actions request cancellation of MilkDrop preset downloads and wait for
+playback, skin work and handed-over file writes to stop before clearing files.
+If a worker misses its shutdown deadline, cleanup reports an error and leaves
+the storage folders in place. A blocked request or file write may finish while
+the app exits. Reset checks the file writer and turns off start at login before
+deleting saved credentials or profile files.
 Missing files are already clear. Symbolic links are never followed; linked
 profile roots are refused. A failed cleanup shows a
 native error dialog. A failed credential deletion keeps the profile and its

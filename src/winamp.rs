@@ -240,10 +240,19 @@ impl WinampState {
         chosen.clamp(1, MAX_SCALE)
     }
 
-    pub(crate) fn finish_disk_jobs(&mut self) {
-        for job in self.disk_jobs.drain(..) {
-            let _ = job.join();
+    pub(crate) fn finish_disk_jobs(&mut self, timeout: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + timeout;
+        while self.disk_jobs.iter().any(|job| !job.is_finished()) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(
+                    "Skin file work did not stop in time. No storage folders were cleared.".into(),
+                );
+            }
+            std::thread::sleep(remaining.min(Duration::from_millis(10)));
         }
+        self.disk_jobs.clear();
+        Ok(())
     }
 
     pub fn is_loading(&self) -> bool {

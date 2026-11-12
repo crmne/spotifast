@@ -14995,7 +14995,7 @@ impl App {
     }
 
     fn finish_storage_action(&mut self, action: crate::model::StorageAction) -> Result<(), String> {
-        self.finish_storage_action_with_autostart(action, || {
+        self.finish_storage_action_with(action, Self::flush_files, || {
             let autostart = crate::backend::autostart();
             if autostart.state() != fastframe_autostart::State::Unsupported {
                 autostart.set(None).map_err(|error| error.to_string())?;
@@ -15004,9 +15004,10 @@ impl App {
         })
     }
 
-    fn finish_storage_action_with_autostart(
+    fn finish_storage_action_with(
         &mut self,
         action: crate::model::StorageAction,
+        flush_files: impl FnOnce(&Self) -> bool,
         disable_autostart: impl FnOnce() -> Result<(), String>,
     ) -> Result<(), String> {
         let reset = action == crate::model::StorageAction::ResetApp;
@@ -15022,19 +15023,24 @@ impl App {
             Ok(())
         });
         let prepared = validated.map_err(|error| error.to_string()).and_then(|()| {
+            self.winamp
+                .presets
+                .stop_download_for_storage(Duration::from_secs(10))?;
+            self.winamp.previews.stop_for_storage()?;
+            self.winamp.finish_disk_jobs(Duration::from_secs(10))?;
+            if !flush_files(self) {
+                return Err(
+                    "File writes have not finished. No storage folders were cleared.".into(),
+                );
+            }
             if reset && self.autostart_live {
                 disable_autostart()?;
             }
-            self.winamp.previews.stop_for_storage()
+            Ok(())
         });
-        self.backend
-            .shutdown_for_storage(reset && prepared.is_ok())?;
-        self.winamp.finish_disk_jobs();
-        self.winamp.presets.finish_download();
-        if !self.flush_files() {
-            return Err("File writes have not finished. No storage folders were cleared.".into());
-        }
+        let stopped = self.backend.shutdown_for_storage(reset && prepared.is_ok());
         prepared?;
+        stopped?;
         crate::storage::clear_after_shutdown(&self.dirs, reset)
             .map_err(|error| error.to_string())?;
         if reset && let Some(path) = &self.window_state_file {
@@ -27232,6 +27238,35 @@ mod tests {
     }
 
     #[test]
+    fn a_file_flush_timeout_keeps_credentials_and_profile_files() {
+        let (_cleanup, mut app) = storage_test_app("storage-flush-timeout");
+        app.backend.set_offline(true);
+        app.autostart_live = true;
+        app.dirs.ensure().unwrap();
+        let credential = app.dirs.credentials_dir().join("credentials.json");
+        std::fs::create_dir_all(credential.parent().unwrap()).unwrap();
+        std::fs::write(&credential, "dummy-playback-grant").unwrap();
+        let settings = app.dirs.settings_file();
+        std::fs::write(&settings, "{}").unwrap();
+
+        let result = app.finish_storage_action_with(
+            crate::model::StorageAction::ResetApp,
+            |_| false,
+            || panic!("the login item must be kept when file writes are pending"),
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            "File writes have not finished. No storage folders were cleared."
+        );
+        assert_eq!(
+            std::fs::read_to_string(credential).unwrap(),
+            "dummy-playback-grant"
+        );
+        assert_eq!(std::fs::read_to_string(settings).unwrap(), "{}");
+        assert!(!app.dirs.state.join("credential-storage").exists());
+    }
+
+    #[test]
     fn failed_autostart_removal_keeps_credentials_and_profile_files() {
         let (_cleanup, mut app) = storage_test_app("storage-autostart-failure");
         app.backend.set_offline(true);
@@ -27242,10 +27277,11 @@ mod tests {
         std::fs::write(&credential, "dummy-playback-grant").unwrap();
         std::fs::write(app.dirs.settings_file(), "{}").unwrap();
         std::fs::write(app.dirs.history_file(), "[]").unwrap();
-        let result = app
-            .finish_storage_action_with_autostart(crate::model::StorageAction::ResetApp, || {
-                Err("Login item removal failed".into())
-            });
+        let result = app.finish_storage_action_with(
+            crate::model::StorageAction::ResetApp,
+            App::flush_files,
+            || Err("Login item removal failed".into()),
+        );
         assert_eq!(result.unwrap_err(), "Login item removal failed");
         assert_eq!(
             std::fs::read_to_string(credential).unwrap(),

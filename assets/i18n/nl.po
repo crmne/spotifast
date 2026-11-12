@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-05 10:04+1300\n"
+"POT-Creation-Date: 2026-11-12 22:41+1300\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Dutch\n"
@@ -28,12 +28,12 @@ msgstr "{name} pauzeren"
 msgid "Play {name}"
 msgstr "{name} afspelen"
 
-#: src/ui/sidebar.rs:302 src/app.rs:4055 src/app.rs:25972
+#: src/ui/sidebar.rs:302 src/app.rs:4055 src/app.rs:25978
 #: src/ui/collection.rs:2326 src/ui/collection.rs:2555
 msgid "Playlist"
 msgstr "Playlist"
 
-#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:4029 src/app.rs:25977
+#: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/app.rs:4029 src/app.rs:25983
 #: src/ui/collection.rs:2548 src/ui/home.rs:93 src/ui/keys.rs:376
 #: src/ui/winamp/playlist.rs:653
 msgid "Liked Songs"
@@ -258,7 +258,7 @@ msgid "Previous"
 msgstr "Vorige"
 
 #: src/ui/player_bar.rs:778 src/ui/lyrics.rs:475 src/ui/widgets.rs:2862
-#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:15197
+#: src/ui/widgets.rs:2936 src/ui/widgets.rs:2964 src/app.rs:15203
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "Laden…"
@@ -661,7 +661,7 @@ msgstr "KEER AFGESPEELD"
 msgid "Sort by duration"
 msgstr "Sorteren op duur"
 
-#: src/ui/widgets.rs:2975 src/app.rs:15406 src/app.rs:15420
+#: src/ui/widgets.rs:2975 src/app.rs:15412 src/app.rs:15426
 msgid "Network connection error. Check your connection."
 msgstr "Netwerkverbindingsfout. Controleer je verbinding."
 
@@ -913,7 +913,7 @@ msgid "Queue cleared"
 msgstr "Wachtrij gewist"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7541 src/app.rs:25962
+#: src/app.rs:7541 src/app.rs:25968
 #, rust-format
 msgid "Queue {date}"
 msgstr "Wachtrij {date}"
@@ -1203,50 +1203,50 @@ msgstr ""
 "Sommige lokale gegevens konden niet worden verwijderd. Open Spotifast en "
 "probeer het opnieuw."
 
-#: src/app.rs:15019
+#: src/app.rs:15020
 msgid ""
 "Move your local music folder outside Spotifast storage before clearing it."
 msgstr ""
 "Verplaats je lokale muziekmap buiten de opslag van Spotifast voordat je die "
 "wist."
 
-#: src/app.rs:15340
+#: src/app.rs:15346
 msgid "Couldn't start playback"
 msgstr "Kan afspelen niet starten"
 
-#: src/app.rs:15341
+#: src/app.rs:15347
 msgid "Couldn't pause"
 msgstr "Kan niet pauzeren"
 
-#: src/app.rs:15342
+#: src/app.rs:15348
 msgid "Couldn't skip"
 msgstr "Kan niet overslaan"
 
-#: src/app.rs:15343
+#: src/app.rs:15349
 msgid "Couldn't go back"
 msgstr "Kan niet teruggaan"
 
-#: src/app.rs:15344
+#: src/app.rs:15350
 msgid "Couldn't seek"
 msgstr "Kan niet spoelen"
 
-#: src/app.rs:15345
+#: src/app.rs:15351
 msgid "Couldn't change the volume"
 msgstr "Kan het volume niet wijzigen"
 
-#: src/app.rs:15346
+#: src/app.rs:15352
 msgid "Couldn't change shuffle"
 msgstr "Kan willekeurige volgorde niet wijzigen"
 
-#: src/app.rs:15347
+#: src/app.rs:15353
 msgid "Couldn't change repeat"
 msgstr "Kan herhalen niet wijzigen"
 
-#: src/app.rs:15390 src/ui/mod.rs:442
+#: src/app.rs:15396 src/ui/mod.rs:442
 msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify laat deze computer dit nummer nu niet afspelen."
 
-#: src/app.rs:15397
+#: src/app.rs:15403
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1254,20 +1254,20 @@ msgstr ""
 "Er is geen audio-uitvoerapparaat gevonden. Sluit er een aan of schakel er "
 "een in en druk dan opnieuw op Afspelen."
 
-#: src/app.rs:15411
+#: src/app.rs:15417
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify stelt de nummers van deze playlist niet beschikbaar voor apps van "
 "derden."
 
-#: src/app.rs:15542
+#: src/app.rs:15548
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "Spotify-aanmelding verlopen. Log opnieuw in en probeer de cover dan opnieuw "
 "te uploaden."
 
-#: src/app.rs:15547
+#: src/app.rs:15553
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
@@ -1278,20 +1278,20 @@ msgstr ""
 "Gebruik je je eigen Client ID, autoriseer die dan ook opnieuw in "
 "Instellingen."
 
-#: src/app.rs:15551
+#: src/app.rs:15557
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr ""
 "Spotify heeft de afbeeldingsgrootte geweigerd. Kies een kleinere afbeelding."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:15554
+#: src/app.rs:15560
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Kan de cover niet uploaden: {error}. Probeer het opnieuw."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:25982 src/app/radio.rs:38
+#: src/app.rs:25988 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Radio op basis van {track}"
@@ -2691,12 +2691,12 @@ msgstr "Compilatie"
 msgid "Appears On"
 msgstr "Komt voor op"
 
-#: src/milkdrop.rs:73
+#: src/milkdrop.rs:77
 msgid "Uncapped"
 msgstr "Onbeperkt"
 
 #. Translators: A frame rate that matches the display. Keep {rate}.
-#: src/milkdrop.rs:77
+#: src/milkdrop.rs:81
 #, rust-format
 msgid "{rate} fps, your screen"
 msgstr "{rate} fps, je scherm"
