@@ -142,6 +142,11 @@ restarts the player, as described under Setup.
 Starting a collection at a chosen row goes
 through the existing Spotify playback request, retaining its context and
 position; it does not skip through earlier songs or shorten the playlist.
+Starting one track without a collection context uses Soloist's documented
+`play` command with that track URI, so Spotify can keep its own context and
+Autoplay behavior. If Shuffle Play is on, Spotifast enables Soloist shuffle
+before sending that command. Multiple tracks and episodes continue through the
+existing Spotify playback request.
 
 Lyrics also keep their existing sources. Spotify's own lyrics are tried when
 the separate librespot session is signed in, even while Soloist plays. Soloist
