@@ -376,11 +376,14 @@ pub enum ApiRequest {
         device_id: String,
         play: bool,
     },
-    /// Shuffle on, then start the context, one after the other: sent as two
-    /// independent requests they race, and shuffle sometimes lost.
+    /// Shuffle and repeat, then start the play, one after the other: sent as
+    /// independent requests they race, and a mode sometimes lost. `None`
+    /// leaves a mode as it is.
     ShufflePlay {
         device_id: Option<String>,
         play: PlayRequest,
+        shuffle: Option<bool>,
+        repeat: Option<String>,
     },
     AddToQueue {
         uri: String,
@@ -6031,9 +6034,21 @@ async fn handle(
             };
             ApiResponse::Remote { action, result }
         }
-        ApiRequest::ShufflePlay { device_id, play } => {
+        ApiRequest::ShufflePlay {
+            device_id,
+            play,
+            shuffle,
+            repeat,
+        } => {
             let device = device_id.as_deref();
-            let result = match routed!(set_shuffle(true, device)) {
+            let mut result = Ok(());
+            if let Some(shuffle) = shuffle {
+                result = routed!(set_shuffle(shuffle, device));
+            }
+            if let (Ok(()), Some(repeat)) = (&result, &repeat) {
+                result = routed!(set_repeat(repeat, device));
+            }
+            let result = match result {
                 Ok(()) => routed!(play(device, Some(&play))),
                 Err(error) => Err(error),
             };
@@ -6167,11 +6182,40 @@ async fn over_connect(
                 result,
             }
         }
-        ApiRequest::ShufflePlay { device_id, play } => {
+        ApiRequest::ShufflePlay {
+            device_id,
+            play,
+            shuffle,
+            repeat,
+        } => {
             let to = connect.command_target(device_id.as_deref(), playing.as_deref())?;
-            let shuffle = crate::sonos::command_body(RemoteAction::Shuffle, None, 0, true, "")?;
-            let start = crate::sonos::command_body(RemoteAction::Play, Some(play), 0, false, "")?;
-            let result = shuffle_then_play(shuffle, start, |body| {
+            let mut bodies = Vec::new();
+            if let Some(shuffle) = shuffle {
+                bodies.push(crate::sonos::command_body(
+                    RemoteAction::Shuffle,
+                    None,
+                    0,
+                    *shuffle,
+                    "",
+                )?);
+            }
+            if let Some(repeat) = repeat {
+                bodies.push(crate::sonos::command_body(
+                    RemoteAction::Repeat,
+                    None,
+                    0,
+                    false,
+                    repeat,
+                )?);
+            }
+            bodies.push(crate::sonos::command_body(
+                RemoteAction::Play,
+                Some(play),
+                0,
+                false,
+                "",
+            )?);
+            let result = send_in_order(bodies, |body| {
                 let to = &to;
                 async move { crate::sonos::command(session, to, &body).await }
             })
@@ -6220,17 +6264,15 @@ async fn over_connect(
 }
 
 /// Waits for shuffle to succeed before starting playback, preserving either error.
-async fn shuffle_then_play<F, Fut>(
-    shuffle: serde_json::Value,
-    play: serde_json::Value,
-    mut send: F,
-) -> ApiResult<()>
+async fn send_in_order<F, Fut>(bodies: Vec<serde_json::Value>, mut send: F) -> ApiResult<()>
 where
     F: FnMut(serde_json::Value) -> Fut,
     Fut: std::future::Future<Output = ApiResult<()>>,
 {
-    send(shuffle).await?;
-    send(play).await
+    for body in bodies {
+        send(body).await?;
+    }
+    Ok(())
 }
 
 /// Whether a session signed in as `username` answers for the Web API's
@@ -10126,7 +10168,7 @@ mod tests {
             crate::sonos::command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
         let sent = std::sync::Mutex::new(Vec::new());
         let shuffled = tokio::sync::Notify::new();
-        let sending = shuffle_then_play(shuffle.clone(), play.clone(), |body| {
+        let sending = send_in_order(vec![shuffle.clone(), play.clone()], |body| {
             let is_shuffle = body["command"]["endpoint"] == "set_shuffling_context";
             sent.lock().unwrap().push(body);
             let shuffled = &shuffled;
@@ -10161,7 +10203,7 @@ mod tests {
             crate::sonos::command_body(RemoteAction::Play, Some(&request), 0, false, "").unwrap();
         for failed_endpoint in ["set_shuffling_context", "play"] {
             let mut sent = Vec::new();
-            let result = shuffle_then_play(shuffle.clone(), play.clone(), |body| {
+            let result = send_in_order(vec![shuffle.clone(), play.clone()], |body| {
                 let failed = body["command"]["endpoint"] == failed_endpoint;
                 sent.push(body);
                 std::future::ready(if failed {

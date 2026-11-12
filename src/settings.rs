@@ -1887,6 +1887,14 @@ pub struct SessionState {
     /// Local repeat mode ("off", "context" or "track") saved across
     /// restarts. Sessions saved before it existed read as off.
     pub repeat: String,
+    /// Shuffle and repeat as last chosen while a playlist played, applied to
+    /// the next playlist started. `None` until one has been chosen.
+    pub playlist_modes: Option<PlayModes>,
+    /// The same for albums.
+    pub album_modes: Option<PlayModes>,
+    /// Shuffle chosen for the playlists in a folder, by rootlist id. A
+    /// folder without an entry takes its parent's, or the playlist's own.
+    pub folder_shuffle: std::collections::BTreeMap<String, bool>,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
     /// Last window inner size, to restore on next launch. Logical pixels
@@ -1933,6 +1941,15 @@ impl SoloistOnboarding {
             self
         }
     }
+}
+
+/// The shuffle and repeat choice remembered for one kind of context.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlayModes {
+    pub shuffle: bool,
+    /// "off", "context" or "track", as in `SessionState::repeat`.
+    pub repeat: String,
 }
 
 /// Whether a window was full screen, and whether it was maximized.
@@ -2034,6 +2051,8 @@ mod session_tests {
         let state: SessionState = serde_json::from_str(r#"{"last_page":"home"}"#).unwrap();
         assert_eq!(state.last_page.as_deref(), Some("home"));
         assert_eq!(state.rootlist, None);
+        assert_eq!(state.playlist_modes, None);
+        assert_eq!(state.album_modes, None);
         assert_eq!(
             crate::player::RepeatMode::from_api(&state.repeat),
             crate::player::RepeatMode::Off,
@@ -2053,6 +2072,23 @@ mod session_tests {
             crate::player::RepeatMode::from_api(&read.repeat),
             crate::player::RepeatMode::Track
         );
+    }
+
+    #[test]
+    fn the_remembered_play_modes_round_trip() {
+        let state = SessionState {
+            playlist_modes: Some(super::PlayModes {
+                shuffle: true,
+                repeat: "context".into(),
+            }),
+            album_modes: Some(super::PlayModes {
+                shuffle: false,
+                repeat: "track".into(),
+            }),
+            ..SessionState::default()
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        assert_eq!(serde_json::from_str::<SessionState>(&json).unwrap(), state);
     }
 
     #[test]

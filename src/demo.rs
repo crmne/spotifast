@@ -10110,6 +10110,12 @@ mod tests {
                 name: "x".into(),
                 owned: true,
             },
+            Dialog::FolderSettings {
+                id: "folder".into(),
+                name: "x".into(),
+                shuffle: Some(true),
+                subfolders: true,
+            },
             Dialog::ConfirmPlaylistDuplicates {
                 position: None,
                 playlist_id: "pl1".into(),

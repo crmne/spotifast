@@ -57,6 +57,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 Dialog::CreatePlaylist { .. } => create_playlist(app, ui),
                 Dialog::EditPlaylist { .. } => edit_playlist(app, ui),
+                Dialog::FolderSettings { .. } => folder_settings(app, ui),
                 Dialog::ConfirmDeletePlaylist { id, name, owned } => {
                     theme::text(
                         ui,
@@ -233,6 +234,69 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 }
 
 // Keep button rows content-sized when the shared modal area last held a taller dialog.
+fn folder_settings(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let locale = app.locale;
+    let Some(Dialog::FolderSettings {
+        id,
+        name,
+        shuffle,
+        subfolders,
+    }) = &mut app.dialog
+    else {
+        return;
+    };
+    theme::text(ui, name.clone(), theme::bold(20.0), palette.text);
+    ui.add_space(12.0);
+    theme::text(
+        ui,
+        gettext(locale, "Shuffle playlists in this folder"),
+        theme::medium(13.0),
+        palette.secondary,
+    );
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        for (choice, label) in [
+            (None, gettext(locale, "Default")),
+            (Some(true), gettext(locale, "Shuffle")),
+            (Some(false), gettext(locale, "No shuffle")),
+        ] {
+            if theme::pill_button(ui, &palette, &label, *shuffle == choice).clicked() {
+                *shuffle = choice;
+            }
+        }
+    });
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        super::widgets::switch(
+            ui,
+            &palette,
+            &gettext(locale, "Apply to all subfolders"),
+            subfolders,
+        );
+        theme::text(
+            ui,
+            gettext(locale, "Apply to all subfolders"),
+            theme::regular(14.0),
+            palette.text,
+        );
+    });
+    ui.add_space(20.0);
+    let (id, shuffle, subfolders) = (id.clone(), *shuffle, *subfolders);
+    buttons(ui, |ui| {
+        if theme::pill_button(ui, &palette, &gettext(locale, "Save"), true).clicked() {
+            app.actions.push(Action::SetFolderShuffle {
+                id,
+                shuffle,
+                subfolders,
+            });
+        }
+        if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked() {
+            app.actions.push(Action::CloseDialog);
+        }
+    });
+}
+
 fn buttons(ui: &mut egui::Ui, add_buttons: impl FnOnce(&mut egui::Ui)) {
     ui.allocate_ui_with_layout(
         egui::vec2(ui.available_width(), ui.spacing().interact_size.y),

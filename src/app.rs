@@ -21,7 +21,7 @@ use crate::model::QueueTab;
 use crate::model::*;
 use crate::paths::AppDirs;
 use crate::player::{EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand, RepeatMode};
-use crate::settings::{CachedRootlist, SessionState, Settings, ThemeChoice};
+use crate::settings::{CachedRootlist, PlayModes, SessionState, Settings, ThemeChoice};
 use crate::single_instance::ControlCommand;
 use crate::theme::{self, Palette};
 use crate::util;
@@ -788,6 +788,22 @@ pub struct App {
     /// The repeat mode saved by the last run, which the first local load
     /// starts with: the engine starts at off.
     repeat_wanted: RepeatMode,
+    /// Shuffle and repeat last chosen while a playlist, or an album, played.
+    playlist_modes: Option<PlayModes>,
+    album_modes: Option<PlayModes>,
+    pub(crate) folder_shuffle: std::collections::BTreeMap<String, bool>,
+    /// Shuffle or repeat was chosen with nothing playing: the next play
+    /// keeps that choice, and it becomes its kind's remembered one.
+    modes_chosen: bool,
+    /// Shuffle chosen on a collection page that is not the one playing, for
+    /// that page's context only: its play uses it, any other play drops it.
+    page_shuffle: Option<(String, bool)>,
+    /// Shuffle and repeat saved modes change, which a remote play carries
+    /// in its own ordered request: apart from it they race it.
+    play_with: PlayWith,
+    /// The repeat the last play resolved from the saved modes, so it is filed
+    /// even when a remote device gave no snapshot to read it back from.
+    applied_repeat: Option<RepeatMode>,
     /// Last local shuffle change, used to ignore its echo from the engine.
     shuffle_set_at: Option<Instant>,
     /// When tracks recently came up unavailable, to spot a key-service
@@ -1463,6 +1479,13 @@ impl App {
             local_files: None,
             shuffle_wanted: session.shuffle_on,
             repeat_wanted: RepeatMode::from_api(&session.repeat),
+            playlist_modes: session.playlist_modes.clone(),
+            album_modes: session.album_modes.clone(),
+            folder_shuffle: session.folder_shuffle.clone(),
+            modes_chosen: false,
+            page_shuffle: None,
+            play_with: PlayWith::default(),
+            applied_repeat: None,
             shuffle_set_at: None,
             unavailable_at: Vec::new(),
             last_unavailable_reconnect: None,
@@ -2282,6 +2305,25 @@ impl App {
 
     pub fn playing_context_shuffle(&self) -> bool {
         self.shuffle_wanted
+    }
+
+    /// The shuffle a page's Play would start with: the playing context's
+    /// own, else what was chosen on the page, else what was last chosen for
+    /// its kind of context.
+    pub fn page_shuffle_shown(&self, uri: &str) -> bool {
+        if self.playing_context_uri().as_deref() == Some(uri) || self.modes_chosen {
+            return self.shuffle_wanted;
+        }
+        if let Some((page, shuffle)) = &self.page_shuffle
+            && *page == crate::link::canonical_context_uri(uri)
+        {
+            return *shuffle;
+        }
+        self.folder_shuffle_for(uri).unwrap_or_else(|| {
+            ContextKind::of(uri)
+                .and_then(|kind| self.modes_for(kind))
+                .map_or(self.shuffle_wanted, |modes| modes.shuffle)
+        })
     }
 
     /// Current item for menus, using cached track details when available.
@@ -8306,20 +8348,15 @@ impl App {
                                 .as_ref()
                                 .map(|item| item.uri().to_string())
                         });
-                        let previous_shuffle = self
-                            .remote
-                            .as_ref()
-                            .map(|remote| remote.state.shuffle_state);
                         self.remote = state.map(|state| RemoteSnapshot {
                             state,
                             received_at: Instant::now(),
                         });
-                        if let (Some(previous), Some(current)) = (
-                            previous_shuffle,
-                            self.remote
-                                .as_ref()
-                                .map(|remote| remote.state.shuffle_state),
-                        ) && previous != current
+                        if let Some(current) = self
+                            .remote
+                            .as_ref()
+                            .map(|remote| remote.state.shuffle_state)
+                            && current != self.shuffle_wanted
                             && self
                                 .shuffle_set_at
                                 .is_none_or(|at| at.elapsed() > Duration::from_secs(5))
@@ -10570,7 +10607,214 @@ impl App {
         // A play from a row names its row again after this.
         self.played_row = None;
         self.resume_load = None;
+        let context = request.context_uri.clone();
+        let page = self.take_page_shuffle(context.as_deref());
+        let chosen = shuffle_first || self.modes_chosen || page.is_some();
+        let shuffle_first = context
+            .as_deref()
+            .is_some_and(|context| self.apply_play_modes(context, page, shuffle_first))
+            || shuffle_first;
         self.start_play(request, shuffle_first);
+        // Without a device nothing started, so the choice waits for a play
+        // that does.
+        if self.queue_start_pending.is_none() {
+            self.applied_repeat = None;
+            return;
+        }
+        self.modes_chosen = false;
+        if chosen && let Some(kind) = context.as_deref().and_then(ContextKind::of) {
+            self.file_play_modes(kind);
+        }
+        // The resolved repeat belongs to this play alone.
+        self.applied_repeat = None;
+    }
+
+    /// The shuffle chosen on a page, if this play is that page's. Any play
+    /// uses it up: a page's choice is not for another context.
+    fn take_page_shuffle(&mut self, context: Option<&str>) -> Option<bool> {
+        let (page, shuffle) = self.page_shuffle.take()?;
+        (context.map(crate::link::canonical_context_uri) == Some(page)).then_some(shuffle)
+    }
+
+    /// Brings shuffle and repeat to what was last chosen for this kind of
+    /// context, unless a choice made with nothing playing is still waiting
+    /// for its play. Returns whether the play must start shuffled.
+    /// A play that is already shuffled (`shuffle_first`) still takes the
+    /// saved repeat, but its shuffle is not overridden.
+    fn apply_play_modes(
+        &mut self,
+        context: &str,
+        page_shuffle: Option<bool>,
+        shuffle_first: bool,
+    ) -> bool {
+        if self.modes_chosen {
+            return false;
+        }
+        self.play_with = PlayWith::default();
+        self.applied_repeat = None;
+        let modes = ContextKind::of(context).and_then(|kind| self.modes_for(kind));
+        let folder = self.folder_shuffle_for(context);
+        let Some(saved) = folder.or(modes.as_ref().map(|modes| modes.shuffle)) else {
+            return shuffle_first || page_shuffle == Some(true);
+        };
+        let shuffle = page_shuffle.unwrap_or(saved);
+        let with_play = self.remote_play_sends_modes();
+        if let Some(modes) = &modes {
+            // Choosing a song by hand ends Repeat One, so it is not restored.
+            let repeat = match RepeatMode::from_api(&modes.repeat) {
+                RepeatMode::Track => RepeatMode::Context,
+                repeat => repeat,
+            };
+            self.applied_repeat = Some(repeat);
+            // Soloist takes back its own value when a play starts, so it is
+            // told again after the play whatever is believed.
+            if repeat != self.current_repeat() || (with_play && self.targets_own_soloist()) {
+                self.apply_repeat(repeat, !with_play);
+                if with_play {
+                    self.play_with.repeat = Some(repeat);
+                }
+            }
+        }
+        if shuffle_first {
+            return true;
+        }
+        // A remote device's own shuffle can differ from the last one read
+        // here, so it is told off whatever is believed.
+        if !shuffle && (self.shuffle_wanted || with_play) {
+            self.apply_shuffle(false, !with_play);
+            if with_play {
+                self.play_with.shuffle = Some(false);
+            }
+        }
+        shuffle
+    }
+
+    /// Whether a play now goes to a remote device, which takes shuffle and
+    /// repeat in the same ordered request as the play.
+    fn remote_play_sends_modes(&self) -> bool {
+        match self.target() {
+            Target::Local => false,
+            Target::Remote(None) => self.remote_fresh().is_some(),
+            Target::Remote(Some(_)) => true,
+        }
+    }
+
+    /// The shuffle chosen for the folder a playlist sits in, or for the
+    /// nearest folder around that one that has a choice.
+    fn folder_shuffle_for(&self, context: &str) -> Option<bool> {
+        if self.folder_shuffle.is_empty() || ContextKind::of(context) != Some(ContextKind::Playlist)
+        {
+            return None;
+        }
+        let context = crate::link::canonical_context_uri(context);
+        let mut open: Vec<&str> = Vec::new();
+        for row in &self.rootlist {
+            match row {
+                crate::player::RootlistEntry::FolderStart { id, .. } => open.push(id),
+                crate::player::RootlistEntry::FolderEnd => {
+                    open.pop();
+                }
+                crate::player::RootlistEntry::Playlist(uri)
+                    if crate::link::canonical_context_uri(uri) == context =>
+                {
+                    if let Some(shuffle) = open
+                        .iter()
+                        .rev()
+                        .find_map(|id| self.folder_shuffle.get(*id))
+                    {
+                        return Some(*shuffle);
+                    }
+                }
+                crate::player::RootlistEntry::Playlist(_) => {}
+            }
+        }
+        None
+    }
+
+    /// Chooses shuffle for a folder's playlists, or clears the choice with
+    /// `None`. With `subfolders`, every folder inside gets the same.
+    fn set_folder_shuffle(&mut self, id: &str, shuffle: Option<bool>, subfolders: bool) {
+        let mut ids = vec![id.to_string()];
+        if subfolders {
+            let mut depth = 0usize;
+            let mut inside = false;
+            for row in &self.rootlist {
+                match row {
+                    crate::player::RootlistEntry::FolderStart { id: this, .. } => {
+                        if inside {
+                            depth += 1;
+                            ids.push(this.clone());
+                        } else if this == id {
+                            inside = true;
+                            depth = 1;
+                        }
+                    }
+                    crate::player::RootlistEntry::FolderEnd if inside => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for id in ids {
+            match shuffle {
+                Some(shuffle) => {
+                    self.folder_shuffle.insert(id, shuffle);
+                }
+                None => {
+                    self.folder_shuffle.remove(&id);
+                }
+            }
+        }
+        self.page_shuffle = None;
+        self.session_dirty = true;
+    }
+
+    fn modes_for(&self, kind: ContextKind) -> Option<PlayModes> {
+        match kind {
+            ContextKind::Playlist => self.playlist_modes.clone(),
+            ContextKind::Album => self.album_modes.clone(),
+        }
+    }
+
+    fn current_repeat(&self) -> RepeatMode {
+        self.now_playing()
+            .map_or_else(|| self.local_repeat(), |now| now.repeat)
+    }
+
+    /// Files a shuffle or repeat choice under the kind of context playing,
+    /// or holds it for the next play when nothing is.
+    fn remember_play_modes(&mut self) {
+        let Some(kind) = self
+            .playing_context_uri()
+            .as_deref()
+            .and_then(ContextKind::of)
+        else {
+            if self.assumed_context.is_none() && self.now_playing().is_none() {
+                self.modes_chosen = true;
+            }
+            return;
+        };
+        self.file_play_modes(kind);
+    }
+
+    fn file_play_modes(&mut self, kind: ContextKind) {
+        let repeat = self
+            .applied_repeat
+            .take()
+            .unwrap_or_else(|| self.current_repeat());
+        let modes = PlayModes {
+            shuffle: self.shuffle_wanted,
+            repeat: repeat.api_name().into(),
+        };
+        match kind {
+            ContextKind::Playlist => self.playlist_modes = Some(modes),
+            ContextKind::Album => self.album_modes = Some(modes),
+        }
+        self.session_dirty = true;
     }
 
     /// A playback choice made now: a play-search still in flight must not
@@ -10714,6 +10958,11 @@ impl App {
                 self.queue_start_pending = None;
                 self.clear_play_pending();
                 self.queued_play = None;
+                self.play_with = PlayWith::default();
+                // Nothing plays, so the context asked for must not pass as
+                // playing: a mode chosen now is for the next play.
+                self.assumed_context = None;
+                self.intent_track = None;
                 self.toast(gettext(
                     self.locale,
                     "Choose a device, or enable playback on this computer",
@@ -10725,10 +10974,14 @@ impl App {
             // playing, which a Sonos is.
             Target::Remote(device_id) => {
                 self.queued_play = None;
-                if shuffle {
+                let with = std::mem::take(&mut self.play_with);
+                let shuffle = shuffle.then_some(true).or(with.shuffle);
+                if shuffle.is_some() || with.repeat.is_some() {
                     self.backend.api(ApiRequest::ShufflePlay {
                         device_id,
                         play: request,
+                        shuffle,
+                        repeat: with.repeat.map(|mode| mode.api_name().to_string()),
                     });
                 } else {
                     self.backend.api(ApiRequest::Remote {
@@ -11343,6 +11596,12 @@ impl App {
     }
 
     fn set_shuffle(&mut self, shuffle: bool) {
+        self.apply_shuffle(shuffle, true);
+    }
+
+    /// With `send` false a remote device is not told: the play that follows
+    /// carries it.
+    fn apply_shuffle(&mut self, shuffle: bool, send: bool) {
         self.shuffle_wanted = shuffle;
         self.shuffle_set_at = Some(Instant::now());
         self.session_dirty = true;
@@ -11363,15 +11622,17 @@ impl App {
                 if let Some(remote) = self.remote.as_mut() {
                     remote.state.shuffle_state = shuffle;
                 }
-                self.backend.api(ApiRequest::Remote {
-                    action: RemoteAction::Shuffle,
-                    device_id,
-                    play: None,
-                    position_ms: 0,
-                    percent: 0,
-                    flag: shuffle,
-                    repeat: String::new(),
-                });
+                if send {
+                    self.backend.api(ApiRequest::Remote {
+                        action: RemoteAction::Shuffle,
+                        device_id,
+                        play: None,
+                        position_ms: 0,
+                        percent: 0,
+                        flag: shuffle,
+                        repeat: String::new(),
+                    });
+                }
             }
         }
     }
@@ -11425,6 +11686,12 @@ impl App {
     }
 
     fn set_repeat(&mut self, mode: RepeatMode) {
+        self.apply_repeat(mode, true);
+    }
+
+    /// With `send` false a remote device is not told: the play that follows
+    /// carries it.
+    fn apply_repeat(&mut self, mode: RepeatMode, send: bool) {
         // Next up leaves Spotify's padding out only with Repeat off.
         self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
         match self.target() {
@@ -11434,19 +11701,28 @@ impl App {
                 self.session_dirty = true;
                 self.backend.player(PlayerCommand::Repeat(mode));
             }
+            Target::Remote(None) if self.remote_fresh().is_none() => {
+                // No device to tell: this computer's player takes the mode
+                // when it starts.
+                self.local.repeat = mode;
+                self.repeat_wanted = mode;
+                self.session_dirty = true;
+            }
             Target::Remote(device_id) => {
                 if let Some(remote) = self.remote.as_mut() {
                     remote.state.repeat_state = mode.api_name().to_string();
                 }
-                self.backend.api(ApiRequest::Remote {
-                    action: RemoteAction::Repeat,
-                    device_id,
-                    play: None,
-                    position_ms: 0,
-                    percent: 0,
-                    flag: false,
-                    repeat: mode.api_name().to_string(),
-                });
+                if send {
+                    self.backend.api(ApiRequest::Remote {
+                        action: RemoteAction::Repeat,
+                        device_id,
+                        play: None,
+                        position_ms: 0,
+                        percent: 0,
+                        flag: false,
+                        repeat: mode.api_name().to_string(),
+                    });
+                }
             }
         }
     }
@@ -12531,6 +12807,7 @@ impl App {
                     | Action::ToggleShuffle
                     | Action::CycleRepeat
                     | Action::SetShuffle(_)
+                    | Action::SetShuffleForNextPlay { .. }
                     | Action::SetRepeat(_)
                     | Action::Transfer(_)
                     | Action::ActivateReceiver(_)
@@ -12719,6 +12996,9 @@ impl App {
                     // The header's Play names no song. With shuffle on it
                     // starts at a random row, as a whole context does in
                     // `shuffle_start`; a clicked row still plays first.
+                    let page = self.take_page_shuffle(Some(&context_uri));
+                    let chosen = self.modes_chosen || page.is_some();
+                    let shuffle_first = self.apply_play_modes(&context_uri, page, false);
                     let shuffled_start = uri.is_empty() && self.shuffle_wanted && !uris.is_empty();
                     let index = if shuffled_start {
                         rand::random_range(0..uris.len()) as u32
@@ -12741,7 +13021,18 @@ impl App {
                         self.cache_track_from_context(&context_uri, uri);
                     }
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
-                    self.play_request(request, false);
+                    let resolved_repeat = self.applied_repeat;
+                    self.play_request(request, shuffle_first);
+                    // A sorted view plays as plain songs, so the request
+                    // carries no context to file a held choice under.
+                    self.applied_repeat = resolved_repeat;
+                    if chosen
+                        && self.queue_start_pending.is_some()
+                        && let Some(kind) = ContextKind::of(&context_uri)
+                    {
+                        self.file_play_modes(kind);
+                    }
+                    self.applied_repeat = None;
                     self.played_row = played;
                     self.note_recent_context(&context_uri);
                     self.assumed_context = Some(AssumedContext {
@@ -12843,13 +13134,27 @@ impl App {
                     .now_playing()
                     .map_or(self.shuffle_wanted, |now| now.shuffle);
                 self.set_shuffle(!shuffle);
+                self.remember_play_modes();
             }
-            Action::SetShuffle(shuffle) => self.set_shuffle(shuffle),
+            Action::SetShuffle(shuffle) => {
+                self.set_shuffle(shuffle);
+                self.remember_play_modes();
+            }
+            Action::SetShuffleForNextPlay { shuffle, context } => {
+                // A page whose context is not the one playing: the choice
+                // is for its Play, not for what plays now.
+                self.set_shuffle(shuffle);
+                self.page_shuffle = Some((crate::link::canonical_context_uri(&context), shuffle));
+            }
             Action::CycleRepeat => {
                 let mode = self.now_playing().map(|now| now.repeat).unwrap_or_default();
                 self.set_repeat(mode.next());
+                self.remember_play_modes();
             }
-            Action::SetRepeat(mode) => self.set_repeat(mode),
+            Action::SetRepeat(mode) => {
+                self.set_repeat(mode);
+                self.remember_play_modes();
+            }
             Action::AddToQueue { uri, label } => self.add_to_queue(uri, label),
             Action::QueueMany { songs } => self.queue_many(songs),
             Action::PlayNext { items } => {
@@ -13563,6 +13868,14 @@ impl App {
             Action::SetLibraryGrid(grid) => {
                 self.settings.sidebar_grid = grid;
                 self.mark_settings_dirty();
+            }
+            Action::SetFolderShuffle {
+                id,
+                shuffle,
+                subfolders,
+            } => {
+                self.set_folder_shuffle(&id, shuffle, subfolders);
+                self.apply(Action::CloseDialog, ctx);
             }
             Action::ToggleLibraryFolder(id) => {
                 if self.collapsed_folders.contains(&id) {
@@ -15040,6 +15353,9 @@ impl App {
                     .unwrap_or_default(),
                 shuffle_on: self.shuffle_wanted,
                 repeat: self.local_repeat().api_name().into(),
+                playlist_modes: self.playlist_modes.clone(),
+                album_modes: self.album_modes.clone(),
+                folder_shuffle: self.folder_shuffle.clone(),
                 sorts: self
                     .table_sorts
                     .iter()
@@ -15462,6 +15778,33 @@ fn friendly_api_error(locale: Locale, error: &crate::api::ApiError) -> String {
     } else {
         error.to_string()
     }
+}
+
+/// The kinds of context that remember their own shuffle and repeat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ContextKind {
+    Playlist,
+    Album,
+}
+
+impl ContextKind {
+    fn of(uri: &str) -> Option<Self> {
+        let uri = crate::link::canonical_context_uri(uri);
+        if uri.starts_with("spotify:playlist:") {
+            Some(Self::Playlist)
+        } else if uri.starts_with("spotify:album:") {
+            Some(Self::Album)
+        } else {
+            None
+        }
+    }
+}
+
+/// Shuffle and repeat changes a remote play carries, as one ordered request.
+#[derive(Default)]
+struct PlayWith {
+    shuffle: Option<bool>,
+    repeat: Option<RepeatMode>,
 }
 
 /// What the engine is told to play. A single song goes as a context of
@@ -20062,6 +20405,159 @@ mod tests {
         app.apply(Action::Next, &ctx);
         assert_eq!(app.now_playing().unwrap().repeat, RepeatMode::Context);
         app.backend.shutdown();
+    }
+
+    /// Playlists and albums each start with the shuffle and repeat last
+    /// chosen while one of their kind played.
+    #[test]
+    fn playlists_and_albums_remember_their_own_shuffle_and_repeat() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let play = |app: &mut App, uri: &str| {
+            app.apply(
+                Action::PlayContext {
+                    uri: uri.into(),
+                    offset_uri: None,
+                    offset_index: None,
+                },
+                &ctx,
+            );
+        };
+        play(&mut app, "spotify:playlist:p");
+        app.apply(Action::SetShuffle(true), &ctx);
+        app.apply(Action::SetRepeat(RepeatMode::Context), &ctx);
+
+        play(&mut app, "spotify:album:a");
+        assert!(
+            app.shuffle_wanted,
+            "an album with no choice yet keeps the mode"
+        );
+        app.apply(Action::SetShuffle(false), &ctx);
+        assert!(
+            app.playlist_modes
+                .as_ref()
+                .is_some_and(|modes| modes.shuffle)
+        );
+        assert!(app.album_modes.as_ref().is_some_and(|modes| !modes.shuffle));
+
+        play(&mut app, "spotify:playlist:p2");
+        assert!(app.shuffle_wanted, "the playlist's shuffle returns");
+        assert_eq!(
+            app.playlist_modes
+                .as_ref()
+                .map(|modes| modes.repeat.as_str()),
+            Some("context")
+        );
+        play(&mut app, "spotify:album:a2");
+        assert!(!app.shuffle_wanted, "the album's shuffle returns");
+    }
+
+    /// A choice made with nothing playing belongs to the next play.
+    #[test]
+    fn a_choice_made_before_playing_applies_to_that_play() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "off".into(),
+        });
+        app.apply(Action::SetShuffle(true), &ctx);
+        app.apply(
+            Action::PlayContext {
+                uri: "spotify:album:a".into(),
+                offset_uri: None,
+                offset_index: None,
+            },
+            &ctx,
+        );
+        assert!(app.shuffle_wanted);
+        assert!(app.album_modes.as_ref().is_some_and(|modes| modes.shuffle));
+    }
+
+    /// Shuffle chosen on an album page while a playlist plays is the album's:
+    /// its Play must not undo the click, and the playlist keeps its modes.
+    #[test]
+    fn shuffle_on_another_page_survives_that_pages_play() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let play = |app: &mut App, uri: &str| {
+            app.apply(
+                Action::PlayContext {
+                    uri: uri.into(),
+                    offset_uri: None,
+                    offset_index: None,
+                },
+                &ctx,
+            );
+        };
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        play(&mut app, "spotify:playlist:p");
+        let choose = |app: &mut App, shuffle| {
+            app.apply(
+                Action::SetShuffleForNextPlay {
+                    shuffle,
+                    context: "spotify:album:a".into(),
+                },
+                &ctx,
+            );
+        };
+        choose(&mut app, true);
+        assert!(app.playlist_modes.is_none());
+        play(&mut app, "spotify:album:a");
+        assert!(app.shuffle_wanted, "the click is not undone");
+        let album = app.album_modes.clone().unwrap();
+        assert!(album.shuffle);
+        assert_eq!(album.repeat, "context", "the album keeps its own repeat");
+
+        // Another context's play drops the page's choice, as it is not its own.
+        choose(&mut app, false);
+        play(&mut app, "spotify:playlist:p2");
+        assert!(app.page_shuffle.is_none());
+        assert!(app.album_modes.as_ref().is_some_and(|modes| modes.shuffle));
+    }
+
+    /// Choosing a song by hand ends Repeat One, so a saved Repeat One is
+    /// not brought back by the next playlist.
+    #[test]
+    fn a_saved_repeat_one_is_not_restored() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.playlist_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "track".into(),
+        });
+        app.apply(
+            Action::PlayContext {
+                uri: "spotify:playlist:p".into(),
+                offset_uri: None,
+                offset_index: None,
+            },
+            &ctx,
+        );
+        assert_ne!(app.current_repeat(), RepeatMode::Track);
+    }
+
+    /// A held choice is used up by any play, and none is held while a list
+    /// of songs plays.
+    #[test]
+    fn a_held_choice_does_not_outlive_a_play_of_songs() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.apply(Action::SetShuffle(true), &ctx);
+        assert!(app.modes_chosen);
+        app.apply(
+            Action::PlayUris {
+                uris: vec!["spotify:track:one".into()],
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(!app.modes_chosen);
+        app.apply(Action::SetShuffle(false), &ctx);
+        assert!(!app.modes_chosen, "something plays, so nothing is held");
     }
 
     /// A restored session keeps shuffle enabled when skipping.
@@ -32343,7 +32839,9 @@ mod tests {
                     play: Some(play),
                     ..
                 } if !shuffle => (device_id, play),
-                ApiRequest::ShufflePlay { device_id, play } if shuffle => (device_id, play),
+                ApiRequest::ShufflePlay {
+                    device_id, play, ..
+                } if shuffle => (device_id, play),
                 other => panic!("unexpected playback request: {other:?}"),
             };
             assert_eq!(device.as_deref(), Some("speaker"));
@@ -32476,7 +32974,7 @@ mod tests {
         let requests = app.backend.take_remote_play_requests();
         assert!(matches!(
             requests.as_slice(),
-            [ApiRequest::ShufflePlay { device_id: Some(device), play }]
+            [ApiRequest::ShufflePlay { device_id: Some(device), play, .. }]
                 if device == "remote1" && play.context_uri.as_deref() == Some("spotify:playlist:pl0")
         ));
         app.backend.shutdown();
@@ -32599,6 +33097,89 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A page shows the shuffle its Play will start with, not the one of
+    /// whatever else is playing.
+    #[test]
+    fn a_page_shows_the_shuffle_its_play_will_use() {
+        let mut app = headless_app();
+        app.shuffle_wanted = true;
+        assert!(app.page_shuffle_shown("spotify:album:a"));
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "off".into(),
+        });
+        assert!(!app.page_shuffle_shown("spotify:album:a"));
+        app.page_shuffle = Some(("spotify:album:a".into(), true));
+        assert!(app.page_shuffle_shown("spotify:album:a"));
+        app.backend.shutdown();
+    }
+
+    /// A play that found no device started nothing, so a mode chosen after
+    /// it is held for the next play, not filed under the context it asked for.
+    #[test]
+    fn a_choice_after_a_play_without_a_device_is_held() {
+        let mut app = headless_app();
+        app.remote = None;
+        app.local_ready = false;
+        app.local_playback = LocalPlayback::Unavailable;
+        app.selected_device = None;
+        let saved = PlayModes {
+            shuffle: false,
+            repeat: "off".into(),
+        };
+        app.playlist_modes = Some(saved.clone());
+        app.expect_track("spotify:track:t".into(), 0);
+        app.play_request(PlayRequest::context("spotify:playlist:p"), false);
+        assert!(app.assumed_context.is_none());
+        assert!(app.intent_track.is_none());
+        assert!(app.play_with.repeat.is_none() && app.play_with.shuffle.is_none());
+        app.apply(Action::SetShuffle(true), &egui::Context::default());
+        assert!(app.modes_chosen);
+        assert_eq!(app.playlist_modes, Some(saved));
+        app.backend.shutdown();
+    }
+
+    /// Saved modes go to a remote device in the play's own ordered request,
+    /// and to no device at all they wait for this computer's player.
+    #[test]
+    fn saved_modes_travel_with_a_remote_play_or_wait_for_the_local_player() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local_ready = false;
+        app.local_playback = LocalPlayback::Unavailable;
+        app.selected_device = None;
+        app.shuffle_wanted = true;
+        app.playlist_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        assert!(matches!(app.target(), Target::Remote(Some(_))));
+
+        app.play_request(PlayRequest::context("spotify:playlist:pl0"), false);
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::ShufflePlay {
+                shuffle: Some(false),
+                repeat: Some(repeat),
+                ..
+            }] if repeat == "context"
+        ));
+        app.backend.shutdown();
+
+        let mut app = headless_app();
+        app.remote = None;
+        app.local_ready = false;
+        app.selected_device = None;
+        assert!(matches!(app.target(), Target::Remote(None)));
+        app.apply(
+            Action::SetRepeat(RepeatMode::Context),
+            &egui::Context::default(),
+        );
+        assert_eq!(app.repeat_wanted, RepeatMode::Context);
+        assert_eq!(app.local_repeat(), RepeatMode::Context);
+        app.backend.shutdown();
+    }
+
     #[test]
     fn a_play_goes_to_remote_playback_without_a_device_id() {
         let mut app = headless_app();
@@ -32643,6 +33224,7 @@ mod tests {
         // a Sonos that refuses the Web API's play still gets it over the
         // session.
         app.shuffle_wanted = false;
+        app.playlist_modes = None;
         app.local_playback = LocalPlayback::Connecting;
         app.play_request(PlayRequest::context("spotify:playlist:pl0"), false);
         assert!(app.queued_play.is_some());
@@ -33819,6 +34401,180 @@ mod tests {
             Some(0),
             "a clicked row still plays first with shuffle on"
         );
+        app.backend.shutdown();
+    }
+
+    fn folder_tree(app: &mut App) {
+        use crate::player::RootlistEntry::{FolderEnd, FolderStart, Playlist};
+        app.rootlist = vec![
+            FolderStart {
+                id: "vinyl".into(),
+                name: "Vinyl".into(),
+            },
+            Playlist("spotify:playlist:a".into()),
+            FolderStart {
+                id: "artist".into(),
+                name: "Artist".into(),
+            },
+            Playlist("spotify:playlist:b".into()),
+            FolderEnd,
+            FolderEnd,
+            Playlist("spotify:playlist:c".into()),
+        ];
+    }
+
+    /// A folder's choice reaches the folders and playlists inside it, the
+    /// nearest folder wins, and playlists outside keep their own.
+    #[test]
+    fn a_folders_shuffle_reaches_its_playlists_and_subfolders() {
+        let mut app = headless_app();
+        folder_tree(&mut app);
+        app.set_folder_shuffle("vinyl", Some(false), false);
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:b"), Some(false));
+        app.set_folder_shuffle("artist", Some(true), false);
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:a"), Some(false));
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:b"), Some(true));
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:c"), None);
+        assert_eq!(app.folder_shuffle_for("spotify:album:b"), None);
+        app.set_folder_shuffle("vinyl", Some(false), true);
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:b"), Some(false));
+        app.set_folder_shuffle("vinyl", None, true);
+        assert!(app.folder_shuffle.is_empty());
+    }
+
+    /// A folder's shuffle beats the playlist's remembered one, and the
+    /// page's own choice beats the folder's.
+    #[test]
+    fn a_folders_shuffle_beats_the_remembered_playlist_modes() {
+        let mut app = headless_app();
+        folder_tree(&mut app);
+        app.playlist_modes = Some(PlayModes {
+            shuffle: true,
+            repeat: "off".into(),
+        });
+        app.set_folder_shuffle("artist", Some(false), false);
+        assert!(!app.apply_play_modes("spotify:playlist:b", None, false));
+        assert!(app.apply_play_modes("spotify:playlist:b", Some(true), false));
+        assert!(app.apply_play_modes("spotify:playlist:c", None, false));
+        assert!(!app.page_shuffle_shown("spotify:playlist:b"));
+        assert!(app.page_shuffle_shown("spotify:playlist:c"));
+    }
+
+    /// Shuffle Play keeps its shuffle but still takes the saved repeat, and
+    /// asks for no shuffle-off.
+    #[test]
+    fn shuffle_play_still_applies_the_saved_repeat() {
+        let mut app = headless_app();
+        app.playlist_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        assert!(app.apply_play_modes("spotify:playlist:p", None, true));
+        assert_eq!(app.repeat_wanted, RepeatMode::Context);
+        assert!(app.play_with.shuffle.is_none());
+        app.backend.shutdown();
+    }
+
+    /// With a remote device selected but no snapshot to read the repeat
+    /// back from, a Shuffle Play files the repeat it resolved, not the old one.
+    #[test]
+    fn shuffle_play_files_the_resolved_repeat_without_a_remote_snapshot() {
+        let mut app = headless_app();
+        app.remote = None;
+        app.local_ready = false;
+        app.selected_device = Some("remote-device".into());
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        assert!(matches!(app.target(), Target::Remote(Some(_))));
+        assert_eq!(app.current_repeat(), RepeatMode::Off);
+        assert!(app.apply_play_modes("spotify:album:a", None, true));
+        app.file_play_modes(ContextKind::Album);
+        assert_eq!(
+            app.album_modes.as_ref().map(|modes| modes.repeat.as_str()),
+            Some("context")
+        );
+        app.backend.shutdown();
+    }
+
+    /// The repeat a play resolved is not kept for a later Repeat Off.
+    #[test]
+    fn a_resolved_repeat_does_not_outlive_its_play() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        app.play_request(PlayRequest::context("spotify:album:a"), false);
+        assert!(app.applied_repeat.is_none());
+        app.backend.shutdown();
+    }
+
+    /// A sorted view plays as plain songs, yet still files the repeat its
+    /// context resolved, with a remote device and no snapshot.
+    #[test]
+    fn a_sorted_view_play_files_the_resolved_repeat_without_a_remote_snapshot() {
+        let mut app = headless_app();
+        app.remote = None;
+        app.local_ready = false;
+        app.selected_device = Some("remote-device".into());
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        app.page_shuffle = Some(("spotify:album:a".into(), false));
+        let uris: Arc<[String]> = vec!["spotify:track:t0".to_string()].into();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::View {
+                    context_uri: "spotify:album:a".into(),
+                    uris,
+                    editable_playlist: None,
+                },
+                uri: String::new(),
+                index: 0,
+            },
+            &egui::Context::default(),
+        );
+        assert_eq!(
+            app.album_modes.as_ref().map(|modes| modes.repeat.as_str()),
+            Some("context")
+        );
+        app.backend.shutdown();
+    }
+
+    /// An album that was last played unshuffled starts at its first song,
+    /// whatever shuffle the playing playlist had.
+    #[test]
+    fn a_header_play_follows_the_albums_saved_shuffle() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.shuffle_wanted = true;
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "off".into(),
+        });
+        let ctx = egui::Context::default();
+        let uris: Arc<[String]> = (0..40)
+            .map(|n| format!("spotify:track:t{n}"))
+            .collect::<Vec<_>>()
+            .into();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::View {
+                    context_uri: "spotify:album:a".into(),
+                    uris,
+                    editable_playlist: None,
+                },
+                uri: String::new(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(!app.shuffle_wanted);
+        assert_eq!(app.queued_play.as_ref().unwrap().offset_position, Some(0));
         app.backend.shutdown();
     }
 
