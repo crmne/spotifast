@@ -10625,6 +10625,8 @@ impl App {
         if chosen && let Some(kind) = context.as_deref().and_then(ContextKind::of) {
             self.file_play_modes(kind);
         }
+        // The resolved repeat belongs to this play alone.
+        self.applied_repeat = None;
     }
 
     /// The shuffle chosen on a page, if this play is that page's. Any play
@@ -34491,6 +34493,20 @@ mod tests {
             app.album_modes.as_ref().map(|modes| modes.repeat.as_str()),
             Some("context")
         );
+        app.backend.shutdown();
+    }
+
+    /// The repeat a play resolved is not kept for a later Repeat Off.
+    #[test]
+    fn a_resolved_repeat_does_not_outlive_its_play() {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        app.play_request(PlayRequest::context("spotify:album:a"), false);
+        assert!(app.applied_repeat.is_none());
         app.backend.shutdown();
     }
 
