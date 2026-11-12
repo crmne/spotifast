@@ -799,6 +799,9 @@ pub struct App {
     /// Shuffle and repeat saved modes change, which a remote play carries
     /// in its own ordered request: apart from it they race it.
     play_with: PlayWith,
+    /// The repeat the last play resolved from the saved modes, so it is filed
+    /// even when a remote device gave no snapshot to read it back from.
+    applied_repeat: Option<RepeatMode>,
     /// Last local shuffle change, used to ignore its echo from the engine.
     shuffle_set_at: Option<Instant>,
     /// When tracks recently came up unavailable, to spot a key-service
@@ -1482,6 +1485,7 @@ impl App {
             modes_chosen: false,
             page_shuffle: None,
             play_with: PlayWith::default(),
+            applied_repeat: None,
             shuffle_set_at: None,
             unavailable_at: Vec::new(),
             last_unavailable_reconnect: None,
@@ -10657,6 +10661,7 @@ impl App {
         // Without a device nothing started, so the choice waits for a play
         // that does.
         if self.queue_start_pending.is_none() {
+            self.applied_repeat = None;
             return;
         }
         self.modes_chosen = false;
@@ -10687,6 +10692,7 @@ impl App {
             return false;
         }
         self.play_with = PlayWith::default();
+        self.applied_repeat = None;
         let modes = ContextKind::of(context).and_then(|kind| self.modes_for(kind));
         let folder = self.folder_shuffle_for(context);
         let Some(saved) = folder.or(modes.as_ref().map(|modes| modes.shuffle)) else {
@@ -10700,6 +10706,7 @@ impl App {
                 RepeatMode::Track => RepeatMode::Context,
                 repeat => repeat,
             };
+            self.applied_repeat = Some(repeat);
             // Soloist takes back its own value when a play starts, so it is
             // told again after the play whatever is believed.
             if repeat != self.current_repeat() || (with_play && self.targets_own_soloist()) {
@@ -10836,9 +10843,13 @@ impl App {
     }
 
     fn file_play_modes(&mut self, kind: ContextKind) {
+        let repeat = self
+            .applied_repeat
+            .take()
+            .unwrap_or_else(|| self.current_repeat());
         let modes = PlayModes {
             shuffle: self.shuffle_wanted,
-            repeat: self.current_repeat().api_name().into(),
+            repeat: repeat.api_name().into(),
         };
         match kind {
             ContextKind::Playlist => self.playlist_modes = Some(modes),
@@ -13060,6 +13071,7 @@ impl App {
                     {
                         self.file_play_modes(kind);
                     }
+                    self.applied_repeat = None;
                     self.played_row = played;
                     self.note_recent_context(&context_uri);
                     self.assumed_context = Some(AssumedContext {
@@ -34720,6 +34732,29 @@ mod tests {
         assert!(app.apply_play_modes("spotify:playlist:p", None, true));
         assert_eq!(app.repeat_wanted, RepeatMode::Context);
         assert!(app.play_with.shuffle.is_none());
+        app.backend.shutdown();
+    }
+
+    /// With a remote device selected but no snapshot to read the repeat
+    /// back from, a Shuffle Play files the repeat it resolved, not the old one.
+    #[test]
+    fn shuffle_play_files_the_resolved_repeat_without_a_remote_snapshot() {
+        let mut app = headless_app();
+        app.remote = None;
+        app.local_ready = false;
+        app.selected_device = Some("remote-device".into());
+        app.album_modes = Some(PlayModes {
+            shuffle: false,
+            repeat: "context".into(),
+        });
+        assert!(matches!(app.target(), Target::Remote(Some(_))));
+        assert_eq!(app.current_repeat(), RepeatMode::Off);
+        assert!(app.apply_play_modes("spotify:album:a", None, true));
+        app.file_play_modes(ContextKind::Album);
+        assert_eq!(
+            app.album_modes.as_ref().map(|modes| modes.repeat.as_str()),
+            Some("context")
+        );
         app.backend.shutdown();
     }
 
