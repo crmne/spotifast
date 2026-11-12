@@ -180,6 +180,14 @@ A page's Shuffle choice is used up by the next play of any context, and
 only that page's own Play keeps it. Repeat One is not carried to a new
 playlist or album: choosing another song ends it.
 
+To choose Shuffle for a whole folder in the sidebar, right-click it and
+choose **Settings**. **Default** keeps the playlist's own behaviour, **Shuffle**
+and **No shuffle** apply to every playlist in the folder, and **Apply to all
+subfolders** gives the folders inside it the same choice. A folder inside
+another can choose differently, and the nearest folder's choice wins. A
+folder's choice takes over from the playlist's remembered Shuffle, while
+pressing Shuffle on a playlist's page still applies to that Play.
+
 When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.
