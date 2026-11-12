@@ -10938,6 +10938,7 @@ impl App {
                 // Nothing plays, so the context asked for must not pass as
                 // playing: a mode chosen now is for the next play.
                 self.assumed_context = None;
+                self.intent_track = None;
                 self.toast(gettext(
                     self.locale,
                     "Choose a device, or enable playback on this computer",
@@ -33100,8 +33101,10 @@ mod tests {
             repeat: "off".into(),
         };
         app.playlist_modes = Some(saved.clone());
+        app.expect_track("spotify:track:t".into(), 0);
         app.play_request(PlayRequest::context("spotify:playlist:p"), false);
         assert!(app.assumed_context.is_none());
+        assert!(app.intent_track.is_none());
         app.apply(Action::SetShuffle(true), &egui::Context::default());
         assert!(app.modes_chosen);
         assert_eq!(app.playlist_modes, Some(saved));
