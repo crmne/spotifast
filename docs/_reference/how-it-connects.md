@@ -456,8 +456,10 @@ eight most recently saved shows, all at once within the Web API session's
 concurrency limit, through the normal personal/shared app routing. Spotify includes each episode's resume point in
 those answers. Play uses that position so an in-progress episode continues
 rather than starting over. Shows known to be audiobooks are not asked for. These requests
-run when Home refreshes: on opening Home, at most once every ten minutes, and
-on a manual refresh. A rate limit, exhausted quota or expired sign-in stops the
+can run when Home refreshes (on opening Home, at most once every ten minutes),
+but episodes read for the same saved shows are reused for an hour; a manual
+refresh always reads them again, and so does the next Home refresh after a read
+that failed for any show or a change to the saved shows. A rate limit, exhausted quota or expired sign-in stops the
 remaining shows for that refresh; the shelf keeps what it showed before.
 
 ## Album queueing
