@@ -207,6 +207,14 @@ pub enum ApiRequest {
         track_uri: String,
         hidden: bool,
     },
+    /// Choose one of a Spotify mix's filter chips by its signal, or clear
+    /// the choice with the reset signal.
+    PlaylistChip {
+        id: String,
+        signal: String,
+        /// The snapshot the page shows, which saves reading the list first.
+        snapshot: Option<String>,
+    },
     MyPlaylists {
         offset: u32,
         generation: u64,
@@ -465,6 +473,10 @@ pub enum ApiResponse {
     HiddenSongs {
         generation: u64,
         result: ApiResult<Vec<(String, String)>>,
+    },
+    PlaylistChipSent {
+        id: String,
+        result: ApiResult<()>,
     },
     HiddenInPlaylistSet {
         playlist_uri: String,
@@ -1198,6 +1210,10 @@ pub struct Backend {
     #[cfg(test)]
     playlist_item_requests: std::sync::Mutex<Vec<(String, u32, u64)>>,
     #[cfg(test)]
+    playlist_header_requests: std::sync::Mutex<Vec<(String, u64)>>,
+    #[cfg(test)]
+    playlist_chip_requests: std::sync::Mutex<Vec<(String, String)>>,
+    #[cfg(test)]
     playlist_sample_requests: std::sync::Mutex<Vec<(String, u32, u64)>>,
     #[cfg(test)]
     playlist_add_requests: std::sync::Mutex<Vec<ApiRequest>>,
@@ -1301,6 +1317,10 @@ impl Backend {
             #[cfg(test)]
             playlist_item_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
+            playlist_header_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            playlist_chip_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
             playlist_sample_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             playlist_add_requests: std::sync::Mutex::new(Vec::new()),
@@ -1341,6 +1361,11 @@ impl Backend {
     #[cfg_attr(not(any(test, feature = "demo")), allow(dead_code))]
     pub fn set_offline(&mut self, offline: bool) {
         self.offline = offline;
+    }
+
+    /// Whether requests go nowhere, as in demo mode.
+    pub fn is_offline(&self) -> bool {
+        self.offline
     }
 
     pub fn send(&self, command: Command) {
@@ -1465,6 +1490,20 @@ impl Backend {
                 .push(request.clone());
         }
         #[cfg(test)]
+        if let ApiRequest::PlaylistChip { id, signal, .. } = &request {
+            self.playlist_chip_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push((id.clone(), signal.clone()));
+        }
+        #[cfg(test)]
+        if let ApiRequest::Playlist { id, generation } = &request {
+            self.playlist_header_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push((id.clone(), *generation));
+        }
+        #[cfg(test)]
         if let ApiRequest::PlaylistItems {
             id,
             offset,
@@ -1565,6 +1604,26 @@ impl Backend {
         std::mem::take(
             &mut *self
                 .top_tracks_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    #[cfg(test)]
+    pub fn take_playlist_chip_requests(&self) -> Vec<(String, String)> {
+        std::mem::take(
+            &mut *self
+                .playlist_chip_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    #[cfg(test)]
+    pub fn take_playlist_header_requests(&self) -> Vec<(String, u64)> {
+        std::mem::take(
+            &mut *self
+                .playlist_header_requests
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
@@ -5121,9 +5180,9 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         }
         ApiRequest::NewReleases { .. } => Operation::UserData,
         ApiRequest::NewReleaseTracks { .. } => Operation::Catalog,
-        ApiRequest::HiddenSongs { .. } | ApiRequest::SetHiddenInPlaylist { .. } => {
-            Operation::UserData
-        }
+        ApiRequest::HiddenSongs { .. }
+        | ApiRequest::SetHiddenInPlaylist { .. }
+        | ApiRequest::PlaylistChip { .. } => Operation::UserData,
         ApiRequest::SearchCatalogue { .. } => Operation::CatalogSearch,
         ApiRequest::Search { .. } => Operation::PlaylistSearch,
         ApiRequest::PlaySearch { kind, .. } if kind == "playlist" => Operation::PlaylistSearch,
@@ -5576,6 +5635,26 @@ async fn handle(
             Vec::new(),
         );
     }
+    if let ApiRequest::PlaylistChip {
+        id,
+        signal,
+        snapshot,
+    } = request
+    {
+        let result = match playback_session(api, engine) {
+            Ok(session) => {
+                let sent = session_reads::send_chip(session, &id, &signal, snapshot.as_deref());
+                match tokio::time::timeout(SESSION_READ_TIMEOUT, sent).await {
+                    Ok(sent) => sent.map_err(|error| ApiError::Network(format!("{error:#}"))),
+                    Err(_) => Err(ApiError::Network(
+                        "Spotify did not answer the filter in time".into(),
+                    )),
+                }
+            }
+            Err(error) => Err(error),
+        };
+        return (ApiResponse::PlaylistChipSent { id, result }, Vec::new());
+    }
     let operation = operation_for(api, &request);
     // A session whose long-lived connection has dropped still answers over
     // its HTTP client, so the engine's presence is the only liveness test;
@@ -5605,6 +5684,17 @@ async fn handle(
     {
         log::debug!("Spotify route operation={operation:?} source=connect");
         return (response, Vec::new());
+    }
+    if matches!(request, ApiRequest::Playlist { .. }) {
+        log::debug!(
+            "playlist header over Web API: session_serves={} engine={} same_account={}",
+            api.session_serves(operation),
+            engine.is_some(),
+            engine.is_some_and(|engine| same_account(
+                &engine.session().username(),
+                api.account().as_ref()
+            )),
+        );
     }
     let selected = api.client_for(operation).await;
     let _background_permit = if request.background() {
@@ -5686,7 +5776,8 @@ async fn handle(
         | ApiRequest::NewReleases { .. }
         | ApiRequest::NewReleaseTracks { .. }
         | ApiRequest::HiddenSongs { .. }
-        | ApiRequest::SetHiddenInPlaylist { .. } => unreachable!("handled before Web API routing"),
+        | ApiRequest::SetHiddenInPlaylist { .. }
+        | ApiRequest::PlaylistChip { .. } => unreachable!("handled before Web API routing"),
         ApiRequest::MyPlaylists { offset, generation } => ApiResponse::MyPlaylists {
             offset,
             generation,

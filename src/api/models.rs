@@ -529,6 +529,24 @@ pub struct Playlist {
     pub followers: Option<Followers>,
     #[serde(default)]
     pub external_urls: ExternalUrls,
+    /// The filter chips Spotify offers on its own mixes, such as Release
+    /// Radar's "Discover new artists" or a genre. Only a header read over
+    /// the streaming session carries them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chips: Vec<PlaylistChip>,
+    /// Whether this header was read over the streaming session, the only
+    /// read that carries the chips: a session header without any has none.
+    #[serde(skip)]
+    pub chips_read: bool,
+}
+
+/// One of Spotify's filter chips on a playlist. Choosing it sends its
+/// signal; Spotify then rebuilds the playlist around it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct PlaylistChip {
+    pub signal: String,
+    pub label: String,
+    pub selected: bool,
 }
 
 impl Playlist {

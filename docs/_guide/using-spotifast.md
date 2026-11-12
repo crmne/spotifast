@@ -43,6 +43,17 @@ be rate-limited. If a refresh fails, cards already on screen remain available;
 **Retry** is shown when the first load fails. Spotify DJ is left out because
 Spotifast cannot play its special context.
 
+**Made for you** in the sidebar, under Home and Search, opens a page of
+its own with every Made for you playlist and Your top mixes, so Discover
+Weekly, Release Radar and the Daily Mixes are one click away from anywhere.
+Hiding Made for you from Home also hides this entry.
+
+Release Radar, Discover Weekly and Spotify's other mixes can show filter
+chips under the play button, as Spotify's apps do: **Discover new artists**,
+**Editors' picks**, **Video** or a genre. Choosing a chip has Spotify rebuild
+the playlist around it; choosing it again clears it. Spotify keeps the
+choice, so it carries over to its other apps. Chips need local playback.
+
 **Your top mixes** follows Made for you with the artist, genre and decade
 mixes Spotify builds from your listening, in Spotify's order. It comes from
 the same personalized read and has no fallback: the shelf appears once

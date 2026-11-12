@@ -238,8 +238,34 @@ fn playlist(index: usize) -> Playlist {
                 12_345 + index as u64
             },
         }),
+        chips: if name == "Release Radar" {
+            release_radar_chips()
+        } else {
+            Vec::new()
+        },
+        chips_read: true,
         ..Playlist::default()
     }
+}
+
+/// The filter chips Spotify offers on Release Radar, the first one chosen.
+fn release_radar_chips() -> Vec<crate::api::models::PlaylistChip> {
+    [
+        ("new_artists_for_me", "Discover new artists"),
+        ("editors_pick", "Editors' picks"),
+        ("video_first_with_icon", "Video"),
+        ("german_hip_hop", "German Hip Hop"),
+        ("new_wave", "New Wave"),
+        ("highlife", "Highlife"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (key, label))| crate::api::models::PlaylistChip {
+        signal: format!("session_control_display$demo${key}"),
+        label: label.into(),
+        selected: index == 0,
+    })
+    .collect()
 }
 
 fn top_mix(index: usize) -> Playlist {
@@ -433,6 +459,29 @@ pub fn populate(app: &mut App) {
         ),
     );
     app.playlist_pages.insert("pl0".into(), discover_page);
+    // Release Radar with Spotify's filter chips, the first one chosen.
+    let mut radar_page = PlaylistPage {
+        playlist: Loadable::Loaded(playlists[4].clone()),
+        ..PlaylistPage::default()
+    };
+    radar_page.items.absorb(
+        0,
+        page(
+            tracks
+                .iter()
+                .skip(10)
+                .take(30)
+                .map(|track| PlaylistItem {
+                    added_at: Some("1970-01-01T00:00:00Z".into()),
+                    is_local: false,
+                    added_by: None,
+                    item: Some(PlayableItem::Track(track.clone())),
+                    track: None,
+                })
+                .collect(),
+        ),
+    );
+    app.playlist_pages.insert("pl4".into(), radar_page);
     // Two songs hidden in Discover Weekly, greyed out and skipped.
     app.hidden_songs.insert(
         playlists[0].uri.clone(),
@@ -2891,7 +2940,21 @@ mod tests {
             assert!(app.manual_queue.is_empty());
             assert_eq!(app.queue.get().unwrap().queue, rows[2..]);
             let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let recent = accessible_node(&tree, &gettext(locale, "Recent"), Role::Button);
+            // Some languages name the sidebar's Recents sort the same way:
+            // the queue panel's tab is the one on the right.
+            let recent = tree
+                .nodes
+                .iter()
+                .filter(|(_, node)| {
+                    node.label() == Some(gettext(locale, "Recent").as_ref())
+                        && node.role() == Role::Button
+                })
+                .max_by(|(_, a), (_, b)| {
+                    let x = |node: &egui::accesskit::Node| node.bounds().map_or(0.0, |r| r.x0);
+                    x(a).total_cmp(&x(b))
+                })
+                .expect("Recent tab")
+                .0;
             accessible_frame(
                 &ctx,
                 &mut app,
@@ -3627,10 +3690,36 @@ mod tests {
     }
 
     #[test]
+    fn made_for_you_sidebar_entry_opens_its_page_and_follows_the_home_switch() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("made-for-you-entry");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let entry = accessible_node(&tree, "Made for you", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(entry, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.page(), &Page::MadeForYou);
+        app.settings.home.made_for_you.visible = false;
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Made for you") && node.role() == Role::Button
+            }),
+            "hiding Made for you from Home hides the sidebar entry"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn library_grid_highlights_a_song_drop_target_during_drag() {
         use egui::accesskit::Role;
         let (ctx, mut app) = accessible_app("library-grid-drop-highlight");
         app.settings.sidebar_grid = true;
+        // The first frame lays the sidebar out; read the card where it settles.
+        accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         let liked = tree
             .nodes

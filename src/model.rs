@@ -112,6 +112,9 @@ pub enum Page {
     TopSongs,
     /// The songs of the latest releases from followed artists.
     NewReleases,
+    /// Every playlist Spotify made for the account: Made for you and Your
+    /// top mixes, on a page of their own.
+    MadeForYou,
     Search,
     LikedSongs,
     Albums,
@@ -135,6 +138,7 @@ impl Page {
             Page::Home => "home".into(),
             Page::TopSongs => "top-songs".into(),
             Page::NewReleases => "new-releases".into(),
+            Page::MadeForYou => "made-for-you".into(),
             Page::Search => "search".into(),
             Page::LikedSongs => "liked".into(),
             Page::Albums => "albums".into(),
@@ -156,6 +160,7 @@ impl Page {
             "home" => Page::Home,
             "top-songs" => Page::TopSongs,
             "new-releases" => Page::NewReleases,
+            "made-for-you" => Page::MadeForYou,
             "search" => Page::Search,
             "liked" => Page::LikedSongs,
             "albums" => Page::Albums,
@@ -840,6 +845,16 @@ pub struct SearchState {
 #[derive(Default)]
 pub struct PlaylistPage {
     pub generation: u64,
+    /// The generation whose header was asked for again over the playback
+    /// session, for the filter chips only it carries. Once per generation,
+    /// so a mix without chips is not asked about forever.
+    pub chips_asked: Option<u64>,
+    /// A chip choice Spotify has not answered yet. Choices go one at a time,
+    /// so they reach Spotify in the order they were made.
+    pub chip_sending: bool,
+    /// The latest choice made while another was on its way, sent once that
+    /// one is answered; a newer choice replaces it.
+    pub chip_queued: Option<String>,
     /// Generation that produced the rows, which may lag during refresh.
     pub items_generation: u64,
     pub playlist: Loadable<Playlist>,
@@ -1299,6 +1314,12 @@ pub enum Action {
     SaveQueueAsPlaylist,
     /// Save a radio page's songs to a new playlist, by the seed's URI.
     SaveRadio(String),
+    /// Choose a filter chip on one of Spotify's mixes, by playlist id and
+    /// the chip's signal; choosing the chosen chip again clears it.
+    ChoosePlaylistChip {
+        id: String,
+        signal: String,
+    },
     /// Hide a song in one of Spotify's playlists, or show it again (#779).
     SetHiddenInPlaylist {
         playlist_uri: String,
