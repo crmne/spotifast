@@ -335,9 +335,10 @@ fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
     if playlists.is_empty() && !loading && failure.is_none() {
         return;
     }
-    widgets::shelf(
+    widgets::carousel_shelf(
         ui,
         &palette,
+        app.locale,
         "made-for-you",
         &gettext(app.locale, "Made for you"),
         |ui| {
@@ -364,9 +365,10 @@ fn top_mixes(app: &mut App, ui: &mut egui::Ui) {
     else {
         return;
     };
-    widgets::shelf(
+    widgets::carousel_shelf(
         ui,
         &palette,
+        app.locale,
         "top-mixes",
         &gettext(app.locale, "Your top mixes"),
         |ui| playlist_cards(app, ui, "home-top_mixes-menu", &playlists),
@@ -388,6 +390,7 @@ fn new_releases(app: &mut App, ui: &mut egui::Ui) {
     let open = widgets::linked_shelf(
         ui,
         &palette,
+        app.locale,
         "new-releases",
         &gettext(app.locale, "New releases"),
         |ui| {
@@ -510,9 +513,10 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
     let history = match app.home.recently_played.clone() {
         Loadable::Loaded(history) => history,
         Loadable::Loading | Loadable::NotLoaded => {
-            widgets::shelf(
+            widgets::carousel_shelf(
                 ui,
                 &palette,
+                app.locale,
                 "recent",
                 &gettext(app.locale, "Recently played"),
                 |ui| widgets::skeleton_cards(ui, &palette, app.locale, 7, false),
@@ -520,9 +524,10 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
             return;
         }
         Loadable::Failed(message) => {
-            widgets::shelf(
+            widgets::carousel_shelf(
                 ui,
                 &palette,
+                app.locale,
                 "recent",
                 &gettext(app.locale, "Recently played"),
                 |ui| {
@@ -547,9 +552,10 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
     if tracks.is_empty() {
         return;
     }
-    widgets::shelf(
+    widgets::carousel_shelf(
         ui,
         &palette,
+        app.locale,
         "recent",
         &gettext(app.locale, "Recently played"),
         |ui| {
@@ -684,9 +690,10 @@ fn podcasts(app: &mut App, ui: &mut egui::Ui) {
     if episodes.is_empty() {
         return;
     }
-    widgets::shelf(
+    widgets::carousel_shelf(
         ui,
         &palette,
+        app.locale,
         "podcasts",
         &gettext(app.locale, "Your podcasts"),
         |ui| {
@@ -747,9 +754,10 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
     let artists = match app.home.top_artists.clone() {
         Loadable::Loaded(artists) => artists,
         Loadable::Loading | Loadable::NotLoaded => {
-            widgets::shelf(
+            widgets::carousel_shelf(
                 ui,
                 &palette,
+                app.locale,
                 "top-artists",
                 &gettext(app.locale, "Your top artists"),
                 |ui| widgets::skeleton_cards(ui, &palette, app.locale, 7, true),
@@ -757,9 +765,10 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
             return;
         }
         Loadable::Failed(message) => {
-            widgets::shelf(
+            widgets::carousel_shelf(
                 ui,
                 &palette,
+                app.locale,
                 "top-artists",
                 &gettext(app.locale, "Your top artists"),
                 |ui| {
@@ -772,9 +781,10 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
     if artists.is_empty() {
         return;
     }
-    widgets::shelf(
+    widgets::carousel_shelf(
         ui,
         &palette,
+        app.locale,
         "top-artists",
         &gettext(app.locale, "Your top artists"),
         |ui| {

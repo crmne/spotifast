@@ -3020,19 +3020,133 @@ pub fn shelf(
     shelf_cards(ui, id, add_contents);
 }
 
+/// A horizontal shelf of cards with a title and overflow navigation.
+pub fn carousel_shelf(
+    ui: &mut Ui,
+    palette: &Palette,
+    locale: Locale,
+    id: &str,
+    title: &str,
+    add_contents: impl FnOnce(&mut Ui),
+) {
+    ui.add_space(8.0);
+    theme::section_title(ui, palette, title);
+    carousel_cards(ui, palette, locale, id, title, add_contents);
+}
+
 /// A shelf whose title opens a page, as Your top songs does; true when the
 /// title was clicked.
 pub fn linked_shelf(
     ui: &mut Ui,
     palette: &Palette,
+    locale: Locale,
     id: &str,
     title: &str,
     add_contents: impl FnOnce(&mut Ui),
 ) -> bool {
     ui.add_space(8.0);
     let clicked = theme::link(ui, title, theme::bold(17.0), palette.text).clicked();
-    shelf_cards(ui, id, add_contents);
+    carousel_cards(ui, palette, locale, id, title, add_contents);
     clicked
+}
+
+fn carousel_cards(
+    ui: &mut Ui,
+    palette: &Palette,
+    locale: Locale,
+    id: &str,
+    title: &str,
+    add_contents: impl FnOnce(&mut Ui),
+) {
+    ui.add_space(4.0);
+    let step_id = ui.make_persistent_id(("shelf-step", id));
+    let delta = ui.data_mut(|data| data.remove_temp::<f32>(step_id));
+    let scroll = ui
+        .scope(|ui| {
+            // The page disables egui's fades for its tinted header. Shelves
+            // restore them locally, using the page background in either theme.
+            ui.spacing_mut().scroll.fade.strength = 1.0;
+            ui.spacing_mut().scroll.fade.size = 64.0;
+            crate::autoscroll::show(
+                ui,
+                egui::ScrollArea::horizontal()
+                    .id_salt(id)
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden),
+                egui::Vec2b::new(true, false),
+                |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
+                        add_contents(ui);
+                    });
+                    if let Some(delta) = delta {
+                        ui.scroll_with_delta(vec2(delta, 0.0));
+                    }
+                },
+            )
+        })
+        .inner;
+    // ScrollAreaOutput keeps the pre-layout height, before the horizontal
+    // area shrinks to its cards. Place overlays within the actual row.
+    let viewport = Rect::from_min_size(
+        scroll.inner_rect.min,
+        vec2(scroll.inner_rect.width(), scroll.content_size.y),
+    );
+    let max_offset = (scroll.content_size.x - viewport.width()).max(0.0);
+    let stride = CARD_WIDTH + CARD_GAP / 2.0;
+    let step = ((viewport.width() - 48.0) / stride).floor().max(1.0) * stride;
+    for (left, available, icon, label, delta) in [
+        (
+            true,
+            scroll.state.offset.x,
+            Icon::ChevronLeft,
+            "Previous",
+            step,
+        ),
+        (
+            false,
+            max_offset - scroll.state.offset.x,
+            Icon::ChevronRight,
+            "Next",
+            -step,
+        ),
+    ] {
+        if available <= 0.5 {
+            ui.skip_ahead_auto_ids(1);
+            continue;
+        }
+        let center = pos2(
+            if left {
+                viewport.left() + 24.0
+            } else {
+                viewport.right() - 24.0
+            },
+            viewport.center().y,
+        );
+        let rect = Rect::from_center_size(center, Vec2::splat(32.0));
+        let mut overlay = ui.new_child(
+            UiBuilder::new()
+                .id(ui.make_persistent_id(("shelf-arrow", id, left)))
+                .max_rect(rect)
+                .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+        );
+        overlay.set_clip_rect(ui.clip_rect().intersect(viewport));
+        let response = theme::circle_button(
+            &mut overlay,
+            icon,
+            32.0,
+            palette.surface,
+            palette.surface_hover,
+            palette.text,
+            &format!("{title}: {}", gettext(locale, label)),
+        );
+        if response.clicked() {
+            // Apply inside this shelf's ScrollArea on the next frame, so
+            // egui animates and clamps it without scrolling the whole page.
+            ui.data_mut(|data| data.insert_temp(step_id, delta));
+            ui.ctx().request_repaint();
+        }
+    }
+    ui.add_space(12.0);
 }
 
 fn shelf_cards(ui: &mut Ui, id: &str, add_contents: impl FnOnce(&mut Ui)) {
@@ -3979,6 +4093,275 @@ mod playing_cover_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Navigation belongs to the overflowing shelf, never its cards or the page.
+    #[test]
+    fn shelf_arrows_scroll_without_activating_cards_and_stop_at_the_ends() {
+        for palette in [Palette::dark(), Palette::light()] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            theme::install(&ctx);
+            let mut time = 0.0;
+            let mut activated = 0;
+            let mut initial_page_offset = Some(80.0);
+            let mut frame = |width: f32, events| {
+                time += 0.1;
+                let mut first = Rect::NOTHING;
+                let mut other = Rect::NOTHING;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(width, 600.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let mut page = egui::ScrollArea::vertical()
+                            .id_salt("shelf-test-page")
+                            .max_height(500.0);
+                        if let Some(offset) = initial_page_offset.take() {
+                            page = page.vertical_scroll_offset(offset);
+                        }
+                        let page = page.show(ui, |ui| {
+                            ui.add_space(100.0);
+                            carousel_shelf(ui, &palette, Locale::English, "one", "One", |ui| {
+                                for index in 0..8 {
+                                    let response = ui.add_sized(
+                                        vec2(CARD_WIDTH, 140.0),
+                                        egui::Button::new(format!("Card {index}")),
+                                    );
+                                    if index == 0 {
+                                        first = response.rect;
+                                    }
+                                    activated += usize::from(response.clicked());
+                                }
+                            });
+                            carousel_shelf(ui, &palette, Locale::English, "two", "Two", |ui| {
+                                for index in 0..8 {
+                                    let response = ui.add_sized(
+                                        vec2(CARD_WIDTH, 140.0),
+                                        egui::Button::new(format!("Other {index}")),
+                                    );
+                                    if index == 0 {
+                                        other = response.rect;
+                                    }
+                                }
+                            });
+                            ui.add_space(1000.0);
+                        });
+                        assert!(page.content_size.y > page.inner_rect.height());
+                        assert_eq!(
+                            page.state.offset.y, 80.0,
+                            "shelf navigation must not scroll the containing page"
+                        );
+                    },
+                );
+                output.textures_delta.clear();
+                (
+                    output.platform_output.accesskit_update.unwrap(),
+                    first,
+                    other,
+                )
+            };
+            let button = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+                tree.nodes
+                    .iter()
+                    .find(|(_, node)| {
+                        node.role() == egui::accesskit::Role::Button && node.label() == Some(label)
+                    })
+                    .map(|(id, node)| (*id, node.bounds().unwrap()))
+            };
+            frame(520.0, vec![]);
+            let (tree, start, other_start) = frame(520.0, vec![]);
+            assert!(
+                other_start.top() > start.bottom(),
+                "shelves must not overlap"
+            );
+            assert!(button(&tree, "One: Previous").is_none());
+            let (next_id, bounds) = button(&tree, "One: Next").unwrap();
+            let point = pos2(
+                (bounds.x0 + bounds.x1) as f32 / 2.0,
+                (bounds.y0 + bounds.y1) as f32 / 2.0,
+            );
+            assert!((point.y - start.center().y).abs() < 1.0);
+            frame(
+                520.0,
+                vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            frame(
+                520.0,
+                vec![egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            for _ in 0..8 {
+                frame(520.0, vec![]);
+            }
+            let (mut tree, moved, other) = frame(520.0, vec![]);
+            assert!(moved.left() < start.left());
+            assert_eq!(
+                moved.top(),
+                start.top(),
+                "the page must not move vertically"
+            );
+            assert_eq!(
+                other, other_start,
+                "each shelf keeps its own scroll position"
+            );
+            assert!(button(&tree, "One: Previous").is_some());
+            assert_eq!(button(&tree, "One: Next").unwrap().0, next_id);
+            for _ in 0..8 {
+                let Some((target_node, _)) = button(&tree, "One: Next") else {
+                    break;
+                };
+                frame(
+                    520.0,
+                    vec![egui::Event::AccessKitActionRequest(
+                        egui::accesskit::ActionRequest {
+                            target_tree: egui::accesskit::TreeId::ROOT,
+                            target_node,
+                            action: egui::accesskit::Action::Click,
+                            data: None,
+                        },
+                    )],
+                );
+                for _ in 0..8 {
+                    (tree, _, _) = frame(520.0, vec![]);
+                }
+            }
+            assert!(
+                button(&tree, "One: Next").is_none(),
+                "no arrow past the last card"
+            );
+            assert!(button(&tree, "One: Previous").is_some());
+            for _ in 0..8 {
+                let Some((target_node, _)) = button(&tree, "One: Previous") else {
+                    break;
+                };
+                frame(
+                    520.0,
+                    vec![egui::Event::AccessKitActionRequest(
+                        egui::accesskit::ActionRequest {
+                            target_tree: egui::accesskit::TreeId::ROOT,
+                            target_node,
+                            action: egui::accesskit::Action::Click,
+                            data: None,
+                        },
+                    )],
+                );
+                for _ in 0..8 {
+                    (tree, _, _) = frame(520.0, vec![]);
+                }
+            }
+            assert!(
+                button(&tree, "One: Previous").is_none(),
+                "no arrow before the first card"
+            );
+            let (tree, _, _) = frame(1800.0, vec![]);
+            assert!(button(&tree, "One: Previous").is_none());
+            assert!(
+                button(&tree, "One: Next").is_none(),
+                "fitting shelves need no navigation"
+            );
+            assert_eq!(
+                activated, 0,
+                "an overlaid arrow must intercept the card's click"
+            );
+        }
+    }
+
+    #[test]
+    fn shelf_arrows_keep_lower_card_ids_and_focus_when_visibility_changes() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let palette = Palette::dark();
+        let mut time = 0.0;
+        let mut frame = |events| {
+            time += 0.1;
+            let mut upper = Rect::NOTHING;
+            let mut lower_ids = Vec::new();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(520.0, 500.0))),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    carousel_shelf(ui, &palette, Locale::English, "upper", "Upper", |ui| {
+                        for index in 0..8 {
+                            let response = ui.add_sized(
+                                vec2(CARD_WIDTH, 140.0),
+                                egui::Button::new(format!("Upper {index}")),
+                            );
+                            if index == 0 {
+                                upper = response.rect;
+                            }
+                        }
+                    });
+                    carousel_shelf(ui, &palette, Locale::English, "lower", "Lower", |ui| {
+                        for index in 0..8 {
+                            lower_ids.push(
+                                ui.add_sized(
+                                    vec2(CARD_WIDTH, 140.0),
+                                    egui::Button::new(format!("Lower {index}")),
+                                )
+                                .id,
+                            );
+                        }
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            (upper, lower_ids)
+        };
+        frame(vec![]);
+        let (start, ids) = frame(vec![]);
+        ctx.memory_mut(|memory| memory.request_focus(ids[0]));
+        frame(vec![]);
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(ids[0]));
+
+        let mut previous_left = start.left();
+        for delta in [-240.0, -10_000.0, 10_000.0] {
+            let events = vec![
+                egui::Event::PointerMoved(start.center()),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, delta),
+                    modifiers: egui::Modifiers::SHIFT,
+                    phase: egui::TouchPhase::Move,
+                },
+            ];
+            let (mut upper, lower_ids) = frame(events);
+            assert_eq!(lower_ids, ids, "other shelves keep their card IDs");
+            for _ in 0..12 {
+                let (rect, lower_ids) = frame(vec![]);
+                upper = rect;
+                assert_eq!(lower_ids, ids, "arrow visibility must not change card IDs");
+                assert_eq!(ctx.memory(|memory| memory.focused()), Some(ids[0]));
+            }
+            if delta < 0.0 {
+                assert!(upper.left() < previous_left, "the upper shelf must scroll");
+            } else {
+                assert_eq!(upper.left(), start.left(), "returned to the first card");
+            }
+            previous_left = upper.left();
+        }
+    }
+
     use crate::app::{App, AppOptions};
     use crate::model::{Action, Page};
     use crate::paths::AppDirs;

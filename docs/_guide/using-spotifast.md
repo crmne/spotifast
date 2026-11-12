@@ -26,6 +26,12 @@ click. macOS retains its existing middle-click behavior.
 
 ## Scrolling shelves
 
+Home's card shelves use circular left and right arrows in place of horizontal
+scrollbars. Faded edges show where more cards are available. Click an arrow to
+scroll through the shelf, or use your mouse wheel or touchpad. Each arrow and
+its fade disappear when that side has no more cards; shelves that fit in the
+window show neither. Keyboard focus still scrolls each card into view.
+
 The tiles at the top of Home show what you played most recently, as
 Spotify's Home does: the playlists, albums, artists and podcasts you played
 from, Liked Songs, and songs you played on their own, newest first. A tile
