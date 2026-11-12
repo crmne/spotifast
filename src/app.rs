@@ -791,6 +791,7 @@ pub struct App {
     /// Shuffle and repeat last chosen while a playlist, or an album, played.
     playlist_modes: Option<PlayModes>,
     album_modes: Option<PlayModes>,
+    pub(crate) folder_shuffle: std::collections::BTreeMap<String, bool>,
     /// Shuffle or repeat was chosen with nothing playing: the next play
     /// keeps that choice, and it becomes its kind's remembered one.
     modes_chosen: bool,
@@ -1477,6 +1478,7 @@ impl App {
             repeat_wanted: RepeatMode::from_api(&session.repeat),
             playlist_modes: session.playlist_modes.clone(),
             album_modes: session.album_modes.clone(),
+            folder_shuffle: session.folder_shuffle.clone(),
             modes_chosen: false,
             page_shuffle: None,
             play_with: PlayWith::default(),
@@ -2313,9 +2315,11 @@ impl App {
         {
             return *shuffle;
         }
-        ContextKind::of(uri)
-            .and_then(|kind| self.modes_for(kind))
-            .map_or(self.shuffle_wanted, |modes| modes.shuffle)
+        self.folder_shuffle_for(uri).unwrap_or_else(|| {
+            ContextKind::of(uri)
+                .and_then(|kind| self.modes_for(kind))
+                .map_or(self.shuffle_wanted, |modes| modes.shuffle)
+        })
     }
 
     /// Current item for menus, using cached track details when available.
@@ -10633,24 +10637,28 @@ impl App {
             return false;
         }
         self.play_with = PlayWith::default();
-        let Some(modes) = ContextKind::of(context).and_then(|kind| self.modes_for(kind)) else {
+        let modes = ContextKind::of(context).and_then(|kind| self.modes_for(kind));
+        let folder = self.folder_shuffle_for(context);
+        let Some(saved) = folder.or(modes.as_ref().map(|modes| modes.shuffle)) else {
             return page_shuffle == Some(true);
         };
-        // Choosing a song by hand ends Repeat One, so it is not restored.
-        let repeat = match RepeatMode::from_api(&modes.repeat) {
-            RepeatMode::Track => RepeatMode::Context,
-            repeat => repeat,
-        };
+        let shuffle = page_shuffle.unwrap_or(saved);
         let with_play = self.remote_play_sends_modes();
-        // Soloist takes back its own value when a play starts, so it is told
-        // again after the play whatever is believed.
-        if repeat != self.current_repeat() || (with_play && self.targets_own_soloist()) {
-            self.apply_repeat(repeat, !with_play);
-            if with_play {
-                self.play_with.repeat = Some(repeat);
+        if let Some(modes) = &modes {
+            // Choosing a song by hand ends Repeat One, so it is not restored.
+            let repeat = match RepeatMode::from_api(&modes.repeat) {
+                RepeatMode::Track => RepeatMode::Context,
+                repeat => repeat,
+            };
+            // Soloist takes back its own value when a play starts, so it is
+            // told again after the play whatever is believed.
+            if repeat != self.current_repeat() || (with_play && self.targets_own_soloist()) {
+                self.apply_repeat(repeat, !with_play);
+                if with_play {
+                    self.play_with.repeat = Some(repeat);
+                }
             }
         }
-        let shuffle = page_shuffle.unwrap_or(modes.shuffle);
         // A remote device's own shuffle can differ from the last one read
         // here, so it is told off whatever is believed.
         if !shuffle && (self.shuffle_wanted || with_play) {
@@ -10670,6 +10678,80 @@ impl App {
             Target::Remote(None) => self.remote_fresh().is_some(),
             Target::Remote(Some(_)) => true,
         }
+    }
+
+    /// The shuffle chosen for the folder a playlist sits in, or for the
+    /// nearest folder around that one that has a choice.
+    fn folder_shuffle_for(&self, context: &str) -> Option<bool> {
+        if self.folder_shuffle.is_empty() || ContextKind::of(context) != Some(ContextKind::Playlist)
+        {
+            return None;
+        }
+        let context = crate::link::canonical_context_uri(context);
+        let mut open: Vec<&str> = Vec::new();
+        for row in &self.rootlist {
+            match row {
+                crate::player::RootlistEntry::FolderStart { id, .. } => open.push(id),
+                crate::player::RootlistEntry::FolderEnd => {
+                    open.pop();
+                }
+                crate::player::RootlistEntry::Playlist(uri)
+                    if crate::link::canonical_context_uri(uri) == context =>
+                {
+                    if let Some(shuffle) = open
+                        .iter()
+                        .rev()
+                        .find_map(|id| self.folder_shuffle.get(*id))
+                    {
+                        return Some(*shuffle);
+                    }
+                }
+                crate::player::RootlistEntry::Playlist(_) => {}
+            }
+        }
+        None
+    }
+
+    /// Chooses shuffle for a folder's playlists, or clears the choice with
+    /// `None`. With `subfolders`, every folder inside gets the same.
+    fn set_folder_shuffle(&mut self, id: &str, shuffle: Option<bool>, subfolders: bool) {
+        let mut ids = vec![id.to_string()];
+        if subfolders {
+            let mut depth = 0usize;
+            let mut inside = false;
+            for row in &self.rootlist {
+                match row {
+                    crate::player::RootlistEntry::FolderStart { id: this, .. } => {
+                        if inside {
+                            depth += 1;
+                            ids.push(this.clone());
+                        } else if this == id {
+                            inside = true;
+                            depth = 1;
+                        }
+                    }
+                    crate::player::RootlistEntry::FolderEnd if inside => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for id in ids {
+            match shuffle {
+                Some(shuffle) => {
+                    self.folder_shuffle.insert(id, shuffle);
+                }
+                None => {
+                    self.folder_shuffle.remove(&id);
+                }
+            }
+        }
+        self.page_shuffle = None;
+        self.session_dirty = true;
     }
 
     fn modes_for(&self, kind: ContextKind) -> Option<PlayModes> {
@@ -13759,6 +13841,14 @@ impl App {
                 self.settings.sidebar_grid = grid;
                 self.mark_settings_dirty();
             }
+            Action::SetFolderShuffle {
+                id,
+                shuffle,
+                subfolders,
+            } => {
+                self.set_folder_shuffle(&id, shuffle, subfolders);
+                self.apply(Action::CloseDialog, ctx);
+            }
             Action::ToggleLibraryFolder(id) => {
                 if self.collapsed_folders.contains(&id) {
                     self.collapsed_folders.retain(|held| held != &id);
@@ -15237,6 +15327,7 @@ impl App {
                 repeat: self.local_repeat().api_name().into(),
                 playlist_modes: self.playlist_modes.clone(),
                 album_modes: self.album_modes.clone(),
+                folder_shuffle: self.folder_shuffle.clone(),
                 sorts: self
                     .table_sorts
                     .iter()
@@ -34280,6 +34371,62 @@ mod tests {
             "a clicked row still plays first with shuffle on"
         );
         app.backend.shutdown();
+    }
+
+    fn folder_tree(app: &mut App) {
+        use crate::player::RootlistEntry::{FolderEnd, FolderStart, Playlist};
+        app.rootlist = vec![
+            FolderStart {
+                id: "vinyl".into(),
+                name: "Vinyl".into(),
+            },
+            Playlist("spotify:playlist:a".into()),
+            FolderStart {
+                id: "artist".into(),
+                name: "Artist".into(),
+            },
+            Playlist("spotify:playlist:b".into()),
+            FolderEnd,
+            FolderEnd,
+            Playlist("spotify:playlist:c".into()),
+        ];
+    }
+
+    /// A folder's choice reaches the folders and playlists inside it, the
+    /// nearest folder wins, and playlists outside keep their own.
+    #[test]
+    fn a_folders_shuffle_reaches_its_playlists_and_subfolders() {
+        let mut app = headless_app();
+        folder_tree(&mut app);
+        app.set_folder_shuffle("vinyl", Some(false), false);
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:b"), Some(false));
+        app.set_folder_shuffle("artist", Some(true), false);
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:a"), Some(false));
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:b"), Some(true));
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:c"), None);
+        assert_eq!(app.folder_shuffle_for("spotify:album:b"), None);
+        app.set_folder_shuffle("vinyl", Some(false), true);
+        assert_eq!(app.folder_shuffle_for("spotify:playlist:b"), Some(false));
+        app.set_folder_shuffle("vinyl", None, true);
+        assert!(app.folder_shuffle.is_empty());
+    }
+
+    /// A folder's shuffle beats the playlist's remembered one, and the
+    /// page's own choice beats the folder's.
+    #[test]
+    fn a_folders_shuffle_beats_the_remembered_playlist_modes() {
+        let mut app = headless_app();
+        folder_tree(&mut app);
+        app.playlist_modes = Some(PlayModes {
+            shuffle: true,
+            repeat: "off".into(),
+        });
+        app.set_folder_shuffle("artist", Some(false), false);
+        assert!(!app.apply_play_modes("spotify:playlist:b", None));
+        assert!(app.apply_play_modes("spotify:playlist:b", Some(true)));
+        assert!(app.apply_play_modes("spotify:playlist:c", None));
+        assert!(!app.page_shuffle_shown("spotify:playlist:b"));
+        assert!(app.page_shuffle_shown("spotify:playlist:c"));
     }
 
     /// An album that was last played unshuffled starts at its first song,

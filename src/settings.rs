@@ -1892,6 +1892,9 @@ pub struct SessionState {
     pub playlist_modes: Option<PlayModes>,
     /// The same for albums.
     pub album_modes: Option<PlayModes>,
+    /// Shuffle chosen for the playlists in a folder, by rootlist id. A
+    /// folder without an entry takes its parent's, or the playlist's own.
+    pub folder_shuffle: std::collections::BTreeMap<String, bool>,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
     /// Last window inner size, to restore on next launch. Logical pixels

@@ -2050,6 +2050,26 @@ fn entry_menu(app: &mut App, response: &egui::Response, entry: &Entry, custom_or
                     });
                 }
             });
+    } else if let Some((id, _, _)) = &entry.folder {
+        egui::Popup::context_menu(response)
+            .frame(super::widgets::menu_frame(&app.palette))
+            .show(|ui| {
+                ui.set_min_width(200.0);
+                ui.set_max_width(300.0);
+                if super::widgets::menu_item(
+                    ui,
+                    &app.palette,
+                    Some(Icon::Settings),
+                    &gettext(app.locale, "Settings"),
+                ) {
+                    app.actions.push(Action::ShowDialog(Dialog::FolderSettings {
+                        id: id.clone(),
+                        name: entry.name.clone(),
+                        shuffle: app.folder_shuffle.get(id).copied(),
+                        subfolders: false,
+                    }));
+                }
+            });
     } else if entry.liked {
         egui::Popup::context_menu(response)
             .frame(super::widgets::menu_frame(&app.palette))
