@@ -33,7 +33,9 @@ fn the_bundle_carries_the_agent_that_starts_in_the_tray() {
     );
     // The Nix package builds its own bundle, without bundle.sh.
     let flake = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("flake.nix");
-    let flake = fs::read_to_string(&flake).unwrap_or_else(|error| panic!("flake.nix: {error}"));
+    let flake = fs::read_to_string(&flake)
+        .unwrap_or_else(|error| panic!("flake.nix: {error}"))
+        .replace("\r\n", "\n");
     assert!(flake.contains(r#"app="$out/Applications/Spotifast.app/Contents""#));
     assert!(flake.contains(&format!("identifier={id}\n")));
     assert!(
