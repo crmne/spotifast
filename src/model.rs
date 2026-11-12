@@ -1067,8 +1067,15 @@ pub struct DragEntry {
     pub image: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StorageAction {
+    ClearCaches,
+    ResetApp,
+}
+
 #[derive(Clone, Debug)]
 pub enum Dialog {
+    Storage(StorageAction),
     /// A page's header cover, enlarged. Clicking anywhere or Esc closes it.
     CoverArt {
         /// The largest artwork Spotify has.
@@ -1417,6 +1424,7 @@ pub enum Action {
     EnablePlayback,
     ShowWindow,
     HideWindow,
+    ClearStorage(StorageAction),
     ClearArtCache,
     ClearAudioCache,
     /// Clear local play history.
