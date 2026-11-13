@@ -3,6 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Nixpkgs 26.11 dropped Intel Macs; 26.05 keeps them until the end of 2026.
+    nixpkgs-x86_64-darwin.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
     # rust-toolchain.toml pins the compiler so local builds and CI agree.
     # This reads that file rather than restating the version here.
     rust-overlay = {
@@ -15,13 +17,14 @@
     {
       self,
       nixpkgs,
+      nixpkgs-x86_64-darwin,
       rust-overlay,
       ...
     }:
     let
       systems = [
-        # Apple Silicon only: nixpkgs 26.11 dropped x86_64-darwin.
         "aarch64-darwin"
+        "x86_64-darwin"
         "aarch64-linux"
         "x86_64-linux"
       ];
@@ -30,7 +33,7 @@
         nixpkgs.lib.genAttrs systems (
           system:
           f (
-            import nixpkgs {
+            import (if system == "x86_64-darwin" then nixpkgs-x86_64-darwin else nixpkgs) {
               inherit system;
               overlays = [ (import rust-overlay) ];
             }

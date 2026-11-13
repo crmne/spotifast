@@ -237,8 +237,7 @@ environment.systemPackages = [
 
 ### nix-darwin
 
-On an Apple Silicon Mac, use the same default package to install Spotifast as a
-Mac app. Nixpkgs no longer supports Intel Macs:
+On macOS, use the same default package to install Spotifast as a Mac app:
 
 ```nix
 environment.systemPackages = [
