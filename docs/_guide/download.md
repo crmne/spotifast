@@ -237,21 +237,20 @@ environment.systemPackages = [
 
 ### nix-darwin
 
-On macOS, use the same `spotifast` package to install Spotifast as a Mac app:
+On macOS, use the same default package to install Spotifast as a Mac app:
 
 ```nix
 environment.systemPackages = [
-  inputs.spotifast.packages."${pkgs.stdenv.hostPlatform.system}".spotifast
+  inputs.spotifast.packages."${pkgs.stdenv.hostPlatform.system}".default
 ];
-environment.pathsToLink = [ "/Applications" ];
 ```
 
 The bundle appears in `/Applications/Nix Apps`. With Home Manager,
-`home.packages` is enough; its darwin support links app bundles into
-`~/Applications`:
+`home.packages` is enough; its darwin support installs app bundles into
+`~/Applications/Home Manager Apps`:
 
 ```nix
 home.packages = [
-  inputs.spotifast.packages."${pkgs.stdenv.hostPlatform.system}".spotifast
+  inputs.spotifast.packages."${pkgs.stdenv.hostPlatform.system}".default
 ];
 ```
