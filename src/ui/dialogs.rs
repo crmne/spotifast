@@ -149,6 +149,66 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }
                     });
                 }
+                Dialog::EpisodeDetails { episode } => {
+                    bidi_label(
+                        ui,
+                        &episode.name,
+                        theme::bold(20.0),
+                        palette.text,
+                        false,
+                    );
+                    let mut meta = Vec::new();
+                    if let Some(show) = &episode.show
+                        && !show.name.is_empty()
+                    {
+                        meta.push(show.name.clone());
+                    }
+                    if let Some(date) = &episode.release_date {
+                        meta.push(crate::util::format_date(locale, date));
+                    }
+                    if episode.duration_ms > 0 {
+                        meta.push(crate::util::format_episode_ms(locale, episode.duration_ms));
+                    }
+                    if !meta.is_empty() {
+                        ui.add_space(4.0);
+                        bidi_label(
+                            ui,
+                            &meta.join(" • "),
+                            theme::regular(13.0),
+                            palette.secondary,
+                            false,
+                        );
+                    }
+                    // Row descriptions stop at two lines; the notes run as long
+                    // as the podcast made them, so they scroll inside the dialog.
+                    let description = plain_notes(&episode.description);
+                    if !description.is_empty() {
+                        ui.add_space(16.0);
+                        theme::text(
+                            ui,
+                            gettext(locale, "Description"),
+                            theme::medium(13.0),
+                            palette.secondary,
+                        );
+                        ui.add_space(6.0);
+                        let room = ui.ctx().content_rect().height() - 260.0;
+                        episode_description(
+                            ui,
+                            &episode.uri,
+                            &description,
+                            &palette,
+                            room.max(120.0),
+                        );
+                    }
+                    ui.add_space(20.0);
+                    buttons(ui, |ui| {
+                        if theme::pill_button(ui, &palette, &gettext(locale, "Close"), true)
+                            .clicked()
+                        {
+                            app.actions.push(Action::CloseDialog);
+                        }
+                    });
+                }
                 Dialog::Shortcuts => {
                     theme::text(ui, gettext(locale, "Keyboard shortcuts"), theme::bold(20.0), palette.text);
                     ui.add_space(12.0);
@@ -239,6 +299,110 @@ fn buttons(ui: &mut egui::Ui, add_buttons: impl FnOnce(&mut egui::Ui)) {
         Layout::right_to_left(Align::Center),
         add_buttons,
     );
+}
+
+/// One line or wrapped text in reading order, for either direction, and
+/// optionally selectable.
+fn bidi_label(
+    ui: &mut egui::Ui,
+    text: &str,
+    font: egui::FontId,
+    color: egui::Color32,
+    selectable: bool,
+) -> egui::Response {
+    let galley = crate::bidi::layout(
+        ui.painter(),
+        text,
+        font,
+        color,
+        ui.available_width(),
+        usize::MAX,
+        None,
+    );
+    ui.add(egui::Label::new(galley).selectable(selectable))
+}
+
+/// The episode's notes as plain text. Unlike
+/// [`crate::util::strip_html`], paragraphs, lists, and `<br>` keep their
+/// boundaries instead of running together on one line.
+fn plain_notes(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut tag = String::new();
+    let mut in_tag = false;
+    for character in html.chars() {
+        match character {
+            '<' => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' if in_tag => {
+                in_tag = false;
+                let name = tag
+                    .trim()
+                    .trim_start_matches('/')
+                    .trim_end_matches('/')
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let closing = tag.trim_start().starts_with('/');
+                let breaks = match name.as_str() {
+                    "p" | "div" | "blockquote" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => 2,
+                    "ul" | "ol" if closing => 2,
+                    "ul" | "ol" => 1,
+                    "br" | "li" | "tr" => 1,
+                    _ => 0,
+                };
+                if breaks > 0 {
+                    keep_breaks(&mut out, breaks);
+                }
+            }
+            '>' => {}
+            _ if in_tag => tag.push(character),
+            _ => out.push(character),
+        }
+    }
+    crate::util::strip_html(&out).trim().to_string()
+}
+
+/// Leaves exactly `count` newlines at the end of `out`, never starting the
+/// text with one.
+fn keep_breaks(out: &mut String, count: usize) {
+    if out.is_empty() {
+        return;
+    }
+    while out.ends_with([' ', '\t']) {
+        out.pop();
+    }
+    let trailing = out.chars().rev().take_while(|c| *c == '\n').count();
+    if trailing > count {
+        out.truncate(out.len() - (trailing - count));
+    } else {
+        for _ in trailing..count {
+            out.push('\n');
+        }
+    }
+}
+
+/// The episode's notes, scrolling inside the dialog when they run long.
+fn episode_description(
+    ui: &mut egui::Ui,
+    episode_uri: &str,
+    description: &str,
+    palette: &theme::Palette,
+    max_height: f32,
+) -> egui::scroll_area::ScrollAreaOutput<()> {
+    crate::autoscroll::show(
+        ui,
+        egui::ScrollArea::vertical()
+            .id_salt(("episode-description", episode_uri))
+            .max_height(max_height)
+            .auto_shrink([false, true]),
+        egui::Vec2b::new(false, true),
+        |ui| {
+            bidi_label(ui, description, theme::regular(14.0), palette.text, true);
+        },
+    )
 }
 
 fn duplicate_message(
@@ -717,5 +881,193 @@ mod cover_art_tests {
         assert_eq!(cover_art_side(egui::vec2(1240.0, 800.0)), 640.0);
         assert_eq!(cover_art_side(egui::vec2(760.0, 620.0)), 524.0);
         assert_eq!(cover_art_side(egui::vec2(100.0, 100.0)), 120.0);
+    }
+}
+
+#[cfg(test)]
+mod episode_details_tests {
+    use super::*;
+    use crate::api::models::{Episode, Show};
+    use crate::app::AppOptions;
+    use crate::backend::Waker;
+    use crate::paths::AppDirs;
+    use crate::settings::Settings;
+
+    fn test_app() -> App {
+        let root = std::env::temp_dir().join(format!(
+            "spotifast-episode-details-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        App::new(
+            &Waker::default(),
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        )
+    }
+
+    #[test]
+    fn episode_details_dialog_shows_the_full_description() {
+        let mut app = test_app();
+        app.dialog = Some(Dialog::EpisodeDetails {
+            episode: Box::new(Episode {
+                name: "A long conversation".into(),
+                description:
+                    "<p>First paragraph.</p><p>Second paragraph that the row cuts off.</p>".into(),
+                duration_ms: 3_600_000,
+                release_date: Some("2026-11-01".into()),
+                show: Some(Show {
+                    name: "Rework".into(),
+                    ..Show::default()
+                }),
+                ..Episode::default()
+            }),
+        });
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let mut frame = || {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 600.0),
+                    )),
+                    ..Default::default()
+                },
+                |_| show(&mut app, &ctx),
+            );
+            output.textures_delta.clear();
+            output.shapes
+        };
+        frame();
+        let shapes = frame();
+        let mut painted = Vec::new();
+        for clipped in &shapes {
+            collect_text(&clipped.shape, &mut painted);
+        }
+        assert!(
+            painted
+                .iter()
+                .any(|text| text.contains("Second paragraph that the row cuts off")),
+            "the dialog paints the notes past the row's two lines: {painted:?}"
+        );
+        assert_eq!(
+            painted
+                .iter()
+                .filter(|text| text.contains("Second paragraph"))
+                .count(),
+            1,
+            "the notes appear once, whole"
+        );
+        assert!(
+            painted
+                .iter()
+                .any(|text| text.contains("Rework") && text.contains("2026")),
+            "the dialog names the podcast and the date: {painted:?}"
+        );
+        assert!(
+            painted.iter().any(|text| text.contains("1 hr")),
+            "the dialog shows the length: {painted:?}"
+        );
+    }
+
+    /// Paragraphs, lists, and `<br>` keep their boundaries in the notes.
+    #[test]
+    fn episode_notes_keep_paragraphs_and_line_breaks() {
+        assert_eq!(
+            plain_notes("<p>First paragraph.</p><p>Second paragraph.</p>"),
+            "First paragraph.\n\nSecond paragraph."
+        );
+        assert_eq!(
+            plain_notes("Chapters:<br>00:00 One<br>08:12 Two"),
+            "Chapters:\n00:00 One\n08:12 Two"
+        );
+        assert_eq!(plain_notes("<ul><li>One</li><li>Two</li></ul>"), "One\nTwo");
+        assert_eq!(plain_notes("Tom &amp; Jerry"), "Tom & Jerry");
+    }
+
+    fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_text(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Notes longer than the dialog scroll instead of running past its edge.
+    #[test]
+    fn long_episode_notes_scroll_inside_the_dialog() {
+        let notes: String = (0..80)
+            .map(|index| {
+                format!("Paragraph {index}: the notes run past what the dialog can show at once.")
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let palette = test_app().palette;
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let capture = |events| {
+            let mut seen = None;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 600.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    seen = Some(episode_description(
+                        ui,
+                        "spotify:episode:test",
+                        &notes,
+                        &palette,
+                        200.0,
+                    ));
+                },
+            );
+            output.textures_delta.clear();
+            seen.expect("the notes draw")
+        };
+        let first = capture(vec![]);
+        assert!(
+            first.content_size.y > first.inner_rect.height(),
+            "the notes are taller than the area: {} against {}",
+            first.content_size.y,
+            first.inner_rect.height()
+        );
+        assert_eq!(first.state.offset.y, 0.0, "the notes start at the top");
+        let second = capture(vec![
+            egui::Event::PointerMoved(first.inner_rect.center()),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: egui::vec2(0.0, -5.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ]);
+        assert!(
+            second.state.offset.y > 0.0,
+            "the wheel scrolls the notes: {}",
+            second.state.offset.y
+        );
     }
 }

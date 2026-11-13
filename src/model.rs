@@ -1103,6 +1103,10 @@ pub enum Dialog {
         position: Option<u32>,
         duplicate_uris: Vec<String>,
     },
+    /// A podcast episode's notes, which its row shows only two lines of.
+    EpisodeDetails {
+        episode: Box<Episode>,
+    },
     Shortcuts,
     /// The signed-in account is not Premium, so nothing will play.
     PremiumNeeded,
