@@ -3277,7 +3277,13 @@ impl App {
                 }
             }
             Update::Audio(available) => self.soloist_audio = available && self.settings.soloist_enabled && matches!(self.soloist_status, Status::Ready { .. }),
-            Update::OutputMoved => self.soloist_moving_output = true,
+            Update::OutputMoved { playing } => {
+                self.soloist_moving_output = true;
+                // The player knows it plays before the remote snapshot does.
+                self.soloist_resume |= playing
+                    && self.soloist_device_id.is_some()
+                    && self.targets_own_soloist();
+            }
             Update::OutputVolume => self.session_dirty = true,
             Update::Changed { queue } => {
                 if self.soloist_device_id.is_some() {
@@ -23716,7 +23722,7 @@ mod tests {
     fn a_soloist_moving_to_a_new_output_says_so_until_it_is_back() {
         use crate::soloist::{Failure, Status, Update};
         let (_ctx, mut app) = listening_on_soloist("soloist-moving-output");
-        app.on_soloist(Update::OutputMoved);
+        app.on_soloist(Update::OutputMoved { playing: false });
         app.on_soloist(Update::Status(Status::Starting));
         assert!(app.soloist_moving_output);
         assert!(app.soloist_recovering());
@@ -23729,9 +23735,22 @@ mod tests {
         app.bind_soloist_device();
         assert!(!app.soloist_moving_output);
 
-        app.on_soloist(Update::OutputMoved);
+        app.on_soloist(Update::OutputMoved { playing: false });
         app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
         assert!(!app.soloist_moving_output);
+        app.backend.shutdown();
+    }
+
+    /// A song started a moment before the output moved is not in the
+    /// remote snapshot yet; the player's own word still brings it back.
+    #[test]
+    fn a_song_the_player_reports_playing_carries_on_after_an_output_move() {
+        use crate::soloist::{Status, Update};
+        let (_ctx, mut app) = listening_on_soloist("soloist-moving-playing");
+        assert!(!app.now_playing().is_some_and(|now| now.playing));
+        app.on_soloist(Update::OutputMoved { playing: true });
+        app.on_soloist(Update::Status(Status::Starting));
+        assert!(app.soloist_resume);
         app.backend.shutdown();
     }
 

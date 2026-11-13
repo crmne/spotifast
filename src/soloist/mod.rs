@@ -144,8 +144,11 @@ impl Status {
 pub enum Update {
     Status(Status),
     Audio(bool),
-    /// The player is starting again on a new default output.
-    OutputMoved,
+    /// The player is starting again on a new default output. `playing` is
+    /// the player's own word, fresher than the app's last snapshot.
+    OutputMoved {
+        playing: bool,
+    },
     OutputVolume,
     Changed {
         queue: bool,
@@ -416,16 +419,23 @@ fn default_output() -> Option<fastframe_audio::DeviceId> {
         .map(|device| device.id)
 }
 
-/// Pauses the player and waits, at most `PAUSE_WAIT`, until it says it has
-/// paused. Anything going wrong only means the restart comes sooner.
+/// Whether a moved default output starts the player again now. A paused
+/// session waits, as for an update, so its queue is kept: it moves once it
+/// plays again or goes idle.
+fn restarts_for_output(moved: bool, playing: bool, idle: bool) -> bool {
+    moved && (playing || idle)
+}
+
+/// Pauses the player and waits, at most `PAUSE_WAIT` in all, until it says
+/// it has paused. Anything going wrong only means the restart comes sooner.
 async fn pause_before_restart(socket: &mut protocol::Socket, port: u16) {
-    if protocol::send_reconnecting(socket, port, json!({"command":"pause"}))
-        .await
-        .is_err()
-    {
-        return;
-    }
     let _ = tokio::time::timeout(PAUSE_WAIT, async {
+        if protocol::send_reconnecting(socket, port, json!({"command":"pause"}))
+            .await
+            .is_err()
+        {
+            return;
+        }
         while let Ok((message, _)) = protocol::receive_reconnecting(socket, port).await {
             if message.as_ref().is_some_and(is_paused) {
                 // Give the player a moment to tell Spotify the position.
@@ -600,11 +610,11 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
             tokio::select! {
                 _ = stopped.changed() => return Ok(Outcome::Stopped),
                 _ = output_tick.tick(), if follows_default => {
-                    if output.moved(read_default_output().await) {
+                    if restarts_for_output(output.moved(read_default_output().await), playing, idle) {
                         log::info!("The default audio output changed; starting Soloist again on it");
                         // Said while the player still plays, so a playing
                         // song is remembered and carries on once it is back.
-                        notify(Update::OutputMoved);
+                        notify(Update::OutputMoved { playing });
                         notify(Update::Status(Status::Starting));
                         // A player stopped mid-song leaves Spotify an older
                         // position, or none: the song came back seconds
@@ -612,7 +622,8 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                         if playing {
                             pause_before_restart(&mut socket, port).await;
                         }
-                        return Ok(Outcome::OutputChanged);
+                        // A renewal waiting for an idle moment starts now.
+                        return Ok(pending.take().map_or(Outcome::OutputChanged, Outcome::Update));
                     }
                 }
                 _ = audio_tick.tick(), if bridge.is_some() => {
@@ -928,6 +939,19 @@ mod tests {
         // Unplugging everything, or a listing that failed, is not a move.
         assert!(!output.moved(None));
         assert!(output.moved(id("headphones")));
+    }
+
+    #[test]
+    fn a_paused_session_keeps_its_queue_until_it_plays_or_goes_idle() {
+        // moved, playing, idle
+        assert!(restarts_for_output(true, true, false));
+        assert!(restarts_for_output(true, false, true));
+        assert!(
+            !restarts_for_output(true, false, false),
+            "paused and active"
+        );
+        assert!(!restarts_for_output(false, true, false));
+        assert!(!restarts_for_output(false, false, true));
     }
 
     #[test]
