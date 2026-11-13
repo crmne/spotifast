@@ -23,6 +23,15 @@ const KINDS: [&str; 7] = [
 /// `spotify:playlist:ID`; strict comparisons need the one shape.
 pub fn canonical_context_uri(uri: &str) -> String {
     if let Some(rest) = uri.strip_prefix("spotify:user:") {
+        // The collection context reports the account id raw, while the app compares
+        // it against the encoded URI it plays. Return the encoded form so both match.
+        if let Some(name) = rest.strip_suffix(":collection")
+            && !name.is_empty()
+            && !name.contains(':')
+        {
+            let decoded = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
+            return liked_songs_uri(&decoded);
+        }
         const PLAYLIST: &str = ":playlist:";
         if let Some(at) = rest.find(PLAYLIST) {
             let id = &rest[at + PLAYLIST.len()..];
@@ -32,6 +41,22 @@ pub fn canonical_context_uri(uri: &str) -> String {
         }
     }
     uri.to_owned()
+}
+
+/// The `spotify:user:<id>:collection` URI of an account's Liked Songs.
+///
+/// Spotify expects the user id percent-encoded in a context URI: an account
+/// whose id has an accent, such as `zoé`, must be sent as `zo%C3%A9`, or the
+/// Web API answers 400 `Invalid context uri` and the collection will not play.
+/// Unreserved characters stay as they are, so an alphanumeric id is unchanged.
+pub fn liked_songs_uri(user_id: &str) -> String {
+    const USER_ID: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.')
+        .remove(b'~');
+    let id = percent_encoding::utf8_percent_encode(user_id, USER_ID);
+    format!("spotify:user:{id}:collection")
 }
 
 /// The canonical `spotify:<kind>:<id>` behind `text`, or `None` when it is
@@ -162,6 +187,42 @@ fn is_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn liked_songs_uri_percent_encodes_a_non_ascii_user_id() {
+        // #given / #when / #then
+        assert_eq!(liked_songs_uri("zoé"), "spotify:user:zo%C3%A9:collection");
+        // Unreserved characters stay readable
+        assert_eq!(
+            liked_songs_uri("user.name-1_2~3"),
+            "spotify:user:user.name-1_2~3:collection"
+        );
+        // A plain alphanumeric id is byte-for-byte unchanged
+        assert_eq!(liked_songs_uri("demo"), "spotify:user:demo:collection");
+        assert_eq!(liked_songs_uri("a b"), "spotify:user:a%20b:collection");
+    }
+
+    #[test]
+    fn a_reported_collection_context_canonicalizes_to_the_encoded_uri() {
+        // #given / #when / #then
+        assert_eq!(
+            canonical_context_uri("spotify:user:zoé:collection"),
+            "spotify:user:zo%C3%A9:collection"
+        );
+        assert_eq!(
+            canonical_context_uri("spotify:user:zo%C3%A9:collection"),
+            "spotify:user:zo%C3%A9:collection"
+        );
+        assert_eq!(
+            canonical_context_uri("spotify:user:demo:collection"),
+            "spotify:user:demo:collection"
+        );
+        // Playlist contexts keep their existing canonical form
+        assert_eq!(
+            canonical_context_uri("spotify:user:carmine:playlist:37i9dQZF1DXcBWIGoYBM5M"),
+            "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"
+        );
+    }
 
     #[test]
     fn prerelease_web_and_protocol_links_keep_the_prerelease_id() {
