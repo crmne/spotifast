@@ -507,6 +507,9 @@ pub struct App {
     soloist_bound_at: Option<Instant>,
     /// Music was playing on Soloist when it stopped.
     soloist_resume: bool,
+    /// Soloist is starting again on a new default output, so the banner
+    /// says that rather than that it is reconnecting.
+    pub(crate) soloist_moving_output: bool,
     /// Setup was chosen in this run, not resumed from `session.json`.
     soloist_setup_chosen: bool,
     /// Setup is open for someone whose Soloist was already set up, who can
@@ -1291,6 +1294,7 @@ impl App {
             soloist_retries: 0,
             soloist_bound_at: None,
             soloist_resume: false,
+            soloist_moving_output: false,
             soloist_setup_chosen: false,
             soloist_setup_optional: false,
             local: LocalState::default(),
@@ -3257,6 +3261,9 @@ impl App {
                     self.backend.send(Command::SoloistDevice(None));
                 }
                 if let Status::Ready { version, .. } = &status && self.soloist_update.as_ref() == Some(version) { self.soloist_update = None; }
+                if matches!(status, Status::Off | Status::NeedsKey | Status::Failed(_)) {
+                    self.soloist_moving_output = false;
+                }
                 if let Status::Failed(failure) = &status {
                     self.schedule_soloist_retry(&failure.clone());
                 }
@@ -3270,6 +3277,7 @@ impl App {
                 }
             }
             Update::Audio(available) => self.soloist_audio = available && self.settings.soloist_enabled && matches!(self.soloist_status, Status::Ready { .. }),
+            Update::OutputMoved => self.soloist_moving_output = true,
             Update::OutputVolume => self.session_dirty = true,
             Update::Changed { queue } => {
                 if self.soloist_device_id.is_some() {
@@ -3355,6 +3363,7 @@ impl App {
         self.soloist_device_id = device.as_ref().and_then(|device| device.id.clone());
         self.backend.send(Command::SoloistDevice(device));
         if newly_bound && let Some(id) = self.soloist_device_id.clone() {
+            self.soloist_moving_output = false;
             self.soloist_settled = true;
             self.soloist_retry_at = None;
             self.soloist_bound_at = Some(Instant::now());
@@ -3424,6 +3433,7 @@ impl App {
                 self.soloist_settled = false;
                 self.soloist_retries = 0;
                 self.soloist_resume = false;
+                self.soloist_moving_output = false;
                 self.soloist_give_up();
                 if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
                     self.dialog = None;
@@ -23697,6 +23707,31 @@ mod tests {
         assert!(matches!(app.soloist_status, Status::Starting));
         app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
         assert!(app.soloist_retry_at.is_some(), "Try again starts afresh");
+        app.backend.shutdown();
+    }
+
+    /// The banner says the output is changing for as long as that restart
+    /// lasts, and no longer: a later reconnect is a reconnect again.
+    #[test]
+    fn a_soloist_moving_to_a_new_output_says_so_until_it_is_back() {
+        use crate::soloist::{Failure, Status, Update};
+        let (_ctx, mut app) = listening_on_soloist("soloist-moving-output");
+        app.on_soloist(Update::OutputMoved);
+        app.on_soloist(Update::Status(Status::Starting));
+        assert!(app.soloist_moving_output);
+        assert!(app.soloist_recovering());
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        assert!(app.soloist_moving_output, "verified, but not listed yet");
+        app.bind_soloist_device();
+        assert!(!app.soloist_moving_output);
+
+        app.on_soloist(Update::OutputMoved);
+        app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+        assert!(!app.soloist_moving_output);
         app.backend.shutdown();
     }
 

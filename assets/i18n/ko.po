@@ -2435,6 +2435,15 @@ msgstr "Soloist 다시 연결 중…"
 msgid "Keep browsing. A song you choose now starts when it's back."
 msgstr "계속 둘러보세요. 지금 선택한 곡은 다시 연결되면 시작됩니다."
 
+#: src/ui/soloist.rs:780
+msgid "Changing audio output…"
+msgstr "오디오 출력 변경 중…"
+
+#: src/ui/soloist.rs:783
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr "Soloist가 새 오디오 출력으로 전환 중이며 몇 초 후에 돌아옵니다."
+
 #: src/ui/soloist.rs:734
 msgid "Soloist isn't running"
 msgstr "Soloist가 실행되고 있지 않습니다"

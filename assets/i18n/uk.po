@@ -2498,6 +2498,16 @@ msgstr ""
 "Можете далі переглядати бібліотеку. Вибрана зараз пісня почнеться, коли "
 "Soloist повернеться."
 
+#: src/ui/soloist.rs:780
+msgid "Changing audio output…"
+msgstr "Зміна аудіовиходу…"
+
+#: src/ui/soloist.rs:783
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"Soloist перемикається на новий аудіовихід і повернеться за кілька секунд."
+
 #: src/ui/soloist.rs:734
 msgid "Soloist isn't running"
 msgstr "Soloist не запущено"

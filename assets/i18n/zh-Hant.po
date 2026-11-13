@@ -2392,6 +2392,15 @@ msgstr "正在重新連線 Soloist…"
 msgid "Keep browsing. A song you choose now starts when it's back."
 msgstr "你可以繼續瀏覽。現在選擇的歌曲會在恢復後開始播放。"
 
+#: src/ui/soloist.rs:780
+msgid "Changing audio output…"
+msgstr "正在切換音訊輸出…"
+
+#: src/ui/soloist.rs:783
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr "Soloist 正在切換到新的音訊輸出，幾秒後恢復。"
+
 #: src/ui/soloist.rs:734
 msgid "Soloist isn't running"
 msgstr "Soloist 未執行"

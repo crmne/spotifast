@@ -2492,6 +2492,16 @@ msgstr ""
 "Можешь продолжать просмотр. Выбранный сейчас трек начнётся, когда Soloist "
 "вернётся."
 
+#: src/ui/soloist.rs:780
+msgid "Changing audio output…"
+msgstr "Смена аудиовыхода…"
+
+#: src/ui/soloist.rs:783
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"Soloist переключается на новый аудиовыход и вернётся через несколько секунд."
+
 #: src/ui/soloist.rs:734
 msgid "Soloist isn't running"
 msgstr "Soloist не запущен"

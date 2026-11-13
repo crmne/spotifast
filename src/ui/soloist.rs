@@ -776,6 +776,15 @@ pub fn banner(app: &mut App, ui: &mut egui::Ui) {
             false,
             vec![(connect, Action::StartSoloistSetup), built_in],
         ),
+        _ if app.soloist_moving_output => (
+            gettext(locale, "Changing audio output…"),
+            gettext(
+                locale,
+                "Soloist is moving to the new audio output and will be back in a few seconds.",
+            ),
+            true,
+            vec![],
+        ),
         _ => (reconnecting, browsing, true, vec![]),
     };
     super::banner(app, ui, &title, &text, busy, buttons, None);

@@ -2488,6 +2488,17 @@ msgid "Keep browsing. A song you choose now starts when it's back."
 msgstr ""
 "Continua a navegar. A música que escolheres agora começa quando ele voltar."
 
+#: src/ui/soloist.rs:780
+msgid "Changing audio output…"
+msgstr "A mudar a saída de áudio…"
+
+#: src/ui/soloist.rs:783
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"O Soloist está a mudar para a nova saída de áudio e volta dentro de alguns "
+"segundos."
+
 #: src/ui/soloist.rs:734
 msgid "Soloist isn't running"
 msgstr "O Soloist não está em execução"
