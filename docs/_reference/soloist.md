@@ -216,7 +216,14 @@ restarts it.
 On Windows, WASAPI captures only the owned Soloist process and its children
 for the spectrum, oscilloscope and MilkDrop. It does not change the audio
 output, so Soloist EQ remains unavailable. Capture failure leaves playback
-running. No virtual driver is installed on either platform and no captured
+running.
+
+Soloist on Windows keeps the output that was the default when it started.
+Spotifast checks the default output every two seconds and, when it changes,
+starts the player again on the new one; a song that was playing carries on
+after a few seconds. A paused session waits, as for an update, to preserve its
+queue: it moves once it plays again or goes idle. An output chosen for Soloist
+in the Windows volume mixer is not followed. No virtual driver is installed on either platform and no captured
 audio is saved. The Mac playback path keeps the tap's sample rate; only the
 visualization copy is resampled.
 

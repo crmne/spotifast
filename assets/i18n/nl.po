@@ -2484,6 +2484,17 @@ msgid "Keep browsing. A song you choose now starts when it's back."
 msgstr ""
 "Blader gerust verder. Een nummer dat je nu kiest, start zodra hij terug is."
 
+#: src/ui/soloist.rs:780
+msgid "Changing audio output…"
+msgstr "Audio-uitvoer wijzigen…"
+
+#: src/ui/soloist.rs:783
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"Soloist schakelt over naar de nieuwe audio-uitvoer en is over een paar "
+"seconden terug."
+
 #: src/ui/soloist.rs:734
 msgid "Soloist isn't running"
 msgstr "Soloist is niet actief"

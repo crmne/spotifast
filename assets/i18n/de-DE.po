@@ -2500,6 +2500,16 @@ msgstr ""
 "Stöbere einfach weiter. Ein jetzt gewählter Song startet, sobald es wieder "
 "da ist."
 
+#: src/ui/soloist.rs:780
+msgid "Changing audio output…"
+msgstr "Audioausgabe wird gewechselt…"
+
+#: src/ui/soloist.rs:783
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"Soloist wechselt zur neuen Audioausgabe und ist in wenigen Sekunden zurück."
+
 #: src/ui/soloist.rs:734
 msgid "Soloist isn't running"
 msgstr "Soloist läuft nicht"
