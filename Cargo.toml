@@ -238,7 +238,7 @@ zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-tokio-c
 # The session bus, for the desktop's light or dark preference
 # (src/appearance.rs). fastframe-now-playing's MPRIS already compiles this
 # version.
-zbus = { version = "5", default-features = false, features = ["tokio"] }
+zbus = { version = "6", default-features = false, features = ["tokio"] }
 # Keeps the X11 mini player out of the taskbar with _NET_WM_STATE_SKIP_TASKBAR
 # (src/window.rs), which winit only offers on Windows. winit already
 # compiles this version.
