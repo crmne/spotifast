@@ -19,7 +19,7 @@ use tokio_tungstenite::{
     tungstenite::{Message, protocol::WebSocketConfig},
 };
 
-type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+pub type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 pub async fn connect(port: u16) -> Result<Socket> {
     let config = WebSocketConfig::default()
         .max_message_size(Some(4 * 1024 * 1024))

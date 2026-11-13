@@ -2556,6 +2556,16 @@ msgstr ""
 "Soloist läuft. Meist hilft es, in der Spotify-App einen Song darauf "
 "abzuspielen."
 
+#: src/ui/soloist.rs:813
+msgid "Changing audio output…"
+msgstr "Audioausgabe wird gewechselt…"
+
+#: src/ui/soloist.rs:816
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"Soloist wechselt zur neuen Audioausgabe und ist in wenigen Sekunden zurück."
+
 #: src/ui/soloist.rs:835
 msgid "Spotify's own player, running on this computer. Requires Premium."
 msgstr ""

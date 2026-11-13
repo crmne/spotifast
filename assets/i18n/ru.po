@@ -2548,6 +2548,16 @@ msgstr ""
 "Soloist работает. Обычно помогает, если включить на нём трек из приложения "
 "Spotify."
 
+#: src/ui/soloist.rs:813
+msgid "Changing audio output…"
+msgstr "Смена аудиовыхода…"
+
+#: src/ui/soloist.rs:816
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"Soloist переключается на новый аудиовыход и вернётся через несколько секунд."
+
 #: src/ui/soloist.rs:835
 msgid "Spotify's own player, running on this computer. Requires Premium."
 msgstr ""

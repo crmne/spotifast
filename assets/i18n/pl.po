@@ -2545,6 +2545,15 @@ msgid ""
 msgstr ""
 "Soloist działa. Zwykle pomaga odtworzenie na nim utworu z aplikacji Spotify."
 
+#: src/ui/soloist.rs:813
+msgid "Changing audio output…"
+msgstr "Zmiana wyjścia dźwięku…"
+
+#: src/ui/soloist.rs:816
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr "Soloist przełącza się na nowe wyjście dźwięku i wróci za kilka sekund."
+
 #: src/ui/soloist.rs:835
 msgid "Spotify's own player, running on this computer. Requires Premium."
 msgstr ""

@@ -2521,6 +2521,15 @@ msgstr ""
 "Soloistは実行中です。Spotifyアプリからこのプレーヤーで曲を再生すると、たいて"
 "い解決します。"
 
+#: src/ui/soloist.rs:813
+msgid "Changing audio output…"
+msgstr "音声出力を切り替え中…"
+
+#: src/ui/soloist.rs:816
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr "Soloistを新しい音声出力に切り替えています。数秒で戻ります。"
+
 #: src/ui/soloist.rs:835
 msgid "Spotify's own player, running on this computer. Requires Premium."
 msgstr ""

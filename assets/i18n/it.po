@@ -2547,6 +2547,16 @@ msgstr ""
 "Soloist è in esecuzione. Di solito aiuta riprodurvi un brano dall’app "
 "Spotify."
 
+#: src/ui/soloist.rs:813
+msgid "Changing audio output…"
+msgstr "Cambio dell'uscita audio…"
+
+#: src/ui/soloist.rs:816
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"Soloist sta passando alla nuova uscita audio e tornerà tra pochi secondi."
+
 #: src/ui/soloist.rs:835
 msgid "Spotify's own player, running on this computer. Requires Premium."
 msgstr "Il lettore ufficiale di Spotify, su questo computer. Richiede Premium."
