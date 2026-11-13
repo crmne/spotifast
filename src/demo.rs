@@ -263,10 +263,44 @@ fn top_mix(index: usize) -> Playlist {
 fn episode(index: usize, show_index: usize) -> Episode {
     Episode {
         id: format!("ep{show_index}_{index}"),
-        name: format!("Episode {}: {}", 120 - index, TRACKS[(index * 3) % TRACKS.len()]),
+        name: format!(
+            "Episode {}: {}",
+            120 - index,
+            TRACKS[(index * 3) % TRACKS.len()]
+        ),
         uri: format!("spotify:episode:ep{show_index}_{index}"),
         duration_ms: 2_400_000 + (index as u32 * 311_000) % 2_000_000,
-        description: "A conversation about how software gets made, why some tools feel fast, and what we can learn from the people who build them. Recorded live.".into(),
+        description: concat!(
+            "A conversation about how software gets made, why some tools feel fast, ",
+            "and what we can learn from the people who build them. Recorded live.\n\n",
+            "This week: the small decisions that make an interface feel quick, the ",
+            "trade-offs behind them, and the habits that keep a codebase easy to ",
+            "change. We start with the first version of the tool, the parts everyone ",
+            "agreed on, and the parts that took three rewrites before they felt ",
+            "right.\n\n",
+            "Our guest has spent fifteen years shipping software to people who never ",
+            "asked for it: editors, dispatchers, nurses, and a room full of volunteers ",
+            "keeping a community radio station on the air. They explain how they ",
+            "decide what to leave out, why the fastest feature is often the one that ",
+            "does not exist, and what a support inbox can tell you that a dashboard ",
+            "cannot.\n\n",
+            "Later, we open the mailbag. A listener asks whether a small team should ",
+            "write its own design system, another wants to know how to say no to a ",
+            "feature request without losing the customer, and a third sends a story ",
+            "about a bug that only appeared on Fridays after lunch. We also answer ",
+            "the question we get every week: is it worth rewriting the old thing?\n\n",
+            "Chapters:\n",
+            "00:00 The tool nobody asked for\n",
+            "08:12 The first version and the first rewrite\n",
+            "19:40 Deciding what to leave out\n",
+            "31:05 What support tickets know\n",
+            "42:18 Questions from listeners\n",
+            "55:30 One good habit to steal\n\n",
+            "Links and notes from the episode are in the show notes on the podcast's ",
+            "page. Music by the house band. Recorded in front of a live audience in ",
+            "Chicago.",
+        )
+        .into(),
         images: image(400 + index as u32),
         release_date: Some(format!("2026-0{}-{:02}", 1 + index % 8, 1 + index % 27)),
         resume_point: Some(ResumePoint {
@@ -1597,6 +1631,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 }));
             }
             "shortcuts" => app.dialog = Some(Dialog::Shortcuts),
+            "episode-details" => {
+                app.dialog = Some(Dialog::EpisodeDetails {
+                    episode: Box::new(episode(0, 0)),
+                })
+            }
             "premium" => app.dialog = Some(Dialog::PremiumNeeded),
             "edit" => {
                 app.dialog = Some(Dialog::EditPlaylist {
@@ -10093,6 +10132,9 @@ mod tests {
         app.show_lyrics_panel = false;
         for dialog in [
             Dialog::Shortcuts,
+            Dialog::EpisodeDetails {
+                episode: Box::new(episode(0, 0)),
+            },
             Dialog::CreatePlaylist {
                 name: "x".into(),
                 public: true,
