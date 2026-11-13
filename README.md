@@ -88,8 +88,8 @@ Spotify lyrics without changing players.
 | **macOS** | `brew install --cask crmne/tap/spotifast`, or [download the Mac app](https://spotifast.rocks/download/#macos). |
 | **Arch Linux** | `yay -S spotifast-bin` |
 | **Windows** | The installer or a portable ZIP, for x64 and ARM, from the [Download page](https://spotifast.rocks/download/#windows). |
-| **Debian, Ubuntu** | The [DEB package](https://spotifast.rocks/download/#debian-and-ubuntu), then `sudo apt install ./spotifast_*.deb` |
-| **Fedora** | The [RPM package](https://spotifast.rocks/download/#fedora), then `sudo dnf install ./spotifast-*.rpm` |
+| **Debian, Ubuntu** | The [DEB package](https://github.com/crmne/spotifast/releases/latest), then `sudo apt install ./spotifast_*.deb` |
+| **Fedora** | The [RPM package](https://github.com/crmne/spotifast/releases/latest), then `sudo dnf install ./spotifast-*.rpm` |
 | **Other Linux** | Find Flatpak, AppImage, Nix, and other options on the [Download page](https://spotifast.rocks/download/#linux). |
 | **From source** | Follow [Build from source](https://spotifast.rocks/getting-started/#build-from-source) for dependencies and commands. |
 
