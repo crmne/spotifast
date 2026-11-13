@@ -52,7 +52,7 @@ fn entry_play_uri(app: &App, entry: &Entry) -> Option<String> {
     if entry.liked {
         app.user
             .as_ref()
-            .map(|user| format!("spotify:user:{}:collection", user.id))
+            .map(|user| crate::link::liked_songs_uri(&user.id))
     } else if entry.uri.is_empty() {
         None
     } else {
@@ -469,9 +469,7 @@ fn order_entries(app: &App, shelf: Filter, sort: LibrarySort, entries: &mut [Ent
         }
         LibrarySort::RecentlyPlayed => {
             let ranks = first_ranks(app.recent_contexts.iter().map(String::as_str));
-            let liked_uri = app
-                .user_id()
-                .map(|id| format!("spotify:user:{id}:collection"));
+            let liked_uri = app.user_id().map(crate::link::liked_songs_uri);
             entries.sort_by_cached_key(|entry| {
                 let key = if entry.liked {
                     liked_uri.as_deref()
@@ -2066,7 +2064,7 @@ fn entry_menu(app: &mut App, response: &egui::Response, entry: &Entry, custom_or
                 ) && let Some(user) = &app.user
                 {
                     app.actions.push(Action::PlayContext {
-                        uri: format!("spotify:user:{}:collection", user.id),
+                        uri: crate::link::liked_songs_uri(&user.id),
                         offset_uri: None,
                         offset_index: None,
                     });
