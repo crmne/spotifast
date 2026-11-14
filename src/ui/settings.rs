@@ -858,6 +858,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         )
         .when(!cfg!(target_os = "macos")),
         RowText::new(start_with_computer.clone(), start_detail).when(start_available),
+        RowText::new(
+            gettext(locale, "Menu bar now playing"),
+            gettext(
+                locale,
+                "Shows the playing song beside the menu-bar icon. Click it for the cover and controls.",
+            ),
+        )
+        .when(cfg!(target_os = "macos")),
     ];
     for index in [0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 14] {
         playback_rows[index].available &= built_in;
@@ -1084,6 +1092,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     &palette,
                     &gettext(locale, "MacBook notch widget"),
                     &mut app.settings.mac_notch_widget,
+                )
+                .changed()
+                {
+                    changed = true;
+                }
+            });
+            #[cfg(target_os = "macos")]
+            filtered_row(ui, &palette, &needle, &playback, &playback_rows[18], |ui| {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    &gettext(locale, "Menu bar now playing"),
+                    &mut app.settings.mac_menu_bar_now_playing,
                 )
                 .changed()
                 {

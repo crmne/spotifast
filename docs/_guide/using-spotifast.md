@@ -606,6 +606,21 @@ Spotifast back in the Dock. The choice survives restarts, and Spotifast
 starts without the Dock icon; the Dock may show it for a moment as the app
 launches. This option is only on macOS.
 
+### Now playing in the menu bar
+
+Turn on **Menu bar now playing** under **Settings > Playback on this
+computer** to add a second menu-bar item, beside the usual icon, that names
+the song and its artists, playing or paused. A long name ends in an ellipsis,
+and with nothing loaded the item hides. The usual icon and its menu stay as
+they are. The change takes effect at once, without a restart. This option is
+only on macOS.
+
+Click the song for a card filled by the cover, and click it again to close
+the card. Move the pointer over the card and the cover blurs and dims behind
+the artists, the song, and **Previous**, **Play** or **Pause**, and **Next**,
+which work while another app is in front. The app icon in its corner opens
+the main window. A click anywhere else also closes the card.
+
 ## Keeping the mini player above other windows
 
 **Always on top** works on Windows, macOS and X11. On Wayland the app's

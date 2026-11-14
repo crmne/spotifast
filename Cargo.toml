@@ -214,14 +214,18 @@ apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 # src/mac_touchbar_crash_guard.rs catch a specific AppKit Objective-C
 # exception instead of letting it abort the process. NSWorkspace and
 # NSAccessibility answer whether the user asked for less motion
-# (src/motion.rs).
+# (src/motion.rs). NSStatusItem makes the extra menu-bar item that names
+# the song and NSPanel its card, which event monitors (block2) close on a
+# click elsewhere (src/mac_menu_bar.rs).
 objc2 = { version = "0.6", features = ["exception"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSScreen", "NSColor", "NSImage", "NSImageView", "NSButton", "NSControl", "NSTrackingArea", "NSVisualEffectView", "NSTextField", "NSBezierPath", "NSFont", "NSAnimation", "NSAnimationContext", "NSWorkspace"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSScreen", "NSColor", "NSImage", "NSImageView", "NSButton", "NSControl", "NSTrackingArea", "NSVisualEffectView", "NSTextField", "NSBezierPath", "NSFont", "NSAnimation", "NSAnimationContext", "NSWorkspace", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSPanel", "NSGraphics", "block2", "NSCell", "NSText", "NSParagraphStyle", "NSFontDescriptor"] }
 # NSAppleEventManager and NSAppleEventDescriptor carry the Spotify links
 # macOS hands an app registered for the scheme (src/mac_links.rs), and
 # NSRunLoop has the delayed perform that minimizes the window
 # (src/window.rs).
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData"] }
+# The blocks the menu-bar card's event monitors run (src/mac_menu_bar.rs).
+block2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }
