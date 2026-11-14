@@ -795,6 +795,53 @@ fn cast_devices(app: &mut App, connecting: bool) {
 }
 
 #[cfg(any(test, feature = "demo"))]
+fn artist_this_is(app: &mut App, long_name: bool, playing: bool) {
+    let name = if long_name {
+        "This Is Bonobo and the Extremely Long Orchestra Name for Truncation Coverage".to_string()
+    } else {
+        format!("This Is {}", ARTISTS[0])
+    };
+    let playlist = Playlist {
+        id: "this-is-art0".into(),
+        uri: "spotify:playlist:this-is-art0".into(),
+        name,
+        images: image(0),
+        owner: Owner {
+            id: Some("spotify".into()),
+            display_name: Some("Spotify".into()),
+            ..Default::default()
+        },
+        items_count: Some(TrackCount { total: 10 }),
+        ..Default::default()
+    };
+    let mut playlist_page = PlaylistPage {
+        playlist: Loadable::Loaded(playlist.clone()),
+        ..Default::default()
+    };
+    playlist_page.items.absorb(
+        0,
+        page(
+            (0..10)
+                .map(|index| PlaylistItem {
+                    item: Some(PlayableItem::Track(track(index))),
+                    ..Default::default()
+                })
+                .collect(),
+        ),
+    );
+    app.playlist_pages
+        .insert(playlist.id.clone(), playlist_page);
+    if playing && let Some(remote) = &mut app.remote {
+        remote.state.context = Some(Context {
+            kind: "playlist".into(),
+            uri: playlist.uri.clone(),
+        });
+        remote.state.is_playing = true;
+    }
+    app.artist_this_is.insert(artist(0).uri, playlist);
+}
+
+#[cfg(any(test, feature = "demo"))]
 /// Audio outputs as fastframe-audio lists them on Windows: WASAPI endpoint
 /// ids, shown by name.
 fn demo_outputs() -> Vec<fastframe_audio::DeviceInfo> {
@@ -1174,6 +1221,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     }
     for surface in show.unwrap_or("").split(',').map(str::trim) {
         match surface {
+            "artist-this-is" | "artist-this-is-long" | "artist-this-is-playing" => {
+                artist_this_is(
+                    app,
+                    surface == "artist-this-is-long",
+                    surface == "artist-this-is-playing",
+                );
+            }
             "recommendations-denied-before"
             | "recommendations-denied"
             | "recommendations-network"
@@ -2218,6 +2272,191 @@ mod tests {
             .platform_output
             .accesskit_update
             .expect("screen-reader tree")
+    }
+
+    #[test]
+    fn artist_this_is_card_is_scoped_accessible_and_opens_its_header() {
+        for width in [760.0, 1280.0] {
+            for light in [false, true] {
+                let (ctx, mut app) = accessible_app("artist-this-is-card");
+                app.settings.theme = if light {
+                    crate::settings::ThemeChoice::Light
+                } else {
+                    crate::settings::ThemeChoice::Dark
+                };
+                app.show_queue_panel = width == 760.0;
+                app.open(Page::Artist("art0".into()));
+                let draw = |app: &mut App, events| {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(width, 4200.0),
+                            )),
+                            events,
+                            ..Default::default()
+                        },
+                        |ui| app.frame_ui(ui),
+                    );
+                    output.textures_delta.clear();
+                    output.platform_output.accesskit_update.unwrap()
+                };
+                draw(&mut app, vec![]);
+                let absent = draw(&mut app, vec![]);
+                assert!(!absent.nodes.iter().any(|(_, node)| {
+                    node.label()
+                        .is_some_and(|label| label.starts_with("This Is Bonobo"))
+                }));
+                artist_this_is(&mut app, false, false);
+                draw(&mut app, vec![]);
+                let tree = draw(&mut app, vec![]);
+                let (button, node) = tree
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| node.label() == Some("This Is Bonobo, By Spotify"))
+                    .expect("verified playlist card");
+                let card = node.bounds().unwrap();
+                assert!(card.x0 >= 0.0 && card.x1 <= f64::from(width));
+                let discography = tree
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| {
+                        node.label() == Some("Discography") || node.value() == Some("Discography")
+                    })
+                    .unwrap()
+                    .1
+                    .bounds()
+                    .unwrap();
+                let related = tree
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| {
+                        node.label() == Some("Fans also like")
+                            || node.value() == Some("Fans also like")
+                    })
+                    .unwrap()
+                    .1
+                    .bounds()
+                    .unwrap();
+                assert!(discography.y1 < card.y0 && card.y1 < related.y0);
+                let playing = app.playing_context_uri();
+                let saved = app.saved.clone();
+                draw(
+                    &mut app,
+                    vec![accessible_action(
+                        *button,
+                        egui::accesskit::Action::Click,
+                        None,
+                    )],
+                );
+                assert_eq!(app.page(), &Page::Playlist("this-is-art0".into()));
+                assert_eq!(app.playing_context_uri(), playing);
+                assert_eq!(app.saved, saved);
+                let header = draw(&mut app, vec![]);
+                assert!(
+                    header
+                        .nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some("This Is Bonobo")
+                            || node.value() == Some("This Is Bonobo"))
+                );
+                app.playlist_pages.get_mut("this-is-art0").unwrap().playlist = Loadable::Loading;
+                let loading = draw(&mut app, vec![]);
+                assert!(
+                    loading
+                        .nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some("This Is Bonobo")
+                            || node.value() == Some("This Is Bonobo"))
+                );
+                app.artist_pages.insert(
+                    "art1".into(),
+                    ArtistPage {
+                        artist: Loadable::Loaded(artist(1)),
+                        ..Default::default()
+                    },
+                );
+                app.open(Page::Artist("art1".into()));
+                let other = draw(&mut app, vec![]);
+                assert!(!other.nodes.iter().any(|(_, node)| {
+                    node.label()
+                        .is_some_and(|label| label.starts_with("This Is Bonobo"))
+                }));
+                app.backend.shutdown();
+            }
+        }
+    }
+
+    #[test]
+    fn artist_this_is_hover_play_and_pause_use_existing_actions() {
+        let (ctx, mut app) = accessible_app("artist-this-is-play");
+        artist_this_is(&mut app, false, false);
+        let draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 4200.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::artist::show(app, ui, "art0"),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        draw(&mut app, vec![]);
+        let tree = draw(&mut app, vec![]);
+        let card = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("This Is Bonobo, By Spotify"))
+            .unwrap()
+            .1
+            .bounds()
+            .unwrap();
+        let pointer = egui::pos2(card.x0 as f32 + 50.0, card.y0 as f32 + 50.0);
+        for (playing, label) in [(false, "Play"), (true, "Pause")] {
+            artist_this_is(&mut app, false, playing);
+            draw(&mut app, vec![egui::Event::PointerMoved(pointer)]);
+            let tree = draw(&mut app, vec![egui::Event::PointerMoved(pointer)]);
+            let button = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.label() == Some(label)
+                        && node
+                            .bounds()
+                            .is_some_and(|bounds| bounds.y0 > card.y0 && bounds.y1 < card.y1)
+                })
+                .unwrap()
+                .0;
+            app.actions.clear();
+            draw(
+                &mut app,
+                vec![accessible_action(
+                    button,
+                    egui::accesskit::Action::Click,
+                    None,
+                )],
+            );
+            if playing {
+                assert!(
+                    app.actions
+                        .iter()
+                        .any(|action| matches!(action, Action::TogglePlay))
+                );
+            } else {
+                assert!(app.actions.iter().any(|action| matches!(action, Action::PlayContext { uri, .. } if uri == "spotify:playlist:this-is-art0")));
+            }
+            assert!(
+                !app.actions
+                    .iter()
+                    .any(|action| matches!(action, Action::Open(_)))
+            );
+        }
+        app.backend.shutdown();
     }
 
     #[test]

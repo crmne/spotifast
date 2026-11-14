@@ -843,6 +843,7 @@ pub struct App {
     artist_metadata_reads: HashMap<String, ArtistMetadataRead>,
     /// Upcoming releases read with artist play counts, kept only for this account.
     pub artist_prereleases: HashMap<String, crate::prerelease::UpcomingRelease>,
+    pub artist_this_is: HashMap<String, Playlist>,
     play_count_generation: u64,
     /// User ids resolved to avatar picture urls, asked for alongside the
     /// names; `None` while unknown or when Spotify gives no picture.
@@ -1490,6 +1491,7 @@ impl App {
             play_counts: HashMap::new(),
             play_count_reads: HashMap::new(),
             artist_prereleases: HashMap::new(),
+            artist_this_is: HashMap::new(),
             artist_metadata_reads: HashMap::new(),
             play_count_generation: 0,
             user_names_revision: 0,
@@ -2688,6 +2690,13 @@ impl App {
 
     /// Finds a playlist already loaded in the library, search, or a Home shelf.
     pub fn known_playlist(&self, id: &str) -> Option<&Playlist> {
+        if let Some(playlist) = self
+            .artist_this_is
+            .values()
+            .find(|playlist| playlist.id == id)
+        {
+            return Some(playlist);
+        }
         self.library
             .playlists
             .get()
@@ -3115,6 +3124,13 @@ impl App {
                     generation,
                     result,
                 } => self.receive_play_counts(uri, generation, result),
+                Event::ArtistThisIs {
+                    uri,
+                    generation,
+                    result,
+                } => {
+                    self.receive_artist_this_is(uri, generation, result);
+                }
                 Event::AudiobookShows(uris) => {
                     self.audiobook_shows.extend(uris);
                 }
@@ -3771,6 +3787,7 @@ impl App {
         self.prerelease_request = None;
         self.artist_pages.clear();
         self.artist_prereleases.clear();
+        self.artist_this_is.clear();
         self.artist_metadata_reads.clear();
         self.play_counts.clear();
         self.play_count_reads.clear();
@@ -7931,6 +7948,26 @@ impl App {
         self.play_count_reads.insert(uri, read);
     }
 
+    fn receive_artist_this_is(
+        &mut self,
+        uri: String,
+        generation: u64,
+        result: Result<Option<Playlist>, &'static str>,
+    ) {
+        if generation != self.play_count_generation || !uri.starts_with("spotify:artist:") {
+            return;
+        }
+        match result {
+            Ok(Some(playlist)) => {
+                self.artist_this_is.insert(uri, playlist);
+            }
+            Ok(None) => {
+                self.artist_this_is.remove(&uri);
+            }
+            Err(_) => {}
+        }
+    }
+
     fn request_album_types<'a>(&mut self, albums: impl IntoIterator<Item = &'a Album>) {
         let mut uris = Vec::new();
         for album in albums {
@@ -8820,6 +8857,20 @@ impl App {
                     if let Some(owner) = playlist.owner.id.clone().filter(|owner| !owner.is_empty())
                     {
                         self.request_user_names(vec![owner]);
+                    }
+                    if let Some(known) = self
+                        .artist_this_is
+                        .values()
+                        .find(|playlist| playlist.id == id)
+                    {
+                        playlist.fill_blank_from(known);
+                        playlist.fill_from(known);
+                        if playlist.uri.is_empty() {
+                            playlist.uri = known.uri.clone();
+                        }
+                        if playlist.owner.id.as_deref().is_none_or(str::is_empty) {
+                            playlist.owner.id = known.owner.id.clone();
+                        }
                     }
                     if let Some(listed) = self.library_entry(&id) {
                         playlist.fill_from(listed);
@@ -28954,6 +29005,115 @@ mod tests {
         );
         app.receive_play_counts(uri.into(), app.play_count_generation, Ok(data()));
         assert_eq!(app.artist_prereleases[uri].name, "Hollowbody");
+    }
+
+    #[test]
+    fn artist_this_is_survives_refresh_errors_but_not_absence_or_signout() {
+        let mut app = headless_app();
+        let uri = "spotify:artist:artist";
+        let playlist = Playlist {
+            id: "official".into(),
+            uri: "spotify:playlist:official".into(),
+            name: "This Is Artist".into(),
+            owner: crate::api::models::Owner {
+                id: Some("spotify".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.local_ready = true;
+        app.network_reachable = true;
+        app.receive_play_counts(uri.into(), 0, Ok(Default::default()));
+        app.receive_artist_this_is(uri.into(), 0, Ok(Some(playlist.clone())));
+        assert_eq!(app.known_playlist("official").unwrap().name, playlist.name);
+        assert!(!app.artist_this_is.contains_key("spotify:artist:other"));
+        app.artist_metadata_reads.get_mut(uri).unwrap().received_at =
+            Instant::now() - ARTIST_METADATA_REFRESH;
+        app.request_play_counts(uri);
+        assert_eq!(app.play_count_reads[uri], PlayCountRead::Asked);
+        assert!(app.artist_this_is.contains_key(uri));
+        app.receive_play_counts(uri.into(), 0, Err("offline".into()));
+        app.receive_artist_this_is(uri.into(), 0, Err("unknown schema"));
+        assert!(app.artist_this_is.contains_key(uri));
+        app.receive_play_counts(uri.into(), 0, Ok(Default::default()));
+        assert!(app.artist_this_is.contains_key(uri));
+        app.receive_artist_this_is(uri.into(), 0, Ok(None));
+        assert!(app.artist_this_is.is_empty());
+        app.receive_artist_this_is(uri.into(), 0, Ok(Some(playlist.clone())));
+        app.reset_data();
+        assert!(app.artist_this_is.is_empty());
+        assert!(app.known_playlist("official").is_none());
+        app.receive_artist_this_is(uri.into(), 0, Ok(Some(playlist.clone())));
+        assert!(app.artist_this_is.is_empty());
+        app.receive_artist_this_is(
+            uri.into(),
+            app.play_count_generation,
+            Ok(Some(playlist.clone())),
+        );
+        app.receive_artist_this_is(uri.into(), 0, Ok(None));
+        assert!(app.artist_this_is.contains_key(uri));
+        app.receive_artist_this_is(
+            "spotify:album:other".into(),
+            app.play_count_generation,
+            Ok(Some(playlist)),
+        );
+        assert_eq!(app.artist_this_is.len(), 1);
+    }
+
+    #[test]
+    fn artist_this_is_preview_wins_over_a_blank_library_entry() {
+        let mut app = headless_app();
+        app.library.playlists = Loadable::Loaded(vec![Playlist {
+            id: "official".into(),
+            ..Default::default()
+        }]);
+        app.receive_artist_this_is(
+            "spotify:artist:artist".into(),
+            0,
+            Ok(Some(Playlist {
+                id: "official".into(),
+                name: "This Is Artist".into(),
+                ..Default::default()
+            })),
+        );
+        assert_eq!(
+            app.known_playlist("official").unwrap().name,
+            "This Is Artist"
+        );
+    }
+
+    #[test]
+    fn artist_this_is_blank_api_header_keeps_verified_metadata() {
+        let mut app = headless_app();
+        app.receive_artist_this_is(
+            "spotify:artist:artist".into(),
+            0,
+            Ok(Some(Playlist {
+                id: "official".into(),
+                uri: "spotify:playlist:official".into(),
+                name: "This Is Artist".into(),
+                owner: crate::api::models::Owner {
+                    id: Some("spotify".into()),
+                    display_name: Some("Spotify".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })),
+        );
+        app.playlist_pages
+            .insert("official".into(), PlaylistPage::default());
+        app.handle_api(ApiResponse::Playlist {
+            id: "official".into(),
+            generation: 0,
+            result: Ok(Playlist {
+                id: "official".into(),
+                ..Default::default()
+            }),
+        });
+        let playlist = app.playlist_pages["official"].playlist.get().unwrap();
+        assert_eq!(playlist.name, "This Is Artist");
+        assert_eq!(playlist.owner_name(), "Spotify");
+        assert_eq!(playlist.uri, "spotify:playlist:official");
     }
 
     #[test]

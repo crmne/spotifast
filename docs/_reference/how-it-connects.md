@@ -867,3 +867,21 @@ Previously loaded recommendations remain visible. This is not a permanent
 capability decision: refreshing Home tries the request again. Network, sign-in,
 rate-limit and server errors retain their normal error handling. No alternate
 recommendation source is substituted.
+
+## Official This Is playlists
+
+Artist pages reuse their existing overview's `relatedContent.featuringV2`
+(or `featuring`) Playlist entries. Only a single distinct, valid playlist URI
+with the exact title `This Is <artist profile name>` is considered. One
+zero-track session header read verifies the same title and the canonical owner
+ID `spotify`, not a display name. It has a three-second deadline and runs after
+play counts and prerelease metadata have been delivered, so it cannot hold
+those results back. No search or additional authorization is used.
+
+This is a conservative heuristic over a private response, not a documented
+artist-to-playlist association. An explicit empty Featuring list, no exact
+match, conflicting candidates, or a header with another owner or title leaves
+out the card. An omitted or malformed field, incomplete header, or transient
+failure preserves an already verified card. Artist overviews refresh after ten
+minutes while viewed; cards are held only in account-scoped memory and cleared
+on sign-out. Other artists never inherit the previous artist's card.

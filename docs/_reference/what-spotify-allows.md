@@ -97,6 +97,12 @@ clients. Spotifast uses its session for:
   Spotify's own clients, with the session's Login5 bearer and client token.
   It uses the configured HTTP transport and falls back to the Web API, which
   answers only a shared grant from before 0.14.2, if that read is unavailable. A different account's session is never used.
+- **Official This Is playlists on artist pages.** The existing artist overview's
+  Featuring entries can identify a single exact `This Is <artist name>` title.
+  Spotifast verifies its canonical owner is `spotify` with one zero-track
+  session header read. This is a conservative private-response heuristic, not
+  a documented association for every artist. Missing or ambiguous matches are
+  not guessed or searched for elsewhere.
 - **Upcoming album pages.** Artist overviews supply countdown cards without a
   prior pre-save. Prerelease metadata supplies the real album mapping,
   cover and release time. Pathfinder supplies ordered preview rows and explicit
