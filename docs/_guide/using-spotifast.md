@@ -81,6 +81,13 @@ open the podcast, or use its play button to play the episode. An episode you
 have started continues from where you left it. The same is true of Play on a
 podcast page, a saved episode, or a search result.
 
+## Podcast episode details
+
+An episode row shows only the first two lines of its description. Open the
+episode's menu and choose **Episode details** to read the whole description,
+with the podcast's name, the release date, and the length. The text can be
+selected and copied.
+
 ## Dragging beyond the visible list
 
 Since 0.8.0, hold a dragged song near the top or

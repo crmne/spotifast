@@ -1396,6 +1396,16 @@ fn item_menu_at(
             }
         }
         PlayableItem::Episode(episode) => {
+            if menu_item(
+                ui,
+                &palette,
+                Some(Icon::Info),
+                &gettext(locale, "Episode details"),
+            ) {
+                app.actions.push(Action::ShowDialog(Dialog::EpisodeDetails {
+                    episode: Box::new(episode.clone()),
+                }));
+            }
             if let Some(show) = &episode.show
                 && menu_item(
                     ui,

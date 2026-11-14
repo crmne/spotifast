@@ -56,7 +56,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             }
             theme::section_title(ui, &palette, &gettext(locale, "All episodes"));
             ui.add_space(6.0);
-            let episodes = page.episodes.items.clone();
+            // Spotify leaves the show out of each episode here; the page knows
+            // it, and the episode's menu and details name it.
+            let episodes = with_show(&page.episodes.items, show);
             let show_image = pick_image(&show.images, app.art_px(EPISODE_ART)).map(str::to_string);
             if episodes.is_empty() && !app.network_reachable {
                 widgets::empty_state(
@@ -270,6 +272,21 @@ fn show_actions(
             });
     });
     ui.add_space(16.0);
+}
+
+/// Adds the page's show to episodes the API answered without one, so their
+/// menus and details can name it.
+fn with_show(episodes: &[Episode], show: &Show) -> Vec<Episode> {
+    episodes
+        .iter()
+        .map(|episode| {
+            let mut episode = episode.clone();
+            if episode.show.is_none() {
+                episode.show = Some(show.clone());
+            }
+            episode
+        })
+        .collect()
 }
 
 /// One episode with its description, date, length, and progress.
@@ -486,6 +503,7 @@ pub fn episode_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Dialog;
 
     fn test_app() -> App {
         let root = std::env::temp_dir().join(format!(
@@ -596,5 +614,130 @@ mod tests {
                 "Refresh reloads the podcast: {actions:?}"
             );
         }
+    }
+
+    /// The episode menu opens the notes a row has no room for.
+    #[test]
+    fn episode_menu_opens_its_details() {
+        let description = "<p>First paragraph.</p><p>Second paragraph.</p>";
+        let episode = Episode {
+            id: "ep1".into(),
+            uri: "spotify:episode:ep1".into(),
+            name: "A long conversation".into(),
+            description: description.into(),
+            duration_ms: 3_600_000,
+            release_date: Some("2026-11-01".into()),
+            show: Some(Show {
+                id: "sh1".into(),
+                uri: "spotify:show:sh1".into(),
+                name: "Rework".into(),
+                ..Show::default()
+            }),
+            ..Episode::default()
+        };
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        theme::install(&ctx);
+        let mut app = test_app();
+        let mut frame = |events| {
+            app.actions.clear();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 520.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ui| episode_row(&mut app, ui, &episode, None),
+            );
+            output.textures_delta.clear();
+            (
+                output.platform_output.accesskit_update.unwrap(),
+                std::mem::take(&mut app.actions),
+            )
+        };
+        let locate = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            let (_, node) = tree
+                .nodes
+                .iter()
+                .find(|(_, n)| n.label() == Some(label))
+                .unwrap_or_else(|| panic!("missing {label}"));
+            let b = node.bounds().unwrap();
+            (
+                node.is_disabled(),
+                pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32),
+            )
+        };
+        let click = |pos| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        frame(vec![]);
+        let (closed, _) = frame(vec![]);
+        let (_, more) = locate(&closed, "More");
+        frame(click(more));
+        let (open, _) = frame(vec![]);
+        let (disabled, details) = locate(&open, "Episode details");
+        assert!(!disabled);
+        let (_, actions) = frame(click(details));
+        let shown = actions
+            .iter()
+            .find_map(|action| match action {
+                Action::ShowDialog(Dialog::EpisodeDetails { episode }) => Some(episode),
+                _ => None,
+            })
+            .expect("the menu opens the episode's details");
+        assert_eq!(shown.description, description, "the notes stay whole");
+        assert_eq!(shown.name, "A long conversation");
+    }
+
+    /// Spotify's show episodes carry no show of their own; the page names it.
+    #[test]
+    fn podcast_page_episodes_get_the_show_that_spotify_leaves_out() {
+        let page_show = Show {
+            id: "sh1".into(),
+            name: "Rework".into(),
+            uri: "spotify:show:sh1".into(),
+            ..Show::default()
+        };
+        let episodes = vec![
+            Episode {
+                id: "ep1".into(),
+                uri: "spotify:episode:ep1".into(),
+                ..Episode::default()
+            },
+            Episode {
+                id: "ep2".into(),
+                uri: "spotify:episode:ep2".into(),
+                show: Some(Show {
+                    id: "sh2".into(),
+                    name: "Song Exploder".into(),
+                    ..Show::default()
+                }),
+                ..Episode::default()
+            },
+        ];
+        let filled = with_show(&episodes, &page_show);
+        assert_eq!(
+            filled[0].show.as_ref().map(|show| show.name.as_str()),
+            Some("Rework")
+        );
+        assert_eq!(
+            filled[1].show.as_ref().map(|show| show.name.as_str()),
+            Some("Song Exploder"),
+            "an episode that names its own show keeps it"
+        );
     }
 }
