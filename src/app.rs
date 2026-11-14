@@ -1,4 +1,4 @@
-//! The application: state, event handling, and the actions views ask for.
+﻿//! The application: state, event handling, and the actions views ask for.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -30063,7 +30063,7 @@ mod tests {
         );
 
         assert!(app.backend.take_playlist_add_requests().is_empty());
-        assert!(app.playlist_pages.get("target").is_none());
+        assert!(!app.playlist_pages.contains_key("target"));
     }
 
     /// Copying picked songs puts their links on the clipboard, one per
