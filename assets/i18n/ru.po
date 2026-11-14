@@ -228,7 +228,7 @@ msgid "{name}, folder, expanded"
 msgstr "{name}, папка, развёрнута"
 
 #: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+msgid "Click to change the visualiser"
 msgstr "Нажмите, чтобы сменить визуализатор"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:131 src/ui/lyrics.rs:805
@@ -1712,11 +1712,11 @@ msgid "Custom title bar"
 msgstr "Собственный заголовок окна"
 
 #: src/ui/settings.rs:1242
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "Визуализатор в панели плеера"
 
 #: src/ui/settings.rs:1243
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "Нажатие на панель воспроизведения меняет визуализацию"
 
 #: src/ui/settings.rs:1252
@@ -1806,7 +1806,7 @@ msgstr ""
 "компьютере."
 
 #: src/ui/settings.rs:1348
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 "Разрешить переключение визуализации нажатием на пустое место панели "
 "воспроизведения."
@@ -1817,7 +1817,7 @@ msgstr "Частота кадров"
 
 #: src/ui/settings.rs:1354
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "Как часто рисуют визуализации панели плеера и мини-плеера. Низкая частота "

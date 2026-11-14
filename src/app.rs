@@ -24057,8 +24057,9 @@ mod tests {
         app.backend.shutdown();
     }
 
-    /// The Listening activity button sits in the player bar beside Lyrics,
-    /// and gives way in a narrow window before it crowds Repeat.
+    /// The Listening activity button sits in the top bar beside Settings,
+    /// out of the player bar, and the full screen button keeps clear of
+    /// Repeat as the window narrows.
     #[cfg(feature = "demo")]
     #[test]
     fn the_listening_activity_button_never_crowds_the_transport() {
@@ -24096,8 +24097,8 @@ mod tests {
             };
             let repeat = button("Repeat").expect("Repeat");
             let lyrics = button("Lyrics").expect("Lyrics");
-            // The full screen button is the last on the right, keeps clear
-            // of Repeat, and outlasts Listening activity as it narrows.
+            // The full screen button is the last on the right and keeps
+            // clear of Repeat.
             if let Some(full) = button("Full screen lyrics") {
                 button_at.get_or_insert(width);
                 assert!(full.x1 <= f64::from(width), "inside the bar at {width}");
@@ -24108,15 +24109,80 @@ mod tests {
             }
             if let Some(friends) = button("Listening activity") {
                 shown_at.get_or_insert(width);
-                assert!(friends.y0 > 700.0, "in the player bar at {width}");
-                assert!(friends.x1 <= lyrics.x0, "before Lyrics at {width}");
-                assert!(friends.x0 - repeat.x1 >= 10.0, "clear of Repeat at {width}");
+                let settings = button("Settings").expect("Settings");
+                assert!(friends.y1 < 100.0, "in the top bar at {width}");
+                assert!(friends.x1 <= settings.x0, "left of Settings at {width}");
+                if let Some(milkdrop) = button("MilkDrop") {
+                    assert!(milkdrop.x1 <= friends.x0, "right of MilkDrop at {width}");
+                }
             } else {
                 assert!(shown_at.is_none(), "it stays once shown, gone at {width}");
             }
         }
         assert!(button_at.is_some_and(|width| width > 760.0 && width <= 840.0));
-        assert!(shown_at.is_some_and(|width| Some(width) > button_at && width <= 920.0));
+        assert!(shown_at.is_some());
+        app.backend.shutdown();
+    }
+
+    /// A second click on the top bar's Settings closes them, back to the
+    /// page the first click came from.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_second_click_on_settings_closes_them() {
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, Role, TreeId};
+        fn draw(
+            ctx: &egui::Context,
+            app: &mut App,
+            events: Vec<egui::Event>,
+        ) -> egui::accesskit::TreeUpdate {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        }
+        fn click_settings(ctx: &egui::Context, app: &mut App) {
+            let tree = draw(ctx, app, Vec::new());
+            let id = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == Role::Button
+                        && node
+                            .label()
+                            .is_some_and(|text| text.starts_with("Settings"))
+                })
+                .expect("the Settings button")
+                .0;
+            draw(
+                ctx,
+                app,
+                vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                    target_tree: TreeId::ROOT,
+                    target_node: id,
+                    action: AccessibleAction::Click,
+                    data: None,
+                })],
+            );
+        }
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = test_app("settings-second-click");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.apply(Action::Open(Page::Playlist("pl0".into())), &ctx);
+        click_settings(&ctx, &mut app);
+        assert_eq!(app.page(), &Page::Settings);
+        click_settings(&ctx, &mut app);
+        assert_eq!(app.page(), &Page::Playlist("pl0".into()));
         app.backend.shutdown();
     }
 
