@@ -167,7 +167,10 @@ pub(crate) fn fullscreen_column_drag_width(saved: f32, delta_x: f32) -> f32 {
 /// words' bar does.
 pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     // Full screen lyrics are dark in every theme, and so is the queue
-    // beside them, whatever the window's own theme.
+    // beside them, whatever the window's own theme. The palette is only the
+    // colours views draw with, and the rows read it from `app`, so the
+    // column lends them dark ones while it draws and gives the window's
+    // back before anything else draws or any action applies.
     let own = app.palette;
     app.palette = over_lyrics(&own);
     column(app, ui, controls);

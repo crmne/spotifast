@@ -423,8 +423,15 @@ pub fn edge_faded<R>(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui) -> R) -
 
 /// How visible `item` is near the edges of `view`. It fades by whichever of
 /// its edges is nearer the edge of `view`, over `band` points, and is gone
-/// before that edge reaches it, so the clip never cuts it in half.
+/// before that edge reaches it, so the clip never cuts it in half. An item
+/// too tall to clear the band at both ends at once fades over the room it
+/// has, so it still shows whole in the middle, and one taller than `view`
+/// does not fade at all.
 pub fn edge_opacity(item: Rect, view: Rect, band: f32) -> f32 {
+    let band = band.min((view.height() - item.height()) / 2.0);
+    if band <= 0.0 {
+        return 1.0;
+    }
     let room = (item.top() - view.top()).min(view.bottom() - item.bottom());
     let edge = (room / band).clamp(0.0, 1.0);
     edge * edge * (3.0 - 2.0 * edge)

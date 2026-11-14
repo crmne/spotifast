@@ -1230,6 +1230,18 @@ mod tests {
         assert_eq!(edge_opacity(line(300.0), view, 80.0), 1.0, "in the middle");
     }
 
+    /// A line wrapped over so many rows that it cannot clear the fade at
+    /// both ends still shows whole once it is in the middle of the view.
+    #[test]
+    fn a_line_too_tall_for_the_fades_still_shows_whole() {
+        let view = Rect::from_min_max(pos2(0.0, 100.0), pos2(600.0, 700.0));
+        let tall = |top: f32| Rect::from_min_size(pos2(0.0, top), egui::vec2(600.0, 500.0));
+        assert_eq!(edge_opacity(tall(150.0), view, 80.0), 1.0, "in the middle");
+        assert_eq!(edge_opacity(tall(100.0), view, 80.0), 0.0, "at the top");
+        let taller = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(600.0, 900.0));
+        assert_eq!(edge_opacity(taller, view, 80.0), 1.0, "never gone");
+    }
+
     #[test]
     fn fullscreen_backdrop_prefers_small_art_with_large_art_as_fallback() {
         let small = "small".to_string();
