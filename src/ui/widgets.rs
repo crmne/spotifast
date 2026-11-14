@@ -381,12 +381,53 @@ pub fn virtual_rows(
         ui.allocate_space(vec2(width, first as f32 * row_height));
     }
     for index in first..last {
-        row(ui, index);
+        edge_faded(ui, row_height, |ui| row(ui, index));
     }
     if last < count {
         ui.allocate_space(vec2(width, (count - last) as f32 * row_height));
     }
     ui.spacing_mut().item_spacing = previous_spacing;
+}
+
+fn list_edge_id() -> egui::Id {
+    egui::Id::new("spotifast-list-edge-fade")
+}
+
+/// Draws the scroll area `add` makes with its rows fading out over `band`
+/// points before its top and bottom edges, for a list on a rounded pane:
+/// the area's square edge then never cuts a row, and the list reads as part
+/// of the pane rather than a box inside it. Rows from [`virtual_rows`] fade
+/// on their own; anything else in the list goes through [`edge_faded`].
+pub fn fade_list_edges<R>(ui: &mut Ui, band: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let id = list_edge_id();
+    ui.ctx().data_mut(|data| data.insert_temp(id, band));
+    let shown = add(ui);
+    ui.ctx().data_mut(|data| data.remove::<f32>(id));
+    shown
+}
+
+/// Draws `add`, `height` points tall at the cursor, faded by how near it is
+/// to an edge of the visible list while [`fade_list_edges`] is on, and as it
+/// is otherwise.
+pub fn edge_faded<R>(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let Some(band) = ui.ctx().data(|data| data.get_temp::<f32>(list_edge_id())) else {
+        return add(ui);
+    };
+    let item = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), height));
+    let opacity = ui.opacity();
+    ui.set_opacity(opacity * edge_opacity(item, ui.clip_rect(), band));
+    let shown = add(ui);
+    ui.set_opacity(opacity);
+    shown
+}
+
+/// How visible `item` is near the edges of `view`. It fades by whichever of
+/// its edges is nearer the edge of `view`, over `band` points, and is gone
+/// before that edge reaches it, so the clip never cuts it in half.
+pub fn edge_opacity(item: Rect, view: Rect, band: f32) -> f32 {
+    let room = (item.top() - view.top()).min(view.bottom() - item.bottom());
+    let edge = (room / band).clamp(0.0, 1.0);
+    edge * edge * (3.0 - 2.0 * edge)
 }
 
 /// A wrapping grid of cards, laid out row by row so only visible cards are
@@ -5053,5 +5094,45 @@ mod tests {
             .unwrap();
         assert_eq!(meta.options, crate::images::COVER_TEXTURE);
         assert_eq!(meta.options.mipmap_mode, Some(egui::TextureFilter::Linear));
+    }
+}
+
+#[cfg(test)]
+mod list_edge_tests {
+    use super::*;
+
+    fn item(top: f32) -> Rect {
+        Rect::from_min_size(pos2(0.0, top), vec2(100.0, 20.0))
+    }
+
+    #[test]
+    fn a_row_fades_out_by_its_nearer_edge_of_the_list() {
+        let view = Rect::from_min_size(egui::Pos2::ZERO, vec2(100.0, 200.0));
+        assert_eq!(edge_opacity(item(0.0), view, 12.0), 0.0, "at the top");
+        assert_eq!(edge_opacity(item(6.0), view, 12.0), 0.5, "half way in");
+        assert_eq!(edge_opacity(item(12.0), view, 12.0), 1.0, "a band inside");
+        assert_eq!(edge_opacity(item(90.0), view, 12.0), 1.0, "in the middle");
+        assert_eq!(edge_opacity(item(180.0), view, 12.0), 0.0, "at the bottom");
+        assert_eq!(edge_opacity(item(-30.0), view, 12.0), 0.0, "scrolled past");
+    }
+
+    #[test]
+    fn only_a_list_that_asks_for_it_fades_its_edges() {
+        let ctx = egui::Context::default();
+        let mut seen = Vec::new();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            seen.clear();
+            ui.set_clip_rect(Rect::from_min_size(ui.cursor().min, vec2(200.0, 100.0)));
+            seen.push(edge_faded(ui, 20.0, |ui| ui.opacity()));
+            fade_list_edges(ui, 12.0, |ui| {
+                seen.push(edge_faded(ui, 20.0, |ui| ui.opacity()));
+                ui.add_space(12.0);
+                seen.push(edge_faded(ui, 20.0, |ui| ui.opacity()));
+            });
+            seen.push(ui.opacity());
+            seen.push(edge_faded(ui, 20.0, |ui| ui.opacity()));
+        });
+        output.textures_delta.clear();
+        assert_eq!(seen, [1.0, 0.0, 1.0, 1.0, 1.0]);
     }
 }

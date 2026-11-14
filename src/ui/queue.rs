@@ -290,7 +290,6 @@ fn column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     if save {
         app.actions.push(Action::SaveQueueAsPlaylist);
     }
-    ui.add_space(8.0);
     // Lazy load recents when tab becomes visible.
     if app.queue_tab == QueueTab::Recents
         && !app.recents.loading
@@ -304,25 +303,37 @@ fn column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     scroll.dormant_handle_opacity = scroll.active_handle_opacity * controls;
     scroll.active_handle_opacity *= controls;
     scroll.interact_handle_opacity *= controls;
-    crate::autoscroll::show(
-        ui,
-        egui::ScrollArea::vertical()
-            .id_salt("queue-fullscreen-scroll")
-            .auto_shrink([false, false])
-            // Keep rows and headings clear of the scroll bar.
-            .content_margin(egui::Margin {
-                left: 0,
-                right: 12,
-                top: 0,
-                bottom: 0,
-            }),
-        egui::Vec2b::new(false, true),
-        |ui| match app.queue_tab {
-            QueueTab::Queue => contents(app, ui, true),
-            QueueTab::Recents => recents_contents(app, ui),
-        },
-    );
+    // The rows fade out before the list's edges instead of being cut by
+    // them, so the list belongs to the pane rather than sitting in a box of
+    // its own. At rest its margin keeps the first and last rows whole.
+    widgets::fade_list_edges(ui, f32::from(LIST_EDGE), |ui| {
+        crate::autoscroll::show(
+            ui,
+            egui::ScrollArea::vertical()
+                .id_salt("queue-fullscreen-scroll")
+                .auto_shrink([false, false])
+                // Keep rows and headings clear of the scroll bar.
+                .content_margin(egui::Margin {
+                    left: 0,
+                    right: 12,
+                    top: LIST_EDGE,
+                    bottom: LIST_EDGE,
+                }),
+            egui::Vec2b::new(false, true),
+            |ui| match app.queue_tab {
+                QueueTab::Queue => contents(app, ui, true),
+                QueueTab::Recents => recents_contents(app, ui),
+            },
+        );
+    });
 }
+
+/// How far the full screen column's rows fade before its list's top and
+/// bottom, and the margin that keeps them whole there at rest.
+const LIST_EDGE: i8 = 12;
+
+/// The height a section heading in the queue fades by near a list's edge.
+const HEADING_HEIGHT: f32 = 24.0;
 
 /// Saves the current and upcoming queue as a playlist.
 fn save_button(
@@ -421,61 +432,69 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
             .get()
             .and_then(|queue| queue.currently_playing.clone()),
     };
+    let row_height = if compact {
+        theme::COMPACT_ROW_HEIGHT
+    } else {
+        theme::ROW_HEIGHT
+    };
     // Where the songs come from, above the song itself. A radio has no
     // page, so its name is plain text.
     if let Some(from) = app.playing_from().filter(|_| current.is_some()) {
-        ui.horizontal(|ui| {
-            theme::text(
-                ui,
-                gettext(app.locale, "Playing from"),
-                theme::regular(13.0),
-                palette.secondary,
-            );
-            match from.page {
-                Some(page) => {
-                    if theme::link(ui, from.name, theme::semibold(13.0), palette.text).clicked() {
-                        app.actions.push(Action::Open(page));
+        widgets::edge_faded(ui, HEADING_HEIGHT, |ui| {
+            ui.horizontal(|ui| {
+                theme::text(
+                    ui,
+                    gettext(app.locale, "Playing from"),
+                    theme::regular(13.0),
+                    palette.secondary,
+                );
+                match from.page {
+                    Some(page) => {
+                        if theme::link(ui, from.name, theme::semibold(13.0), palette.text)
+                            .clicked()
+                        {
+                            app.actions.push(Action::Open(page));
+                        }
+                    }
+                    None => {
+                        theme::text(ui, from.name, theme::semibold(13.0), palette.text);
                     }
                 }
-                None => {
-                    theme::text(ui, from.name, theme::semibold(13.0), palette.text);
-                }
-            }
+            });
         });
         ui.add_space(10.0);
     }
     if let Some(current) = current.as_ref() {
-        theme::text(
-            ui,
-            gettext(app.locale, "Now playing"),
-            theme::semibold(14.0),
-            palette.text,
-        );
+        widgets::edge_faded(ui, HEADING_HEIGHT, |ui| {
+            theme::text(
+                ui,
+                gettext(app.locale, "Now playing"),
+                theme::semibold(14.0),
+                palette.text,
+            );
+        });
         ui.add_space(4.0);
         let context = RowContext::Uris(Arc::from([current.uri().to_string()]));
-        widgets::track_row(
-            ui,
-            app,
-            TrackRow {
-                index: 0,
-                number: Some(1),
-                item: current,
-                context: &context,
-                show_cover: true,
-                show_album: !compact,
-                added_at: None,
-                added_by: None,
-                show_added_by: false,
-                show_plays: false,
-                compact,
-                thin: false,
-                shift: 0.0,
-                picked: false,
-                picked_songs: &[],
-                picked_positions: &[],
-                position: None,
-            },
-        );
+        let row = TrackRow {
+            index: 0,
+            number: Some(1),
+            item: current,
+            context: &context,
+            show_cover: true,
+            show_album: !compact,
+            added_at: None,
+            added_by: None,
+            show_added_by: false,
+            show_plays: false,
+            compact,
+            thin: false,
+            shift: 0.0,
+            picked: false,
+            picked_songs: &[],
+            picked_positions: &[],
+            position: None,
+        };
+        widgets::edge_faded(ui, row_height, |ui| widgets::track_row(ui, app, row));
         ui.add_space(SECTION_GAP);
     }
     if queue_is_empty(app) {
@@ -496,11 +515,6 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         );
         return;
     }
-    let row_height = if compact {
-        theme::COMPACT_ROW_HEIGHT
-    } else {
-        theme::ROW_HEIGHT
-    };
     let queue_len = app.queue.get().map(|queue| queue.queue.len()).unwrap_or(0);
     // The user's own songs get their own section on top; the playing
     // context's rows follow under the usual heading. One numbering runs
@@ -509,19 +523,21 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     if queued_len > 0 {
         // The trash sits with the songs it removes: only this section is
         // the user's to clear, the context below plays itself.
-        ui.horizontal(|ui| {
-            theme::text(
-                ui,
-                gettext(
-                    app.locale,
-                    // Translators: Songs added manually, before the current playlist or album continues.
-                    "Playing next",
-                ),
-                theme::semibold(14.0),
-                palette.text,
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                clear_button(app, ui);
+        widgets::edge_faded(ui, HEADING_HEIGHT, |ui| {
+            ui.horizontal(|ui| {
+                theme::text(
+                    ui,
+                    gettext(
+                        app.locale,
+                        // Translators: Songs added manually, before the current playlist or album continues.
+                        "Playing next",
+                    ),
+                    theme::semibold(14.0),
+                    palette.text,
+                );
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    clear_button(app, ui);
+                });
             });
         });
         ui.add_space(4.0);
@@ -617,16 +633,18 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     // row on it belongs to Next up, which plays from the context and is never
     // rewritten. The player bar's Queue button still takes the drop.
     if queue_len > queued_len {
-        theme::text(
-            ui,
-            gettext(
-                app.locale,
-                // Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-                "Next up",
-            ),
-            theme::semibold(14.0),
-            palette.text,
-        );
+        widgets::edge_faded(ui, HEADING_HEIGHT, |ui| {
+            theme::text(
+                ui,
+                gettext(
+                    app.locale,
+                    // Translators: Upcoming songs from the current playlist or album, after manually queued songs.
+                    "Next up",
+                ),
+                theme::semibold(14.0),
+                palette.text,
+            );
+        });
         ui.add_space(4.0);
         widgets::virtual_rows(ui, queue_len - queued_len, row_height, |ui, index| {
             queue_row(app, ui, queued_len + index, compact, 0.0);

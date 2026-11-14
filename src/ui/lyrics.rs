@@ -29,17 +29,6 @@ fn show_sung_line(ui: &egui::Ui, line: Rect, animation: Option<egui::style::Scro
     }
 }
 
-/// How visible a full screen line is near the edges of the view.
-///
-/// A line fades by whichever of its edges is nearer the edge of `view`,
-/// over `fade` points, and is gone before that edge reaches it: the clip
-/// never cuts a sentence wrapped over two lines in half.
-fn line_opacity(line: Rect, view: Rect, fade: f32) -> f32 {
-    let room = (line.top() - view.top()).min(view.bottom() - line.bottom());
-    let edge = (room / fade).clamp(0.0, 1.0);
-    edge * edge * (3.0 - 2.0 * edge)
-}
-
 /// How long a line takes to light up or fade.
 const LIGHT_UP_SECONDS: f32 = 0.22;
 
@@ -1156,7 +1145,8 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
                     Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), height));
                 // The line being sung stays whole: in a short window it can
                 // sit nearer the top than the fade reaches.
-                let opacity = line_opacity(line_rect, viewport, size * 2.0).max(lit);
+                let edge = widgets::edge_opacity(line_rect, viewport, size * 2.0);
+                let opacity = edge.max(lit);
                 let response = ui
                     .scope(|ui| {
                         ui.multiply_opacity(opacity);
@@ -1219,7 +1209,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
 
 #[cfg(test)]
 mod tests {
-    use super::{fullscreen_content_width, line_opacity, preferred_backdrop_art};
+    use super::{fullscreen_content_width, preferred_backdrop_art, widgets::edge_opacity};
     use egui::{Rect, pos2};
 
     /// A sentence wrapped over two lines is gone by the time its top line
@@ -1228,10 +1218,10 @@ mod tests {
     fn a_line_is_gone_before_the_view_cuts_it() {
         let view = Rect::from_min_max(pos2(0.0, 100.0), pos2(600.0, 700.0));
         let line = |top: f32| Rect::from_min_size(pos2(0.0, top), egui::vec2(600.0, 110.0));
-        assert_eq!(line_opacity(line(100.0), view, 80.0), 0.0, "at the top");
-        assert_eq!(line_opacity(line(590.0), view, 80.0), 0.0, "at the bottom");
-        assert!(line_opacity(line(140.0), view, 80.0) < 1.0, "fading");
-        assert_eq!(line_opacity(line(300.0), view, 80.0), 1.0, "in the middle");
+        assert_eq!(edge_opacity(line(100.0), view, 80.0), 0.0, "at the top");
+        assert_eq!(edge_opacity(line(590.0), view, 80.0), 0.0, "at the bottom");
+        assert!(edge_opacity(line(140.0), view, 80.0) < 1.0, "fading");
+        assert_eq!(edge_opacity(line(300.0), view, 80.0), 1.0, "in the middle");
     }
 
     #[test]
