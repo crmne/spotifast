@@ -11545,6 +11545,21 @@ impl App {
         self.transfer_remote(device_id, play);
     }
 
+    /// `--demo-show device-waking`: a switch to this device, answered "not
+    /// found" a moment ago.
+    #[cfg(feature = "demo")]
+    pub(crate) fn demo_wake_device(&mut self, device_id: &str) {
+        let now = Instant::now();
+        self.selected_device = Some(device_id.to_owned());
+        self.waking_device = Some(WakingDevice {
+            id: device_id.to_owned(),
+            since: now,
+            retry_at: now + DEVICE_WAKE_TIMEOUT,
+            missing: 0,
+            error: "Not found".into(),
+        });
+    }
+
     /// Whether a switch to this device is waiting for it to wake.
     pub fn is_waking_device(&self, device_id: &str) -> bool {
         self.waking_device
