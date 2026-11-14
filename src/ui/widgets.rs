@@ -4134,10 +4134,17 @@ mod tests {
         assert_eq!((first, last), (51, 60));
         for row in first..last {
             let top = start_y + row as f32 * 10.0;
-            assert!(clip.top() <= top && top + 10.0 <= clip.bottom(), "row {row}");
+            assert!(
+                clip.top() <= top && top + 10.0 <= clip.bottom(),
+                "row {row}"
+            );
         }
         let ahead: Vec<usize> = rows_ahead(first, last, 29, 82).collect();
-        assert_eq!(&ahead[ahead.len() - 4..], &[49, 61, 50, 60], "the nearest last");
+        assert_eq!(
+            &ahead[ahead.len() - 4..],
+            &[49, 61, 50, 60],
+            "the nearest last"
+        );
         // A list shorter than a row waits for nothing, and fetches every
         // row within reach.
         let sliver = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 5.0));
