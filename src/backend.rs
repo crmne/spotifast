@@ -1111,6 +1111,11 @@ pub enum Event {
         generation: u64,
         result: Result<session_reads::PageMetadata, String>,
     },
+    ArtistThisIs {
+        uri: String,
+        generation: u64,
+        result: Result<Option<crate::api::models::Playlist>, &'static str>,
+    },
     /// Saved shows that Spotify's metadata marks as audiobooks. librespot
     /// cannot play them, so the Podcasts shelf leaves them out.
     AudiobookShows(Vec<String>),
@@ -4872,6 +4877,8 @@ impl Worker {
     fn fetch_play_counts(&self, uri: String, generation: u64) {
         let events = self.events.clone();
         let waker = self.waker.clone();
+        let featuring_events = events.clone();
+        let featuring_waker = waker.clone();
         let send = move |uri, result| {
             let _ = events.send(Event::PlayCounts {
                 uri,
@@ -4892,7 +4899,7 @@ impl Worker {
                 Duration::from_secs(15),
                 session_reads::page_metadata(engine.session(), &web, &uri),
             );
-            let result = tokio::select! {
+            let mut result = tokio::select! {
                 biased;
                 // A later visit asks again.
                 _ = cancelled.changed() => Err("The playback session ended.".to_string()),
@@ -4903,7 +4910,24 @@ impl Worker {
             if let Err(error) = &result {
                 log::debug!("Play counts unavailable: {error}");
             }
-            send(uri, result);
+            let candidate = result
+                .as_mut()
+                .ok()
+                .map(|data| std::mem::take(&mut data.this_is));
+            send(uri.clone(), result);
+            if let Some(candidate) = candidate {
+                let result = tokio::select! {
+                    biased;
+                    _ = cancelled.changed() => return,
+                    result = session_reads::this_is_playlist(engine.session(), candidate) => result,
+                };
+                let _ = featuring_events.send(Event::ArtistThisIs {
+                    uri,
+                    generation,
+                    result,
+                });
+                featuring_waker.wake();
+            }
         });
     }
 
