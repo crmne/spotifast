@@ -218,7 +218,8 @@ pub fn settle_playing_cover(
     stood_in: bool,
 ) {
     if stood_in && url.is_some_and(|url| art.has_copy(url)) {
-        ui.ctx().request_discard("the new song's cover takes its own place");
+        ui.ctx()
+            .request_discard("the new song's cover takes its own place");
     }
 }
 
