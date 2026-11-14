@@ -4659,3 +4659,65 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Minska låttextrörelse"
+
+#: src/ui/jam.rs
+msgid "Start a Jam"
+msgstr "Starta ett Jam"
+
+#: src/ui/jam.rs
+msgid "Paste a Jam invite to join"
+msgstr "Klistra in en Jam-inbjudan för att gå med"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "Gå med"
+
+#: src/ui/jam.rs
+msgid "Jam QR code"
+msgstr "Jam-QR-kod"
+
+#: src/ui/jam.rs
+msgid "Show it bigger"
+msgstr "Visa större"
+
+#: src/ui/jam.rs
+msgid "Scan to join"
+msgstr "Skanna för att gå med"
+
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Jam"
+
+#: src/ui/jam.rs
+#. Translators: {count} is how many people are in the Jam.
+#, rust-format
+msgid "{count} listening"
+msgstr "{count} lyssnar"
+
+#: src/ui/jam.rs
+msgid "End Jam"
+msgstr "Avsluta Jam"
+
+#: src/ui/jam.rs
+msgid "Leave Jam"
+msgstr "Lämna Jam"
+
+#: src/ui/jam.rs
+msgid "Copy invite link"
+msgstr "Kopiera inbjudanslänk"
+
+#: src/ui/jam.rs
+msgid "Scan to join this Jam"
+msgstr "Skanna för att gå med i den här Jam"
+
+#: src/ui/jam.rs
+msgid "Jam session"
+msgstr "Jam-session"
+
+#: src/ui/jam.rs
+msgid "Exit"
+msgstr "Stäng"
+
+#: src/ui/jam.rs
+msgid "Everyone in the Jam"
+msgstr "Alla i Jamet"

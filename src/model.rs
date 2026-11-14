@@ -1287,6 +1287,16 @@ pub enum Action {
     /// Send the account to a receiver found on the local network.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
+    /// Starts a Jam on the device playback currently targets, and shares
+    /// it with a link and a QR code.
+    JamStart,
+    /// Joins the Jam an invite names, pasted into the device picker.
+    JamJoin(String),
+    JamRefresh,
+    JamLeave,
+    JamEnd,
+    /// Shows or hides the Jam QR, big enough to scan across a room.
+    SetJamFullscreen(bool),
     /// List this computer's audio outputs for the device picker.
     ListOutputDevices,
     /// Start Spotifast when the person logs in, this way, or not at all.

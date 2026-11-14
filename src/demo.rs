@@ -362,6 +362,36 @@ pub fn populate(app: &mut App) {
         country: Some("DE".into()),
         uri: Some("spotify:user:demo".into()),
     });
+    // The picker's Jam section needs a session to show; the host is the
+    // demo account itself, with a friend already in.
+    app.jam = Some(crate::jam::JamSession {
+        id: "demo-jam-session".into(),
+        join_token: "demoJamToken1".into(),
+        owner_id: Some("demo".into()),
+        host_device_id: Some("local-demo".into()),
+        members: vec![
+            crate::jam::JamMember {
+                uri: "spotify:user:demo".into(),
+                name: "Carmine".into(),
+            },
+            crate::jam::JamMember {
+                uri: "spotify:user:friend".into(),
+                name: "Radu".into(),
+            },
+            crate::jam::JamMember {
+                uri: "spotify:user:guest".into(),
+                name: "Mihai".into(),
+            },
+        ],
+        is_owner: true,
+    });
+    app.jam_detail.insert(
+        "spotify:user:friend".into(),
+        crate::jam::JamMember {
+            uri: "spotify:user:friend".into(),
+            name: "Radu".into(),
+        },
+    );
 
     let playlists: Vec<Playlist> = (0..PLAYLISTS.len()).map(playlist).collect();
     for playlist in &playlists {
@@ -1494,6 +1524,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 }
             }
             "devices" => app.show_devices = true,
+            // The Jam's fullscreen QR, for captures of the split view.
+            "jam-fullscreen" => app.jam_fullscreen = true,
             // Home while Spotify has yet to answer for its shelves.
             "home-loading" => {
                 app.home.recently_played = Loadable::Loading;
@@ -4680,6 +4712,7 @@ mod tests {
                                 added_at: None,
                                 added_by: None,
                                 show_added_by: false,
+                                jam_member_image: None,
                                 show_plays: false,
                                 compact: false,
                                 thin: false,
@@ -4788,6 +4821,7 @@ mod tests {
                                     added_at: None,
                                     added_by: None,
                                     show_added_by: false,
+                                    jam_member_image: None,
                                     show_plays: false,
                                     compact: false,
                                     thin: false,
@@ -4911,6 +4945,7 @@ mod tests {
                                 added_at: None,
                                 added_by: None,
                                 show_added_by: false,
+                                jam_member_image: None,
                                 show_plays: false,
                                 compact: false,
                                 thin: false,
@@ -5497,6 +5532,9 @@ mod tests {
         app.backend.set_offline(true);
         app.show_devices = true;
         app.local_ready = true;
+        // The demo Jam section takes a third of the picker's height; this
+        // test is about the device list alone, so it is folded away.
+        app.jam = None;
         app.receivers.clear();
         app.devices = (0..40)
             .map(|index| Device {
@@ -5587,10 +5625,186 @@ mod tests {
             .unwrap()
             .rect();
         assert!(
-            popup.height() < 160.0,
+            popup.height() < 260.0,
+            // The Jam rows and the audio output picker sit under the device
+            // list; the bound still proves the list itself shrinks away.
             "a list with only this computer should shrink to fit: {popup:?}"
         );
         app.backend.shutdown();
+    }
+
+    /// A Jam session the picker can show, owner alone.
+    fn jam_session() -> crate::jam::JamSession {
+        crate::jam::JamSession {
+            id: "jam-test-session".into(),
+            join_token: "tokABC123".into(),
+            owner_id: Some("me".into()),
+            host_device_id: Some("device-1".into()),
+            members: vec![crate::jam::JamMember {
+                uri: "spotify:user:me".into(),
+                name: "PixelAsh".into(),
+            }],
+            is_owner: true,
+        }
+    }
+
+    /// The fullscreen code must hold still: its size comes from the window
+    /// alone, so a frame that lays it out from the frame before it would
+    /// grow without bound and swallow the screen.
+    #[test]
+    fn the_jam_fullscreen_code_holds_its_size_across_frames() {
+        let (ctx, mut app) = accessible_app("jam-fullscreen-calm");
+        app.jam = Some(jam_session());
+        app.show_devices = false;
+        app.jam_fullscreen = true;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let draw = |app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        // Settle, then watch: the code's white card must keep one size,
+        // and it must fill the space the spec gives it: from the heading's
+        // bottom to the exit band, inside the five-point borders.
+        for _ in 0..5 {
+            draw(&mut app, vec![]);
+        }
+        let mut sizes = Vec::new();
+        for _ in 0..12 {
+            let output = draw(&mut app, vec![]);
+            let card = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Rect(rect)
+                        if rect.fill == egui::Color32::WHITE
+                            || rect.fill == crate::theme::Palette::dark().window =>
+                    {
+                        // The backdrop is the same colour and far wider
+                        // than tall, and small window-coloured tiles
+                        // abound; the card is large and square-ish.
+                        (rect.rect.width() > 200.0 && rect.rect.width() <= rect.rect.height() * 1.2)
+                            .then_some(rect.rect)
+                    }
+                    _ => None,
+                })
+                .max_by_key(|rect| (rect.width() * rect.height()) as i64);
+            if let Some(card) = card {
+                sizes.push((
+                    card.width() as i64,
+                    card.height() as i64,
+                    card.top() as i64,
+                    card.bottom() as i64,
+                ));
+            }
+        }
+        app.backend.shutdown();
+        assert!(
+            sizes.len() >= 10,
+            "the code painted in every watched frame, saw {sizes:?}"
+        );
+        let stable = sizes.iter().all(|size| size == &sizes[0]);
+        assert!(stable, "the code's size never changes: {sizes:?}");
+        // Sizing, not only stability: on the split layout the code owns
+        // the left half, so the half's width is what binds first.
+        let (_, height, top, bottom) = sizes[0];
+        let expected_height =
+            (1280.0_f32 / 2.0 - 10.0).min(800.0 - crate::theme::PLAYER_BAR_HEIGHT - 10.0);
+        assert!(
+            (height as f32 - expected_height).abs() < 12.0,
+            "the code fills the left half of the window: card is {sizes:?}, expected {expected_height}"
+        );
+        // The same at a 4K-style scale: egui's points already carry the
+        // scaling, so the card keeps its size in points. The first frames
+        // reflow at the new scale, so only the settled ones count.
+        ctx.set_pixels_per_point(2.0);
+        for _ in 0..3 {
+            draw(&mut app, vec![]);
+        }
+        let mut at_2x = Vec::new();
+        for _ in 0..6 {
+            let output = draw(&mut app, vec![]);
+            let card = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Rect(rect)
+                        if rect.fill == egui::Color32::WHITE
+                            || rect.fill == crate::theme::Palette::dark().window =>
+                    {
+                        // The backdrop is the same colour and far wider
+                        // than tall, and small window-coloured tiles
+                        // abound; the card is large and square-ish.
+                        (rect.rect.width() > 200.0 && rect.rect.width() <= rect.rect.height() * 1.2)
+                            .then_some(rect.rect)
+                    }
+                    _ => None,
+                })
+                .max_by_key(|rect| (rect.width() * rect.height()) as i64);
+            if let Some(card) = card {
+                at_2x.push((card.width() as i64, card.height() as i64));
+            }
+        }
+        assert!(
+            at_2x.len() >= 4 && at_2x.iter().all(|size| *size == at_2x[0]),
+            "the code paints at two times the scale too: {at_2x:?}"
+        );
+        assert!(
+            (at_2x[0].0 as f32 - height as f32).abs() < 12.0,
+            "the code keeps its point size across scales: {at_2x:?} vs {height}"
+        );
+    }
+
+    /// The picker with a Jam in it must hold its height too: the code
+    /// enlarged the Jam row, and a picker that sizes itself from its own
+    /// last frame would climb the window.
+    #[test]
+    fn the_jam_picker_popup_holds_its_height_across_frames() {
+        let (ctx, mut app) = accessible_app("jam-picker-calm");
+        app.jam = Some(jam_session());
+        app.show_devices = true;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        ctx.data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new(crate::ui::devices::BUTTON_RECT_ID),
+                egui::Rect::from_min_size(egui::pos2(680.0, 580.0), egui::vec2(32.0, 32.0)),
+            )
+        });
+        let draw = |app: &mut App| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        for _ in 0..5 {
+            draw(&mut app);
+        }
+        let mut heights = Vec::new();
+        for _ in 0..12 {
+            draw(&mut app);
+            let popup = egui::AreaState::load(&ctx, egui::Id::new("devices-popup"))
+                .unwrap()
+                .rect();
+            heights.push(popup.height() as i64);
+        }
+        app.backend.shutdown();
+        let every = heights.iter().all(|height| *height == heights[0]);
+        assert!(
+            every && heights[0] > 0 && heights[0] <= 800,
+            "the picker's height never changes and fits: {heights:?}"
+        );
     }
 
     #[test]
@@ -6411,6 +6625,7 @@ mod tests {
                         added_at: Some("2026-01-01T00:00:00Z"),
                         added_by: None,
                         show_added_by: false,
+                        jam_member_image: None,
                         show_plays: false,
                         compact: false,
                         thin: true,

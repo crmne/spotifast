@@ -4661,3 +4661,65 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#: src/ui/jam.rs
+msgid "Start a Jam"
+msgstr "Jamを開始"
+
+#: src/ui/jam.rs
+msgid "Paste a Jam invite to join"
+msgstr "参加するにはJamの招待を貼り付け"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "参加する"
+
+#: src/ui/jam.rs
+msgid "Jam QR code"
+msgstr "Jam QRコード"
+
+#: src/ui/jam.rs
+msgid "Show it bigger"
+msgstr "拡大表示"
+
+#: src/ui/jam.rs
+msgid "Scan to join"
+msgstr "スキャンして参加"
+
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Jam"
+
+#: src/ui/jam.rs
+#. Translators: {count} is how many people are in the Jam.
+#, rust-format
+msgid "{count} listening"
+msgstr "{count}人が視聴中"
+
+#: src/ui/jam.rs
+msgid "End Jam"
+msgstr "Jamを終了"
+
+#: src/ui/jam.rs
+msgid "Leave Jam"
+msgstr "Jamを退席"
+
+#: src/ui/jam.rs
+msgid "Copy invite link"
+msgstr "招待リンクをコピー"
+
+#: src/ui/jam.rs
+msgid "Scan to join this Jam"
+msgstr "スキャンしてこのJamに参加"
+
+#: src/ui/jam.rs
+msgid "Jam session"
+msgstr "Jamセッション"
+
+#: src/ui/jam.rs
+msgid "Exit"
+msgstr "閉じる"
+
+#: src/ui/jam.rs
+msgid "Everyone in the Jam"
+msgstr "Jamのメンバー"

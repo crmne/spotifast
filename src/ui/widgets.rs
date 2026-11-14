@@ -1595,6 +1595,9 @@ pub struct TrackRow<'a> {
     /// Who put the song here, on playlists made together.
     pub added_by: Option<&'a str>,
     pub show_added_by: bool,
+    /// The portrait of the member who added the song, when the row plays
+    /// in a Jam's shared queue. Painted right of the duration.
+    pub jam_member_image: Option<&'a str>,
     /// Spotify's play count for the song, on album pages and an artist's
     /// popular songs once the counts arrived.
     pub show_plays: bool,
@@ -2270,8 +2273,15 @@ fn track_row_contents(
         x += cols.heart;
     }
 
-    // Duration.
-    let duration_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.duration, row_height));
+    // Duration, held left of the Jam member's portrait when one follows.
+    let portrait = row.jam_member_image.unwrap_or_default();
+    let duration_rect = Rect::from_min_size(
+        pos2(x, rect.top()),
+        vec2(
+            cols.duration - if portrait.is_empty() { 0.0 } else { 20.0 },
+            row_height,
+        ),
+    );
     painter.text(
         pos2(duration_rect.right() - 6.0, duration_rect.center().y),
         egui::Align2::RIGHT_CENTER,
@@ -2280,6 +2290,34 @@ fn track_row_contents(
         palette.secondary,
     );
     x += cols.duration;
+    // The Jam member who added the song, right of the duration, round.
+    if !portrait.is_empty() {
+        let size = 18.0;
+        let portrait_rect = Rect::from_center_size(
+            pos2(x + cols.more - 14.0, rect.center().y),
+            Vec2::splat(size),
+        );
+        app.backend.art().touch(portrait);
+        let scaled = crate::images::scaled_uri(portrait, crate::images::cover_pixels(size));
+        let radius = CornerRadius::same(size as u8 / 2);
+        ui.painter()
+            .rect_filled(portrait_rect, radius, palette.outline);
+        let image = egui::Image::new(scaled)
+            .texture_options(crate::images::COVER_TEXTURE)
+            .show_loading_spinner(false)
+            .corner_radius(radius);
+        // A portrait Spotify never delivered leaves the person icon in
+        // the row instead of the widget's broken-image mark.
+        if let Ok(egui::load::TexturePoll::Ready { .. }) =
+            image.load_for_size(ui.ctx(), portrait_rect.size())
+        {
+            image.paint_at(ui, portrait_rect);
+        } else {
+            Icon::User
+                .image(palette.secondary, size * 0.7)
+                .paint_at(ui, portrait_rect);
+        }
+    }
 
     // More.
     // The row's menu stays alive while it is open: when the button existed
@@ -4673,6 +4711,7 @@ mod tests {
                                     added_at: None,
                                     added_by: None,
                                     show_added_by: false,
+                                    jam_member_image: None,
                                     show_plays: false,
                                     compact: false,
                                     thin: false,

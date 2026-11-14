@@ -4719,3 +4719,65 @@ msgstr ""
 
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr "Spotify не дозволяє застосункам видаляти з черги окрему пісню."
+
+#: src/ui/jam.rs
+msgid "Start a Jam"
+msgstr "Почати Джем"
+
+#: src/ui/jam.rs
+msgid "Paste a Jam invite to join"
+msgstr "Вставте запрошення Джему, щоб приєднатися"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "Приєднатися"
+
+#: src/ui/jam.rs
+msgid "Jam QR code"
+msgstr "QR-код Джему"
+
+#: src/ui/jam.rs
+msgid "Show it bigger"
+msgstr "Показати більше"
+
+#: src/ui/jam.rs
+msgid "Scan to join"
+msgstr "Скануйте, щоб приєднатися"
+
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Джем"
+
+#: src/ui/jam.rs
+#. Translators: {count} is how many people are in the Jam.
+#, rust-format
+msgid "{count} listening"
+msgstr "{count} слухають"
+
+#: src/ui/jam.rs
+msgid "End Jam"
+msgstr "Завершити Джем"
+
+#: src/ui/jam.rs
+msgid "Leave Jam"
+msgstr "Вийти з Джему"
+
+#: src/ui/jam.rs
+msgid "Copy invite link"
+msgstr "Копіювати посилання на запрошення"
+
+#: src/ui/jam.rs
+msgid "Scan to join this Jam"
+msgstr "Скануйте, щоб приєднатися до цього Джему"
+
+#: src/ui/jam.rs
+msgid "Jam session"
+msgstr "Джем-сесія"
+
+#: src/ui/jam.rs
+msgid "Exit"
+msgstr "Вийти"
+
+#: src/ui/jam.rs
+msgid "Everyone in the Jam"
+msgstr "Усі в Джемі"

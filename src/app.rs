@@ -551,6 +551,22 @@ pub struct App {
     /// This computer's audio outputs, listed when the device picker asks.
     pub output_devices: Loadable<Vec<fastframe_audio::DeviceInfo>>,
     devices_fetched_at: Option<Instant>,
+    /// The Jam this account hosts or sits in, if any. It travels over the
+    /// playback session, like the app's other private Spotify reads.
+    pub jam: Option<crate::jam::JamSession>,
+    /// A Jam request is on its way, so the picker's Jam rows show it.
+    pub jam_working: bool,
+    /// The Jam QR fills the window while this is on.
+    pub jam_fullscreen: bool,
+    /// The invite the picker's join field holds between frames.
+    pub jam_invite_draft: String,
+    /// When the session last answered, so the picker's member list stays
+    /// fresh without a constant poll.
+    pub jam_polled_at: Option<Instant>,
+    /// Who added each song of the Jam's shared queue, by track URI, and
+    /// each adder's portrait: the queue's rows paint both.
+    pub jam_detail: std::collections::HashMap<String, crate::jam::JamMember>,
+    pub jam_member_images: std::collections::HashMap<String, String>,
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
     queue_fetched_at: Option<Instant>,
@@ -1313,6 +1329,13 @@ impl App {
             devices_loading: false,
             output_devices: Loadable::NotLoaded,
             devices_fetched_at: None,
+            jam: None,
+            jam_working: false,
+            jam_fullscreen: false,
+            jam_invite_draft: String::new(),
+            jam_polled_at: None,
+            jam_detail: std::collections::HashMap::new(),
+            jam_member_images: std::collections::HashMap::new(),
             selected_device: None,
             queue: match &session.last_track {
                 Some(current) if !session.last_queue_rows.is_empty() => {
@@ -2282,6 +2305,14 @@ impl App {
 
     pub fn playing_context_shuffle(&self) -> bool {
         self.shuffle_wanted
+    }
+
+    /// The portrait of the Jam member who added a queued song, when the
+    /// session names one and their profile carries an image.
+    pub fn jam_member_image(&self, track_uri: &str) -> Option<&str> {
+        let member = self.jam_detail.get(track_uri)?;
+        let image = self.jam_member_images.get(&member.uri)?;
+        Some(image.as_str())
     }
 
     /// Current item for menus, using cached track details when available.
@@ -7301,6 +7332,20 @@ impl App {
         self.backend.api(ApiRequest::Queue {
             seq: self.queue_seq,
         });
+        // The queue's portraits move as people add songs; ask again with it.
+        self.request_jam_detail();
+    }
+
+    /// Asks for the Jam's queue portraits: who added each song and every
+    /// member's picture, for the queue rows and the picker's member list.
+    fn request_jam_detail(&mut self) {
+        if let Some(jam) = self.jam.as_ref() {
+            let members = jam.members.iter().map(|m| m.uri.clone()).collect();
+            self.backend.api(ApiRequest::JamDetail {
+                session_id: jam.id.clone(),
+                members,
+            });
+        }
     }
 
     /// A chosen row of Next up plays at once, and the rows above it go
@@ -9902,6 +9947,64 @@ impl App {
                 }
                 self.refresh_queue(true);
             }
+            ApiResponse::JamState { result } => match result {
+                Ok(Some(session)) => {
+                    let fresh = self
+                        .jam
+                        .as_ref()
+                        .is_none_or(|current| current.id != session.id);
+                    self.jam = Some(session.clone());
+                    self.jam_working = false;
+                    self.jam_polled_at = Some(Instant::now());
+                    // Joining changes nothing about where music plays: the
+                    // session decides that, and the picker shows the same
+                    // devices as before. A new session asks for a device
+                    // list refresh and everyone's portraits.
+                    if fresh {
+                        self.refresh_devices();
+                        self.request_jam_detail();
+                    }
+                }
+                Ok(None) => {
+                    self.jam = None;
+                    self.jam_working = false;
+                    self.jam_polled_at = Some(Instant::now());
+                    self.jam_detail.clear();
+                    self.jam_member_images.clear();
+                }
+                Err(error) => {
+                    self.jam_working = false;
+                    self.jam_polled_at = Some(Instant::now());
+                    self.toast_error(
+                        // Translators: {error} is an error message.
+                        gettext(self.locale, "Couldn't open the Jam: {error}")
+                            .replace("{error}", &error.to_string()),
+                    );
+                }
+            },
+            ApiResponse::JamGone { result } => {
+                self.jam = None;
+                self.jam_working = false;
+                self.jam_detail.clear();
+                self.jam_member_images.clear();
+                if let Err(error) = result {
+                    self.toast_error(
+                        // Translators: {error} is an error message.
+                        gettext(self.locale, "Couldn't leave the Jam: {error}")
+                            .replace("{error}", &error.to_string()),
+                    );
+                } else {
+                    self.refresh_devices();
+                }
+            }
+            ApiResponse::JamDetail { detail } => {
+                // A queue whose adders Spotify names not is no error to
+                // tell: the rows just carry no portraits.
+                if let Ok(ready) = detail {
+                    self.jam_detail = ready.adders;
+                    self.jam_member_images = ready.images;
+                }
+            }
         }
     }
 
@@ -10720,6 +10823,7 @@ impl App {
                 ));
                 self.show_devices = true;
                 self.refresh_devices();
+                self.backend.api(ApiRequest::JamRefresh);
             }
             // With no id, the play names no device and goes to the one
             // playing, which a Sonos is.
@@ -13253,6 +13357,45 @@ impl App {
                 self.refresh_devices();
                 self.backend.send(Command::DiscoverReceivers);
             }
+            Action::JamStart => {
+                // The host's player is whatever playback currently targets:
+                // this computer's engine, Soloist, or another Connect device.
+                let local_device_id = match self.target() {
+                    crate::app::Target::Local => self.local_device_id.clone(),
+                    crate::app::Target::Remote(id) => id.clone(),
+                };
+                self.jam_working = true;
+                self.backend.api(ApiRequest::JamStart { local_device_id });
+            }
+            Action::JamJoin(token) => {
+                self.jam_working = true;
+                self.jam_invite_draft.clear();
+                self.backend.api(ApiRequest::JamJoin { token });
+            }
+            Action::JamRefresh => {
+                self.backend.api(ApiRequest::JamRefresh);
+            }
+            Action::JamLeave => {
+                if let Some(jam) = self.jam.clone() {
+                    self.jam_working = true;
+                    self.backend
+                        .api(ApiRequest::JamLeave { session_id: jam.id });
+                }
+            }
+            Action::JamEnd => {
+                if let Some(jam) = self.jam.clone() {
+                    self.jam_working = true;
+                    self.backend.api(ApiRequest::JamEnd { session_id: jam.id });
+                }
+            }
+            Action::SetJamFullscreen(on) => {
+                self.jam_fullscreen = on;
+                // The QR takes over the window; the picker it came from
+                // stands down while it does.
+                if on {
+                    self.show_devices = false;
+                }
+            }
             Action::ClearQueue => self.clear_queue(),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::SaveRadio(seed) => self.save_radio(&seed),
@@ -13505,6 +13648,9 @@ impl App {
                     // Receivers waiting on the network are invisible to the
                     // Web API, so look for them ourselves.
                     self.backend.send(Command::DiscoverReceivers);
+                    // A Jam's member list moves while people join; the
+                    // picker asks once at open and again on its timer.
+                    self.backend.api(ApiRequest::JamRefresh);
                 }
             }
             Action::CheckForUpdates => self.check_for_updates(true),

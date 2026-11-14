@@ -61,6 +61,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                     added_at: None,
                                     added_by: None,
                                     show_added_by: false,
+                                    jam_member_image: None,
                                     show_plays,
                                     compact: false,
                                     thin: app.settings.tracklist_compact,

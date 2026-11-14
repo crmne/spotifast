@@ -466,6 +466,7 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
                 added_at: None,
                 added_by: None,
                 show_added_by: false,
+                jam_member_image: None,
                 show_plays: false,
                 compact: limit != usize::MAX,
                 thin: false,

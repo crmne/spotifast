@@ -6,7 +6,7 @@
 //! the interface with `request_repaint`, so the app stays event-driven and
 //! idle when nothing is happening.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -392,6 +392,33 @@ pub enum ApiRequest {
         uris: Vec<String>,
         device_id: Option<String>,
     },
+    /// Starts this account's Jam, activating the named Connect device as
+    /// the host's player, over the playback session.
+    JamStart {
+        local_device_id: Option<String>,
+    },
+    /// Joins the Jam an invite token names.
+    JamJoin {
+        token: String,
+    },
+    /// Leaves the Jam named by its session id.
+    JamLeave {
+        session_id: String,
+    },
+    /// Ends the Jam as its owner; every member leaves with it.
+    JamEnd {
+        session_id: String,
+    },
+    /// Asks which Jam this account is in, if any.
+    JamRefresh,
+    /// Reads who added each song of the Jam's shared queue and every
+    /// member's portrait, for the queue's rows and the member list.
+    JamDetail {
+        session_id: String,
+        /// The member URIs the session last named, so portraits load for
+        /// everyone in the room and not only for those who queued a song.
+        members: Vec<String>,
+    },
 }
 
 impl ApiRequest {
@@ -647,6 +674,19 @@ pub enum ApiResponse {
         request: u64,
         added: usize,
         result: ApiResult<()>,
+    },
+    /// The Jam this account is in after a start, a join, or a refresh;
+    /// `None` when there is none.
+    JamState {
+        result: ApiResult<Option<crate::jam::JamSession>>,
+    },
+    /// A leave or an end was sent, whether Spotify still had the session.
+    JamGone {
+        result: ApiResult<()>,
+    },
+    /// Who added each Jam queue song, and each adder's portrait.
+    JamDetail {
+        detail: ApiResult<crate::jam::JamDetail>,
     },
 }
 
@@ -5096,7 +5136,13 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         | ApiRequest::Transfer { .. }
         | ApiRequest::ShufflePlay { .. }
         | ApiRequest::AddToQueue { .. }
-        | ApiRequest::AddManyToQueue { .. } => Operation::Playback,
+        | ApiRequest::AddManyToQueue { .. }
+        | ApiRequest::JamStart { .. }
+        | ApiRequest::JamJoin { .. }
+        | ApiRequest::JamLeave { .. }
+        | ApiRequest::JamEnd { .. }
+        | ApiRequest::JamRefresh
+        | ApiRequest::JamDetail { .. } => Operation::Playback,
         ApiRequest::RecentlyPlayed { .. }
         | ApiRequest::TopTracks { .. }
         | ApiRequest::TopArtists { .. }
@@ -5393,6 +5439,21 @@ fn playback_session<'a>(
         })
 }
 
+/// The session a Jam travels over. Its Connect identity registers this
+/// computer with Spotify, which the social-connect service talks to.
+fn jam_session<'a>(
+    api: &ApiGateway,
+    engine: Option<&'a Engine>,
+) -> ApiResult<&'a librespot_core::session::Session> {
+    engine
+        .filter(|engine| same_account(&engine.session().username(), api.account().as_ref()))
+        .map(Engine::session)
+        .ok_or_else(|| ApiError::Status {
+            status: 503,
+            message: "Jams need playback set up on this computer.".into(),
+        })
+}
+
 async fn shared_made_for_you(api: &ApiGateway) -> ApiResult<Vec<Playlist>> {
     let client = api.client_for(Operation::PlaylistSearch).await?;
     let _background_permit = client.background_permit().await;
@@ -5576,6 +5637,96 @@ async fn handle(
             Vec::new(),
         );
     }
+    if let ApiRequest::JamStart { local_device_id } = request {
+        let result = match jam_session(api, engine) {
+            Ok(session) => crate::jam::start(session, local_device_id.as_deref())
+                .await
+                .map(Some)
+                .map_err(|error| ApiError::Network(format!("{error:#}"))),
+            Err(error) => Err(error),
+        };
+        return (ApiResponse::JamState { result }, Vec::new());
+    }
+    if let ApiRequest::JamJoin { token } = request {
+        let result = match jam_session(api, engine) {
+            Ok(session) => crate::jam::join(session, &token)
+                .await
+                .map(Some)
+                .map_err(|error| ApiError::Network(format!("{error:#}"))),
+            Err(error) => Err(error),
+        };
+        return (ApiResponse::JamState { result }, Vec::new());
+    }
+    if let ApiRequest::JamRefresh = request {
+        let result = match jam_session(api, engine) {
+            Ok(session) => crate::jam::current(session)
+                .await
+                .map_err(|error| ApiError::Network(format!("{error:#}"))),
+            Err(error) => Err(error),
+        };
+        return (ApiResponse::JamState { result }, Vec::new());
+    }
+    if let ApiRequest::JamLeave { session_id } = request {
+        let result = match jam_session(api, engine) {
+            Ok(session) => crate::jam::leave(session, &session_id)
+                .await
+                .map_err(|error| ApiError::Network(format!("{error:#}"))),
+            Err(error) => Err(error),
+        };
+        return (ApiResponse::JamGone { result }, Vec::new());
+    }
+    if let ApiRequest::JamEnd { session_id } = request {
+        let result = match jam_session(api, engine) {
+            Ok(session) => crate::jam::end(session, &session_id)
+                .await
+                .map_err(|error| ApiError::Network(format!("{error:#}"))),
+            Err(error) => Err(error),
+        };
+        return (ApiResponse::JamGone { result }, Vec::new());
+    }
+    if let ApiRequest::JamDetail {
+        session_id,
+        members,
+    } = request
+    {
+        let detail = match jam_session(api, engine) {
+            Ok(session) => {
+                let adders = crate::jam::queue_adders(session, &session_id).await;
+                match adders {
+                    Ok(adders) => {
+                        // One profile read per distinct person: everyone the
+                        // session names, plus anyone a queue song names, for
+                        // the portraits the picker and the queue paint.
+                        let mut wanted: Vec<String> = members.clone();
+                        for member in adders.values() {
+                            if !wanted.contains(&member.uri) {
+                                wanted.push(member.uri.clone());
+                            }
+                        }
+                        let mut images = HashMap::new();
+                        for uri in &wanted {
+                            let Some(user) = uri.rsplit(':').next() else {
+                                continue;
+                            };
+                            if user.is_empty() || images.contains_key(uri) {
+                                continue;
+                            }
+                            if let Some(profile) =
+                                crate::session_reads::user_profile(session, user).await
+                                && let Some(image) = profile.image_url
+                            {
+                                images.insert(uri.clone(), image);
+                            }
+                        }
+                        Ok(crate::jam::JamDetail { adders, images })
+                    }
+                    Err(error) => Err(ApiError::Network(format!("{error:#}"))),
+                }
+            }
+            Err(error) => Err(error),
+        };
+        return (ApiResponse::JamDetail { detail }, Vec::new());
+    }
     let operation = operation_for(api, &request);
     // A session whose long-lived connection has dropped still answers over
     // its HTTP client, so the engine's presence is the only liveness test;
@@ -5686,7 +5837,13 @@ async fn handle(
         | ApiRequest::NewReleases { .. }
         | ApiRequest::NewReleaseTracks { .. }
         | ApiRequest::HiddenSongs { .. }
-        | ApiRequest::SetHiddenInPlaylist { .. } => unreachable!("handled before Web API routing"),
+        | ApiRequest::SetHiddenInPlaylist { .. }
+        | ApiRequest::JamStart { .. }
+        | ApiRequest::JamJoin { .. }
+        | ApiRequest::JamLeave { .. }
+        | ApiRequest::JamEnd { .. }
+        | ApiRequest::JamRefresh
+        | ApiRequest::JamDetail { .. } => unreachable!("handled before Web API routing"),
         ApiRequest::MyPlaylists { offset, generation } => ApiResponse::MyPlaylists {
             offset,
             generation,

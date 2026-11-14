@@ -22,6 +22,7 @@ pub mod http;
 pub mod hyprland;
 pub mod i18n;
 pub mod images;
+pub mod jam;
 pub mod liked;
 pub mod limiter;
 pub mod link;

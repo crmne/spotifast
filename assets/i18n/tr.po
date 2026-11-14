@@ -4680,3 +4680,65 @@ msgstr ""
 #~ msgid "Spotify does not let apps remove one queued song."
 #~ msgstr ""
 #~ "Spotify uygulamaların sıradan tek bir şarkıyı kaldırmasına izin vermiyor."
+
+#: src/ui/jam.rs
+msgid "Start a Jam"
+msgstr "Jam Başlat"
+
+#: src/ui/jam.rs
+msgid "Paste a Jam invite to join"
+msgstr "Katılmak için bir Jam daveti yapıştır"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "Katıl"
+
+#: src/ui/jam.rs
+msgid "Jam QR code"
+msgstr "Jam QR kodu"
+
+#: src/ui/jam.rs
+msgid "Show it bigger"
+msgstr "Daha büyük göster"
+
+#: src/ui/jam.rs
+msgid "Scan to join"
+msgstr "Katılmak için tara"
+
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Jam"
+
+#: src/ui/jam.rs
+#. Translators: {count} is how many people are in the Jam.
+#, rust-format
+msgid "{count} listening"
+msgstr "{count} dinliyor"
+
+#: src/ui/jam.rs
+msgid "End Jam"
+msgstr "Jam'ı Bitir"
+
+#: src/ui/jam.rs
+msgid "Leave Jam"
+msgstr "Jam'dan Ayrıl"
+
+#: src/ui/jam.rs
+msgid "Copy invite link"
+msgstr "Davet bağlantısını kopyala"
+
+#: src/ui/jam.rs
+msgid "Scan to join this Jam"
+msgstr "Bu Jam'a katılmak için tara"
+
+#: src/ui/jam.rs
+msgid "Jam session"
+msgstr "Jam Oturumu"
+
+#: src/ui/jam.rs
+msgid "Exit"
+msgstr "Çıkış"
+
+#: src/ui/jam.rs
+msgid "Everyone in the Jam"
+msgstr "Jam'daki herkes"

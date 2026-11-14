@@ -4493,3 +4493,65 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "减少歌词动画"
+
+#: src/ui/jam.rs
+msgid "Start a Jam"
+msgstr "开始 Jam"
+
+#: src/ui/jam.rs
+msgid "Paste a Jam invite to join"
+msgstr "粘贴 Jam 邀请以加入"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "加入"
+
+#: src/ui/jam.rs
+msgid "Jam QR code"
+msgstr "Jam 二维码"
+
+#: src/ui/jam.rs
+msgid "Show it bigger"
+msgstr "放大显示"
+
+#: src/ui/jam.rs
+msgid "Scan to join"
+msgstr "扫码加入"
+
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Jam"
+
+#: src/ui/jam.rs
+#. Translators: {count} is how many people are in the Jam.
+#, rust-format
+msgid "{count} listening"
+msgstr "{count} 人正在听"
+
+#: src/ui/jam.rs
+msgid "End Jam"
+msgstr "结束 Jam"
+
+#: src/ui/jam.rs
+msgid "Leave Jam"
+msgstr "退出 Jam"
+
+#: src/ui/jam.rs
+msgid "Copy invite link"
+msgstr "复制邀请链接"
+
+#: src/ui/jam.rs
+msgid "Scan to join this Jam"
+msgstr "扫码加入此 Jam"
+
+#: src/ui/jam.rs
+msgid "Jam session"
+msgstr "Jam 会话"
+
+#: src/ui/jam.rs
+msgid "Exit"
+msgstr "退出"
+
+#: src/ui/jam.rs
+msgid "Everyone in the Jam"
+msgstr "Jam 中的所有人"

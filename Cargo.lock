@@ -1883,6 +1883,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast_qr"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f5ea9788036fedaf55f43a2db0ba01eedf47d26fd6852f01e5cf51952571d57"
+
+[[package]]
 name = "fastframe-audio"
 version = "0.16.1"
 source = "git+https://github.com/crmne/fastframe?tag=v0.16.1#ebc7cecb7cfb229e3d6849abd17bff953506fdb8"
@@ -2907,7 +2913,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -6197,6 +6203,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "fast_qr",
  "fastframe-audio",
  "fastframe-autostart",
  "fastframe-dirs",

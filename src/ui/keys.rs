@@ -214,6 +214,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     if ctx.input(|input| input.key_pressed(Key::Escape)) {
         if app.dialog.is_some() {
             app.actions.push(Action::CloseDialog);
+        } else if app.jam_fullscreen {
+            app.actions.push(Action::SetJamFullscreen(false));
         } else if app.show_devices {
             app.show_devices = false;
         } else if app.lyrics_fullscreen.is_some() {
