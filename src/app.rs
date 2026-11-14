@@ -9201,27 +9201,34 @@ impl App {
                 result,
             } => match result {
                 Ok(()) => {
-                    self.settle_playlist_edit(&format!("spotify:playlist:{id}"), true);
-                    self.saved
-                        .insert(format!("spotify:playlist:{id}"), followed);
-                    self.toast(if followed {
-                        gettext(self.locale, "Added to Your Library")
-                    } else {
-                        gettext(self.locale, "Removed from Your Library")
-                    });
-                    self.load_playlists();
+                    let uri = format!("spotify:playlist:{id}");
                     // A deleted playlist has nothing left to show. One only
                     // taken out of the library still plays and can be added
-                    // back from its page, so the page stays.
-                    let deleted = self
+                    // back from its page, so the page stays. Delete is
+                    // offered only on the listener's own playlists, and its
+                    // removal edit tells so even before the page has loaded.
+                    let deleted_here = self
+                        .library
+                        .playlists_edits
+                        .iter()
+                        .any(|edit| edit.uri == uri && edit.added.is_none());
+                    let owned = self
                         .playlist_pages
                         .get(&id)
                         .and_then(|page| page.playlist.get())
                         .is_some_and(|playlist| {
                             self.user_id().is_some_and(|user| playlist.owned_by(user))
                         });
+                    self.settle_playlist_edit(&uri, true);
+                    self.saved.insert(uri, followed);
+                    self.toast(if followed {
+                        gettext(self.locale, "Added to Your Library")
+                    } else {
+                        gettext(self.locale, "Removed from Your Library")
+                    });
+                    self.load_playlists();
                     if !followed
-                        && deleted
+                        && (deleted_here || owned)
                         && matches!(self.page(), Page::Playlist(current) if *current == id)
                     {
                         self.open(Page::Home);
@@ -18073,6 +18080,31 @@ mod tests {
                 Page::Home
             };
             assert_eq!(app.page(), &expected, "a playlist {owner} owns");
+        }
+    }
+
+    /// Deleting one's own playlist leaves its page even while the page is
+    /// still loading or failed to load, with no header to name the owner.
+    #[test]
+    fn a_deleted_playlist_leaves_a_page_that_has_not_loaded() {
+        for playlist in [Loadable::Loading, Loadable::Failed("offline".into())] {
+            let mut app = listener_app();
+            let ctx = egui::Context::default();
+            app.open(Page::Playlist("pl".into()));
+            app.playlist_pages.insert(
+                "pl".into(),
+                PlaylistPage {
+                    playlist,
+                    ..Default::default()
+                },
+            );
+            app.apply(Action::DeletePlaylist("pl".into()), &ctx);
+            app.handle_api(ApiResponse::PlaylistFollowChanged {
+                id: "pl".into(),
+                followed: false,
+                result: Ok(()),
+            });
+            assert_eq!(app.page(), &Page::Home);
         }
     }
 
