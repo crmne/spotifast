@@ -13433,8 +13433,12 @@ impl App {
                 }
             }
             Action::ToggleLyricsPanel => {
+                // Full screen lyrics are lit as lyrics, also while the queue
+                // column holds the side panel, so the button closes them and
+                // leaves that queue where it was.
+                let leaving = self.lyrics_fullscreen.is_some();
                 self.leave_lyrics_fullscreen(ctx);
-                self.show_lyrics_panel = !self.show_lyrics_panel;
+                self.show_lyrics_panel = !leaving && !self.show_lyrics_panel;
                 if self.show_lyrics_panel {
                     self.show_queue_panel = false;
                     self.show_friends_panel = false;
@@ -27667,6 +27671,29 @@ mod tests {
             app.lyrics_line_shown, None,
             "the fullscreen line cannot stop the returning panel from positioning itself"
         );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn the_lyrics_button_closes_fullscreen_beside_the_queue() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            app.apply(Action::ToggleQueuePanel, ui.ctx());
+            app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert!(app.show_queue_panel);
+        assert!(!app.show_lyrics_panel, "the queue keeps the side panel");
+        assert!(crate::ui::player_bar::lyrics_lit(&app));
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert_eq!(app.lyrics_fullscreen, None);
+        assert!(!app.show_lyrics_panel, "closing lyrics does not open them");
+        assert!(app.show_queue_panel, "the queue stays where it was");
+        assert!(!crate::ui::player_bar::lyrics_lit(&app));
         app.backend.shutdown();
     }
 

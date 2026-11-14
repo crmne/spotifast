@@ -1116,7 +1116,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         ui,
         Icon::Mic,
         18.0,
-        if app.show_lyrics_panel {
+        if lyrics_lit(app) {
             palette.accent
         } else {
             palette.secondary
@@ -1148,6 +1148,12 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     {
         app.actions.push(Action::ToggleFriendsPanel);
     }
+}
+
+/// Whether the lyrics button shows lyrics as open: in the side panel or in
+/// full screen, where the queue column can hold the side panel instead.
+pub(crate) fn lyrics_lit(app: &App) -> bool {
+    app.show_lyrics_panel || app.lyrics_fullscreen.is_some()
 }
 
 #[cfg(test)]
