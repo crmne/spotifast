@@ -493,6 +493,7 @@ fastframe_icons::icons! {
         Lock => lucide "lock",
         LogOut => lucide "log-out",
         Mic => lucide "mic",
+        MicVocal => "mic-vocal",
         Minus => lucide "minus",
         Monitor => lucide "monitor",
         Moon => lucide "moon",
