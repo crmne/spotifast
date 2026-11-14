@@ -303,6 +303,9 @@ fn column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
         app.actions.push(Action::LoadMoreRecents);
     }
     let scroll = &mut ui.spacing_mut().scroll;
+    // egui shades a scrolled list's edges in the panel's plain colour, a
+    // square band over the glass; the rows fade on their own instead.
+    scroll.fade.strength = 0.0;
     scroll.dormant_handle_opacity = scroll.active_handle_opacity * controls;
     scroll.active_handle_opacity *= controls;
     scroll.interact_handle_opacity *= controls;

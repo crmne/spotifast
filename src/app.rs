@@ -32234,6 +32234,53 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The queue beside full screen lyrics lays no shade along the edges of
+    /// its list, which would show as a square band on the glass: its rows
+    /// fade out there on their own.
+    #[test]
+    fn the_queue_beside_full_screen_lyrics_shades_no_edge() {
+        use egui::{Rect, pos2, vec2};
+
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.show_queue_panel = true;
+        // egui's shade is a rectangle of four untextured corners, two of
+        // them see-through.
+        let is_shade = |shape: &egui::Shape| {
+            let egui::Shape::Mesh(mesh) = shape else {
+                return false;
+            };
+            mesh.texture_id == egui::TextureId::default()
+                && mesh.vertices.len() == 4
+                && mesh.vertices.iter().any(|vertex| vertex.color.a() == 0)
+        };
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0));
+        // Short enough that the demo queue runs on past its bottom.
+        let column = Rect::from_min_size(pos2(900.0, 40.0), vec2(340.0, 260.0));
+        let mut shades = usize::MAX;
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let mut pane = ui.new_child(egui::UiBuilder::new().max_rect(column));
+                crate::ui::queue::fullscreen_column(&mut app, &mut pane, 1.0);
+            });
+            output.textures_delta.clear();
+            app.apply_actions(&ctx);
+            shades = output
+                .shapes
+                .iter()
+                .filter(|shape| is_shade(&shape.shape))
+                .count();
+        }
+        assert_eq!(shades, 0, "a shade along the list's edge");
+        app.backend.shutdown();
+    }
+
     /// A row in the Recent tab plays its own song. Each row plays a list
     /// holding only that song, but it hands over its place in the whole
     /// tab, which is past the end of that list for every row but the top.
