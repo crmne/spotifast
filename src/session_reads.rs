@@ -633,7 +633,10 @@ pub async fn remove_playlist_rows(
 
 /// The list's revision and every row's URI, read page by page from the
 /// same revision.
-async fn playlist_uris(session: &Session, id: &str) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
+pub(crate) async fn playlist_uris(
+    session: &Session,
+    id: &str,
+) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
     const PAGE: u32 = 1000;
     let failed = |failure: Failure| match failure {
         Failure::Definitive(error) => anyhow::anyhow!("{error}"),

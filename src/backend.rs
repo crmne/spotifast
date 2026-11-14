@@ -227,6 +227,11 @@ pub enum ApiRequest {
         offset: u32,
         generation: u64,
     },
+    /// Every song in one of the account's own playlists, read over the
+    /// playback session for the hearts' playlist index.
+    PlaylistUris {
+        id: String,
+    },
     CreatePlaylist {
         name: String,
         public: bool,
@@ -410,6 +415,7 @@ impl ApiRequest {
                 | Self::HiddenSongs { .. }
                 | Self::MyPlaylists { .. }
                 | Self::PlaylistSample { .. }
+                | Self::PlaylistUris { .. }
                 | Self::Contains { .. }
         )
     }
@@ -510,6 +516,10 @@ pub enum ApiResponse {
         playlist_name: String,
         items: Vec<PlayableItem>,
         position: Option<u32>,
+        result: ApiResult<Vec<String>>,
+    },
+    PlaylistUris {
+        id: String,
         result: ApiResult<Vec<String>>,
     },
     PlaylistItemsChanged {
@@ -5131,6 +5141,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         ApiRequest::Playlist { id, .. } => Operation::PlaylistMetadata(api.playlist_access(id)),
         ApiRequest::PlaylistItems { id, .. }
         | ApiRequest::PlaylistSample { id, .. }
+        | ApiRequest::PlaylistUris { id }
         | ApiRequest::CheckPlaylistDuplicates {
             playlist_id: id, ..
         } => Operation::PlaylistItems(api.playlist_access(id)),
@@ -5548,6 +5559,28 @@ async fn handle(
         };
         return (ApiResponse::HiddenSongs { generation, result }, Vec::new());
     }
+    if let ApiRequest::PlaylistUris { id } = request {
+        // Only the session reads a whole playlist in one request; paging
+        // through the Web API for every playlist would spend its rate
+        // limit, so without a session the index waits for one.
+        let result = match playback_session(api, engine) {
+            Ok(session) => {
+                let _permit = background_session.acquire().await.ok();
+                match tokio::time::timeout(
+                    SESSION_READ_TIMEOUT,
+                    session_reads::playlist_uris(session, &id),
+                )
+                .await
+                {
+                    Ok(Ok((_, uris))) => Ok(uris),
+                    Ok(Err(error)) => Err(ApiError::Network(format!("{error:#}"))),
+                    Err(_) => Err(ApiError::Network("The playlist read timed out.".into())),
+                }
+            }
+            Err(error) => Err(error),
+        };
+        return (ApiResponse::PlaylistUris { id, result }, Vec::new());
+    }
     if let ApiRequest::SetHiddenInPlaylist {
         playlist_uri,
         track_uri,
@@ -5686,6 +5719,7 @@ async fn handle(
         | ApiRequest::NewReleases { .. }
         | ApiRequest::NewReleaseTracks { .. }
         | ApiRequest::HiddenSongs { .. }
+        | ApiRequest::PlaylistUris { .. }
         | ApiRequest::SetHiddenInPlaylist { .. } => unreachable!("handled before Web API routing"),
         ApiRequest::MyPlaylists { offset, generation } => ApiResponse::MyPlaylists {
             offset,

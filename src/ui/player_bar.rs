@@ -4,12 +4,12 @@ use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, 
 
 use crate::app::{App, NowPlaying};
 use crate::i18n::gettext;
-use crate::model::{Action, DragTrack, Page};
+use crate::model::{Action, DragTrack, Page, RowContext};
 use crate::player::RepeatMode;
 use crate::theme::{self, Icon};
 use crate::util;
 
-use super::widgets::{PlaylistChecks, SliderEvent, thin_slider};
+use super::widgets::{SliderEvent, thin_slider};
 
 /// How much of the playing art's tint the bar's fill carries.
 const TINT_STRENGTH: f32 = 0.12;
@@ -598,22 +598,14 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     }
 
     if !now.is_episode {
-        let saved = app.is_saved(&now.uri).unwrap_or(false);
-        // A liked heart stays green under the pointer, like shuffle.
-        let (icon, color, hover, tooltip) = if saved {
-            (
-                Icon::HeartFilled,
-                palette.accent,
-                palette.accent_hover,
-                gettext(app.locale, "Add to playlist"),
-            )
+        // Green when the song is in Liked Songs or any of the account's
+        // playlists; a click opens the checklist of them, never likes the
+        // song at once.
+        let saved = app.saved_anywhere(&now.uri);
+        let (icon, color, hover) = if saved {
+            (Icon::HeartFilled, palette.accent, palette.accent_hover)
         } else {
-            (
-                Icon::Heart,
-                palette.secondary,
-                palette.text,
-                gettext(app.locale, "Save to Liked Songs"),
-            )
+            (Icon::Heart, palette.secondary, palette.text)
         };
         // Sit the heart just past the actual text, not at the region's far
         // edge, so it stays visually attached to the title.
@@ -624,79 +616,38 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        let response = theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip);
+        let response = theme::icon_button(
+            &mut heart_ui,
+            icon,
+            17.0,
+            color,
+            hover,
+            &gettext(app.locale, "Add to playlist"),
+        );
         let popup_id = egui::Id::new(LIKED_POPUP_ID);
-        let query_id = popup_id.with("query");
-        let checks_id = popup_id.with("checks");
-        // What the menu holds while open, dropped once it closes.
-        let forget = |ui: &mut egui::Ui| {
-            ui.data_mut(|data| {
-                data.remove::<String>(query_id);
-                data.remove::<PlaylistChecks>(checks_id);
-            });
-        };
-        // A liked song's heart opens a checklist of Liked Songs and the
-        // playlists, as Spotify's phone app does: checks change nothing
-        // until Done, and a click outside drops them. The first click on a
-        // song not yet liked still likes it at once (#792).
-        match song.as_ref().filter(|_| saved) {
+        match song.as_ref() {
+            Some(item) => {
+                // A song played from one of the account's playlists is in
+                // it, unless the index knows better: a song queued by hand
+                // plays inside the playlist's context too.
+                let containing = match app.editable_context_playlist() {
+                    Some(RowContext::Context {
+                        editable_playlist: Some((id, _)),
+                        ..
+                    }) if app.playlist_holds(&id, item.uri()) != Some(false) => Some(id),
+                    _ => None,
+                };
+                super::widgets::heart_menu(
+                    ui,
+                    app,
+                    &response,
+                    popup_id,
+                    item,
+                    containing.as_deref(),
+                );
+            }
             None => {
                 egui::Popup::close_id(ui.ctx(), popup_id);
-                forget(ui);
-                if response.clicked() {
-                    app.actions.push(Action::ToggleSaved(now.uri.clone()));
-                }
-            }
-            Some(item) => {
-                let shown = egui::Popup::menu(&response)
-                    .id(popup_id)
-                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                    .frame(super::widgets::menu_frame(&palette))
-                    .show(|ui| {
-                        let stored = ui.data(|data| data.get_temp::<String>(query_id));
-                        let fresh = stored.is_none();
-                        let mut query = stored.unwrap_or_default();
-                        let mut checks = ui
-                            .data(|data| data.get_temp::<PlaylistChecks>(checks_id))
-                            .filter(|checks| checks.uri == item.uri())
-                            .unwrap_or_else(|| PlaylistChecks::new(app, item));
-                        let before = app.actions.len();
-                        let field = super::widgets::playlist_picker(
-                            ui,
-                            app,
-                            std::slice::from_ref(item),
-                            &mut query,
-                            Some(&mut checks),
-                        );
-                        if fresh {
-                            field.request_focus();
-                        }
-                        super::widgets::menu_separator(ui, &palette);
-                        let done = ui
-                            .with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                theme::pill_button(ui, &palette, &gettext(app.locale, "Done"), true)
-                            })
-                            .inner
-                            .clicked();
-                        if done {
-                            if !checks.liked {
-                                app.actions.push(Action::ToggleSaved(now.uri.clone()));
-                            }
-                            let changes = checks.changes(app, item);
-                            app.actions.extend(changes);
-                        }
-                        ui.data_mut(|data| {
-                            data.insert_temp(query_id, query);
-                            data.insert_temp(checks_id, checks);
-                        });
-                        // Done or New playlist closes it.
-                        if done || app.actions.len() > before {
-                            ui.close();
-                        }
-                    });
-                if shown.is_none() {
-                    forget(ui);
-                }
             }
         }
     }
