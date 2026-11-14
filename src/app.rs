@@ -7959,6 +7959,18 @@ impl App {
         }
         match result {
             Ok(Some(playlist)) => {
+                if let Some(page) = self.playlist_pages.get_mut(&playlist.id)
+                    && let Some(header) = page.playlist.get_mut()
+                {
+                    header.fill_blank_from(&playlist);
+                    header.fill_from(&playlist);
+                    if header.uri.is_empty() {
+                        header.uri = playlist.uri.clone();
+                    }
+                    if header.owner.id.as_deref().is_none_or(str::is_empty) {
+                        header.owner.id = playlist.owner.id.clone();
+                    }
+                }
                 self.artist_this_is.insert(uri, playlist);
             }
             Ok(None) => {
@@ -29114,6 +29126,58 @@ mod tests {
         assert_eq!(playlist.name, "This Is Artist");
         assert_eq!(playlist.owner_name(), "Spotify");
         assert_eq!(playlist.uri, "spotify:playlist:official");
+    }
+
+    #[test]
+    fn artist_this_is_verification_fills_an_already_loaded_blank_header() {
+        let mut app = headless_app();
+        app.playlist_pages
+            .insert("official".into(), PlaylistPage::default());
+        app.handle_api(ApiResponse::Playlist {
+            id: "official".into(),
+            generation: 0,
+            result: Ok(Playlist {
+                id: "official".into(),
+                snapshot_id: Some("current-snapshot".into()),
+                ..Default::default()
+            }),
+        });
+        assert!(!app.playlist_pages["official"].playlist.needs_load());
+        assert!(
+            app.playlist_pages["official"]
+                .playlist
+                .get()
+                .unwrap()
+                .name
+                .is_empty()
+        );
+        app.receive_artist_this_is(
+            "spotify:artist:artist".into(),
+            0,
+            Ok(Some(Playlist {
+                id: "official".into(),
+                uri: "spotify:playlist:official".into(),
+                name: "This Is Artist".into(),
+                description: Some("Verified description".into()),
+                owner: crate::api::models::Owner {
+                    id: Some("spotify".into()),
+                    display_name: Some("Spotify".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })),
+        );
+        let playlist = app.playlist_pages["official"].playlist.get().unwrap();
+        assert_eq!(playlist.name, "This Is Artist");
+        assert_eq!(
+            playlist.description.as_deref(),
+            Some("Verified description")
+        );
+        assert_eq!(playlist.owner.id.as_deref(), Some("spotify"));
+        assert_eq!(playlist.owner.display_name.as_deref(), Some("Spotify"));
+        assert_eq!(playlist.uri, "spotify:playlist:official");
+        assert_eq!(playlist.snapshot_id.as_deref(), Some("current-snapshot"));
+        assert!(app.artist_this_is.contains_key("spotify:artist:artist"));
     }
 
     #[test]
