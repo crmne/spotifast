@@ -730,6 +730,9 @@ pub struct App {
     pending_transfer_to: Option<(String, Instant)>,
     /// Device being retried after a "not found" answer to a switch.
     waking_device: Option<WakingDevice>,
+    /// Device the latest switch request went to and has no answer yet. An
+    /// answer for any other device is from a switch since given up on.
+    transfer_requested: Option<String>,
     /// When to take a confirming look at remote playback after a command.
     remote_recheck_at: Option<Instant>,
     /// When Spotify pushed a change to another device that no poll since
@@ -1443,6 +1446,7 @@ impl App {
             local_list: None,
             pending_transfer_to: None,
             waking_device: None,
+            transfer_requested: None,
             remote_recheck_at: None,
             remote_pushed_at: None,
             seek_preview: None,
@@ -3737,6 +3741,10 @@ impl App {
     /// Clears account data while preserving request serials that reject late answers.
     fn reset_data(&mut self) {
         self.pending_remote_volume = None;
+        // A switch still waiting for a device belongs to the signed-out
+        // account.
+        self.waking_device = None;
+        self.transfer_requested = None;
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
         self.pending_album_queues.clear();
@@ -9874,7 +9882,12 @@ impl App {
             }
             ApiResponse::Transferred { device_id, result } => match result {
                 Ok(()) => {
-                    self.waking_device = None;
+                    if self.transfer_requested.as_deref() == Some(device_id.as_str()) {
+                        self.transfer_requested = None;
+                    }
+                    if self.is_waking_device(&device_id) {
+                        self.waking_device = None;
+                    }
                     self.selected_device = Some(device_id);
                     self.show_devices = false;
                     self.remote_command_at = Some(Instant::now());
@@ -9882,6 +9895,12 @@ impl App {
                     self.refresh_devices();
                 }
                 Err(error) => {
+                    // The user chose another device, or the wait ended, since
+                    // this was sent: its failure is not news.
+                    if self.transfer_requested.as_deref() != Some(device_id.as_str()) {
+                        return;
+                    }
+                    self.transfer_requested = None;
                     if !self.wait_for_waking_device(&device_id, &error) {
                         self.waking_device = None;
                         self.toast_error(
@@ -11583,6 +11602,8 @@ impl App {
     }
 
     fn give_up_waking_device(&mut self) {
+        // A reply to the try still on its way must not start the wait again.
+        self.transfer_requested = None;
         if let Some(waking) = self.waking_device.take() {
             self.toast_error(
                 // Translators: {error} is an error message.
@@ -11620,6 +11641,7 @@ impl App {
         {
             self.waking_device = None;
         }
+        self.transfer_requested = Some(device_id.clone());
         self.selected_device = Some(device_id.clone());
         self.backend.api(ApiRequest::Transfer { device_id, play });
     }
@@ -28698,6 +28720,8 @@ mod tests {
         });
         app.waking_device.as_mut().unwrap().since =
             Instant::now() - DEVICE_WAKE_TIMEOUT - Duration::from_secs(1);
+        // The retry that the wait sent, answered after the window ended.
+        app.transfer_remote("echo".into(), true);
         app.handle_api(ApiResponse::Transferred {
             device_id: "echo".into(),
             result: Err(not_found()),
@@ -28706,12 +28730,78 @@ mod tests {
         assert_eq!(app.toasts.len(), 1);
 
         let mut app = waking_test_app();
+        app.transfer_remote("echo".into(), true);
         app.handle_api(ApiResponse::Transferred {
             device_id: "echo".into(),
             result: Err(crate::api::ApiError::RateLimited),
         });
         assert!(!app.is_waking_device("echo"));
         assert_eq!(app.toasts.len(), 1);
+    }
+
+    /// A "not found" for a switch the user has since replaced, or that the
+    /// wait gave up on, starts nothing and moves nothing back.
+    #[test]
+    fn a_late_not_found_from_a_superseded_switch_starts_no_wait() {
+        let mut app = waking_test_app();
+        app.transfer_remote("echo".into(), true);
+        app.transfer_remote("phone".into(), true);
+        app.handle_api(ApiResponse::Transferred {
+            device_id: "echo".into(),
+            result: Err(not_found()),
+        });
+        assert!(!app.is_waking_device("echo"));
+        assert!(app.toasts.is_empty());
+        assert_eq!(app.selected_device.as_deref(), Some("phone"));
+
+        // A wait running for one device is not ended by another's reply.
+        let mut app = waking_test_app();
+        app.transfer_remote("echo".into(), true);
+        app.handle_api(ApiResponse::Transferred {
+            device_id: "echo".into(),
+            result: Err(not_found()),
+        });
+        app.handle_api(ApiResponse::Transferred {
+            device_id: "phone".into(),
+            result: Ok(()),
+        });
+        assert!(app.is_waking_device("echo"));
+
+        // The try that was in flight when the wait gave up answers late.
+        let mut app = waking_test_app();
+        app.transfer_remote("echo".into(), true);
+        app.handle_api(ApiResponse::Transferred {
+            device_id: "echo".into(),
+            result: Err(not_found()),
+        });
+        app.transfer_remote("echo".into(), true);
+        app.give_up_waking_device();
+        assert_eq!(app.toasts.len(), 1);
+        app.handle_api(ApiResponse::Transferred {
+            device_id: "echo".into(),
+            result: Err(not_found()),
+        });
+        assert!(!app.is_waking_device("echo"));
+        assert_eq!(app.toasts.len(), 1, "the late answer is not reported again");
+    }
+
+    /// Signing out ends a wait, so signing back in does not resume it.
+    #[test]
+    fn signing_out_ends_the_wake_wait() {
+        let mut app = waking_test_app();
+        app.transfer_remote("echo".into(), true);
+        app.handle_api(ApiResponse::Transferred {
+            device_id: "echo".into(),
+            result: Err(not_found()),
+        });
+        assert!(app.is_waking_device("echo"));
+        app.reset_data();
+        assert!(!app.is_waking_device("echo"));
+        app.handle_api(ApiResponse::Transferred {
+            device_id: "echo".into(),
+            result: Err(not_found()),
+        });
+        assert!(!app.is_waking_device("echo"));
     }
 
     /// Choosing another device drops the wait, so the old switch cannot
