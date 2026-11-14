@@ -859,25 +859,27 @@ fn cover_uv(view: egui::Vec2, image: egui::Vec2) -> Rect {
     Rect::from_center_size(pos2(0.5, 0.5), size)
 }
 
-/// The view's title and its buttons. The title fades with the player bar
-/// (`controls`, see [`fullscreen_controls`]), so only the words stay once
-/// the controls have gone.
+/// The view's title and its buttons. The title and the button that leaves
+/// full screen fade with the player bar (`controls`, see
+/// [`fullscreen_controls`]), so only the words stay once the controls have
+/// gone.
 fn fullscreen_header(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     let palette = theme::Palette::dark();
+    let faded = palette.text.gamma_multiply(controls.clamp(0.0, 1.0));
     ui.horizontal(|ui| {
         theme::text(
             ui,
             gettext(app.locale, "Lyrics"),
             theme::bold(18.0),
-            palette.text.gamma_multiply(controls.clamp(0.0, 1.0)),
+            faded,
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if theme::icon_button(
                 ui,
                 Icon::Shrink,
                 18.0,
-                palette.text,
-                palette.text,
+                faded,
+                faded,
                 &gettext(app.locale, "Leave full screen (Esc)"),
             )
             .clicked()
