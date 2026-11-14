@@ -9965,11 +9965,13 @@ impl App {
         }
         let percent = volume_to_percent(volume);
         device.volume_percent = Some(percent);
-        if self
-            .settled_remote_volume
-            .as_ref()
-            .is_some_and(|settled| settled.percent.abs_diff(percent) > 1)
-        {
+        // Whether the push may come from the device a volume was set on.
+        let pushed_by = |id: Option<&str>| id.is_none_or(|id| id == device_id);
+        // A push from another device, or of a level further off, ends a
+        // settled volume, as a poll's does.
+        if self.settled_remote_volume.as_ref().is_some_and(|settled| {
+            !pushed_by(settled.device_id.as_deref()) || settled.percent.abs_diff(percent) > 1
+        }) {
             self.settled_remote_volume = None;
         }
         self.pushed_remote_volume = Some(PushedVolume {
@@ -9978,15 +9980,24 @@ impl App {
             poll_seq: self.remote_poll_seq,
         });
         // Once the hold has run out, a pushed volume is as current as a
-        // fresh poll's, and ends it without waiting for one.
-        let held = self
-            .pending_remote_volume
-            .as_ref()
-            .and_then(|pending| pending.written_at)
+        // fresh poll's, and ends it without waiting for one. One a step or
+        // less from the volume set here confirms it, as a poll's does.
+        let Some(pending) = &self.pending_remote_volume else {
+            return;
+        };
+        let held = pending
+            .written_at
             .is_none_or(|at| at.elapsed() < PLAYBACK_HOLD);
-        if !held {
-            self.pending_remote_volume = None;
+        if held {
+            return;
         }
+        if pushed_by(pending.device_id.as_deref()) && pending.percent.abs_diff(percent) <= 1 {
+            self.settled_remote_volume = Some(SettledRemoteVolume {
+                percent: pending.percent,
+                device_id: pending.device_id.clone(),
+            });
+        }
+        self.pending_remote_volume = None;
     }
 
     /// When to poll for a change Spotify pushed: after a pending poll
@@ -33200,6 +33211,25 @@ mod tests {
         app.handle_remote_volume("sonos", percent_to_volume(25));
         assert!(app.settled_remote_volume.is_none());
         assert_eq!(app.now_playing().unwrap().volume_percent, 25);
+        // A push a step off confirms the level as a poll does, once the
+        // hold has run out with no poll to confirm it.
+        app.set_volume(1, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        app.pending_remote_volume.as_mut().unwrap().written_at =
+            Some(Instant::now() - PLAYBACK_HOLD);
+        app.handle_remote_volume("sonos", percent_to_volume(0));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 1);
+        // A push from another speaker, while the Web API names none, shows
+        // that speaker's own level.
+        app.handle_remote_volume("kitchen", percent_to_volume(0));
+        assert!(app.settled_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 0);
         app.backend.shutdown();
     }
 
