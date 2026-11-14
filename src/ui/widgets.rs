@@ -1710,6 +1710,57 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
     }
 }
 
+/// Frames a second the playing song's bars move at: smooth on a 16 point
+/// mark without redrawing the window at the screen's full rate.
+const PLAYING_BARS_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
+
+/// Half the length of each of the six playing bars `time` seconds in, in the
+/// 24 unit grid of the Audio Lines icon. Each bar swings out from the middle
+/// and back on two waves of its own, so no two bars move together and the
+/// pattern does not visibly repeat.
+fn playing_bar_halves(time: f64) -> [f32; 6] {
+    const LOW: f32 = 1.5;
+    const HIGH: f32 = 9.0;
+    const WAVES: [(f64, f64, f64, f64); 6] = [
+        (5.1, 0.0, 8.3, 1.9),
+        (6.7, 2.1, 3.7, 0.4),
+        (4.3, 4.0, 9.1, 2.8),
+        (7.9, 1.2, 4.9, 5.1),
+        (5.9, 3.3, 7.3, 0.9),
+        (6.3, 5.6, 3.1, 3.7),
+    ];
+    WAVES.map(|(fast, fast_phase, slow, slow_phase)| {
+        let swing =
+            0.5 + 0.25 * (time * fast + fast_phase).sin() + 0.25 * (time * slow + slow_phase).sin();
+        LOW + (HIGH - LOW) * swing as f32
+    })
+}
+
+/// The six green bars that mark the playing song, centred in `rect` at
+/// `size` points. They move while the song plays and stand still as the
+/// Audio Lines icon when the system asks for less motion.
+fn playing_bars(ui: &Ui, rect: Rect, size: f32, color: Color32) {
+    if crate::motion::reduced(ui.ctx()) {
+        theme::paint_icon(ui, Icon::AudioLines, rect, size, color);
+        return;
+    }
+    let unit = size / 24.0;
+    let width = 2.0 * unit;
+    let origin = rect.center() - Vec2::splat(size / 2.0);
+    let halves = playing_bar_halves(ui.input(|input| input.time));
+    for (bar, half) in halves.into_iter().enumerate() {
+        let x = origin.x + (2.0 + 4.0 * bar as f32) * unit;
+        let middle = origin.y + 12.0 * unit;
+        let reach = half * unit + width / 2.0;
+        let bar_rect = Rect::from_min_max(
+            pos2(x - width / 2.0, middle - reach),
+            pos2(x + width / 2.0, middle + reach),
+        );
+        ui.painter().rect_filled(bar_rect, width / 2.0, color);
+    }
+    ui.ctx().request_repaint_after(PLAYING_BARS_FRAME);
+}
+
 /// Draws one song in a list.
 ///
 /// Returns the selection behavior for a row-body click. The caller supplies
@@ -1879,7 +1930,7 @@ fn track_row_contents(
             };
             theme::paint_icon(ui, icon, cell, 14.0, palette.text);
         } else if playing {
-            theme::paint_icon(ui, Icon::AudioLines, cell, 16.0, palette.accent);
+            playing_bars(ui, cell, 16.0, palette.accent);
         } else {
             let color = if is_current {
                 palette.accent
@@ -1945,7 +1996,7 @@ fn track_row_contents(
                 theme::paint_icon(ui, icon, cover_rect, 16.0, Color32::WHITE);
             } else if playing {
                 scrim(110);
-                theme::paint_icon(ui, Icon::AudioLines, cover_rect, 16.0, palette.accent);
+                playing_bars(ui, cover_rect, 16.0, palette.accent);
             }
         }
         x += cols.cover;
@@ -5039,5 +5090,28 @@ mod tests {
             .unwrap();
         assert_eq!(meta.options, crate::images::COVER_TEXTURE);
         assert_eq!(meta.options.mipmap_mode, Some(egui::TextureFilter::Linear));
+    }
+}
+
+#[cfg(test)]
+mod playing_bars_tests {
+    use super::*;
+
+    #[test]
+    fn the_playing_bars_move_apart_and_stay_inside_the_mark() {
+        let mut last = playing_bar_halves(0.0);
+        assert!(
+            last.windows(2).all(|pair| pair[0] != pair[1]),
+            "each bar keeps its own rhythm: {last:?}"
+        );
+        for step in 1..=300 {
+            let halves = playing_bar_halves(f64::from(step) * 0.05);
+            for (bar, half) in halves.iter().enumerate() {
+                // A 24 unit icon with 1 unit caps leaves 10 units each way.
+                assert!((1.5..=9.0).contains(half), "bar {bar}, step {step}");
+                assert_ne!(*half, last[bar], "bar {bar} stood still at step {step}");
+            }
+            last = halves;
+        }
     }
 }
