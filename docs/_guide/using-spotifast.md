@@ -494,7 +494,9 @@ and its greys after, so a black and white cover moves in grey; with it off,
 they take the accent colour. It follows the equalizer, not the volume, and moves only while the
 song plays on this computer. It is off by default. Clicking the player
 bar's empty space switches it, as Winamp's visualizer did: off, then
-Spectrum, then Waveform, then off again. **Frame rate** in **Settings >
+Spectrum, then Waveform, then off again. A click on or just beside a
+control leaves it alone. Right-click the empty space to choose a mode
+directly or to turn the click on or off. **Frame rate** in **Settings >
 Appearance** sets how often it and the mini player's analyser draw: 30, 60
 (the default), the rate of the screen showing the window, or Uncapped,
 which follows the display. They draw at half that rate while Spotifast's

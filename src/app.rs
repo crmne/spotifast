@@ -14079,6 +14079,18 @@ impl App {
                 self.settings.player_bar_vis = self.settings.player_bar_vis.next();
                 self.settings_dirty = true;
             }
+            Action::SetPlayerBarVis(mode) => {
+                if self.settings.player_bar_vis != mode {
+                    self.settings.player_bar_vis = mode;
+                    self.settings_dirty = true;
+                }
+            }
+            Action::SetPlayerBarVisClick(on) => {
+                if self.settings.player_bar_vis_click != on {
+                    self.settings.player_bar_vis_click = on;
+                    self.settings_dirty = true;
+                }
+            }
             Action::CycleVisualiser => {
                 self.settings.vis = self.settings.vis.next();
                 self.settings_dirty = true;

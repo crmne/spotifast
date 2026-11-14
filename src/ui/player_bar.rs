@@ -64,29 +64,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 theme::visualiser_frame(ui.ctx(), app.visualiser_fps());
             }
             // Its empty space is the visualizer's control, as Winamp's
-            // visualizer was: a click moves to the next mode. The controls
-            // drawn after it take their own clicks.
-            if app.settings.player_bar_vis_click && app.visualizers_available() {
-                let empty = ui.interact(
+            // visualizer was: a click moves to the next mode, and a right
+            // click offers the modes and the click itself. The controls drawn
+            // after it take their own clicks; what it does is decided once
+            // they are drawn, so it knows where their groups sit.
+            let empty = app.visualizers_available().then(|| {
+                ui.interact(
                     behind,
                     ui.id().with("player-bar-visualizer"),
                     Sense::click(),
-                );
-                // An open tooltip stays while the pointer is inside its widget's
-                // rect, and this one spans the bar: offer it only while the empty
-                // space itself is hovered, not the controls over it.
-                let empty = if empty.hovered() {
-                    empty.on_hover_text_at_pointer(gettext(
-                        app.locale,
-                        "Click to change the visualizer",
-                    ))
-                } else {
-                    empty
-                };
-                if empty.clicked() {
-                    app.actions.push(Action::CyclePlayerBarVis);
-                }
-            }
+                )
+            });
             ui.painter().hline(
                 rect.x_range(),
                 rect.top() + 0.5,
@@ -104,9 +92,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // egui's cross-axis centring is unreliable across nested layouts of
             // mixed heights, so each region is placed in an explicit band that
             // is sized to its content and centred on the bar's midline.
-            now_playing_block(app, ui, left, now.as_ref());
+            let mut groups = now_playing_block(app, ui, left, now.as_ref());
 
-            transport(app, ui, now.as_ref(), center);
+            groups.extend(transport(app, ui, now.as_ref(), center));
 
             let right_band =
                 Rect::from_min_size(pos2(rect.right() - side, cy - 15.0), vec2(side, 30.0));
@@ -117,6 +105,75 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             );
             let transport_right = center.center().x + transport_width() / 2.0;
             extras(app, &mut right_ui, now.as_ref(), transport_right);
+            groups.push(right_ui.min_rect());
+
+            if let Some(empty) = empty {
+                visualizer_control(app, empty, &groups);
+            }
+        });
+}
+
+/// How far around each group of controls a click still belongs to the
+/// controls: a click that just misses a button, or lands between two, must
+/// not change the visualizer.
+const CONTROL_DEAD_ZONE: f32 = 8.0;
+
+/// Whether `pos` is on or near one of the bar's groups of controls.
+fn in_dead_zone(groups: &[Rect], pos: egui::Pos2) -> bool {
+    groups
+        .iter()
+        .any(|group| group.expand(CONTROL_DEAD_ZONE).contains(pos))
+}
+
+/// The bar's empty space as the visualizer's control: a left click moves to
+/// the next mode, unless the click is turned off or lands in a dead zone
+/// around the controls, and a right click opens a menu of the modes and of
+/// the click itself, so the click can be turned off and back on from here.
+fn visualizer_control(app: &mut App, empty: egui::Response, groups: &[Rect]) {
+    let palette = app.palette;
+    let clickable = app.settings.player_bar_vis_click;
+    let near_controls = empty
+        .hover_pos()
+        .or_else(|| empty.interact_pointer_pos())
+        .is_some_and(|pos| in_dead_zone(groups, pos));
+    // An open tooltip stays while the pointer is inside its widget's rect,
+    // and this one spans the bar: offer it only while the empty space
+    // itself is hovered, not the controls over it or the space around them.
+    let empty = if clickable && empty.hovered() && !near_controls {
+        empty.on_hover_text_at_pointer(gettext(app.locale, "Click to change the visualizer"))
+    } else {
+        empty
+    };
+    if clickable && empty.clicked() && !near_controls {
+        app.actions.push(Action::CyclePlayerBarVis);
+    }
+    egui::Popup::context_menu(&empty)
+        .frame(super::widgets::menu_frame(&palette))
+        .show(|ui| {
+            use crate::settings::PlayerBarVis;
+            ui.set_min_width(240.0);
+            let choices = [
+                (PlayerBarVis::Off, gettext(app.locale, "Off")),
+                (PlayerBarVis::Spectrum, gettext(app.locale, "Spectrum")),
+                (PlayerBarVis::Waveform, gettext(app.locale, "Waveform")),
+            ];
+            for (mode, label) in &choices {
+                let current = app.settings.player_bar_vis == *mode;
+                if super::widgets::menu_item(ui, &palette, current.then_some(Icon::Check), label)
+                    && !current
+                {
+                    app.actions.push(Action::SetPlayerBarVis(*mode));
+                }
+            }
+            super::widgets::menu_separator(ui, &palette);
+            if super::widgets::menu_item(
+                ui,
+                &palette,
+                clickable.then_some(Icon::Check),
+                &gettext(app.locale, "Click player bar to change visualizer"),
+            ) {
+                app.actions.push(Action::SetPlayerBarVisClick(!clickable));
+            }
         });
 }
 
@@ -417,7 +474,15 @@ fn eased_fill(ctx: &egui::Context, panel: Color32, tint: Option<Color32>) -> Col
     }
 }
 
-fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option<&NowPlaying>) {
+/// Draws the playing thing's cover, words and heart, and returns the rect
+/// of each. Each is its own group, not their union: the space beside an
+/// artist line shorter than the title stays the visualizer's (#979).
+fn now_playing_block(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    region: Rect,
+    now: Option<&NowPlaying>,
+) -> Vec<Rect> {
     let palette = app.palette;
     let cy = region.center().y;
     let cover_rect = Rect::from_min_size(pos2(region.left() + 4.0, cy - 28.0), Vec2::splat(56.0));
@@ -447,7 +512,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             theme::regular(12.0),
             palette.dim,
         );
-        return;
+        return vec![cover_rect, text_ui.min_rect()];
     };
 
     super::widgets::playing_cover(
@@ -586,6 +651,8 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         );
     }
 
+    let mut controls: Vec<Rect> = responses.iter().map(|response| response.rect).collect();
+
     // The playing thing answers the same right-click menu as a table row,
     // from the cover or the words.
     if let Some(item) = &song {
@@ -619,6 +686,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         // edge, so it stays visually attached to the title.
         let heart_x = (text_left + displayed_text_width + 21.0).min(region.right() - 21.0);
         let heart_rect = Rect::from_center_size(pos2(heart_x, cy), Vec2::splat(30.0));
+        controls.push(heart_rect);
         let mut heart_ui = ui.new_child(
             UiBuilder::new()
                 .max_rect(heart_rect)
@@ -700,6 +768,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             }
         }
     }
+    controls
 }
 
 /// The transport's button widths: icon buttons occupy icon size + 12; the
@@ -712,7 +781,14 @@ fn transport_width() -> f32 {
     TRANSPORT_WIDTHS.iter().sum::<f32>() + TRANSPORT_GAP * 4.0
 }
 
-fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region: Rect) {
+/// Draws the transport's buttons and the progress row under them, and
+/// returns the rect each of the two rows covers.
+fn transport(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    now: Option<&NowPlaying>,
+    region: Rect,
+) -> [Rect; 2] {
     let palette = app.palette;
     // Everything here is placed with explicit rects: egui's implicit rows
     // centre each widget in the row height known when it is added, which
@@ -737,6 +813,8 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
     let widths = TRANSPORT_WIDTHS;
     let mut x = region.center().x - transport_width() / 2.0;
+    let buttons =
+        Rect::from_center_size(pos2(region.center().x, cy), vec2(transport_width(), 36.0));
     let mut slot = |width: f32| {
         let rect = Rect::from_center_size(pos2(x + width / 2.0, cy), vec2(width, 36.0));
         x += width + TRANSPORT_GAP;
@@ -893,7 +971,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         palette.dim
     };
     let slider_left = region.center().x - slider_width / 2.0;
-    ui.painter().text(
+    let elapsed = ui.painter().text(
         pos2(slider_left - 8.0, row_cy),
         egui::Align2::RIGHT_CENTER,
         util::format_duration_ms(shown_position),
@@ -931,13 +1009,14 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         }
         SliderEvent::None => {}
     }
-    ui.painter().text(
+    let total = ui.painter().text(
         pos2(slider_left + slider_width + 8.0, row_cy),
         egui::Align2::LEFT_CENTER,
         util::format_duration_ms(duration),
         theme::regular(11.5),
         time_color,
     );
+    [buttons, elapsed.union(slider_rect).union(total)]
 }
 
 /// What the right of the bar always holds, in points: the volume slider and

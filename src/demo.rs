@@ -6741,6 +6741,161 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Draws the player bar alone at 1280 by 800 with `events`.
+    #[cfg(feature = "demo")]
+    fn player_bar_frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| crate::ui::player_bar::show(app, ui),
+        );
+        output.textures_delta.clear();
+        output
+    }
+
+    /// A click that just misses a control, between Play and Next, belongs
+    /// to the controls and leaves the visualizer alone; a click well away
+    /// from every control still moves it on.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_click_between_the_player_bars_controls_keeps_the_visualizer() {
+        let (ctx, mut app) = accessible_app("player-bar-dead-zone");
+        let cycled = |app: &App| {
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CyclePlayerBarVis))
+        };
+        player_bar_frame(&ctx, &mut app, vec![]);
+
+        // #given the gap between Play, centred in the bar, and Next
+        let buttons_y = 800.0 - crate::theme::PLAYER_BAR_HEIGHT / 2.0 - 10.0;
+        let between = egui::pos2(640.0 + 18.0 + 5.0, buttons_y);
+
+        // #when it is clicked
+        player_bar_frame(
+            &ctx,
+            &mut app,
+            pointer_click(between, egui::PointerButton::Primary),
+        );
+
+        // #then the visualizer stays as it is
+        assert!(!cycled(&app), "{:?}", app.actions);
+
+        // #when the bar's top edge, far from every control, is clicked
+        app.actions.clear();
+        let far = egui::pos2(440.0, 800.0 - crate::theme::PLAYER_BAR_HEIGHT + 4.0);
+        player_bar_frame(
+            &ctx,
+            &mut app,
+            pointer_click(far, egui::PointerButton::Primary),
+        );
+
+        // #then the visualizer moves on
+        assert!(cycled(&app), "{:?}", app.actions);
+        app.backend.shutdown();
+    }
+
+    /// A right click on the player bar's empty space opens a menu of the
+    /// visualizer's modes and of the click itself, and it opens even with
+    /// the click turned off, so the click can be turned back on from there.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_player_bars_right_click_menu_chooses_the_visualizer() {
+        use crate::settings::PlayerBarVis;
+        let (ctx, mut app) = accessible_app("player-bar-vis-menu");
+        let empty = egui::pos2(6.0, 796.0);
+        let open_menu = |app: &mut App| {
+            player_bar_frame(&ctx, app, vec![]);
+            player_bar_frame(
+                &ctx,
+                app,
+                pointer_click(empty, egui::PointerButton::Secondary),
+            );
+            menu_text(&player_bar_frame(&ctx, app, vec![]))
+        };
+        let center_of = |menu: &[(String, egui::Rect)], label: &str| {
+            menu.iter()
+                .find(|(text, _)| text == label)
+                .unwrap_or_else(|| panic!("no {label} in {menu:?}"))
+                .1
+                .center()
+        };
+
+        // #given the spectrum behind the bar
+        app.settings.player_bar_vis = PlayerBarVis::Spectrum;
+
+        // #when the empty space is right-clicked and Off is chosen
+        let menu = open_menu(&mut app);
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CyclePlayerBarVis)),
+            "a right click does not cycle: {:?}",
+            app.actions
+        );
+        for label in [
+            "Spectrum",
+            "Waveform",
+            "Click player bar to change visualizer",
+        ] {
+            center_of(&menu, label);
+        }
+        player_bar_frame(
+            &ctx,
+            &mut app,
+            pointer_click(center_of(&menu, "Off"), egui::PointerButton::Primary),
+        );
+
+        // #then the visualizer is set to Off directly
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::SetPlayerBarVis(PlayerBarVis::Off))),
+            "{:?}",
+            app.actions
+        );
+
+        // #given the click turned off
+        app.actions.clear();
+        app.settings.player_bar_vis_click = false;
+        player_bar_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+        );
+
+        // #when the empty space is right-clicked and the click is chosen
+        let menu = open_menu(&mut app);
+        player_bar_frame(
+            &ctx,
+            &mut app,
+            pointer_click(
+                center_of(&menu, "Click player bar to change visualizer"),
+                egui::PointerButton::Primary,
+            ),
+        );
+
+        // #then the click is turned back on
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::SetPlayerBarVisClick(true))),
+            "{:?}",
+            app.actions
+        );
+        app.backend.shutdown();
+    }
+
     /// The empty space's tooltip belongs to the empty space: once shown, it
     /// closes when the pointer moves onto a control drawn over the bar.
     #[cfg(feature = "demo")]
