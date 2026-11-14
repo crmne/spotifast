@@ -935,6 +935,51 @@ pub struct ApiErrorDetail {
 mod tests {
     use super::*;
 
+    /// Spotify shows no saves count for the mixes it makes for each
+    /// listener, nor for a list of its own that reports none.
+    #[test]
+    fn a_playlists_saves_show_as_spotify_shows_them() {
+        let playlist = |id: &str, owner: &str, saves: u64| Playlist {
+            id: id.into(),
+            uri: format!("spotify:playlist:{id}"),
+            owner: Owner {
+                id: Some(owner.into()),
+                ..Default::default()
+            },
+            followers: Some(Followers { total: saves }),
+            ..Default::default()
+        };
+        // A Daily Mix and Discover Weekly.
+        assert_eq!(
+            playlist("37i9dQZF1E39vTG3GurFPW", "spotify", 3).shown_saves(),
+            None
+        );
+        assert_eq!(
+            playlist("37i9dQZEVXcJZyENOWUFo7", "spotify", 0).shown_saves(),
+            None
+        );
+        // An editorial list keeps its count, unless it reports none.
+        assert_eq!(
+            playlist("37i9dQZF1DXcBWIGoYBM5M", "spotify", 35_000_000).shown_saves(),
+            Some(35_000_000)
+        );
+        assert_eq!(
+            playlist("37i9dQZF1DX0XUsuxWHRQd", "spotify", 0).shown_saves(),
+            None
+        );
+        // A listener's own playlist shows its count, none included.
+        assert_eq!(playlist("abc", "alice", 0).shown_saves(), Some(0));
+        assert_eq!(
+            playlist("37i9dQZF1E39vTG3GurFPW", "alice", 3).shown_saves(),
+            Some(3)
+        );
+        // An id the Web API left out is read from the uri.
+        let mut mix = playlist("37i9dQZF1E39vTG3GurFPW", "spotify", 3);
+        mix.id.clear();
+        assert!(mix.made_for_listener());
+        assert_eq!(mix.shown_saves(), None);
+    }
+
     #[test]
     fn an_albums_year_reads_a_date_the_way_format_date_does() {
         let dated = |date: &str| {

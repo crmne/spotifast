@@ -18040,6 +18040,42 @@ mod tests {
         );
     }
 
+    /// A playlist taken out of the library keeps its page open, since it
+    /// still plays and can be added back there. Deleting one's own leaves
+    /// it, with nothing left to show.
+    #[test]
+    fn a_playlist_taken_out_of_the_library_stays_open() {
+        for (owner, stays) in [("bob", true), ("alice", false)] {
+            let mut app = listener_app();
+            app.open(Page::Playlist("pl".into()));
+            app.playlist_pages.insert(
+                "pl".into(),
+                PlaylistPage {
+                    playlist: Loadable::Loaded(Playlist {
+                        id: "pl".into(),
+                        owner: crate::api::models::Owner {
+                            id: Some(owner.into()),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            );
+            app.handle_api(ApiResponse::PlaylistFollowChanged {
+                id: "pl".into(),
+                followed: false,
+                result: Ok(()),
+            });
+            let expected = if stays {
+                Page::Playlist("pl".into())
+            } else {
+                Page::Home
+            };
+            assert_eq!(app.page(), &expected, "a playlist {owner} owns");
+        }
+    }
+
     /// A deletion Spotify refused is forgotten: the next list shows the
     /// playlist again.
     #[test]

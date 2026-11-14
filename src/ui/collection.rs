@@ -2290,6 +2290,22 @@ fn playlist_loading_hero(app: &mut App, ui: &mut egui::Ui, playlist: &Playlist) 
     playlist_hero(app, ui, playlist, images, byline, playlist.collaborative);
 }
 
+/// What a playlist's header calls it, as Spotify's own app does.
+fn playlist_kind(locale: Locale, playlist: &Playlist, collaborative: bool) -> Cow<'static, str> {
+    if collaborative {
+        gettext(locale, "Collaborative Playlist")
+    } else if playlist.public == Some(true) || playlist.owned_by_spotify() {
+        // Spotify's own lists say "private" only of where they show on the
+        // listener's profile, and saving one can flip that; the official
+        // app calls them public either way.
+        gettext(locale, "Public Playlist")
+    } else if playlist.public == Some(false) {
+        gettext(locale, "Private Playlist")
+    } else {
+        gettext(locale, "Playlist")
+    }
+}
+
 fn playlist_hero<'a>(
     app: &mut App,
     ui: &mut egui::Ui,
@@ -2318,18 +2334,7 @@ fn playlist_hero<'a>(
         Hero {
             images,
             liked: false,
-            kind: if collaborative {
-                gettext(app.locale, "Collaborative Playlist")
-            } else if playlist.public == Some(true) || playlist.owned_by_spotify() {
-                // Spotify's own lists say "private" only of where they
-                // show on the listener's profile, and saving one can flip
-                // that; the official app calls them public either way.
-                gettext(app.locale, "Public Playlist")
-            } else if playlist.public == Some(false) {
-                gettext(app.locale, "Private Playlist")
-            } else {
-                gettext(app.locale, "Playlist")
-            },
+            kind: playlist_kind(app.locale, playlist, collaborative),
             title: &playlist.name,
             description: playlist.description.clone(),
             byline,
@@ -2796,6 +2801,35 @@ mod tests {
     use super::*;
     use crate::api::models::{Album, ArtistRef, Image, Track};
     use crate::model::PlaylistPage;
+
+    /// A playlist's header calls it what Spotify's own app does: Spotify's
+    /// own lists are public whether saved or not.
+    #[test]
+    fn a_playlist_is_called_what_spotify_calls_it() {
+        let cases = [
+            ("alice", Some(false), false, "Private Playlist"),
+            ("alice", Some(true), false, "Public Playlist"),
+            ("alice", None, false, "Playlist"),
+            ("spotify", Some(false), false, "Public Playlist"),
+            ("spotify", Some(true), false, "Public Playlist"),
+            ("alice", Some(false), true, "Collaborative Playlist"),
+        ];
+        for (owner, public, collaborative, expected) in cases {
+            let playlist = Playlist {
+                owner: crate::api::models::Owner {
+                    id: Some(owner.into()),
+                    ..Default::default()
+                },
+                public,
+                ..Default::default()
+            };
+            assert_eq!(
+                playlist_kind(Locale::English, &playlist, collaborative),
+                expected,
+                "{owner}, {public:?}"
+            );
+        }
+    }
 
     /// A 2x display: the hero asks for 640, a card for 300.
     const TEST_HERO_ART: HeroArt = HeroArt {
