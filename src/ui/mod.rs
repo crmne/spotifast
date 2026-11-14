@@ -91,10 +91,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
         );
     }
-    player_bar::show(app, ui);
     if app.lyrics_fullscreen.is_some() {
+        // The player bar slides away while nothing happens and comes back
+        // with any input, over the lyrics rather than beside them.
+        let controls = lyrics::fullscreen_controls(app, ctx);
         lyrics::fullscreen(app, ui);
+        player_bar::overlay(app, ui, 1.0 - controls);
     } else {
+        lyrics::forget_fullscreen_controls(ctx);
+        player_bar::show(app, ui);
         if app.settings.sidebar_visible {
             sidebar::show(app, ui);
         }

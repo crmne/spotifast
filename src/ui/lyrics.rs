@@ -324,31 +324,100 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     app.lyrics_line_shown = Some(active);
 }
 
+/// How long full screen lyrics keep the player bar after the last input.
+const CONTROLS_LINGER_SECONDS: f64 = 3.0;
+/// How long the player bar takes to slide away or back.
+const CONTROLS_SLIDE_SECONDS: f32 = 0.3;
+
+fn controls_id() -> egui::Id {
+    egui::Id::new("fullscreen-lyrics-last-input")
+}
+
+/// How much of the player bar over full screen lyrics shows: 1 while there has been
+/// input in the last three seconds, the pointer rests on the player bar, or
+/// a menu or popup is open; 0 once they have gone. In between they are
+/// sliding or fading.
+pub fn fullscreen_controls(app: &App, ctx: &egui::Context) -> f32 {
+    let now = ctx.input(|input| input.time);
+    let input = ctx.input(|input| {
+        input.pointer.delta() != egui::Vec2::ZERO
+            || input.pointer.any_down()
+            || input.pointer.any_released()
+            || input.smooth_scroll_delta != egui::Vec2::ZERO
+            || input
+                .events
+                .iter()
+                .any(|event| matches!(event, egui::Event::Key { .. } | egui::Event::Text(_)))
+    });
+    let viewport = ctx.viewport_rect();
+    let bar = Rect::from_min_max(
+        pos2(viewport.left(), viewport.bottom() - theme::PLAYER_BAR_HEIGHT),
+        viewport.max,
+    );
+    let over_bar = ctx
+        .input(|input| input.pointer.hover_pos())
+        .is_some_and(|pointer| bar.contains(pointer));
+    let previous = ctx.data(|data| data.get_temp::<f64>(controls_id()));
+    // The pointer holds the bar only once it is there to hold: resting where
+    // a hidden bar would be does not bring it back.
+    let was_shown = previous.is_none_or(|last| now - last < CONTROLS_LINGER_SECONDS);
+    let held = (was_shown && over_bar) || egui::Popup::is_any_open(ctx) || app.show_devices;
+    let last = match previous {
+        Some(last) if !input && !held => last,
+        _ => now,
+    };
+    ctx.data_mut(|data| data.insert_temp(controls_id(), last));
+    let left = CONTROLS_LINGER_SECONDS - (now - last);
+    let shown = left > 0.0;
+    if shown {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(left));
+    }
+    ctx.animate_bool_with_time(
+        controls_id().with("shown"),
+        shown,
+        crate::motion::seconds(ctx, CONTROLS_SLIDE_SECONDS),
+    )
+}
+
+/// Forget the last input once full screen lyrics close, so they open with
+/// their controls showing.
+pub fn forget_fullscreen_controls(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.remove::<f64>(controls_id()));
+}
+
+/// Full screen lyrics over the whole window. The player bar comes and goes
+/// over the bottom of it, so the room the layout uses stops above the bar
+/// and never moves (see [`fullscreen_controls`]).
 pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
     egui::CentralPanel::default()
         .frame(Frame::new().fill(theme::Palette::dark().window))
         .show(ui, |ui| {
-            let rect = ui.max_rect();
+            // The whole window, edges included, is the view's own.
+            let rect = ui.ctx().viewport_rect().union(ui.max_rect());
             background(app, ui, rect);
+            let room = Rect::from_min_max(
+                rect.min,
+                pos2(rect.right(), rect.bottom() - theme::PLAYER_BAR_HEIGHT),
+            );
             // The empty space is the backdrop's switch, as the player bar's
             // is its visualizer's. Everything drawn after this takes its own
             // clicks, and a drag is no click.
             #[cfg(feature = "milkdrop")]
             if ui
-                .interact(rect, ui.id().with("lyrics-backdrop"), Sense::click())
+                .interact(room, ui.id().with("lyrics-backdrop"), Sense::click())
                 .clicked()
             {
                 app.actions.push(Action::ToggleLyricsMilkdrop);
             }
             let top = theme::titlebar_inset(ui.ctx()) + 24.0;
-            if app.now_playing().is_some() && rect.width() >= COVER_BESIDE_MIN_WIDTH {
-                with_cover(app, ui, rect, top);
+            if app.now_playing().is_some() && room.width() >= COVER_BESIDE_MIN_WIDTH {
+                with_cover(app, ui, room, top);
                 return;
             }
-            let width = fullscreen_content_width(rect.width());
+            let width = fullscreen_content_width(room.width());
             let region = Rect::from_min_max(
-                pos2(rect.center().x - width / 2.0, rect.top() + top),
-                pos2(rect.center().x + width / 2.0, rect.bottom()),
+                pos2(room.center().x - width / 2.0, room.top() + top),
+                pos2(room.center().x + width / 2.0, room.bottom()),
             );
             let mut content = ui.new_child(UiBuilder::new().max_rect(region));
             fullscreen_header(app, &mut content);
