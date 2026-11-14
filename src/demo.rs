@@ -5905,6 +5905,8 @@ mod tests {
 
         // #when Down chooses the first row and Enter is pressed
         draw(&mut app, &mut checks, true, vec![]);
+        // The focused field claims the arrow keys as it is drawn.
+        draw(&mut app, &mut checks, false, vec![]);
         draw(&mut app, &mut checks, false, key(egui::Key::ArrowDown));
         draw(&mut app, &mut checks, false, key(egui::Key::Enter));
         // #then Liked Songs, which leads a liked song's list, is unchecked

@@ -382,7 +382,11 @@ mod tests {
         let now = playlists(&[("a", "2"), ("b", "1")]);
         assert_eq!(index.start_reads(&now), ["b"]);
         assert_eq!(index.holds("a", "song:2"), Some(true));
-        assert_eq!(index.holds("b", "song:1"), Some(true), "the removal is undone");
+        assert_eq!(
+            index.holds("b", "song:1"),
+            Some(true),
+            "the removal is undone"
+        );
     }
 
     #[test]
