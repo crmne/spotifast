@@ -3016,6 +3016,10 @@ msgstr "この曲はすでにプレイリストにあります"
 msgid "Add anyway"
 msgstr "追加する"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "重複をスキップ"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "完了"

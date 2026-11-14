@@ -12005,9 +12005,9 @@ impl App {
         }
     }
 
-    /// Answer from the rows already held locally. A found duplicate is
-    /// definitive even for a partial playlist; an empty answer is definitive
-    /// only when the whole playlist is present.
+    /// Answer from cached rows only when every selected song is found or the
+    /// whole playlist is present. Skipping duplicates needs a complete answer,
+    /// including songs that might be in an unloaded part of the playlist.
     pub(crate) fn local_playlist_duplicates(
         &self,
         id: &str,
@@ -12028,7 +12028,7 @@ impl App {
             .filter(|uri| existing.contains(*uri))
             .map(str::to_string)
             .collect();
-        if !duplicates.is_empty() || page.items.is_complete() {
+        if duplicates.len() == items.len() || page.items.is_complete() {
             Some(duplicates)
         } else {
             None
@@ -12997,6 +12997,21 @@ impl App {
                 // Answering one question opens the next. An add that needed
                 // none leaves whatever dialog is open alone.
                 self.dialog = self.duplicate_prompts.pop_front();
+                self.add_to_playlist_now(playlist_id, playlist_name, items, position);
+            }
+            Action::SkipPlaylistDuplicates {
+                playlist_id,
+                playlist_name,
+                items,
+                position,
+                duplicate_uris,
+            } => {
+                self.dialog = self.duplicate_prompts.pop_front();
+                let duplicates: HashSet<&str> = duplicate_uris.iter().map(String::as_str).collect();
+                let items = items
+                    .into_iter()
+                    .filter(|item| !duplicates.contains(item.uri()))
+                    .collect();
                 self.add_to_playlist_now(playlist_id, playlist_name, items, position);
             }
             Action::UpdatePlaylists { item, add, remove } => {
@@ -29845,6 +29860,210 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    /// A partial cache cannot tell which of the unseen songs are duplicates.
+    /// Both local and remote answers must preserve the selected order and the
+    /// insertion point, including repeated selections of an absent song.
+    #[test]
+    fn skipping_duplicates_uses_complete_membership_and_keeps_pending_prompts() {
+        for cache in ["complete", "partial", "absent"] {
+            for selection in [
+                vec!["first", "existing", "hidden", "last", "first"],
+                vec!["existing", "hidden"],
+                vec!["first", "last"],
+            ] {
+                let mut app = headless_app();
+                app.backend.set_offline(true);
+                if cache != "absent" {
+                    app.playlist_pages.insert(
+                        "target".into(),
+                        PlaylistPage {
+                            items: PagedList {
+                                items: if cache == "complete" {
+                                    vec![
+                                        cached_playlist_row("spotify:track:existing"),
+                                        cached_playlist_row("spotify:track:hidden"),
+                                    ]
+                                } else {
+                                    vec![cached_playlist_row("spotify:track:existing")]
+                                },
+                                total: Some(2),
+                                next_offset: (cache == "partial").then_some(1),
+                                loaded_once: true,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                    );
+                }
+                let items = selection
+                    .iter()
+                    .map(|id| {
+                        cached_playlist_row(&format!("spotify:track:{id}"))
+                            .playable()
+                            .unwrap()
+                            .clone()
+                    })
+                    .collect();
+                app.request_playlist_add("target".into(), "Target".into(), items, Some(0));
+                if cache != "complete" {
+                    let requests = app.backend.take_playlist_add_requests();
+                    let [
+                        ApiRequest::CheckPlaylistDuplicates {
+                            playlist_id,
+                            playlist_name,
+                            items,
+                            position,
+                        },
+                    ] = requests.as_slice()
+                    else {
+                        panic!("complete membership must be checked");
+                    };
+                    let duplicates = items
+                        .iter()
+                        .map(PlayableItem::uri)
+                        .filter(|uri| {
+                            matches!(*uri, "spotify:track:existing" | "spotify:track:hidden")
+                        })
+                        .map(str::to_string)
+                        .collect();
+                    app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
+                        playlist_id: playlist_id.clone(),
+                        playlist_name: playlist_name.clone(),
+                        items: items.clone(),
+                        position: *position,
+                        result: Ok(duplicates),
+                    });
+                }
+                if selection.contains(&"existing") {
+                    assert!(app.backend.take_playlist_add_requests().is_empty());
+                    let Some(Dialog::ConfirmPlaylistDuplicates {
+                        playlist_id,
+                        playlist_name,
+                        items,
+                        position,
+                        duplicate_uris,
+                    }) = app.dialog.take()
+                    else {
+                        panic!("duplicate dialog");
+                    };
+                    app.duplicate_prompts.push_back(Dialog::Shortcuts);
+                    app.apply(
+                        Action::SkipPlaylistDuplicates {
+                            playlist_id,
+                            playlist_name,
+                            items,
+                            position,
+                            duplicate_uris,
+                        },
+                        &egui::Context::default(),
+                    );
+                    assert!(matches!(app.dialog, Some(Dialog::Shortcuts)));
+                } else {
+                    assert!(app.dialog.is_none(), "no duplicates need no dialog");
+                }
+                let expected: Vec<String> = selection
+                    .iter()
+                    .filter(|id| !matches!(**id, "existing" | "hidden"))
+                    .map(|id| format!("spotify:track:{id}"))
+                    .collect();
+                let requests = app.backend.take_playlist_add_requests();
+                if expected.is_empty() {
+                    assert!(requests.is_empty(), "all duplicates must make no write");
+                    assert!(!app.playlist_busy);
+                } else {
+                    assert!(
+                        matches!(requests.as_slice(),
+                        [ApiRequest::AddToPlaylist { uris, position: Some(0), .. }]
+                            if *uris == expected),
+                        "{cache}: {selection:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn skipping_playlist_duplicates_adds_only_missing_songs_in_order() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.playlist_pages.insert(
+            "target".into(),
+            PlaylistPage {
+                items: PagedList {
+                    items: vec![
+                        cached_playlist_row("spotify:track:existing"),
+                        cached_playlist_row("spotify:track:other"),
+                    ],
+                    total: Some(2),
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let items = ["first", "existing", "last"]
+            .into_iter()
+            .map(|id| cached_playlist_row(&format!("spotify:track:{id}")))
+            .map(|row| row.playable().unwrap().clone())
+            .collect();
+
+        app.apply(
+            Action::SkipPlaylistDuplicates {
+                playlist_id: "target".into(),
+                playlist_name: "Target".into(),
+                items,
+                position: Some(2),
+                duplicate_uris: vec!["spotify:track:existing".into()],
+            },
+            &egui::Context::default(),
+        );
+
+        assert!(matches!(
+            app.backend.take_playlist_add_requests().as_slice(),
+            [ApiRequest::AddToPlaylist { uris, position: Some(2), .. }]
+                if uris == &["spotify:track:first", "spotify:track:last"]
+        ));
+        assert_eq!(
+            app.playlist_pages["target"]
+                .items
+                .items
+                .iter()
+                .map(|row| row.playable().unwrap().uri())
+                .collect::<Vec<_>>(),
+            [
+                "spotify:track:existing",
+                "spotify:track:other",
+                "spotify:track:first",
+                "spotify:track:last"
+            ]
+        );
+    }
+
+    #[test]
+    fn skipping_all_playlist_duplicates_makes_no_write() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let items = ["same", "same"]
+            .into_iter()
+            .map(|id| cached_playlist_row(&format!("spotify:track:{id}")))
+            .map(|row| row.playable().unwrap().clone())
+            .collect();
+
+        app.apply(
+            Action::SkipPlaylistDuplicates {
+                playlist_id: "target".into(),
+                playlist_name: "Target".into(),
+                items,
+                position: None,
+                duplicate_uris: vec!["spotify:track:same".into()],
+            },
+            &egui::Context::default(),
+        );
+
+        assert!(app.backend.take_playlist_add_requests().is_empty());
+        assert!(app.playlist_pages.get("target").is_none());
     }
 
     /// Copying picked songs puts their links on the clipboard, one per

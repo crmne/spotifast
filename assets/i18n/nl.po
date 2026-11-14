@@ -3039,6 +3039,10 @@ msgstr "Nummer staat al in deze playlist"
 msgid "Add anyway"
 msgstr "Toch toevoegen"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Duplicaten overslaan"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Klaar"

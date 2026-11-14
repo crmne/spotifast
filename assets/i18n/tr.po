@@ -3035,6 +3035,10 @@ msgstr "Şarkı bu çalma listesinde zaten var"
 msgid "Add anyway"
 msgstr "Yine de ekle"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Yinelenenleri atla"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Bitti"

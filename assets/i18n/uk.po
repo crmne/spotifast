@@ -3056,6 +3056,10 @@ msgstr "Пісня вже є в цьому плейлісті"
 msgid "Add anyway"
 msgstr "Однаково додати"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Пропустити дублікати"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Готово"

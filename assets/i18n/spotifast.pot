@@ -2892,6 +2892,10 @@ msgstr ""
 msgid "Add anyway"
 msgstr ""
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr ""
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr ""
