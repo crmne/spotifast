@@ -109,6 +109,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 # Inflating the zip a Winamp skin comes as (src/skin/zip.rs). Already
 # compiled for reqwest's gzip support, so this adds no code to the build.
 flate2 = "1"
+# The Jam invite as a QR code (src/ui/jam.rs), painted as plain rectangles.
+# Pure Rust, no image encoding, no transitive crates.
+fast_qr = "0.13"
 # Filling glyph outlines with no anti-aliasing for the Winamp playlist's
 # text (src/ui/winamp/pixel_text.rs). Already compiled for the SVG icons
 # through egui_extras and resvg, so this adds no code to the build.

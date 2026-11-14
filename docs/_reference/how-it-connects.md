@@ -833,6 +833,40 @@ changed since. The request is sent once, never retried, and has a 20-second
 deadline. A row that is no longer
 in the playlist removes nothing; the playlist reloads and shows the error.
 
+## Jams
+
+A Jam is Spotify's shared queue: whoever starts it hosts a session, everyone
+who joins can add songs and steer playback, and the invite travels as a link
+the official apps show as a QR code. The service behind it, `social-connect`,
+answers on the same spclient hosts the rest of the session traffic uses, and
+is documented nowhere publicly; the requests below follow what Spotify's own
+clients send, as observed by community clients.
+
+Starting and joining run over the playback session, with its own
+authorization, through `social-connect/v2` and `social-connect/v3`. Starting
+asks for `current_or_new` with `activate=true`, which also makes the device
+playback targets the session's player; joining posts an invite token with a
+fresh attempt id. Leaving and ending are single posts, and a session that is
+already gone answers as gone.
+
+The invite is
+`https://open.spotify.com/socialsession/<token>`, drawn as a QR code with
+the token's own quiet zone, and the token is plain alphanumerics; anything
+else is refused before it reaches a request. The QR paints larger on demand,
+so it scans from across a room, and the link copies alone.
+
+Member counts and ownership refresh when the picker opens, once after each
+command, and every ten seconds while the picker shows the Jam, instead of
+following Spotify's push channel: the session's Dealer connection delivers
+session updates to librespot, which reads and then ignores them, so the app
+asks Spotify directly on a timer. Where music plays is not changed by
+joining; the session decides that.
+
+Because the invites and endpoints are undocumented, the shapes Spotifast
+accepts are tolerant, and a change on Spotify's side can end the feature
+until the requests are re-read. Nothing about a Jam is written to disk; the
+session lives only in memory, and the invite token appears nowhere in logs.
+
 ## Optional Soloist player
 
 [Soloist setup](/soloist/) describes the optional Spotify-owned player.

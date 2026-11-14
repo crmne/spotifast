@@ -4591,3 +4591,65 @@ msgstr ""
 
 #~ msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
 #~ msgstr "PulseAudio는 PipeWire도 지원합니다. Rodio는 ALSA와 직접 통신합니다."
+
+#: src/ui/jam.rs
+msgid "Start a Jam"
+msgstr "Jam 시작"
+
+#: src/ui/jam.rs
+msgid "Paste a Jam invite to join"
+msgstr "참여하려면 Jam 초대를 붙여넣기"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "참여"
+
+#: src/ui/jam.rs
+msgid "Jam QR code"
+msgstr "Jam QR 코드"
+
+#: src/ui/jam.rs
+msgid "Show it bigger"
+msgstr "더 크게 보기"
+
+#: src/ui/jam.rs
+msgid "Scan to join"
+msgstr "스캔하여 참여"
+
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Jam"
+
+#: src/ui/jam.rs
+#. Translators: {count} is how many people are in the Jam.
+#, rust-format
+msgid "{count} listening"
+msgstr "{count}명이 듣는 중"
+
+#: src/ui/jam.rs
+msgid "End Jam"
+msgstr "Jam 종료"
+
+#: src/ui/jam.rs
+msgid "Leave Jam"
+msgstr "Jam 나가기"
+
+#: src/ui/jam.rs
+msgid "Copy invite link"
+msgstr "초대 링크 복사"
+
+#: src/ui/jam.rs
+msgid "Scan to join this Jam"
+msgstr "스캔하여 이 Jam에 참여"
+
+#: src/ui/jam.rs
+msgid "Jam session"
+msgstr "Jam 세션"
+
+#: src/ui/jam.rs
+msgid "Exit"
+msgstr "나가기"
+
+#: src/ui/jam.rs
+msgid "Everyone in the Jam"
+msgstr "Jam 참여자"

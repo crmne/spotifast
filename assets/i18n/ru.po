@@ -4716,3 +4716,65 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Уменьшить анимацию текста"
+
+#: src/ui/jam.rs
+msgid "Start a Jam"
+msgstr "Начать Джем"
+
+#: src/ui/jam.rs
+msgid "Paste a Jam invite to join"
+msgstr "Вставьте приглашение Джема, чтобы присоединиться"
+
+#: src/ui/jam.rs
+msgid "Join"
+msgstr "Присоединиться"
+
+#: src/ui/jam.rs
+msgid "Jam QR code"
+msgstr "QR-код Джема"
+
+#: src/ui/jam.rs
+msgid "Show it bigger"
+msgstr "Показать крупнее"
+
+#: src/ui/jam.rs
+msgid "Scan to join"
+msgstr "Сканируйте, чтобы присоединиться"
+
+#: src/ui/jam.rs
+msgid "Jam"
+msgstr "Джем"
+
+#: src/ui/jam.rs
+#. Translators: {count} is how many people are in the Jam.
+#, rust-format
+msgid "{count} listening"
+msgstr "{count} слушают"
+
+#: src/ui/jam.rs
+msgid "End Jam"
+msgstr "Завершить Джем"
+
+#: src/ui/jam.rs
+msgid "Leave Jam"
+msgstr "Выйти из Джема"
+
+#: src/ui/jam.rs
+msgid "Copy invite link"
+msgstr "Скопировать ссылку-приглашение"
+
+#: src/ui/jam.rs
+msgid "Scan to join this Jam"
+msgstr "Сканируйте, чтобы присоединиться к этому Джему"
+
+#: src/ui/jam.rs
+msgid "Jam session"
+msgstr "Джем-сессия"
+
+#: src/ui/jam.rs
+msgid "Exit"
+msgstr "Выйти"
+
+#: src/ui/jam.rs
+msgid "Everyone in the Jam"
+msgstr "Все в Джеме"
