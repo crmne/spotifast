@@ -529,8 +529,7 @@ mod tests {
             pages: vec![ContextPage {
                 tracks: vec![named, unnamed],
                 ..Default::default()
-            }]
-            .into(),
+            }],
             ..Default::default()
         };
         let adder_uri = |metadata: &HashMap<String, String>| {

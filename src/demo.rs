@@ -5714,7 +5714,7 @@ mod tests {
         assert!(stable, "the code's size never changes: {sizes:?}");
         // Sizing, not only stability: on the split layout the code owns
         // the left half, so the half's width is what binds first.
-        let (_, height, top, bottom) = sizes[0];
+        let (_, height, _, _) = sizes[0];
         let expected_height =
             (1280.0_f32 / 2.0 - 10.0).min(800.0 - crate::theme::PLAYER_BAR_HEIGHT - 10.0);
         assert!(
