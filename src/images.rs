@@ -1860,6 +1860,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Covers further down a list wait for those on screen to settle:
+    /// arrived or failed, never still on their way.
+    #[test]
+    fn artwork_is_settled_once_it_arrives_or_fails() {
+        let dir = std::env::temp_dir().join(format!("spotifast-settled-{}", std::process::id()));
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        let url = "https://i.scdn.co/image/on-screen";
+        assert!(!loader.is_settled(url), "never asked for");
+        assert!(loader.prefetch(&ctx, url));
+        assert!(!loader.is_settled(url), "still on its way");
+        let entry = |state| {
+            loader
+                .inner
+                .entries
+                .lock()
+                .expect("the entries")
+                .insert(url.to_string(), state);
+        };
+        entry(Entry::Failed("gone".into()));
+        assert!(loader.is_settled(url), "failed");
+        entry(Entry::Ready {
+            bytes: None,
+            last_used: Instant::now(),
+            retained: 0,
+        });
+        assert!(loader.is_settled(url), "arrived");
+        assert!(
+            loader.is_settled("file:///tmp/cover.jpg"),
+            "not art this loader fetches"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn prefetching_starts_one_download_and_not_another() {
         let dir = std::env::temp_dir().join(format!("spotifast-prefetch-{}", std::process::id()));

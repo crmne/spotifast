@@ -429,22 +429,38 @@ pub fn warm_row_covers<'a>(
     let art = app.backend.art();
     let url = |row: usize| item(row).and_then(|item| app.item_image(item, pixels));
     let (first, last) = laid_out_rows(clip, start_y, count, row_height);
-    if !(first..last).filter_map(&url).all(|url| art.is_settled(&url)) {
+    let settled = |url: String| art.is_settled(&url);
+    if !(first..last).filter_map(&url).all(settled) {
         return;
     }
     let reach = clip.height() * COVERS_AHEAD;
-    let above = laid_out_rows(clip.translate(vec2(0.0, -reach)), start_y, count, row_height).0;
-    let below = laid_out_rows(clip.translate(vec2(0.0, reach)), start_y, count, row_height).1;
-    let farthest = first.saturating_sub(above).max(below.saturating_sub(last));
-    for distance in (1..=farthest).rev() {
-        let up = first.checked_sub(distance).filter(|row| *row >= above);
-        let down = Some(last + distance - 1).filter(|row| *row < below);
-        for row in up.into_iter().chain(down) {
-            if let Some(url) = url(row) {
-                cover_copy(ui, &url, Vec2::splat(size), Some(art));
-            }
+    let rows_at = |shift: f32| {
+        let clip = clip.translate(vec2(0.0, shift));
+        laid_out_rows(clip, start_y, count, row_height)
+    };
+    let (above, below) = (rows_at(-reach).0, rows_at(reach).1);
+    for row in rows_ahead(first, last, above, below) {
+        if let Some(url) = url(row) {
+            cover_copy(ui, &url, Vec2::splat(size), Some(art));
         }
     }
+}
+
+/// The rows within `above..below` but outside `first..last` whose covers
+/// are fetched ahead, the farthest first, so the nearest are asked for last
+/// and made first.
+fn rows_ahead(
+    first: usize,
+    last: usize,
+    above: usize,
+    below: usize,
+) -> impl Iterator<Item = usize> {
+    let farthest = first.saturating_sub(above).max(below.saturating_sub(last));
+    (1..=farthest).rev().flat_map(move |distance| {
+        let up = first.checked_sub(distance).filter(|row| *row >= above);
+        let down = Some(last + distance - 1).filter(|row| *row < below);
+        up.into_iter().chain(down)
+    })
 }
 
 /// The side of a song row's cover.
@@ -4060,6 +4076,33 @@ mod tests {
     use crate::model::{Action, Page};
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    /// Covers are fetched two screens past the rows on screen each way,
+    /// nearest last, and never for a row already on screen or past the list.
+    #[test]
+    fn covers_ahead_reach_two_screens_each_way_nearest_last() {
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 100.0));
+        // Scrolled 50 rows of 10 points down a list of 100.
+        let rows_at = |shift: f32| {
+            let clip = clip.translate(vec2(0.0, shift));
+            laid_out_rows(clip, -500.0, 100, 10.0)
+        };
+        let (first, last) = rows_at(0.0);
+        assert_eq!((first, last), (49, 61));
+        let reach = clip.height() * COVERS_AHEAD;
+        let (above, below) = (rows_at(-reach).0, rows_at(reach).1);
+        assert_eq!((above, below), (29, 81));
+        let ahead: Vec<usize> = rows_ahead(first, last, above, below).collect();
+        assert_eq!(ahead.len(), 40);
+        assert_eq!(&ahead[..2], &[29, 80], "the farthest first");
+        assert_eq!(&ahead[38..], &[48, 61], "the nearest last");
+        assert!(ahead.iter().all(|row| !(first..last).contains(row)));
+        // At the top of the list only the rows below are fetched.
+        let ahead: Vec<usize> = rows_ahead(0, 11, 0, 31).collect();
+        assert_eq!(ahead, (11..31).rev().collect::<Vec<_>>());
+        // A list shorter than the screen fetches nothing more.
+        assert_eq!(rows_ahead(0, 5, 0, 5).count(), 0);
+    }
 
     #[test]
     fn editing_a_proxy_endpoint_clears_its_password_but_password_entry_is_preserved() {
