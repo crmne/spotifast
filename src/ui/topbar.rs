@@ -790,7 +790,11 @@ mod topbar_fit_tests {
                 shown_at.get_or_insert(room);
                 let controls = RIGHT_CONTROLS_WIDTH + FRIENDS_BUTTON_WIDTH;
                 let fit = topbar_fit(room, controls, DEVICE + UPDATE, CHIP * 2.0);
-                assert!(fit.search >= SEARCH_FLOOR, "field is {} px at {room}", fit.search);
+                assert!(
+                    fit.search >= SEARCH_FLOOR,
+                    "field is {} px at {room}",
+                    fit.search
+                );
             } else {
                 assert!(shown_at.is_none(), "it stays once shown, gone at {room}");
             }
