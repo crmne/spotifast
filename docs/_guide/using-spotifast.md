@@ -657,6 +657,8 @@ through Spotifast, which Spotify does not record.
 
 Since 0.8.0, choosing any Recent row starts that song on its own,
 and the player bar shows the selection immediately while playback starts.
+With Autoplay on, music Spotify suggests follows it, on this computer and on
+other devices except Soloist, so playback does not stop after the one song.
 
 A song is added after about 30 seconds, or halfway through a shorter song.
 Paused time and seeking do not count.

@@ -6,6 +6,18 @@
 
 use super::*;
 
+/// A radio slower than this is not waited for: the song plays alone.
+const SONG_RADIO_WAIT: Duration = Duration::from_secs(2);
+
+/// A lone song asked of a remote device, held a moment for its radio.
+pub(super) struct SongRadio {
+    pub(super) seed: String,
+    request: PlayRequest,
+    device_id: Option<String>,
+    shuffle: bool,
+    pub(super) asked: Instant,
+}
+
 impl App {
     /// "`<Name>` Radio" for a seed whose name is known.
     pub fn radio_name(&self, seed: &str) -> Option<String> {
@@ -174,6 +186,95 @@ impl App {
             Err(error) if refreshing => self.toast(error),
             Err(error) => page.songs = Loadable::Failed(error),
         }
+        // A song held for this radio goes now, followed by it or alone.
+        if let Some(wait) = &self.song_radio
+            && wait.seed == seed
+        {
+            self.send_song_radio();
+        }
+    }
+
+    /// Plays `request` on a remote device. A lone song would stop there,
+    /// as a Sonos does, so with Autoplay on its radio follows it, as it does
+    /// in Spotify's apps; the song waits a moment for the radio.
+    pub(super) fn play_remote(
+        &mut self,
+        device_id: Option<String>,
+        request: PlayRequest,
+        shuffle: bool,
+    ) {
+        let Some(seed) = self.lone_song(&request) else {
+            self.send_remote_play(device_id, request, shuffle);
+            return;
+        };
+        if let Some(followed) = self.with_radio(&seed, &request) {
+            self.send_remote_play(device_id, followed, shuffle);
+            return;
+        }
+        self.load_radio(&seed);
+        self.song_radio = Some(SongRadio {
+            seed,
+            request,
+            device_id,
+            shuffle,
+            asked: Instant::now(),
+        });
+    }
+
+    /// The song `request` plays on its own, when its radio may follow it:
+    /// Autoplay is on, Repeat is off, and the session can find the radio.
+    /// Soloist is left out: its own play command can start a lone song as
+    /// a context of its own, which Spotify's Autoplay follows.
+    fn lone_song(&self, request: &PlayRequest) -> Option<String> {
+        let [uri] = request.uris.as_slice() else {
+            return None;
+        };
+        let repeat = self.now_playing().map(|now| now.repeat).unwrap_or_default();
+        (self.settings.autoplay
+            && self.local_ready
+            && !self.targets_own_soloist()
+            && repeat == RepeatMode::Off
+            && request.context_uri.is_none()
+            && util::uri_kind(uri) == Some("track")
+            && util::station_uri(uri).is_some())
+        .then(|| uri.clone())
+    }
+
+    /// The song followed by its radio, once the radio has come.
+    fn with_radio(&self, seed: &str, request: &PlayRequest) -> Option<PlayRequest> {
+        let songs = self.radio_pages.get(seed)?.songs.get()?;
+        let mut uris = vec![seed.to_string()];
+        for song in songs {
+            if !uris.contains(&song.uri) {
+                uris.push(song.uri.clone());
+            }
+        }
+        Some(PlayRequest {
+            uris,
+            ..request.clone()
+        })
+    }
+
+    /// Sends the song held for its radio, with the radio if it has come.
+    pub(super) fn send_song_radio(&mut self) {
+        let Some(wait) = self.song_radio.take() else {
+            return;
+        };
+        let request = self
+            .with_radio(&wait.seed, &wait.request)
+            .unwrap_or(wait.request);
+        self.send_remote_play(wait.device_id, request, wait.shuffle);
+    }
+
+    /// Lets the held song go alone once its radio is late. Returns how long
+    /// it may still wait.
+    pub(super) fn send_song_radio_when_due(&mut self) -> Option<Duration> {
+        let waited = self.song_radio.as_ref()?.asked.elapsed();
+        if waited < SONG_RADIO_WAIT {
+            return Some(SONG_RADIO_WAIT - waited);
+        }
+        self.send_song_radio();
+        None
     }
 
     /// Saves the radio's songs, as shown, to a new playlist named after it.
