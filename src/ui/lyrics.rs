@@ -2,9 +2,9 @@
 
 use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, pos2, vec2};
 
-use crate::app::App;
+use crate::app::{App, NowPlaying};
 use crate::i18n::{gettext, pgettext};
-use crate::model::{Action, Loadable};
+use crate::model::{Action, Loadable, Page};
 use crate::theme::{self, Icon};
 
 use super::widgets;
@@ -422,7 +422,7 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui, controls: f32) {
                 pos2(room.center().x + width / 2.0, room.bottom()),
             );
             let mut content = ui.new_child(UiBuilder::new().max_rect(region));
-            fullscreen_header(app, &mut content);
+            fullscreen_header(app, &mut content, controls);
             content.add_space(20.0);
             track_heading(app, &mut content);
             content.add_space(16.0);
@@ -447,7 +447,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
         pos2(rect.right() - 48.0, rect.bottom() - 40.0),
     );
     let mut header = ui.new_child(UiBuilder::new().max_rect(outer));
-    fullscreen_header(app, &mut header);
+    fullscreen_header(app, &mut header, controls);
     let below = Rect::from_min_max(
         pos2(outer.left(), header.min_rect().bottom() + 24.0),
         outer.max,
@@ -626,21 +626,77 @@ fn big_cover(app: &mut App, ui: &mut egui::Ui, column: Rect, align: Align) {
             .layout(Layout::top_down(align)),
     );
     text.spacing_mut().item_spacing.y = 4.0;
-    text.add(
-        egui::Label::new(
-            egui::RichText::new(&now.title)
-                .font(theme::semibold(22.0))
-                .color(Color32::WHITE),
-        )
-        .truncate(),
+    song_links(
+        app,
+        &mut text,
+        &now,
+        theme::semibold(22.0),
+        theme::regular(14.0),
+        Color32::from_gray(225),
     );
-    text.add(
-        egui::Label::new(
-            egui::RichText::new(&now.subtitle)
-                .font(theme::regular(14.0))
-                .color(Color32::from_gray(225)),
-        )
-        .truncate(),
+}
+
+/// The playing song's title and artists, as the player bar has them: the
+/// title opens its album (or the show), each artist their page. Opening a
+/// page leaves full screen.
+fn song_links(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    now: &NowPlaying,
+    title_font: egui::FontId,
+    artist_font: egui::FontId,
+    artist_colour: Color32,
+) {
+    let opens = now
+        .album_id
+        .clone()
+        .map(Page::Album)
+        .or_else(|| now.show_id.clone().map(Page::Show));
+    match opens {
+        Some(page) => {
+            if theme::link(ui, &now.title, title_font, Color32::WHITE).clicked() {
+                app.actions.push(Action::Open(page));
+            }
+        }
+        None => {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(&now.title)
+                        .font(title_font)
+                        .color(Color32::WHITE),
+                )
+                .truncate(),
+            );
+        }
+    }
+    // The row is only as wide as its words, so a centred column centres it.
+    let words = if now.artists.is_empty() {
+        now.subtitle.clone()
+    } else {
+        now.artists
+            .iter()
+            .map(|artist| artist.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let size = ui
+        .painter()
+        .layout_no_wrap(words, artist_font.clone(), artist_colour)
+        .size();
+    ui.allocate_ui_with_layout(
+        vec2((size.x + 1.0).min(ui.available_width()), size.y),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            if !now.artists.is_empty() {
+                widgets::artist_links(ui, app, &now.artists, artist_font, artist_colour);
+            } else if let Some(id) = &now.show_id {
+                if theme::link(ui, &now.subtitle, artist_font, artist_colour).clicked() {
+                    app.actions.push(Action::Open(Page::Show(id.clone())));
+                }
+            } else {
+                theme::text(ui, &now.subtitle, artist_font, artist_colour);
+            }
+        },
     );
 }
 
@@ -803,14 +859,17 @@ fn cover_uv(view: egui::Vec2, image: egui::Vec2) -> Rect {
     Rect::from_center_size(pos2(0.5, 0.5), size)
 }
 
-fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
+/// The view's title and its buttons. The title fades with the player bar
+/// (`controls`, see [`fullscreen_controls`]), so only the words stay once
+/// the controls have gone.
+fn fullscreen_header(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     let palette = theme::Palette::dark();
     ui.horizontal(|ui| {
         theme::text(
             ui,
             gettext(app.locale, "Lyrics"),
             theme::bold(18.0),
-            palette.text,
+            palette.text.gamma_multiply(controls.clamp(0.0, 1.0)),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if theme::icon_button(
@@ -859,21 +918,13 @@ fn track_heading(app: &mut App, ui: &mut egui::Ui) {
             let art = now.art_url.is_some() || now.art_small.is_some();
             cover_opens_immersive(app, ui, rect, art);
             ui.vertical(|ui| {
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&now.title)
-                            .font(theme::semibold(22.0))
-                            .color(Color32::WHITE),
-                    )
-                    .truncate(),
-                );
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&now.subtitle)
-                            .font(theme::regular(13.0))
-                            .color(Color32::from_gray(235)),
-                    )
-                    .truncate(),
+                song_links(
+                    app,
+                    ui,
+                    &now,
+                    theme::semibold(22.0),
+                    theme::regular(13.0),
+                    Color32::from_gray(235),
                 );
             });
         });
