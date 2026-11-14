@@ -3060,7 +3060,9 @@ impl App {
                 Event::Lyrics { uri, result } => {
                     if self.lyrics_uri.as_deref() == Some(uri.as_str()) {
                         self.lyrics = match result {
-                            Ok(found) => Loadable::Loaded(found),
+                            Ok(found) => Loadable::Loaded(
+                                found.map(crate::lyrics::Lyrics::without_closing_notes),
+                            ),
                             Err(error) => self.lyrics_failed(error, Instant::now()),
                         };
                     }

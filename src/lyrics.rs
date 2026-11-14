@@ -61,6 +61,19 @@ pub struct Lyrics {
 }
 
 impl Lyrics {
+    /// Leaves off the music notes after the last sung line. The song ends
+    /// there, so a note would only stand for its closing seconds.
+    pub fn without_closing_notes(mut self) -> Self {
+        if self.synced {
+            while self.lines.len() > 1
+                && self.lines.last().is_some_and(|line| line.text.is_empty())
+            {
+                self.lines.pop();
+            }
+        }
+        self
+    }
+
     /// The line being sung at `position_ms`, or `None` before the first one
     /// starts and for lyrics without timing.
     pub fn active_line(&self, position_ms: u32) -> Option<usize> {
