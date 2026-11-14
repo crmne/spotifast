@@ -658,13 +658,16 @@ through Spotifast, which Spotify does not record.
 Since 0.8.0, choosing any Recent row starts that song on its own,
 and the player bar shows the selection immediately while playback starts.
 
-A song is added after about 30 seconds, or halfway through a shorter song.
-Paused time and seeking do not count.
+The song playing now leads the list as soon as it starts, as it does in the
+queue. It stays in the history once it has played for about 30 seconds, or
+halfway through a shorter song. Paused time and seeking do not count.
 
-Since 0.8.0, each repeat remains a separate play, including songs
-shorter than a minute. A newly loaded local repeat earns its own listening
-time; pausing or seeking the current play does not create another entry.
-The same play reported both locally and by Spotify appears once.
+Since 0.8.0, each repeat remains a separate play in the history, including
+songs shorter than a minute. A newly loaded local repeat earns its own
+listening time; pausing or seeking the current play does not create another
+entry. The same play reported both locally and by Spotify appears once.
+Recent never lists a song twice in a row: a song heard again straight away
+is one row, and it is listed again once another song has played between.
 
 The local list is stored in `history.json` and is never uploaded. Settings →
 Storage shows its location and has a **Clear history** button.

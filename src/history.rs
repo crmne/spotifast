@@ -154,12 +154,6 @@ pub fn played_track(now: &crate::app::NowPlaying) -> Track {
 /// merged with each other: each is its own listen, however close together
 /// they start. Entries without a timestamp sort to the end.
 pub fn merged(local: &[PlayHistory], remote: &[PlayHistory]) -> Vec<PlayHistory> {
-    let time = |play: &PlayHistory| {
-        play.played_at
-            .as_deref()
-            .and_then(|at| at.parse::<jiff::Timestamp>().ok())
-            .map(|at| at.as_second())
-    };
     // The plays made here that no report from Spotify has matched yet.
     let mut unmatched: HashMap<&str, Vec<i64>> = HashMap::new();
     let mut out: Vec<(Option<i64>, PlayHistory)> = Vec::new();
@@ -203,6 +197,41 @@ pub fn merged(local: &[PlayHistory], remote: &[PlayHistory]) -> Vec<PlayHistory>
         (None, None) => std::cmp::Ordering::Equal,
     });
     out.into_iter().map(|(_, play)| play).collect()
+}
+
+/// When a play was made, in seconds.
+fn time(play: &PlayHistory) -> Option<i64> {
+    play.played_at
+        .as_deref()
+        .and_then(|at| at.parse::<jiff::Timestamp>().ok())
+        .map(|at| at.as_second())
+}
+
+/// The Recent tab's rows: both histories merged, led by the song playing
+/// now from the moment it starts, as the queue shows it, although the
+/// history records it only once it counts.
+///
+/// A song is never listed twice in a row: hearing it again straight
+/// away, or skipping away from it and back, adds no second row. Every play
+/// stays in the history, and a song played again after another one is
+/// listed again.
+pub fn recent_rows(
+    local: &[PlayHistory],
+    remote: &[PlayHistory],
+    playing: Option<&PlayHistory>,
+) -> Vec<PlayHistory> {
+    let mut rows = merged(local, remote);
+    if let Some(playing) = playing {
+        // Once the playing song counts, its own record stands for it.
+        let counted = rows
+            .iter()
+            .any(|row| row.track.uri == playing.track.uri && time(row) >= time(playing));
+        if !counted {
+            rows.insert(0, playing.clone());
+        }
+    }
+    rows.dedup_by(|older, newer| older.track.uri == newer.track.uri);
+    rows
 }
 
 #[cfg(test)]
@@ -343,6 +372,57 @@ mod tests {
             play("spotify:track:short", "2026-09-01T15:00:05Z"),
         ];
         assert_eq!(merged(&remote, &reported).len(), 2, "each play once");
+    }
+
+    /// A song heard again straight away is one row; heard again after
+    /// another song, it is listed again.
+    #[test]
+    fn a_song_is_never_listed_twice_in_a_row() {
+        let local = vec![
+            play("spotify:track:a", "2026-09-01T15:08:00Z"),
+            play("spotify:track:a", "2026-09-01T15:04:00Z"),
+            play("spotify:track:b", "2026-09-01T15:00:00Z"),
+        ];
+        let remote = vec![play("spotify:track:a", "2026-09-01T12:00:00Z")];
+        let rows = recent_rows(&local, &remote, None);
+        let uris: Vec<&str> = rows.iter().map(|play| play.track.uri.as_str()).collect();
+        assert_eq!(
+            uris,
+            ["spotify:track:a", "spotify:track:b", "spotify:track:a"]
+        );
+        assert_eq!(rows[0].played_at.as_deref(), Some("2026-09-01T15:08:00Z"));
+    }
+
+    /// The song playing now leads the list from its start, and its own
+    /// record replaces it once it counts.
+    #[test]
+    fn the_playing_song_leads_from_its_start() {
+        let local = vec![play("spotify:track:a", "2026-09-01T15:00:00Z")];
+        let playing = play("spotify:track:b", "2026-09-01T15:04:00Z");
+        let rows = recent_rows(&local, &[], Some(&playing));
+        let uris: Vec<&str> = rows.iter().map(|play| play.track.uri.as_str()).collect();
+        assert_eq!(uris, ["spotify:track:b", "spotify:track:a"]);
+
+        let counted = play("spotify:track:b", "2026-09-01T15:04:30Z");
+        let local = [vec![counted.clone()], local].concat();
+        let rows = recent_rows(&local, &[], Some(&playing));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].played_at, counted.played_at, "the record stands");
+
+        // A newer play on another device does not hide that record.
+        let elsewhere = [play("spotify:track:c", "2026-09-01T15:05:00Z")];
+        let rows = recent_rows(&local, &elsewhere, Some(&playing));
+        let uris: Vec<&str> = rows.iter().map(|play| play.track.uri.as_str()).collect();
+        assert_eq!(
+            uris,
+            ["spotify:track:c", "spotify:track:b", "spotify:track:a"]
+        );
+
+        // Heard again now, a song last played earlier shows the new play.
+        let playing = play("spotify:track:b", "2026-09-01T15:09:00Z");
+        let rows = recent_rows(&local, &[], Some(&playing));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].played_at, playing.played_at);
     }
 
     /// A play without a timestamp sorts to the end.

@@ -588,6 +588,14 @@ pub struct App {
     /// either side changes rather than every frame, and shared so that
     /// drawing it never copies the list.
     pub recents_view: std::sync::Arc<[crate::api::models::PlayHistory]>,
+    /// The Recent row of the song playing now, dated when it started.
+    recent_playing: Option<crate::api::models::PlayHistory>,
+    /// The play that row stands for: its song and, on this computer, the
+    /// engine's count of loaded tracks, so a song played again is new.
+    recent_play: Option<(String, Option<u64>)>,
+    /// When the request that dated that row was made, so a song chosen
+    /// again on another device is dated anew.
+    recent_request: Option<Instant>,
     pub recents_generation: u64,
     pub queue_tab: QueueTab,
     pub search: SearchState,
@@ -1349,6 +1357,9 @@ impl App {
             listening: None,
             recents: crate::model::CursorList::default(),
             recents_view: std::sync::Arc::from([]),
+            recent_playing: None,
+            recent_play: None,
+            recent_request: None,
             recents_generation: 0,
             queue_tab: session
                 .queue_tab
@@ -9830,7 +9841,7 @@ impl App {
                         ) && self.intent_track.as_ref().is_some_and(|intent| {
                             matches!(intent.confirmation, TrackConfirmation::Remote { .. })
                         }) {
-                            self.intent_track = None;
+                            self.drop_failed_request();
                         }
                         let hint = if error.status() == Some(404) {
                             format!(
@@ -10380,7 +10391,71 @@ impl App {
 
     /// Merges local and Spotify history for the Recent tab.
     fn rebuild_recents(&mut self) {
-        self.recents_view = crate::history::merged(self.plays.plays(), &self.recents.items).into();
+        self.recents_view = crate::history::recent_rows(
+            self.plays.plays(),
+            &self.recents.items,
+            self.recent_playing.as_ref(),
+        )
+        .into();
+    }
+
+    /// Leads the Recent tab with the song playing now, as the queue
+    /// shows it, from the moment it is chosen. The history records it only
+    /// once it has played long enough to count.
+    fn show_playing_in_recents(&mut self) {
+        let requested = self.requested_track_preview();
+        // On another device a song chosen again plays under the same name,
+        // so its request is what makes it a new play.
+        let request = requested
+            .as_ref()
+            .and(self.intent_track.as_ref())
+            .map(|intent| intent.at);
+        let chosen = request.is_some() && request != self.recent_request;
+        let playing = requested
+            .or_else(|| self.now_playing_live())
+            .filter(|now| !now.uri.is_empty());
+        let play = playing.as_ref().map(|now| {
+            (
+                now.uri.clone(),
+                now.local.then_some(self.local.track_sequence),
+            )
+        });
+        if play == self.recent_play && !chosen {
+            return;
+        }
+        // A song held paused since before is not played now: only one that
+        // plays, or one just chosen, leads with a new date.
+        if playing
+            .as_ref()
+            .is_some_and(|now| !now.playing && !now.loading)
+        {
+            return;
+        }
+        self.recent_play = play;
+        self.recent_request = request.or(self.recent_request);
+        self.recent_playing = playing.map(|now| crate::api::models::PlayHistory {
+            track: crate::history::played_track(&now),
+            played_at: Some(jiff::Timestamp::now().to_string()),
+            context: None,
+        });
+        self.rebuild_recents();
+    }
+
+    /// Drops a play request that failed, and with it the Recent row of the
+    /// song that never started.
+    fn drop_failed_request(&mut self) {
+        let Some(failed) = self.intent_track.take() else {
+            return;
+        };
+        if self
+            .recent_play
+            .as_ref()
+            .is_some_and(|(uri, _)| *uri == failed.uri)
+        {
+            self.recent_play = None;
+            self.recent_playing = None;
+            self.rebuild_recents();
+        }
     }
 
     /// Adds a page of play history to the Recents tab.
@@ -14523,6 +14598,7 @@ impl App {
             self.sync_milkdrop_pane();
         }
         self.apply_actions(ctx);
+        self.show_playing_in_recents();
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
         self.remember_geometry(ctx);
@@ -33902,7 +33978,7 @@ mod tests {
             listening.playing_since = Some(Instant::now() - Duration::from_secs(21));
             app.note_listening();
             assert_eq!(app.plays.plays().len(), sequence as usize);
-            assert_eq!(app.recents_view.len(), sequence as usize);
+            assert_eq!(app.recents_view.len(), 1, "one row for a song heard again");
 
             // Seeking or pausing the same play cannot count it again.
             let mut paused = app.local.clone();
@@ -33918,6 +33994,165 @@ mod tests {
         }
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    /// The Recent tab shows the song playing now from its start, as the
+    /// queue does, before the history records it.
+    #[test]
+    fn recent_shows_the_playing_song_at_once() {
+        let mut app = headless_app();
+        app.remote = None;
+        app.selected_device = None;
+        app.plays = crate::history::History::default();
+        app.handle_local(LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track_sequence: 1,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:now".into(),
+                title: "Just started".into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        app.show_playing_in_recents();
+        assert!(app.plays.is_empty(), "not counted yet");
+        assert_eq!(app.recents_view.len(), 1);
+        assert_eq!(app.recents_view[0].track.uri, "spotify:track:now");
+        assert_eq!(app.recents_view[0].track.name, "Just started");
+        app.backend.shutdown();
+    }
+
+    /// A song held paused since before keeps the date it was played, and a
+    /// song played here again from its start is dated anew.
+    #[test]
+    fn recent_dates_a_song_played_again_but_not_one_held_paused() {
+        let mut app = headless_app();
+        app.remote = None;
+        app.selected_device = None;
+        app.plays = crate::history::History::default();
+        let track = crate::player::LocalTrack {
+            uri: "spotify:track:again".into(),
+            title: "Again".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        };
+        let state = |playback, track_sequence| LocalState {
+            connected: true,
+            playback,
+            track_sequence,
+            track: Some(track.clone()),
+            ..Default::default()
+        };
+        let yesterday: jiff::Timestamp = "2026-01-01T00:00:00Z".parse().unwrap();
+        let played = crate::api::models::Track {
+            uri: track.uri.clone(),
+            name: track.title.clone(),
+            ..Default::default()
+        };
+        app.plays.record(played.clone(), yesterday);
+        app.rebuild_recents();
+        let shown = |app: &App| app.recents_view[0].played_at.clone();
+        let last = |app: &App| app.plays.plays()[0].played_at.clone();
+
+        app.handle_local(state(Playback::Paused, 1));
+        app.show_playing_in_recents();
+        assert_eq!(app.recents_view.len(), 1);
+        assert_eq!(shown(&app), last(&app), "held paused");
+
+        app.handle_local(state(Playback::Playing, 1));
+        app.show_playing_in_recents();
+        assert_ne!(shown(&app), last(&app), "played now");
+
+        // The play counts after it started; heard again from its start, the
+        // row is the new play rather than the one just counted.
+        let started: jiff::Timestamp = "2026-01-02T00:00:00Z".parse().unwrap();
+        if let Some(row) = app.recent_playing.as_mut() {
+            row.played_at = Some(started.to_string());
+        }
+        let counted: jiff::Timestamp = "2026-01-02T00:00:30Z".parse().unwrap();
+        app.plays.record(played, counted);
+        app.rebuild_recents();
+        assert_eq!(shown(&app), last(&app), "the counted play stands");
+        app.handle_local(state(Playback::Playing, 2));
+        app.show_playing_in_recents();
+        assert_eq!(
+            app.recents_view.len(),
+            1,
+            "one row for the song heard again"
+        );
+        assert_ne!(shown(&app), last(&app), "heard again");
+        app.backend.shutdown();
+    }
+
+    /// On another device, a song chosen while another is held paused leaves
+    /// the Recent tab when it fails to start, and a song chosen again is
+    /// dated anew at once.
+    #[test]
+    fn recent_follows_requests_on_another_device() {
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.selected_device = Some("speaker".into());
+        app.plays = crate::history::History::default();
+        let track = |id: &str| crate::api::models::Track {
+            id: Some(id.into()),
+            uri: format!("spotify:track:{id}"),
+            name: id.into(),
+            ..Default::default()
+        };
+        for id in ["held", "chosen"] {
+            app.track_cache.insert(id.into(), track(id));
+        }
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(crate::api::models::Device {
+                    id: Some("speaker".into()),
+                    name: "Speaker".into(),
+                    is_active: true,
+                    ..Default::default()
+                }),
+                item: Some(crate::api::models::PlayableItem::Track(track("held"))),
+                is_playing: false,
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        let shown = |app: &App| {
+            app.recents_view
+                .first()
+                .map(|row| (row.track.uri.clone(), row.played_at.clone()))
+        };
+
+        app.expect_track("spotify:track:chosen".into(), 0);
+        app.show_playing_in_recents();
+        assert_eq!(shown(&app).unwrap().0, "spotify:track:chosen");
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Play,
+            result: Err(crate::api::ApiError::Status {
+                status: 502,
+                message: "Bad Gateway".into(),
+            }),
+        });
+        app.show_playing_in_recents();
+        assert_eq!(shown(&app), None, "the chosen song never started");
+
+        let remote = app.remote.as_mut().unwrap();
+        remote.state.item = Some(crate::api::models::PlayableItem::Track(track("chosen")));
+        remote.state.is_playing = true;
+        app.show_playing_in_recents();
+        let before = "2026-01-01T00:00:00Z";
+        if let Some(row) = app.recent_playing.as_mut() {
+            row.played_at = Some(before.into());
+        }
+        app.rebuild_recents();
+        app.expect_track("spotify:track:chosen".into(), 0);
+        app.show_playing_in_recents();
+        let (uri, at) = shown(&app).unwrap();
+        assert_eq!(uri, "spotify:track:chosen");
+        assert_ne!(at.as_deref(), Some(before), "chosen again");
+        assert_eq!(app.recents_view.len(), 1);
+        app.backend.shutdown();
     }
 
     #[test]
