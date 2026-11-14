@@ -121,8 +121,8 @@ You can rename it in Settings.
   fainter circle marks a playlist not read in full yet, which may already hold
   the song: Done asks before adding another copy there, one playlist after
   another. A click outside the list changes nothing. Song rows show their
-  heart when the pointer is over them; an artist's Popular songs always show
-  theirs.
+  heart when the pointer is over them; an artist's Popular songs keep showing
+  their green hearts.
 - **Spotify links open in Spotifast.** A `spotify:` link shared from another
   app opens its page, starting Spotifast if it is not running. Links to
   `open.spotify.com` go through the browser first, which hands them over the

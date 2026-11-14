@@ -6,8 +6,8 @@
 //! Each editable playlist is read once over the playback session, one
 //! request per thousand rows, and again when the library reports a new
 //! snapshot for it. Edits made here change the index at once and hold
-//! back reads of that playlist until Spotify confirms them, so an answer
-//! from before an edit cannot undo it.
+//! back reads of that playlist until Spotify answers them, so an answer
+//! from before an edit cannot undo it; an edit that fails is undone.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -28,6 +28,8 @@ pub(crate) struct Membership {
     /// Edits sent and not yet answered, by playlist id.
     writing: HashMap<String, u32>,
     failed: HashMap<String, Instant>,
+    /// Each editable playlist's snapshot as the library last reported it.
+    library: HashMap<String, Option<String>>,
 }
 
 #[derive(Default)]
@@ -38,6 +40,14 @@ struct List {
     counts: HashMap<String, u32>,
     /// Every row is known, so a song missing from `counts` is not there.
     complete: bool,
+    /// Changed elsewhere since it was read, so it is read again whatever
+    /// snapshot it is at.
+    outdated: bool,
+    /// The rows each song gained or lost through edits not answered yet,
+    /// which are put back if one of them fails.
+    unsettled: HashMap<String, i64>,
+    /// One of the edits not settled yet failed.
+    edit_failed: bool,
 }
 
 struct Reading {
@@ -54,10 +64,9 @@ impl Membership {
                 .failed
                 .get(id)
                 .is_none_or(|at| at.elapsed() >= RETRY_AFTER)
-            && !self
-                .lists
-                .get(id)
-                .is_some_and(|list| list.complete && list.snapshot.as_deref() == snapshot)
+            && !self.lists.get(id).is_some_and(|list| {
+                list.complete && !list.outdated && list.snapshot.as_deref() == snapshot
+            })
     }
 
     /// Takes the account's editable playlists (id and library snapshot),
@@ -74,6 +83,7 @@ impl Membership {
         for id in gone {
             self.forget(&id);
         }
+        self.library = playlists.iter().cloned().collect();
         let mut started = Vec::new();
         for (id, snapshot) in playlists {
             if self.reading.len() >= READS_AT_ONCE {
@@ -96,16 +106,7 @@ impl Membership {
     fn forget(&mut self, id: &str) {
         if let Some(list) = self.lists.remove(id) {
             for uri in list.counts.keys() {
-                self.lost(uri);
-            }
-        }
-    }
-
-    fn lost(&mut self, uri: &str) {
-        if let Some(count) = self.anywhere.get_mut(uri) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                self.anywhere.remove(uri);
+                lost(&mut self.anywhere, uri);
             }
         }
     }
@@ -135,6 +136,7 @@ impl Membership {
                         snapshot: reading.snapshot,
                         counts,
                         complete: true,
+                        ..List::default()
                     },
                 );
             }
@@ -160,11 +162,35 @@ impl Membership {
         self.anywhere.contains_key(uri)
     }
 
+    /// The playlist `id` was read at `snapshot` for its page. A snapshot
+    /// other than the index's means the playlist changed since its read.
+    pub(crate) fn seen(&mut self, id: &str, snapshot: Option<&str>) {
+        if self.writing.contains_key(id) || self.reading.contains_key(id) {
+            return;
+        }
+        if let Some(list) = self.lists.get_mut(id)
+            && list.complete
+            && snapshot.is_some()
+            && list.snapshot.as_deref() != snapshot
+        {
+            list.outdated = true;
+        }
+    }
+
     /// An edit of the playlist `id` is on its way: reads wait for it.
     pub(crate) fn edit_started(&mut self, id: &str) {
         *self.writing.entry(id.to_string()).or_insert(0) += 1;
+        let read_on_way = self.reading.contains_key(id);
         if let Some(reading) = self.reading.get_mut(id) {
             reading.stale = true;
+        }
+        let library = self.library.get(id);
+        // The edit's snapshot covers only what the index knows; a change
+        // made elsewhere since the read still needs a read of its own.
+        if let Some(list) = self.lists.get_mut(id)
+            && (read_on_way || library.is_some_and(|at| *at != list.snapshot))
+        {
+            list.outdated = true;
         }
     }
 
@@ -172,7 +198,7 @@ impl Membership {
     /// `snapshot`. The edit is already in the index, so the new snapshot
     /// needs no read of its own.
     pub(crate) fn edit_confirmed(&mut self, id: &str, snapshot: Option<String>) {
-        self.edit_answered(id);
+        self.edit_answered(id, false);
         if let Some(list) = self.lists.get_mut(id)
             && list.complete
         {
@@ -180,21 +206,35 @@ impl Membership {
         }
     }
 
-    /// An edit of the playlist `id` failed, which leaves the index unsure:
-    /// the playlist is read again.
+    /// An edit of the playlist `id` failed. Once its other edits are
+    /// answered, the rows they changed are put back and the playlist is
+    /// read again, since the index can no longer be sure of it.
     pub(crate) fn edit_failed(&mut self, id: &str) {
-        self.edit_answered(id);
-        if let Some(list) = self.lists.get_mut(id) {
-            list.complete = false;
-        }
+        self.edit_answered(id, true);
     }
 
-    fn edit_answered(&mut self, id: &str) {
-        if let Some(count) = self.writing.get_mut(id) {
+    fn edit_answered(&mut self, id: &str, failed: bool) {
+        let left = self.writing.get_mut(id).map_or(0, |count| {
             *count = count.saturating_sub(1);
-            if *count == 0 {
-                self.writing.remove(id);
+            *count
+        });
+        if left == 0 {
+            self.writing.remove(id);
+        }
+        let Some(list) = self.lists.get_mut(id) else {
+            return;
+        };
+        list.edit_failed |= failed;
+        if left > 0 {
+            return;
+        }
+        let unsettled = std::mem::take(&mut list.unsettled);
+        if std::mem::take(&mut list.edit_failed) {
+            for (uri, rows) in unsettled {
+                shift(list, &mut self.anywhere, &uri, -rows);
             }
+            list.unsettled.clear();
+            list.complete = false;
         }
     }
 
@@ -203,11 +243,7 @@ impl Membership {
         self.edit_started(id);
         let list = self.lists.entry(id.to_string()).or_default();
         for uri in uris {
-            let count = list.counts.entry(uri.to_string()).or_insert(0);
-            *count += 1;
-            if *count == 1 {
-                *self.anywhere.entry(uri.to_string()).or_insert(0) += 1;
-            }
+            shift(list, &mut self.anywhere, uri, 1);
         }
     }
 
@@ -217,14 +253,9 @@ impl Membership {
         let Some(list) = self.lists.get_mut(id) else {
             return;
         };
-        let mut lost = Vec::new();
         for uri in uris {
-            if list.counts.remove(uri).is_some() {
-                lost.push(uri);
-            }
-        }
-        for uri in lost {
-            self.lost(uri);
+            let rows = list.counts.get(uri).copied().unwrap_or(0);
+            shift(list, &mut self.anywhere, uri, -i64::from(rows));
         }
     }
 
@@ -235,18 +266,39 @@ impl Membership {
         let Some(list) = self.lists.get_mut(id) else {
             return;
         };
-        let mut lost = Vec::new();
         for uri in uris {
-            if let Some(count) = list.counts.get_mut(uri) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    list.counts.remove(uri);
-                    lost.push(uri);
-                }
-            }
+            shift(list, &mut self.anywhere, uri, -1);
         }
-        for uri in lost {
-            self.lost(uri);
+    }
+}
+
+/// Gives `uri` `by` more rows in `list` (fewer when negative, never below
+/// none), noting the change as unsettled and keeping `anywhere` in step.
+fn shift(list: &mut List, anywhere: &mut HashMap<String, u32>, uri: &str, by: i64) {
+    let before = list.counts.get(uri).copied().unwrap_or(0);
+    let wanted = (i64::from(before) + by).max(0);
+    let after = u32::try_from(wanted).unwrap_or(u32::MAX);
+    if after == before {
+        return;
+    }
+    *list.unsettled.entry(uri.to_string()).or_insert(0) += i64::from(after) - i64::from(before);
+    if after == 0 {
+        list.counts.remove(uri);
+        lost(anywhere, uri);
+    } else {
+        list.counts.insert(uri.to_string(), after);
+        if before == 0 {
+            *anywhere.entry(uri.to_string()).or_insert(0) += 1;
+        }
+    }
+}
+
+/// One list fewer holds `uri`.
+fn lost(anywhere: &mut HashMap<String, u32>, uri: &str) {
+    if let Some(count) = anywhere.get_mut(uri) {
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            anywhere.remove(uri);
         }
     }
 }
@@ -330,7 +382,71 @@ mod tests {
         let now = playlists(&[("a", "2"), ("b", "1")]);
         assert_eq!(index.start_reads(&now), ["b"]);
         assert_eq!(index.holds("a", "song:2"), Some(true));
-        assert_eq!(index.holds("b", "song:1"), None, "b is unsure");
+        assert_eq!(index.holds("b", "song:1"), Some(true), "the removal is undone");
+    }
+
+    #[test]
+    fn a_failed_edit_is_undone_once_the_playlists_edits_are_answered() {
+        let mut index = Membership::default();
+        let all = playlists(&[("a", "1")]);
+        index.start_reads(&all);
+        index.receive("a", uris(&["song:1"]));
+        index.add("a", ["song:2"]);
+        index.remove_rows("a", ["song:1"]);
+        index.edit_failed("a");
+        assert!(index.holds_anywhere("song:2"), "an edit is unanswered");
+
+        index.edit_confirmed("a", Some("2".into()));
+        assert!(!index.holds_anywhere("song:2"), "the failed add is undone");
+        assert_eq!(index.holds("a", "song:1"), Some(true), "and the removal");
+        assert_eq!(index.holds("a", "song:3"), None, "a is unsure");
+        assert_eq!(index.start_reads(&all), ["a"]);
+    }
+
+    #[test]
+    fn an_edit_does_not_vouch_for_a_change_made_elsewhere() {
+        let mut index = Membership::default();
+        index.start_reads(&playlists(&[("a", "1")]));
+        index.receive("a", uris(&["song:1"]));
+
+        // #given another app changed it and its new read is on its way
+        assert_eq!(index.start_reads(&playlists(&[("a", "2")])), ["a"]);
+        // #when an edit interrupts that read
+        index.add("a", ["song:2"]);
+        index.receive("a", uris(&["song:1", "song:3"]));
+        index.edit_confirmed("a", Some("3".into()));
+        // #then the edit's snapshot does not stand for the other change
+        assert_eq!(index.start_reads(&playlists(&[("a", "3")])), ["a"]);
+        index.receive("a", uris(&["song:1", "song:3", "song:2"]));
+        assert!(index.holds_anywhere("song:3"));
+
+        // #given another change while every read slot is taken
+        let busy = playlists(&[("x", "1"), ("y", "1"), ("a", "4")]);
+        assert_eq!(index.start_reads(&busy), ["x", "y"]);
+        // #when an edit is confirmed before a reads it
+        index.add("a", ["song:4"]);
+        index.edit_confirmed("a", Some("5".into()));
+        index.receive("x", uris(&[]));
+        index.receive("y", uris(&[]));
+        // #then a is still read
+        let now = playlists(&[("x", "1"), ("y", "1"), ("a", "5")]);
+        assert_eq!(index.start_reads(&now), ["a"]);
+    }
+
+    #[test]
+    fn a_page_read_at_another_snapshot_reads_the_playlist_again() {
+        let mut index = Membership::default();
+        let all = playlists(&[("a", "1")]);
+        index.start_reads(&all);
+        index.receive("a", uris(&["song:1"]));
+        index.seen("a", Some("1"));
+        assert!(index.start_reads(&all).is_empty(), "the page agrees");
+
+        index.seen("a", Some("2"));
+        assert_eq!(index.start_reads(&all), ["a"], "the page is newer");
+        index.receive("a", uris(&["song:1", "song:2"]));
+        assert!(index.holds_anywhere("song:2"));
+        assert!(index.start_reads(&all).is_empty());
     }
 
     #[test]

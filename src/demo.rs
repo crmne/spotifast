@@ -5852,6 +5852,79 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// In a heart's checklist the keyboard reaches Liked Songs like any
+    /// playlist: Down chooses it, a filter finds it, Enter toggles it.
+    #[test]
+    fn the_keyboard_checks_liked_songs_in_a_hearts_checklist() {
+        use crate::ui::widgets::{Mark, PlaylistChecks};
+
+        let (ctx, mut app) = accessible_app("heart-checklist-keys");
+        app.backend.set_offline(true);
+        let owner = app.user_id().unwrap().to_string();
+        app.library.playlists = Loadable::Loaded(vec![Playlist {
+            id: "drive".into(),
+            uri: "spotify:playlist:drive".into(),
+            name: "Night drive".into(),
+            owner: crate::api::models::Owner {
+                id: Some(owner),
+                ..Default::default()
+            },
+            ..Default::default()
+        }]);
+        let item = PlayableItem::Track(track(0));
+        let items = vec![item.clone()];
+        let mut checks = PlaylistChecks::new(&app, &item, None);
+        assert!(checks.liked, "the demo likes this song");
+        let mut query = String::new();
+        let mut draw = |app: &mut App, checks: &mut PlaylistChecks, focus: bool, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let field = crate::ui::widgets::playlist_picker(
+                        ui,
+                        app,
+                        &items,
+                        &mut query,
+                        Some(checks),
+                    );
+                    if focus {
+                        field.request_focus();
+                    }
+                },
+            );
+            output.textures_delta.clear();
+        };
+        let key = |key| vec![keyboard(key, egui::Modifiers::NONE)];
+
+        // #when Down chooses the first row and Enter is pressed
+        draw(&mut app, &mut checks, true, vec![]);
+        draw(&mut app, &mut checks, false, key(egui::Key::ArrowDown));
+        draw(&mut app, &mut checks, false, key(egui::Key::Enter));
+        // #then Liked Songs, which leads a liked song's list, is unchecked
+        assert!(!checks.liked);
+
+        // #when a filter finds it and Enter is pressed
+        draw(
+            &mut app,
+            &mut checks,
+            false,
+            vec![egui::Event::Text("liked".into())],
+        );
+        draw(&mut app, &mut checks, false, key(egui::Key::Enter));
+        // #then it is checked again, and nothing else changed
+        assert!(checks.liked);
+        assert_ne!(checks.mark("drive"), Mark::Checked);
+        assert!(app.actions.is_empty(), "nothing changes before Done");
+        app.backend.shutdown();
+    }
+
     /// In the heart's checklist a click checks a playlist instead of adding
     /// to it, a playlist holding the song starts checked, one not read in
     /// full is marked as unknown rather than lacking it, and Done adds to

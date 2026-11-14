@@ -1937,7 +1937,7 @@ impl App {
         }
     }
 
-    fn saved_toggle_targets(&self, uri: &str) -> Vec<String> {
+    pub(crate) fn saved_toggle_targets(&self, uri: &str) -> Vec<String> {
         let Some(key) = self.track_recordings.get(uri) else {
             return vec![uri.to_string()];
         };
@@ -8815,6 +8815,9 @@ impl App {
                     return;
                 }
                 if let Ok(playlist) = &mut result {
+                    // A page read at a snapshot the playlist index has not
+                    // seen means the playlist changed since its read.
+                    self.membership.seen(&id, playlist.snapshot_id.as_deref());
                     // A header read over the streaming session lacks what
                     // the Web API gave: the account's own name, and the
                     // library list's public flag, owner name, and cover.
@@ -30584,6 +30587,32 @@ mod tests {
 
         assert_eq!(app.is_saved(playing_uri), Some(true));
         assert_eq!(app.saved_toggle_targets(playing_uri), vec![saved_uri]);
+    }
+
+    #[test]
+    fn unliking_in_a_hearts_checklist_takes_out_every_saved_copy() {
+        let mut app = headless_app();
+        let recording = |uri: &str| Track {
+            uri: uri.into(),
+            external_ids: crate::api::models::ExternalIds {
+                isrc: Some("GBUM71029604".into()),
+            },
+            ..Default::default()
+        };
+        let saved_uri = "spotify:track:original";
+        let playing = recording("spotify:track:playable");
+        app.remember_track_recording(&recording(saved_uri));
+        app.set_saved_state(saved_uri.into(), true);
+        app.remember_track_recording(&playing);
+        let item = PlayableItem::Track(playing);
+
+        let mut checks = crate::ui::widgets::PlaylistChecks::new(&app, &item, None);
+        assert!(checks.liked, "liked through the other copy");
+        checks.liked = false;
+        assert!(matches!(
+            checks.done(&app, &item).as_slice(),
+            [Action::SetSavedMany { uris, saved: false }] if *uris == [saved_uri]
+        ));
     }
 
     #[test]

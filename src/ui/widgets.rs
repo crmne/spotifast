@@ -886,6 +886,26 @@ impl PlaylistChecks {
         }
     }
 
+    /// What Done asks: Liked Songs changed when its check did, then the
+    /// playlists. Unliking takes out every saved copy of the song, as the
+    /// heart does, since any of them shows it as liked.
+    pub(crate) fn done(&self, app: &App, item: &PlayableItem) -> Vec<Action> {
+        let mut actions = Vec::new();
+        if self.liked != self.liked_before {
+            let uris = if self.liked {
+                vec![self.uri.clone()]
+            } else {
+                app.saved_toggle_targets(&self.uri)
+            };
+            actions.push(Action::SetSavedMany {
+                uris,
+                saved: self.liked,
+            });
+        }
+        actions.extend(self.changes(app, item));
+        actions
+    }
+
     /// What Done asks of the playlists, as one action: `item` added to each
     /// newly checked one and taken out of each unchecked one that held it.
     /// None when no playlist changes.
@@ -987,14 +1007,8 @@ pub(crate) fn heart_menu(
                 .inner
                 .clicked();
             if done && changed {
-                if checks.liked != checks.liked_before {
-                    app.actions.push(Action::SetSavedMany {
-                        uris: vec![checks.uri.clone()],
-                        saved: checks.liked,
-                    });
-                }
-                let changes = checks.changes(app, item);
-                app.actions.extend(changes);
+                let actions = checks.done(app, item);
+                app.actions.extend(actions);
             }
             ui.data_mut(|data| {
                 data.insert_temp(query_id, query);
@@ -1035,12 +1049,18 @@ pub(crate) fn playlist_picker(
     let field_id = ui.make_persistent_id("playlist-filter");
     let highlight_id = ui.make_persistent_id("playlist-highlight");
     let playlists = app.editable_playlists();
+    // Liked Songs, pinned as in the library, joins the checklist's rows.
+    // The filter matches it like any playlist.
+    let liked_name = gettext(locale, "Liked Songs");
+    let with_liked = checks.is_some();
+    let liked_matches = |needle: &str| with_liked && liked_name.to_lowercase().contains(needle);
     let matching = |query: &str| {
         let needle = query.trim().to_lowercase();
-        playlists
+        let found = playlists
             .iter()
-            .filter(move |(_, name)| name.to_lowercase().contains(&needle))
-            .count()
+            .filter(|(_, name)| name.to_lowercase().contains(&needle))
+            .count();
+        found + usize::from(liked_matches(&needle))
     };
     // The keyboard's choice among the matches, for the filter it was made
     // under. Typing chooses the first match; Up and Down move the choice
@@ -1122,31 +1142,33 @@ pub(crate) fn playlist_picker(
     };
     matches.sort_by_key(|(id, _)| !held(id));
     let held_count = matches.iter().take_while(|(id, _)| held(id)).count();
-    highlighted = highlighted.filter(|index| *index < matches.len());
+    let found = matches.len();
+    // Every row in order, Liked Songs as `None`. It leads the other
+    // playlists, and the song's own too when the song is liked.
+    let mut rows: Vec<Option<&(String, String)>> = matches.into_iter().map(Some).collect();
+    let liked_shown = liked_matches(&needle);
+    if liked_shown {
+        let liked_before = checks.as_deref().is_some_and(|checks| checks.liked_before);
+        rows.insert(if liked_before { 0 } else { held_count }, None);
+    }
+    highlighted = highlighted.filter(|index| *index < rows.len());
     ui.data_mut(|data| data.insert_temp(highlight_id, (frame, highlighted, query.clone())));
-    if enter && let Some((id, name)) = highlighted.and_then(|index| matches.get(index)) {
-        if let Some(checks) = checks.as_deref_mut() {
-            checks.toggle(id);
-        } else {
-            app.actions.push(Action::AddToPlaylist {
-                playlist_id: id.clone(),
-                playlist_name: name.clone(),
-                items: items.to_vec(),
-            });
-            ui.close();
+    if enter && let Some(row) = highlighted.and_then(|index| rows.get(index).copied()) {
+        match (row, checks.as_deref_mut()) {
+            (None, Some(checks)) => checks.liked = !checks.liked,
+            (Some((id, _)), Some(checks)) => checks.toggle(id),
+            (Some((id, name)), None) => {
+                app.actions.push(Action::AddToPlaylist {
+                    playlist_id: id.clone(),
+                    playlist_name: name.clone(),
+                    items: items.to_vec(),
+                });
+                ui.close();
+            }
+            (None, None) => {}
         }
     }
-    // Liked Songs, pinned as in the library, leads the other playlists; it
-    // leads the song's own too when the song is liked. The filter matches
-    // it like any playlist.
-    let liked_name = gettext(locale, "Liked Songs");
-    let liked_shown = checks.is_some() && liked_name.to_lowercase().contains(&needle);
-    let liked_at = if checks.as_deref().is_some_and(|checks| checks.liked_before) {
-        0
-    } else {
-        held_count
-    };
-    if matches.is_empty() && (needle.is_empty() || !liked_shown) {
+    if found == 0 && (needle.is_empty() || !liked_shown) {
         theme::subtle(
             ui,
             &palette,
@@ -1182,16 +1204,18 @@ pub(crate) fn playlist_picker(
         list = list.vertical_scroll_offset(0.0);
     }
     crate::autoscroll::show(ui, list, egui::Vec2b::new(false, true), |ui| {
-        let count = matches.len();
-        for (index, (id, name)) in matches.into_iter().enumerate() {
-            if liked_shown
-                && index == liked_at
-                && let Some(checks) = checks.as_deref_mut()
-            {
-                liked_picker_row(ui, &palette, &liked_name, checks);
-            }
+        for (index, row) in rows.into_iter().enumerate() {
+            let chosen = highlighted == Some(index);
+            let Some((id, name)) = row else {
+                if let Some(checks) = checks.as_deref_mut() {
+                    let row = liked_picker_row(ui, &palette, &liked_name, chosen, checks);
+                    if chosen && moved {
+                        row.scroll_to_me(None);
+                    }
+                }
+                continue;
+            };
             ui.push_id(id, |ui| {
-                let chosen = highlighted == Some(index);
                 let image = covers.get(id).map(String::as_str);
                 let (row, clicked) = picker_row(
                     ui,
@@ -1218,26 +1242,26 @@ pub(crate) fn playlist_picker(
                 }
             });
         }
-        if liked_shown
-            && liked_at >= count
-            && let Some(checks) = checks
-        {
-            liked_picker_row(ui, &palette, &liked_name, checks);
-        }
     });
     field
 }
 
 /// Liked Songs in the picker's checklist, with the library's pin.
-fn liked_picker_row(ui: &mut Ui, palette: &Palette, name: &str, checks: &mut PlaylistChecks) {
+fn liked_picker_row(
+    ui: &mut Ui,
+    palette: &Palette,
+    name: &str,
+    highlighted: bool,
+    checks: &mut PlaylistChecks,
+) -> egui::Response {
     ui.push_id("liked-songs", |ui| {
-        let (_, clicked) = picker_row(
+        let (row, clicked) = picker_row(
             ui,
             palette,
             |ui, rect| super::sidebar::liked_cover(ui, rect, 4.0),
             name,
             true,
-            false,
+            highlighted,
             Some(if checks.liked {
                 Mark::Checked
             } else {
@@ -1247,7 +1271,9 @@ fn liked_picker_row(ui: &mut Ui, palette: &Palette, name: &str, checks: &mut Pla
         if clicked {
             checks.liked = !checks.liked;
         }
-    });
+        row
+    })
+    .inner
 }
 
 /// The check at the end of a checklist row, centred on `center`.

@@ -655,8 +655,10 @@ pub(crate) async fn playlist_uris(
             ),
         }
         let page = rows(&list, from, PAGE);
+        let total = total(&list);
+        complete(page.len(), from, PAGE, total).map_err(failed)?;
         uris.extend(page.iter().map(|row| row.id.to_uri()));
-        if page.is_empty() || uris.len() as u32 >= total(&list) {
+        if page.is_empty() || uris.len() as u32 >= total {
             break;
         }
     }
