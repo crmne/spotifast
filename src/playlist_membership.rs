@@ -54,6 +54,9 @@ struct Reading {
     snapshot: Option<String>,
     /// An edit since the read was asked makes its answer out of date.
     stale: bool,
+    /// A page saw the playlist at another snapshot while the read was on
+    /// its way, so the answer may be from before that change.
+    newer: bool,
 }
 
 impl Membership {
@@ -95,6 +98,7 @@ impl Membership {
                     Reading {
                         snapshot: snapshot.clone(),
                         stale: false,
+                        newer: false,
                     },
                 );
                 started.push(id.clone());
@@ -136,6 +140,7 @@ impl Membership {
                         snapshot: reading.snapshot,
                         counts,
                         complete: true,
+                        outdated: reading.newer,
                         ..List::default()
                     },
                 );
@@ -165,12 +170,15 @@ impl Membership {
     /// The playlist `id` was read at `snapshot` for its page. A snapshot
     /// other than the index's means the playlist changed since its read.
     pub(crate) fn seen(&mut self, id: &str, snapshot: Option<&str>) {
-        if self.writing.contains_key(id) || self.reading.contains_key(id) {
+        if self.writing.contains_key(id) || snapshot.is_none() {
+            return;
+        }
+        if let Some(reading) = self.reading.get_mut(id) {
+            reading.newer |= reading.snapshot.as_deref() != snapshot;
             return;
         }
         if let Some(list) = self.lists.get_mut(id)
             && list.complete
-            && snapshot.is_some()
             && list.snapshot.as_deref() != snapshot
         {
             list.outdated = true;
@@ -451,6 +459,30 @@ mod tests {
         index.receive("a", uris(&["song:1", "song:2"]));
         assert!(index.holds_anywhere("song:2"));
         assert!(index.start_reads(&all).is_empty());
+    }
+
+    #[test]
+    fn a_page_seen_during_a_read_at_another_snapshot_reads_it_again() {
+        let mut index = Membership::default();
+        let all = playlists(&[("a", "1")]);
+        assert_eq!(index.start_reads(&all), ["a"]);
+        // #when a page sees a newer snapshot before the read answers
+        index.seen("a", Some("2"));
+        index.receive("a", uris(&["song:1"]));
+        // #then the answer is kept and the playlist is read again
+        assert_eq!(index.holds("a", "song:1"), Some(true));
+        assert_eq!(index.start_reads(&all), ["a"]);
+        index.receive("a", uris(&["song:1", "song:2"]));
+        assert!(index.holds_anywhere("song:2"));
+        assert!(index.start_reads(&all).is_empty());
+
+        // #given a page that agrees with the read on its way
+        let now = playlists(&[("a", "3")]);
+        assert_eq!(index.start_reads(&now), ["a"]);
+        index.seen("a", Some("3"));
+        index.receive("a", uris(&["song:2"]));
+        // #then one read is enough
+        assert!(index.start_reads(&now).is_empty());
     }
 
     #[test]
