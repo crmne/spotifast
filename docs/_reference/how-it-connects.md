@@ -330,6 +330,12 @@ without another download. When only a small known thumbnail is available, a
 softened preview may appear while the larger image loads. If the completed
 response has no cover, the page shows its placeholder instead of an old image.
 
+Song lists with covers (playlists, Liked Songs and the queue) also download the
+covers of the songs within two screens above and below the visible rows, once
+the visible rows' own covers have arrived or failed, so a song scrolled into
+view shows its cover at once. These use the same artwork URLs and cache as the
+visible rows and add no Web API request.
+
 Since 0.8.0, album and playlist scrollbars can request a distant track
 page through the existing session or Web API read path, without fetching all
 preceding tracks. These reads run one at a time per list and retain the existing

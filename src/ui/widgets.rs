@@ -244,19 +244,34 @@ fn paint_cover_url(
     art: Option<&crate::images::ArtLoader>,
     shift_thumbnail: bool,
 ) -> bool {
-    let CoverAt { url, rect, corner } = cover;
+    let CoverAt { rect, corner, .. } = cover;
+    let Some(texture) = cover_copy(ui, cover.url, rect.size(), art) else {
+        return false;
+    };
+    paint_cover_texture(ui, texture, rect, corner, shift_thumbnail);
+    true
+}
+
+/// The copy of `url`'s artwork for a cover `size` points wide, asking for
+/// it to be fetched and made when egui has none yet.
+fn cover_copy(
+    ui: &Ui,
+    url: &str,
+    size: Vec2,
+    art: Option<&crate::images::ArtLoader>,
+) -> Option<egui::load::SizedTexture> {
     if let Some(art) = art {
         art.touch(url);
     }
+    let rect = Rect::from_min_size(pos2(0.0, 0.0), size);
     let scaled = (url.starts_with("https://") || url.starts_with("http://"))
         .then(|| crate::images::scaled_uri(url, cover_copy_pixels(ui, rect)));
     let uri = scaled.as_deref().unwrap_or(url);
     let image = egui::Image::new(uri)
         .texture_options(crate::images::COVER_TEXTURE)
         .show_loading_spinner(false);
-    let Ok(egui::load::TexturePoll::Ready { texture }) = image.load_for_size(ui.ctx(), rect.size())
-    else {
-        return false;
+    let Ok(egui::load::TexturePoll::Ready { texture }) = image.load_for_size(ui.ctx(), size) else {
+        return None;
     };
     match art {
         Some(art) => {
@@ -276,8 +291,7 @@ fn paint_cover_url(
         // as soon as egui holds the texture.
         None => crate::images::forget_decoded(ui.ctx(), uri),
     }
-    paint_cover_texture(ui, texture, rect, corner, shift_thumbnail);
-    true
+    Some(texture)
 }
 
 fn paint_cover_texture(
@@ -358,11 +372,7 @@ pub fn virtual_rows(
     let clip = ui.clip_rect();
     let start_y = ui.cursor().top();
     let width = ui.available_width();
-    // Retain a neighbour on either side so Tab can focus it and scroll it in.
-    let first = (((clip.top() - start_y) / row_height).floor().max(0.0) as usize)
-        .min(count)
-        .saturating_sub(1);
-    let last = (((clip.bottom() - start_y) / row_height).ceil().max(0.0) as usize + 1).min(count);
+    let (first, last) = laid_out_rows(clip, start_y, count, row_height);
     if first > 0 {
         ui.allocate_space(vec2(width, first as f32 * row_height));
     }
@@ -373,6 +383,102 @@ pub fn virtual_rows(
         ui.allocate_space(vec2(width, (count - last) as f32 * row_height));
     }
     ui.spacing_mut().item_spacing = previous_spacing;
+}
+
+/// The rows [`virtual_rows`] lays out, as a range's start and end: those
+/// that meet `clip`, with a neighbour on either side so Tab can focus it
+/// and scroll it in.
+fn laid_out_rows(clip: Rect, start_y: f32, count: usize, row_height: f32) -> (usize, usize) {
+    let first = (((clip.top() - start_y) / row_height).floor().max(0.0) as usize)
+        .min(count)
+        .saturating_sub(1);
+    let last = (((clip.bottom() - start_y) / row_height).ceil().max(0.0) as usize + 1).min(count);
+    (first, last)
+}
+
+/// The rows wholly inside `clip`, as a range's start and end. A row's
+/// cover lies within the row, so the list paints, and so asks for, the
+/// cover of every one of them. A row only partly on screen, or one
+/// [`laid_out_rows`] adds for Tab, may have its cover outside the clip,
+/// where nothing asks for it.
+fn whole_rows(clip: Rect, start_y: f32, count: usize, row_height: f32) -> (usize, usize) {
+    let row = |y: f32| ((y - start_y) / row_height).max(0.0);
+    let first = (row(clip.top()).ceil() as usize).min(count);
+    let last = (row(clip.bottom()).floor() as usize).clamp(first, count);
+    (first, last)
+}
+
+/// How far past the rows on screen song covers are fetched and made, in
+/// heights of the visible list each way.
+const COVERS_AHEAD: f32 = 2.0;
+
+/// Fetches and makes the covers of the songs within two screens above and
+/// below those [`virtual_rows`] lays out, so a song scrolled into view
+/// shows its cover at once instead of a placeholder. Call it just before
+/// `virtual_rows`, with the same row count and height; `item` gives the
+/// song in a row, if it is loaded.
+///
+/// The rows wholly on screen come first: nothing further is asked for until
+/// their own covers have arrived, and each of them is asked for again after
+/// these in the frame, so the cover scaler, which makes the copies asked
+/// for last first, keeps them ahead. The nearest rows ahead are asked for
+/// last for the same reason. Rows only partly on screen are among the
+/// nearest, so their covers are asked for whether or not they show.
+pub fn warm_row_covers<'a>(
+    ui: &Ui,
+    app: &App,
+    count: usize,
+    row_height: f32,
+    compact: bool,
+    item: impl Fn(usize) -> Option<&'a PlayableItem>,
+) {
+    if count == 0 || row_height <= 0.0 {
+        return;
+    }
+    let clip = ui.clip_rect();
+    let start_y = ui.cursor().top();
+    let size = row_cover_size(compact);
+    let pixels = app.art_px(size);
+    let art = app.backend.art();
+    let url = |row: usize| item(row).and_then(|item| app.item_image(item, pixels));
+    let (first, last) = whole_rows(clip, start_y, count, row_height);
+    let settled = |url: String| art.is_settled(&url);
+    if !(first..last).filter_map(&url).all(settled) {
+        return;
+    }
+    let reach = clip.height() * COVERS_AHEAD;
+    let rows_at = |shift: f32| {
+        let clip = clip.translate(vec2(0.0, shift));
+        laid_out_rows(clip, start_y, count, row_height)
+    };
+    let (above, below) = (rows_at(-reach).0, rows_at(reach).1);
+    for row in rows_ahead(first, last, above, below) {
+        if let Some(url) = url(row) {
+            cover_copy(ui, &url, Vec2::splat(size), Some(art));
+        }
+    }
+}
+
+/// The rows within `above..below` but outside `first..last` whose covers
+/// are fetched ahead, the farthest first, so the nearest are asked for last
+/// and made first.
+fn rows_ahead(
+    first: usize,
+    last: usize,
+    above: usize,
+    below: usize,
+) -> impl Iterator<Item = usize> {
+    let farthest = first.saturating_sub(above).max(below.saturating_sub(last));
+    (1..=farthest).rev().flat_map(move |distance| {
+        let up = first.checked_sub(distance).filter(|row| *row >= above);
+        let down = Some(last + distance - 1).filter(|row| *row < below);
+        up.into_iter().chain(down)
+    })
+}
+
+/// The side of a song row's cover.
+fn row_cover_size(compact: bool) -> f32 {
+    if compact { 36.0 } else { 40.0 }
 }
 
 /// A wrapping grid of cards, laid out row by row so only visible cards are
@@ -1899,7 +2005,7 @@ fn track_row_contents(
     }
     // Cover.
     if cols.cover > 0.0 {
-        let size = if row.compact { 36.0 } else { 40.0 };
+        let size = row_cover_size(row.compact);
         let cover_rect = Rect::from_center_size(
             pos2(x + size / 2.0 + 2.0, rect.center().y),
             Vec2::splat(size),
@@ -3983,6 +4089,71 @@ mod tests {
     use crate::model::{Action, Page};
     use crate::paths::AppDirs;
     use crate::settings::Settings;
+
+    /// Covers are fetched two screens past the rows on screen each way,
+    /// nearest last, and never for a row wholly on screen or past the list.
+    #[test]
+    fn covers_ahead_reach_two_screens_each_way_nearest_last() {
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 100.0));
+        // Scrolled 50 rows of 10 points down a list of 100.
+        let rows_at = |shift: f32| {
+            let clip = clip.translate(vec2(0.0, shift));
+            laid_out_rows(clip, -500.0, 100, 10.0)
+        };
+        assert_eq!(rows_at(0.0), (49, 61));
+        let (first, last) = whole_rows(clip, -500.0, 100, 10.0);
+        assert_eq!((first, last), (50, 60));
+        let reach = clip.height() * COVERS_AHEAD;
+        let (above, below) = (rows_at(-reach).0, rows_at(reach).1);
+        assert_eq!((above, below), (29, 81));
+        let ahead: Vec<usize> = rows_ahead(first, last, above, below).collect();
+        assert_eq!(ahead.len(), 42);
+        assert_eq!(&ahead[..2], &[29, 80], "the farthest first");
+        assert_eq!(&ahead[40..], &[49, 60], "the nearest last");
+        assert!(ahead.iter().all(|row| !(first..last).contains(row)));
+        // At the top of the list only the rows below are fetched.
+        let ahead: Vec<usize> = rows_ahead(0, 10, 0, 31).collect();
+        assert_eq!(ahead, (10..31).rev().collect::<Vec<_>>());
+        // A list shorter than the screen fetches nothing more.
+        assert_eq!(rows_ahead(0, 5, 0, 5).count(), 0);
+    }
+
+    /// Covers are fetched ahead once those of the rows wholly on screen
+    /// have arrived. The list paints, and so asks for, the cover of each of
+    /// those rows, but not of a row whose cover is off screen: the one
+    /// `virtual_rows` lays out on either side for Tab, or one only partly
+    /// on screen. Waiting on those would wait forever.
+    #[test]
+    fn covers_ahead_wait_only_for_covers_the_list_asks_for() {
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 100.0));
+        // Scrolled 50.5 rows of 10 points down a list of 100, so rows 50
+        // and 60 are half on screen and 49 and 61 wholly off it.
+        let start_y = -505.0;
+        assert_eq!(laid_out_rows(clip, start_y, 100, 10.0), (49, 62));
+        let (first, last) = whole_rows(clip, start_y, 100, 10.0);
+        assert_eq!((first, last), (51, 60));
+        for row in first..last {
+            let top = start_y + row as f32 * 10.0;
+            assert!(
+                clip.top() <= top && top + 10.0 <= clip.bottom(),
+                "row {row}"
+            );
+        }
+        let ahead: Vec<usize> = rows_ahead(first, last, 29, 82).collect();
+        assert_eq!(
+            &ahead[ahead.len() - 4..],
+            &[49, 61, 50, 60],
+            "the nearest last"
+        );
+        // A list shorter than a row waits for nothing, and fetches every
+        // row within reach.
+        let sliver = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 5.0));
+        let (first, last) = whole_rows(sliver, -502.0, 100, 10.0);
+        assert_eq!(first, last);
+        let mut ahead: Vec<usize> = rows_ahead(first, last, 48, 53).collect();
+        ahead.sort_unstable();
+        assert_eq!(ahead, (48..53).collect::<Vec<_>>());
+    }
 
     #[test]
     fn editing_a_proxy_endpoint_clears_its_password_but_password_entry_is_preserved() {
