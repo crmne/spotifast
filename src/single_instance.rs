@@ -165,7 +165,7 @@ pub enum Reply {
     Ok,
     /// The `nowplaying` snapshot: [`NOTHING_PLAYING`], or tab-separated
     /// `state, title, artists, album, position_ms, duration_ms, volume,
-    /// shuffle, repeat, art_url, saved, device`.
+    /// shuffle, repeat, art_url, saved, device, track_uri, context_uri`.
     NowPlaying(String),
     /// The `devices` snapshot: a JSON array of objects with `id`, `name`,
     /// `kind`, and `active`, or [`NO_DEVICES`]. JSON safely carries free-text

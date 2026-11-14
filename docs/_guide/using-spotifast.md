@@ -368,7 +368,8 @@ spotifast seek 15             spotifast repeat [off|context|track]
 spotifast seek -- -15         spotifast like
 spotifast seek-to 90          spotifast play-uri spotify:playlist:37i9…
 spotifast show                spotifast transfer <device-id>
-spotifast now-playing [--raw] spotifast devices [--raw]
+spotifast now-playing [--raw|--json|--track-uri|--context-uri]
+spotifast devices [--raw]
 spotifast play-search <words> spotifast play-search --kind artist <name>
 ```
 
@@ -381,8 +382,16 @@ a message instead when nothing matches.
 
 `now-playing` prints one readable line. `--raw` prints tab-separated fields:
 state, title, artists, album, position_ms, duration_ms, volume, shuffle,
-repeat, art_url, saved, and device. `saved` is `yes`, `no`, or `unknown` while
-loading. New fields are appended to keep older scripts working.
+repeat, art_url, saved, device, track_uri, and context_uri. `saved` is `yes`,
+`no`, or `unknown` while loading. New fields are appended to keep older
+scripts working. `--json` prints the same fields as one JSON object, with
+`shuffle` and `saved` as booleans and anything unknown as `null`; nothing
+playing is `{"state":"stopped"}`.
+
+`--track-uri` prints the playing song's `spotify:` URI, and `--context-uri`
+the URI of the playlist, album, artist, Liked Songs, or radio it plays from.
+Given both, the song's comes first, each on its own line. A URI that is not
+known prints an empty line.
 
 `devices` lists Spotify Connect devices with the ID first and the active one
 marked with `*`. `--raw` prints JSON. The command refreshes the device list,
